@@ -140,7 +140,6 @@ const PRODUCT_SEARCH_QUERY = `
         brand
         salesUnitSize
         priceV2 { now }
-        images { url }
       }
       totalFound
     }
@@ -181,7 +180,7 @@ export async function searchProduct(query: string): Promise<AhProduct | null> {
     webshopId: String(first.id),
     title: first.title ?? query,
     price: { now: first.priceV2?.now ?? 0, unitSize: first.salesUnitSize ?? undefined },
-    images: first.images ?? [],
+    images: [],
     brand: first.brand ?? null,
     unitSize: first.salesUnitSize ?? null,
   };
