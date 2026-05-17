@@ -15,10 +15,10 @@ export async function importFromUrl(url: string): Promise<string> {
     );
   }
 
-  const res = await fetch(`${MEALIE_URL}/api/recipes/create-url`, {
+  const res = await fetch(`${MEALIE_URL}/api/recipes/create/url`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ url, includeTags: true }),
+    body: JSON.stringify({ url, include_tags: true, include_categories: true }),
   });
 
   if (!res.ok) {
