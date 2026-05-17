@@ -4,6 +4,7 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { ChefHat } from 'lucide-react';
 import { RecipeSearch } from '@/components/recipe-search';
 import { UrlImport } from '@/components/url-import';
+import { WeekPlanner } from '@/components/week-planner';
 import { cn } from '@/lib/utils';
 
 export default function HomePage() {
@@ -22,29 +23,26 @@ export default function HomePage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-8">
-        <Tabs.Root defaultValue="search">
+        <Tabs.Root defaultValue="planner">
           <Tabs.List className="mb-6 flex w-fit gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-            <Tabs.Trigger
-              value="search"
-              className={cn(
-                'rounded-md px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors',
-                'hover:text-gray-900',
-                'data-[state=active]:bg-blue-600 data-[state=active]:text-white'
-              )}
-            >
-              Recepten zoeken
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="url"
-              className={cn(
-                'rounded-md px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors',
-                'hover:text-gray-900',
-                'data-[state=active]:bg-blue-600 data-[state=active]:text-white'
-              )}
-            >
-              URL importeren
-            </Tabs.Trigger>
+            {(['planner', 'search', 'url'] as const).map((value) => (
+              <Tabs.Trigger
+                key={value}
+                value={value}
+                className={cn(
+                  'rounded-md px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors',
+                  'hover:text-gray-900',
+                  'data-[state=active]:bg-blue-600 data-[state=active]:text-white'
+                )}
+              >
+                {value === 'planner' ? 'Weekmenu → AH' : value === 'search' ? 'Recepten zoeken' : 'URL importeren'}
+              </Tabs.Trigger>
+            ))}
           </Tabs.List>
+
+          <Tabs.Content value="planner">
+            <WeekPlanner />
+          </Tabs.Content>
 
           <Tabs.Content value="search">
             <RecipeSearch />

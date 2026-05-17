@@ -55,11 +55,64 @@ export async function importFromUrl(url: string): Promise<string> {
   try {
     return await importViaUrl(url);
   } catch {
-    // Fallback: fetch the page ourselves and send the HTML to Mealie
     return await importViaHtml(url);
   }
 }
 
 export function recipePageUrl(slug: string): string {
   return `${MEALIE_URL}/recipe/${slug}`;
+}
+
+// ── Meal plan ──────────────────────────────────────────────────────────────
+
+export interface MealPlanEntry {
+  id: number;
+  date: string;
+  entryType: 'breakfast' | 'lunch' | 'dinner' | 'side';
+  title: string | null;
+  recipeId: string | null;
+  recipe: { id: string; slug: string; name: string } | null;
+}
+
+export interface RecipeIngredient {
+  quantity: number | null;
+  unit: { name: string; abbreviation: string } | null;
+  food: { name: string } | null;
+  note: string | null;
+  display: string;
+  title: string | null;
+}
+
+export interface RecipeDetail {
+  id: string;
+  slug: string;
+  name: string;
+  recipeYield: string | null;
+  recipeIngredient: RecipeIngredient[];
+}
+
+export async function getMealPlan(startDate: string, endDate: string): Promise<MealPlanEntry[]> {
+  if (!MEALIE_URL || !MEALIE_TOKEN) {
+    throw new Error('Mealie is niet geconfigureerd.');
+  }
+  const params = new URLSearchParams({ start_date: startDate, end_date: endDate, perPage: '50' });
+  const res = await fetch(`${MEALIE_URL}/api/households/mealplans?${params}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Weekmenu ophalen mislukt (${res.status}): ${body}`);
+  }
+  const data = await res.json() as { items?: MealPlanEntry[] };
+  return data.items ?? [];
+}
+
+export async function getRecipe(slug: string): Promise<RecipeDetail> {
+  const res = await fetch(`${MEALIE_URL}/api/recipes/${slug}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Recept ophalen mislukt (${res.status})`);
+  }
+  return res.json() as Promise<RecipeDetail>;
 }
