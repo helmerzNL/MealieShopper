@@ -155,7 +155,7 @@ export async function searchProduct(query: string): Promise<AhProduct | null> {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ query: PRODUCT_SEARCH_QUERY, variables: { input: { query, size: 3 } } }),
+    body: JSON.stringify({ query: PRODUCT_SEARCH_QUERY, variables: { input: { query } } }),
   });
 
   if (!res.ok) {

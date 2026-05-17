@@ -20,13 +20,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Geen ingrediënten opgegeven' }, { status: 400 });
   }
 
-  // Search for each ingredient in the AH product catalogue
-  const searchResults = await Promise.allSettled(
-    items.map(async (item) => {
+  // Search sequentially to avoid rate limiting
+  const searchResults: PromiseSettledResult<{ query: string; product: AhProduct | null; quantity: number }>[] = [];
+  for (const item of items) {
+    try {
       const product = await searchProduct(item.query);
-      return { query: item.query, product, quantity: item.quantity };
-    })
-  );
+      searchResults.push({ status: 'fulfilled', value: { query: item.query, product, quantity: item.quantity } });
+    } catch (err) {
+      searchResults.push({ status: 'rejected', reason: err });
+    }
+  }
 
   const matched: MatchedItem[] = [];
   const diagnostics: Array<{ query: string; status: string; error?: string }> = [];
