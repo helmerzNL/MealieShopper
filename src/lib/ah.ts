@@ -129,21 +129,34 @@ export interface AhProduct {
 
 export async function searchProduct(query: string): Promise<AhProduct | null> {
   const token = await getToken();
-  const params = new URLSearchParams({ query, sortOn: 'RELEVANCE', size: '3' });
 
-  const res = await fetch(`${AH_API_BASE}/mobile-services/product/search/v2?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  for (const endpoint of [
+    `${AH_API_BASE}/mobile-services/product/search/v2`,
+    `${AH_API_BASE}/mobile-services/product/search/v3`,
+  ]) {
+    const params = new URLSearchParams({ query, size: '3' });
+    const res = await fetch(`${endpoint}?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!res.ok) {
-    console.error(`AH product search mislukt voor "${query}": ${res.status}`);
-    throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
+    if (res.status === 500) {
+      const body = await res.text().catch(() => '');
+      console.error(`AH product search 500 op ${endpoint} voor "${query}": ${body.slice(0, 300)}`);
+      continue;
+    }
+
+    if (!res.ok) {
+      console.error(`AH product search mislukt (${res.status}) op ${endpoint} voor "${query}"`);
+      throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
+    }
+
+    const data = await res.json();
+    const products: AhProduct[] = data.products ?? data.result ?? [];
+    console.log(`AH product search "${query}" via ${endpoint}: ${products.length} resultaten`);
+    return products[0] ?? null;
   }
 
-  const data = await res.json();
-  const products: AhProduct[] = data.products ?? data.result ?? [];
-  console.log(`AH product search "${query}": ${products.length} resultaten`);
-  return products[0] ?? null;
+  throw new Error(`AH productzoekopdracht mislukt (500) voor "${query}"`);
 }
 
 // ── Shopping list ──────────────────────────────────────────────────────────
