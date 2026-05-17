@@ -1,9 +1,7 @@
 const AH_API_BASE = 'https://api.ah.nl';
-const AH_CLIENT_ID = process.env.AH_CLIENT_ID ?? 'appie-android';
+const AH_CLIENT_ID = 'appie';
 
-const AH_APP_HEADERS = {
-  'X-Application': 'AHWEBSHOP',
-};
+const AH_AUTH_HEADERS = { 'Content-Type': 'application/json' };
 
 interface TokenCache {
   token: string;
@@ -22,8 +20,8 @@ async function getToken(): Promise<string> {
 
   const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token/anonymous`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...AH_APP_HEADERS },
-    body: JSON.stringify({ clientId: 'appie' }),
+    headers: AH_AUTH_HEADERS,
+    body: JSON.stringify({ clientId: AH_CLIENT_ID }),
   });
 
   if (!res.ok) {
@@ -38,28 +36,27 @@ async function getToken(): Promise<string> {
   return anonTokenCache.token;
 }
 
-// ── User token (for shopping list) ────────────────────────────────────────
+// ── User token via refresh token (for shopping list) ──────────────────────
 
 export async function getUserToken(): Promise<string> {
   if (userTokenCache && Date.now() < userTokenCache.expiresAt) {
     return userTokenCache.token;
   }
 
-  const username = process.env.AH_USERNAME;
-  const password = process.env.AH_PASSWORD;
-  if (!username || !password) {
-    throw new Error('AH_USERNAME en AH_PASSWORD zijn niet ingevuld in .env.local.');
+  const refreshToken = process.env.AH_REFRESH_TOKEN;
+  if (!refreshToken) {
+    throw new Error('AH account niet gekoppeld. Voeg AH_REFRESH_TOKEN toe aan .env.local via de koppelpagina.');
   }
 
-  const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token`, {
+  const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...AH_APP_HEADERS },
-    body: JSON.stringify({ clientId: AH_CLIENT_ID, username, password }),
+    headers: AH_AUTH_HEADERS,
+    body: JSON.stringify({ clientId: AH_CLIENT_ID, refreshToken }),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`AH inloggen mislukt (${res.status}): ${body}`);
+    throw new Error(`AH token vernieuwen mislukt (${res.status}): ${body}`);
   }
 
   const data = await res.json() as { access_token: string; expires_in: number };
@@ -68,6 +65,31 @@ export async function getUserToken(): Promise<string> {
     expiresAt: Date.now() + (data.expires_in - 60) * 1000,
   };
   return userTokenCache.token;
+}
+
+// ── OAuth: exchange authorization code for tokens ─────────────────────────
+
+export const AH_OAUTH_URL =
+  'https://login.ah.nl/secure/oauth/authorize?client_id=appie&redirect_uri=appie://login-exit&response_type=code';
+
+export async function exchangeOAuthCode(code: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token`, {
+    method: 'POST',
+    headers: AH_AUTH_HEADERS,
+    body: JSON.stringify({ clientId: AH_CLIENT_ID, code }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`AH code inwisselen mislukt (${res.status}): ${body}`);
+  }
+
+  const data = await res.json() as { access_token: string; refresh_token: string; expires_in: number };
+  userTokenCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+  };
+  return { accessToken: data.access_token, refreshToken: data.refresh_token };
 }
 
 // ── Recipe search ──────────────────────────────────────────────────────────

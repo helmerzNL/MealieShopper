@@ -5,6 +5,7 @@ import { ChefHat } from 'lucide-react';
 import { RecipeSearch } from '@/components/recipe-search';
 import { UrlImport } from '@/components/url-import';
 import { WeekPlanner } from '@/components/week-planner';
+import { AhLink } from '@/components/ah-link';
 import { cn } from '@/lib/utils';
 
 export default function HomePage() {
@@ -25,7 +26,7 @@ export default function HomePage() {
       <main className="mx-auto max-w-6xl px-4 py-8">
         <Tabs.Root defaultValue="planner">
           <Tabs.List className="mb-6 flex w-fit gap-1 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-            {(['planner', 'search', 'url'] as const).map((value) => (
+            {(['planner', 'search', 'url', 'koppelen'] as const).map((value) => (
               <Tabs.Trigger
                 key={value}
                 value={value}
@@ -35,7 +36,7 @@ export default function HomePage() {
                   'data-[state=active]:bg-blue-600 data-[state=active]:text-white'
                 )}
               >
-                {value === 'planner' ? 'Weekmenu → AH' : value === 'search' ? 'Recepten zoeken' : 'URL importeren'}
+                {value === 'planner' ? 'Weekmenu → AH' : value === 'search' ? 'Recepten zoeken' : value === 'url' ? 'URL importeren' : 'AH koppelen'}
               </Tabs.Trigger>
             ))}
           </Tabs.List>
@@ -50,6 +51,10 @@ export default function HomePage() {
 
           <Tabs.Content value="url">
             <UrlImport />
+          </Tabs.Content>
+
+          <Tabs.Content value="koppelen">
+            <AhLink />
           </Tabs.Content>
         </Tabs.Root>
       </main>
