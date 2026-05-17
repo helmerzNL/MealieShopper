@@ -2,8 +2,7 @@ const AH_API_BASE = 'https://api.ah.nl';
 const AH_CLIENT_ID = process.env.AH_CLIENT_ID ?? 'appie-android';
 
 const AH_APP_HEADERS = {
-  'X-Application': 'APPIE-ANDROID',
-  'X-ClientName': 'appie-android',
+  'X-Application': 'AHWEBSHOP',
 };
 
 interface TokenCache {
@@ -121,7 +120,7 @@ export async function searchRecipes(query: string, page = 0, size = 12): Promise
   };
 }
 
-// ── Product search ─────────────────────────────────────────────────────────
+// ── Product search (via AH webshop API — no application context required) ──
 
 export interface AhProduct {
   webshopId: string;
@@ -132,36 +131,46 @@ export interface AhProduct {
   unitSize: string | null;
 }
 
+interface WebshopProduct {
+  webshopId: number | string;
+  title?: string;
+  brand?: string | null;
+  unitSize?: string | null;
+  price?: { now?: number; unitSize?: string };
+  images?: Array<{ url: string }>;
+  imageSrc?: string;
+}
+
 export async function searchProduct(query: string): Promise<AhProduct | null> {
-  const token = await getToken();
+  console.log('[ah.ts v2] searchProduct via webshop API voor:', query);
+  const params = new URLSearchParams({ query, page: '0', pageSize: '3', sortBy: 'RELEVANCE' });
+  const res = await fetch(`https://www.ah.nl/zoeken/api/products/search?${params}`, {
+    headers: {
+      Accept: 'application/json, text/plain, */*',
+      'User-Agent': 'Mozilla/5.0 (compatible)',
+    },
+  });
 
-  for (const endpoint of [
-    `${AH_API_BASE}/mobile-services/product/search/v2`,
-    `${AH_API_BASE}/mobile-services/product/search/v3`,
-  ]) {
-    const params = new URLSearchParams({ query, size: '3' });
-    const res = await fetch(`${endpoint}?${params}`, {
-      headers: { Authorization: `Bearer ${token}`, ...AH_APP_HEADERS },
-    });
-
-    if (res.status === 500) {
-      const body = await res.text().catch(() => '');
-      console.error(`AH product search 500 op ${endpoint} voor "${query}": ${body.slice(0, 300)}`);
-      continue;
-    }
-
-    if (!res.ok) {
-      console.error(`AH product search mislukt (${res.status}) op ${endpoint} voor "${query}"`);
-      throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
-    }
-
-    const data = await res.json();
-    const products: AhProduct[] = data.products ?? data.result ?? [];
-    console.log(`AH product search "${query}" via ${endpoint}: ${products.length} resultaten`);
-    return products[0] ?? null;
+  if (!res.ok) {
+    console.error(`AH webshop product search mislukt (${res.status}) voor "${query}"`);
+    throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
   }
 
-  throw new Error(`AH productzoekopdracht mislukt (500) voor "${query}"`);
+  const data = await res.json();
+  const raw: WebshopProduct[] = data.products ?? data.cards?.flatMap((c: { products?: WebshopProduct[] }) => c.products ?? []) ?? [];
+  console.log(`AH webshop product search "${query}": ${raw.length} resultaten`);
+
+  const first = raw[0];
+  if (!first) return null;
+
+  return {
+    webshopId: String(first.webshopId),
+    title: first.title ?? query,
+    price: { now: first.price?.now ?? 0, unitSize: first.price?.unitSize ?? first.unitSize ?? undefined },
+    images: first.images ?? (first.imageSrc ? [{ url: first.imageSrc }] : []),
+    brand: first.brand ?? null,
+    unitSize: first.unitSize ?? first.price?.unitSize ?? null,
+  };
 }
 
 // ── Shopping list ──────────────────────────────────────────────────────────
