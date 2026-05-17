@@ -1,6 +1,11 @@
 const AH_API_BASE = 'https://api.ah.nl';
 const AH_CLIENT_ID = process.env.AH_CLIENT_ID ?? 'appie-android';
 
+const AH_APP_HEADERS = {
+  'X-Application': 'APPIE-ANDROID',
+  'X-ClientName': 'appie-android',
+};
+
 interface TokenCache {
   token: string;
   expiresAt: number;
@@ -18,8 +23,8 @@ async function getToken(): Promise<string> {
 
   const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token/anonymous`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId: AH_CLIENT_ID }),
+    headers: { 'Content-Type': 'application/json', ...AH_APP_HEADERS },
+    body: JSON.stringify({ clientId: 'appie' }),
   });
 
   if (!res.ok) {
@@ -49,7 +54,7 @@ export async function getUserToken(): Promise<string> {
 
   const res = await fetch(`${AH_API_BASE}/mobile-auth/v1/auth/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...AH_APP_HEADERS },
     body: JSON.stringify({ clientId: AH_CLIENT_ID, username, password }),
   });
 
@@ -102,7 +107,7 @@ export async function searchRecipes(query: string, page = 0, size = 12): Promise
   });
 
   const res = await fetch(`${AH_API_BASE}/mobile-services/recipe/search/v2?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, ...AH_APP_HEADERS },
   });
 
   if (!res.ok) {
@@ -136,7 +141,7 @@ export async function searchProduct(query: string): Promise<AhProduct | null> {
   ]) {
     const params = new URLSearchParams({ query, size: '3' });
     const res = await fetch(`${endpoint}?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...AH_APP_HEADERS },
     });
 
     if (res.status === 500) {
