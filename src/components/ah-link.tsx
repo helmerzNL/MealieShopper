@@ -4,20 +4,35 @@ import { useState } from 'react';
 import { Copy, Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const DEVTOOLS_SCRIPT = `(function() {
-  const keys = Object.keys(localStorage);
-  for (const k of keys) {
-    const v = localStorage.getItem(k) ?? '';
-    try {
-      const obj = JSON.parse(v);
-      if (obj?.refreshToken) { console.log('refreshToken:', obj.refreshToken); return obj.refreshToken; }
-      if (obj?.refresh_token) { console.log('refresh_token:', obj.refresh_token); return obj.refresh_token; }
-    } catch {}
-    if (k.toLowerCase().includes('refresh') && v.length > 20) {
-      console.log(k + ':', v); return v;
-    }
+const DEVTOOLS_SCRIPT = `(async function() {
+  const check = (label, obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    const rt = obj.refreshToken || obj.refresh_token || obj.RefreshToken;
+    if (rt) { console.log('✅ refreshToken gevonden:', rt); return true; }
+    const at = obj.accessToken || obj.access_token;
+    if (at) console.log('⚠️ access_token (kort geldig):', at);
+    return false;
+  };
+  // localStorage
+  for (const k of Object.keys(localStorage)) {
+    try { if (check('ls:'+k, JSON.parse(localStorage.getItem(k)))) return; } catch {}
   }
-  console.log('Niet gevonden in localStorage. Probeer de Network methode.');
+  // sessionStorage
+  for (const k of Object.keys(sessionStorage)) {
+    try { if (check('ss:'+k, JSON.parse(sessionStorage.getItem(k)))) return; } catch {}
+  }
+  // IndexedDB
+  try {
+    const dbs = await indexedDB.databases();
+    for (const {name} of dbs) {
+      const db = await new Promise((res,rej) => { const r=indexedDB.open(name); r.onsuccess=()=>res(r.result); r.onerror=rej; });
+      for (const store of db.objectStoreNames) {
+        const all = await new Promise(res => { const tx=db.transaction(store,'readonly'); const r=tx.objectStore(store).getAll(); r.onsuccess=()=>res(r.result); });
+        for (const item of all) { if (check('idb:'+name+'/'+store, item)) return; }
+      }
+    }
+  } catch(e) {}
+  console.log('❌ Niet gevonden in storage. Gebruik de Network methode hieronder.');
 })()`;
 
 export function AhLink() {
@@ -106,7 +121,21 @@ export function AhLink() {
                 <Copy className="h-3.5 w-3.5" />
               </button>
             </div>
-            <p className="mt-1 text-xs text-gray-500">Druk op Enter. Het refresh token verschijnt in de console output.</p>
+            <p className="mt-1 text-xs text-gray-500">Druk op Enter. Als het script niets vindt, gebruik dan de Network-methode hieronder.</p>
+          </div>
+        </li>
+
+        <li className="flex gap-3">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-orange-500 text-xs font-bold text-white">↓</span>
+          <div className="flex-1">
+            <p className="font-medium">Network-methode (als het script niets vindt)</p>
+            <ol className="mt-1 list-decimal list-inside space-y-1 text-xs text-gray-500">
+              <li>Open DevTools → tabblad <strong>Network</strong></li>
+              <li>Herlaad de pagina of klik ergens op ah.nl</li>
+              <li>Filter op <code className="bg-gray-100 px-0.5 rounded">api.ah.nl</code> in de zoekbalk</li>
+              <li>Klik een verzoek aan → <strong>Headers</strong> → kopieer de waarde na <code className="bg-gray-100 px-0.5 rounded">Authorization: Bearer </code></li>
+            </ol>
+            <p className="mt-1 text-xs text-orange-600">Let op: een access token uit Network is maar ~2 uur geldig. Plak hem gewoon hieronder — de app vraagt dan automatisch om vernieuwing.</p>
           </div>
         </li>
 
