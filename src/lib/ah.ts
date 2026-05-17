@@ -120,7 +120,7 @@ export async function searchRecipes(query: string, page = 0, size = 12): Promise
   };
 }
 
-// ── Product search (via AH webshop API — no application context required) ──
+// ── Product search (via AH GraphQL — no X-Application header required) ──────
 
 export interface AhProduct {
   webshopId: string;
@@ -131,45 +131,59 @@ export interface AhProduct {
   unitSize: string | null;
 }
 
-interface WebshopProduct {
-  webshopId: number | string;
-  title?: string;
-  brand?: string | null;
-  unitSize?: string | null;
-  price?: { now?: number; unitSize?: string };
-  images?: Array<{ url: string }>;
-  imageSrc?: string;
-}
+const PRODUCT_SEARCH_QUERY = `
+  query Search($input: SearchProductsInput!) {
+    searchProductsExperimental(input: $input) {
+      products {
+        id
+        title
+        brand
+        salesUnitSize
+        priceV2 { now }
+        images { url }
+      }
+      totalFound
+    }
+  }
+`;
 
 export async function searchProduct(query: string): Promise<AhProduct | null> {
-  console.log('[ah.ts v2] searchProduct via webshop API voor:', query);
-  const params = new URLSearchParams({ query, page: '0', pageSize: '3', sortBy: 'RELEVANCE' });
-  const res = await fetch(`https://www.ah.nl/zoeken/api/products/search?${params}`, {
+  const token = await getToken();
+
+  const res = await fetch(`${AH_API_BASE}/graphql`, {
+    method: 'POST',
     headers: {
-      Accept: 'application/json, text/plain, */*',
-      'User-Agent': 'Mozilla/5.0 (compatible)',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
     },
+    body: JSON.stringify({ query: PRODUCT_SEARCH_QUERY, variables: { input: { query, size: 3 } } }),
   });
 
   if (!res.ok) {
-    console.error(`AH webshop product search mislukt (${res.status}) voor "${query}"`);
+    const body = await res.text().catch(() => '');
+    console.error(`AH GraphQL product search mislukt (${res.status}) voor "${query}": ${body.slice(0, 200)}`);
     throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
   }
 
   const data = await res.json();
-  const raw: WebshopProduct[] = data.products ?? data.cards?.flatMap((c: { products?: WebshopProduct[] }) => c.products ?? []) ?? [];
-  console.log(`AH webshop product search "${query}": ${raw.length} resultaten`);
+  if (data.errors?.length) {
+    console.error(`AH GraphQL errors voor "${query}":`, JSON.stringify(data.errors).slice(0, 200));
+    return null;
+  }
 
-  const first = raw[0];
+  const products = data.data?.searchProductsExperimental?.products ?? [];
+  console.log(`AH GraphQL product search "${query}": ${products.length} resultaten`);
+
+  const first = products[0];
   if (!first) return null;
 
   return {
-    webshopId: String(first.webshopId),
+    webshopId: String(first.id),
     title: first.title ?? query,
-    price: { now: first.price?.now ?? 0, unitSize: first.price?.unitSize ?? first.unitSize ?? undefined },
-    images: first.images ?? (first.imageSrc ? [{ url: first.imageSrc }] : []),
+    price: { now: first.priceV2?.now ?? 0, unitSize: first.salesUnitSize ?? undefined },
+    images: first.images ?? [],
     brand: first.brand ?? null,
-    unitSize: first.unitSize ?? first.price?.unitSize ?? null,
+    unitSize: first.salesUnitSize ?? null,
   };
 }
 
