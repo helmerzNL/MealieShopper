@@ -29,21 +29,27 @@ export async function POST(req: NextRequest) {
   );
 
   const matched: MatchedItem[] = [];
-  const skipped: string[] = [];
+  const diagnostics: Array<{ query: string; status: string; error?: string }> = [];
 
   for (const result of searchResults) {
     if (result.status === 'fulfilled' && result.value.product) {
       matched.push(result.value as MatchedItem);
+      diagnostics.push({ query: result.value.query, status: 'gevonden' });
+    } else if (result.status === 'fulfilled') {
+      diagnostics.push({ query: result.value.query, status: 'niet gevonden' });
     } else {
-      const query =
-        result.status === 'fulfilled' ? result.value.query : 'onbekend';
-      skipped.push(query);
+      diagnostics.push({ query: 'onbekend', status: 'fout', error: result.reason?.message });
     }
   }
 
+  console.log('AH product search diagnostics:', JSON.stringify(diagnostics, null, 2));
+
   if (matched.length === 0) {
     return NextResponse.json(
-      { error: 'Geen producten gevonden voor de opgegeven ingrediënten' },
+      {
+        error: 'Geen producten gevonden voor de opgegeven ingrediënten',
+        diagnostics,
+      },
       { status: 404 }
     );
   }
@@ -55,8 +61,8 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     added: matched.length,
-    skipped: skipped.length,
-    skippedItems: skipped,
+    skipped: diagnostics.filter((d) => d.status !== 'gevonden').length,
+    skippedItems: diagnostics.filter((d) => d.status !== 'gevonden').map((d) => d.query),
     items: matched.map((m) => ({
       query: m.query,
       quantity: m.quantity,

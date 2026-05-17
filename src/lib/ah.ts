@@ -129,16 +129,20 @@ export interface AhProduct {
 
 export async function searchProduct(query: string): Promise<AhProduct | null> {
   const token = await getToken();
-  const params = new URLSearchParams({ query, sortOn: 'RELEVANCE', size: '1' });
+  const params = new URLSearchParams({ query, sortOn: 'RELEVANCE', size: '3' });
 
   const res = await fetch(`${AH_API_BASE}/mobile-services/product/search/v2?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error(`AH product search mislukt voor "${query}": ${res.status}`);
+    throw new Error(`AH productzoekopdracht mislukt (${res.status})`);
+  }
 
   const data = await res.json();
   const products: AhProduct[] = data.products ?? data.result ?? [];
+  console.log(`AH product search "${query}": ${products.length} resultaten`);
   return products[0] ?? null;
 }
 
