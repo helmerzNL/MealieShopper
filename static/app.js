@@ -523,8 +523,8 @@ $("#verify-token").addEventListener("click", async () => {
   const token = $("#token-input").value.trim();
   if (!token) return;
   try {
-    const isShortCode = token.length < 100 && !token.startsWith("eyJ");
-    if (isShortCode) {
+    const isCodeOrCallbackUrl = token.includes("code=") || (token.length < 100 && !token.startsWith("eyJ"));
+    if (isCodeOrCallbackUrl) {
       const data = await jsonFetch("/api/ah/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

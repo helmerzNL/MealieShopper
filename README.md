@@ -16,6 +16,7 @@ Zet deze omgevingsvariabelen in je lokale shell, `.env`-loader of containeromgev
 MEALIE_URL=https://mealie.jouwdomein.nl
 MEALIE_API_TOKEN=
 AH_REFRESH_TOKEN=
+AH_AUTH_REDIRECT_URI=appie://login-exit
 PASSKEY_AUTH_ENABLED=true
 MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
 MEALIESHOPPER_DATA_DIR=./data
@@ -26,6 +27,10 @@ RP_ORIGINS=http://localhost:8000
 ```
 
 `AH_REFRESH_TOKEN` is alleen nodig voor het vullen van het AH winkelmandje.
+De AH OAuth-login gebruikt standaard `AH_AUTH_REDIRECT_URI=appie://login-exit`,
+omdat AH de publieke MealieShopper callback niet accepteert voor de `appie`
+client. Plak na AH-login de code of volledige `appie://login-exit?code=...`
+URL in de tab `AH koppelen`.
 `MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.

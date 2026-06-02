@@ -25,6 +25,9 @@ def create_app() -> Flask:
     def ah_callback_url() -> str:
         return f"{public_base_url()}/api/ah/auth/callback"
 
+    def ah_oauth_redirect_uri() -> str:
+        return (environ.get("AH_AUTH_REDIRECT_URI") or "appie://login-exit").strip()
+
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
     def database_error(exc):
@@ -170,7 +173,7 @@ def create_app() -> Flask:
     @app.post("/api/ah/auth")
     def ah_auth():
         body = request.get_json(silent=True) or {}
-        code = (body.get("code") or "").strip()
+        code = ah.extract_oauth_code(body.get("code") or "")
         if not code:
             return jsonify({"error": "Geen code opgegeven"}), 400
 
@@ -193,7 +196,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
-        callback_url = ah_callback_url()
+        callback_url = ah_oauth_redirect_uri()
         params = (
             f"client_id=appie&redirect_uri={quote_plus(callback_url)}&response_type=code"
         )

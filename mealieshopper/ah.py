@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 from os import environ
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -23,6 +24,15 @@ PRODUCT_SEARCH_QUERY = """
     }
   }
 """
+
+
+def extract_oauth_code(value: str) -> str:
+    candidate = str(value or "").strip()
+    if "code=" not in candidate:
+        return candidate
+    parsed = urlparse(candidate)
+    code = parse_qs(parsed.query).get("code", [""])[0]
+    return code.strip() or candidate
 
 
 @dataclass
@@ -88,7 +98,7 @@ def get_user_token() -> str:
 
 
 def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
-    payload: dict[str, str] = {"clientId": AH_CLIENT_ID, "code": code}
+    payload: dict[str, str] = {"clientId": AH_CLIENT_ID, "code": extract_oauth_code(code)}
     if redirect_uri:
         payload["redirect_uri"] = redirect_uri
 
