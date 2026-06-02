@@ -416,6 +416,40 @@ h1 {
   margin-top: 18px;
 }
 
+.credential-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.credential-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.credential-row strong,
+.credential-row small {
+  display: block;
+}
+
+.credential-row small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.security-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 @media (max-width: 640px) {
   .topbar__inner {
     height: auto;
@@ -431,7 +465,9 @@ h1 {
   }
 
   .toolbar,
-  .form-row {
+  .form-row,
+  .security-actions,
+  .credential-row {
     align-items: stretch;
     flex-wrap: wrap;
   }
@@ -441,7 +477,10 @@ h1 {
   }
 
   .form-row .button,
-  .form-row .input {
+  .form-row .input,
+  .security-actions .button,
+  .security-actions .input,
+  .credential-row .button {
     width: 100%;
   }
 }

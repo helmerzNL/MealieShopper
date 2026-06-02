@@ -41,6 +41,7 @@
         <button class="tab" data-tab="search">Recepten zoeken</button>
         <button class="tab" data-tab="url">URL importeren</button>
         <button class="tab" data-tab="link">AH koppelen</button>
+        <button class="tab" data-tab="security">Beveiliging</button>
       </nav>
 
       <section id="planner" class="panel is-active">
@@ -96,6 +97,19 @@
           <textarea id="token-input" class="textarea" rows="4" placeholder="Plak hier het refresh token of de korte code..."></textarea>
           <button class="button" id="verify-token">Controleren</button>
           <div id="token-message"></div>
+        </div>
+      </section>
+
+      <section id="security" class="panel">
+        <div class="box">
+          <h2>Passkeys</h2>
+          <p class="muted">Voeg extra apparaten toe of verwijder oude passkeys.</p>
+          <div id="credentials-list" class="credential-list"></div>
+          <div class="security-actions">
+            <input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off">
+            <button class="button" id="add-passkey">Passkey toevoegen</button>
+          </div>
+          <div id="security-message"></div>
         </div>
       </section>
     </main>

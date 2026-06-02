@@ -4,6 +4,7 @@ const state = {
   searchPage: 0,
   searchQuery: "",
   auth: null,
+  credentials: [],
 };
 
 const dayNames = ["zo", "ma", "di", "wo", "do", "vr", "za"];
@@ -124,16 +125,62 @@ function renderAuthState() {
   }
 }
 
+function formatCredentialDate(value) {
+  if (!value) return "-";
+  return String(value).slice(0, 19).replace("T", " ");
+}
+
+function renderCredentials() {
+  const target = $("#credentials-list");
+  if (!target) return;
+  if (!state.auth?.authenticated || !state.auth?.enabled) {
+    target.innerHTML = `<p class="muted">Log in om passkeys te beheren.</p>`;
+    return;
+  }
+  target.innerHTML = state.credentials.length
+    ? state.credentials
+        .map(
+          (credential) => `
+            <div class="credential-row">
+              <div>
+                <strong>${escapeHtml(credential.credential_name || "Passkey")}</strong>
+                <small>${escapeHtml(credential.username || "admin")} | aangemaakt ${escapeHtml(formatCredentialDate(credential.created_at))}${
+                  credential.last_used_at ? ` | laatst gebruikt ${escapeHtml(formatCredentialDate(credential.last_used_at))}` : ""
+                }</small>
+              </div>
+              <button class="button button--secondary" data-delete-passkey="${escapeHtml(credential.id)}" ${
+                state.credentials.length <= 1 ? "disabled" : ""
+              }>Verwijderen</button>
+            </div>
+          `
+        )
+        .join("")
+    : `<p class="muted">Geen passkeys gevonden.</p>`;
+  document.querySelectorAll("[data-delete-passkey]").forEach((button) => {
+    button.addEventListener("click", () => deletePasskey(button.dataset.deletePasskey));
+  });
+}
+
+async function loadCredentials() {
+  if (!state.auth?.authenticated || !state.auth?.enabled) {
+    state.credentials = [];
+    renderCredentials();
+    return;
+  }
+  const data = await jsonFetch("/api/auth/credentials");
+  state.credentials = data.credentials || [];
+  renderCredentials();
+}
+
 async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
   renderAuthState();
+  await loadCredentials();
   return state.auth;
 }
 
-async function createOwnerPasskey() {
-  const username = $("#auth-username").value.trim() || "admin";
-  const credentialName = $("#auth-passkey-name").value.trim() || "Owner passkey";
-  message("#auth-message", "Wachten op je passkey prompt...", "success");
+async function registerPasskey({ username, credentialName, messageTarget }) {
+  message(messageTarget, "Wachten op je passkey prompt...", "success");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -157,8 +204,41 @@ async function createOwnerPasskey() {
       credential: publicKeyCredentialToJSON(credential),
     }),
   });
+}
+
+async function createOwnerPasskey() {
+  const username = $("#auth-username").value.trim() || "admin";
+  const credentialName = $("#auth-passkey-name").value.trim() || "Owner passkey";
+  await registerPasskey({ username, credentialName, messageTarget: "#auth-message" });
   message("#auth-message", "Passkey aangemaakt. Je bent ingelogd.", "success");
   await refreshAuthStatus();
+}
+
+async function addPasskey() {
+  const button = $("#add-passkey");
+  const credentialName = $("#new-passkey-name").value.trim() || "Extra passkey";
+  const username = state.auth?.username || "admin";
+  button.disabled = true;
+  try {
+    await registerPasskey({ username, credentialName, messageTarget: "#security-message" });
+    message("#security-message", "Extra passkey toegevoegd.", "success");
+    await refreshAuthStatus();
+  } catch (error) {
+    message("#security-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deletePasskey(credentialId) {
+  if (!window.confirm("Deze passkey verwijderen?")) return;
+  try {
+    await jsonFetch(`/api/auth/credentials/${encodeURIComponent(credentialId)}`, { method: "DELETE" });
+    message("#security-message", "Passkey verwijderd.", "success");
+    await refreshAuthStatus();
+  } catch (error) {
+    message("#security-message", error.message);
+  }
 }
 
 async function loginWithPasskey() {
@@ -465,6 +545,7 @@ $("#verify-token").addEventListener("click", async () => {
   }
 });
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
+$("#add-passkey").addEventListener("click", addPasskey);
 $("#auth-logout").addEventListener("click", async () => {
   await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
   await refreshAuthStatus();

@@ -35,6 +35,11 @@ Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de
 eerste owner passkey. Zodra die bestaat, zijn de app en API-routes beschermd
 met een HttpOnly sessiecookie.
 
+Na het inloggen kun je via de tab `Beveiliging` extra passkeys toevoegen,
+bijvoorbeeld voor je telefoon en laptop. Daar kun je oude passkeys ook
+verwijderen; de laatste passkey blijft beschermd tegen verwijderen zolang
+passkey-auth aan staat.
+
 Voor passkeys moet de browser een secure context hebben. `localhost` werkt via
 HTTP, maar op Unraid of een ander LAN-hostname heb je normaal HTTPS nodig via
 een reverse proxy. Zet dan:

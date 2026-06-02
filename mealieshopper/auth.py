@@ -145,6 +145,25 @@ def passkey_count() -> int:
         return int(row["count"] if row else 0)
 
 
+def credential_rows() -> list[dict[str, Any]]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              c.id,
+              c.credential_name,
+              c.created_at,
+              c.last_used_at,
+              c.sign_count,
+              u.username
+            FROM passkey_credentials c
+            JOIN users u ON u.id = c.user_id
+            ORDER BY c.created_at DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def create_token(user_id: str, username: str) -> str:
     return jwt.encode(
         {
@@ -293,6 +312,7 @@ def register_routes(app: Flask) -> None:
             {
                 "enabled": auth_enabled(),
                 "configured": configured,
+                "credentialCount": passkey_count(),
                 "setupRequired": auth_enabled() and not configured,
                 "authenticated": bool(user),
                 "username": user["username"] if user else None,
@@ -300,6 +320,29 @@ def register_routes(app: Flask) -> None:
                 "rpOrigins": rp_origins(),
             }
         )
+
+    @app.get("/api/auth/credentials")
+    def credentials_list():
+        if auth_enabled() and passkey_count() > 0 and not current_user():
+            return jsonify({"error": "Unauthorized"}), 401
+        return jsonify({"credentials": credential_rows()})
+
+    @app.delete("/api/auth/credentials/<credential_id>")
+    def credentials_delete(credential_id: str):
+        if auth_enabled() and not current_user():
+            return jsonify({"error": "Unauthorized"}), 401
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM passkey_credentials WHERE id=?",
+                (credential_id,),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "Not found"}), 404
+            count = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()["count"]
+            if int(count) <= 1 and auth_enabled():
+                return jsonify({"error": "Je kunt de laatste passkey niet verwijderen."}), 400
+            conn.execute("DELETE FROM passkey_credentials WHERE id=?", (credential_id,))
+        return jsonify({"status": "deleted", "remaining": passkey_count()})
 
     @app.post("/api/auth/register/options")
     def register_options():
