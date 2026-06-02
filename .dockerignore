@@ -1,0 +1,12 @@
+.git
+.github
+.next
+node_modules
+__pycache__
+*.py[cod]
+.env
+.env.*
+*.tsbuildinfo
+coverage
+dist
+build

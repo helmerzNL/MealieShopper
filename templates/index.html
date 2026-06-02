@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MealieShopper</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="brand-icon" aria-hidden="true">MS</div>
+        <div>
+          <h1>MealieShopper</h1>
+          <p>Albert Heijn x Mealie</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <nav class="tabs" aria-label="Hoofdscherm">
+        <button class="tab is-active" data-tab="planner">Weekmenu naar AH</button>
+        <button class="tab" data-tab="search">Recepten zoeken</button>
+        <button class="tab" data-tab="url">URL importeren</button>
+        <button class="tab" data-tab="link">AH koppelen</button>
+      </nav>
+
+      <section id="planner" class="panel is-active">
+        <div class="toolbar">
+          <button class="icon-button" id="prev-week" aria-label="Vorige week">&lsaquo;</button>
+          <div class="week-label">
+            <strong id="week-range"></strong>
+            <span id="week-offset"></span>
+          </div>
+          <button class="icon-button" id="next-week" aria-label="Volgende week">&rsaquo;</button>
+          <button class="button" id="load-plan">Weekmenu laden</button>
+        </div>
+        <div id="planner-message"></div>
+        <div id="meal-days" class="day-grid"></div>
+        <div id="ingredients-panel"></div>
+        <div id="cart-result"></div>
+      </section>
+
+      <section id="search" class="panel">
+        <form class="form-row" id="search-form">
+          <input class="input" id="recipe-query" placeholder="Zoek een recept op Allerhande...">
+          <button class="button" type="submit">Zoeken</button>
+        </form>
+        <div id="search-message"></div>
+        <div id="search-count" class="muted"></div>
+        <div id="recipe-results" class="recipe-grid"></div>
+        <div class="pager">
+          <button class="button button--secondary" id="prev-page" hidden>Vorige</button>
+          <button class="button button--secondary" id="next-page" hidden>Volgende</button>
+        </div>
+      </section>
+
+      <section id="url" class="panel">
+        <div class="box narrow">
+          <h2>Recept importeren via URL</h2>
+          <p class="muted">Plak een Allerhande-link of een andere receptensite.</p>
+          <form class="form-row" id="import-form">
+            <input class="input" id="import-url" type="url" placeholder="https://www.ah.nl/allerhande/recept/...">
+            <button class="button" type="submit">Importeer</button>
+          </form>
+        </div>
+        <div id="import-message"></div>
+      </section>
+
+      <section id="link" class="panel">
+        <div class="box">
+          <h2>Inloggen via Albert Heijn</h2>
+          <p class="muted">Log in bij AH en laat deze app de refresh token ophalen via de callback.</p>
+          <a class="button inline-button" href="/api/ah/auth/start">Inloggen bij Albert Heijn</a>
+        </div>
+        <div class="box">
+          <h2>Token controleren</h2>
+          <textarea id="token-input" class="textarea" rows="4" placeholder="Plak hier het refresh token of de korte code..."></textarea>
+          <button class="button" id="verify-token">Controleren</button>
+          <div id="token-message"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
