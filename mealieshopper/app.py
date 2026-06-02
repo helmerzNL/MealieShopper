@@ -1,7 +1,9 @@
+from os import environ
 from urllib.parse import quote_plus
 import sqlite3
 
 from flask import Flask, jsonify, redirect, render_template, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import ah, mealie
 from . import auth
@@ -9,7 +11,19 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
+
+    def public_base_url() -> str:
+        configured = (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        if configured:
+            return configured
+        scheme = request.headers.get("X-Forwarded-Proto") or request.scheme or "http"
+        host = request.headers.get("X-Forwarded-Host") or request.host
+        return f"{scheme}://{host}".rstrip("/")
+
+    def ah_callback_url() -> str:
+        return f"{public_base_url()}/api/ah/auth/callback"
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
@@ -179,7 +193,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
-        callback_url = request.url_root.rstrip("/") + "/api/ah/auth/callback"
+        callback_url = ah_callback_url()
         params = (
             f"client_id=appie&redirect_uri={quote_plus(callback_url)}&response_type=code"
         )
@@ -196,7 +210,7 @@ def create_app() -> Flask:
         if not code:
             return redirect("/?ah_error=Geen+code+ontvangen")
 
-        callback_url = request.url_root.rstrip("/") + "/api/ah/auth/callback"
+        callback_url = ah_callback_url()
         try:
             tokens = ah.exchange_oauth_code(code, callback_url)
             return redirect(f"/?ah_refresh={quote_plus(tokens['refreshToken'])}")

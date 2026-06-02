@@ -19,6 +19,7 @@ AH_REFRESH_TOKEN=
 PASSKEY_AUTH_ENABLED=true
 MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
 MEALIESHOPPER_DATA_DIR=./data
+MEALIESHOPPER_PUBLIC_BASE_URL=http://localhost:8000
 RP_NAME=MealieShopper
 RP_ID=localhost
 RP_ORIGINS=http://localhost:8000
@@ -45,6 +46,7 @@ HTTP, maar op Unraid of een ander LAN-hostname heb je normaal HTTPS nodig via
 een reverse proxy. Zet dan:
 
 ```env
+MEALIESHOPPER_PUBLIC_BASE_URL=https://mealieshopper.sandmount.nl
 RP_ID=mealieshopper.sandmount.nl
 RP_ORIGINS=https://mealieshopper.sandmount.nl
 ```
