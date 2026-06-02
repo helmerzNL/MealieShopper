@@ -45,8 +45,8 @@ HTTP, maar op Unraid of een ander LAN-hostname heb je normaal HTTPS nodig via
 een reverse proxy. Zet dan:
 
 ```env
-RP_ID=mealieshopper.jouwdomein.nl
-RP_ORIGINS=https://mealieshopper.jouwdomein.nl
+RP_ID=mealieshopper.sandmount.nl
+RP_ORIGINS=https://mealieshopper.sandmount.nl
 ```
 
 `RP_ID` is alleen de hostname zonder schema of poort. `RP_ORIGINS` is de
@@ -91,7 +91,14 @@ De compose gebruikt standaard:
 ghcr.io/helmerznl/mealieshopper:latest
 ```
 
-Zet `MEALIESHOPPER_PORT` op de hostpoort die je op Unraid wilt gebruiken.
+Voor Sandmount/Unraid staat het voorbeeld op:
+
+```env
+MEALIESHOPPER_PORT=5959
+RP_ID=mealieshopper.sandmount.nl
+RP_ORIGINS=https://mealieshopper.sandmount.nl
+```
+
 Zet `MEALIESHOPPER_APPDATA` op je Unraid appdata-pad; daarin staat de SQLite
 database met passkeys en challenges.
 
