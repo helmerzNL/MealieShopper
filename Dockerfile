@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    MEALIESHOPPER_DATA_DIR=/data \
     PORT=8000
 
 WORKDIR /app
@@ -11,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY mealieshopper ./mealieshopper
 COPY run.py .
+RUN mkdir -p /data
 
 EXPOSE 8000
 

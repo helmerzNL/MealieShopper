@@ -6,6 +6,7 @@ MealieShopper is een kleine Python/Flask app die Mealie koppelt aan Albert Heijn
 - Recepten importeren via URL.
 - Weekmenu uit Mealie ophalen en ingredienten naar AH zoeken.
 - AH refresh token controleren en gebruiken voor het winkelmandje.
+- Passkey/WebAuthn login voor de app.
 
 ## Configuratie
 
@@ -15,9 +16,36 @@ Zet deze omgevingsvariabelen in je lokale shell, `.env`-loader of containeromgev
 MEALIE_URL=https://mealie.jouwdomein.nl
 MEALIE_API_TOKEN=
 AH_REFRESH_TOKEN=
+PASSKEY_AUTH_ENABLED=true
+MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
+MEALIESHOPPER_DATA_DIR=./data
+RP_NAME=MealieShopper
+RP_ID=localhost
+RP_ORIGINS=http://localhost:8000
 ```
 
 `AH_REFRESH_TOKEN` is alleen nodig voor het vullen van het AH winkelmandje.
+`MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
+sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
+`MEALIESHOPPER_DATA_DIR`.
+
+## Passkeys
+
+Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de
+eerste owner passkey. Zodra die bestaat, zijn de app en API-routes beschermd
+met een HttpOnly sessiecookie.
+
+Voor passkeys moet de browser een secure context hebben. `localhost` werkt via
+HTTP, maar op Unraid of een ander LAN-hostname heb je normaal HTTPS nodig via
+een reverse proxy. Zet dan:
+
+```env
+RP_ID=mealieshopper.jouwdomein.nl
+RP_ORIGINS=https://mealieshopper.jouwdomein.nl
+```
+
+`RP_ID` is alleen de hostname zonder schema of poort. `RP_ORIGINS` is de
+volledige URL waarmee je de app in de browser opent.
 
 ## Lokaal draaien
 
@@ -34,18 +62,40 @@ De app luistert standaard op `http://localhost:8000`.
 ```powershell
 docker build -t mealieshopper .
 docker run --rm -p 8000:8000 `
+  -v /mnt/user/appdata/mealieshopper:/data `
   -e MEALIE_URL=https://mealie.jouwdomein.nl `
   -e MEALIE_API_TOKEN=... `
   -e AH_REFRESH_TOKEN=... `
+  -e MEALIESHOPPER_AUTH_SECRET=... `
+  -e RP_ID=localhost `
+  -e RP_ORIGINS=http://localhost:8000 `
   mealieshopper
 ```
+
+## Unraid met Docker Compose
+
+Kopieer `.env.unraid.example` naar `.env.unraid`, vul de waarden in en start daarna:
+
+```bash
+docker compose up -d
+```
+
+De compose gebruikt standaard:
+
+```text
+ghcr.io/helmerznl/mealieshopper:latest
+```
+
+Zet `MEALIESHOPPER_PORT` op de hostpoort die je op Unraid wilt gebruiken.
+Zet `MEALIESHOPPER_APPDATA` op je Unraid appdata-pad; daarin staat de SQLite
+database met passkeys en challenges.
 
 ## GitHub Container Registry
 
 De workflow in `.github/workflows/docker.yml` bouwt en pusht automatisch naar:
 
 ```text
-ghcr.io/<owner>/<repo>:latest
+ghcr.io/helmerznl/mealieshopper:latest
 ```
 
 Dit gebeurt bij pushes naar `main` en kan ook handmatig via `workflow_dispatch`.

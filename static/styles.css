@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -38,6 +42,56 @@ body {
   height: 64px;
   margin: 0 auto;
   padding: 0 16px;
+}
+
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(246, 247, 249, 0.96);
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 24px;
+  box-shadow: 0 24px 80px rgba(22, 32, 51, 0.18);
+}
+
+.auth-card .brand-icon {
+  margin-bottom: 14px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.auth-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auth-chip button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 6px 10px;
 }
 
 .brand-icon {
@@ -363,6 +417,19 @@ h1 {
 }
 
 @media (max-width: 640px) {
+  .topbar__inner {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .auth-chip {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
   .toolbar,
   .form-row {
     align-items: stretch;

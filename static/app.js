@@ -3,6 +3,7 @@ const state = {
   entries: null,
   searchPage: 0,
   searchQuery: "",
+  auth: null,
 };
 
 const dayNames = ["zo", "ma", "di", "wo", "do", "vr", "za"];
@@ -23,7 +24,7 @@ function escapeHtml(value) {
 }
 
 async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, options);
+  const response = await fetch(url, { credentials: "same-origin", ...options });
   const data = await response.json();
   if (!response.ok) {
     throw new Error(data.error || "Er is iets misgegaan");
@@ -33,6 +34,170 @@ async function jsonFetch(url, options = {}) {
 
 function message(target, text, type = "error") {
   $(target).innerHTML = text ? `<div class="message ${type}">${escapeHtml(text)}</div>` : "";
+}
+
+function bufferToBase64url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function base64urlToBuffer(value) {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function webauthnUnavailableReason() {
+  if (!window.PublicKeyCredential || !navigator.credentials) {
+    return "Deze browser ondersteunt geen passkeys.";
+  }
+  const secure = window.isSecureContext || ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  if (!secure) {
+    return "Open MealieShopper via HTTPS om passkeys te gebruiken.";
+  }
+  return "";
+}
+
+function publicKeyCredentialToJSON(credential) {
+  return {
+    id: credential.id,
+    rawId: bufferToBase64url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response: {
+      clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+      attestationObject: credential.response.attestationObject
+        ? bufferToBase64url(credential.response.attestationObject)
+        : undefined,
+      authenticatorData: credential.response.authenticatorData
+        ? bufferToBase64url(credential.response.authenticatorData)
+        : undefined,
+      signature: credential.response.signature ? bufferToBase64url(credential.response.signature) : undefined,
+      userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : undefined,
+      transports: credential.response.getTransports ? credential.response.getTransports() : [],
+    },
+  };
+}
+
+function renderAuthState() {
+  const gate = $("#auth-gate");
+  const chip = $("#auth-chip");
+  const title = $("#auth-title");
+  const description = $("#auth-description");
+  const primary = $("#auth-primary");
+  const setupRequired = state.auth?.setupRequired;
+  const authenticated = state.auth?.authenticated || !state.auth?.enabled;
+
+  gate.hidden = authenticated;
+  chip.hidden = !authenticated || !state.auth?.enabled;
+  $("#auth-chip-text").textContent = authenticated && state.auth?.username ? `Ingelogd als ${state.auth.username}` : "";
+
+  if (setupRequired) {
+    title.textContent = "Eerste passkey";
+    description.textContent = "Maak de owner passkey aan voor deze MealieShopper instance.";
+    primary.textContent = "Owner passkey maken";
+    $("#auth-username").hidden = false;
+    $("#auth-passkey-name").hidden = false;
+  } else {
+    title.textContent = "Inloggen met passkey";
+    description.textContent = "Bevestig met je passkey om MealieShopper te openen.";
+    primary.textContent = "Inloggen";
+    $("#auth-username").hidden = true;
+    $("#auth-passkey-name").hidden = true;
+  }
+
+  const unavailable = webauthnUnavailableReason();
+  if (unavailable && !authenticated) {
+    message("#auth-message", unavailable);
+    primary.disabled = true;
+  } else {
+    primary.disabled = false;
+  }
+}
+
+async function refreshAuthStatus() {
+  state.auth = await jsonFetch("/api/auth/status");
+  renderAuthState();
+  return state.auth;
+}
+
+async function createOwnerPasskey() {
+  const username = $("#auth-username").value.trim() || "admin";
+  const credentialName = $("#auth-passkey-name").value.trim() || "Owner passkey";
+  message("#auth-message", "Wachten op je passkey prompt...", "success");
+  const payload = await jsonFetch("/api/auth/register/options", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, credentialName }),
+  });
+  const options = payload.options;
+  options.challenge = base64urlToBuffer(options.challenge);
+  options.user.id = base64urlToBuffer(options.user.id);
+  options.excludeCredentials = (options.excludeCredentials || []).map((credential) => ({
+    ...credential,
+    id: base64urlToBuffer(credential.id),
+  }));
+  const credential = await navigator.credentials.create({ publicKey: options });
+  await jsonFetch("/api/auth/register/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: payload.userId,
+      username,
+      credentialName,
+      credential: publicKeyCredentialToJSON(credential),
+    }),
+  });
+  message("#auth-message", "Passkey aangemaakt. Je bent ingelogd.", "success");
+  await refreshAuthStatus();
+}
+
+async function loginWithPasskey() {
+  message("#auth-message", "Wachten op je passkey prompt...", "success");
+  const payload = await jsonFetch("/api/auth/login/options", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const options = payload.options;
+  options.challenge = base64urlToBuffer(options.challenge);
+  options.allowCredentials = (options.allowCredentials || []).map((credential) => ({
+    ...credential,
+    id: base64urlToBuffer(credential.id),
+  }));
+  const credential = await navigator.credentials.get({ publicKey: options });
+  await jsonFetch("/api/auth/login/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ credential: publicKeyCredentialToJSON(credential) }),
+  });
+  message("#auth-message", "Ingelogd.", "success");
+  await refreshAuthStatus();
+}
+
+async function handleAuthPrimary() {
+  const button = $("#auth-primary");
+  button.disabled = true;
+  try {
+    if (state.auth?.setupRequired) {
+      await createOwnerPasskey();
+    } else {
+      await loginWithPasskey();
+    }
+  } catch (error) {
+    message("#auth-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function getWeekBounds(offset = 0) {
@@ -299,6 +464,11 @@ $("#verify-token").addEventListener("click", async () => {
     message("#token-message", error.message);
   }
 });
+$("#auth-primary").addEventListener("click", handleAuthPrimary);
+$("#auth-logout").addEventListener("click", async () => {
+  await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
+  await refreshAuthStatus();
+});
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
@@ -314,3 +484,7 @@ if (params.get("ah_error")) {
 }
 
 updateWeekLabel();
+refreshAuthStatus().catch((error) => {
+  message("#auth-message", error.message);
+  $("#auth-gate").hidden = false;
+});

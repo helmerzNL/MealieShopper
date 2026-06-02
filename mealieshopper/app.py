@@ -3,10 +3,20 @@ from urllib.parse import quote_plus
 from flask import Flask, jsonify, redirect, render_template, request
 
 from . import ah, mealie
+from . import auth
 
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
+    auth.init_db()
+    auth.register_routes(app)
+
+    @app.before_request
+    def require_passkey_auth():
+        blocked = auth.require_auth_for_request()
+        if blocked:
+            payload, status = blocked
+            return jsonify(payload), status
 
     @app.get("/")
     def index():

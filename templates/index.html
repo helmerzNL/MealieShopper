@@ -7,12 +7,30 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
+    <section id="auth-gate" class="auth-gate" hidden>
+      <div class="auth-card">
+        <div class="brand-icon" aria-hidden="true">MS</div>
+        <h2 id="auth-title">Passkey</h2>
+        <p id="auth-description" class="muted"></p>
+        <div id="auth-message"></div>
+        <div class="auth-form">
+          <input class="input" id="auth-username" value="admin" autocomplete="username">
+          <input class="input" id="auth-passkey-name" value="Owner passkey" autocomplete="off">
+          <button class="button" id="auth-primary">Doorgaan</button>
+        </div>
+      </div>
+    </section>
+
     <header class="topbar">
       <div class="topbar__inner">
         <div class="brand-icon" aria-hidden="true">MS</div>
         <div>
           <h1>MealieShopper</h1>
           <p>Albert Heijn x Mealie</p>
+        </div>
+        <div class="auth-chip" id="auth-chip" hidden>
+          <span id="auth-chip-text"></span>
+          <button type="button" id="auth-logout">Uitloggen</button>
         </div>
       </div>
     </header>
