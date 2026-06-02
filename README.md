@@ -94,13 +94,19 @@ ghcr.io/helmerznl/mealieshopper:latest
 Voor Sandmount/Unraid staat het voorbeeld op:
 
 ```env
-MEALIESHOPPER_PORT=5959
 RP_ID=mealieshopper.sandmount.nl
 RP_ORIGINS=https://mealieshopper.sandmount.nl
 ```
 
-Zet `MEALIESHOPPER_APPDATA` op je Unraid appdata-pad; daarin staat de SQLite
-database met passkeys en challenges.
+De meegeleverde compose publiceert de app op hostpoort `5959` en mount de
+SQLite data vast naar:
+
+```yaml
+ports:
+  - "5959:8000"
+volumes:
+  - "/mnt/user/appdata/mealieshopper:/data"
+```
 
 Krijg je direct een `Internal Server Error` of een melding dat de auth database
 niet bereikbaar is, controleer dan of de appdata-map bestaat en schrijfbaar is:
@@ -113,7 +119,15 @@ Controleer ook dat je compose deze mount heeft:
 
 ```yaml
 volumes:
-  - "${MEALIESHOPPER_APPDATA:-/mnt/user/appdata/mealieshopper}:/data"
+  - "/mnt/user/appdata/mealieshopper:/data"
+```
+
+Op Unraid kun je de rechten herstellen met:
+
+```bash
+mkdir -p /mnt/user/appdata/mealieshopper
+chown -R nobody:users /mnt/user/appdata/mealieshopper
+chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
 ## GitHub Container Registry

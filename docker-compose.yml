@@ -7,6 +7,6 @@ services:
     env_file:
       - .env.unraid
     ports:
-      - "${MEALIESHOPPER_PORT:-8000}:8000"
+      - "5959:8000"
     volumes:
-      - "${MEALIESHOPPER_APPDATA:-/mnt/user/appdata/mealieshopper}:/data"
+      - "/mnt/user/appdata/mealieshopper:/data"
