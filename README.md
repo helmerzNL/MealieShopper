@@ -95,6 +95,20 @@ Zet `MEALIESHOPPER_PORT` op de hostpoort die je op Unraid wilt gebruiken.
 Zet `MEALIESHOPPER_APPDATA` op je Unraid appdata-pad; daarin staat de SQLite
 database met passkeys en challenges.
 
+Krijg je direct een `Internal Server Error` of een melding dat de auth database
+niet bereikbaar is, controleer dan of de appdata-map bestaat en schrijfbaar is:
+
+```bash
+mkdir -p /mnt/user/appdata/mealieshopper
+```
+
+Controleer ook dat je compose deze mount heeft:
+
+```yaml
+volumes:
+  - "${MEALIESHOPPER_APPDATA:-/mnt/user/appdata/mealieshopper}:/data"
+```
+
 ## GitHub Container Registry
 
 De workflow in `.github/workflows/docker.yml` bouwt en pusht automatisch naar:

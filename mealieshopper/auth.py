@@ -25,6 +25,7 @@ from flask import Flask, jsonify, make_response, request
 
 SESSION_COOKIE_NAME = "ms_session"
 SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
+_INITIALIZED = False
 
 
 def auth_enabled() -> bool:
@@ -37,7 +38,7 @@ def auth_enabled() -> bool:
 
 
 def data_dir() -> Path:
-    return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "/data")).resolve()
+    return Path(os.environ.get("MEALIESHOPPER_DATA_DIR", "data")).resolve()
 
 
 def db_path() -> Path:
@@ -110,6 +111,7 @@ def connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    global _INITIALIZED
     with connect() as conn:
         conn.executescript(
             """
@@ -137,15 +139,23 @@ def init_db() -> None:
             );
             """
         )
+    _INITIALIZED = True
+
+
+def ensure_db() -> None:
+    if not _INITIALIZED:
+        init_db()
 
 
 def passkey_count() -> int:
+    ensure_db()
     with connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()
         return int(row["count"] if row else 0)
 
 
 def credential_rows() -> list[dict[str, Any]]:
+    ensure_db()
     with connect() as conn:
         rows = conn.execute(
             """
@@ -185,6 +195,7 @@ def verify_token(token: str) -> dict[str, Any] | None:
 
 
 def current_user() -> dict[str, Any] | None:
+    ensure_db()
     token = str(request.cookies.get(SESSION_COOKIE_NAME) or "").strip()
     if not token:
         auth_header = request.headers.get("Authorization", "")
@@ -202,6 +213,7 @@ def current_user() -> dict[str, Any] | None:
 
 
 def store_challenge(key: str, challenge: bytes) -> None:
+    ensure_db()
     expires_at = (utcnow() + timedelta(minutes=5)).isoformat()
     with connect() as conn:
         conn.execute("DELETE FROM auth_challenges WHERE expires_at < ?", (utcnow().isoformat(),))
@@ -216,6 +228,7 @@ def store_challenge(key: str, challenge: bytes) -> None:
 
 
 def pop_challenge(key: str) -> bytes | None:
+    ensure_db()
     with connect() as conn:
         row = conn.execute(
             "SELECT challenge FROM auth_challenges WHERE key=? AND expires_at >= ?",
@@ -374,6 +387,7 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/api/auth/register/verify")
     def register_verify():
+        ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
         if passkey_count() > 0 and not current_user():
@@ -428,6 +442,7 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/api/auth/login/options")
     def login_options():
+        ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
         with connect() as conn:

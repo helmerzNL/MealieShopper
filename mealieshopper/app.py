@@ -1,4 +1,5 @@
 from urllib.parse import quote_plus
+import sqlite3
 
 from flask import Flask, jsonify, redirect, render_template, request
 
@@ -8,8 +9,19 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    auth.init_db()
     auth.register_routes(app)
+
+    @app.errorhandler(sqlite3.Error)
+    @app.errorhandler(OSError)
+    def database_error(exc):
+        app.logger.exception("Storage error")
+        message = (
+            "Auth database is niet bereikbaar. Controleer MEALIESHOPPER_DATA_DIR "
+            "en de /data volume mount/rechten."
+        )
+        if request.path.startswith("/api/"):
+            return jsonify({"error": message, "detail": str(exc)}), 503
+        return message, 503
 
     @app.before_request
     def require_passkey_auth():
