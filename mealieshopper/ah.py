@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 from os import environ
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
@@ -50,6 +50,15 @@ def extract_oauth_code(value: str) -> str:
     parsed = urlparse(candidate)
     code = parse_qs(parsed.query).get("code", [""])[0]
     return code.strip() or candidate
+
+
+def login_url(redirect_uri: str = "appie://login-exit") -> str:
+    params = {
+        "client_id": AH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+    }
+    return f"https://login.ah.nl/login?{urlencode(params)}"
 
 
 @dataclass
@@ -125,12 +134,19 @@ def save_refresh_token(refresh_token: str) -> None:
     auth.set_secret("AH_REFRESH_TOKEN", token)
 
 
-def auth_status() -> dict[str, Any]:
+def auth_status(verify: bool = False) -> dict[str, Any]:
     token = configured_refresh_token()
     if not token:
         return {"connected": False}
+    if not verify:
+        return {"connected": True, "verified": False}
     result = verify_token(token)
-    return {"connected": bool(result.get("ok")), "type": result.get("type"), "error": result.get("error")}
+    return {
+        "connected": bool(result.get("ok")),
+        "verified": True,
+        "type": result.get("type"),
+        "error": result.get("error"),
+    }
 
 
 def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:

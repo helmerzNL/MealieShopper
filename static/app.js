@@ -177,7 +177,7 @@ async function refreshAuthStatus() {
   renderAuthState();
   await loadCredentials();
   if (state.auth?.authenticated || !state.auth?.enabled) {
-    await refreshAhStatus();
+    refreshAhStatus();
   }
   return state.auth;
 }
@@ -498,7 +498,11 @@ async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
     const data = await jsonFetch("/api/ah/auth/status");
-    message("#ah-status", data.connected ? "AH account gekoppeld." : "AH account nog niet gekoppeld.", data.connected ? "success" : "error");
+    message(
+      "#ah-status",
+      data.connected ? "AH account gekoppeld." : "AH account nog niet gekoppeld.",
+      data.connected ? "success" : "error"
+    );
   } catch (error) {
     message("#ah-status", error.message);
   }

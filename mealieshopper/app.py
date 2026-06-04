@@ -84,7 +84,8 @@ def create_app() -> Flask:
     @app.get("/api/ah/auth/status")
     def ah_auth_status():
         try:
-            return jsonify(ah.auth_status())
+            verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
+            return jsonify(ah.auth_status(verify=verify))
         except Exception as exc:
             app.logger.exception("AH auth status error")
             return jsonify({"connected": False, "error": str(exc)}), 502
@@ -224,10 +225,7 @@ def create_app() -> Flask:
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
         callback_url = ah_oauth_redirect_uri()
-        params = (
-            f"client_id=appie&redirect_uri={quote_plus(callback_url)}&response_type=code"
-        )
-        return redirect(f"https://login.ah.nl/secure/oauth/authorize?{params}", code=302)
+        return redirect(ah.login_url(callback_url), code=302)
 
     @app.get("/api/ah/auth/callback")
     def ah_auth_callback():
