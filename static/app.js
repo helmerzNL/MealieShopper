@@ -176,6 +176,9 @@ async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
   renderAuthState();
   await loadCredentials();
+  if (state.auth?.authenticated || !state.auth?.enabled) {
+    await refreshAhStatus();
+  }
   return state.auth;
 }
 
@@ -491,6 +494,82 @@ async function importUrl(url, button = null) {
   }
 }
 
+async function refreshAhStatus() {
+  if (!$("#ah-status")) return;
+  try {
+    const data = await jsonFetch("/api/ah/auth/status");
+    message("#ah-status", data.connected ? "AH account gekoppeld." : "AH account nog niet gekoppeld.", data.connected ? "success" : "error");
+  } catch (error) {
+    message("#ah-status", error.message);
+  }
+}
+
+function renderAhLists(lists) {
+  $("#ah-lists").innerHTML = lists.length
+    ? `
+      <div class="credential-list">
+        ${lists
+          .map(
+            (list) => `
+              <div class="credential-row">
+                <div>
+                  <strong>${escapeHtml(list.name || "-")}</strong>
+                  <small>${Number(list.itemCount || 0).toLocaleString("nl-NL")} items</small>
+                </div>
+                <button class="button button--secondary" data-ah-list-id="${escapeHtml(list.id)}">Openen</button>
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    `
+    : `<p class="muted">Geen AH lijstjes gevonden.</p>`;
+  document.querySelectorAll("[data-ah-list-id]").forEach((button) => {
+    button.addEventListener("click", () => loadAhFavoriteListItems(button.dataset.ahListId));
+  });
+}
+
+async function loadAhFavoriteLists() {
+  const button = $("#load-ah-lists");
+  button.disabled = true;
+  button.textContent = "Laden...";
+  $("#ah-list-items").innerHTML = "";
+  try {
+    const data = await jsonFetch("/api/ah/favorite-lists");
+    renderAhLists(data.lists || []);
+  } catch (error) {
+    message("#ah-lists", error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Laden";
+  }
+}
+
+async function loadAhFavoriteListItems(listId) {
+  $("#ah-list-items").innerHTML = `<div class="message success">Lijst laden...</div>`;
+  try {
+    const data = await jsonFetch(`/api/ah/favorite-lists/${encodeURIComponent(listId)}/items`);
+    $("#ah-list-items").innerHTML = `
+      <div class="ingredients">
+        <h2>${escapeHtml(data.name || "AH lijst")}</h2>
+        <ul>
+          ${(data.items || [])
+            .map((item) => {
+              const product = item.product || {};
+              const price = Number(product.price || 0);
+              return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(product.title || `Product ${item.productId}`)}${
+                price ? ` - &euro;${price.toFixed(2).replace(".", ",")}` : ""
+              }</li>`;
+            })
+            .join("")}
+        </ul>
+      </div>
+    `;
+  } catch (error) {
+    message("#ah-list-items", error.message);
+  }
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
@@ -530,8 +609,9 @@ $("#verify-token").addEventListener("click", async () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: token }),
       });
-      $("#token-input").value = data.refreshToken;
-      message("#token-message", "Refresh token ontvangen. Voeg AH_REFRESH_TOKEN toe aan de containeromgeving.", "success");
+      $("#token-input").value = "";
+      message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
+      await refreshAhStatus();
       return;
     }
     await jsonFetch("/api/ah/auth/verify", {
@@ -539,11 +619,13 @@ $("#verify-token").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: token }),
     });
-    message("#token-message", "Token werkt. Voeg AH_REFRESH_TOKEN toe aan de containeromgeving.", "success");
+    message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
+    await refreshAhStatus();
   } catch (error) {
     message("#token-message", error.message);
   }
 });
+$("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
 $("#add-passkey").addEventListener("click", addPasskey);
 $("#auth-logout").addEventListener("click", async () => {
@@ -555,7 +637,12 @@ const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
   document.querySelector('[data-tab="link"]').click();
   $("#token-input").value = params.get("ah_refresh");
-  message("#token-message", "Refresh token ontvangen. Voeg AH_REFRESH_TOKEN toe aan de containeromgeving.", "success");
+  message("#token-message", "Refresh token ontvangen.", "success");
+  history.replaceState({}, "", "/");
+}
+if (params.get("ah_connected")) {
+  document.querySelector('[data-tab="link"]').click();
+  message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_error")) {

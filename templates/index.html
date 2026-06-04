@@ -89,14 +89,23 @@
       <section id="link" class="panel">
         <div class="box">
           <h2>Inloggen via Albert Heijn</h2>
-          <p class="muted">Log in bij AH. AH stuurt daarna naar de geregistreerde appie redirect. Kopieer de code of de volledige appie://login-exit URL en plak die hieronder.</p>
+          <p class="muted">Log in bij AH. Als AH terugstuurt naar deze app wordt de koppeling direct opgeslagen; anders kun je de code of appie://login-exit URL hieronder plakken.</p>
           <a class="button inline-button" href="/api/ah/auth/start" target="_blank" rel="noreferrer">Inloggen bij Albert Heijn</a>
+          <div id="ah-status"></div>
         </div>
         <div class="box">
           <h2>Code of token controleren</h2>
           <textarea id="token-input" class="textarea" rows="4" placeholder="Plak hier de AH code, appie://login-exit?code=... URL, of refresh token..."></textarea>
           <button class="button" id="verify-token">Controleren</button>
           <div id="token-message"></div>
+        </div>
+        <div class="box">
+          <div class="toolbar">
+            <h2>Favoriete AH lijstjes</h2>
+            <button class="button button--secondary" id="load-ah-lists">Laden</button>
+          </div>
+          <div id="ah-lists"></div>
+          <div id="ah-list-items"></div>
         </div>
       </section>
 

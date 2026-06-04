@@ -5,7 +5,7 @@ MealieShopper is een kleine Python/Flask app die Mealie koppelt aan Albert Heijn
 - AH/Allerhande recepten zoeken en importeren in Mealie.
 - Recepten importeren via URL.
 - Weekmenu uit Mealie ophalen en ingredienten naar AH zoeken.
-- AH refresh token controleren en gebruiken voor het winkelmandje.
+- AH OAuth-login opslaan en gebruiken voor AH lijstjes en het winkelmandje.
 - Passkey/WebAuthn login voor de app.
 
 ## Configuratie
@@ -26,11 +26,13 @@ RP_ID=localhost
 RP_ORIGINS=http://localhost:8000
 ```
 
-`AH_REFRESH_TOKEN` is alleen nodig voor het vullen van het AH winkelmandje.
-De AH OAuth-login gebruikt standaard `AH_AUTH_REDIRECT_URI=appie://login-exit`,
-omdat AH de publieke MealieShopper callback niet accepteert voor de `appie`
-client. Plak na AH-login de code of volledige `appie://login-exit?code=...`
-URL in de tab `AH koppelen`.
+`AH_REFRESH_TOKEN` is optioneel. Normaal log je in via de tab `AH koppelen`;
+MealieShopper slaat de refresh token daarna versleuteld op in de SQLite database
+onder `MEALIESHOPPER_DATA_DIR`. De omgevingsvariabele blijft bruikbaar als
+override voor installaties die secrets liever via Docker/Unraid beheren.
+De AH OAuth-login gebruikt standaard `AH_AUTH_REDIRECT_URI=appie://login-exit`.
+Als AH niet direct naar MealieShopper terugstuurt, plak je na AH-login de code
+of volledige `appie://login-exit?code=...` URL in de tab `AH koppelen`.
 `MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.

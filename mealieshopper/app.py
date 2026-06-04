@@ -81,6 +81,30 @@ def create_app() -> Flask:
             app.logger.exception("AH search error")
             return jsonify({"error": str(exc) or "Zoeken mislukt"}), 502
 
+    @app.get("/api/ah/auth/status")
+    def ah_auth_status():
+        try:
+            return jsonify(ah.auth_status())
+        except Exception as exc:
+            app.logger.exception("AH auth status error")
+            return jsonify({"connected": False, "error": str(exc)}), 502
+
+    @app.get("/api/ah/favorite-lists")
+    def ah_favorite_lists():
+        try:
+            return jsonify({"lists": ah.get_favorite_lists()})
+        except Exception as exc:
+            app.logger.exception("AH favorite lists error")
+            return jsonify({"error": str(exc) or "AH lijstjes ophalen mislukt"}), 502
+
+    @app.get("/api/ah/favorite-lists/<list_id>/items")
+    def ah_favorite_list_items(list_id: str):
+        try:
+            return jsonify(ah.get_favorite_list_items(list_id))
+        except Exception as exc:
+            app.logger.exception("AH favorite list items error")
+            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 502
+
     @app.post("/api/mealie/import")
     def import_recipe():
         body = request.get_json(silent=True) or {}
@@ -178,7 +202,8 @@ def create_app() -> Flask:
             return jsonify({"error": "Geen code opgegeven"}), 400
 
         try:
-            return jsonify({"refreshToken": ah.exchange_oauth_code(code)["refreshToken"]})
+            ah.exchange_and_store_oauth_code(code)
+            return jsonify({"connected": True})
         except Exception as exc:
             return jsonify({"error": str(exc) or "Onbekende fout"}), 500
 
@@ -191,7 +216,9 @@ def create_app() -> Flask:
 
         result = ah.verify_token(token)
         if result.get("ok"):
-            return jsonify(result)
+            if result.get("type") == "refresh":
+                ah.save_refresh_token(token)
+            return jsonify({"connected": True, **result})
         return jsonify({"error": result["error"]}), 400
 
     @app.get("/api/ah/auth/start")
@@ -215,8 +242,8 @@ def create_app() -> Flask:
 
         callback_url = ah_callback_url()
         try:
-            tokens = ah.exchange_oauth_code(code, callback_url)
-            return redirect(f"/?ah_refresh={quote_plus(tokens['refreshToken'])}")
+            ah.exchange_and_store_oauth_code(code, callback_url)
+            return redirect("/?ah_connected=1")
         except Exception as exc:
             return redirect(
                 f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}"

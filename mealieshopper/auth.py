@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
     EllipticCurvePublicKey,
     EllipticCurvePublicNumbers,
 )
+from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.hashes import SHA256
 from flask import Flask, jsonify, make_response, request
 
@@ -137,6 +138,12 @@ def init_db() -> None:
               challenge BLOB NOT NULL,
               expires_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
             """
         )
     _INITIALIZED = True
@@ -172,6 +179,38 @@ def credential_rows() -> list[dict[str, Any]]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def secret_box() -> Fernet:
+    key = base64.urlsafe_b64encode(hashlib.sha256(auth_secret().encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def set_secret(key: str, value: str) -> None:
+    ensure_db()
+    encrypted = secret_box().encrypt(value.encode("utf-8")).decode("ascii")
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, encrypted, utcnow().isoformat()),
+        )
+
+
+def get_secret(key: str) -> str:
+    ensure_db()
+    with connect() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    if not row:
+        return ""
+    value = str(row["value"] or "")
+    try:
+        return secret_box().decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return value
 
 
 def create_token(user_id: str, username: str) -> str:
