@@ -9,8 +9,13 @@ import requests
 from . import auth
 
 AH_API_BASE = "https://api.ah.nl"
+AH_LOGIN_BASE = "https://login.ah.nl"
 AH_CLIENT_ID = "appie"
 AH_AUTH_HEADERS = {"Content-Type": "application/json"}
+AH_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 PRODUCT_SEARCH_QUERY = """
   query Search($input: SearchProductsInput!) {
@@ -58,7 +63,60 @@ def login_url(redirect_uri: str = "appie://login-exit") -> str:
         "response_type": "code",
         "redirect_uri": redirect_uri,
     }
-    return f"https://login.ah.nl/login?{urlencode(params)}"
+    return f"{AH_LOGIN_BASE}/login?{urlencode(params)}"
+
+
+def proxied_login_url(proxy_base_url: str) -> str:
+    params = {
+        "client_id": AH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": "appie://login-exit",
+    }
+    return f"{proxy_base_url.rstrip('/')}/login?{urlencode(params)}"
+
+
+def sanitize_login_cookie(cookie: str, path: str = "/api/ah/auth/proxy") -> str:
+    parts = str(cookie or "").split(";")
+    result = parts[:1]
+    for part in parts[1:]:
+        attr = part.strip()
+        lower = attr.lower()
+        if (
+            lower == "secure"
+            or lower.startswith("samesite")
+            or lower.startswith("domain")
+            or lower.startswith("path")
+        ):
+            continue
+        result.append(part)
+    result.append(f" Path={path}")
+    return ";".join(result)
+
+
+def rewrite_login_location(location: str, proxy_base_url: str) -> str:
+    value = str(location or "")
+    proxy_base = proxy_base_url.rstrip("/")
+    if value.startswith("appie://"):
+        parsed = urlparse(value)
+        return f"{proxy_base}/callback?{parsed.query}"
+    if value.startswith(AH_LOGIN_BASE):
+        return value.replace(AH_LOGIN_BASE, proxy_base, 1)
+    if value.startswith("/"):
+        return f"{proxy_base}{value}"
+    return value
+
+
+def rewrite_login_body(body: bytes, proxy_base_url: str) -> bytes:
+    proxy_base = proxy_base_url.rstrip("/").encode("utf-8")
+    rewritten = body.replace(b"appie://login-exit", proxy_base + b"/callback")
+    rewritten = rewritten.replace(AH_LOGIN_BASE.encode("utf-8"), proxy_base)
+    for attr in (b"href", b"src", b"action", b"formaction"):
+        rewritten = rewritten.replace(attr + b'="/', attr + b'="' + proxy_base + b"/")
+        rewritten = rewritten.replace(attr + b"='/", attr + b"='" + proxy_base + b"/")
+    rewritten = rewritten.replace(b'fetch("/', b'fetch("' + proxy_base + b"/")
+    rewritten = rewritten.replace(b"fetch('/", b"fetch('" + proxy_base + b"/")
+    rewritten = rewritten.replace(b"url(/", b"url(" + proxy_base + b"/")
+    return rewritten
 
 
 @dataclass

@@ -16,7 +16,6 @@ Zet deze omgevingsvariabelen in je lokale shell, `.env`-loader of containeromgev
 MEALIE_URL=https://mealie.jouwdomein.nl
 MEALIE_API_TOKEN=
 AH_REFRESH_TOKEN=
-AH_AUTH_REDIRECT_URI=appie://login-exit
 PASSKEY_AUTH_ENABLED=true
 MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
 MEALIESHOPPER_DATA_DIR=./data
@@ -30,9 +29,11 @@ RP_ORIGINS=http://localhost:8000
 MealieShopper slaat de refresh token daarna versleuteld op in de SQLite database
 onder `MEALIESHOPPER_DATA_DIR`. De omgevingsvariabele blijft bruikbaar als
 override voor installaties die secrets liever via Docker/Unraid beheren.
-De AH OAuth-login gebruikt standaard `AH_AUTH_REDIRECT_URI=appie://login-exit`.
-Als AH niet direct naar MealieShopper terugstuurt, plak je na AH-login de code
-of volledige `appie://login-exit?code=...` URL in de tab `AH koppelen`.
+De AH OAuth-login loopt standaard via een ingebouwde reverse proxy onder
+`/api/ah/auth/proxy`. Die proxy herschrijft AH redirects en cookies zodat de
+browserflow hetzelfde werkt als de `ah-mcp`/`appie-go` login. Als noodroute kun
+je nog steeds een code, volledige `appie://login-exit?code=...` URL, of refresh
+token plakken in de tab `AH koppelen`.
 `MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.
@@ -79,7 +80,6 @@ docker run --rm -p 8000:8000 `
   -v /mnt/user/appdata/mealieshopper:/data `
   -e MEALIE_URL=https://mealie.jouwdomein.nl `
   -e MEALIE_API_TOKEN=... `
-  -e AH_REFRESH_TOKEN=... `
   -e MEALIESHOPPER_AUTH_SECRET=... `
   -e RP_ID=localhost `
   -e RP_ORIGINS=http://localhost:8000 `

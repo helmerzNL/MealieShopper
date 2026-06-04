@@ -2,7 +2,8 @@ from os import environ
 from urllib.parse import quote_plus
 import sqlite3
 
-from flask import Flask, jsonify, redirect, render_template, request
+import requests
+from flask import Flask, Response, jsonify, redirect, render_template, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import ah, mealie
@@ -25,8 +26,8 @@ def create_app() -> Flask:
     def ah_callback_url() -> str:
         return f"{public_base_url()}/api/ah/auth/callback"
 
-    def ah_oauth_redirect_uri() -> str:
-        return (environ.get("AH_AUTH_REDIRECT_URI") or "appie://login-exit").strip()
+    def ah_proxy_base_url() -> str:
+        return f"{public_base_url()}/api/ah/auth/proxy"
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
@@ -224,8 +225,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
-        callback_url = ah_oauth_redirect_uri()
-        return redirect(ah.login_url(callback_url), code=302)
+        return redirect(ah.proxied_login_url(ah_proxy_base_url()), code=302)
 
     @app.get("/api/ah/auth/callback")
     def ah_auth_callback():
@@ -246,6 +246,99 @@ def create_app() -> Flask:
             return redirect(
                 f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}"
             )
+
+    @app.get("/api/ah/auth/proxy/callback")
+    def ah_auth_proxy_callback():
+        error = request.args.get("error")
+        if error:
+            description = request.args.get("error_description") or error
+            return redirect(f"/?ah_error={quote_plus(description)}")
+
+        code = request.args.get("code")
+        if not code:
+            return redirect("/?ah_error=Geen+code+ontvangen")
+
+        try:
+            ah.exchange_and_store_oauth_code(code)
+            return redirect("/?ah_connected=1")
+        except Exception as exc:
+            return redirect(
+                f"/?ah_error={quote_plus(f'Code inwisselen mislukt: {str(exc)[:100]}')}"
+            )
+
+    @app.route(
+        "/api/ah/auth/proxy/<path:proxy_path>",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
+    @app.route(
+        "/api/ah/auth/proxy",
+        defaults={"proxy_path": ""},
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    )
+    def ah_auth_proxy(proxy_path: str):
+        target_url = f"{ah.AH_LOGIN_BASE}/{proxy_path}".rstrip("/")
+        headers = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower()
+            not in {
+                "host",
+                "accept-encoding",
+                "content-length",
+                "content-encoding",
+            }
+        }
+        headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
+        headers.setdefault("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        headers.setdefault("Accept-Language", "nl-NL,nl;q=0.9,en;q=0.8")
+
+        try:
+            upstream = requests.request(
+                request.method,
+                target_url,
+                params=request.args,
+                data=request.get_data(),
+                headers=headers,
+                allow_redirects=False,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            app.logger.exception("AH login proxy error")
+            return f"AH login proxy error: {exc}", 502
+
+        content_type = upstream.headers.get("Content-Type", "")
+        body = upstream.content
+        if any(kind in content_type for kind in ("text/html", "javascript", "json", "text/css")):
+            body = ah.rewrite_login_body(body, ah_proxy_base_url())
+
+        response = Response(body, status=upstream.status_code, content_type=content_type)
+        blocked_headers = {
+            "content-encoding",
+            "content-length",
+            "content-security-policy",
+            "strict-transport-security",
+            "x-frame-options",
+            "set-cookie",
+            "location",
+        }
+        for key, value in upstream.headers.items():
+            if key.lower() not in blocked_headers:
+                response.headers[key] = value
+
+        if location := upstream.headers.get("Location"):
+            response.headers["Location"] = ah.rewrite_login_location(
+                location,
+                ah_proxy_base_url(),
+            )
+
+        raw_headers = getattr(upstream.raw, "headers", None)
+        cookies = raw_headers.getlist("Set-Cookie") if raw_headers else []
+        if not cookies and upstream.headers.get("Set-Cookie"):
+            cookies = [upstream.headers["Set-Cookie"]]
+        for cookie in cookies:
+            response.headers.add("Set-Cookie", ah.sanitize_login_cookie(cookie))
+
+        return response
 
     return app
 
