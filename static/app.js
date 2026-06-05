@@ -629,12 +629,6 @@ $("#verify-token").addEventListener("click", async () => {
     message("#token-message", error.message);
   }
 });
-$("#ah-login").addEventListener("click", () => {
-  const button = $("#ah-login");
-  button.disabled = true;
-  button.textContent = "AH login openen...";
-  window.location.assign("/api/ah/auth/start");
-});
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
 $("#add-passkey").addEventListener("click", addPasskey);
