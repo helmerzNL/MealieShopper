@@ -291,6 +291,16 @@ def create_app() -> Flask:
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
         headers.setdefault("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         headers.setdefault("Accept-Language", "nl-NL,nl;q=0.9,en;q=0.8")
+        proxy_base = ah_proxy_base_url()
+        public_origin = public_base_url()
+        if "Referer" in headers:
+            headers["Referer"] = (
+                headers["Referer"]
+                .replace(proxy_base, ah.AH_LOGIN_BASE)
+                .replace(public_origin, ah.AH_LOGIN_BASE)
+            )
+        if headers.get("Origin", "").rstrip("/") == public_origin:
+            headers["Origin"] = ah.AH_LOGIN_BASE
 
         try:
             upstream = requests.request(
@@ -309,7 +319,7 @@ def create_app() -> Flask:
         content_type = upstream.headers.get("Content-Type", "")
         body = upstream.content
         if any(kind in content_type for kind in ("text/html", "javascript", "json", "text/css")):
-            body = ah.rewrite_login_body(body, ah_proxy_base_url())
+            body = ah.rewrite_login_body(body, proxy_base)
 
         response = Response(body, status=upstream.status_code, content_type=content_type)
         blocked_headers = {
@@ -328,7 +338,7 @@ def create_app() -> Flask:
         if location := upstream.headers.get("Location"):
             response.headers["Location"] = ah.rewrite_login_location(
                 location,
-                ah_proxy_base_url(),
+                proxy_base,
             )
 
         raw_headers = getattr(upstream.raw, "headers", None)

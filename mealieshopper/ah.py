@@ -108,11 +108,16 @@ def rewrite_login_location(location: str, proxy_base_url: str) -> str:
 
 def rewrite_login_body(body: bytes, proxy_base_url: str) -> bytes:
     proxy_base = proxy_base_url.rstrip("/").encode("utf-8")
+    proxy_base_escaped = proxy_base.replace(b"/", b"\\/")
     rewritten = body.replace(b"appie://login-exit", proxy_base + b"/callback")
     rewritten = rewritten.replace(AH_LOGIN_BASE.encode("utf-8"), proxy_base)
+    rewritten = rewritten.replace(b"https:\\/\\/login.ah.nl", proxy_base_escaped)
+    rewritten = rewritten.replace(b"//login.ah.nl", proxy_base)
     for attr in (b"href", b"src", b"action", b"formaction"):
         rewritten = rewritten.replace(attr + b'="/', attr + b'="' + proxy_base + b"/")
         rewritten = rewritten.replace(attr + b"='/", attr + b"='" + proxy_base + b"/")
+    rewritten = rewritten.replace(b'":"/', b'":"' + proxy_base + b"/")
+    rewritten = rewritten.replace(b'":"\\/', b'":"' + proxy_base_escaped + b"\\/")
     rewritten = rewritten.replace(b'fetch("/', b'fetch("' + proxy_base + b"/")
     rewritten = rewritten.replace(b"fetch('/", b"fetch('" + proxy_base + b"/")
     rewritten = rewritten.replace(b"url(/", b"url(" + proxy_base + b"/")
