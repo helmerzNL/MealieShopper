@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-4")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-5")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -200,15 +200,14 @@ def create_app() -> Flask:
     @app.post("/api/ah/auth")
     def ah_auth():
         body = request.get_json(silent=True) or {}
-        code = ah.extract_oauth_code(body.get("code") or "")
-        if not code:
-            return jsonify({"error": "Geen code opgegeven"}), 400
+        raw = (body.get("code") or body.get("token") or "").strip()
+        if not raw:
+            return jsonify({"error": "Geen code of token opgegeven"}), 400
 
-        try:
-            ah.exchange_and_store_oauth_code(code)
-            return jsonify({"connected": True})
-        except Exception as exc:
-            return jsonify({"error": str(exc) or "Onbekende fout"}), 500
+        result = ah.link_account(raw)
+        if result.get("connected"):
+            return jsonify(result)
+        return jsonify({"error": result.get("error") or "Onbekende fout"}), 400
 
     @app.post("/api/ah/auth/verify")
     def ah_auth_verify():
