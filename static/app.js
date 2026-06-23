@@ -606,23 +606,12 @@ $("#verify-token").addEventListener("click", async () => {
   const token = $("#token-input").value.trim();
   if (!token) return;
   try {
-    const isCodeOrCallbackUrl = token.includes("code=") || (token.length < 100 && !token.startsWith("eyJ"));
-    if (isCodeOrCallbackUrl) {
-      const data = await jsonFetch("/api/ah/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: token }),
-      });
-      $("#token-input").value = "";
-      message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
-      await refreshAhStatus();
-      return;
-    }
-    await jsonFetch("/api/ah/auth/verify", {
+    await jsonFetch("/api/ah/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: token }),
+      body: JSON.stringify({ code: token }),
     });
+    $("#token-input").value = "";
     message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
     await refreshAhStatus();
   } catch (error) {

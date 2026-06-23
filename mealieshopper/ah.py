@@ -200,6 +200,52 @@ def save_refresh_token(refresh_token: str) -> None:
     auth.set_secret("AH_REFRESH_TOKEN", token)
 
 
+def link_account(value: str) -> dict[str, Any]:
+    """Koppel een AH account vanuit een OAuth code (of appie:// URL) of een refresh token.
+
+    De gebruiker kan beide plakken in hetzelfde veld; we raden niet op lengte maar
+    proberen de meest waarschijnlijke interpretatie en vallen terug op de andere.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return {"connected": False, "error": "Geen code of token opgegeven"}
+
+    errors: list[str] = []
+
+    def try_code(raw: str) -> dict[str, Any] | None:
+        try:
+            exchange_and_store_oauth_code(extract_oauth_code(raw))
+            return {"connected": True, "type": "code"}
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"code: {exc}")
+            return None
+
+    def try_refresh(raw: str) -> dict[str, Any] | None:
+        result = verify_token(raw)
+        if result.get("ok"):
+            if result.get("type") == "refresh":
+                save_refresh_token(raw)
+                return {"connected": True, "type": "refresh"}
+            errors.append(
+                "dit is een access token (verloopt snel); plak de refresh token"
+            )
+            return None
+        errors.append(f"token: {result.get('error')}")
+        return None
+
+    looks_like_code = "code=" in text or text.startswith("appie://")
+    order = (try_code, try_refresh) if looks_like_code else (try_refresh, try_code)
+    for attempt in order:
+        outcome = attempt(text)
+        if outcome:
+            return outcome
+
+    return {
+        "connected": False,
+        "error": "; ".join(e for e in errors if e) or "Koppelen mislukt",
+    }
+
+
 def auth_status(verify: bool = False) -> dict[str, Any]:
     token = configured_refresh_token()
     if not token:
