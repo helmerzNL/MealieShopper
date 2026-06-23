@@ -89,16 +89,23 @@
       <section id="link" class="panel">
         <div class="box">
           <h2>Inloggen via Albert Heijn</h2>
-          <p class="muted">Log in bij AH via de ingebouwde loginproxy. Na succesvolle login wordt de koppeling direct opgeslagen.</p>
-          <form class="inline-login-form" action="/api/ah/auth/start" method="get">
+          <p class="muted">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken.</p>
+          <ol class="steps">
+            <li>Klik op <strong>Inloggen bij Albert Heijn</strong>. De echte AH-loginpagina opent in een nieuw tabblad.</li>
+            <li>Log in met je passkey of wachtwoord.</li>
+            <li>Daarna kom je op een pagina die niet laadt en die begint met <code>appie://login-exit?code=...</code>. Kopieer die volledige URL uit de adresbalk.</li>
+            <li>Plak de URL hieronder en klik op <strong>Koppelen</strong>.</li>
+          </ol>
+          <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
             <button class="button inline-button" id="ah-login" type="submit">Inloggen bij Albert Heijn</button>
           </form>
           <div id="ah-status"></div>
         </div>
         <div class="box">
-          <h2>Noodroute: code of token controleren</h2>
-          <textarea id="token-input" class="textarea" rows="4" placeholder="Plak hier de AH code, appie://login-exit?code=... URL, of refresh token..."></textarea>
-          <button class="button" id="verify-token">Controleren</button>
+          <h2>Koppeling afronden</h2>
+          <p class="muted">Plak de <code>appie://login-exit?code=...</code> URL (of alleen de code of een refresh token).</p>
+          <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
+          <button class="button" id="verify-token">Koppelen</button>
           <div id="token-message"></div>
         </div>
         <div class="box">
