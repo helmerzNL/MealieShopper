@@ -26,7 +26,7 @@
         <div class="brand-icon" aria-hidden="true">MS</div>
         <div>
           <h1>MealieShopper</h1>
-          <p>Albert Heijn x Mealie</p>
+          <p>Albert Heijn &amp; Jumbo x Mealie</p>
         </div>
         <div class="auth-chip" id="auth-chip" hidden>
           <span id="auth-chip-text"></span>
@@ -37,10 +37,11 @@
 
     <main class="shell">
       <nav class="tabs" aria-label="Hoofdscherm">
-        <button class="tab is-active" data-tab="planner">Weekmenu naar AH</button>
+        <button class="tab is-active" data-tab="planner">Weekmenu naar winkel</button>
         <button class="tab" data-tab="search">Recepten zoeken</button>
         <button class="tab" data-tab="url">URL importeren</button>
         <button class="tab" data-tab="link">AH koppelen</button>
+        <button class="tab" data-tab="jumbo">Jumbo koppelen</button>
         <button class="tab" data-tab="security">Beveiliging</button>
       </nav>
 
@@ -115,6 +116,20 @@
           </div>
           <div id="ah-lists"></div>
           <div id="ah-list-items"></div>
+        </div>
+      </section>
+
+      <section id="jumbo" class="panel">
+        <div class="box narrow">
+          <h2>Inloggen bij Jumbo</h2>
+          <p class="muted">Log in met je Jumbo-account (hetzelfde e-mailadres en wachtwoord als in de Jumbo-app). De gegevens worden versleuteld opgeslagen zodat we je mandje kunnen vullen.</p>
+          <form class="auth-form" id="jumbo-login-form">
+            <input class="input" id="jumbo-username" type="email" placeholder="E-mailadres" autocomplete="username">
+            <input class="input" id="jumbo-password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
+            <button class="button" id="jumbo-login" type="submit">Koppelen</button>
+          </form>
+          <div id="jumbo-status"></div>
+          <button class="button button--secondary" id="jumbo-logout" hidden>Ontkoppelen</button>
         </div>
       </section>
 

@@ -194,6 +194,33 @@ h1 {
   font-size: 13px;
 }
 
+.store-select {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.store-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.store-option:has(input:checked) {
+  border-color: var(--primary);
+  background: #eef3fb;
+  color: var(--primary-strong);
+}
+
+.store-option input {
+  accent-color: var(--primary);
+}
+
 .button,
 .icon-button {
   min-height: 38px;
