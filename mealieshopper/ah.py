@@ -10,27 +10,21 @@ from . import auth
 
 AH_API_BASE = "https://api.ah.nl"
 AH_LOGIN_BASE = "https://login.ah.nl"
-AH_CLIENT_ID = "appie"
-AH_AUTH_HEADERS = {"Content-Type": "application/json"}
+AH_CLIENT_ID = "appie-ios"
+AH_CLIENT_VERSION = "9.28"
+AH_MOBILE_USER_AGENT = "Appie/9.28 (iPhone17,3; iPhone; CPU OS 26_1 like Mac OS X)"
+AH_AUTH_HEADERS = {
+    "User-Agent": AH_MOBILE_USER_AGENT,
+    "x-client-name": AH_CLIENT_ID,
+    "x-client-version": AH_CLIENT_VERSION,
+    "x-application": "AHWEBSHOP",
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+}
 AH_BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-
-PRODUCT_SEARCH_QUERY = """
-  query Search($input: SearchProductsInput!) {
-    searchProductsExperimental(input: $input) {
-      products {
-        id
-        title
-        brand
-        salesUnitSize
-        priceV2 { now }
-      }
-      totalFound
-    }
-  }
-"""
 
 FAVORITE_LIST_QUERY = """
   query FavoriteListV2($ids: [String!]!) {
@@ -134,6 +128,15 @@ anon_token_cache: TokenCache | None = None
 user_token_cache: TokenCache | None = None
 
 
+def _auth_headers(token: str | None = None, *, include_content_type: bool = True) -> dict[str, str]:
+    headers = dict(AH_AUTH_HEADERS)
+    if not include_content_type:
+        headers.pop("Content-Type", None)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _request_json(method: str, url: str, **kwargs: Any) -> Any:
     response = requests.request(method, url, timeout=30, **kwargs)
     if not response.ok:
@@ -151,7 +154,7 @@ def get_token() -> str:
     data = _request_json(
         "POST",
         f"{AH_API_BASE}/mobile-auth/v1/auth/token/anonymous",
-        headers=AH_AUTH_HEADERS,
+        headers=_auth_headers(),
         json={"clientId": AH_CLIENT_ID},
     )
     anon_token_cache = TokenCache(
@@ -176,7 +179,7 @@ def get_user_token() -> str:
     data = _request_json(
         "POST",
         f"{AH_API_BASE}/mobile-auth/v1/auth/token/refresh",
-        headers=AH_AUTH_HEADERS,
+        headers=_auth_headers(),
         json={"clientId": AH_CLIENT_ID, "refreshToken": refresh_token},
     )
     user_token_cache = TokenCache(
@@ -220,7 +223,7 @@ def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str,
     data = _request_json(
         "POST",
         f"{AH_API_BASE}/mobile-auth/v1/auth/token",
-        headers=AH_AUTH_HEADERS,
+        headers=_auth_headers(),
         json=payload,
     )
     global user_token_cache
@@ -240,7 +243,7 @@ def exchange_and_store_oauth_code(code: str, redirect_uri: str | None = None) ->
 def verify_token(token: str) -> dict[str, Any]:
     refresh_response = requests.post(
         f"{AH_API_BASE}/mobile-auth/v1/auth/token/refresh",
-        headers=AH_AUTH_HEADERS,
+        headers=_auth_headers(),
         json={"clientId": AH_CLIENT_ID, "refreshToken": token},
         timeout=30,
     )
@@ -249,7 +252,7 @@ def verify_token(token: str) -> dict[str, Any]:
 
     access_response = requests.get(
         f"{AH_API_BASE}/mobile-services/member/v2/profile",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_auth_headers(token, include_content_type=False),
         timeout=30,
     )
     if access_response.ok:
@@ -265,7 +268,7 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
     token = get_token()
     response = requests.get(
         f"{AH_API_BASE}/mobile-services/recipe/search/v2",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_auth_headers(token, include_content_type=False),
         params={
             "searchTerms": query,
             "page": page,
@@ -286,33 +289,28 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
 
 def search_product(query: str) -> dict[str, Any] | None:
     token = get_token()
-    response = requests.post(
-        f"{AH_API_BASE}/graphql",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-        json={"query": PRODUCT_SEARCH_QUERY, "variables": {"input": {"query": query}}},
+    response = requests.get(
+        f"{AH_API_BASE}/mobile-services/product/search/v2",
+        headers=_auth_headers(token, include_content_type=False),
+        params={"query": query, "page": 0, "size": 1, "sortOn": "RELEVANCE"},
         timeout=30,
     )
     if not response.ok:
         raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
 
     data = response.json()
-    if data.get("errors"):
-        return None
-
-    products = data.get("data", {}).get("searchProductsExperimental", {}).get("products", [])
+    products = data.get("products") or []
     if not products:
         return None
 
     first = products[0]
     unit_size = first.get("salesUnitSize")
+    price_now = first.get("currentPrice") or first.get("priceBeforeBonus") or 0
     return {
-        "webshopId": str(first["id"]),
+        "webshopId": str(first.get("webshopId") or first.get("id")),
         "title": first.get("title") or query,
-        "price": {"now": first.get("priceV2", {}).get("now") or 0, "unitSize": unit_size},
-        "images": [],
+        "price": {"now": price_now, "unitSize": unit_size},
+        "images": first.get("images") or [],
         "brand": first.get("brand"),
         "unitSize": unit_size,
     }
@@ -326,7 +324,7 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     params.append(("sortOn", "INPUT_PRODUCT_IDS"))
     response = requests.get(
         f"{AH_API_BASE}/mobile-services/product/search/v2/products",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_auth_headers(token, include_content_type=False),
         params=params,
         timeout=30,
     )
@@ -353,7 +351,7 @@ def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
     token = get_user_token()
     response = requests.get(
         f"{AH_API_BASE}/mobile-services/lists/v3/lists",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_auth_headers(token, include_content_type=False),
         params={"productId": max(1, int(product_id or 1))},
         timeout=30,
     )
@@ -373,7 +371,7 @@ def get_favorite_list_items(list_id: str) -> dict[str, Any]:
     token = get_user_token()
     response = requests.post(
         f"{AH_API_BASE}/graphql",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        headers=_auth_headers(token),
         json={"query": FAVORITE_LIST_QUERY, "variables": {"ids": [str(list_id).upper()]}},
         timeout=30,
     )
@@ -414,13 +412,35 @@ def get_favorite_list_items(list_id: str) -> dict[str, Any]:
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
     token = get_user_token()
-    payload = [
-        {"type": "PRODUCT", "productId": item["productId"], "quantity": item["quantity"]}
-        for item in items
-    ]
-    response = requests.post(
-        f"{AH_API_BASE}/mobile-services/shoppinglist/v2",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+    shopping_items = []
+    for item in items:
+        product_id_raw = item.get("productId")
+        try:
+            product_id = int(product_id_raw)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Ongeldig productId voor AH winkelmandje: {product_id_raw}") from exc
+
+        quantity = max(1, int(item.get("quantity") or 1))
+        description = str(item.get("title") or item.get("query") or "").strip()
+        shopping_items.append(
+            {
+                "description": description,
+                "productId": product_id,
+                "quantity": quantity,
+                "type": "SHOPPABLE",
+                "originCode": "PRD",
+                "searchTerm": description,
+                "strikeThrough": False,
+            }
+        )
+
+    if not shopping_items:
+        raise RuntimeError("Geen geldige producten om toe te voegen")
+
+    payload = {"items": shopping_items}
+    response = requests.patch(
+        f"{AH_API_BASE}/mobile-services/shoppinglist/v2/items",
+        headers=_auth_headers(token),
         json=payload,
         timeout=30,
     )
