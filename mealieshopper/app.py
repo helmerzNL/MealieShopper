@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-3")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-4")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -226,7 +226,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
-        return redirect(ah.proxied_login_url(ah_proxy_base_url()), code=302)
+        return redirect(ah.login_url(), code=302)
 
     @app.get("/api/ah/auth/callback")
     def ah_auth_callback():
