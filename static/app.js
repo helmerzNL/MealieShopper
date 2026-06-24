@@ -29,7 +29,16 @@ function escapeHtml(value) {
 
 async function jsonFetch(url, options = {}) {
   const response = await fetch(url, { credentials: "same-origin", ...options });
-  const data = await response.json();
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error(
+      response.ok
+        ? "Onverwacht antwoord van de server (geen geldige JSON)."
+        : `Serverfout (${response.status}). Is de app bijgewerkt en ben je ingelogd?`
+    );
+  }
   if (!response.ok) {
     throw new Error(data.error || "Er is iets misgegaan");
   }
@@ -677,6 +686,25 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+document.querySelectorAll(".subtab").forEach((subtab) => {
+  subtab.addEventListener("click", () => {
+    const panel = subtab.closest(".panel");
+    if (!panel) return;
+    panel
+      .querySelectorAll(".subtab, .subpanel")
+      .forEach((item) => item.classList.remove("is-active"));
+    subtab.classList.add("is-active");
+    const target = panel.querySelector(`#${subtab.dataset.subtab}`);
+    if (target) target.classList.add("is-active");
+  });
+});
+
+function openBeheer(subtab = "beheer-ah") {
+  document.querySelector('[data-tab="beheer"]').click();
+  const button = document.querySelector(`[data-subtab="${subtab}"]`);
+  if (button) button.click();
+}
+
 $("#prev-week").addEventListener("click", () => {
   state.weekOffset -= 1;
   updateWeekLabel();
@@ -765,18 +793,18 @@ $("#auth-logout").addEventListener("click", async () => {
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
-  document.querySelector('[data-tab="link"]').click();
+  openBeheer("beheer-ah");
   $("#token-input").value = params.get("ah_refresh");
   message("#token-message", "Refresh token ontvangen.", "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_connected")) {
-  document.querySelector('[data-tab="link"]').click();
+  openBeheer("beheer-ah");
   message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_error")) {
-  document.querySelector('[data-tab="link"]').click();
+  openBeheer("beheer-ah");
   message("#token-message", `AH redirect mislukt: ${params.get("ah_error")}`);
   history.replaceState({}, "", "/");
 }

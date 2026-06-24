@@ -8,10 +8,13 @@ import requests
 from . import auth
 
 JUMBO_API_BASE = "https://mobileapi.jumbo.com/v17"
-JUMBO_USER_AGENT = "Jumbo/7.5.2 (MealieShopper)"
+JUMBO_USER_AGENT = "Jumbo/8.18.0 (iPhone; iOS 17.4; Scale/3.00)"
 JUMBO_HEADERS = {
     "User-Agent": JUMBO_USER_AGENT,
     "Accept": "application/json",
+    "Accept-Language": "nl-NL,nl;q=0.9",
+    "x-jumbo-platform": "iphone",
+    "x-jumbo-version": "8.18.0",
 }
 
 TOKEN_TTL_SECONDS = 50 * 60
@@ -43,9 +46,15 @@ def login(username: str, password: str) -> str:
         timeout=30,
     )
     if not response.ok:
-        raise RuntimeError(
-            f"Jumbo inloggen mislukt ({response.status_code}): {response.text[:200]}"
-        )
+        body = (response.text or "").lstrip()
+        if response.status_code in (403, 503) and body[:1] == "<":
+            raise RuntimeError(
+                "Jumbo blokkeert deze aanvraag (Access Denied). Hun beveiliging "
+                "(Akamai) weert vaak server-/datacenter-IP's. Probeer het vanaf een "
+                "thuisnetwerk of controleer of je IP niet geblokkeerd is."
+            )
+        detail = body[:200] if body[:1] != "<" else f"HTTP {response.status_code}"
+        raise RuntimeError(f"Jumbo inloggen mislukt ({response.status_code}): {detail}")
 
     token = (response.headers.get("x-jumbo-token") or "").strip()
     if not token:
