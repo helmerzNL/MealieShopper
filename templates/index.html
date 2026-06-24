@@ -123,6 +123,17 @@
           <div id="ah-list-items"></div>
         </div>
         <div class="box">
+          <h2>Website-koppeling (voor bewaarde recepten)</h2>
+          <p class="muted">Log in met je AH-account (zelfde e-mailadres en wachtwoord als op ah.nl). Dit is alleen nodig om je bewaarde recepten op te halen — het mandje vullen gaat via de OAuth-koppeling hierboven.</p>
+          <form class="auth-form" id="ah-browser-login-form">
+            <input class="input" id="ah-browser-username" type="email" placeholder="E-mailadres" autocomplete="username">
+            <input class="input" id="ah-browser-password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
+            <button class="button" id="ah-browser-login" type="submit">Koppelen</button>
+          </form>
+          <div id="ah-browser-status"></div>
+          <button class="button button--secondary" id="ah-browser-logout" hidden>Ontkoppelen</button>
+        </div>
+        <div class="box">
           <div class="toolbar">
             <h2>Mijn bewaarde recepten</h2>
             <button class="button button--secondary" id="load-ah-recipes">Laden</button>
