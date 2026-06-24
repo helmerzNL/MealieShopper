@@ -1,3 +1,4 @@
+import json
 import time
 from dataclasses import dataclass
 from os import environ
@@ -5,7 +6,7 @@ from typing import Any
 
 import requests
 
-from . import auth
+from . import auth, jumbo_browser
 
 JUMBO_API_BASE = "https://mobileapi.jumbo.com/v17"
 JUMBO_USER_AGENT = "Jumbo/8.18.0 (iPhone; iOS 17.4; Scale/3.00)"
@@ -84,6 +85,25 @@ def clear_credentials() -> None:
     token_cache = None
     auth.set_secret("JUMBO_USERNAME", "")
     auth.set_secret("JUMBO_PASSWORD", "")
+    _save_cookies({})
+
+
+def _save_cookies(cookies: dict[str, str]) -> None:
+    try:
+        auth.set_secret("JUMBO_COOKIES", json.dumps(cookies or {}))
+    except Exception:
+        pass
+
+
+def _load_cookies() -> dict[str, str]:
+    raw = auth.get_secret("JUMBO_COOKIES")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def get_token(force: bool = False) -> str:
@@ -103,14 +123,17 @@ def get_token(force: bool = False) -> str:
 
 
 def link_account(username: str, password: str) -> dict[str, Any]:
+    username = str(username or "").strip()
+    password = str(password or "")
+    if not username or not password:
+        return {"connected": False, "error": "E-mail en wachtwoord zijn verplicht"}
     try:
-        token = login(username, password)
+        cookies = jumbo_browser.browser_login(username, password)
     except Exception as exc:
         return {"connected": False, "error": str(exc)}
 
     save_credentials(username, password)
-    global token_cache
-    token_cache = TokenCache(token=token, expires_at=time.time() + TOKEN_TTL_SECONDS)
+    _save_cookies(cookies)
     return {"connected": True}
 
 
@@ -119,7 +142,8 @@ def verify_credentials() -> dict[str, Any]:
     if not username or not password:
         return {"ok": False, "error": "Geen Jumbo inloggegevens opgeslagen"}
     try:
-        login(username, password)
+        cookies = jumbo_browser.browser_login(username, password)
+        _save_cookies(cookies)
         return {"ok": True}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -340,16 +364,13 @@ def _find_favorite_recipe_list_id() -> str | None:
 
 
 def get_saved_recipes() -> dict[str, Any]:
-    response = _authed_request("GET", "recipe-lists/favorites/items")
-    if response.status_code == 404:
-        list_id = _find_favorite_recipe_list_id()
-        if list_id:
-            response = _authed_request("GET", f"recipe-lists/{list_id}/items")
-    if not response.ok:
+    username, password = configured_credentials()
+    if not username or not password:
         raise RuntimeError(
-            f"Jumbo bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
+            "Jumbo account niet gekoppeld. Log in via Beheer > Jumbo koppelen."
         )
 
-    raw = _extract_recipe_items(response.json())
-    recipes = [normalized for item in raw if (normalized := _normalize_recipe(item))]
+    cookies = _load_cookies()
+    result = jumbo_browser.scrape_saved_recipes(cookies, username, password)
+    recipes = result.get("recipes") or []
     return {"recipes": recipes, "total": len(recipes)}
