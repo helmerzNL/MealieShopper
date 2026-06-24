@@ -113,13 +113,19 @@ def _click_submit(driver) -> bool:
     for selector in (
         "button[type='submit']",
         "button[data-testhook='login-button']",
+        "button[data-testhook='login-submit']",
         "button[data-testid='login-submit']",
         "button[name='login']",
+        "form button:not([type='button'])",
         "form button",
     ):
         try:
             el = driver.find_element(By.CSS_SELECTOR, selector)
             if el.is_displayed() and el.is_enabled():
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                except Exception:
+                    pass
                 el.click()
                 return True
         except Exception:
@@ -127,8 +133,54 @@ def _click_submit(driver) -> bool:
     return False
 
 
+def _collect_form_diagnostics(driver) -> str:
+    """Return a short string describing the current login page for error messages."""
+    _, _, _, By, _, _ = _selenium()
+    parts: list[str] = []
+    try:
+        title = (driver.title or "").strip()
+        if title:
+            parts.append(f"title={title!r}")
+    except Exception:
+        pass
+    for selector in (
+        "[role='alert']",
+        ".error", ".errors", ".form-error",
+        "[class*='error' i]", "[class*='Error']",
+        "[data-testhook*='error' i]",
+        "[aria-live='assertive']",
+    ):
+        try:
+            for el in driver.find_elements(By.CSS_SELECTOR, selector):
+                text = (el.text or "").strip()
+                if 3 <= len(text) <= 200:
+                    parts.append(f"msg={text!r}")
+                    break
+        except Exception:
+            continue
+        if any(p.startswith("msg=") for p in parts):
+            break
+    try:
+        inputs = driver.find_elements(By.CSS_SELECTOR, "input")
+        kinds = [
+            f"{(i.get_attribute('type') or '?')}:{(i.get_attribute('name') or i.get_attribute('id') or '?')}"
+            for i in inputs[:6]
+        ]
+        if kinds:
+            parts.append("inputs=" + ",".join(kinds))
+    except Exception:
+        pass
+    return "; ".join(parts)
+
+
 def _perform_login(driver, username: str, password: str) -> None:
-    _, _, _, By, EC, WebDriverWait = _selenium()
+    _selenium_mod = _selenium()
+    _, _, _, By, EC, WebDriverWait = _selenium_mod
+    try:
+        from selenium.webdriver.common.keys import Keys
+    except Exception:
+        Keys = None
+
     log.info("AH: navigating to login page")
     driver.get(LOGIN_URL)
     time.sleep(1.5)
@@ -149,7 +201,8 @@ def _perform_login(driver, username: str, password: str) -> None:
         )
     except Exception as exc:
         raise RuntimeError(
-            f"AH inlogformulier niet gevonden (url={driver.current_url})"
+            f"AH inlogformulier niet gevonden (url={driver.current_url}; "
+            f"{_collect_form_diagnostics(driver)})"
         ) from exc
 
     user_el.clear()
@@ -171,18 +224,27 @@ def _perform_login(driver, username: str, password: str) -> None:
             )
         except Exception as exc:
             raise RuntimeError(
-                f"AH wachtwoordveld niet gevonden (url={driver.current_url}). "
-                "Mogelijk verlangt AH een tweestapsverificatie."
+                f"AH wachtwoordveld niet gevonden (url={driver.current_url}; "
+                f"{_collect_form_diagnostics(driver)}). Mogelijk verlangt AH een "
+                "tweestapsverificatie."
             ) from exc
 
     pw_el.clear()
     pw_el.send_keys(password)
-    time.sleep(0.3)
+    time.sleep(0.4)
 
     start_url = driver.current_url
-    if not _click_submit(driver):
+    submitted = _click_submit(driver)
+    if not submitted:
         try:
             pw_el.submit()
+            submitted = True
+        except Exception:
+            pass
+    # Belt + suspenders: also press Enter on the password field.
+    if Keys is not None:
+        try:
+            pw_el.send_keys(Keys.RETURN)
         except Exception:
             pass
 
@@ -193,7 +255,7 @@ def _perform_login(driver, username: str, password: str) -> None:
         log.info("AH: URL did not change after submit (still %s)", driver.current_url)
 
     # Give AH time to set deferred session cookies after redirect.
-    time.sleep(2.0)
+    time.sleep(2.5)
 
     # Visit account page so any deferred session cookies are written.
     try:
@@ -245,8 +307,9 @@ def browser_login(username: str, password: str) -> dict[str, str]:
         if _looks_logged_out(driver):
             raise RuntimeError(
                 "AH inloggen mislukt: nog steeds op de inlogpagina "
-                f"(url={driver.current_url}). Controleer je e-mail en wachtwoord, "
-                "of bevestig in je AH-app dat een nieuwe sessie mag worden gemaakt."
+                f"(url={driver.current_url}; {_collect_form_diagnostics(driver)}). "
+                "Controleer je e-mail en wachtwoord, of bevestig in je AH-app "
+                "dat een nieuwe sessie mag worden gemaakt."
             )
         cookies = _capture_cookies(driver)
     finally:
