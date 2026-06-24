@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-8")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260624-1")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -231,6 +231,32 @@ def create_app() -> Flask:
                 ah.save_refresh_token(token)
             return jsonify({"connected": True, **result})
         return jsonify({"error": result["error"]}), 400
+
+    @app.get("/api/ah/browser/status")
+    def ah_browser_status():
+        try:
+            return jsonify(ah.browser_auth_status())
+        except Exception as exc:
+            app.logger.exception("AH browser status error")
+            return jsonify({"connected": False, "error": str(exc)}), 502
+
+    @app.post("/api/ah/browser/auth")
+    def ah_browser_auth():
+        body = request.get_json(silent=True) or {}
+        username = (body.get("username") or "").strip()
+        password = body.get("password") or ""
+        if not username or not password:
+            return jsonify({"error": "E-mail en wachtwoord zijn verplicht"}), 400
+
+        result = ah.link_browser_account(username, password)
+        if result.get("connected"):
+            return jsonify(result)
+        return jsonify({"error": result.get("error") or "Inloggen mislukt"}), 400
+
+    @app.post("/api/ah/browser/auth/logout")
+    def ah_browser_auth_logout():
+        ah.clear_browser_credentials()
+        return jsonify({"connected": False})
 
     @app.get("/api/ah/auth/start")
     def ah_auth_start():

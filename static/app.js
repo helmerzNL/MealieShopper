@@ -191,6 +191,7 @@ async function refreshAuthStatus() {
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
     refreshJumboStatus();
+    refreshAhBrowserStatus();
   }
   return state.auth;
 }
@@ -560,6 +561,25 @@ async function refreshJumboStatus() {
   }
 }
 
+async function refreshAhBrowserStatus() {
+  if (!$("#ah-browser-status")) return;
+  try {
+    const data = await jsonFetch("/api/ah/browser/status");
+    const connected = Boolean(data.connected);
+    message(
+      "#ah-browser-status",
+      connected
+        ? `AH website-koppeling actief${data.username ? ` (${data.username})` : ""}.`
+        : "AH website-koppeling nog niet gemaakt (alleen nodig voor bewaarde recepten).",
+      connected ? "success" : "error"
+    );
+    const logout = $("#ah-browser-logout");
+    if (logout) logout.hidden = !connected;
+  } catch (error) {
+    message("#ah-browser-status", error.message);
+  }
+}
+
 function renderAhLists(lists) {
   $("#ah-lists").innerHTML = lists.length
     ? `
@@ -784,6 +804,50 @@ $("#jumbo-logout").addEventListener("click", async () => {
     message("#jumbo-status", error.message);
   }
 });
+
+const ahBrowserForm = $("#ah-browser-login-form");
+if (ahBrowserForm) {
+  ahBrowserForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const username = $("#ah-browser-username").value.trim();
+    const password = $("#ah-browser-password").value;
+    if (!username || !password) {
+      message("#ah-browser-status", "E-mail en wachtwoord zijn verplicht");
+      return;
+    }
+    const button = $("#ah-browser-login");
+    button.disabled = true;
+    const originalLabel = button.textContent;
+    button.textContent = "Koppelen...";
+    try {
+      await jsonFetch("/api/ah/browser/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      $("#ah-browser-password").value = "";
+      await refreshAhBrowserStatus();
+    } catch (error) {
+      message("#ah-browser-status", error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  });
+}
+const ahBrowserLogout = $("#ah-browser-logout");
+if (ahBrowserLogout) {
+  ahBrowserLogout.addEventListener("click", async () => {
+    try {
+      await jsonFetch("/api/ah/browser/auth/logout", { method: "POST", body: "{}" });
+      $("#ah-browser-username").value = "";
+      $("#ah-browser-password").value = "";
+      await refreshAhBrowserStatus();
+    } catch (error) {
+      message("#ah-browser-status", error.message);
+    }
+  });
+}
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
 $("#add-passkey").addEventListener("click", addPasskey);
 $("#auth-logout").addEventListener("click", async () => {
