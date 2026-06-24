@@ -499,40 +499,96 @@ def _normalize_recipe(item: Any) -> dict[str, Any] | None:
     }
 
 
+def _extract_recipe_ids(data: Any) -> list[int]:
+    """Parse favourite recipe ids from the various shapes AH may return."""
+    if isinstance(data, dict):
+        data = (
+            data.get("recipeIds")
+            or data.get("ids")
+            or data.get("result")
+            or data.get("favourites")
+            or data.get("favorites")
+            or data.get("items")
+            or []
+        )
+    ids: list[int] = []
+    for entry in data or []:
+        if isinstance(entry, dict):
+            entry = entry.get("id") or entry.get("recipeId")
+        try:
+            if entry is not None:
+                ids.append(int(entry))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, Any]]:
+    """Hydrate recipe ids to full recipe objects. Falls back to id-only cards."""
+    if not recipe_ids:
+        return []
+    params: list[tuple[str, str]] = [("ids", str(recipe_id)) for recipe_id in recipe_ids]
+    try:
+        response = requests.get(
+            f"{AH_API_BASE}/mobile-services/recipes/v1/recipe/by-ids",
+            headers=_auth_headers(token, include_content_type=False),
+            params=params,
+            timeout=20,
+        )
+        if response.ok:
+            data = response.json()
+            if isinstance(data, dict):
+                data = (
+                    data.get("recipes")
+                    or data.get("result")
+                    or data.get("items")
+                    or []
+                )
+            details = [normalized for item in (data or []) if (normalized := _normalize_recipe(item))]
+            if details:
+                return details
+    except (requests.exceptions.RequestException, ValueError):
+        pass
+    # Fallback: build minimal cards from the ids (links still import in Mealie).
+    return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
+
+
 def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     token = get_user_token()
-    response = requests.get(
-        f"{AH_API_BASE}/mobile-services/recipes/v2/favorites",
-        headers=_auth_headers(token, include_content_type=False),
-        params={"page": page, "size": size},
-        timeout=30,
-    )
+    try:
+        response = requests.get(
+            f"{AH_API_BASE}/mobile-services/recipes/v1/favourite/ids",
+            headers=_auth_headers(token, include_content_type=False),
+            timeout=20,
+        )
+    except requests.exceptions.Timeout:
+        raise RuntimeError(
+            "AH reageerde niet op tijd bij het ophalen van bewaarde recepten. "
+            "Probeer het later opnieuw."
+        )
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"AH bewaarde recepten ophalen mislukt: {exc}")
+
     if not response.ok:
         raise RuntimeError(
             f"AH bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
         )
 
     try:
-        data = response.json()
+        ids = _extract_recipe_ids(response.json())
     except ValueError:
         raise RuntimeError(
             "AH gaf een onverwacht antwoord terug bij het ophalen van bewaarde "
             "recepten. Mogelijk is dit eindpunt niet (meer) beschikbaar."
         )
-    if isinstance(data, dict):
-        raw = (
-            data.get("result")
-            or data.get("recipes")
-            or data.get("favorites")
-            or data.get("items")
-            or []
-        )
-        total = data.get("totalFound") or data.get("total") or len(raw)
-    else:
-        raw = data or []
-        total = len(raw)
 
-    recipes = [normalized for item in raw if (normalized := _normalize_recipe(item))]
+    total = len(ids)
+    if not total:
+        return {"recipes": [], "total": 0}
+
+    start = max(0, int(page)) * max(1, int(size))
+    page_ids = ids[start:start + max(1, int(size))]
+    recipes = _fetch_recipe_details(token, page_ids)
     return {"recipes": recipes, "total": total}
 
 
