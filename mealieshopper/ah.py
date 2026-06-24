@@ -512,7 +512,13 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
             f"AH bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
         )
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        raise RuntimeError(
+            "AH gaf een onverwacht antwoord terug bij het ophalen van bewaarde "
+            "recepten. Mogelijk is dit eindpunt niet (meer) beschikbaar."
+        )
     if isinstance(data, dict):
         raw = (
             data.get("result")

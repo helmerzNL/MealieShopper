@@ -171,6 +171,43 @@ h1 {
   display: block;
 }
 
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin-bottom: 20px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.subtab {
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  padding: 8px 14px;
+  background: transparent;
+  color: #526070;
+}
+
+.subtab.is-active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.subpanel {
+  display: none;
+}
+
+.subpanel.is-active {
+  display: block;
+}
+
 .toolbar,
 .form-row {
   display: flex;
