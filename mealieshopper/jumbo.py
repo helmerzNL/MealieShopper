@@ -259,3 +259,88 @@ def add_to_basket(new_items: list[dict[str, Any]]) -> None:
         raise RuntimeError(
             f"Jumbo mandje vullen mislukt ({response.status_code}): {response.text[:200]}"
         )
+
+
+def _normalize_recipe(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    recipe = item
+    if isinstance(item.get("recipe"), dict):
+        recipe = item["recipe"]
+        if isinstance(recipe.get("data"), dict):
+            recipe = recipe["data"]
+    elif isinstance(item.get("data"), dict):
+        recipe = item["data"]
+
+    image = ""
+    image_info = recipe.get("imageInfo") or {}
+    primary = image_info.get("primaryView") or []
+    if primary and isinstance(primary[0], dict):
+        image = primary[0].get("url") or ""
+    elif isinstance(recipe.get("image"), str):
+        image = recipe.get("image") or ""
+
+    url = (recipe.get("webUrl") or recipe.get("url") or recipe.get("link") or "").strip()
+    recipe_id = recipe.get("id") or recipe.get("recipeId")
+    if not url and recipe_id:
+        url = f"https://www.jumbo.com/recepten/{recipe_id}"
+    if not url:
+        return None
+
+    return {
+        "id": recipe_id,
+        "title": recipe.get("name") or recipe.get("title") or "Onbekend recept",
+        "image": image,
+        "url": url,
+    }
+
+
+def _extract_recipe_items(data: Any) -> list[Any]:
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        return []
+    for key in ("items", "recipes", "data"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            nested = value.get("data") or value.get("items")
+            if isinstance(nested, list):
+                return nested
+    return []
+
+
+def _find_favorite_recipe_list_id() -> str | None:
+    response = _authed_request("GET", "lists/mylists")
+    if not response.ok:
+        return None
+    data = response.json() or {}
+    lists = data.get("lists") or data.get("data") or data.get("myLists") or []
+    if isinstance(lists, dict):
+        lists = lists.get("data") or []
+    for entry in lists:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("type") or entry.get("listType") or "").lower()
+        title = str(entry.get("title") or entry.get("name") or "").lower()
+        if "recipe" in kind or "recept" in title or "favoriet" in title:
+            return str(entry.get("id") or entry.get("listId") or "") or None
+    return None
+
+
+def get_saved_recipes() -> dict[str, Any]:
+    response = _authed_request("GET", "recipe-lists/favorites/items")
+    if response.status_code == 404:
+        list_id = _find_favorite_recipe_list_id()
+        if list_id:
+            response = _authed_request("GET", f"recipe-lists/{list_id}/items")
+    if not response.ok:
+        raise RuntimeError(
+            f"Jumbo bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
+        )
+
+    raw = _extract_recipe_items(response.json())
+    recipes = [normalized for item in raw if (normalized := _normalize_recipe(item))]
+    return {"recipes": recipes, "total": len(recipes)}

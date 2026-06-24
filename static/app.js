@@ -617,6 +617,58 @@ async function loadAhFavoriteListItems(listId) {
   }
 }
 
+function renderSavedRecipeCard(recipe) {
+  const url = recipe.url || "";
+  const image = recipe.image || "";
+  return `
+    <article class="recipe-card">
+      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
+      <h3>${escapeHtml(recipe.title || "Onbekend recept")}</h3>
+      <div class="card-actions">
+        <button class="button" data-import-url="${escapeHtml(url)}">Importeer</button>
+        ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Open recept</a>` : ""}
+      </div>
+      <div class="recipe-import-result"></div>
+    </article>
+  `;
+}
+
+async function loadSavedRecipes(endpoint, containerId, messageId, button) {
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Laden...";
+  }
+  message(messageId, "");
+  $(containerId).innerHTML = "";
+  try {
+    const data = await jsonFetch(endpoint);
+    const recipes = data.recipes || [];
+    if (!recipes.length) {
+      message(messageId, "Geen bewaarde recepten gevonden.", "success");
+      return;
+    }
+    $(containerId).innerHTML = recipes.map(renderSavedRecipeCard).join("");
+    $(containerId)
+      .querySelectorAll("[data-import-url]")
+      .forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const result = await importUrl(btn.dataset.importUrl, btn);
+          const target = btn.closest(".recipe-card")?.querySelector(".recipe-import-result");
+          if (target) {
+            target.innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+          }
+        });
+      });
+  } catch (error) {
+    message(messageId, error.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Laden";
+    }
+  }
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
@@ -662,6 +714,12 @@ $("#verify-token").addEventListener("click", async () => {
   }
 });
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
+$("#load-ah-recipes").addEventListener("click", (event) =>
+  loadSavedRecipes("/api/ah/recipes/saved", "#ah-recipes", "#ah-recipes-message", event.currentTarget)
+);
+$("#load-jumbo-recipes").addEventListener("click", (event) =>
+  loadSavedRecipes("/api/jumbo/recipes/saved", "#jumbo-recipes", "#jumbo-recipes-message", event.currentTarget)
+);
 $("#jumbo-login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const username = $("#jumbo-username").value.trim();
