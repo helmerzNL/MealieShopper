@@ -50,16 +50,18 @@ def _selenium():
         from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.chrome.service import Service
         from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.support.ui import WebDriverWait
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
             "AH browser-koppeling vereist Selenium/Chromium die niet beschikbaar "
             "is in deze container. Werk de app bij naar de nieuwste image."
         ) from exc
-    return webdriver, Options, Service, By
+    return webdriver, Options, Service, By, EC, WebDriverWait
 
 
 def _create_driver():
-    webdriver, Options, Service, _ = _selenium()
+    webdriver, Options, Service, _, _, _ = _selenium()
     opts = Options()
     opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
@@ -87,13 +89,15 @@ def _create_driver():
 
 
 def _dismiss_consent(driver) -> None:
-    _, _, _, By = _selenium()
+    _, _, _, By, _, _ = _selenium()
     for selector in (
         "button#accept-cookies",
         "button[data-testid='accept-all']",
         "button[aria-label*='akkoord' i]",
         "#onetrust-accept-btn-handler",
         "button.accept-cookies",
+        "button[data-testhook='accept-cookies']",
+        "button[data-testhook='cookie-wall-accept']",
     ):
         try:
             el = driver.find_element(By.CSS_SELECTOR, selector)
@@ -104,31 +108,92 @@ def _dismiss_consent(driver) -> None:
             continue
 
 
+def _click_submit(driver) -> bool:
+    _, _, _, By, _, _ = _selenium()
+    for selector in (
+        "button[type='submit']",
+        "button[data-testhook='login-button']",
+        "button[data-testid='login-submit']",
+        "button[name='login']",
+        "form button",
+    ):
+        try:
+            el = driver.find_element(By.CSS_SELECTOR, selector)
+            if el.is_displayed() and el.is_enabled():
+                el.click()
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _perform_login(driver, username: str, password: str) -> None:
-    _, _, _, By = _selenium()
+    _, _, _, By, EC, WebDriverWait = _selenium()
     log.info("AH: navigating to login page")
     driver.get(LOGIN_URL)
-    time.sleep(2.0)
+    time.sleep(1.5)
     _dismiss_consent(driver)
 
-    user_el = driver.find_element(
-        By.CSS_SELECTOR,
-        "input[name='email'], input[type='email'], #email, #username, input[name='username']",
+    user_selector = (
+        "input[name='email'], input[type='email'], input[autocomplete='username'], "
+        "#email, #username, input[name='username']"
     )
+    pw_selector = (
+        "input[name='password'], input[type='password'], "
+        "input[autocomplete='current-password'], #password"
+    )
+
+    try:
+        user_el = WebDriverWait(driver, 15).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, user_selector))
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"AH inlogformulier niet gevonden (url={driver.current_url})"
+        ) from exc
+
     user_el.clear()
     user_el.send_keys(username)
-    time.sleep(0.2)
+    time.sleep(0.3)
 
-    pw_el = driver.find_element(
-        By.CSS_SELECTOR,
-        "input[name='password'], input[type='password'], #password",
-    )
+    # AH may use a two-step flow (email first, then password). If the
+    # password field is not visible yet, click 'verder/next' and wait.
+    try:
+        pw_el = driver.find_element(By.CSS_SELECTOR, pw_selector)
+        if not pw_el.is_displayed():
+            raise Exception("password field hidden, treat as two-step")
+    except Exception:
+        if _click_submit(driver):
+            time.sleep(1.5)
+        try:
+            pw_el = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, pw_selector))
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"AH wachtwoordveld niet gevonden (url={driver.current_url}). "
+                "Mogelijk verlangt AH een tweestapsverificatie."
+            ) from exc
+
     pw_el.clear()
     pw_el.send_keys(password)
     time.sleep(0.3)
 
-    pw_el.submit()
-    time.sleep(3.5)
+    start_url = driver.current_url
+    if not _click_submit(driver):
+        try:
+            pw_el.submit()
+        except Exception:
+            pass
+
+    # Wait for either redirect away from the login page or for an error.
+    try:
+        WebDriverWait(driver, 20).until(lambda d: d.current_url != start_url)
+    except Exception:
+        log.info("AH: URL did not change after submit (still %s)", driver.current_url)
+
+    # Give AH time to set deferred session cookies after redirect.
+    time.sleep(2.0)
 
     # Visit account page so any deferred session cookies are written.
     try:
@@ -152,8 +217,18 @@ def _capture_cookies(driver) -> dict[str, str]:
 
 
 def _looks_logged_out(driver) -> bool:
-    current = (driver.current_url or "").lower()
-    return "inloggen" in current or "/login" in current or "/sso" in current
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(driver.current_url or "")
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
+    if host.startswith("login.") or "/sso" in path or "/oauth" in path:
+        return True
+    if "inloggen" in path or "/login" in path:
+        return True
+    return False
 
 
 def _has_session(cookies: dict[str, str]) -> bool:
@@ -169,8 +244,9 @@ def browser_login(username: str, password: str) -> dict[str, str]:
         _perform_login(driver, username, password)
         if _looks_logged_out(driver):
             raise RuntimeError(
-                "AH inloggen mislukt: nog steeds op de inlogpagina. Controleer "
-                "je e-mail en wachtwoord."
+                "AH inloggen mislukt: nog steeds op de inlogpagina "
+                f"(url={driver.current_url}). Controleer je e-mail en wachtwoord, "
+                "of bevestig in je AH-app dat een nieuwe sessie mag worden gemaakt."
             )
         cookies = _capture_cookies(driver)
     finally:
