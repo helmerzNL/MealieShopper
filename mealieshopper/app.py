@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-6")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260605-7")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -82,6 +82,15 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("AH search error")
             return jsonify({"error": str(exc) or "Zoeken mislukt"}), 502
+
+    @app.get("/api/ah/recipes/saved")
+    def ah_saved_recipes():
+        page = int(request.args.get("page") or 0)
+        try:
+            return jsonify(ah.get_saved_recipes(page))
+        except Exception as exc:
+            app.logger.exception("AH saved recipes error")
+            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 502
 
     @app.get("/api/ah/auth/status")
     def ah_auth_status():
@@ -387,6 +396,14 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("Jumbo search error")
             return jsonify({"error": str(exc) or "Zoeken mislukt"}), 502
+
+    @app.get("/api/jumbo/recipes/saved")
+    def jumbo_saved_recipes():
+        try:
+            return jsonify(jumbo.get_saved_recipes())
+        except Exception as exc:
+            app.logger.exception("Jumbo saved recipes error")
+            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 502
 
     @app.post("/api/jumbo/cart")
     def jumbo_cart():

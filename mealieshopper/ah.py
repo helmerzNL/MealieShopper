@@ -456,6 +456,80 @@ def get_favorite_list_items(list_id: str) -> dict[str, Any]:
     }
 
 
+def _recipe_web_url(item: dict[str, Any]) -> str:
+    web_path = (item.get("webPath") or item.get("href") or "").strip()
+    if web_path:
+        if web_path.startswith("http"):
+            return web_path
+        return f"https://www.ah.nl{web_path if web_path.startswith('/') else '/' + web_path}"
+    recipe_id = item.get("id") or item.get("recipeId")
+    if recipe_id:
+        return f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}"
+    return ""
+
+
+def _normalize_recipe(item: Any) -> dict[str, Any] | None:
+    if isinstance(item, (int, str)):
+        recipe_id = str(item)
+        return {
+            "id": recipe_id,
+            "title": f"Recept {recipe_id}",
+            "image": "",
+            "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
+        }
+    if not isinstance(item, dict):
+        return None
+
+    images = item.get("images") or []
+    image = ""
+    if images and isinstance(images[0], dict):
+        image = images[0].get("url") or ""
+    elif isinstance(item.get("image"), str):
+        image = item.get("image") or ""
+
+    url = _recipe_web_url(item)
+    if not url:
+        return None
+
+    return {
+        "id": item.get("id") or item.get("recipeId"),
+        "title": item.get("title") or item.get("name") or "Onbekend recept",
+        "image": image,
+        "url": url,
+    }
+
+
+def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
+    token = get_user_token()
+    response = requests.get(
+        f"{AH_API_BASE}/mobile-services/recipes/v2/favorites",
+        headers=_auth_headers(token, include_content_type=False),
+        params={"page": page, "size": size},
+        timeout=30,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"AH bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
+        )
+
+    data = response.json()
+    if isinstance(data, dict):
+        raw = (
+            data.get("result")
+            or data.get("recipes")
+            or data.get("favorites")
+            or data.get("items")
+            or []
+        )
+        total = data.get("totalFound") or data.get("total") or len(raw)
+    else:
+        raw = data or []
+        total = len(raw)
+
+    recipes = [normalized for item in raw if (normalized := _normalize_recipe(item))]
+    return {"recipes": recipes, "total": total}
+
+
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
     token = get_user_token()
     shopping_items = []
