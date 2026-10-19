@@ -716,14 +716,36 @@ def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, A
     return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
 
 
-def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
-    username, password = configured_browser_credentials()
-    if not username or not password:
-        raise RuntimeError(
-            "AH website-koppeling ontbreekt. Voeg je e-mailadres en wachtwoord "
-            "toe bij Beheer > Albert Heijn om bewaarde recepten op te halen."
+def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
+    """Bewaarde recepten via de OAuth-koppeling: eerst de favoriet-ids, dan de details."""
+    token = get_user_token()
+    try:
+        response = requests.get(
+            f"{AH_API_BASE}/mobile-services/recipes/v1/favourite/ids",
+            headers=_auth_headers(token, include_content_type=False),
+            timeout=20,
         )
+    except requests.exceptions.Timeout:
+        raise RuntimeError("AH reageerde niet op tijd bij het ophalen van bewaarde recepten")
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"AH bewaarde recepten ophalen mislukt: {exc}")
 
+    if not response.ok:
+        raise RuntimeError(
+            f"AH bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
+        )
+    try:
+        ids = _extract_recipe_ids(response.json())
+    except ValueError:
+        raise RuntimeError("AH gaf een onverwacht antwoord bij het ophalen van bewaarde recepten")
+
+    size = max(1, int(size))
+    start = max(0, int(page)) * size
+    recipes = _fetch_recipe_details(token, ids[start:start + size])
+    return {"recipes": recipes, "total": len(ids)}
+
+
+def _get_saved_recipes_browser(page: int, size: int, username: str, password: str) -> dict[str, Any]:
     cookies = _load_browser_cookies()
     try:
         result = ah_browser.scrape_saved_recipes(cookies, username, password)
@@ -737,9 +759,40 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     recipes = result.get("recipes", []) if isinstance(result, dict) else []
     total = result.get("total", len(recipes)) if isinstance(result, dict) else len(recipes)
 
-    start = max(0, int(page)) * max(1, int(size))
-    end = start + max(1, int(size))
-    return {"recipes": recipes[start:end], "total": total}
+    size = max(1, int(size))
+    start = max(0, int(page)) * size
+    return {"recipes": recipes[start:start + size], "total": total}
+
+
+def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
+    """Probeer eerst de OAuth-koppeling; val terug op de website-login (headless browser)."""
+    api_result: dict[str, Any] | None = None
+    api_error = ""
+    if configured_refresh_token():
+        try:
+            api_result = _get_saved_recipes_api(page, size)
+        except RuntimeError as exc:
+            api_error = str(exc)
+        if api_result and api_result["recipes"]:
+            return api_result
+
+    username, password = configured_browser_credentials()
+    if username and password:
+        try:
+            return _get_saved_recipes_browser(page, size, username, password)
+        except RuntimeError as exc:
+            if api_result is not None:
+                return api_result
+            raise RuntimeError(f"{api_error}; website: {exc}" if api_error else str(exc))
+
+    if api_result is not None:
+        return api_result
+    if api_error:
+        raise RuntimeError(api_error)
+    raise RuntimeError(
+        "Geen AH-koppeling gevonden. Koppel je AH-account bij Beheer > Albert Heijn "
+        "om bewaarde recepten op te halen."
+    )
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:

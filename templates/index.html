@@ -98,7 +98,7 @@
             <h2>Mijn bewaarde recepten</h2>
             <button class="button button--secondary" id="load-ah-recipes">Laden</button>
           </div>
-          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie. De website-koppeling stel je in onder Beheer &gt; Albert Heijn.</p>
+          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie. Dit gebruikt je AH-koppeling onder Beheer &gt; Albert Heijn; de optionele website-koppeling staat daar ook.</p>
           <div id="ah-recipes-message"></div>
           <div id="ah-recipes" class="recipe-grid"></div>
         </div>
@@ -151,8 +151,8 @@
           <div id="token-message"></div>
         </div>
         <div class="box">
-          <h2>Website-koppeling (voor bewaarde recepten)</h2>
-          <p class="muted">Log in met je AH-account (zelfde e-mailadres en wachtwoord als op ah.nl). Dit is alleen nodig om je bewaarde recepten op te halen — het mandje vullen gaat via de OAuth-koppeling hierboven.</p>
+          <h2>Website-koppeling (optioneel, voor bewaarde recepten)</h2>
+          <p class="muted">Bewaarde recepten worden eerst via de AH-koppeling hierboven opgehaald. Lukt dat niet, dan wordt als terugval met je AH-account (zelfde e-mailadres en wachtwoord als op ah.nl) ingelogd op de website.</p>
           <form class="auth-form" id="ah-browser-login-form">
             <input class="input" id="ah-browser-username" type="email" placeholder="E-mailadres" autocomplete="username">
             <input class="input" id="ah-browser-password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
