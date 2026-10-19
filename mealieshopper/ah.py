@@ -39,7 +39,7 @@ FAVORITE_LISTS_QUERY = """
   }
 """
 
-SAVED_RECIPES_QUERY = """
+COOKBOOK_RECIPES_QUERY = """
   query SavedRecipes {
     cookBookRecipesCollectedMember {
       result {
@@ -53,6 +53,58 @@ SAVED_RECIPES_QUERY = """
     }
   }
 """
+
+# "Bewaarde recepten" in de AH-app zijn recepten in de receptencollectie van het lid
+# (categorieen met recepten). Het type van `recipes` staat niet in de schema-snapshot,
+# dus probeer eerst met en dan zonder selectie.
+RECIPE_COLLECTIONS_QUERIES = (
+    """
+  query SavedRecipeCollections {
+    recipeCollectionCategories {
+      id
+      name
+      isDefault
+      recipes {
+        id
+      }
+    }
+  }
+""",
+    """
+  query SavedRecipeCollections {
+    recipeCollectionCategories {
+      id
+      name
+      isDefault
+      recipes
+    }
+  }
+""",
+)
+
+RECIPE_SUMMARIES_QUERIES = (
+    """
+  query RecipeSummaries($ids: [Int!]!) {
+    recipeSummaries(ids: $ids) {
+      id
+      title
+      slug
+      images {
+        url
+      }
+    }
+  }
+""",
+    """
+  query RecipeSummaries($ids: [Int!]!) {
+    recipeSummaries(ids: $ids) {
+      id
+      title
+      slug
+    }
+  }
+""",
+)
 
 FAVORITE_LIST_QUERY = """
   query FavoriteListV2($ids: [String!]!) {
@@ -677,30 +729,6 @@ def _normalize_recipe(item: Any) -> dict[str, Any] | None:
     }
 
 
-def _extract_recipe_ids(data: Any) -> list[int]:
-    """Parse favourite recipe ids from the various shapes AH may return."""
-    if isinstance(data, dict):
-        data = (
-            data.get("recipeIds")
-            or data.get("ids")
-            or data.get("result")
-            or data.get("favourites")
-            or data.get("favorites")
-            or data.get("items")
-            or []
-        )
-    ids: list[int] = []
-    for entry in data or []:
-        if isinstance(entry, dict):
-            entry = entry.get("id") or entry.get("recipeId")
-        try:
-            if entry is not None:
-                ids.append(int(entry))
-        except (TypeError, ValueError):
-            continue
-    return ids
-
-
 def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, Any]]:
     """Hydrate recipe ids to full recipe objects. Falls back to id-only cards."""
     if not recipe_ids:
@@ -731,39 +759,95 @@ def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, A
     return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
 
 
-def _get_saved_recipes_rest(page: int, size: int) -> dict[str, Any]:
-    """Oude REST-route (favoriet-ids, dan de details). AH geeft hier inmiddels een 404 op."""
-    token = get_user_token()
-    try:
-        response = requests.get(
-            f"{AH_API_BASE}/mobile-services/recipes/v1/favourite/ids",
-            headers=_auth_headers(token, include_content_type=False),
-            timeout=20,
-        )
-    except requests.exceptions.Timeout:
-        raise RuntimeError("AH reageerde niet op tijd bij het ophalen van bewaarde recepten")
-    except requests.exceptions.RequestException as exc:
-        raise RuntimeError(f"AH bewaarde recepten ophalen mislukt: {exc}")
+def _graphql_variants(
+    token: str, queries: tuple[str, ...], variables: dict[str, Any], what: str
+) -> dict[str, Any]:
+    """Probeer query-varianten achter elkaar; de fouten van alle varianten staan in de melding."""
+    errors: list[str] = []
+    for query in queries:
+        try:
+            return _graphql(token, query, variables, what)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+    raise RuntimeError(" | ".join(dict.fromkeys(errors)))
 
-    if not response.ok:
-        raise RuntimeError(
-            f"AH bewaarde recepten ophalen mislukt ({response.status_code}): {response.text[:200]}"
-        )
-    try:
-        ids = _extract_recipe_ids(response.json())
-    except ValueError:
-        raise RuntimeError("AH gaf een onverwacht antwoord bij het ophalen van bewaarde recepten")
 
+def _recipe_page(recipes: list[dict[str, Any]], total: int, page: int, size: int) -> dict[str, Any]:
     size = max(1, int(size))
     start = max(0, int(page)) * size
-    recipes = _fetch_recipe_details(token, ids[start:start + size])
+    return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
+
+
+def _collection_recipe_ids(token: str) -> list[int]:
+    data = _graphql_variants(
+        token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
+    )
+    ids: list[int] = []
+    seen: set[int] = set()
+    for category in data.get("recipeCollectionCategories") or []:
+        for entry in category.get("recipes") or []:
+            raw = entry.get("id") if isinstance(entry, dict) else entry
+            try:
+                recipe_id = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if recipe_id not in seen:
+                seen.add(recipe_id)
+                ids.append(recipe_id)
+    return ids
+
+
+def _recipe_summaries(token: str, recipe_ids: list[int]) -> dict[int, dict[str, Any]]:
+    data = _graphql_variants(
+        token, RECIPE_SUMMARIES_QUERIES, {"ids": recipe_ids}, "AH receptdetails ophalen"
+    )
+    summaries: dict[int, dict[str, Any]] = {}
+    for item in data.get("recipeSummaries") or []:
+        try:
+            recipe_id = int(item.get("id"))
+        except (TypeError, ValueError):
+            continue
+        images = item.get("images") or []
+        image = images[0].get("url") if images and isinstance(images[0], dict) else ""
+        slug = (item.get("slug") or "").strip()
+        summaries[recipe_id] = {
+            "id": str(recipe_id),
+            "title": item.get("title") or f"Recept {recipe_id}",
+            "image": image or "",
+            "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}"
+            + (f"/{slug}" if slug else ""),
+        }
+    return summaries
+
+
+def _get_saved_recipes_collections(page: int, size: int) -> dict[str, Any]:
+    """Bewaarde recepten uit de receptencollectie van het lid (GraphQL)."""
+    token = get_user_token()
+    ids = _collection_recipe_ids(token)
+    size = max(1, int(size))
+    start = max(0, int(page)) * size
+    page_ids = ids[start:start + size]
+    if not page_ids:
+        return {"recipes": [], "total": len(ids)}
+    try:
+        summaries = _recipe_summaries(token, page_ids)
+    except RuntimeError:
+        summaries = {}
+    recipes = []
+    for recipe_id in page_ids:
+        recipe = summaries.get(recipe_id)
+        if recipe is None:
+            # Zonder details blijft er een kaart met id en werkende link over.
+            recipe = _normalize_recipe(recipe_id)
+        if recipe:
+            recipes.append(recipe)
     return {"recipes": recipes, "total": len(ids)}
 
 
-def _get_saved_recipes_graphql(page: int, size: int) -> dict[str, Any]:
-    """Bewaarde recepten via het kookboek van het lid (GraphQL)."""
+def _get_saved_recipes_cookbook(page: int, size: int) -> dict[str, Any]:
+    """Verzamelde recepten uit het kookboek van het lid (GraphQL)."""
     token = get_user_token()
-    data = _graphql(token, SAVED_RECIPES_QUERY, {}, "AH bewaarde recepten ophalen")
+    data = _graphql(token, COOKBOOK_RECIPES_QUERY, {}, "AH kookboek ophalen")
     collected = data.get("cookBookRecipesCollectedMember") or {}
     recipes = []
     for item in collected.get("result") or []:
@@ -778,21 +862,29 @@ def _get_saved_recipes_graphql(page: int, size: int) -> dict[str, Any]:
                 "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
             }
         )
-    size = max(1, int(size))
-    start = max(0, int(page)) * size
     total = (collected.get("page") or {}).get("total") or len(recipes)
-    return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
+    return _recipe_page(recipes, total, page, size)
 
 
 def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
-    """Bewaarde recepten via de OAuth-koppeling: GraphQL eerst, de oude REST-route als vangnet."""
-    try:
-        return _get_saved_recipes_graphql(page, size)
-    except RuntimeError as graphql_error:
+    """Bewaarde recepten via de OAuth-koppeling: eerst de receptencollectie, dan het kookboek."""
+    errors: list[str] = []
+    empty: dict[str, Any] | None = None
+    for label, source in (
+        ("collectie", _get_saved_recipes_collections),
+        ("kookboek", _get_saved_recipes_cookbook),
+    ):
         try:
-            return _get_saved_recipes_rest(page, size)
-        except RuntimeError as rest_error:
-            raise RuntimeError(f"{graphql_error}; REST: {rest_error}") from rest_error
+            result = source(page, size)
+        except RuntimeError as exc:
+            errors.append(f"{label}: {exc}")
+            continue
+        if result["recipes"] or result["total"]:
+            return result
+        empty = result
+    if empty is not None:
+        return empty
+    raise RuntimeError("; ".join(errors))
 
 
 def _get_saved_recipes_browser(page: int, size: int, username: str, password: str) -> dict[str, Any]:
