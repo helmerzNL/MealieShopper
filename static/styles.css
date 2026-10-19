@@ -592,6 +592,13 @@ code {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.product-card:hover {
+  border-color: var(--primary);
+  background: #f4f7ff;
 }
 
 .product-card img {
@@ -603,9 +610,8 @@ code {
   background: #fff;
 }
 
-.product-card a {
+a.product-card strong {
   color: var(--primary);
-  font-weight: 650;
 }
 
 .product-card small {
@@ -618,4 +624,11 @@ code {
 .product-card .bonus {
   color: var(--danger);
   font-weight: 650;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }

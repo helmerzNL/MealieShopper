@@ -6,13 +6,13 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ah, jumbo, mealie
+from . import ah, ah_lists, jumbo, mealie
 from . import auth
 
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-2")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-4")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -118,6 +118,30 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("AH favorite list items error")
             return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 424
+
+    @app.get("/api/ah/lists")
+    def ah_lists_overview():
+        # Altijd 200: lokale kopieen blijven zichtbaar ook als AH niet bereikbaar is.
+        return jsonify(ah_lists.merged_lists())
+
+    @app.get("/api/ah/lists/<list_id>")
+    def ah_list_detail(list_id: str):
+        snapshot = ah_lists.get_snapshot(list_id)
+        if snapshot:
+            return jsonify(snapshot)
+        try:
+            return jsonify({**ah.get_favorite_list_items(list_id), "source": "ah"})
+        except Exception as exc:
+            app.logger.exception("AH list detail error")
+            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 424
+
+    @app.post("/api/ah/lists/<list_id>/sync")
+    def ah_list_sync(list_id: str):
+        try:
+            return jsonify(ah_lists.sync_list(list_id))
+        except Exception as exc:
+            app.logger.exception("AH list sync error")
+            return jsonify({"error": str(exc) or "Synchroniseren mislukt"}), 424
 
     @app.post("/api/mealie/import")
     def import_recipe():
