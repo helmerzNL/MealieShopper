@@ -542,6 +542,24 @@ async function refreshAhStatus() {
   }
 }
 
+async function checkAhConnection() {
+  message("#ah-status", "Koppeling controleren...", "success");
+  try {
+    const data = await jsonFetch("/api/ah/auth/status?verify=1");
+    if (data.connected) {
+      message("#ah-status", "AH account gekoppeld en werkt.", "success");
+    } else {
+      message(
+        "#ah-status",
+        data.error || "AH account nog niet gekoppeld, of de koppeling is verlopen. Log opnieuw in.",
+        "error"
+      );
+    }
+  } catch (error) {
+    message("#ah-status", error.message);
+  }
+}
+
 async function refreshJumboStatus() {
   if (!$("#jumbo-status")) return;
   try {
@@ -761,6 +779,7 @@ $("#verify-token").addEventListener("click", async () => {
     message("#token-message", error.message);
   }
 });
+$("#check-ah").addEventListener("click", checkAhConnection);
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#load-ah-recipes").addEventListener("click", (event) =>
   loadSavedRecipes("/api/ah/recipes/saved", "#ah-recipes", "#ah-recipes-message", event.currentTarget)

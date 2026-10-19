@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20260624-1")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-1")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -228,8 +228,8 @@ def create_app() -> Flask:
         result = ah.verify_token(token)
         if result.get("ok"):
             if result.get("type") == "refresh":
-                ah.save_refresh_token(token)
-            return jsonify({"connected": True, **result})
+                ah.save_refresh_token(result.get("refreshToken") or token)
+            return jsonify({"connected": True, "type": result.get("type")})
         return jsonify({"error": result["error"]}), 400
 
     @app.get("/api/ah/browser/status")

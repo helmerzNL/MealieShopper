@@ -95,21 +95,23 @@
         <div id="beheer-ah" class="subpanel is-active">
         <div class="box">
           <h2>Inloggen via Albert Heijn</h2>
-          <p class="muted">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken.</p>
+          <p class="muted">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
           <ol class="steps">
-            <li>Klik op <strong>Inloggen bij Albert Heijn</strong>. De echte AH-loginpagina opent in een nieuw tabblad.</li>
-            <li>Log in met je passkey of wachtwoord.</li>
-            <li>Daarna kom je op een pagina die niet laadt en die begint met <code>appie://login-exit?code=...</code>. Kopieer die volledige URL uit de adresbalk.</li>
-            <li>Plak de URL hieronder en klik op <strong>Koppelen</strong>.</li>
+            <li>Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
+            <li>Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+            <li>Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
+            <li>In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
+            <li>Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
           </ol>
           <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
             <button class="button inline-button" id="ah-login" type="submit">Inloggen bij Albert Heijn</button>
           </form>
           <div id="ah-status"></div>
+          <button class="button button--secondary" id="check-ah">Koppeling controleren</button>
         </div>
         <div class="box">
           <h2>Koppeling afronden</h2>
-          <p class="muted">Plak de <code>appie://login-exit?code=...</code> URL (of alleen de code of een refresh token).</p>
+          <p class="muted">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
           <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
           <button class="button" id="verify-token">Koppelen</button>
           <div id="token-message"></div>

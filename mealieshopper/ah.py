@@ -1,9 +1,10 @@
 import json
+import re
 import time
 from dataclasses import dataclass
 from os import environ
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 
@@ -43,13 +44,21 @@ FAVORITE_LIST_QUERY = """
 """
 
 
+_CODE_PARAM_RE = re.compile(r"(?:^|[?&#\s'\"(])code=([^&\s'\"<>)]+)")
+
+
 def extract_oauth_code(value: str) -> str:
+    """Haal de OAuth code uit een geplakte URL, console-regel of kale code.
+
+    Browsers tonen de ``appie://login-exit?code=...`` redirect alleen als
+    foutmelding in de console, dus de geplakte tekst bevat vaak ruis eromheen
+    (aanhalingstekens, "Failed to launch ..." enzovoort).
+    """
     candidate = str(value or "").strip()
-    if "code=" not in candidate:
-        return candidate
-    parsed = urlparse(candidate)
-    code = parse_qs(parsed.query).get("code", [""])[0]
-    return code.strip() or candidate
+    match = _CODE_PARAM_RE.search(candidate)
+    if match:
+        return unquote(match.group(1)).strip()
+    return candidate.strip("'\"` ")
 
 
 def login_url(redirect_uri: str = "appie://login-exit") -> str:
@@ -183,6 +192,7 @@ def get_user_token() -> str:
         headers=_auth_headers(),
         json={"clientId": AH_CLIENT_ID, "refreshToken": refresh_token},
     )
+    _store_rotated_refresh_token(refresh_token, data.get("refresh_token"))
     user_token_cache = TokenCache(
         token=data["access_token"],
         expires_at=time.time() + max(0, int(data.get("expires_in", 3600)) - 60),
@@ -191,7 +201,16 @@ def get_user_token() -> str:
 
 
 def configured_refresh_token() -> str:
-    return environ.get("AH_REFRESH_TOKEN", "").strip() or auth.get_secret("AH_REFRESH_TOKEN")
+    # De opgeslagen token gaat voor: AH kan de refresh token bij elke vernieuwing
+    # vervangen, en die nieuwe waarde bewaren we in de database. De omgevings-
+    # variabele is alleen de startwaarde.
+    return auth.get_secret("AH_REFRESH_TOKEN") or environ.get("AH_REFRESH_TOKEN", "").strip()
+
+
+def _store_rotated_refresh_token(used: str, new: Any) -> None:
+    new_token = str(new or "").strip()
+    if new_token and new_token != used:
+        save_refresh_token(new_token)
 
 
 def save_refresh_token(refresh_token: str) -> None:
@@ -287,7 +306,7 @@ def link_account(value: str) -> dict[str, Any]:
         result = verify_token(raw)
         if result.get("ok"):
             if result.get("type") == "refresh":
-                save_refresh_token(raw)
+                save_refresh_token(result.get("refreshToken") or raw)
                 return {"connected": True, "type": "refresh"}
             errors.append(
                 "dit is een access token (verloopt snel); plak de refresh token"
@@ -316,6 +335,8 @@ def auth_status(verify: bool = False) -> dict[str, Any]:
     if not verify:
         return {"connected": True, "verified": False}
     result = verify_token(token)
+    if result.get("ok") and result.get("type") == "refresh":
+        _store_rotated_refresh_token(token, result.get("refreshToken"))
     return {
         "connected": bool(result.get("ok")),
         "verified": True,
@@ -324,17 +345,36 @@ def auth_status(verify: bool = False) -> dict[str, Any]:
     }
 
 
+def _explain_exchange_error(error: str) -> str:
+    status = error.split(":", 1)[0].strip()
+    lowered = error.lower()
+    if status == "403" or "access denied" in lowered:
+        return (
+            "AH weigert het verzoek (403). Probeer het later opnieuw; "
+            "blijft dit gebeuren, dan blokkeert AH deze server."
+        )
+    if status in {"400", "401"}:
+        return (
+            "AH wijst de code af: hij is verlopen of al gebruikt. Log opnieuw in "
+            "bij AH en plak de nieuwe code direct."
+        )
+    return error
+
+
 def exchange_oauth_code(code: str, redirect_uri: str | None = None) -> dict[str, str]:
     payload: dict[str, str] = {"clientId": AH_CLIENT_ID, "code": extract_oauth_code(code)}
     if redirect_uri:
         payload["redirect_uri"] = redirect_uri
 
-    data = _request_json(
-        "POST",
-        f"{AH_API_BASE}/mobile-auth/v1/auth/token",
-        headers=_auth_headers(),
-        json=payload,
-    )
+    try:
+        data = _request_json(
+            "POST",
+            f"{AH_API_BASE}/mobile-auth/v1/auth/token",
+            headers=_auth_headers(),
+            json=payload,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(_explain_exchange_error(str(exc))) from exc
     global user_token_cache
     user_token_cache = TokenCache(
         token=data["access_token"],
@@ -357,7 +397,11 @@ def verify_token(token: str) -> dict[str, Any]:
         timeout=30,
     )
     if refresh_response.ok:
-        return {"ok": True, "type": "refresh"}
+        try:
+            rotated = (refresh_response.json() or {}).get("refresh_token")
+        except ValueError:
+            rotated = None
+        return {"ok": True, "type": "refresh", "refreshToken": rotated or token}
 
     access_response = requests.get(
         f"{AH_API_BASE}/mobile-services/member/v2/profile",
