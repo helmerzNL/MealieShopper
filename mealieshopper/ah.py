@@ -28,6 +28,17 @@ AH_BROWSER_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
+FAVORITE_LISTS_QUERY = """
+  query FavoriteLists($ids: [String!]!) {
+    favoriteListV2(ids: $ids) {
+      id
+      description
+      totalSize
+      updatedAt
+    }
+  }
+"""
+
 FAVORITE_LIST_QUERY = """
   query FavoriteListV2($ids: [String!]!) {
     favoriteListV2(ids: $ids) {
@@ -508,13 +519,27 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     return products
 
 
-def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
-    token = get_user_token()
+def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
+    response = requests.post(
+        f"{AH_API_BASE}/graphql",
+        headers=_auth_headers(token),
+        json={"query": query, "variables": variables},
+        timeout=30,
+    )
+    if not response.ok:
+        raise RuntimeError(f"{what} mislukt ({response.status_code}): {response.text[:200]}")
+    data = response.json()
+    if data.get("errors"):
+        raise RuntimeError(f"{what} mislukt: {data['errors'][0].get('message', 'GraphQL error')}")
+    return data.get("data") or {}
+
+
+def _get_favorite_lists_rest(token: str, product_id: int) -> list[dict[str, Any]]:
+    # Oude REST-route; AH geeft hier inmiddels een 404 op. Alleen vangnet.
     # AH eist een productId maar geeft alle lijstjes terug; welke waarde wordt
     # geaccepteerd verschilt per AH-release, dus probeer er een paar.
-    attempts = [max(1, int(product_id or 1)), 0]
     response = None
-    for candidate in attempts:
+    for candidate in (max(1, int(product_id or 1)), 0):
         response = requests.get(
             f"{AH_API_BASE}/mobile-services/lists/v3/lists",
             headers=_auth_headers(token, include_content_type=False),
@@ -535,21 +560,36 @@ def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
     ]
 
 
+def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
+    token = get_user_token()
+    try:
+        # Een lege ids-lijst geeft alle lijstjes terug.
+        data = _graphql(token, FAVORITE_LISTS_QUERY, {"ids": []}, "AH lijstjes ophalen")
+    except RuntimeError as graphql_error:
+        try:
+            return _get_favorite_lists_rest(token, product_id)
+        except RuntimeError as rest_error:
+            raise RuntimeError(f"{graphql_error}; REST: {rest_error}") from rest_error
+    return [
+        {
+            "id": item.get("id"),
+            "name": item.get("description"),
+            "itemCount": item.get("totalSize") or 0,
+            "updatedAt": item.get("updatedAt"),
+        }
+        for item in data.get("favoriteListV2") or []
+    ]
+
+
 def get_favorite_list_items(list_id: str) -> dict[str, Any]:
     token = get_user_token()
-    response = requests.post(
-        f"{AH_API_BASE}/graphql",
-        headers=_auth_headers(token),
-        json={"query": FAVORITE_LIST_QUERY, "variables": {"ids": [str(list_id).upper()]}},
-        timeout=30,
+    data = _graphql(
+        token,
+        FAVORITE_LIST_QUERY,
+        {"ids": [str(list_id).upper()]},
+        "AH lijstinhoud ophalen",
     )
-    if not response.ok:
-        raise RuntimeError(f"AH lijstinhoud ophalen mislukt ({response.status_code}): {response.text[:200]}")
-    data = response.json()
-    if data.get("errors"):
-        raise RuntimeError(f"AH lijstinhoud ophalen mislukt: {data['errors'][0].get('message', 'GraphQL error')}")
-
-    lists = data.get("data", {}).get("favoriteListV2") or []
+    lists = data.get("favoriteListV2") or []
     if not lists:
         raise RuntimeError("AH lijst niet gevonden")
 
