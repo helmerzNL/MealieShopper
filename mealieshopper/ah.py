@@ -39,6 +39,21 @@ FAVORITE_LISTS_QUERY = """
   }
 """
 
+SAVED_RECIPES_QUERY = """
+  query SavedRecipes {
+    cookBookRecipesCollectedMember {
+      result {
+        id
+        title
+      }
+      page {
+        total
+        hasNextPage
+      }
+    }
+  }
+"""
+
 FAVORITE_LIST_QUERY = """
   query FavoriteListV2($ids: [String!]!) {
     favoriteListV2(ids: $ids) {
@@ -716,8 +731,8 @@ def _fetch_recipe_details(token: str, recipe_ids: list[int]) -> list[dict[str, A
     return [normalized for rid in recipe_ids if (normalized := _normalize_recipe(rid))]
 
 
-def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
-    """Bewaarde recepten via de OAuth-koppeling: eerst de favoriet-ids, dan de details."""
+def _get_saved_recipes_rest(page: int, size: int) -> dict[str, Any]:
+    """Oude REST-route (favoriet-ids, dan de details). AH geeft hier inmiddels een 404 op."""
     token = get_user_token()
     try:
         response = requests.get(
@@ -743,6 +758,41 @@ def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
     start = max(0, int(page)) * size
     recipes = _fetch_recipe_details(token, ids[start:start + size])
     return {"recipes": recipes, "total": len(ids)}
+
+
+def _get_saved_recipes_graphql(page: int, size: int) -> dict[str, Any]:
+    """Bewaarde recepten via het kookboek van het lid (GraphQL)."""
+    token = get_user_token()
+    data = _graphql(token, SAVED_RECIPES_QUERY, {}, "AH bewaarde recepten ophalen")
+    collected = data.get("cookBookRecipesCollectedMember") or {}
+    recipes = []
+    for item in collected.get("result") or []:
+        recipe_id = item.get("id")
+        if recipe_id is None:
+            continue
+        recipes.append(
+            {
+                "id": str(recipe_id),
+                "title": item.get("title") or f"Recept {recipe_id}",
+                "image": "",
+                "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
+            }
+        )
+    size = max(1, int(size))
+    start = max(0, int(page)) * size
+    total = (collected.get("page") or {}).get("total") or len(recipes)
+    return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
+
+
+def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
+    """Bewaarde recepten via de OAuth-koppeling: GraphQL eerst, de oude REST-route als vangnet."""
+    try:
+        return _get_saved_recipes_graphql(page, size)
+    except RuntimeError as graphql_error:
+        try:
+            return _get_saved_recipes_rest(page, size)
+        except RuntimeError as rest_error:
+            raise RuntimeError(f"{graphql_error}; REST: {rest_error}") from rest_error
 
 
 def _get_saved_recipes_browser(page: int, size: int, username: str, password: str) -> dict[str, Any]:
