@@ -83,14 +83,14 @@ class SavedRecipesSelectionTest(unittest.TestCase):
         self.assertIn("Beheer > Albert Heijn", str(ctx.exception))
 
 
-class SavedRecipesApiTest(unittest.TestCase):
+class SavedRecipesRestTest(unittest.TestCase):
     def test_ids_are_paged_and_hydrated(self):
         ids = mock.Mock(ok=True)
         ids.json.return_value = {"recipeIds": [1, 2, 3]}
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
                 mock.patch.object(ah.requests, "get", return_value=ids), \
                 mock.patch.object(ah, "_fetch_recipe_details", return_value=["x"]) as fetch:
-            result = ah._get_saved_recipes_api(page=1, size=2)
+            result = ah._get_saved_recipes_rest(page=1, size=2)
         fetch.assert_called_once_with("tok", [3])
         self.assertEqual(result, {"recipes": ["x"], "total": 3})
 
@@ -99,8 +99,55 @@ class SavedRecipesApiTest(unittest.TestCase):
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
                 mock.patch.object(ah.requests, "get", return_value=bad):
             with self.assertRaises(RuntimeError) as ctx:
-                ah._get_saved_recipes_api(0, 50)
+                ah._get_saved_recipes_rest(0, 50)
         self.assertIn("404", str(ctx.exception))
+
+
+class SavedRecipesGraphqlTest(unittest.TestCase):
+    def graphql_response(self, collected):
+        response = mock.Mock(ok=True)
+        response.json.return_value = {"data": {"cookBookRecipesCollectedMember": collected}}
+        return response
+
+    def test_recipes_are_mapped_and_paged(self):
+        collected = {
+            "result": [{"id": 1, "title": "Soep"}, {"id": 2, "title": None}, {"id": 3, "title": "Taart"}],
+            "page": {"total": 3, "hasNextPage": False},
+        }
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "post", return_value=self.graphql_response(collected)):
+            first = ah._get_saved_recipes_graphql(page=0, size=2)
+            second = ah._get_saved_recipes_graphql(page=1, size=2)
+        self.assertEqual(first["total"], 3)
+        self.assertEqual(
+            first["recipes"][0],
+            {"id": "1", "title": "Soep", "image": "", "url": "https://www.ah.nl/allerhande/recept/R-R1"},
+        )
+        self.assertEqual(first["recipes"][1]["title"], "Recept 2")
+        self.assertEqual([r["id"] for r in second["recipes"]], ["3"])
+
+    def test_empty_result(self):
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "post", return_value=self.graphql_response(None)):
+            self.assertEqual(ah._get_saved_recipes_graphql(0, 50), {"recipes": [], "total": 0})
+
+    def test_wrapper_prefers_graphql(self):
+        with mock.patch.object(ah, "_get_saved_recipes_graphql", return_value=API_RESULT), \
+                mock.patch.object(ah, "_get_saved_recipes_rest", side_effect=AssertionError("niet aanroepen")):
+            self.assertEqual(ah._get_saved_recipes_api(0, 50), API_RESULT)
+
+    def test_wrapper_falls_back_to_rest(self):
+        with mock.patch.object(ah, "_get_saved_recipes_graphql", side_effect=RuntimeError("Cannot query field")), \
+                mock.patch.object(ah, "_get_saved_recipes_rest", return_value=API_RESULT):
+            self.assertEqual(ah._get_saved_recipes_api(0, 50), API_RESULT)
+
+    def test_wrapper_reports_both_errors(self):
+        with mock.patch.object(ah, "_get_saved_recipes_graphql", side_effect=RuntimeError("argument 'x' is required")), \
+                mock.patch.object(ah, "_get_saved_recipes_rest", side_effect=RuntimeError("404 not_found")):
+            with self.assertRaises(RuntimeError) as ctx:
+                ah._get_saved_recipes_api(0, 50)
+        self.assertIn("argument 'x' is required", str(ctx.exception))
+        self.assertIn("REST: 404 not_found", str(ctx.exception))
 
 
 if __name__ == "__main__":
