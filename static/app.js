@@ -6,6 +6,7 @@ const state = {
   auth: null,
   credentials: [],
   store: "ah",
+  ahListsLoaded: false,
 };
 
 const storeLabels = { ah: "Albert Heijn", jumbo: "Jumbo" };
@@ -598,6 +599,26 @@ async function refreshAhBrowserStatus() {
   }
 }
 
+function formatSyncTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("nl-NL", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function ahListStatus(list) {
+  const total = Number(list.itemCount || 0);
+  const count = `${total.toLocaleString("nl-NL")} ${total === 1 ? "item" : "items"}`;
+  if (!list.synced) return `${count} · niet gesynchroniseerd`;
+  const when = formatSyncTime(list.syncedAt);
+  const stale =
+    list.source === "both" && list.syncedCount !== null && list.syncedCount !== list.itemCount
+      ? " · gewijzigd bij AH"
+      : "";
+  const gone = list.source === "local" ? " · alleen lokale kopie" : "";
+  return `${count} · gesynchroniseerd${when ? ` op ${when}` : ""}${stale}${gone}`;
+}
+
 function renderAhLists(lists) {
   $("#ah-lists").innerHTML = lists.length
     ? `
@@ -608,9 +629,18 @@ function renderAhLists(lists) {
               <div class="credential-row">
                 <a href="#" class="list-link" data-ah-list-id="${escapeHtml(list.id)}">
                   <strong>${escapeHtml(list.name || "-")}</strong>
-                  <small>${Number(list.itemCount || 0).toLocaleString("nl-NL")} items</small>
+                  <small>${escapeHtml(ahListStatus(list))}</small>
                 </a>
-                <button class="button button--secondary" data-ah-list-id="${escapeHtml(list.id)}">Openen</button>
+                <div class="row-actions">
+                  <button class="button button--secondary" data-ah-list-id="${escapeHtml(list.id)}">Openen</button>
+                  ${
+                    list.source === "local"
+                      ? ""
+                      : `<button class="button" data-ah-sync-id="${escapeHtml(list.id)}">${
+                          list.synced ? "Opnieuw synchroniseren" : "Synchroniseren"
+                        }</button>`
+                  }
+                </div>
               </div>
             `
           )
@@ -624,6 +654,9 @@ function renderAhLists(lists) {
       loadAhFavoriteListItems(element.dataset.ahListId);
     });
   });
+  document.querySelectorAll("[data-ah-sync-id]").forEach((button) => {
+    button.addEventListener("click", () => syncOneAndReport(button.dataset.ahSyncId, button));
+  });
 }
 
 async function loadAhFavoriteLists() {
@@ -632,8 +665,16 @@ async function loadAhFavoriteLists() {
   button.textContent = "Laden...";
   $("#ah-list-items").innerHTML = "";
   try {
-    const data = await jsonFetch("/api/ah/favorite-lists");
+    const data = await jsonFetch("/api/ah/lists");
     renderAhLists(data.lists || []);
+    // Lokale kopieen blijven zichtbaar; meld wel waarom de live lijst ontbreekt.
+    const hasLocal = (data.lists || []).some((list) => list.synced);
+    message(
+      "#ah-lists-warning",
+      data.ahError
+        ? `AH is niet bereikbaar${hasLocal ? ", je ziet de gesynchroniseerde kopieen" : ""}: ${data.ahError}`
+        : ""
+    );
   } catch (error) {
     message("#ah-lists", error.message);
   } finally {
@@ -642,20 +683,96 @@ async function loadAhFavoriteLists() {
   }
 }
 
+async function syncAhList(listId, button) {
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Synchroniseren...";
+  }
+  try {
+    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/sync`, { method: "POST" });
+    return { ok: true, data };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function syncOneAndReport(listId, button) {
+  const result = await syncAhList(listId, button);
+  await loadAhFavoriteLists();
+  if (result.ok) {
+    message(
+      "#ah-lists-warning",
+      `"${result.data.name}" gesynchroniseerd (${result.data.totalSize} items).`,
+      "success"
+    );
+    await loadAhFavoriteListItems(listId);
+  } else {
+    message("#ah-lists-warning", `Synchroniseren mislukt: ${result.error}`);
+  }
+}
+
+async function syncAllAhLists() {
+  const button = $("#sync-all-ah-lists");
+  button.disabled = true;
+  button.textContent = "Synchroniseren...";
+  try {
+    const data = await jsonFetch("/api/ah/lists");
+    const lists = (data.lists || []).filter((list) => list.source !== "local");
+    if (!lists.length) {
+      message(
+        "#ah-lists-warning",
+        data.ahError ? `AH is niet bereikbaar: ${data.ahError}` : "Geen AH lijstjes om te synchroniseren."
+      );
+      return;
+    }
+    const failures = [];
+    for (const list of lists) {
+      const result = await syncAhList(list.id, null);
+      if (!result.ok) failures.push(`${list.name}: ${result.error}`);
+    }
+    await loadAhFavoriteLists();
+    message(
+      "#ah-lists-warning",
+      failures.length
+        ? `${lists.length - failures.length} van ${lists.length} gesynchroniseerd. Mislukt: ${failures.join("; ")}`
+        : `${lists.length} lijstjes gesynchroniseerd.`,
+      failures.length ? "error" : "success"
+    );
+  } catch (error) {
+    message("#ah-lists-warning", error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Alles synchroniseren";
+  }
+}
+
 async function loadAhFavoriteListItems(listId) {
   $("#ah-list-items").innerHTML = `<div class="message success">Lijst laden...</div>`;
   try {
-    const data = await jsonFetch(`/api/ah/favorite-lists/${encodeURIComponent(listId)}/items`);
+    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}`);
     const items = data.items || [];
+    const synced = data.source === "local";
     $("#ah-list-items").innerHTML = `
       <div class="ingredients">
-        <h2>${escapeHtml(data.name || "AH lijst")}</h2>
-        <p class="muted">${items.length.toLocaleString("nl-NL")} producten</p>
+        <div class="toolbar">
+          <h2>${escapeHtml(data.name || "AH lijst")}</h2>
+          <button class="button" id="sync-open-ah-list">${synced ? "Opnieuw synchroniseren" : "Synchroniseren"}</button>
+        </div>
+        <p class="muted">${items.length.toLocaleString("nl-NL")} producten · ${
+          synced
+            ? `lokale kopie van ${escapeHtml(formatSyncTime(data.syncedAt))}`
+            : "live van AH, nog niet gesynchroniseerd"
+        }</p>
         <div class="product-grid">
           ${items.map(renderAhListItem).join("")}
         </div>
       </div>
     `;
+    $("#sync-open-ah-list").addEventListener("click", (event) =>
+      syncOneAndReport(listId, event.currentTarget)
+    );
   } catch (error) {
     message("#ah-list-items", error.message);
   }
@@ -667,20 +784,18 @@ function renderAhListItem(item) {
   const price = Number(product.price || 0);
   const url = item.url || product.url || "";
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
-  const name = url
-    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(title)}</a>`
-    : escapeHtml(title);
-  return `
-    <article class="product-card">
-      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
-      <div>
-        <strong>${escapeHtml(item.quantity)}x ${name}</strong>
-        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-        ${product.isBonus ? `<small class="bonus">Bonus</small>` : ""}
-        ${price ? `<small>&euro;${price.toFixed(2).replace(".", ",")}</small>` : ""}
-      </div>
-    </article>
+  const body = `
+    ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
+    <div>
+      <strong>${escapeHtml(item.quantity)}x ${escapeHtml(title)}</strong>
+      ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+      ${product.isBonus ? `<small class="bonus">Bonus</small>` : ""}
+      ${price ? `<small>&euro;${price.toFixed(2).replace(".", ",")}</small>` : ""}
+    </div>
   `;
+  return url
+    ? `<a class="product-card" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${body}</a>`
+    : `<article class="product-card">${body}</article>`;
 }
 
 function renderSavedRecipeCard(recipe) {
@@ -753,6 +868,10 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     subtab.classList.add("is-active");
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
+    if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
+      state.ahListsLoaded = true;
+      loadAhFavoriteLists();
+    }
   });
 });
 
@@ -800,6 +919,7 @@ $("#verify-token").addEventListener("click", async () => {
 });
 $("#check-ah").addEventListener("click", checkAhConnection);
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
+$("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", (event) =>
   loadSavedRecipes("/api/ah/recipes/saved", "#ah-recipes", "#ah-recipes-message", event.currentTarget)
 );

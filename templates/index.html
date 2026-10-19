@@ -40,6 +40,7 @@
         <button class="tab is-active" data-tab="planner">Weekmenu naar winkel</button>
         <button class="tab" data-tab="search">Recepten zoeken</button>
         <button class="tab" data-tab="url">URL importeren</button>
+        <button class="tab" data-tab="ah-items">AH Items</button>
         <button class="tab" data-tab="beheer">Beheer</button>
       </nav>
 
@@ -85,6 +86,39 @@
         <div id="import-message"></div>
       </section>
 
+      <section id="ah-items" class="panel">
+        <nav class="subtabs" aria-label="AH Items">
+          <button class="subtab is-active" data-subtab="ah-items-recepten">AH Recepten</button>
+          <button class="subtab" data-subtab="ah-items-lijstjes">AH Lijstjes</button>
+        </nav>
+
+        <div id="ah-items-recepten" class="subpanel is-active">
+        <div class="box">
+          <div class="toolbar">
+            <h2>Mijn bewaarde recepten</h2>
+            <button class="button button--secondary" id="load-ah-recipes">Laden</button>
+          </div>
+          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie. De website-koppeling stel je in onder Beheer &gt; Albert Heijn.</p>
+          <div id="ah-recipes-message"></div>
+          <div id="ah-recipes" class="recipe-grid"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-lijstjes" class="subpanel">
+        <div class="box">
+          <div class="toolbar">
+            <h2>Favoriete AH lijstjes</h2>
+            <button class="button button--secondary" id="sync-all-ah-lists">Alles synchroniseren</button>
+            <button class="button button--secondary" id="load-ah-lists">Laden</button>
+          </div>
+          <p class="muted">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de AH-koppeling niet werkt.</p>
+          <div id="ah-lists-warning"></div>
+          <div id="ah-lists"></div>
+          <div id="ah-list-items"></div>
+        </div>
+        </div>
+      </section>
+
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer">
           <button class="subtab is-active" data-subtab="beheer-ah">Albert Heijn</button>
@@ -117,14 +151,6 @@
           <div id="token-message"></div>
         </div>
         <div class="box">
-          <div class="toolbar">
-            <h2>Favoriete AH lijstjes</h2>
-            <button class="button button--secondary" id="load-ah-lists">Laden</button>
-          </div>
-          <div id="ah-lists"></div>
-          <div id="ah-list-items"></div>
-        </div>
-        <div class="box">
           <h2>Website-koppeling (voor bewaarde recepten)</h2>
           <p class="muted">Log in met je AH-account (zelfde e-mailadres en wachtwoord als op ah.nl). Dit is alleen nodig om je bewaarde recepten op te halen — het mandje vullen gaat via de OAuth-koppeling hierboven.</p>
           <form class="auth-form" id="ah-browser-login-form">
@@ -134,15 +160,6 @@
           </form>
           <div id="ah-browser-status"></div>
           <button class="button button--secondary" id="ah-browser-logout" hidden>Ontkoppelen</button>
-        </div>
-        <div class="box">
-          <div class="toolbar">
-            <h2>Mijn bewaarde recepten</h2>
-            <button class="button button--secondary" id="load-ah-recipes">Laden</button>
-          </div>
-          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie.</p>
-          <div id="ah-recipes-message"></div>
-          <div id="ah-recipes" class="recipe-grid"></div>
         </div>
         </div>
 

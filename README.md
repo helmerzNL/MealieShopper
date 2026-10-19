@@ -51,6 +51,21 @@ door de interface gebruikt.
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.
 
+## AH Items
+
+Het tabblad `AH Items` heeft twee onderdelen:
+
+- **AH Recepten**: je bewaarde Allerhande-recepten ophalen en in Mealie importeren
+  (de website-koppeling stel je in onder Beheer > Albert Heijn).
+- **AH Lijstjes**: je favoriete AH-lijstjes. Met `Synchroniseren` (per lijstje) of
+  `Alles synchroniseren` bewaart MealieShopper een kopie van het lijstje, inclusief
+  productnaam, merk, inhoud, prijs en afbeelding, in de SQLite database onder
+  `MEALIESHOPPER_DATA_DIR` (tabellen `ah_lists` en `ah_list_items`). Een geopend
+  lijstje toont de kopie als die er is; de producten linken naar ah.nl.
+  Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar
+  en staat er een melding met de AH-fout. Een nieuwe synchronisatie vervangt de
+  kopie; mislukt die, dan blijft de vorige kopie staan.
+
 ## Passkeys
 
 Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de
