@@ -12,9 +12,13 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-4")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-5")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
+
+    # Fouten van externe diensten (AH, Jumbo, Mealie) geven we terug als 424 in
+    # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
+    # door hun eigen HTML-pagina, waardoor de echte foutmelding verdwijnt.
 
     def public_base_url() -> str:
         configured = (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/")
@@ -68,7 +72,7 @@ def create_app() -> Flask:
             return jsonify(mealie.get_meal_plan_with_recipes(start, end))
         except Exception as exc:
             app.logger.exception("Mealplan error")
-            return jsonify({"error": str(exc) or "Fout bij ophalen weekmenu"}), 502
+            return jsonify({"error": str(exc) or "Fout bij ophalen weekmenu"}), 424
 
     @app.get("/api/ah/search")
     def ah_search():
@@ -81,7 +85,7 @@ def create_app() -> Flask:
             return jsonify(ah.search_recipes(query, page))
         except Exception as exc:
             app.logger.exception("AH search error")
-            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 502
+            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 424
 
     @app.get("/api/ah/recipes/saved")
     def ah_saved_recipes():
@@ -90,7 +94,7 @@ def create_app() -> Flask:
             return jsonify(ah.get_saved_recipes(page))
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
-            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 502
+            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 424
 
     @app.get("/api/ah/auth/status")
     def ah_auth_status():
@@ -99,10 +103,8 @@ def create_app() -> Flask:
             return jsonify(ah.auth_status(verify=verify))
         except Exception as exc:
             app.logger.exception("AH auth status error")
-            return jsonify({"connected": False, "error": str(exc)}), 502
+            return jsonify({"connected": False, "error": str(exc)}), 424
 
-    # 424 in plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een
-    # 502 door hun eigen HTML-pagina, waardoor de echte AH-fout verdwijnt.
     @app.get("/api/ah/favorite-lists")
     def ah_favorite_lists():
         try:
@@ -155,7 +157,7 @@ def create_app() -> Flask:
             return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
         except Exception as exc:
             app.logger.exception("Mealie import error")
-            return jsonify({"error": str(exc) or "Import mislukt"}), 502
+            return jsonify({"error": str(exc) or "Import mislukt"}), 424
 
     @app.post("/api/ah/cart")
     def ah_cart():
@@ -205,7 +207,7 @@ def create_app() -> Flask:
             )
         except Exception as exc:
             app.logger.exception("AH cart error")
-            return jsonify({"error": str(exc)}), 502
+            return jsonify({"error": str(exc)}), 424
 
         skipped = [item for item in diagnostics if item["status"] != "gevonden"]
         return jsonify(
@@ -264,7 +266,7 @@ def create_app() -> Flask:
             return jsonify(ah.browser_auth_status())
         except Exception as exc:
             app.logger.exception("AH browser status error")
-            return jsonify({"connected": False, "error": str(exc)}), 502
+            return jsonify({"connected": False, "error": str(exc)}), 424
 
     @app.post("/api/ah/browser/auth")
     def ah_browser_auth():
@@ -418,7 +420,7 @@ def create_app() -> Flask:
             return jsonify(jumbo.auth_status(verify=verify))
         except Exception as exc:
             app.logger.exception("Jumbo auth status error")
-            return jsonify({"connected": False, "error": str(exc)}), 502
+            return jsonify({"connected": False, "error": str(exc)}), 424
 
     @app.post("/api/jumbo/auth")
     def jumbo_auth():
@@ -447,7 +449,7 @@ def create_app() -> Flask:
             return jsonify({"product": jumbo.search_product(query)})
         except Exception as exc:
             app.logger.exception("Jumbo search error")
-            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 502
+            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 424
 
     @app.get("/api/jumbo/recipes/saved")
     def jumbo_saved_recipes():
@@ -455,7 +457,7 @@ def create_app() -> Flask:
             return jsonify(jumbo.get_saved_recipes())
         except Exception as exc:
             app.logger.exception("Jumbo saved recipes error")
-            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 502
+            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 424
 
     @app.post("/api/jumbo/cart")
     def jumbo_cart():
@@ -509,7 +511,7 @@ def create_app() -> Flask:
             )
         except Exception as exc:
             app.logger.exception("Jumbo cart error")
-            return jsonify({"error": str(exc)}), 502
+            return jsonify({"error": str(exc)}), 424
 
         skipped = [item for item in diagnostics if item["status"] != "gevonden"]
         return jsonify(

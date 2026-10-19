@@ -34,10 +34,14 @@ async function jsonFetch(url, options = {}) {
   try {
     data = await response.json();
   } catch (error) {
+    const proxyHint =
+      response.status === 502 || response.status === 504
+        ? " Een reverse proxy kan het antwoord vervangen of te lang wachten; kijk in de container-logs voor de echte fout."
+        : "";
     throw new Error(
       response.ok
         ? "Onverwacht antwoord van de server (geen geldige JSON)."
-        : `Serverfout (${response.status}). Is de app bijgewerkt en ben je ingelogd?`
+        : `Serverfout (${response.status}). Is de app bijgewerkt en ben je ingelogd?${proxyHint}`
     );
   }
   if (!response.ok) {
