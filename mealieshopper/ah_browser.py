@@ -161,6 +161,13 @@ def _collect_form_diagnostics(driver) -> str:
         if any(p.startswith("msg=") for p in parts):
             break
     try:
+        body = driver.execute_script("return document.body ? document.body.innerText : ''") or ""
+        body = re.sub(r"\s+", " ", body).strip()
+        if body:
+            parts.append(f"page={body[:300]!r}")
+    except Exception:
+        pass
+    try:
         inputs = driver.find_elements(By.CSS_SELECTOR, "input")
         kinds = [
             f"{(i.get_attribute('type') or '?')}:{(i.get_attribute('name') or i.get_attribute('id') or '?')}"
