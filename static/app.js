@@ -606,10 +606,10 @@ function renderAhLists(lists) {
           .map(
             (list) => `
               <div class="credential-row">
-                <div>
+                <a href="#" class="list-link" data-ah-list-id="${escapeHtml(list.id)}">
                   <strong>${escapeHtml(list.name || "-")}</strong>
                   <small>${Number(list.itemCount || 0).toLocaleString("nl-NL")} items</small>
-                </div>
+                </a>
                 <button class="button button--secondary" data-ah-list-id="${escapeHtml(list.id)}">Openen</button>
               </div>
             `
@@ -618,8 +618,11 @@ function renderAhLists(lists) {
       </div>
     `
     : `<p class="muted">Geen AH lijstjes gevonden.</p>`;
-  document.querySelectorAll("[data-ah-list-id]").forEach((button) => {
-    button.addEventListener("click", () => loadAhFavoriteListItems(button.dataset.ahListId));
+  document.querySelectorAll("[data-ah-list-id]").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      event.preventDefault();
+      loadAhFavoriteListItems(element.dataset.ahListId);
+    });
   });
 }
 
@@ -643,25 +646,41 @@ async function loadAhFavoriteListItems(listId) {
   $("#ah-list-items").innerHTML = `<div class="message success">Lijst laden...</div>`;
   try {
     const data = await jsonFetch(`/api/ah/favorite-lists/${encodeURIComponent(listId)}/items`);
+    const items = data.items || [];
     $("#ah-list-items").innerHTML = `
       <div class="ingredients">
         <h2>${escapeHtml(data.name || "AH lijst")}</h2>
-        <ul>
-          ${(data.items || [])
-            .map((item) => {
-              const product = item.product || {};
-              const price = Number(product.price || 0);
-              return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(product.title || `Product ${item.productId}`)}${
-                price ? ` - &euro;${price.toFixed(2).replace(".", ",")}` : ""
-              }</li>`;
-            })
-            .join("")}
-        </ul>
+        <p class="muted">${items.length.toLocaleString("nl-NL")} producten</p>
+        <div class="product-grid">
+          ${items.map(renderAhListItem).join("")}
+        </div>
       </div>
     `;
   } catch (error) {
     message("#ah-list-items", error.message);
   }
+}
+
+function renderAhListItem(item) {
+  const product = item.product || {};
+  const title = product.title || `Product ${item.productId}`;
+  const price = Number(product.price || 0);
+  const url = item.url || product.url || "";
+  const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
+  const name = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(title)}</a>`
+    : escapeHtml(title);
+  return `
+    <article class="product-card">
+      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
+      <div>
+        <strong>${escapeHtml(item.quantity)}x ${name}</strong>
+        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+        ${product.isBonus ? `<small class="bonus">Bonus</small>` : ""}
+        ${price ? `<small>&euro;${price.toFixed(2).replace(".", ",")}</small>` : ""}
+      </div>
+    </article>
+  `;
 }
 
 function renderSavedRecipeCard(recipe) {

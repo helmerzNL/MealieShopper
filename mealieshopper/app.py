@@ -12,7 +12,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-1")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-2")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -101,13 +101,15 @@ def create_app() -> Flask:
             app.logger.exception("AH auth status error")
             return jsonify({"connected": False, "error": str(exc)}), 502
 
+    # 424 in plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een
+    # 502 door hun eigen HTML-pagina, waardoor de echte AH-fout verdwijnt.
     @app.get("/api/ah/favorite-lists")
     def ah_favorite_lists():
         try:
             return jsonify({"lists": ah.get_favorite_lists()})
         except Exception as exc:
             app.logger.exception("AH favorite lists error")
-            return jsonify({"error": str(exc) or "AH lijstjes ophalen mislukt"}), 502
+            return jsonify({"error": str(exc) or "AH lijstjes ophalen mislukt"}), 424
 
     @app.get("/api/ah/favorite-lists/<list_id>/items")
     def ah_favorite_list_items(list_id: str):
@@ -115,7 +117,7 @@ def create_app() -> Flask:
             return jsonify(ah.get_favorite_list_items(list_id))
         except Exception as exc:
             app.logger.exception("AH favorite list items error")
-            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 502
+            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 424
 
     @app.post("/api/mealie/import")
     def import_recipe():

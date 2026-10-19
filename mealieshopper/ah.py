@@ -469,6 +469,13 @@ def search_product(query: str) -> dict[str, Any] | None:
     }
 
 
+def product_web_url(product_id: Any) -> str:
+    try:
+        return f"https://www.ah.nl/producten/product/wi{int(product_id)}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     if not product_ids:
         return []
@@ -489,6 +496,7 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
         products.append(
             {
                 "id": item.get("webshopId"),
+                "url": product_web_url(item.get("webshopId")),
                 "title": item.get("title"),
                 "brand": item.get("brand"),
                 "unitSize": item.get("salesUnitSize"),
@@ -502,12 +510,19 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
 
 def get_favorite_lists(product_id: int = 1) -> list[dict[str, Any]]:
     token = get_user_token()
-    response = requests.get(
-        f"{AH_API_BASE}/mobile-services/lists/v3/lists",
-        headers=_auth_headers(token, include_content_type=False),
-        params={"productId": max(1, int(product_id or 1))},
-        timeout=30,
-    )
+    # AH eist een productId maar geeft alle lijstjes terug; welke waarde wordt
+    # geaccepteerd verschilt per AH-release, dus probeer er een paar.
+    attempts = [max(1, int(product_id or 1)), 0]
+    response = None
+    for candidate in attempts:
+        response = requests.get(
+            f"{AH_API_BASE}/mobile-services/lists/v3/lists",
+            headers=_auth_headers(token, include_content_type=False),
+            params={"productId": candidate},
+            timeout=30,
+        )
+        if response.ok or response.status_code not in {400, 404, 422}:
+            break
     if not response.ok:
         raise RuntimeError(f"AH lijstjes ophalen mislukt ({response.status_code}): {response.text[:200]}")
     return [
@@ -550,6 +565,7 @@ def get_favorite_list_items(list_id: str) -> dict[str, Any]:
             {
                 "id": item.get("id"),
                 "productId": product_id,
+                "url": (product or {}).get("url") or product_web_url(product_id),
                 "quantity": max(1, int(item.get("quantity") or 1)),
                 "product": product,
             }
