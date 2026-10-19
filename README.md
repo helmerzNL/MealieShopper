@@ -25,15 +25,28 @@ RP_ID=localhost
 RP_ORIGINS=http://localhost:8000
 ```
 
-`AH_REFRESH_TOKEN` is optioneel. Normaal log je in via de tab `AH koppelen`;
-MealieShopper slaat de refresh token daarna versleuteld op in de SQLite database
-onder `MEALIESHOPPER_DATA_DIR`. De omgevingsvariabele blijft bruikbaar als
-override voor installaties die secrets liever via Docker/Unraid beheren.
-De AH OAuth-login loopt standaard via een ingebouwde reverse proxy onder
-`/api/ah/auth/proxy`. Die proxy herschrijft AH redirects en cookies zodat de
-browserflow hetzelfde werkt als de `ah-mcp`/`appie-go` login. Als noodroute kun
-je nog steeds een code, volledige `appie://login-exit?code=...` URL, of refresh
-token plakken in de tab `AH koppelen`.
+`AH_REFRESH_TOKEN` is optioneel en dient alleen als startwaarde. Normaal koppel
+je via de tab `AH koppelen`; MealieShopper slaat de refresh token daarna
+versleuteld op in de SQLite database onder `MEALIESHOPPER_DATA_DIR`. AH kan de
+refresh token bij elke vernieuwing vervangen; de nieuwste waarde wordt steeds in
+de database bewaard en gaat voor op de omgevingsvariabele. Houd de data-map dus
+op persistente opslag en draai één instance.
+
+### AH koppelen
+
+De login loopt direct via `login.ah.nl` in je eigen browser (op een computer):
+
+1. Klik op `Inloggen bij Albert Heijn`; er opent een nieuw tabblad.
+2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) voordat je inlogt.
+3. Log in. De pagina lijkt vast te lopen, maar in de console staat een rode
+   regel met `appie://login-exit?code=...`.
+4. Plak die regel in MealieShopper en klik op `Koppelen`. De code werkt maar
+   een keer en verloopt snel. Een foutmelding over een verlopen of gebruikte
+   code betekent: opnieuw inloggen.
+
+Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. De
+ingebouwde proxy onder `/api/ah/auth/proxy` bestaat nog, maar wordt niet meer
+door de interface gebruikt.
 `MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.
