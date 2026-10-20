@@ -1,14 +1,61 @@
+/* MealieShopper huisstijl: basilicumgroen op rustige neutrale vlakken.
+   Manrope voor koppen en het woordmerk, Inter voor de interface; beide lokaal. */
+
+@font-face {
+  font-family: "Manrope";
+  src: url("fonts/Manrope-Variable.woff2") format("woff2"),
+    url("fonts/Manrope-Variable.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/Inter-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: light;
-  --bg: #f6f7f9;
+
+  /* Merk en actie */
+  --primary: #176b45;
+  --primary-strong: #105235;
+  --selection: #eaf5ee;
+  --lemon: #f2cf45; /* decoratief: niet als tekst op wit */
+
+  /* Vlakken, tekst en rand */
+  --bg: #f5f7f6;
   --surface: #ffffff;
-  --text: #162033;
-  --muted: #667085;
-  --border: #d9dee8;
-  --primary: #2563eb;
-  --primary-strong: #1d4ed8;
-  --success: #16803c;
+  --surface-muted: #eef3f0;
+  --text: #18251e;
+  --muted: #59665e;
+  --border: #d6dfd9;
+
+  /* Meldingen: fouten blijven rood en krijgen altijd een tekstuele uitleg */
+  --success-text: #105235;
+  --success-bg: #eaf5ee;
+  --success-border: #b8d8c6;
   --danger: #b42318;
+  --danger-bg: #fff0ee;
+  --danger-border: #f3b5af;
+  --warning-text: #7a4f00;
+  --warning-bg: #fff8e6;
+  --warning-border: #e0a100;
+
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --control-height: 44px;
+
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: "Manrope", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * {
@@ -23,7 +70,26 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--primary);
+}
+
+/* Zichtbare groene focusring voor toetsenbord en schermlezers */
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.input:focus-visible,
+.textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--primary);
+  outline-offset: 0;
 }
 
 .topbar {
@@ -39,9 +105,9 @@ body {
   align-items: center;
   gap: 12px;
   max-width: 1120px;
-  height: 64px;
+  min-height: 68px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 8px 16px;
 }
 
 .auth-gate {
@@ -51,20 +117,24 @@ body {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(246, 247, 249, 0.96);
+  background: rgba(245, 247, 246, 0.96);
 }
 
 .auth-card {
   width: min(440px, 100%);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface);
   padding: 24px;
-  box-shadow: 0 24px 80px rgba(22, 32, 51, 0.18);
+  box-shadow: 0 24px 80px rgba(24, 37, 30, 0.18);
 }
 
-.auth-card .brand-icon {
-  margin-bottom: 14px;
+.auth-card h2 {
+  font-size: 24px;
+}
+
+.auth-card .brand-mark {
+  margin-bottom: 12px;
 }
 
 .auth-form {
@@ -79,48 +149,84 @@ body {
   gap: 10px;
   margin-left: auto;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .auth-chip button {
+  min-height: var(--control-height);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--radius-control);
+  background: var(--surface);
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 14px;
 }
 
-.brand-icon {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
+.auth-chip button:hover {
+  background: var(--selection);
+}
+
+.brand-mark {
+  display: block;
+  flex: none;
+  width: 48px;
+  height: 48px;
+}
+
+.brand-mark--large {
+  width: 64px;
+  height: 64px;
+}
+
+/* Lijnicoon: ronde uiteinden, kleur volgt de tekst */
+.icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 h1,
 h2,
+h3,
 p {
   margin: 0;
 }
 
-h1 {
-  font-size: 16px;
-  line-height: 1;
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.wordmark span {
+  color: var(--primary);
 }
 
 .topbar p {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .shell {
@@ -129,81 +235,64 @@ h1 {
   padding: 28px 16px 48px;
 }
 
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  width: fit-content;
-  margin-bottom: 24px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-
-.tab,
-.button,
-.icon-button {
-  border: 0;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.tab {
-  padding: 8px 14px;
-  background: transparent;
-  color: #526070;
-}
-
-.tab.is-active {
-  background: var(--primary);
-  color: #fff;
-}
-
-.panel {
-  display: none;
-}
-
-.panel.is-active {
-  display: block;
-}
-
+.tabs,
 .subtabs {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   width: fit-content;
-  margin-bottom: 20px;
   padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface);
 }
 
-.subtab {
-  border: 0;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 650;
-  cursor: pointer;
-  padding: 8px 14px;
-  background: transparent;
-  color: #526070;
+.tabs {
+  margin-bottom: 24px;
 }
 
+.subtabs {
+  margin-bottom: 20px;
+}
+
+.tab,
+.subtab,
+.button,
+.icon-button {
+  border: 0;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab,
+.subtab {
+  min-height: var(--control-height);
+  padding: 0 16px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.tab:hover:not(.is-active),
+.subtab:hover:not(.is-active) {
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.tab.is-active,
 .subtab.is-active {
   background: var(--primary);
   color: #fff;
 }
 
+.panel,
 .subpanel {
   display: none;
 }
 
+.panel.is-active,
 .subpanel.is-active {
   display: block;
 }
@@ -228,15 +317,15 @@ h1 {
 .week-label span,
 .muted {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .button,
 .icon-button {
-  min-height: 38px;
+  min-height: var(--control-height);
   background: var(--primary);
   color: #fff;
-  padding: 0 16px;
+  padding: 0 18px;
 }
 
 .button:hover,
@@ -252,17 +341,18 @@ h1 {
 .button--secondary,
 .icon-button {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
 }
 
 .button--secondary:hover,
 .icon-button:hover {
-  background: #f1f4f8;
+  background: var(--selection);
+  color: var(--primary-strong);
 }
 
 .icon-button {
-  width: 38px;
+  width: var(--control-height);
   padding: 0;
   font-size: 24px;
   line-height: 1;
@@ -276,19 +366,20 @@ h1 {
   text-decoration: none;
 }
 
+/* 16 px voorkomt dat iOS bij het focussen van een veld inzoomt */
 .input,
 .textarea {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--radius-control);
+  background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .input {
-  min-height: 40px;
+  min-height: var(--control-height);
   padding: 0 12px;
 }
 
@@ -303,7 +394,7 @@ h1 {
 .day-card,
 .recipe-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface);
 }
 
@@ -320,18 +411,18 @@ h1 {
 .message {
   margin: 16px 0;
   padding: 12px 14px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .message.success {
-  border-color: #9ed6b4;
-  background: #ecfdf3;
-  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
 }
 
 .message.error {
-  border-color: #f3b5af;
-  background: #fff0ee;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
@@ -359,8 +450,9 @@ h1 {
 .day-card h3 {
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
@@ -370,21 +462,22 @@ h1 {
 
 .meal span {
   color: var(--primary);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
 .meal strong {
   display: block;
   margin-top: 2px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .meal small {
   display: block;
   margin-top: 3px;
   color: var(--muted);
+  font-size: 13px;
 }
 
 .ingredients {
@@ -409,14 +502,15 @@ h1 {
 .recipe-card img {
   width: 100%;
   aspect-ratio: 4 / 3;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   object-fit: cover;
-  background: #eef1f5;
+  background: var(--surface-muted);
 }
 
 .recipe-card h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.3;
 }
 
 .tags {
@@ -427,23 +521,24 @@ h1 {
 
 .tag {
   border-radius: 999px;
-  background: #e8f0ff;
-  color: #1e4fbf;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 650;
+  background: var(--selection);
+  color: var(--primary-strong);
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
   margin-top: auto;
 }
 
 .card-actions a {
   color: var(--primary);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .pager {
@@ -465,7 +560,7 @@ h1 {
   justify-content: space-between;
   gap: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 12px;
 }
 
@@ -477,7 +572,17 @@ h1 {
 .credential-row small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+}
+
+.credential-row .list-link {
+  flex: 1;
+  color: inherit;
+  text-decoration: none;
+}
+
+.credential-row .list-link strong {
+  color: var(--primary);
 }
 
 .security-actions {
@@ -487,68 +592,24 @@ h1 {
   margin-top: 16px;
 }
 
-@media (max-width: 640px) {
-  .topbar__inner {
-    height: auto;
-    min-height: 64px;
-    flex-wrap: wrap;
-    padding: 10px 16px;
-  }
-
-  .auth-chip {
-    width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
-  }
-
-  .toolbar,
-  .form-row,
-  .security-actions,
-  .credential-row {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-
-  .week-label {
-    flex: 1 1 140px;
-  }
-
-  .form-row .button,
-  .form-row .input,
-  .security-actions .button,
-  .security-actions .input,
-  .credential-row .button {
-    width: 100%;
-  }
-}
-
 .steps {
-  margin: 14px 0 0;
-  padding-left: 20px;
   display: grid;
   gap: 8px;
+  margin: 14px 0 0;
+  padding-left: 20px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
 code {
-  background: #eef1f6;
+  background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 5px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   word-break: break-all;
-}
-.credential-row .list-link {
-  flex: 1;
-  color: inherit;
-  text-decoration: none;
-}
-
-.credential-row .list-link strong {
-  color: var(--primary);
 }
 
 .product-grid {
@@ -563,7 +624,7 @@ code {
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 10px;
   color: inherit;
   text-decoration: none;
@@ -571,16 +632,16 @@ code {
 
 a.product-card:hover {
   border-color: var(--primary);
-  background: #f4f7ff;
+  background: var(--selection);
 }
 
 .product-card img {
   width: 56px;
   height: 56px;
   flex: none;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   object-fit: contain;
-  background: #fff;
+  background: var(--surface);
 }
 
 a.product-card strong {
@@ -591,12 +652,12 @@ a.product-card strong {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .product-card .bonus {
   color: var(--danger);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .row-actions {
@@ -624,13 +685,13 @@ a.product-card strong {
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 10px 12px;
 }
 
 .review-row.is-doubt {
-  border-color: #e0a100;
-  background: #fff8e6;
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
 }
 
 .review-row.is-missing {
@@ -641,17 +702,25 @@ a.product-card strong {
 .review-note {
   display: block;
   margin-top: 3px;
-  color: #8a5a00;
-  font-size: 12px;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.review-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
 }
 
 .review-row .review-product,
 .review-row .review-qty {
-  min-height: 36px;
+  min-height: var(--control-height);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
+  font: inherit;
+  font-size: 16px;
   padding: 0 8px;
 }
 
@@ -661,8 +730,8 @@ a.product-card strong {
 
 .review-link {
   color: var(--primary);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 600;
   white-space: nowrap;
   text-decoration: none;
 }
@@ -696,5 +765,38 @@ a.product-card strong {
 
   .review-row.is-missing .muted {
     grid-column: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar__inner {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .auth-chip {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .toolbar,
+  .form-row,
+  .security-actions,
+  .credential-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .week-label {
+    flex: 1 1 140px;
+  }
+
+  .form-row .button,
+  .form-row .input,
+  .security-actions .button,
+  .security-actions .input,
+  .credential-row .button {
+    width: 100%;
   }
 }
