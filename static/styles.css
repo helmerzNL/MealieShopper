@@ -367,6 +367,16 @@ h2 {
 }
 
 /* 16 px voorkomt dat iOS bij het focussen van een veld inzoomt */
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > span {
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .input,
 .textarea {
   width: 100%;
@@ -424,6 +434,29 @@ h2 {
   border-color: var(--danger-border);
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.message.warning {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.message.warning code {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+/* Melding met een knop ernaast */
+.message--action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.message--action .inline-button {
+  margin-top: 0;
 }
 
 .day-grid,

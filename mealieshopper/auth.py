@@ -223,6 +223,23 @@ def purge_obsolete_secrets() -> int:
         return cursor.rowcount
 
 
+def delete_secret(key: str) -> None:
+    ensure_db()
+    with closing(connect()) as conn, conn:
+        conn.execute("DELETE FROM app_settings WHERE key=?", (key,))
+
+
+def auth_secret_depends_on_mealie_env() -> bool:
+    """True als de sleutel voor opgeslagen gegevens van de omgevingsvariabele MEALIE_URL afhangt.
+
+    Zonder MEALIESHOPPER_AUTH_SECRET (of JWT_SECRET) wordt de sleutel daarvan afgeleid; wie
+    MEALIE_URL dan uit de omgeving haalt, kan opgeslagen koppelingen niet meer ontsleutelen.
+    """
+    if os.environ.get("MEALIESHOPPER_AUTH_SECRET") or os.environ.get("JWT_SECRET"):
+        return False
+    return bool(os.environ.get("MEALIE_URL"))
+
+
 def get_secret(key: str) -> str:
     ensure_db()
     with connect() as conn:

@@ -1,11 +1,17 @@
 import json
+import logging
+import re
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
-from . import ah
+from . import ah, auth
+
+log = logging.getLogger(__name__)
 
 BROWSER_HEADERS = {
     "User-Agent": (
@@ -17,12 +23,60 @@ BROWSER_HEADERS = {
 }
 
 
+SECRET_URL = "MEALIE_URL"
+SECRET_TOKEN = "MEALIE_API_TOKEN"
+
+
+def normalize_url(value: Any) -> str:
+    """Maak van wat de gebruiker intypt een bruikbaar basisadres (zonder slash en zonder /api)."""
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("Vul het adres van je Mealie in.")
+    if "://" not in text:
+        text = "https://" + text
+    parsed = urlparse(text)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("Dit is geen geldig adres. Gebruik bijvoorbeeld https://mealie.jouwdomein.nl")
+    if parsed.username or parsed.password:
+        raise ValueError("Zet geen gebruikersnaam of wachtwoord in het adres; gebruik een API-token.")
+    path = parsed.path.rstrip("/")
+    if path.endswith("/api"):
+        path = path[: -len("/api")]
+    return f"{parsed.scheme}://{parsed.netloc}{path}"
+
+
+_db_warned = False
+
+
+def _ui_secret(key: str) -> str:
+    """Lees een in de UI opgeslagen waarde; een onleesbare database laat de omgevingsvariabelen intact."""
+    global _db_warned
+    try:
+        return auth.get_secret(key).strip()
+    except (sqlite3.Error, OSError) as exc:
+        if not _db_warned:
+            _db_warned = True
+            log.warning("Mealie-koppeling niet uit de database te lezen (%s); omgevingsvariabelen worden gebruikt.", exc)
+        return ""
+
+
+def _config() -> tuple[str, str, str | None]:
+    """(adres, token, bron). Adres en token komen altijd uit dezelfde bron, nooit gemengd."""
+    ui_url, ui_token = _ui_secret(SECRET_URL), _ui_secret(SECRET_TOKEN)
+    if ui_url and ui_token:
+        return ui_url.rstrip("/"), ui_token, "ui"
+    env_url, env_token = environ.get("MEALIE_URL", "").strip(), environ.get("MEALIE_API_TOKEN", "").strip()
+    if env_url and env_token:
+        return env_url.rstrip("/"), env_token, "env"
+    return "", "", None
+
+
 def mealie_url() -> str:
-    return environ.get("MEALIE_URL", "").rstrip("/")
+    return _config()[0]
 
 
 def mealie_token() -> str:
-    return environ.get("MEALIE_API_TOKEN", "")
+    return _config()[1]
 
 
 def auth_headers() -> dict[str, str]:
@@ -34,7 +88,102 @@ def auth_headers() -> dict[str, str]:
 
 def ensure_configured() -> None:
     if not mealie_url() or not mealie_token():
-        raise RuntimeError("Mealie is niet geconfigureerd. Controleer MEALIE_URL en MEALIE_API_TOKEN.")
+        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Beheer > Mealie.")
+
+
+def check_connection(url: str, token: str) -> dict[str, Any]:
+    """Controleer adres en token bij Mealie zelf; geeft gebruiker en versie, of een duidelijke fout."""
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    try:
+        response = requests.get(
+            f"{url}/api/users/self", headers=headers, timeout=15, allow_redirects=False
+        )
+    except requests.exceptions.SSLError:
+        raise RuntimeError(
+            "Het certificaat van Mealie wordt niet vertrouwd. Controleer het adres of het certificaat."
+        ) from None
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Mealie reageert niet (time-out). Controleer het adres en je verbinding.") from None
+    except requests.exceptions.ConnectionError:
+        raise RuntimeError(
+            f"Mealie is niet bereikbaar op {url}. Controleer het adres en of deze server erbij kan."
+        ) from None
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Verbinding met Mealie mislukt: {exc}") from None
+
+    status = response.status_code
+    if 300 <= status < 400:
+        location = response.headers.get("Location", "")
+        raise RuntimeError(
+            f"Mealie stuurt door naar {location}. Gebruik dat adres." if location
+            else "Mealie stuurt door naar een ander adres. Gebruik het adres waar je Mealie in de browser opent."
+        )
+    if status in (401, 403):
+        raise RuntimeError(
+            f"Mealie weigert de token ({status}). Maak een nieuwe API-token en controleer of hij niet is verlopen."
+        )
+    if status == 404:
+        raise RuntimeError("Op dit adres is geen Mealie-API gevonden (404). Controleer het adres.")
+    if not response.ok:
+        raise RuntimeError(f"Mealie gaf een fout ({status}): {response.text[:200]}")
+    try:
+        data = response.json()
+    except ValueError:
+        raise RuntimeError(
+            "Dit adres geeft geen Mealie-antwoord (geen JSON). Controleer het adres en je reverse proxy."
+        ) from None
+    if not isinstance(data, dict) or "username" not in data:
+        raise RuntimeError("Dit adres lijkt geen Mealie te zijn: het antwoord mist een gebruiker.")
+
+    version = None
+    try:
+        about = requests.get(f"{url}/api/app/about", timeout=10, allow_redirects=False)
+        if about.ok:
+            version = (about.json() or {}).get("version")
+    except (requests.RequestException, ValueError):
+        pass  # de versie is een extraatje
+    return {"username": data.get("username"), "version": version}
+
+
+def status(verify: bool = False) -> dict[str, Any]:
+    """Toestand van de koppeling; bevat nooit de token."""
+    url, token, source = _config()
+    result: dict[str, Any] = {
+        "configured": bool(url and token),
+        "url": url,
+        "source": source,
+        "authKeyTiedToMealieEnv": auth.auth_secret_depends_on_mealie_env(),
+    }
+    if verify and result["configured"]:
+        result["verified"] = True
+        try:
+            result.update(check_connection(url, token))
+            result["connected"] = True
+        except RuntimeError as exc:
+            result["connected"] = False
+            result["error"] = str(exc)
+    return result
+
+
+def link(url: Any, token: Any) -> dict[str, Any]:
+    """Controleer en bewaar (versleuteld) het adres en de token. Mislukt de controle, dan wordt niets bewaard."""
+    clean_url = normalize_url(url)
+    clean_token = str(token or "").strip()
+    if not clean_token:
+        raise ValueError("Plak de API-token van Mealie.")
+    if re.search(r"\s", clean_token):
+        raise ValueError("De token bevat spaties of regeleinden. Kopieer hem opnieuw uit Mealie.")
+    checked = check_connection(clean_url, clean_token)
+    auth.set_secret(SECRET_URL, clean_url)
+    auth.set_secret(SECRET_TOKEN, clean_token)
+    return {**status(), **checked, "verified": True, "connected": True}
+
+
+def clear() -> dict[str, Any]:
+    """Verwijder de koppeling uit de UI; daarna geldt weer een eventuele omgevingsconfiguratie."""
+    auth.delete_secret(SECRET_URL)
+    auth.delete_secret(SECRET_TOKEN)
+    return status()
 
 
 def import_via_url(url: str) -> str:

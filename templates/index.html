@@ -78,6 +78,10 @@
       </nav>
 
       <section id="planner" class="panel is-active">
+        <div class="message warning message--action" id="mealie-setup" hidden>
+          <span><strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.</span>
+          <button class="button inline-button" id="open-mealie-setup" type="button">Mealie koppelen</button>
+        </div>
         <div class="toolbar">
           <button class="icon-button" id="prev-week" aria-label="Vorige week">&lsaquo;</button>
           <div class="week-label">
@@ -155,6 +159,7 @@
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer">
           <button class="subtab is-active" data-subtab="beheer-ah">Albert Heijn</button>
+          <button class="subtab" data-subtab="beheer-mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security">Beveiliging</button>
         </nav>
 
@@ -181,6 +186,39 @@
           <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
           <button class="button" id="verify-token">Koppelen</button>
           <div id="token-message"></div>
+        </div>
+        </div>
+
+        <div id="beheer-mealie" class="subpanel">
+        <div class="box">
+          <h2>Mealie koppelen</h2>
+          <p class="muted">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
+          <ol class="steps">
+            <li>Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
+            <li>Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
+            <li>Kopieer de token meteen: Mealie toont hem maar één keer.</li>
+          </ol>
+          <form class="auth-form" id="mealie-form" autocomplete="off">
+            <label class="field">
+              <span>Adres van je Mealie</span>
+              <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>API-token</span>
+              <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false">
+            </label>
+            <button class="button" id="mealie-link" type="submit">Koppelen</button>
+          </form>
+          <div id="mealie-status"></div>
+          <p class="muted" id="mealie-source" hidden></p>
+          <div class="toolbar">
+            <button class="button button--secondary" id="check-mealie">Koppeling controleren</button>
+            <button class="button button--secondary" id="mealie-unlink" hidden>Ontkoppelen</button>
+          </div>
+          <p class="muted">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
+          <div class="message warning" id="mealie-key-warning" hidden>
+            <strong>Let op:</strong> je Mealie staat nog in de omgevingsvariabele <code>MEALIE_URL</code> en <code>MEALIESHOPPER_AUTH_SECRET</code> is niet ingesteld. Daardoor hangt de sleutel van je opgeslagen koppelingen (ook die van Albert Heijn) van <code>MEALIE_URL</code> af. Stel eerst <code>MEALIESHOPPER_AUTH_SECRET</code> in voordat je <code>MEALIE_URL</code> weghaalt of wijzigt, anders moet je opnieuw koppelen.
+          </div>
         </div>
         </div>
 
