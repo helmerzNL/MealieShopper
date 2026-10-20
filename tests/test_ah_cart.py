@@ -247,3 +247,26 @@ class CartPreviewRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DoubtLanguageTest(unittest.TestCase):
+    """De twijfelmeldingen bij het winkelmandje volgen de taal van de gebruiker."""
+
+    def doubt(self, lang, *args):
+        from mealieshopper.app import create_app
+
+        app = create_app()
+        with app.test_request_context("/", headers={"Cookie": f"ms_lang={lang}"}):
+            return ah.assess_packs(*args)[1]
+
+    def test_unknown_pack_size(self):
+        self.assertEqual(self.doubt("nl", 500, "g", None), "Verpakkingsgrootte onbekend")
+        self.assertEqual(self.doubt("en", 500, "g", None), "Pack size unknown")
+
+    def test_mismatching_unit(self):
+        self.assertEqual(self.doubt("nl", 500, "g", "1 l"), "g past niet bij de verpakking (1 l)")
+        self.assertEqual(self.doubt("en", 500, "g", "1 l"), "g doesn't match the pack (1 l)")
+
+    def test_large_number_of_packs(self):
+        self.assertEqual(self.doubt("nl", 5000, "g", "250 g"), "Groot aantal verpakkingen")
+        self.assertEqual(self.doubt("en", 5000, "g", "250 g"), "Large number of packs")
