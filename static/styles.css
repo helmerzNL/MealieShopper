@@ -448,6 +448,11 @@ h2 {
   max-width: 620px;
 }
 
+/* Overzichten met kaarten gebruiken de volle breedte, zodat er meer naast elkaar passen */
+.box--wide {
+  max-width: none;
+}
+
 .message {
   margin: 16px 0;
   padding: 12px 14px;
@@ -861,6 +866,258 @@ a.product-card strong {
   .security-actions .input,
   .credential-row .button {
     width: 100%;
+  }
+}
+
+/* Zoekbalk bovenaan een overzicht (recepten, lijstjes) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.searchbar {
+  position: relative;
+  display: block;
+  margin: 14px 0;
+}
+
+.searchbar__icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  fill: var(--muted);
+  pointer-events: none;
+}
+
+.searchbar .input {
+  padding-left: 42px;
+}
+
+/* Weekmenu: het plaatje uit Mealie links van de maaltijd */
+.meal--with-image {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.meal__image {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+  background: var(--surface-muted);
+}
+
+.meal__text {
+  min-width: 0;
+}
+
+/* Receptkaarten: op een telefoon minstens twee naast elkaar, op een groter scherm zoveel als er passen */
+.recipe-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+
+.recipe-grid--compact .recipe-card {
+  padding: 12px;
+  gap: 10px;
+}
+
+.recipe-grid--compact .recipe-card h3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Importeren en "Open bij AH" onder elkaar, zodat de knop ook in een smalle kaart past */
+.recipe-grid--compact .card-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.recipe-grid--compact .card-actions .button {
+  width: 100%;
+  padding: 0 12px;
+}
+
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border-radius: var(--radius-control);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.card-link:hover {
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.card-link svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: currentColor;
+}
+
+.recipe-import-result .message {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* AH lijstjes als kaarten naast elkaar */
+.list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.list-card {
+  position: relative;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.list-card:hover {
+  border-color: var(--primary);
+}
+
+.list-card__open {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  min-height: 88px;
+  padding: 14px 52px 14px 14px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.list-card__open:hover {
+  background: var(--selection);
+}
+
+.list-card__open strong {
+  display: block;
+  color: var(--primary);
+  font-size: 16px;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.list-card__open small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.list-card .list-card__hit {
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.list-card__sync {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+}
+
+.icon-button svg,
+.list-card__sync svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.icon-button.is-busy svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.list-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.list-header .icon-button,
+.list-header .button {
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .recipe-grid--compact,
+  .list-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .recipe-grid--compact .recipe-card h3 {
+    font-size: 14px;
+  }
+
+  .list-header {
+    flex-wrap: wrap;
+  }
+
+  .list-header h2 {
+    flex: 1 1 0;
+  }
+
+  .list-header .button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-button.is-busy svg {
+    animation: none;
   }
 }
 

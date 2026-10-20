@@ -278,6 +278,13 @@ def get_recipe(slug: str) -> dict[str, Any]:
     return response.json()
 
 
+def _image_path(recipe: dict[str, Any] | None) -> str | None:
+    # Late import: mealie_images gebruikt zelf dit module voor de verbinding.
+    from . import mealie_images
+
+    return mealie_images.image_path(recipe)
+
+
 def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str, Any]]:
     entries = get_meal_plan(start_date, end_date)
     slugs = sorted(
@@ -301,6 +308,8 @@ def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str,
     for entry in entries:
         recipe = entry.get("recipe") or {}
         enriched = dict(entry)
-        enriched["recipeDetail"] = recipe_map.get(recipe.get("slug"))
+        detail = recipe_map.get(recipe.get("slug"))
+        enriched["recipeDetail"] = detail
+        enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         result.append(enriched)
     return result
