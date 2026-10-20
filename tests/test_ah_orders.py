@@ -62,6 +62,16 @@ class ParsingTest(unittest.TestCase):
         self.assertEqual(order["items"][0]["image"], "https://img/111.png")
         self.assertNotIn("Geheimstraat", json.dumps(order))  # het adres nemen we niet over
 
+    def test_no_active_order_means_an_empty_basket(self):
+        body = '404: {"status": 404, "message": "Order does not exist: Order should not be null"}'
+        with mock.patch.object(ah, "_get_json", side_effect=RuntimeError(body)):
+            order = ah.get_active_order()
+        self.assertEqual((order["id"], order["items"]), (None, []))
+        with mock.patch.object(ah, "_get_json", side_effect=RuntimeError("500: kapot")), self.assertRaises(RuntimeError):
+            ah.get_active_order()
+        with mock.patch.object(ah, "_get_json", side_effect=RuntimeError("404: Not Found")), self.assertRaises(RuntimeError):
+            ah.get_active_order()
+
     def test_missing_fields_become_empty_not_errors(self):
         with mock.patch.object(ah, "_get_json", return_value={}):
             order = ah.get_active_order()
@@ -127,17 +137,21 @@ def fake_details(order_id):
 
 
 def fulfillment(order_id, date="2026-10-23"):
-    return {"id": order_id, "state": "SCHEDULED", "stateText": "Ingepland", "shoppingType": "DELIVERY", "method": "HOME", "modifiable": True, "total": 25.5, "deliveryDate": date, "slotStart": "18:00", "slotEnd": "20:00"}
+    return {"id": order_id, "state": "SCHEDULED", "stateText": "Ingepland", "shoppingType": "DELIVERY", "method": "HOME", "modifiable": True, "total": 25.5, "deliveryDate": date, "slotStart": "18:00", "slotEnd": "20:00", "deliveryStatus": "SUBMITTED"}
+
+
+def closed_order(order_id, status="DELIVERED", date="2026-10-01"):
+    return {**fulfillment(order_id, date), "state": "9", "stateText": "Afgeleverd", "deliveryStatus": status}
 
 
 class OrdersCacheTest(AhOrdersTestCase):
-    def sync(self, open_orders, details=fake_details):
-        with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_order_details", side_effect=details):
+    def sync(self, open_orders, details=fake_details, closed=()):
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_closed_fulfillments", return_value=list(closed)), mock.patch.object(ah, "get_order_details", side_effect=details):
             return self.client.post("/api/ah/orders/sync")
 
     def test_open_orders_are_stored_with_their_products(self):
         response = self.sync([fulfillment(1)])
-        self.assertEqual(response.get_json(), {"open": 1, "archived": 0, "unfinished": 0})
+        self.assertEqual(response.get_json(), {"open": 1, "archived": 0, "remaining": 0, "unfinished": 0})
         listed = self.client.get("/api/ah/orders").get_json()
         self.assertTrue(listed["syncedAt"])
         self.assertEqual([(o["id"], o["kind"], o["itemCount"], o["total"]) for o in listed["orders"]], [(1, "open", 1, 25.5)])
@@ -147,12 +161,41 @@ class OrdersCacheTest(AhOrdersTestCase):
     def test_an_order_that_is_no_longer_open_is_archived_as_delivered_and_kept(self):
         self.sync([fulfillment(1), fulfillment(2)])
         response = self.sync([fulfillment(2)])
-        self.assertEqual(response.get_json(), {"open": 1, "archived": 1, "unfinished": 0})
+        self.assertEqual(response.get_json(), {"open": 1, "archived": 1, "remaining": 0, "unfinished": 0})
         kinds = {o["id"]: o["kind"] for o in self.client.get("/api/ah/orders").get_json()["orders"]}
         self.assertEqual(kinds, {1: "delivered", 2: "open"})
         # En hij blijft staan, ook als AH hem later nergens meer toont.
         self.sync([])
         self.assertEqual(len(self.client.get("/api/ah/orders").get_json()["orders"]), 2)
+
+    def test_closed_orders_from_ah_are_kept_as_delivered_and_cancelled_ones_are_not(self):
+        data = self.sync([], closed=[closed_order(5, "DELIVERED", "2026-10-02"), closed_order(6, "CANCELLED"), closed_order(7, "DELIVERED", "2026-09-20")]).get_json()
+        self.assertEqual((data["archived"], data["remaining"]), (2, 0))
+        listed = self.client.get("/api/ah/orders").get_json()["orders"]
+        self.assertEqual([(o["id"], o["kind"], o["itemCount"]) for o in listed], [(7, "delivered", 1), (5, "delivered", 1)])
+        # Een volgende keer worden bewaarde bestellingen niet opnieuw opgehaald.
+        calls = []
+        again = self.sync([], lambda order_id: calls.append(order_id) or fake_details(order_id), closed=[closed_order(5), closed_order(8)]).get_json()
+        self.assertEqual((calls, again["archived"]), ([8], 1))
+
+    def test_a_cancelled_order_is_forgotten_and_not_archived_as_delivered(self):
+        self.sync([fulfillment(1)])
+        data = self.sync([], closed=[closed_order(1, "CANCELLED")]).get_json()
+        self.assertEqual((data["archived"], data["unfinished"]), (0, 0))
+        self.assertEqual(self.client.get("/api/ah/orders").get_json()["orders"], [])
+
+    def test_more_closed_orders_than_fit_in_one_sync_finish_next_time(self):
+        closed = [closed_order(100 + number) for number in range(ah_orders.ORDER_DETAILS_PER_SYNC + 3)]
+        first = self.sync([], closed=closed).get_json()
+        self.assertEqual((first["archived"], first["remaining"]), (len(closed), 3))
+        second = self.sync([], closed=closed).get_json()
+        self.assertEqual(second["remaining"], 0)
+        self.assertTrue(all(o["itemsSynced"] for o in self.client.get("/api/ah/orders").get_json()["orders"]))
+
+    def test_failing_closed_query_does_not_stop_the_open_orders(self):
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[fulfillment(1)]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=RuntimeError("AH even weg")), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
+            data = self.client.post("/api/ah/orders/sync").get_json()
+        self.assertEqual(data["open"], 1)
 
     def test_archiving_that_fails_is_retried_next_time(self):
         self.sync([fulfillment(1)])
@@ -160,7 +203,7 @@ class OrdersCacheTest(AhOrdersTestCase):
         def flaky(order_id):
             raise RuntimeError("AH even weg")
 
-        self.assertEqual(self.sync([], flaky).get_json(), {"open": 0, "archived": 0, "unfinished": 1})
+        self.assertEqual(self.sync([], flaky).get_json(), {"open": 0, "archived": 0, "remaining": 0, "unfinished": 1})
         self.assertEqual(self.client.get("/api/ah/orders").get_json()["orders"][0]["kind"], "open")
         self.assertEqual(self.sync([]).get_json()["archived"], 1)
 
@@ -291,6 +334,10 @@ class ExploreTest(unittest.TestCase):
         text = json.dumps(shape)
         for secret in ("12345", "Geheimstraat", "Melk", "1.2"):
             self.assertNotIn(secret, text)
+
+    def test_a_list_shows_the_union_of_all_elements(self):
+        shape = ah_explore.shape({"result": [{"status": "SUBMITTED", "amount": 0}, {"status": "CANCELLED", "amount": 12.5, "extra": "x"}]})
+        self.assertEqual(shape, {"result": [{"status": "str: SUBMITTED|CANCELLED", "amount": "int|float", "extra": "str"}, "×2"]})
 
     def test_explore_reports_each_probe_and_never_stores_anything(self):
         def get(path, params=None):

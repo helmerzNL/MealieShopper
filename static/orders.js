@@ -1,6 +1,9 @@
 // Bestellingen, bestelmandje en kassabonnen: lezen uit de lokale kopie, synchroniseren bij AH.
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, t, tn, escapeHtml, formatPrice, ...).
 
+// Bestelmandje en bestellingen wachten tot AH ze weer levert; de code staat klaar. Op false worden ze weer getoond en gesynchroniseerd.
+const ORDERS_COMING_SOON = true;
+
 const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false };
 
 function dayLabel(value) {
@@ -108,8 +111,12 @@ function renderReceiptList() {
 }
 
 function renderOrders() {
-  renderBasket();
-  renderOrderList();
+  $("#ah-orders-section").hidden = ORDERS_COMING_SOON;
+  $("#ah-orders-soon").hidden = !ORDERS_COMING_SOON;
+  if (!ORDERS_COMING_SOON) {
+    renderBasket();
+    renderOrderList();
+  }
   renderReceiptList();
   if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
 }
@@ -117,8 +124,12 @@ function renderOrders() {
 async function loadOrders() {
   message("#ah-orders-message", "");
   try {
-    const [basket, orders, receipts] = await Promise.all([jsonFetch("/api/ah/basket"), jsonFetch("/api/ah/orders"), jsonFetch("/api/ah/receipts")]);
-    Object.assign(ordersState, { basket, orders: orders.orders, ordersSyncedAt: orders.syncedAt, receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
+    const receipts = await jsonFetch("/api/ah/receipts");
+    Object.assign(ordersState, { receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
+    if (!ORDERS_COMING_SOON) {
+      const [basket, orders] = await Promise.all([jsonFetch("/api/ah/basket"), jsonFetch("/api/ah/orders")]);
+      Object.assign(ordersState, { basket, orders: orders.orders, ordersSyncedAt: orders.syncedAt });
+    }
     renderOrders();
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
@@ -139,11 +150,14 @@ async function syncOrders() {
       failed.push(t("orders.sync_failed", { what, error: error.message }));
     }
   };
-  await run(t("orders.part.basket"), "/api/ah/basket/sync", () => done.push(t("orders.sync_basket")));
-  await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
-    done.push(tn("orders.sync_orders", data.open));
-    if (data.archived) done.push(tn("orders.sync_archived", data.archived));
-  });
+  if (!ORDERS_COMING_SOON) {
+    await run(t("orders.part.basket"), "/api/ah/basket/sync", () => done.push(t("orders.sync_basket")));
+    await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
+      done.push(tn("orders.sync_orders", data.open));
+      if (data.archived) done.push(tn("orders.sync_archived", data.archived));
+      if (data.remaining) done.push(tn("orders.sync_order_items", data.remaining));
+    });
+  }
   await run(t("orders.part.receipts"), "/api/ah/receipts/sync", (data) => {
     done.push(tn("orders.sync_receipts", data.new));
     if (data.remaining) done.push(tn("orders.sync_remaining", data.remaining));
@@ -216,6 +230,34 @@ $("#ah-purchase-filter").addEventListener("input", (event) => {
   purchaseTimer = setTimeout(searchPurchases, 250);
 });
 
+// ---- een kassabon zoals op papier: kolommen, bonusregels, totaal en betaalwijze
+function receiptMethod(method) {
+  const name = String(method || "").toUpperCase();
+  return name === "PIN" ? t("orders.receipt.pin") : name === "CASH" ? t("orders.receipt.cash") : name;
+}
+
+function receiptPaper(receipt) {
+  const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
+  const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
+  const lines = receipt.items.map((line) => row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], "receipt__line"));
+  const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
+  const units = receipt.items.reduce((sum, line) => sum + (line.quantity || 0), 0);
+  const payments = receipt.payments.map((entry) => row([receiptMethod(entry.method), money(entry.amount)], "receipt__pay"));
+  return `
+    <div class="receipt" role="group" aria-label="${escapeHtml(t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id }))}">
+      <div class="receipt__head">
+        <strong class="receipt__store">ALBERT HEIJN</strong>
+        <span>${escapeHtml(receiptDay(receipt))}</span>
+      </div>
+      ${row([t("orders.receipt.qty"), t("orders.receipt.description"), t("orders.receipt.price"), t("orders.receipt.amount")], "receipt__cols")}
+      ${lines.join("")}
+      ${bonus.length ? `<div class="receipt__section">${escapeHtml(t("orders.receipt.bonus"))}</div>${bonus.join("")}` : ""}
+      <div class="receipt__rule"></div>
+      ${row([tn("orders.receipt.articles", units), money(receipt.total)], "receipt__total")}
+      ${payments.length ? `<div class="receipt__rule"></div>${payments.join("")}` : ""}
+    </div>`;
+}
+
 // ---- één bestelling of kassabon openen
 function showPurchaseOverview() {
   $("#ah-order-detail").hidden = true;
@@ -245,14 +287,9 @@ async function openPurchase(kind, id) {
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
-      $("#ah-order-meta").textContent = money(receipt.total);
-      const extra = [
-        receipt.discounts.length ? `<h3>${escapeHtml(t("orders.discounts"))}</h3>${receipt.discounts.map((d) => `<p>${escapeHtml(d.name)}: ${escapeHtml(money(d.amount))}</p>`).join("")}` : "",
-        receipt.payments.length ? `<h3>${escapeHtml(t("orders.payments"))}</h3>${receipt.payments.map((p) => `<p>${escapeHtml(p.method)}: ${escapeHtml(money(p.amount))}</p>`).join("")}` : "",
-      ].join("");
       $("#ah-order-items").innerHTML = receipt.items.length
-        ? `<div class="product-grid">${receipt.items.map((line) => purchaseItem({ quantity: line.quantity, title: line.name, amount: line.amount })).join("")}</div>${extra}`
-        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>${extra}`;
+        ? receiptPaper(receipt)
+        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
     }
     $("#ah-order-title").focus({ preventScroll: true });
   } catch (error) {

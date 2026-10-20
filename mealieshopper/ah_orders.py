@@ -23,6 +23,7 @@ from . import ah, ah_lists, auth
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
+ORDER_DETAILS_PER_SYNC = 15  # idem voor de producten van afgeleverde bestellingen
 RECEIPT_DETAILS_PER_SYNC = 40  # een synchronisatie blijft kort; de rest volgt bij de volgende
 
 SCHEMA = """
@@ -217,30 +218,63 @@ def _details_or_none(order_id: int) -> dict[str, Any] | None:
         return None
 
 
+def _forget_order(conn, order_id: int) -> None:
+    conn.execute("DELETE FROM ah_order_items WHERE order_id = ?", (order_id,))
+    conn.execute("DELETE FROM ah_orders WHERE order_id = ?", (order_id,))
+
+
 def sync_orders() -> dict[str, Any]:
-    """Haal de open bestellingen op en archiveer wat inmiddels is afgeleverd."""
+    """Haal de open en de afgeronde bestellingen op; wat is afgeleverd bewaren we voor altijd.
+
+    AH geeft van de afgeronde bestellingen per keer de laatste 10, dus een eerste synchronisatie vindt er
+    hoogstens 10 en elke volgende voegt toe wat sindsdien is afgeleverd. Geannuleerde bestellingen bewaren we niet.
+    """
     open_orders = ah.get_open_fulfillments()
     open_ids = {order["id"] for order in open_orders}
+    try:
+        closed_orders = ah.get_closed_fulfillments()
+    except Exception:  # noqa: BLE001 - de open bestellingen zijn al binnen; de afgeronde volgen bij de volgende sync
+        closed_orders = []
+    cancelled = {order["id"] for order in closed_orders if order["deliveryStatus"] == "CANCELLED"}
+    delivered = [order for order in closed_orders if order["deliveryStatus"] != "CANCELLED" and order["id"] not in open_ids]
     with closing(_connect()) as conn:
         previously_open = [row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'open'")]
+        complete = {row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")}
+        incomplete = [row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")]
 
     fetched = {order["id"]: _details_or_none(order["id"]) for order in open_orders}
     # Wat open was en het nu niet meer is, is afgeleverd (of geannuleerd): een laatste keer ophalen.
-    closed = {order_id: _details_or_none(order_id) for order_id in previously_open if order_id not in open_ids}
+    gone = [order_id for order_id in previously_open if order_id not in open_ids and order_id not in cancelled]
+    listed_ids = {order["id"] for order in delivered}
+    todo = [order for order in delivered if order["id"] not in complete]
+    wanted = [order["id"] for order in todo] + [order_id for order_id in gone + incomplete if order_id not in listed_ids]
+    details = {order_id: _details_or_none(order_id) for order_id in list(dict.fromkeys(wanted))[:ORDER_DETAILS_PER_SYNC]}
 
     archived = 0
     with closing(_connect()) as conn, conn:
         for order in open_orders:
-            details = fetched[order["id"]]
-            header = {**order, **({"deliveryDate": details["deliveryDate"] or order["deliveryDate"]} if details else {})}
-            _save_order(conn, header, "open", details["items"] if details else None)
-        for order_id, details in closed.items():
-            if details is None:
-                continue  # niet gelukt: hij blijft "open" en we proberen het bij de volgende synchronisatie opnieuw
-            _save_order(conn, {**details, "id": order_id}, "delivered", details["items"])
-            archived += 1
+            info = fetched[order["id"]]
+            header = {**order, **({"deliveryDate": info["deliveryDate"] or order["deliveryDate"]} if info else {})}
+            _save_order(conn, header, "open", info["items"] if info else None)
+        for order_id in cancelled:
+            _forget_order(conn, order_id)
+        by_id = {order["id"]: order for order in delivered}
+        for order_id, info in details.items():
+            if info is None:
+                continue  # niet gelukt: we proberen het bij de volgende synchronisatie opnieuw
+            header = {**by_id.get(order_id, {}), **{key: value for key, value in info.items() if key != "items" and value}, "id": order_id}
+            known = order_id in complete or order_id in incomplete
+            _save_order(conn, header, "delivered", info["items"])
+            archived += 0 if known else 1
+        # Afgeleverd maar de producten nog niet binnen (meer dan er in een keer passen): kop alvast bewaren
+        for order in todo:
+            if order["id"] not in details:
+                _save_order(conn, order, "delivered", None)
+                archived += 1
         _stamp(conn, "orders")
-    return {"open": len(open_orders), "archived": archived, "unfinished": len(closed) - archived}
+        remaining = conn.execute("SELECT COUNT(*) FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0").fetchone()[0]
+        unfinished = sum(1 for order_id in gone if details.get(order_id) is None)
+    return {"open": len(open_orders), "archived": archived, "remaining": remaining, "unfinished": unfinished}
 
 
 def add_order_by_id(order_id: int) -> dict[str, Any]:

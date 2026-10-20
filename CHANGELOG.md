@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.5.1
+
+*English summary: Receipts now look like an Albert Heijn paper receipt. Delivered orders are fetched from AH (the latest 10 closed orders per request) and an empty order basket is no longer an error. Because AH's order routes are not available right now, the order basket and orders show a "coming soon" line and only receipts are synced. The explorer was extended to find out how to reach further back than 10 delivered orders.*
+
+### Nieuw in 1.5.1
+
+- **Kassabonnen zien eruit als een AH-kassabon**: een strook papier met aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en de betaalwijze, zonder eurotekens zoals op papier. Het past ook op een telefoon en blijft licht in de donkere modus.
+- **Het bestelmandje en de bestellingen komen binnenkort.** AH had een storing en de bestelroutes zijn nog niet beschikbaar, dus de app toont daar een regel dat het binnenkort komt en het synchroniseer-icoon haalt alleen kassabonnen op. De code staat klaar: in `static/orders.js` zet je `ORDERS_COMING_SOON` op `false` om mandje en bestellingen weer te tonen. De bijbehorende MCP-tools blijven bestaan en zijn bij AI-apps uit te zetten.
+- **Afgeronde bestellingen** haalt MealieShopper nu ook op uit AH (de verkenner liet zien dat dat kan met status `CLOSED`). AH geeft er per keer de laatste 10; wat is afgeleverd wordt voor altijd bewaard, geannuleerde bestellingen worden overgeslagen. Van maximaal 15 bestellingen per keer komen de producten binnen; de rest volgt bij de volgende synchronisatie.
+- **Een leeg bestelmandje is geen fout meer.** Zonder actieve bestelling antwoordt AH met een 404; dat geldt nu als een leeg mandje.
+- **Verkenner uitgebreid** (alleen de beheerder): een lijst in het rapport toont de samenvoeging van alle elementen (alle statussen, getaltypes) en de verkenner onderzoekt nu hoe je verder terug komt dan 10 afgeronde bestellingen (argumenten van AH, vijf pagineringsvarianten) en wat er in een afgeleverde bestelling zit.
+
 ## v1.5.0
 
 *English summary: MealieShopper can now keep your Albert Heijn order basket, orders and in-store receipts as a local copy, so you can browse and search your purchase history without a connection to AH, and your AI assistant can query it. Delivered orders are archived permanently once an open order has been delivered. The administrator can switch each MCP tool off individually. An owner-only explorer reports which of the unofficial AH routes work, to find out how to fetch past orders.*

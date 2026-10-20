@@ -1118,7 +1118,13 @@ def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
 
 def get_active_order() -> dict[str, Any]:
     """Het bestelmandje: de actieve bestelling bij AH (producten, totaal, gekozen bezorgmoment)."""
-    data = _get_json("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}) or {}
+    try:
+        data = _get_json("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}) or {}
+    except RuntimeError as exc:
+        # Zonder actieve bestelling antwoordt AH met een 404: dan is het mandje gewoon leeg.
+        if not str(exc).startswith("404") or "Order does not exist" not in str(exc):
+            raise
+        data = {}
     total = data.get("totalPrice") or {}
     delivery = data.get("deliveryInformation") or {}
     return {
@@ -1169,7 +1175,16 @@ query OrderFulfillments {
 
 def get_open_fulfillments() -> list[dict[str, Any]]:
     """Geplaatste bestellingen die nog niet zijn geleverd."""
-    data = _graphql(get_user_token(), FULFILLMENTS_QUERY, {}, "AH bestellingen ophalen")
+    return _fulfillments("OPEN")
+
+
+def get_closed_fulfillments() -> list[dict[str, Any]]:
+    """Afgeronde bestellingen: afgeleverd of geannuleerd (`deliveryStatus`). AH geeft er per keer hoogstens 10."""
+    return _fulfillments("CLOSED")
+
+
+def _fulfillments(status: str) -> list[dict[str, Any]]:
+    data = _graphql(get_user_token(), FULFILLMENTS_QUERY.replace("status: OPEN", f"status: {status}"), {}, "AH bestellingen ophalen")
     result = ((data.get("orderFulfillments") or {}).get("result")) or []
     orders = []
     for entry in result:
@@ -1184,6 +1199,7 @@ def get_open_fulfillments() -> list[dict[str, Any]]:
                 "stateText": _text(entry.get("statusDescription")),
                 "shoppingType": _text(entry.get("shoppingType")),
                 "method": _text(delivery.get("method")),
+                "deliveryStatus": _text(delivery.get("status")),
                 "modifiable": bool(entry.get("modifiable")),
                 "total": _number(((entry.get("totalPrice") or {}).get("totalPrice") or {}).get("amount")),
                 "deliveryDate": _text(slot.get("date")),
