@@ -240,10 +240,21 @@ async function loadCredentials() {
   renderCredentials();
 }
 
+// Een AI-app stuurde je naar de inlog (/?next=/oauth/authorize?...): na het inloggen ga je terug naar het
+// toestemmingsscherm. Alleen een adres van die ene pagina is toegestaan, dus nooit een andere site of pagina.
+function continueAfterLogin() {
+  if (!state.auth?.authenticated) return false;
+  const next = new URLSearchParams(window.location.search).get("next") || "";
+  if (!/^\/oauth\/authorize\?/.test(next)) return false;
+  window.location.replace(next);
+  return true;
+}
+
 async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
   if (typeof loadOnboardingStatus === "function") await loadOnboardingStatus();
   renderAuthState();
+  if (continueAfterLogin()) return state.auth;
   await loadCredentials();
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
