@@ -28,6 +28,40 @@ AH_BROWSER_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
+# Receptzoeken: de oude REST-route (recipe/search/v2) bestaat niet meer. De zoekinvoer kent
+# searchText, size en start (de offset); `page`, `offset` en `pageSize` bestaan niet.
+RECIPE_SEARCH_QUERY = """
+  query RecipeSearch($query: RecipeSearchParams!) {
+    recipeSearch(query: $query) {
+      page {
+        total
+        hasNextPage
+      }
+      result {
+        id
+        title
+        slug
+        time {
+          cook
+          oven
+          wait
+        }
+        serving {
+          number
+        }
+        images {
+          url
+          width
+        }
+        courses
+      }
+    }
+  }
+"""
+# AH geeft een fout als start + size boven 2000 uitkomt; zo ver kun je bladeren.
+RECIPE_SEARCH_WINDOW = 2000
+RECIPE_CARD_IMAGE_WIDTH = 440
+
 FAVORITE_LISTS_QUERY = """
   query FavoriteLists($ids: [String!]!) {
     favoriteListV2(ids: $ids) {
@@ -461,26 +495,56 @@ def verify_token(token: str) -> dict[str, Any]:
     }
 
 
-def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
-    token = get_token()
-    response = requests.get(
-        f"{AH_API_BASE}/mobile-services/recipe/search/v2",
-        headers=_auth_headers(token, include_content_type=False),
-        params={
-            "searchTerms": query,
-            "page": page,
-            "size": size,
-            "sortBy": "RELEVANCE",
-        },
-        timeout=30,
-    )
-    if not response.ok:
-        raise RuntimeError(f"AH zoeken mislukt ({response.status_code})")
+def _pick_image(images: list[dict[str, Any]], target: int = RECIPE_CARD_IMAGE_WIDTH) -> str:
+    """Kies uit de formaten van AH de afbeelding die het dichtst bij de gewenste breedte ligt."""
+    candidates = [image for image in images or [] if isinstance(image, dict) and image.get("url")]
+    if not candidates:
+        return ""
+    best = min(candidates, key=lambda image: abs(int(image.get("width") or 0) - target))
+    return best["url"]
 
-    data = response.json()
+
+def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
+    recipe_id = item.get("id")
+    slug = str(item.get("slug") or "").strip()
+    times = item.get("time") or {}
+    total_time = sum(int(times.get(key) or 0) for key in ("cook", "oven", "wait"))
+    image = _pick_image(item.get("images") or [])
     return {
-        "recipes": data.get("result") or data.get("recipes") or [],
-        "total": data.get("totalFound") or data.get("total") or 0,
+        "id": str(recipe_id),
+        "title": item.get("title") or f"Recept {recipe_id}",
+        "webPath": f"/allerhande/recept/R-R{recipe_id}" + (f"/{slug}" if slug else ""),
+        "images": [{"url": image}] if image else [],
+        "totalTime": total_time,
+        "servings": (item.get("serving") or {}).get("number"),
+        "courses": item.get("courses") or [],
+    }
+
+
+def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
+    """Allerhande-recepten zoeken via GraphQL (anoniem token)."""
+    size = max(1, int(size))
+    start = max(0, int(page)) * size
+    if start >= RECIPE_SEARCH_WINDOW:
+        raise RuntimeError(
+            f"AH laat niet verder bladeren dan {RECIPE_SEARCH_WINDOW:,} recepten. Verfijn je zoekopdracht.".replace(",", ".")
+        )
+    size = min(size, RECIPE_SEARCH_WINDOW - start)  # de laatste pagina wordt afgekapt in plaats van een fout
+
+    data = _graphql(
+        get_token(),
+        RECIPE_SEARCH_QUERY,
+        {"query": {"searchText": str(query), "size": size, "start": start}},
+        "AH zoeken",
+    )
+    found = data.get("recipeSearch") or {}
+    recipes = [_recipe_card(item) for item in found.get("result") or [] if item.get("id") is not None]
+    total = int((found.get("page") or {}).get("total") or 0)
+    reachable = min(total, RECIPE_SEARCH_WINDOW)
+    return {
+        "recipes": recipes,
+        "total": total,
+        "hasNextPage": start + len(recipes) < reachable,
     }
 
 

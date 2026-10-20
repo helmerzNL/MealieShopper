@@ -304,6 +304,11 @@ h2 {
   gap: 10px;
 }
 
+.form-row .button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .week-label {
   min-width: 180px;
   text-align: center;

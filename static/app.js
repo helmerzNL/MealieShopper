@@ -626,10 +626,13 @@ async function searchRecipes(page = 0) {
   $("#recipe-results").innerHTML = "";
   try {
     const data = await jsonFetch(`/api/ah/search?q=${encodeURIComponent(query)}&page=${page}`);
-    $("#search-count").textContent = `${Number(data.total).toLocaleString("nl-NL")} recepten gevonden`;
+    const total = Number(data.total);
+    $("#search-count").textContent = `${total.toLocaleString("nl-NL")} recepten gevonden${
+      total > 2000 ? ", de eerste 2.000 zijn te bekijken" : ""
+    }`;
     $("#recipe-results").innerHTML = (data.recipes || []).map(renderRecipeCard).join("");
     $("#prev-page").hidden = page === 0;
-    $("#next-page").hidden = Number(data.total) <= (page + 1) * 12;
+    $("#next-page").hidden = !(data.hasNextPage ?? total > (page + 1) * 12);
     document.querySelectorAll("[data-import-url]").forEach((button) => {
       button.addEventListener("click", () => importUrl(button.dataset.importUrl, button));
     });
@@ -641,7 +644,7 @@ async function searchRecipes(page = 0) {
 function renderRecipeCard(recipe) {
   const ahUrl = `https://www.ah.nl${recipe.webPath}`;
   const imageUrl = recipe.images?.[0]?.url;
-  const totalTime = Number(recipe.cookTime || 0) + Number(recipe.preparationTime || 0);
+  const totalTime = Number(recipe.totalTime ?? (Number(recipe.cookTime || 0) + Number(recipe.preparationTime || 0)));
   const tags = [...(recipe.courses || []), ...(recipe.keywords || [])].slice(0, 3);
   return `
     <article class="recipe-card">
