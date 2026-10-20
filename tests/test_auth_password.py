@@ -479,8 +479,8 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class SigningKeyTest(unittest.TestCase):
-    """Zonder MEALIESHOPPER_AUTH_SECRET mag de sessiesleutel niet te raden zijn."""
+class MasterSecretTest(unittest.TestCase):
+    """Zonder MEALIESHOPPER_AUTH_SECRET maakt de app zelf een willekeurig geheim; het is niet te raden."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -491,43 +491,99 @@ class SigningKeyTest(unittest.TestCase):
         self.addCleanup(env.stop)
         for name in ("MEALIESHOPPER_AUTH_SECRET", "JWT_SECRET", "MEALIE_URL"):
             os.environ.pop(name, None)
-        auth._signing_keys.clear()
-        self.addCleanup(auth._signing_keys.clear)
+        auth._master_secrets.clear()
+        self.addCleanup(auth._master_secrets.clear)
         cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
         cost.start()
         self.addCleanup(cost.stop)
+        self.path = os.path.join(self.tmp, "secret.key")
 
-    def test_key_is_random_stored_once_and_private(self):
-        first = auth.signing_secret()
+    def test_secret_is_random_stored_once_and_private(self):
+        first = auth.master_secret()
         self.assertGreaterEqual(len(first), 64)
-        auth._signing_keys.clear()
-        self.assertEqual(auth.signing_secret(), first, "blijft gelijk na een herstart")
-        path = os.path.join(self.tmp, "session.key")
-        self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
-        os.remove(path)
-        auth._signing_keys.clear()
-        self.assertNotEqual(auth.signing_secret(), first)
+        auth._master_secrets.clear()
+        self.assertEqual(auth.master_secret(), first, "blijft gelijk na een herstart")
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), "0o600")
+        os.remove(self.path)
+        auth._master_secrets.clear()
+        self.assertNotEqual(auth.master_secret(), first)
 
-    def test_a_session_signed_with_the_old_derived_secret_is_rejected(self):
+    def test_sessions_and_stored_data_use_different_keys(self):
+        self.assertNotEqual(auth.signing_secret(), auth.master_secret())
+        box_key = auth._derive("stored-secrets")
+        self.assertNotEqual(box_key.hex(), auth.signing_secret())
+
+    def test_a_session_signed_with_the_old_guessable_secret_is_rejected(self):
         app = create_app()
         client = app.test_client()
         client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
-        derived = auth.auth_secret()  # de vroegere, te raden sleutel
-        forged = auth.jwt.encode({"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, derived, algorithm="HS256")
+        guessable = auth.hashlib.sha256(f"{auth.db_path()}:mealieshopper".encode()).hexdigest()  # de vroegere sleutel
+        forged = auth.jwt.encode({"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, guessable, algorithm="HS256")
         attacker = app.test_client()
         attacker.set_cookie(auth.SESSION_COOKIE_NAME, forged)
         self.assertFalse(attacker.get("/api/auth/status").get_json()["authenticated"])
         self.assertEqual(attacker.get("/api/ah/lists/search?q=x").status_code, 401)
         self.assertTrue(client.get("/api/auth/status").get_json()["authenticated"], "de echte sessie werkt")
 
-    def test_configured_secret_wins(self):
+    def test_configured_secret_wins_and_nothing_is_written(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_AUTH_SECRET": " zelf-gekozen "}):
-            self.assertEqual(auth.signing_secret(), "zelf-gekozen")
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, "session.key")))
+            self.assertEqual(auth.master_secret(), "zelf-gekozen")
+            auth.init_db()
+            auth.set_secret("X", "waarde")
+            self.assertEqual(auth.get_secret("X"), "waarde")
+        self.assertFalse(os.path.exists(self.path), "de sleutel staat dan niet op schijf")
 
-    def test_encryption_key_for_stored_secrets_is_unchanged(self):
-        # Bestaande installaties moeten hun opgeslagen Mealie- en AH-gegevens kunnen blijven lezen.
+    def test_jwt_secret_is_still_accepted(self):
+        with mock.patch.dict(os.environ, {"JWT_SECRET": "oude-naam"}):
+            self.assertEqual(auth.master_secret(), "oude-naam")
+
+    def test_stored_secrets_round_trip_and_are_not_plain_text(self):
         auth.init_db()
-        auth.set_secret("X", "waarde")
-        self.assertEqual(auth.get_secret("X"), "waarde")
-        self.assertEqual(auth.auth_secret(), auth.hashlib.sha256(f"{auth.db_path()}:mealieshopper".encode()).hexdigest())
+        auth.set_secret("MEALIE_API_TOKEN", "geheime-token")
+        self.assertEqual(auth.get_secret("MEALIE_API_TOKEN"), "geheime-token")
+        with auth.closing(auth.connect()) as conn:
+            stored = conn.execute("SELECT value FROM app_settings WHERE key = 'MEALIE_API_TOKEN'").fetchone()[0]
+        self.assertNotIn("geheime-token", stored)
+        self.assertTrue(stored.startswith("gAAAA"))
+
+    def test_data_encrypted_with_another_key_is_unreadable_not_garbage(self):
+        auth.init_db()
+        auth.set_secret("MEALIE_API_TOKEN", "geheime-token")
+        os.remove(self.path)
+        auth._master_secrets.clear()  # nieuwe sleutel: bijvoorbeeld een data-map zonder secret.key teruggezet
+        self.assertEqual(auth.get_secret("MEALIE_API_TOKEN"), "", "geen versleutelde tekst teruggeven als token")
+
+    def test_plain_settings_are_still_returned_as_they_are(self):
+        auth.init_db()
+        auth.set_setting("AUTH_MODE", "none")
+        self.assertEqual(auth.get_secret("AUTH_MODE"), "none")
+
+    def test_the_key_does_not_depend_on_mealie_url(self):
+        before = auth.master_secret()
+        with mock.patch.dict(os.environ, {"MEALIE_URL": "https://ergens.example"}):
+            auth._master_secrets.clear()
+            self.assertEqual(auth.master_secret(), before)
+
+    def test_an_incomplete_file_is_waited_for_then_reported(self):
+        with open(self.path, "w") as handle:
+            handle.write("kort")
+        with mock.patch.object(auth.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "onleesbaar of onvolledig"):
+                auth.master_secret()
+        with open(self.path) as handle:
+            self.assertEqual(handle.read(), "kort", "een bestaand bestand wordt nooit overschreven")
+
+    def test_a_file_that_is_still_being_written_is_read_once_complete(self):
+        with open(self.path, "w") as handle:
+            handle.write("")
+        full = "ab" * 32
+        calls = {"n": 0}
+
+        def finish(_):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                with open(self.path, "w") as handle:
+                    handle.write(full)
+
+        with mock.patch.object(auth.time, "sleep", side_effect=finish):
+            self.assertEqual(auth._read_secret_file(auth.Path(self.path), wait=True), full)

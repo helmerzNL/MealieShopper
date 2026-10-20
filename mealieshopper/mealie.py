@@ -152,7 +152,6 @@ def status(verify: bool = False) -> dict[str, Any]:
         "configured": bool(url and token),
         "url": url,
         "source": source,
-        "authKeyTiedToMealieEnv": auth.auth_secret_depends_on_mealie_env(),
     }
     if verify and result["configured"]:
         result["verified"] = True
