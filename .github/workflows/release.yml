@@ -1,0 +1,35 @@
+name: GitHub release
+
+# Bij elke push naar main: bestaat er nog geen release voor de versie in VERSION,
+# dan maken we de tag en de release, met de tekst uit CHANGELOG.md.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create the release when it does not exist yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="v$(tr -d '[:space:]' < VERSION)"
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "Release $version bestaat al."
+            exit 0
+          fi
+          python3 scripts/release_notes.py "$version" > notes.md
+          gh release create "$version" \
+            --target "$GITHUB_SHA" \
+            --title "MealieShopper $version" \
+            --notes-file notes.md \
+            --latest
