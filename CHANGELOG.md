@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.4.1
+
+### Fixes
+
+- **Aangepaste aantallen in een AH-lijstje blijven staan bij synchroniseren.** Synchroniseren voegt nieuwe items toe en haalt weg wat bij AH is verdwenen, maar laat een aantal dat jij hebt aangepast met rust; alleen het aantal van AH (waar de resetknop naar terugzet) wordt ververst. Regels worden nu gekoppeld op het id dat AH aan de regel geeft (en daarna op het product), zodat een regel dezelfde regel blijft bij een andere volgorde, een nieuw id of een product dat er twee keer in staat. Het bijwerken gebeurt in één transactie, zodat een aanpassing tijdens het synchroniseren niet verloren gaat. Na het synchroniseren staat er wat er is gebeurd, bijvoorbeeld "2 nieuwe items, 1 aangepast aantal behouden."
+- **Een mislukte opslag van een aantal is nu zichtbaar.** Mislukte het opslaan, dan werden de aantallen stil teruggezet en wiste het opnieuw laden de foutmelding; nu verschijnt de melding na het laden.
+- **De resetknop vraagt eerst om bevestiging.** Je ziet hoeveel aangepaste aantallen worden teruggezet naar die van AH, en kunt annuleren.
+- **Een AI-app koppelen terwijl je nog niet bent ingelogd werkt nu.** De toestemmingspagina stuurde je naar de inlog, maar na het inloggen bleef je in de app staan en kwam je niet meer bij het toestemmingsscherm. Nu keert de pagina na het inloggen terug naar de toestemming, en alleen naar een adres van `/oauth/authorize` (geen open redirect). Dit gebeurde alleen als je op dat moment niet was ingelogd; wie al was ingelogd merkte er niets van.
+
 ## v1.4.0
 
 *English summary: MealieShopper now has an MCP server, so you can ask Claude, ChatGPT or GitHub Copilot about your week menu, recipes and AH lists and let them import a recipe into Mealie. Login is OAuth 2.1 with PKCE; every token belongs to the user who gave consent. There is deliberately no tool that fills the AH basket or deletes anything.*

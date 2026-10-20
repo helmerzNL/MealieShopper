@@ -7,6 +7,7 @@ import secrets
 import tempfile
 import unittest
 from contextlib import closing
+from pathlib import Path
 from datetime import timedelta
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
@@ -422,6 +423,17 @@ class UserBindingTest(McpTestCase):
         self.assertEqual(client.get("/api/ah/lists", headers={"Authorization": f"Bearer {tokens['access_token']}"}).status_code, 401)
         cookie = self.admin.get_cookie(auth.SESSION_COOKIE_NAME).value
         self.assertEqual(self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"}).status_code, 401)
+
+
+class LoginReturnTest(McpTestCase):
+    def test_the_app_sends_you_back_to_the_consent_page_after_logging_in(self):
+        # De server stuurt naar /?next=...; het script van de pagina moet na het inloggen terugkeren,
+        # maar alleen naar de toestemmingspagina (geen open redirect).
+        source = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function continueAfterLogin", source)
+        self.assertIn(r"/^\/oauth\/authorize\?/.test(next)", source)
+        self.assertIn("window.location.replace(next)", source)
+        self.assertLess(source.index("if (continueAfterLogin())"), source.index("await loadCredentials();"))
 
 
 class SettingsEffectTest(McpTestCase):
