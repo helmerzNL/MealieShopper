@@ -1089,11 +1089,22 @@ async function syncAhList(listId, button) {
   }
 }
 
+// "X gesynchroniseerd (8 items). 2 nieuw, 1 aangepast aantal behouden." Zo zie je dat je aanpassingen blijven staan.
+function syncSummary(data) {
+  const info = data.sync || {};
+  const parts = [
+    info.new ? tn("list.sync_new", info.new) : "",
+    info.removed ? tn("list.sync_removed", info.removed) : "",
+    info.keptQuantities ? tn("list.sync_kept", info.keptQuantities) : "",
+  ].filter(Boolean);
+  return t("list.sync_done", { name: data.name, count: data.totalSize }) + (parts.length ? ` ${parts.join(", ")}.` : "");
+}
+
 async function syncOneAndReport(listId, button) {
   const result = await syncAhList(listId, button);
   await loadAhFavoriteLists();
   const outcome = result.ok
-    ? [t("list.sync_done", { name: result.data.name, count: result.data.totalSize }), "success"]
+    ? [syncSummary(result.data), "success"]
     : [t("list.sync_failed", { error: result.error }), "error"];
   if (state.ahOpenListId === listId) {
     // De lijst staat open: ververs hem op dezelfde plek en meld het resultaat daar.
@@ -1277,9 +1288,10 @@ function saveQuantity(position) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ quantity: pending.value }),
   })
-    .catch((error) => {
+    .catch(async (error) => {
+      // Opnieuw laden zet de getoonde aantallen terug naar wat is opgeslagen; de melding komt daarna, anders wist het laden haar.
+      if (state.ahOpenListId === pending.listId) await loadAhFavoriteListItems(pending.listId, { keepScroll: true });
       message("#ah-list-items-message", t("list.qty_failed", { error: error.message }));
-      if (state.ahOpenListId === pending.listId) loadAhFavoriteListItems(pending.listId, { keepScroll: true });
     })
     .finally(() => quantitySaves.delete(save));
   quantitySaves.add(save);
@@ -1312,6 +1324,9 @@ function onQuantityInput(input) {
 async function resetOpenAhList() {
   const listId = state.ahOpenListId;
   const button = $("#reset-ah-list");
+  const edited = (state.ahOpenList?.items || []).filter((item) => item.edited).length;
+  // Terugzetten gooit je aanpassingen weg; eerst bevestigen.
+  if (!window.confirm(tn("list.reset_confirm", edited))) return;
   setBusy(button, true);
   message("#ah-list-items-message", "");
   try {

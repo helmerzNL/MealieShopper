@@ -91,51 +91,89 @@ def _item_row(row: Any) -> dict[str, Any]:
     }
 
 
+def _match_previous(previous: list[Any], items: list[dict[str, Any]]) -> list[Any | None]:
+    """Koppel elk nieuw item aan de regel die er al stond: eerst op het id van AH, daarna op het product.
+
+    Zo blijft een regel dezelfde regel als de volgorde verandert of er iets bijkomt, en komt een
+    product dat er dubbel in staat niet door elkaar. Wat nergens bij hoort is nieuw (None).
+    """
+    by_id = {row["item_id"]: row for row in previous if row["item_id"]}
+    used: set[int] = set()
+    matches: list[Any | None] = [None] * len(items)
+    for index, item in enumerate(items):
+        row = by_id.get(item.get("id")) if item.get("id") else None
+        if row is not None and row["position"] not in used:
+            matches[index] = row
+            used.add(row["position"])
+    for index, item in enumerate(items):
+        if matches[index] is not None:
+            continue
+        product_id = int(item.get("productId") or 0)
+        for row in previous:
+            if row["position"] not in used and row["product_id"] == product_id:
+                matches[index] = row
+                used.add(row["position"])
+                break
+    return matches
+
+
 def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
-    """Vervang de lokale kopie van een lijstje door `live` (uitvoer van ah.get_favorite_list_items)."""
+    """Werk de lokale kopie van een lijstje bij met `live` (uitvoer van ah.get_favorite_list_items).
+
+    - Nieuwe items komen erbij met het aantal van AH, en wat bij AH is verdwenen verdwijnt hier ook.
+    - Een aantal dat de gebruiker heeft aangepast blijft staan; AH ververst alleen het aantal van AH
+      (`default_quantity`), zodat terugzetten naar AH blijft kloppen.
+    - Een aantal dat niet is aangepast volgt AH.
+    Het geeft de lijst terug, met onder `sync` wat er is gebeurd (nieuw, verwijderd, behouden).
+    """
     list_id = normalize_id(live.get("id"))
     if not list_id:
         raise RuntimeError("AH lijst heeft geen id")
     name = str(live.get("name") or "AH lijst")
     synced_at = _now()
-
-    with closing(_connect()) as conn:
-        previous = conn.execute(
-            "SELECT product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
-            (list_id,),
-        ).fetchall()
-    # Door de gebruiker aangepaste aantallen, per product (een product kan er dubbel in staan).
-    kept: dict[int, list[int]] = {}
-    for row in previous:
-        if row["quantity"] != (row["default_quantity"] or row["quantity"]):
-            kept.setdefault(row["product_id"], []).append(row["quantity"])
-
-    rows = []
-    for position, item in enumerate(live.get("items") or []):
-        product = item.get("product") or {}
-        product_id = int(item.get("productId") or 0)
-        price = product.get("price")
-        default = max(1, int(item.get("quantity") or 1))
-        quantity = kept[product_id].pop(0) if kept.get(product_id) else default
-        rows.append(
-            (
-                list_id,
-                position,
-                item.get("id"),
-                product_id,
-                quantity,
-                default,
-                product.get("title"),
-                product.get("brand"),
-                product.get("unitSize"),
-                float(price) if price not in (None, "") else None,
-                product.get("image"),
-                item.get("url") or product.get("url") or ah.product_web_url(product_id),
-                1 if product.get("isBonus") else 0,
-            )
-        )
+    items = live.get("items") or []
 
     with closing(_connect()) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
+        previous = conn.execute(
+            "SELECT position, item_id, product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
+            (list_id,),
+        ).fetchall()
+        matches = _match_previous(previous, items)
+
+        rows = []
+        kept = 0
+        for position, (item, old) in enumerate(zip(items, matches)):
+            product = item.get("product") or {}
+            product_id = int(item.get("productId") or 0)
+            price = product.get("price")
+            default = max(1, int(item.get("quantity") or 1))
+            quantity = default
+            if old is not None and old["quantity"] != (old["default_quantity"] or old["quantity"]):
+                quantity = old["quantity"]  # door de gebruiker aangepast
+                kept += 1
+            rows.append(
+                (
+                    list_id,
+                    position,
+                    item.get("id"),
+                    product_id,
+                    quantity,
+                    default,
+                    product.get("title"),
+                    product.get("brand"),
+                    product.get("unitSize"),
+                    float(price) if price not in (None, "") else None,
+                    product.get("image"),
+                    item.get("url") or product.get("url") or ah.product_web_url(product_id),
+                    1 if product.get("isBonus") else 0,
+                )
+            )
+        info = {
+            "new": sum(1 for old in matches if old is None),
+            "removed": len(previous) - sum(1 for old in matches if old is not None),
+            "keptQuantities": kept,
+        }
         conn.execute(
             """
             INSERT INTO ah_lists (id, name, synced_at) VALUES (?, ?, ?)
@@ -153,7 +191,7 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             """,
             rows,
         )
-    return get_snapshot(list_id) or {}
+    return {**(get_snapshot(list_id) or {}), "sync": info}
 
 
 def list_snapshots() -> list[dict[str, Any]]:

@@ -207,6 +207,84 @@ class QuantityTest(AhListsTestCase):
         self.assertEqual((item["quantity"], item["defaultQuantity"], item["edited"]), (3, 3, False))
 
 
+def entry(item_id, product_id, quantity, title=None):
+    return {"id": item_id, "productId": product_id, "quantity": quantity, "url": "",
+            "product": {"title": title or f"Product {product_id}", "price": 1.0}}
+
+
+class SyncKeepsEditsTest(AhListsTestCase):
+    def quantities(self, snapshot):
+        return {item["productId"]: (item["quantity"], item["defaultQuantity"], item["edited"]) for item in snapshot["items"]}
+
+    def test_sync_adds_new_items_and_leaves_edited_quantities_alone(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1)]))
+        ah_lists.set_quantity("abc", 0, 6)
+        after = ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1), entry("c", 3, 4)]))
+        self.assertEqual(self.quantities(after), {1: (6, 2, True), 2: (1, 1, False), 3: (4, 4, False)})
+        self.assertEqual(after["sync"], {"new": 1, "removed": 0, "keptQuantities": 1})
+
+    def test_the_same_edit_survives_many_syncs(self):
+        live = lambda: live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1)])
+        ah_lists.save_snapshot(live())
+        ah_lists.set_quantity("abc", 1, 8)
+        for _ in range(4):
+            after = ah_lists.save_snapshot(live())
+            self.assertEqual(self.quantities(after)[2], (8, 1, True))
+            self.assertEqual(after["sync"]["keptQuantities"], 1)
+
+    def test_items_removed_at_ah_disappear_and_are_counted(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1)]))
+        ah_lists.set_quantity("abc", 1, 5)
+        after = ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        self.assertEqual(list(self.quantities(after)), [1])
+        self.assertEqual(after["sync"], {"new": 0, "removed": 1, "keptQuantities": 0})
+
+    def test_an_item_removed_and_added_again_at_ah_keeps_its_edit(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        ah_lists.set_quantity("abc", 0, 7)
+        after = ah_lists.save_snapshot(live_list("abc", items=[entry("new-id", 1, 2)]))  # AH gaf het een nieuw id
+        self.assertEqual(self.quantities(after)[1], (7, 2, True))
+        self.assertEqual(after["sync"]["new"], 0)
+
+    def test_the_same_product_twice_keeps_each_edit_on_its_own_line(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 1), entry("b", 1, 1)]))
+        ah_lists.set_quantity("abc", 0, 3)
+        ah_lists.set_quantity("abc", 1, 9)
+        swapped = ah_lists.save_snapshot(live_list("abc", items=[entry("b", 1, 1), entry("a", 1, 1)]))
+        self.assertEqual([item["quantity"] for item in swapped["items"]], [9, 3])
+
+    def test_an_unedited_quantity_follows_ah(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        after = ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 5)]))
+        self.assertEqual(self.quantities(after)[1], (5, 5, False))
+        self.assertEqual(after["sync"]["keptQuantities"], 0)
+
+    def test_an_edited_quantity_stays_when_ah_changes_its_own(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        ah_lists.set_quantity("abc", 0, 6)
+        after = ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 3)]))
+        self.assertEqual(self.quantities(after)[1], (6, 3, True))  # reset zet hem terug naar 3
+
+    def test_sync_through_the_route_reports_what_happened(self):
+        ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        ah_lists.set_quantity("abc", 0, 4)
+        with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1)])):
+            data = self.client.post("/api/ah/lists/abc/sync").get_json()
+        self.assertEqual(data["sync"], {"new": 1, "removed": 0, "keptQuantities": 1})
+        self.assertEqual([item["quantity"] for item in data["items"]], [4, 1])
+
+
+class ResetWarningTest(unittest.TestCase):
+    def test_the_reset_button_asks_before_it_resets(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+        body = source[source.index("async function resetOpenAhList()"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn('window.confirm(tn("list.reset_confirm", edited))', body)
+        self.assertLess(body.index("window.confirm"), body.index("/reset"))  # eerst vragen, dan terugzetten
+
+
 class QuantityRoutesTest(AhListsTestCase):
     def test_patch_reset_and_validation(self):
         ah_lists.save_snapshot(live_list())
