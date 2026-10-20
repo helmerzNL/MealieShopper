@@ -1,20 +1,26 @@
+import mimetypes
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 import sqlite3
 
 import requests
-from flask import Flask, Response, jsonify, redirect, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import ah, ah_lists, mealie
 from . import auth
 
 
+# Python kent .webmanifest niet overal; browsers verwachten application/manifest+json.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+
+
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-5")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-7")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -65,7 +71,14 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index():
-        return render_template("index.html")
+        return render_template("index.html", public_base_url=public_base_url())
+
+    @app.get("/favicon.ico")
+    def favicon():
+        # Browsers vragen /favicon.ico op zonder <link>; dit blijft zonder inloggen bereikbaar.
+        return send_from_directory(
+            Path(app.static_folder) / "brand", "favicon.ico", mimetype="image/x-icon"
+        )
 
     @app.get("/healthz")
     def healthz():

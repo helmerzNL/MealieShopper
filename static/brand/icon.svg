@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img">
+  <title>MealieShopper appicoon</title>
+  <rect width="96" height="96" rx="21" fill="#176B45"/>
+  <g transform="translate(48 48) scale(0.66) translate(-48 -48)">
+    <path d="M34 32.5V26.5a14 14 0 0 1 28 0V32.5" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M18 32.5H78a6 6 0 0 1 6 6V72.5a14 14 0 0 1-14 14H26a14 14 0 0 1-14-14V38.5a6 6 0 0 1 6-6Z" fill="#FFFFFF"/>
+    <path d="M18 32.5H78a6 6 0 0 1 6 6V56.5H12V38.5a6 6 0 0 1 6-6Z" fill="#F2CF45"/>
+    <path d="M30 51V38L48 47.5L66 38V51" fill="none" stroke="#176B45" stroke-width="5.0" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -415,6 +415,10 @@ async function loadMealPlan() {
   }
 }
 
+// Een lijniconenset met ronde uiteinden; nieuwe interface-iconen volgen deze vorm.
+const ICON_EXTERNAL =
+  '<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h7a1.5 1.5 0 0 0 1.5-1.5V9"/><path d="M9.5 2.5h4v4"/><path d="M13.5 2.5 7.5 8.5"/></svg>';
+
 function formatPrice(value) {
   const price = Number(value || 0);
   return price ? `\u20ac${price.toFixed(2).replace(".", ",")}` : "";
@@ -458,7 +462,7 @@ function showCartResult(data, notFound) {
     ? ` ${notFound.length} niet gevonden: ${escapeHtml(notFound.join(", "))}.`
     : "";
   $("#cart-result").innerHTML = `
-    <div class="message success">${data.added} producten toegevoegd aan je Albert Heijn mandje.${missing}</div>
+    <div class="message success">Je boodschappen staan klaar: ${data.added} producten in je Albert Heijn mandje.${missing}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
 }
@@ -507,7 +511,7 @@ function renderCartReview(rows) {
                     .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
                     .join("")}
                 </select>
-                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="Bekijk dit product bij AH om te controleren of het klopt">Bekijk bij AH &#8599;</a>
+                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="Bekijk dit product bij AH om te controleren of het klopt">Bekijk bij AH ${ICON_EXTERNAL}</a>
                 <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="Aantal verpakkingen">
               </div>`;
           })

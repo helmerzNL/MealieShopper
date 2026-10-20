@@ -90,6 +90,13 @@ de Docker-image. Bij het opstarten wist MealieShopper de eventueel nog opgeslage
 De omgevingsvariabelen `AH_USERNAME`, `AH_PASSWORD`, `JUMBO_USERNAME` en
 `JUMBO_PASSWORD` worden niet meer gelezen en kunnen uit je `.env` of compose.
 
+## Huisstijl
+
+Het beeldmerk (een boodschappentasje met een M), de kleuren, de typografie en de PWA-instellingen
+staan beschreven in [`docs/huisstijl.md`](docs/huisstijl.md). Beeldbestanden staan in
+`static/brand/`, lettertypen in `static/fonts/`. Herbouw de exports met
+`python scripts/build_brand.py` (Pillow nodig, alleen tijdens het exporteren).
+
 ## Passkeys
 
 Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de
