@@ -89,6 +89,8 @@ I18N.add("nl", {
   "orders.sync_orders.other": "{count} open bestellingen",
   "orders.sync_archived.one": "{count} afgeleverde bestelling bewaard",
   "orders.sync_archived.other": "{count} afgeleverde bestellingen bewaard",
+  "orders.sync_order_items.one": "{count} bestelling nog zonder producten: synchroniseer opnieuw",
+  "orders.sync_order_items.other": "{count} bestellingen nog zonder producten: synchroniseer opnieuw",
   "orders.sync_receipts.one": "{count} nieuwe kassabon",
   "orders.sync_receipts.other": "{count} nieuwe kassabonnen",
   "orders.sync_remaining.one": "{count} kassabon nog op te halen: synchroniseer opnieuw",

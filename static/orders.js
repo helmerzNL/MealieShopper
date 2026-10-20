@@ -143,6 +143,7 @@ async function syncOrders() {
   await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
     done.push(tn("orders.sync_orders", data.open));
     if (data.archived) done.push(tn("orders.sync_archived", data.archived));
+    if (data.remaining) done.push(tn("orders.sync_order_items", data.remaining));
   });
   await run(t("orders.part.receipts"), "/api/ah/receipts/sync", (data) => {
     done.push(tn("orders.sync_receipts", data.new));

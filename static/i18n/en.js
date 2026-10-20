@@ -89,6 +89,8 @@ I18N.add("en", {
   "orders.sync_orders.other": "{count} open orders",
   "orders.sync_archived.one": "{count} delivered order kept",
   "orders.sync_archived.other": "{count} delivered orders kept",
+  "orders.sync_order_items.one": "{count} order still without products: sync again",
+  "orders.sync_order_items.other": "{count} orders still without products: sync again",
   "orders.sync_receipts.one": "{count} new receipt",
   "orders.sync_receipts.other": "{count} new receipts",
   "orders.sync_remaining.one": "{count} receipt still to fetch: sync again",
