@@ -850,9 +850,9 @@ def register_routes(app: Flask) -> None:
         return clear_cookie_response({"status": "ok"})
 
 
-# Alleen de beheerder: Mealie en Albert Heijn koppelen en gebruikers beheren. Gewone gebruikers
+# Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
-ADMIN_PREFIXES = ("/api/users", "/api/mealie/auth", "/api/ah/auth/")
+ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/mealie/auth", "/api/ah/auth/")
 ADMIN_PATHS = {"/api/ah/auth"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status"}
 
@@ -867,12 +867,14 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
     if not auth_required():
         return None
     path = request.path
-    public_prefixes = ("/static/", "/api/auth/", "/api/invites/")
+    # De MCP-ingang en OAuth controleren zelf hun toegangstoken (of, voor /oauth/authorize, de sessie).
+    public_prefixes = ("/static/", "/api/auth/", "/api/invites/", "/oauth/", "/.well-known/oauth-")
     public_paths = {
         "/",
         "/healthz",
         "/.well-known/webauthn",
         "/favicon.ico",
+        "/mcp",
         # De onboarding moet ook voor de eerste inlog bereikbaar zijn.
         "/api/onboarding/status",
         "/api/onboarding/start",

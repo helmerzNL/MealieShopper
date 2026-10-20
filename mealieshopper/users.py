@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from flask import Flask, jsonify, request
 
-from . import auth
+from . import auth, oauth
 from .i18n import tr
 
 INVITE_TTL = timedelta(days=7)
@@ -89,6 +89,7 @@ def delete_user(user_id: str) -> bool:
         for table in ("passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes", "invites"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    oauth.forget_user(user_id)  # ook de AI-apps van deze gebruiker
     return True
 
 

@@ -115,7 +115,12 @@ class ResetLoginTest(unittest.TestCase):
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
                         conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('u_anna', 'anna', 'x')")
                         conn.execute("INSERT OR IGNORE INTO invites (id, token_hash, user_id, username, kind, created_by, created_at, expires_at) VALUES ('i1', 'h', 'u_x', 'bob', 'new', 'owner', 'x', '2999')")
+                    with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn:
+                        before = conn.execute("SELECT session_epoch FROM users WHERE id = 'owner'").fetchone()[0]
                     exec(compile(code, "readme", "exec"), {})
+                    with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn:
+                        after = conn.execute("SELECT session_epoch FROM users WHERE id = 'owner'").fetchone()[0]
+                    self.assertEqual(after, before + 1, lang)  # alle sessies en AI-apps zijn ongeldig
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn:
                         self.assertEqual([row[0] for row in conn.execute("SELECT id FROM users")], ["owner"], lang)
                         self.assertEqual(conn.execute("SELECT COUNT(*) FROM invites").fetchone()[0], 0, lang)

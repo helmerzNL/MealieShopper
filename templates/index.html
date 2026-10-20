@@ -315,6 +315,7 @@
           <button class="subtab is-active" data-subtab="beheer-ah" data-admin-only data-i18n="settings.tab.ah">Albert Heijn</button>
           <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
+          <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
           <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
         </nav>
 
@@ -421,6 +422,52 @@
         </div>
         </div>
 
+        <div id="beheer-ai" class="subpanel">
+        <div class="box" id="ai-settings-box" data-admin-only>
+          <h2 data-i18n="ai.settings_title">Instellingen (beheerder)</h2>
+          <label class="switch-row">
+            <input type="checkbox" id="ai-enabled">
+            <span data-i18n="ai.enabled">MCP-server aan</span>
+          </label>
+          <p class="muted" id="ai-enabled-note"></p>
+          <label class="field">
+            <span data-i18n="ai.base_label">Publiek adres van MealieShopper</span>
+            <span class="form-row">
+              <input class="input" id="ai-base-url" placeholder="https://mealieshopper.jouwdomein.nl" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
+              <button class="button" type="button" id="ai-base-save" data-i18n="ai.base_save">Opslaan</button>
+              <button class="button button--secondary" type="button" id="ai-base-auto" data-i18n="ai.base_auto">Automatisch</button>
+            </span>
+          </label>
+          <p class="muted" id="ai-base-note"></p>
+          <div id="ai-settings-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
+          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          <div id="ai-message"></div>
+          <div id="ai-body" hidden>
+            <label class="field">
+              <span data-i18n="ai.url_label">Adres van de MCP-server</span>
+              <span class="form-row">
+                <input class="input" id="ai-url" readonly aria-label="Adres van de MCP-server" data-i18n-attr="aria-label:ai.url_label">
+                <button class="button" type="button" id="ai-copy" data-i18n="users.copy">Kopiëren</button>
+              </span>
+            </label>
+            <div id="ai-insecure"></div>
+            <div id="ai-guides"></div>
+          </div>
+        </div>
+        <div class="box" id="ai-tools-box" hidden>
+          <h2 data-i18n="ai.tools_title">Wat de assistent kan</h2>
+          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH-mandje niet vullen.</p>
+          <ul class="ai-tools" id="ai-tools"></ul>
+        </div>
+        <div class="box" id="ai-apps-box" hidden>
+          <h2 data-i18n="ai.apps_title">Gekoppelde apps</h2>
+          <div id="ai-apps" class="credential-list"></div>
+        </div>
+        </div>
+
         <div id="beheer-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
@@ -467,6 +514,7 @@
     <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>

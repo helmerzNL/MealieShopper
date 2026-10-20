@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding, users
+from . import about, ah, ah_lists, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, server_settings, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-20")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-23")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -39,13 +39,7 @@ def create_app() -> Flask:
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
     # door hun eigen HTML-pagina, waardoor de echte foutmelding verdwijnt.
 
-    def public_base_url() -> str:
-        configured = (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-        if configured:
-            return configured
-        scheme = request.headers.get("X-Forwarded-Proto") or request.scheme or "http"
-        host = request.headers.get("X-Forwarded-Host") or request.host
-        return f"{scheme}://{host}".rstrip("/")
+    public_base_url = server_settings.public_base_url  # in de app in te stellen, zie server_settings.py
 
     def ah_callback_url() -> str:
         return f"{public_base_url()}/api/ah/auth/callback"
@@ -53,7 +47,9 @@ def create_app() -> Flask:
     def ah_proxy_base_url() -> str:
         return f"{public_base_url()}/api/ah/auth/proxy"
 
+    server_settings.register_routes(app)
     users.register_routes(app, public_base_url)
+    mcp_http.register_routes(app, public_base_url)
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
