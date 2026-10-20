@@ -620,7 +620,7 @@ a.product-card strong {
 
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(180px, 2fr) 72px;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(180px, 2fr) auto 72px;
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
@@ -659,12 +659,42 @@ a.product-card strong {
   width: 100%;
 }
 
+.review-link {
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.review-link:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 720px) {
   .review-row {
-    grid-template-columns: auto 1fr 72px;
+    grid-template-columns: auto 1fr auto;
   }
 
+  .review-row .review-ingredient,
   .review-row .review-product {
     grid-column: 2 / 4;
+  }
+
+  .review-row .review-link {
+    grid-column: 2;
+  }
+
+  .review-row .review-qty {
+    grid-column: 3;
+    width: 72px;
+  }
+
+  .review-row.is-missing {
+    grid-template-columns: auto 1fr;
+  }
+
+  .review-row.is-missing .muted {
+    grid-column: 2;
   }
 }
