@@ -17,7 +17,7 @@ van de logo's van Mealie en Albert Heijn.
 | Basilicumgroen | Goedgekeurd palet | Primaire acties, merk en actieve navigatie |
 | Neutrale oppervlakken | Bestaande app en kleurregels | Rust bij het scannen van recepten en lijsten |
 | Manrope / Inter | Goedgekeurde typografie | Koppen / bediening en lopende tekst |
-| Afgeronde lijnvormen | Icoonrichtlijnen | Consistente vormtaal; geen gemengde iconensets |
+| Material Design Icons | Icoonrichtlijnen | Eén iconenset in de interface, zonder gemengde sets |
 
 ## Ontwerptokens
 
@@ -52,8 +52,11 @@ Manrope voor koppen en het woordmerk, Inter voor de interface. Lettertypen worde
 lokaal geladen; de OFL-licenties staan naast de fonts in `static/fonts/`. Basis 16 px,
 ondersteunende tekst 14 px, paginatitels 24-32 px. Compacte metadata mogen kleiner zijn.
 Knoppen zijn semibold en minimaal 44 px hoog. Invoervelden zijn 16 px, zodat iOS niet
-inzoomt bij het focussen. Gebruik voor toekomstige interface-iconen één lijniconenset met
-ronde uiteinden (zie `.icon` in de stylesheet).
+inzoomt bij het focussen. Interface-iconen komen uit
+[Material Design Icons](https://pictogrammers.com/library/mdi/) (Pictogrammers, Apache 2.0;
+licentie in `static/icons/LICENSE-mdi.txt`). Ze staan als SVG-pad inline in de HTML en nemen de
+tekstkleur over (`fill: currentColor`); de naam van het icoon staat in `data-mdi`. Gebruik voor
+nieuwe iconen dezelfde set, zonder eigen lijniconen ertussen.
 
 ## Bestanden
 
@@ -104,11 +107,12 @@ Schrijf kort en concreet: "Zoek bij AH", "Weekmenu laden", "Je boodschappen staa
 
 In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
 zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
-lijnicoon en een kort label (`Weekmenu`, `Zoeken`, `Importeren`, `AH Items`, `Beheer`), een
+MDI-icoon en een kort label (`Weekmenu`, `Zoeken`, `Importeren`, `AH Items`, `Beheer`), een
 groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
 de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
-schermen, en in een gewone browser, blijven de tabs bovenaan staan.
+schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
+de tekst.
 
 - **Glas:** `backdrop-filter: saturate(180%) blur(24px)` op een witte laag van 80%. Zonder
   ondersteuning (`@supports`) wordt de balk bijna dicht (97%).

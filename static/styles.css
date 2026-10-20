@@ -293,17 +293,19 @@ h2 {
   color: #fff;
 }
 
-/* Iconen en korte labels zijn alleen voor de onderste menubalk (PWA op een klein scherm) */
+/* Iconen: Material Design Icons (Pictogrammers, licentie in static/icons/). In de bovenste tabs staan
+   ze links van de tekst; in de onderste menubalk (PWA op een klein scherm) boven een kort label. */
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .tab-icon {
-  display: none;
   flex: none;
-  width: 24px;
-  height: 24px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
 }
 
 .tab-short {
@@ -917,7 +919,8 @@ a.product-card strong {
   }
 
   html.has-tabbar .tab-icon {
-    display: block;
+    width: 24px;
+    height: 24px;
   }
 
   html.has-tabbar .tab-text {
@@ -944,10 +947,6 @@ a.product-card strong {
   html.has-tabbar .tab.is-active {
     background: var(--tabbar-tint);
     color: var(--tabbar-ink-active);
-  }
-
-  html.has-tabbar .tab.is-active .tab-icon {
-    stroke-width: 2.1;
   }
 
   html.has-tabbar .tab:focus-visible {

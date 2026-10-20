@@ -64,13 +64,31 @@ class TabbarMarkupTest(unittest.TestCase):
         long = re.findall(r'<span class="tab-text">([^<]+)</span>', self.nav)
         self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "AH Items", "Beheer"])
 
-    def test_icons_are_one_line_set_with_the_text_colour(self):
-        for svg in re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S):
+    def test_icons_are_material_design_icons_with_the_text_colour(self):
+        svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
+        self.assertEqual(
+            [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
+            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog"],
+        )
+        for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
-            self.assertNotRegex(svg, r'(fill|stroke)="(?!none)', "kleur komt uit de stylesheet")
+            self.assertEqual(svg.count("<path"), 1, "een MDI-icoon is een enkel pad")
+            self.assertNotRegex(svg, r'(fill|stroke)="', "kleur komt uit de stylesheet")
         icon = re.search(r"\.tab-icon\s*{(.*?)}", CSS, re.S).group(1)
-        for declaration in ("fill: none", "stroke: currentColor", "stroke-linecap: round", "stroke-linejoin: round"):
-            self.assertIn(declaration, icon)
+        self.assertIn("fill: currentColor", icon)
+        self.assertNotIn("stroke", icon)
+
+    def test_icon_licence_ships_with_the_icons(self):
+        licence = (ROOT / "static" / "icons" / "LICENSE-mdi.txt").read_text(encoding="utf-8")
+        self.assertIn("Pictogrammers", licence)
+        self.assertIn("Apache 2.0", licence)
+
+    def test_icons_show_in_the_top_menu_too(self):
+        outside = CSS[:CSS.index("/* Onderste menubalk: een zwevende")]
+        self.assertNotRegex(outside, r"\.tab-icon\s*{\s*display: none;")
+        tab = re.search(r"^\.tab\s*{(.*?)}", outside, re.S | re.M).group(1)
+        self.assertIn("display: inline-flex", tab)
+        self.assertIn("align-items: center", tab)
 
     def test_current_page_is_announced(self):
         self.assertEqual(self.nav.count('aria-current="page"'), 1)
@@ -100,7 +118,6 @@ class TabbarStyleTest(unittest.TestCase):
         self.assertNotIn("has-tabbar", CSS[:CSS.index("/* Onderste menubalk: een zwevende")], "geen balkregels buiten de mediaquery")
         outside = CSS[:CSS.index("/* Onderste menubalk: een zwevende")]
         self.assertRegex(outside, r"\.tab-short\s*{\s*display: none;")
-        self.assertRegex(outside, r"\.tab-icon\s*{\s*display: none;")
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
