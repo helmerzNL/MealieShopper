@@ -104,6 +104,38 @@
       </div>
     </section>
 
+    <section id="invite-gate" class="auth-gate" hidden>
+      <div class="auth-card">
+        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+        </div>
+        <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
+        <h2 id="invite-title" tabindex="-1"></h2>
+        <p id="invite-description" class="muted"></p>
+        <div id="invite-message" role="alert"></div>
+        <form class="auth-form" id="invite-form" autocomplete="off" hidden>
+          <label class="field">
+            <span data-i18n="field.username">Gebruikersnaam</span>
+            <input class="input" id="invite-username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          </label>
+          <label class="field">
+            <span data-i18n="field.password">Wachtwoord</span>
+            <input class="input" id="invite-password" type="password" autocomplete="new-password" required>
+          </label>
+          <label class="field">
+            <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
+            <input class="input" id="invite-password2" type="password" autocomplete="new-password" required>
+          </label>
+          <button class="button" id="invite-submit" type="submit"></button>
+        </form>
+        <p class="auth-or muted" id="invite-or" hidden data-i18n="common.or">of</p>
+        <div class="auth-form" id="invite-passkey-box" hidden>
+          <button class="button button--secondary" id="invite-passkey" type="button" data-i18n="invite.passkey">Een passkey gebruiken</button>
+        </div>
+      </div>
+    </section>
+
     <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="ob-title" hidden>
       <div class="onboarding__card">
         <header class="onboarding__head">
@@ -178,7 +210,8 @@
       <section id="planner" class="panel is-active">
         <div class="message warning message--action" id="mealie-setup" hidden>
           <span data-i18n-html="plan.mealie_missing"><strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.</span>
-          <button class="button inline-button" id="open-mealie-setup" type="button" data-i18n="mealie.link">Mealie koppelen</button>
+          <button class="button inline-button" id="open-mealie-setup" type="button" data-admin-only data-i18n="mealie.link">Mealie koppelen</button>
+          <span data-regular-only hidden data-i18n="plan.mealie_ask_admin">Vraag de beheerder om Mealie te koppelen.</span>
         </div>
         <div class="toolbar">
           <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
@@ -279,9 +312,10 @@
 
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
-          <button class="subtab is-active" data-subtab="beheer-ah" data-i18n="settings.tab.ah">Albert Heijn</button>
-          <button class="subtab" data-subtab="beheer-mealie" data-i18n="settings.tab.mealie">Mealie</button>
+          <button class="subtab is-active" data-subtab="beheer-ah" data-admin-only data-i18n="settings.tab.ah">Albert Heijn</button>
+          <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
+          <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
         </nav>
 
         <div id="beheer-ah" class="subpanel is-active">
@@ -386,6 +420,26 @@
           <div id="security-message"></div>
         </div>
         </div>
+
+        <div id="beheer-users" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="users.title">Gebruikers</h2>
+          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          <div id="users-list" class="credential-list"></div>
+          <div id="users-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="users.invite_title">Iemand uitnodigen</h2>
+          <p class="muted" data-i18n="users.invite_intro">Je maakt een link die één keer werkt en na 7 dagen verloopt. Wie de link opent, kiest zelf een wachtwoord of passkey, dus jij kent het nooit.</p>
+          <form class="form-row" id="invite-create-form" autocomplete="off">
+            <input class="input" id="invite-name" placeholder="Naam (optioneel)" autocomplete="off" autocapitalize="none" spellcheck="false" data-i18n-attr="placeholder:users.invite_name">
+            <button class="button" type="submit" data-i18n="users.invite_create">Uitnodiging maken</button>
+          </form>
+          <div id="invite-result"></div>
+          <h3 data-i18n="users.pending">Openstaande uitnodigingen</h3>
+          <div id="invites-list" class="credential-list"></div>
+        </div>
+        </div>
       </section>
 
       <section id="about" class="panel">
@@ -412,6 +466,7 @@
     <script src="{{ url_for('static', filename='i18n/nl.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>

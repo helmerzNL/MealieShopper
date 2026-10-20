@@ -159,7 +159,8 @@ function renderAuthState() {
   const onboardingBusy = typeof onboardingVisible === "function" && onboardingVisible();
   const authenticated = auth.authenticated || !auth.enabled;
   // Een nieuwe installatie (nog niets ingesteld) gaat via de installatiehulp, niet via deze inlogpagina.
-  const showGate = !authenticated && !auth.setupRequired && !onboardingBusy;
+  const inviteOpen = Boolean(state.invite);
+  const showGate = !authenticated && !auth.setupRequired && !onboardingBusy && !inviteOpen;
 
   gate.hidden = !showGate;
   chip.hidden = !authenticated || !auth.enabled;
@@ -186,6 +187,8 @@ function renderAuthState() {
   }
   if (typeof renderOnboarding === "function") renderOnboarding();
   if (typeof renderSecurityPanel === "function") renderSecurityPanel();
+  if (typeof renderInviteGate === "function") renderInviteGate();
+  if (typeof applyRole === "function") applyRole();
 }
 
 function formatCredentialDate(value) {
@@ -249,12 +252,12 @@ async function refreshAuthStatus() {
   return state.auth;
 }
 
-async function registerPasskey({ username, credentialName, messageTarget }) {
+async function registerPasskey({ username, credentialName, messageTarget, invite }) {
   message(messageTarget, t("passkey.waiting"), "success");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, credentialName }),
+    body: JSON.stringify({ username, credentialName, invite }),
   });
   const options = payload.options;
   options.challenge = base64urlToBuffer(options.challenge);
@@ -271,6 +274,7 @@ async function registerPasskey({ username, credentialName, messageTarget }) {
       userId: payload.userId,
       username,
       credentialName,
+      invite,
       credential: publicKeyCredentialToJSON(credential),
     }),
   });
@@ -1450,6 +1454,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     subtab.classList.add("is-active");
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
+    if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();
@@ -1639,6 +1644,8 @@ window.addEventListener("ms:languagechange", () => {
   renderSavedRecipes();
   refreshSavedRecipesStatus();
   renderAbout();
+  if (typeof renderUsers === "function") renderUsers();
+  if (typeof renderInviteGate === "function") renderInviteGate();
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
     refreshMealieStatus();
@@ -1647,7 +1654,8 @@ window.addEventListener("ms:languagechange", () => {
 
 updateWeekLabel();
 // Pas starten als ook onboarding.js (het laatste script) is geladen.
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  if (typeof loadInvite === "function") await loadInvite();
   refreshAuthStatus().catch((error) => {
     message("#auth-message", error.message);
     $("#auth-gate").hidden = false;

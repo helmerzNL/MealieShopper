@@ -17,6 +17,7 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),
+    "users.js": (STATIC / "users.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
@@ -152,10 +153,10 @@ class PageTest(unittest.TestCase):
         order = [HTML.index(name) for name in ("i18n.js", "i18n/nl.js", "i18n/en.js", "app.js", "onboarding.js")]
         self.assertEqual(order, sorted(order))
 
-    def test_language_switch_in_header_login_and_onboarding(self):
-        self.assertEqual(HTML.count('class="lang-switch"'), 3)
-        self.assertEqual(HTML.count('data-lang="nl"'), 3)
-        self.assertEqual(HTML.count('data-lang="en"'), 3)
+    def test_language_switch_in_header_login_invitation_and_onboarding(self):
+        self.assertEqual(HTML.count('class="lang-switch"'), 4)
+        self.assertEqual(HTML.count('data-lang="nl"'), 4)
+        self.assertEqual(HTML.count('data-lang="en"'), 4)
         self.assertIn('id="flag-nl"', HTML)
         self.assertIn('id="flag-gb"', HTML)
         for button in re.findall(r"<button[^>]*data-lang=[^>]*>", HTML):

@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding
+from . import about, ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-19")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-20")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -52,6 +52,8 @@ def create_app() -> Flask:
 
     def ah_proxy_base_url() -> str:
         return f"{public_base_url()}/api/ah/auth/proxy"
+
+    users.register_routes(app, public_base_url)
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
