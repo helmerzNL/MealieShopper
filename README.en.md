@@ -24,6 +24,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - [Linking Mealie and Albert Heijn](#linking-mealie-and-albert-heijn)
 - [Security](#security)
 - [Users and invitations](#users-and-invitations)
+- [AI assistants (MCP)](#ai-assistants-mcp)
 - [Configuration](#configuration)
 - [Data and backups](#data-and-backups)
 - [Updating](#updating)
@@ -40,6 +41,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and Albert Heijn and manage the users.
+- **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists and import a recipe into Mealie. OAuth login, with your own account.
 - **Dutch and English.** Switch with the flags; the app remembers your choice.
 - **You stay in control.** Everything runs in your own container; your data lives in a SQLite file in your own data folder.
 
@@ -232,6 +234,44 @@ The first user, the one who goes through the setup wizard, is the **administrato
 - Every user has their own login details, two-step verification and passkeys under Settings, Security. A new password only logs that user out.
 - Quantities in a list, and the lists themselves, are shared: they belong to the AH account.
 
+## AI assistants (MCP)
+
+MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address of MealieShopper>/mcp`. With it you can ask Claude, ChatGPT or GitHub Copilot things like *"what are we eating this week and what's in my Weekly groceries list?"* or *"import this recipe into Mealie"*.
+
+<img src="docs/screenshots/en/ai.png" alt="Settings, AI apps: the address of the MCP server and instructions per assistant" width="900">
+
+**What the assistant can do** (only in your name and with your rights):
+
+| Tool | Does |
+|---|---|
+| `get_week_menu` | The week menu from Mealie, with the ingredients. |
+| `search_allerhande_recipes` | Search recipes at Allerhande. |
+| `list_saved_ah_recipes` | Your saved AH recipes, optionally filtered. |
+| `list_ah_lists`, `get_ah_list`, `search_ah_list_items` | Your AH lists, the products in them (with your quantities) and where a product is. |
+| `search_ah_products` | Search products in the AH range, with price and bonus. |
+| `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
+
+There is deliberately **no** tool that fills your AH basket or deletes anything.
+
+**Setting up**
+
+1. Set `MEALIESHOPPER_PUBLIC_BASE_URL` to the public https address of MealieShopper. ChatGPT and claude.ai reach the server from outside, so the address must be reachable from the internet, with HTTPS. Forward `/mcp`, `/oauth/*` and `/.well-known/oauth-*` in your reverse proxy (an ordinary proxy does that for the whole site already).
+2. As a user open **Settings, AI apps**, copy the address and follow the instructions for your assistant. You get the consent screen; after **Allow** the assistant is connected.
+   - **Claude** (claude.ai, Desktop, phone): Settings, Connectors, *Add custom connector*.
+   - **Claude Code:** `claude mcp add --transport http mealieshopper https://your-address/mcp`, then `/mcp` to log in.
+   - **ChatGPT:** developer mode on, a new connector with the address and OAuth. Availability depends on your plan.
+   - **GitHub Copilot (VS Code):** `{"servers": {"mealieshopper": {"type": "http", "url": "https://your-address/mcp"}}}` in `.vscode/mcp.json`.
+
+<img src="docs/screenshots/en/consent.png" alt="The consent screen: ChatGPT asks for access, with Deny and Allow" width="900">
+
+**Security**
+
+- OAuth 2.1 with PKCE (S256); apps register themselves (dynamic client registration), public clients only, and only https, loopback or app redirects.
+- Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
+- A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
+- The server only runs when login is on. Turn it off with `MEALIESHOPPER_MCP=false`.
+- What the assistant reads (recipe names, product names) comes from Mealie and AH; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
+
 ## Configuration
 
 Everything is optional. Set the values in your environment or in `.env.unraid` ([`.env.unraid.example`](.env.unraid.example) and [`.env.local.example`](.env.local.example) show everything).
@@ -242,6 +282,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_AUTH_SECRET` (or `JWT_SECRET`) | Your own secret for sessions and encryption. Without it the app creates `secret.key`. |
 | `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address, for the preview image when you share the link. |
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
+| `MEALIESHOPPER_MCP` | With `false` the MCP server for AI assistants is off. On by default (when login is on). |
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
@@ -279,7 +320,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 **I can't get in any more.** If you lost your password and recovery codes, you can reset the login (your links stay). Optionally stop the container and run:
 
 ```bash
-docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM invites', \"DELETE FROM users WHERE id <> 'owner'\", 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
+docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM invites', \"DELETE FROM users WHERE id <> 'owner'\", 'UPDATE users SET session_epoch = session_epoch + 1', 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
 ```
 
 Then open the app: the setup guide appears again and you set up security anew. This also removes the other users (your account as administrator stays); invite them again afterwards.
@@ -290,7 +331,7 @@ Then open the app: the setup guide appears again and you set up security anew. T
 python -m unittest discover -s tests          # all tests
 ```
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `onboarding.py`, `mealie.py`, `ah.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`: the workflow `.github/workflows/release.yml` then creates the tag and the GitHub release with that text. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
@@ -310,6 +351,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie or Albert 
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
+| [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |
 | [GitHub Container Registry](https://ghcr.io) | Where the Docker image lives. |
 
 **Components**

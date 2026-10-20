@@ -1455,6 +1455,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();
+    if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

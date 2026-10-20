@@ -867,12 +867,14 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
     if not auth_required():
         return None
     path = request.path
-    public_prefixes = ("/static/", "/api/auth/", "/api/invites/")
+    # De MCP-ingang en OAuth controleren zelf hun toegangstoken (of, voor /oauth/authorize, de sessie).
+    public_prefixes = ("/static/", "/api/auth/", "/api/invites/", "/oauth/", "/.well-known/oauth-")
     public_paths = {
         "/",
         "/healthz",
         "/.well-known/webauthn",
         "/favicon.ico",
+        "/mcp",
         # De onboarding moet ook voor de eerste inlog bereikbaar zijn.
         "/api/onboarding/status",
         "/api/onboarding/start",

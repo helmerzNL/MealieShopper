@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <meta name="theme-color" content="#176B45">
+    <title>MealieShopper</title>
+    <link rel="icon" href="{{ url_for('static', filename='brand/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=config.ASSET_VERSION) }}">
+  </head>
+  <body class="oauth-page">
+    <main class="oauth-card">
+      <img class="oauth-logo" src="{{ url_for('static', filename='brand/wordmark.svg') }}" alt="MealieShopper" height="40">
+      {% if error %}
+      <h1>{{ tr("Dit lukt niet", "This didn't work") }}</h1>
+      <p class="message error">{{ error }}</p>
+      <p class="muted">{{ tr("Begin opnieuw vanuit de app die toegang vraagt.", "Start again from the app that is asking for access.") }}</p>
+      {% else %}
+      <h1>{{ tr("Toegang geven?", "Allow access?") }}</h1>
+      <p><strong>{{ client }}</strong> {{ tr("wil met jouw MealieShopper werken.", "wants to work with your MealieShopper.") }}</p>
+      <p class="muted">{{ tr("Je bent ingelogd als", "You are logged in as") }} <strong>{{ username }}</strong>.</p>
+      <h2>{{ tr("Wat mag deze app?", "What may this app do?") }}</h2>
+      <ul class="oauth-list">
+        <li>{{ tr("Je weekmenu en recepten uit Mealie bekijken", "See your week menu and recipes from Mealie") }}</li>
+        <li>{{ tr("Recepten en producten bij Albert Heijn zoeken", "Search recipes and products at Albert Heijn") }}</li>
+        <li>{{ tr("Je AH-lijstjes en bewaarde recepten bekijken", "See your AH lists and saved recipes") }}</li>
+        <li>{{ tr("Een recept in Mealie importeren", "Import a recipe into Mealie") }}</li>
+      </ul>
+      <p class="muted">{{ tr("De app kan niets verwijderen en je AH-mandje niet vullen. Je trekt de toegang altijd in onder Beheer > AI-apps.", "The app can't delete anything and can't fill your AH basket. You can always revoke access under Settings > AI apps.") }}</p>
+      <form method="post" action="{{ base }}/oauth/authorize" class="oauth-actions">
+        <input type="hidden" name="request" value="{{ signed }}">
+        <button class="button button--secondary" type="submit" name="decision" value="deny">{{ tr("Weigeren", "Deny") }}</button>
+        <button class="button" type="submit" name="decision" value="allow">{{ tr("Toestaan", "Allow") }}</button>
+      </form>
+      {% endif %}
+    </main>
+  </body>
+</html>
