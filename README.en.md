@@ -255,8 +255,8 @@ There is deliberately **no** tool that fills your AH basket or deletes anything.
 
 **Setting up**
 
-1. Set `MEALIESHOPPER_PUBLIC_BASE_URL` to the public https address of MealieShopper. ChatGPT and claude.ai reach the server from outside, so the address must be reachable from the internet, with HTTPS. Forward `/mcp`, `/oauth/*` and `/.well-known/oauth-*` in your reverse proxy (an ordinary proxy does that for the whole site already).
-2. As a user open **Settings, AI apps**, copy the address and follow the instructions for your assistant. You get the consent screen; after **Allow** the assistant is connected.
+1. As administrator open **Settings, AI apps**. At the top are the settings: the **MCP server on** switch and the **public address**. The app detects that address itself from how you open it; if MealieShopper is behind a reverse proxy, check that it is the public https address and otherwise enter it here. ChatGPT and claude.ai reach the server from outside, so the address must be reachable from the internet, with HTTPS. Forward `/mcp`, `/oauth/*` and `/.well-known/oauth-*` in your reverse proxy (an ordinary proxy does that for the whole site already).
+2. As a user open **Settings, AI apps** (the settings are not shown to you), copy the address and follow the instructions for your assistant. You get the consent screen; after **Allow** the assistant is connected.
    - **Claude** (claude.ai, Desktop, phone): Settings, Connectors, *Add custom connector*.
    - **Claude Code:** `claude mcp add --transport http mealieshopper https://your-address/mcp`, then `/mcp` to log in.
    - **ChatGPT:** developer mode on, a new connector with the address and OAuth. Availability depends on your plan.
@@ -269,7 +269,7 @@ There is deliberately **no** tool that fills your AH basket or deletes anything.
 - OAuth 2.1 with PKCE (S256); apps register themselves (dynamic client registration), public clients only, and only https, loopback or app redirects.
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
 - A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
-- The server only runs when login is on. Turn it off with `MEALIESHOPPER_MCP=false`.
+- The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings.
 - What the assistant reads (recipe names, product names) comes from Mealie and AH; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
 
 ## Configuration
@@ -280,9 +280,9 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 |---|---|
 | `MEALIESHOPPER_DATA_DIR` | Folder for the database and `secret.key`. `/data` in the Docker image, `./data` by default locally. |
 | `MEALIESHOPPER_AUTH_SECRET` (or `JWT_SECRET`) | Your own secret for sessions and encryption. Without it the app creates `secret.key`. |
-| `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address, for the preview image when you share the link. |
+| `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address (for the preview image, invitation links and the AI connection). Optional: the app detects it itself, and an address the administrator enters under Settings, AI apps takes precedence. |
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
-| `MEALIESHOPPER_MCP` | With `false` the MCP server for AI assistants is off. On by default (when login is on). |
+| `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Settings, AI apps takes precedence. |
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |

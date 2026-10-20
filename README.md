@@ -255,8 +255,8 @@ Er is bewust **geen** tool die je AH-mandje vult of iets verwijdert.
 
 **Instellen**
 
-1. Zet `MEALIESHOPPER_PUBLIC_BASE_URL` op het publieke https-adres van MealieShopper. ChatGPT en claude.ai halen de server van buiten op, dus het adres moet vanaf internet bereikbaar zijn, met HTTPS. Stuur `/mcp`, `/oauth/*` en `/.well-known/oauth-*` door in je reverse proxy (dat doet een gewone proxy voor de hele site al).
-2. Open als gebruiker **Beheer, AI-apps**, kopieer het adres en volg de uitleg voor jouw assistent. Je krijgt het toestemmingsscherm; na **Toestaan** is de assistent gekoppeld.
+1. Open als beheerder **Beheer, AI-apps**. Bovenaan staan de instellingen: de schakelaar **MCP-server aan** en het **publieke adres**. Dat adres herkent de app zelf uit hoe je hem opent; staat MealieShopper achter een reverse proxy, controleer dan dat het het publieke https-adres is en vul het anders hier in. ChatGPT en claude.ai halen de server van buiten op, dus het adres moet vanaf internet bereikbaar zijn, met HTTPS. Stuur `/mcp`, `/oauth/*` en `/.well-known/oauth-*` door in je reverse proxy (dat doet een gewone proxy voor de hele site al).
+2. Open als gebruiker **Beheer, AI-apps** (daar staat het niet onder de instellingen), kopieer het adres en volg de uitleg voor jouw assistent. Je krijgt het toestemmingsscherm; na **Toestaan** is de assistent gekoppeld.
    - **Claude** (claude.ai, Desktop, telefoon): Instellingen, Connectors, *Aangepaste connector toevoegen*.
    - **Claude Code:** `claude mcp add --transport http mealieshopper https://jouw-adres/mcp`, daarna `/mcp` om in te loggen.
    - **ChatGPT:** ontwikkelaarsmodus aan, een nieuwe connector met het adres en OAuth. Beschikbaarheid hangt van je abonnement af.
@@ -269,7 +269,7 @@ Er is bewust **geen** tool die je AH-mandje vult of iets verwijdert.
 - OAuth 2.1 met PKCE (S256); apps registreren zichzelf (dynamic client registration), alleen publieke clients, en alleen https-, loopback- of app-redirects.
 - Elk token hoort bij **de gebruiker die toestemming gaf** en geeft alleen die rechten. Toegangstokens gelden een uur, verversingstokens 30 dagen en worden bij elk gebruik vervangen; een verversingstoken dat twee keer wordt gebruikt, trekt de hele reeks in. Tokens staan alleen gehasht in de database.
 - Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Beheer, AI-apps** trek je zelf de toegang van een app in.
-- De server staat alleen aan als inloggen aanstaat. Uitzetten kan met `MEALIESHOPPER_MCP=false`.
+- De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen.
 - Wat de assistent leest (receptnamen, productnamen) komt van Mealie en AH; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
 
 ## Configuratie
@@ -280,9 +280,9 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 |---|---|
 | `MEALIESHOPPER_DATA_DIR` | Map voor de database en `secret.key`. In de Docker-image `/data`, lokaal standaard `./data`. |
 | `MEALIESHOPPER_AUTH_SECRET` (of `JWT_SECRET`) | Eigen geheim voor sessies en versleuteling. Zonder deze waarde maakt de app `secret.key`. |
-| `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres, voor de voorbeeldafbeelding als je de link deelt. |
+| `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres (voor de voorbeeldafbeelding, uitnodigingslinks en de AI-koppeling). Optioneel: de app herkent het zelf, en een adres dat de beheerder bij Beheer, AI-apps invult gaat voor. |
 | `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | Alleen voor passkeys, met een domeinnaam en HTTPS. |
-| `MEALIESHOPPER_MCP` | Met `false` staat de MCP-server voor AI-assistenten uit. Standaard aan (als inloggen aanstaat). |
+| `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Beheer, AI-apps gaat voor. |
 | `PASSKEY_AUTH_ENABLED` | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie via de omgeving; een koppeling uit de app gaat voor. |
 | `AH_REFRESH_TOKEN` | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |

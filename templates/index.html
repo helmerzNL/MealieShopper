@@ -423,6 +423,24 @@
         </div>
 
         <div id="beheer-ai" class="subpanel">
+        <div class="box" id="ai-settings-box" data-admin-only>
+          <h2 data-i18n="ai.settings_title">Instellingen (beheerder)</h2>
+          <label class="switch-row">
+            <input type="checkbox" id="ai-enabled">
+            <span data-i18n="ai.enabled">MCP-server aan</span>
+          </label>
+          <p class="muted" id="ai-enabled-note"></p>
+          <label class="field">
+            <span data-i18n="ai.base_label">Publiek adres van MealieShopper</span>
+            <span class="form-row">
+              <input class="input" id="ai-base-url" placeholder="https://mealieshopper.jouwdomein.nl" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
+              <button class="button" type="button" id="ai-base-save" data-i18n="ai.base_save">Opslaan</button>
+              <button class="button button--secondary" type="button" id="ai-base-auto" data-i18n="ai.base_auto">Automatisch</button>
+            </span>
+          </label>
+          <p class="muted" id="ai-base-note"></p>
+          <div id="ai-settings-message"></div>
+        </div>
         <div class="box">
           <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
           <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>

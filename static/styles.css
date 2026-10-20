@@ -2001,7 +2001,26 @@ body.has-onboarding {
   padding-left: 20px;
 }
 
+#beheer-ai .form-row {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 #beheer-ai .form-row .input {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  font-weight: 600;
+}
+
+.switch-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
 }

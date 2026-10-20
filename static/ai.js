@@ -1,7 +1,7 @@
 // AI-apps: het adres van de MCP-server, uitleg per assistent en de apps die toegang hebben.
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, t, ...).
 
-const aiState = { status: null };
+const aiState = { status: null, settings: null };
 
 function aiGuides(url) {
   const claudeCode = `claude mcp add --transport http mealieshopper ${url}`;
@@ -53,9 +53,56 @@ function renderAi() {
     : `<p class="muted">${escapeHtml(t("ai.apps_none"))}</p>`;
 }
 
+function renderAiSettings() {
+  const settings = aiState.settings;
+  const box = $("#ai-settings-box");
+  if (!box) return;
+  box.hidden = !settings; // alleen de beheerder krijgt de instellingen
+  if (!settings) return;
+  const checkbox = $("#ai-enabled");
+  checkbox.checked = settings.mcpEnabled;
+  $("#ai-enabled-note").textContent =
+    settings.mcpSource === "default" && !settings.mcpEnabled
+      ? t("ai.enabled_note_env")
+      : !settings.loginOn
+        ? t("ai.off.no_login")
+        : t("ai.enabled_note");
+  const input = $("#ai-base-url");
+  if (document.activeElement !== input) input.value = settings.publicBaseUrlOverride || "";
+  input.placeholder = settings.publicBaseUrlSource === "setting" ? settings.detectedBaseUrl : settings.publicBaseUrl;
+  $("#ai-base-auto").disabled = settings.publicBaseUrlSource !== "setting";
+  const source = {
+    setting: t("ai.base_note_setting", { url: settings.publicBaseUrl, detected: settings.detectedBaseUrl }),
+    env: t("ai.base_note_env", { url: settings.publicBaseUrl }),
+    auto: t("ai.base_note_auto", { url: settings.publicBaseUrl }),
+  }[settings.publicBaseUrlSource];
+  $("#ai-base-note").textContent = `${source} ${t("ai.base_warning")}`;
+}
+
+async function saveAiSettings(change, button) {
+  message("#ai-settings-message", "");
+  if (button) button.disabled = true;
+  try {
+    aiState.settings = await jsonFetch("/api/server-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(change),
+    });
+    message("#ai-settings-message", t("ai.settings_saved"), "success");
+    await loadAi();
+  } catch (error) {
+    message("#ai-settings-message", error.message);
+    renderAiSettings();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function loadAi() {
   try {
     aiState.status = await jsonFetch("/api/mcp/status");
+    aiState.settings = aiState.status.canConfigure ? await jsonFetch("/api/server-settings") : null;
+    renderAiSettings();
     renderAi();
   } catch (error) {
     message("#ai-message", `${t("ai.load_failed")} ${error.message}`);
@@ -87,4 +134,11 @@ $("#ai-apps").addEventListener("click", async (event) => {
   }
 });
 
-window.addEventListener("ms:languagechange", renderAi);
+$("#ai-enabled").addEventListener("change", (event) => saveAiSettings({ mcpEnabled: event.target.checked }, event.target));
+$("#ai-base-save").addEventListener("click", (event) => saveAiSettings({ publicBaseUrl: $("#ai-base-url").value.trim() }, event.currentTarget));
+$("#ai-base-auto").addEventListener("click", (event) => saveAiSettings({ publicBaseUrl: "" }, event.currentTarget));
+
+window.addEventListener("ms:languagechange", () => {
+  renderAiSettings();
+  renderAi();
+});

@@ -250,6 +250,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             {
                 "enabled": on,
                 "reason": reason,
+                "canConfigure": auth.is_owner(),
                 "url": f"{base}/mcp",
                 "secure": base.startswith("https://") or host in oauth.LOOPBACK_HOSTS,
                 "apps": oauth.connected_apps(auth.acting_user_id()) if on else [],

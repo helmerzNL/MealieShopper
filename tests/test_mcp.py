@@ -424,6 +424,24 @@ class UserBindingTest(McpTestCase):
         self.assertEqual(self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"}).status_code, 401)
 
 
+class SettingsEffectTest(McpTestCase):
+    def test_changing_the_public_address_makes_apps_ask_permission_again(self):
+        tokens, _ = self.grant()
+        self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 200)
+        self.assertEqual(self.admin.put("/api/server-settings", json={"publicBaseUrl": "https://shop.example.com"}).status_code, 200)
+        # Het token is uitgegeven voor het oude adres van de MCP-server.
+        response = self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, base_url="https://shop.example.com",
+                                               headers={"Authorization": f"Bearer {tokens['access_token']}"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_a_token_stops_answering_while_the_server_is_switched_off_and_works_again_after(self):
+        tokens, _ = self.grant()
+        self.admin.put("/api/server-settings", json={"mcpEnabled": False})
+        self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 404)
+        self.admin.put("/api/server-settings", json={"mcpEnabled": True})
+        self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 200)
+
+
 class ProtocolTest(McpTestCase):
     def setUp(self):
         super().setUp()

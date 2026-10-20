@@ -13,11 +13,10 @@ from __future__ import annotations
 import datetime
 import ipaddress
 import json
-from os import environ
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_recipes, auth, mealie
+from . import ah, ah_lists, ah_recipes, auth, mealie, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -27,7 +26,7 @@ MAX_LIST_ITEMS = 200
 
 def enabled() -> tuple[bool, str]:
     """Staat de MCP-server aan, en zo niet: waarom niet (een korte code voor de interface)."""
-    if environ.get("MEALIESHOPPER_MCP", "true").strip().lower() in {"0", "false", "no", "off"}:
+    if not server_settings.mcp_setting()[0]:
         return False, "disabled"
     if not auth.auth_required() or not auth.credentials_exist():
         return False, "no_login"

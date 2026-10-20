@@ -850,9 +850,9 @@ def register_routes(app: Flask) -> None:
         return clear_cookie_response({"status": "ok"})
 
 
-# Alleen de beheerder: Mealie en Albert Heijn koppelen en gebruikers beheren. Gewone gebruikers
+# Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
-ADMIN_PREFIXES = ("/api/users", "/api/mealie/auth", "/api/ah/auth/")
+ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/mealie/auth", "/api/ah/auth/")
 ADMIN_PATHS = {"/api/ah/auth"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status"}
 
