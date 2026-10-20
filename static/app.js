@@ -6,6 +6,8 @@ const state = {
   auth: null,
   credentials: [],
   ahListsLoaded: false,
+  loginTicket: null,
+  onboarding: null,
   ahLists: [],
   ahListQuery: "",
   ahListHits: {},
@@ -138,37 +140,37 @@ function publicKeyCredentialToJSON(credential) {
 function renderAuthState() {
   const gate = $("#auth-gate");
   const chip = $("#auth-chip");
-  const title = $("#auth-title");
-  const description = $("#auth-description");
-  const primary = $("#auth-primary");
-  const setupRequired = state.auth?.setupRequired;
-  const authenticated = state.auth?.authenticated || !state.auth?.enabled;
+  const auth = state.auth || {};
+  const onboardingBusy = typeof onboardingVisible === "function" && onboardingVisible();
+  const authenticated = auth.authenticated || !auth.enabled;
+  // Een nieuwe installatie (nog niets ingesteld) gaat via de installatiehulp, niet via deze inlogpagina.
+  const showGate = !authenticated && !auth.setupRequired && !onboardingBusy;
 
-  gate.hidden = authenticated;
-  chip.hidden = !authenticated || !state.auth?.enabled;
-  $("#auth-chip-text").textContent = authenticated && state.auth?.username ? `Ingelogd als ${state.auth.username}` : "";
+  gate.hidden = !showGate;
+  chip.hidden = !authenticated || !auth.enabled;
+  $("#auth-chip-text").textContent = authenticated && auth.username ? `Ingelogd als ${auth.username}` : "";
 
-  if (setupRequired) {
-    title.textContent = "Eerste passkey";
-    description.textContent = "Maak de owner passkey aan voor deze MealieShopper instance.";
-    primary.textContent = "Owner passkey maken";
-    $("#auth-username").hidden = false;
-    $("#auth-passkey-name").hidden = false;
-  } else {
-    title.textContent = "Inloggen met passkey";
-    description.textContent = "Bevestig met je passkey om MealieShopper te openen.";
-    primary.textContent = "Inloggen";
-    $("#auth-username").hidden = true;
-    $("#auth-passkey-name").hidden = true;
+  if (showGate) {
+    const methods = auth.methods || {};
+    const mfaStep = Boolean(state.loginTicket);
+    $("#login-form").hidden = !methods.password || mfaStep;
+    $("#mfa-form").hidden = !mfaStep;
+    $("#login-passkey-box").hidden = !methods.passkey || mfaStep;
+    $("#login-or").hidden = !(methods.passkey && methods.password);
+    $("#auth-title").textContent = mfaStep ? "Bevestig je login" : "Inloggen";
+    $("#auth-description").textContent = mfaStep
+      ? "Vul de code uit je authenticator-app in."
+      : methods.password && methods.passkey
+        ? "Log in met je wachtwoord of met je passkey."
+        : methods.password
+          ? "Log in met je gebruikersnaam en wachtwoord."
+          : "Bevestig met je passkey om MealieShopper te openen.";
+    const unavailable = webauthnUnavailableReason();
+    $("#login-passkey").disabled = Boolean(unavailable);
+    if (unavailable && methods.passkey && !methods.password) message("#auth-message", unavailable);
   }
-
-  const unavailable = webauthnUnavailableReason();
-  if (unavailable && !authenticated) {
-    message("#auth-message", unavailable);
-    primary.disabled = true;
-  } else {
-    primary.disabled = false;
-  }
+  if (typeof renderOnboarding === "function") renderOnboarding();
+  if (typeof renderSecurityPanel === "function") renderSecurityPanel();
 }
 
 function formatCredentialDate(value) {
@@ -180,7 +182,9 @@ function renderCredentials() {
   const target = $("#credentials-list");
   if (!target) return;
   if (!state.auth?.authenticated || !state.auth?.enabled) {
-    target.innerHTML = `<p class="muted">Log in om passkeys te beheren.</p>`;
+    target.innerHTML = `<p class="muted">${
+      state.auth?.enabled ? "Log in om passkeys te beheren." : "Zet inloggen aan (bijvoorbeeld met een wachtwoord) om passkeys te beheren."
+    }</p>`;
     return;
   }
   target.innerHTML = state.credentials.length
@@ -220,6 +224,7 @@ async function loadCredentials() {
 
 async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
+  if (typeof loadOnboardingStatus === "function") await loadOnboardingStatus();
   renderAuthState();
   await loadCredentials();
   if (state.auth?.authenticated || !state.auth?.enabled) {
@@ -254,14 +259,6 @@ async function registerPasskey({ username, credentialName, messageTarget }) {
       credential: publicKeyCredentialToJSON(credential),
     }),
   });
-}
-
-async function createOwnerPasskey() {
-  const username = $("#auth-username").value.trim() || "admin";
-  const credentialName = $("#auth-passkey-name").value.trim() || "Owner passkey";
-  await registerPasskey({ username, credentialName, messageTarget: "#auth-message" });
-  message("#auth-message", "Passkey aangemaakt. Je bent ingelogd.", "success");
-  await refreshAuthStatus();
 }
 
 async function addPasskey() {
@@ -314,15 +311,79 @@ async function loginWithPasskey() {
   await refreshAuthStatus();
 }
 
-async function handleAuthPrimary() {
-  const button = $("#auth-primary");
+async function loginWithPassword(event) {
+  event.preventDefault();
+  const button = $("#login-submit");
+  button.disabled = true;
+  message("#auth-message", "");
+  try {
+    const data = await jsonFetch("/api/auth/password/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: $("#login-username").value, password: $("#login-password").value }),
+    });
+    $("#login-password").value = "";
+    if (data.mfaRequired) {
+      state.loginTicket = data.ticket;
+      renderAuthState();
+      $("#mfa-code").value = "";
+      $("#mfa-code").focus();
+      return;
+    }
+    await refreshAuthStatus();
+  } catch (error) {
+    message("#auth-message", error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function submitMfaCode(event) {
+  event.preventDefault();
+  const button = $("#mfa-submit");
+  button.disabled = true;
+  message("#auth-message", "");
+  try {
+    await jsonFetch("/api/auth/password/mfa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: state.loginTicket, code: $("#mfa-code").value }),
+    });
+    state.loginTicket = null;
+    $("#mfa-code").value = "";
+    await refreshAuthStatus();
+  } catch (error) {
+    message("#auth-message", error.message);
+    if (/verlopen/i.test(error.message)) cancelMfa();
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function cancelMfa() {
+  state.loginTicket = null;
+  $("#mfa-code").value = "";
+  renderAuthState();
+}
+
+function toggleRecoveryInput() {
+  const input = $("#mfa-code");
+  const recovery = input.dataset.mode !== "recovery";
+  input.dataset.mode = recovery ? "recovery" : "code";
+  input.inputMode = recovery ? "text" : "numeric";
+  input.autocomplete = recovery ? "off" : "one-time-code";
+  input.placeholder = recovery ? "XXXX-XXXX-XXXX-XXXX" : "123456";
+  $("#mfa-code-label").textContent = recovery ? "Herstelcode" : "Code uit je authenticator-app";
+  $("#mfa-recovery-toggle").textContent = recovery ? "Toch de code uit de app gebruiken" : "Herstelcode gebruiken";
+  input.value = "";
+  input.focus();
+}
+
+async function handlePasskeyLogin() {
+  const button = $("#login-passkey");
   button.disabled = true;
   try {
-    if (state.auth?.setupRequired) {
-      await createOwnerPasskey();
-    } else {
-      await loginWithPasskey();
-    }
+    await loginWithPasskey();
   } catch (error) {
     message("#auth-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
   } finally {
@@ -1314,7 +1375,11 @@ document.addEventListener(
   },
   true
 );
-$("#auth-primary").addEventListener("click", handleAuthPrimary);
+$("#login-form").addEventListener("submit", loginWithPassword);
+$("#mfa-form").addEventListener("submit", submitMfaCode);
+$("#mfa-cancel").addEventListener("click", cancelMfa);
+$("#mfa-recovery-toggle").addEventListener("click", toggleRecoveryInput);
+$("#login-passkey").addEventListener("click", handlePasskeyLogin);
 $("#add-passkey").addEventListener("click", addPasskey);
 $("#auth-logout").addEventListener("click", async () => {
   await jsonFetch("/api/auth/logout", { method: "POST", body: "{}" });
@@ -1340,7 +1405,10 @@ if (params.get("ah_error")) {
 }
 
 updateWeekLabel();
-refreshAuthStatus().catch((error) => {
-  message("#auth-message", error.message);
-  $("#auth-gate").hidden = false;
+// Pas starten als ook onboarding.js (het laatste script) is geladen.
+document.addEventListener("DOMContentLoaded", () => {
+  refreshAuthStatus().catch((error) => {
+    message("#auth-message", error.message);
+    $("#auth-gate").hidden = false;
+  });
 });

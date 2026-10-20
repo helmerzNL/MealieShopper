@@ -1121,6 +1121,378 @@ a.product-card strong {
   }
 }
 
+/* Inloggen: het wachtwoord- en MFA-formulier op de inlogpagina */
+.auth-card .auth-form > .button,
+.auth-card .auth-form > .link-button {
+  width: 100%;
+}
+
+.auth-or {
+  margin: 14px 0 0;
+  text-align: center;
+}
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.link-button {
+  min-height: var(--control-height);
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--primary-strong);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 28px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--primary);
+}
+
+/* Installatiehulp (eerste start) */
+body.has-onboarding {
+  overflow: hidden;
+}
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: var(--bg);
+}
+
+.onboarding[hidden] {
+  display: none;
+}
+
+.onboarding__card {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: 24px;
+}
+
+.onboarding__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.onboarding__head h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.onboarding__head h2:focus {
+  outline: none;
+}
+
+.onboarding__eyebrow {
+  margin: 0 0 2px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ob-progress {
+  display: flex;
+  gap: 6px;
+  margin: 20px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-progress li {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.ob-progress__dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.ob-progress li.is-current {
+  color: var(--primary-strong);
+}
+
+.ob-progress li.is-current .ob-progress__dot {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.ob-progress li.is-done .ob-progress__dot {
+  border-color: var(--primary);
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.ob-progress__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#ob-body {
+  margin-top: 12px;
+  line-height: 1.55;
+}
+
+#ob-body p {
+  margin: 12px 0;
+}
+
+.ob-env {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.ob-note {
+  margin: 14px 0;
+}
+
+.ob-options {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.ob-option {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+
+.ob-option--recommended {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.ob-option h3,
+.ob-subtitle {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.ob-subtitle {
+  margin-top: 20px;
+}
+
+.ob-option p {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.ob-badge {
+  display: inline-block;
+  margin-bottom: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  padding: 2px 10px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ob-skip {
+  text-align: center;
+}
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.ob-actions--wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.ob-checklist {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+
+.ob-checklist .is-ok {
+  background: var(--selection);
+  border-color: var(--primary);
+}
+
+.ob-check {
+  flex: none;
+  width: 20px;
+  color: var(--primary-strong);
+  font-weight: 700;
+  text-align: center;
+}
+
+.qr-box {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 18px;
+  align-items: start;
+  margin: 16px 0;
+}
+
+.qr {
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  /* Een QR-code scant het best zwart op wit, ook in een donker thema */
+  background: #fff;
+  padding: 4px;
+}
+
+.qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.qr-help p {
+  margin: 8px 0;
+}
+
+.qr-secret {
+  display: inline-block;
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-codes li {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.recovery-codes code {
+  border: 0;
+  background: none;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+@media (max-width: 640px) {
+  .onboarding__card {
+    padding: 18px 16px;
+  }
+
+  .onboarding__head h2 {
+    font-size: 21px;
+  }
+
+  .ob-progress li:not(.is-current) .ob-progress__label {
+    display: none;
+  }
+
+  .qr-box {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .qr-help {
+    width: 100%;
+  }
+
+  .ob-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .ob-actions--wrap {
+    flex-direction: column;
+  }
+
+  .ob-actions > span {
+    display: none;
+  }
+
+  .recovery-codes {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
    Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. */
 @media (max-width: 640px) {

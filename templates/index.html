@@ -64,14 +64,48 @@
     <section id="auth-gate" class="auth-gate" hidden>
       <div class="auth-card">
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
-        <h2 id="auth-title">Passkey</h2>
+        <h2 id="auth-title">Inloggen</h2>
         <p id="auth-description" class="muted"></p>
-        <div id="auth-message"></div>
-        <div class="auth-form">
-          <input class="input" id="auth-username" value="admin" autocomplete="username">
-          <input class="input" id="auth-passkey-name" value="Owner passkey" autocomplete="off">
-          <button class="button" id="auth-primary">Doorgaan</button>
+        <div id="auth-message" role="alert"></div>
+        <form class="auth-form" id="login-form" hidden>
+          <label class="field">
+            <span>Gebruikersnaam</span>
+            <input class="input" id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          </label>
+          <label class="field">
+            <span>Wachtwoord</span>
+            <input class="input" id="login-password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="button" id="login-submit" type="submit">Inloggen</button>
+        </form>
+        <form class="auth-form" id="mfa-form" hidden>
+          <label class="field">
+            <span id="mfa-code-label">Code uit je authenticator-app</span>
+            <input class="input" id="mfa-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" autocapitalize="characters" spellcheck="false" required>
+          </label>
+          <button class="button" id="mfa-submit" type="submit">Bevestigen</button>
+          <button class="link-button" id="mfa-recovery-toggle" type="button">Herstelcode gebruiken</button>
+          <button class="button button--secondary" id="mfa-cancel" type="button">Terug</button>
+        </form>
+        <p class="auth-or muted" id="login-or" hidden>of</p>
+        <div class="auth-form" id="login-passkey-box" hidden>
+          <button class="button button--secondary" id="login-passkey" type="button">Inloggen met passkey</button>
         </div>
+      </div>
+    </section>
+
+    <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="ob-title" hidden>
+      <div class="onboarding__card">
+        <header class="onboarding__head">
+          <img class="brand-mark" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="48" height="48">
+          <div>
+            <p class="onboarding__eyebrow" id="ob-eyebrow"></p>
+            <h2 id="ob-title" tabindex="-1"></h2>
+          </div>
+        </header>
+        <ol class="ob-progress" id="ob-progress" aria-label="Voortgang"></ol>
+        <div id="ob-message" role="alert"></div>
+        <div id="ob-body"></div>
       </div>
     </section>
 
@@ -283,6 +317,36 @@
         </div>
 
         <div id="beheer-security" class="subpanel">
+        <div class="box" id="security-password-box">
+          <h2>Wachtwoord</h2>
+          <p class="muted" id="password-intro"></p>
+          <form class="auth-form" id="password-form" autocomplete="off">
+            <label class="field">
+              <span>Gebruikersnaam</span>
+              <input class="input" id="pw-username" autocomplete="username" autocapitalize="none" spellcheck="false">
+            </label>
+            <label class="field" id="pw-current-field" hidden>
+              <span>Huidig wachtwoord</span>
+              <input class="input" id="pw-current" type="password" autocomplete="current-password">
+            </label>
+            <label class="field">
+              <span id="pw-new-label">Wachtwoord</span>
+              <input class="input" id="pw-new" type="password" autocomplete="new-password">
+            </label>
+            <label class="field">
+              <span>Herhaal het wachtwoord</span>
+              <input class="input" id="pw-new2" type="password" autocomplete="new-password">
+            </label>
+            <button class="button" id="pw-submit" type="submit">Wachtwoord instellen</button>
+          </form>
+          <div id="password-message"></div>
+        </div>
+        <div class="box" id="security-mfa-box">
+          <h2>Tweestapsverificatie</h2>
+          <p class="muted" id="mfa-intro"></p>
+          <div id="mfa-panel"></div>
+          <div id="mfa-message"></div>
+        </div>
         <div class="box">
           <h2>Passkeys</h2>
           <p class="muted">Voeg extra apparaten toe of verwijder oude passkeys.</p>
@@ -298,5 +362,6 @@
     </main>
 
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>
