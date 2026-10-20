@@ -1,3 +1,4 @@
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -872,6 +873,71 @@ def normalize_quantity(value: Any) -> int:
     except (TypeError, ValueError, OverflowError):
         return 1
     return min(MAX_CART_QUANTITY, max(1, quantity))
+
+
+_MASS_UNITS = {"g": 1, "gr": 1, "gram": 1, "kg": 1000, "kilo": 1000, "kilogram": 1000}
+_VOLUME_UNITS = {
+    "ml": 1, "milliliter": 1, "cl": 10, "centiliter": 10,
+    "dl": 100, "deciliter": 100, "l": 1000, "liter": 1000,
+}
+_COUNT_UNITS = {"", "stuk", "stuks", "st"}
+_PACK_SIZE_RE = re.compile(
+    r"(?:(\d+)\s*[x\u00d7]\s*)?(\d+(?:[.,]\d+)?)\s*"
+    r"(kilogram|kilo|kg|gram|gr|g|milliliter|centiliter|deciliter|liter|ml|cl|dl|l|stuks|stuk|st)\b",
+    re.IGNORECASE,
+)
+
+
+def _measure(amount: float, unit: str) -> tuple[float, str] | None:
+    """Reken een hoeveelheid om naar (waarde, soort): gram, milliliter of aantal stuks."""
+    unit = unit.strip().lower().rstrip(".")
+    if unit in _MASS_UNITS:
+        return amount * _MASS_UNITS[unit], "mass"
+    if unit in _VOLUME_UNITS:
+        return amount * _VOLUME_UNITS[unit], "volume"
+    if unit in _COUNT_UNITS:
+        return amount, "count"
+    return None
+
+
+def parse_pack_size(unit_size: Any) -> tuple[float, str] | None:
+    """Verpakkingsgrootte uit AH-tekst als "6 stuks", "1 kg", "4 x 125 g" of "per stuk"."""
+    text = str(unit_size or "").strip().lower()
+    if not text:
+        return None
+    match = _PACK_SIZE_RE.search(text)
+    if match:
+        multiplier = int(match.group(1) or 1)
+        amount = float(match.group(2).replace(",", ".")) * multiplier
+        return _measure(amount, match.group(3))
+    if re.search(r"\bper stuk\b|\bstuk\b", text):
+        return 1.0, "count"
+    return None
+
+
+def packs_needed(quantity: Any, unit: Any, unit_size: Any) -> int:
+    """Aantal verpakkingen voor een ingredient, op basis van de verpakkingsgrootte van het product.
+
+    "6 eieren" bij "10 stuks" is een doosje, "500 g" bij "250 g" zijn er twee. Is de
+    verhouding niet te bepalen (el, tl, teentje, gewicht tegen stuks), dan is het er een.
+    """
+    try:
+        needed = float(quantity)
+    except (TypeError, ValueError):
+        needed = 1.0
+    if not needed > 0 or math.isinf(needed):
+        needed = 1.0
+
+    ingredient = _measure(needed, str(unit or ""))
+    if ingredient is None:
+        return 1
+    pack = parse_pack_size(unit_size)
+    if pack is None:
+        # Zonder verpakkingsgrootte telt alleen een los aantal letterlijk.
+        return normalize_quantity(needed) if ingredient[1] == "count" else 1
+    if pack[1] != ingredient[1] or pack[0] <= 0:
+        return 1
+    return normalize_quantity(math.ceil(ingredient[0] / pack[0] - 1e-9))
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
