@@ -34,8 +34,17 @@ function renderAi() {
   const open = [...document.querySelectorAll("#ai-guides details")].map((element) => element.open);
   $("#ai-guides").innerHTML = aiGuides(status.url);
   document.querySelectorAll("#ai-guides details").forEach((element, index) => (element.open = Boolean(open[index])));
+  const owner = Boolean(aiState.settings); // de beheerder zet tools aan of uit, de rest ziet alleen de stand
+  $("#ai-tools-owner-note").hidden = !owner;
   $("#ai-tools").innerHTML = status.tools
-    .map((tool) => `<li><strong>${escapeHtml(tool.title)}</strong> <span class="user-badge">${escapeHtml(t(tool.readOnly ? "ai.tool.read" : "ai.tool.write"))}</span></li>`)
+    .map((tool) => {
+      const badge = `<span class="user-badge">${escapeHtml(t(tool.readOnly ? "ai.tool.read" : "ai.tool.write"))}</span>`;
+      if (owner) {
+        return `<li><label class="switch-row"><input type="checkbox" data-ai-tool="${escapeHtml(tool.name)}"${tool.enabled ? " checked" : ""}><span>${escapeHtml(tool.title)}</span> ${badge}</label></li>`;
+      }
+      const off = tool.enabled ? "" : ` <span class="user-badge">${escapeHtml(t("ai.tool.off"))}</span>`;
+      return `<li class="${tool.enabled ? "" : "ai-tool-off"}"><strong>${escapeHtml(tool.title)}</strong> ${badge}${off}</li>`;
+    })
     .join("");
   $("#ai-apps").innerHTML = status.apps.length
     ? status.apps
@@ -131,6 +140,24 @@ $("#ai-apps").addEventListener("click", async (event) => {
     await loadAi();
   } catch (error) {
     message("#ai-message", error.message);
+  }
+});
+
+$("#ai-tools").addEventListener("change", async (event) => {
+  const box = event.target.closest("[data-ai-tool]");
+  if (!box) return;
+  box.disabled = true;
+  try {
+    await jsonFetch("/api/server-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mcpTools: { [box.dataset.aiTool]: box.checked } }),
+    });
+    await loadAi();
+    message("#ai-message", t("ai.tools_changed"), "success");
+  } catch (error) {
+    message("#ai-message", error.message);
+    await loadAi();
   }
 });
 

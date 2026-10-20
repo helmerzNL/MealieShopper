@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from flask import Flask, Response, jsonify, make_response, redirect, render_template, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-from . import auth, mcp, oauth
+from . import auth, mcp, oauth, server_settings
 from .i18n import current_lang, tr
 
 CORS_PATHS = ("/mcp", "/oauth/register", "/oauth/token", "/oauth/revoke", "/.well-known/")
@@ -254,7 +254,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
                 "url": f"{base}/mcp",
                 "secure": base.startswith("https://") or host in oauth.LOOPBACK_HOSTS,
                 "apps": oauth.connected_apps(auth.acting_user_id()) if on else [],
-                "tools": [{"name": tool["name"], "title": tool["annotations"]["title"], "readOnly": tool["annotations"]["readOnlyHint"]} for tool in mcp.tool_descriptors()],
+                "tools": server_settings.tools_payload(),
             }
         )
 

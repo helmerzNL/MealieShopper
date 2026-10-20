@@ -135,3 +135,35 @@ class McpSwitchTest(ServerSettingsTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpToolSwitchTest(ServerSettingsTestCase):
+    def names(self):
+        return {tool["name"]: tool["enabled"] for tool in self.get()["mcpTools"]}
+
+    def test_every_tool_is_on_by_default_and_can_be_switched_off_and_on(self):
+        self.assertTrue(all(self.names().values()))
+        self.assertIn("get_week_menu", self.names())
+        self.assertEqual(self.put({"mcpTools": {"get_week_menu": False}}).status_code, 200)
+        self.assertEqual([name for name, on in self.names().items() if not on], ["get_week_menu"])
+        self.put({"mcpTools": {"get_week_menu": True}})
+        self.assertTrue(all(self.names().values()))
+
+    def test_a_partial_change_keeps_the_rest(self):
+        self.put({"mcpTools": {"get_week_menu": False}})
+        self.put({"mcpTools": {"list_ah_lists": False}})
+        self.assertEqual(sorted(name for name, on in self.names().items() if not on), ["get_week_menu", "list_ah_lists"])
+
+    def test_bad_input(self):
+        for body in ({"mcpTools": {"get_week_menu": "nee"}}, {"mcpTools": {"get_week_menu": 0}}, {"mcpTools": []}, {"mcpTools": {"bestaat_niet": False}}):
+            self.assertEqual(self.put(body).status_code, 400, body)
+        self.assertTrue(all(self.names().values()))
+
+    def test_unknown_names_are_not_stored_when_part_of_the_request_is_bad(self):
+        self.put({"mcpTools": {"get_week_menu": False, "bestaat_niet": False}})
+        self.assertTrue(all(self.names().values()))
+
+    def test_only_the_owner_can_switch_tools(self):
+        anna = self.join()
+        self.assertEqual(self.put({"mcpTools": {"get_week_menu": False}}, anna).status_code, 403)
+        self.assertTrue(all(self.names().values()))

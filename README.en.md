@@ -38,6 +38,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. One button looks up the best AH products for every ingredient, works out how many packs you need and puts them in your AH basket. If the app is unsure, you check that line yourself first.
 - **Search and import recipes.** Search the Allerhande recipes and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
+- **Orders and receipts.** Your order basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and Albert Heijn and manage the users.
@@ -72,6 +73,14 @@ Your favourite lists as cards. Sync them to MealieShopper, search by name or by 
 <img src="docs/screenshots/en/lists.png" alt="AH lists as cards, with a search bar and a sync button per list" width="900">
 
 <img src="docs/screenshots/en/list.png" alt="An opened list with adjustable quantities, the Add to AH basket button and the reset and sync icons" width="900">
+
+### AH Items: orders and receipts
+
+Your **order basket** (the active order at AH), your **orders** and your **receipts** from the shop. Everything is kept in a local copy; the search field searches all your purchases and shows when and how often you bought something.
+
+<img src="docs/screenshots/en/orders.png" alt="Orders and receipts: the order basket with products, and a search field for your purchases" width="900">
+
+<img src="docs/screenshots/en/history.png" alt="The open and delivered orders and the receipts" width="900">
 
 ## Quick start
 
@@ -160,6 +169,8 @@ Under `Find recipes` search Allerhande (up to the first 2,000 hits) and choose `
 - **AH Recipes**: your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
 - **AH Lists**: your favourite lists. With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `AH: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to AH basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
 
+- **Orders**: the sync icon fetches the order basket, the open orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper fetches it one last time and keeps it as **delivered**. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The **order basket** is the active order at AH and is something other than the shopping list that `Add to AH basket` writes to. MealieShopper does not keep the delivery address, only date and time slot.
+
 ### Installing as an app
 
 MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items.
@@ -196,7 +207,7 @@ AH has no official link. MealieShopper logs in like the AH app, in your own brow
 3. Log in with your passkey or password. The page then seems to hang, but the console shows a red line with `appie://login-exit?code=...`.
 4. Paste that line in MealieShopper and choose `Link`. The code works only once and expires quickly; a message about an expired or used code means: log in again.
 
-With `Check link` you see whether the stored token still works. AH may replace the token on every refresh; MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage.
+With `Check link` you see whether the stored token still works. Under **Explore AH routes** (administrator only) you call the unofficial AH routes for the order basket, orders and receipts and see which ones work and which fields they contain. The report contains no names, addresses, prices or ids and is safe to share; that is how we find out how to fetch delivered orders. AH may replace the token on every refresh; MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage.
 
 ## Security
 
@@ -249,6 +260,10 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 | `list_saved_ah_recipes` | Your saved AH recipes, optionally filtered. |
 | `list_ah_lists`, `get_ah_list`, `search_ah_list_items` | Your AH lists, the products in them (with your quantities) and where a product is. |
 | `search_ah_products` | Search products in the AH range, with price and bonus. |
+| `get_ah_basket` | The order basket (the active order at AH), from the local copy. |
+| `list_ah_orders`, `get_ah_order` | Your orders and the products of one order, from the local copy. |
+| `list_ah_receipts`, `get_ah_receipt` | Your receipts from the shop and the lines of one receipt. |
+| `search_ah_purchases` | Where and when you bought a product, in all kept orders and receipts. |
 | `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
 
 There is deliberately **no** tool that fills your AH basket or deletes anything.
@@ -269,7 +284,7 @@ There is deliberately **no** tool that fills your AH basket or deletes anything.
 - OAuth 2.1 with PKCE (S256); apps register themselves (dynamic client registration), public clients only, and only https, loopback or app redirects.
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
 - A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
-- The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings.
+- The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings. Under **What the assistant can do** the administrator can also switch each tool off individually, for all users. A switched-off tool is hidden from assistants and refused; they see the change on their next connection.
 - What the assistant reads (recipe names, product names) comes from Mealie and AH; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
 
 ## Configuration
@@ -291,7 +306,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 ## Data and backups
 
-Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your AH lists and recipes, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and Albert Heijn again, and the app shows that as "not linked".
+Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your AH lists and recipes, your order history and receipts, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and Albert Heijn again, and the app shows that as "not linked".
 
 ## Updating
 
@@ -331,7 +346,7 @@ Then open the app: the setup guide appears again and you set up security anew. T
 python -m unittest discover -s tests          # all tests
 ```
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`: the workflow `.github/workflows/release.yml` then creates the tag and the GitHub release with that text. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`

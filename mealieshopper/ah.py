@@ -1066,6 +1066,199 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         raise RuntimeError(f"AH winkelmandje vullen mislukt ({response.status_code}): {response.text}")
 
 
+# --- Bestellingen, het bestelmandje en kassabonnen (alleen lezen) ---------------------------------
+# Onofficiële routes van de AH-app, zoals de community-bibliotheek appie-go ze gebruikt. Het
+# bestelmandje is de actieve bestelling bij AH, iets anders dan de boodschappenlijst waar
+# add_to_shopping_list naartoe schrijft. De antwoorden worden hier tot platte dicts herleid;
+# ontbrekende velden worden leeg in plaats van een fout.
+
+
+def _number(value: Any) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _int(value: Any) -> int | None:
+    number = _number(value)
+    return int(number) if number is not None else None
+
+
+def _text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _get_json(path: str, params: dict[str, Any] | None = None) -> Any:
+    return _request_json(
+        "GET",
+        f"{AH_API_BASE}{path}",
+        headers=_auth_headers(get_user_token(), include_content_type=False),
+        params=params,
+    )
+
+
+def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
+    product = entry.get("product") or {}
+    images = product.get("images") or []
+    return {
+        "productId": _int(product.get("webshopId") or product.get("id")),
+        "title": _text(product.get("title")),
+        "brand": _text(product.get("brand")),
+        "unitSize": _text(product.get("salesUnitSize")),
+        "quantity": _int(entry.get("quantity")) or 0,
+        "amount": _number(entry.get("amount")),
+        "price": _number(product.get("currentPrice") if product.get("currentPrice") is not None else product.get("priceBeforeBonus")),
+        "priceBeforeBonus": _number(product.get("priceBeforeBonus")),
+        "bonus": bool(product.get("isBonus")),
+        "taxonomy": _text(taxonomy),
+        "image": images[0].get("url") if images and isinstance(images[0], dict) else "",
+    }
+
+
+def get_active_order() -> dict[str, Any]:
+    """Het bestelmandje: de actieve bestelling bij AH (producten, totaal, gekozen bezorgmoment)."""
+    data = _get_json("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}) or {}
+    total = data.get("totalPrice") or {}
+    delivery = data.get("deliveryInformation") or {}
+    return {
+        "id": _int(data.get("id")),
+        "state": _text(data.get("state")),
+        "shoppingType": _text(data.get("shoppingType")),
+        "total": _number(total.get("priceTotalPayable")),
+        "discount": _number(total.get("priceDiscount")),
+        "deliveryDate": _text(delivery.get("deliveryDate")),
+        "slotStart": _text(delivery.get("deliveryStartTime")),
+        "slotEnd": _text(delivery.get("deliveryEndTime")),
+        "items": [_order_item(entry) for entry in data.get("orderedProducts") or [] if isinstance(entry, dict)],
+    }
+
+
+def get_order_details(order_id: int) -> dict[str, Any]:
+    """Een bestelling met zijn producten, per categorie (werkt voor elke bestelling-id)."""
+    data = _get_json(f"/mobile-services/order/v1/{int(order_id)}/details-grouped-by-taxonomy") or {}
+    period = data.get("deliveryTimePeriod") or {}
+    items = []
+    for group in data.get("groupedProductsInTaxonomy") or []:
+        for entry in group.get("orderedProducts") or []:
+            if isinstance(entry, dict):
+                items.append(_order_item(entry, group.get("taxonomyName") or ""))
+    return {
+        "id": _int(data.get("orderId")) or int(order_id),
+        "state": _text(data.get("orderState")),
+        "deliveryType": _text(data.get("deliveryType")),
+        "deliveryDate": _text(data.get("deliveryDate")),
+        "slotStart": _text(period.get("startDateTime")),
+        "slotEnd": _text(period.get("endDateTime")),
+        "items": items,
+    }
+
+
+FULFILLMENTS_QUERY = """
+query OrderFulfillments {
+  orderFulfillments(status: OPEN) {
+    result {
+      orderId statusCode statusDescription shoppingType transactionCompleted modifiable
+      totalPrice { totalPrice { amount } }
+      delivery { status method slot { date dateDisplay timeDisplay startTime endTime } }
+    }
+  }
+}
+"""
+
+
+def get_open_fulfillments() -> list[dict[str, Any]]:
+    """Geplaatste bestellingen die nog niet zijn geleverd."""
+    data = _graphql(get_user_token(), FULFILLMENTS_QUERY, {}, "AH bestellingen ophalen")
+    result = ((data.get("orderFulfillments") or {}).get("result")) or []
+    orders = []
+    for entry in result:
+        if not isinstance(entry, dict) or entry.get("orderId") is None:
+            continue
+        delivery = entry.get("delivery") or {}
+        slot = delivery.get("slot") or {}
+        orders.append(
+            {
+                "id": _int(entry.get("orderId")),
+                "state": _text(entry.get("statusCode") or delivery.get("status")),
+                "stateText": _text(entry.get("statusDescription")),
+                "shoppingType": _text(entry.get("shoppingType")),
+                "method": _text(delivery.get("method")),
+                "modifiable": bool(entry.get("modifiable")),
+                "total": _number(((entry.get("totalPrice") or {}).get("totalPrice") or {}).get("amount")),
+                "deliveryDate": _text(slot.get("date")),
+                "slotStart": _text(slot.get("startTime")),
+                "slotEnd": _text(slot.get("endTime")),
+            }
+        )
+    return orders
+
+
+RECEIPTS_QUERY = """
+query FetchPosReceipts($offset: Int!, $limit: Int!) {
+  posReceiptsPage(pagination: {offset: $offset, limit: $limit}) {
+    posReceipts { id dateTime totalAmount { amount } }
+  }
+}
+"""
+
+RECEIPT_QUERY = """
+query FetchReceipt($id: String!) {
+  posReceiptDetails(id: $id) {
+    id
+    products { id quantity name price { amount } amount { amount } }
+    discounts { name amount { amount } }
+    payments { method amount { amount } }
+  }
+}
+"""
+
+
+def get_receipts(offset: int = 0, limit: int = 100) -> list[dict[str, Any]]:
+    """Kassabonnen van aankopen in de winkel, nieuwste eerst (een pagina)."""
+    data = _graphql(get_user_token(), RECEIPTS_QUERY, {"offset": int(offset), "limit": int(limit)}, "AH kassabonnen ophalen")
+    page = ((data.get("posReceiptsPage") or {}).get("posReceipts")) or []
+    return [
+        {
+            "id": _text(entry.get("id")),
+            "dateTime": _text(entry.get("dateTime")),
+            "total": _number((entry.get("totalAmount") or {}).get("amount")),
+        }
+        for entry in page
+        if isinstance(entry, dict) and entry.get("id")
+    ]
+
+
+def get_receipt(receipt_id: str) -> dict[str, Any]:
+    """Eén kassabon met regels, kortingen en betalingen."""
+    data = _graphql(get_user_token(), RECEIPT_QUERY, {"id": str(receipt_id)}, "AH kassabon ophalen")
+    detail = data.get("posReceiptDetails") or {}
+    return {
+        "id": _text(detail.get("id")) or str(receipt_id),
+        "items": [
+            {
+                "productId": _int(line.get("id")),
+                "name": _text(line.get("name")),
+                "quantity": _int(line.get("quantity")) or 0,
+                "price": _number((line.get("price") or {}).get("amount")),
+                "amount": _number((line.get("amount") or {}).get("amount")),
+            }
+            for line in detail.get("products") or []
+            if isinstance(line, dict)
+        ],
+        "discounts": [
+            {"name": _text(entry.get("name")), "amount": _number((entry.get("amount") or {}).get("amount"))}
+            for entry in detail.get("discounts") or []
+            if isinstance(entry, dict)
+        ],
+        "payments": [
+            {"method": _text(entry.get("method")), "amount": _number((entry.get("amount") or {}).get("amount"))}
+            for entry in detail.get("payments") or []
+            if isinstance(entry, dict)
+        ],
+    }
+
+
 _ALLERHANDE_RECIPE_RE = re.compile(r"ah\.nl/allerhande/recept/R-R(\d+)", re.IGNORECASE)
 
 
