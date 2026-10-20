@@ -100,6 +100,26 @@ SVG's, PNG's en het ICO-bestand komen uit dezelfde geometrie in dat script.
 Gebruik echte gerechtfoto's met natuurlijk licht. Houd boodschappenlijsten rustig.
 Schrijf kort en concreet: "Zoek bij AH", "Weekmenu laden", "Je boodschappen staan klaar".
 
+## Navigatie op een telefoon
+
+In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
+zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
+lijnicoon en een kort label (`Weekmenu`, `Zoeken`, `Importeren`, `AH Items`, `Beheer`), een
+groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
+houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
+de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
+schermen, en in een gewone browser, blijven de tabs bovenaan staan.
+
+- **Glas:** `backdrop-filter: saturate(180%) blur(24px)` op een witte laag van 80%. Zonder
+  ondersteuning (`@supports`) wordt de balk bijna dicht (97%).
+- **Leesbaarheid:** de balk heeft eigen kleuren (`--tabbar-ink`, `--tabbar-ink-active`), omdat
+  `--muted` en `--primary` boven een donkere foto onder 4,5 : 1 zakken. `tests/test_tabbar.py`
+  rekent dat voor het ergste geval na (glas boven zwart).
+- **Beweging:** een korte overgang en een indrukeffect, uit bij `prefers-reduced-motion`.
+- **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
+  (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
+  bepaalt of de balk er is.
+
 ## Wat is gecontroleerd
 
 - Het manifest is geldig en Chromium (de engine van Chrome en Edge) meldt geen

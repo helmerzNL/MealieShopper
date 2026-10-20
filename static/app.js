@@ -1054,8 +1054,12 @@ async function loadSavedRecipes(endpoint, containerId, messageId, button) {
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
+    document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
     tab.classList.add("is-active");
+    tab.setAttribute("aria-current", "page");
     $(`#${tab.dataset.tab}`).classList.add("is-active");
+    // Zoals een native tabbalk: een andere tab begint bovenaan.
+    window.scrollTo({ top: 0 });
   });
 });
 
