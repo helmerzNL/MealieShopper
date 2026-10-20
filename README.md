@@ -136,6 +136,39 @@ staan beschreven in [`docs/huisstijl.md`](docs/huisstijl.md). Beeldbestanden sta
 `static/brand/`, lettertypen in `static/fonts/`. Herbouw de exports met
 `python scripts/build_brand.py` (Pillow nodig, alleen tijdens het exporteren).
 
+## Eerste start (onboarding)
+
+Op een nieuwe installatie opent MealieShopper een installatiehulp van vier stappen:
+
+1. **Beveiliging.** De app kijkt hoe je hem opent.
+   - *Met een domeinnaam en HTTPS* (ook via `RP_ID` en een reverse proxy): je kiest een
+     **passkey** (aanbevolen) of een gebruikersnaam met wachtwoord.
+   - *Zonder domeinnaam* (IP-adres, `localhost`, `.local`, of zonder HTTPS): passkeys werken
+     dan niet. Je kunt **gebruikersnaam en wachtwoord** instellen, of bewust **zonder
+     beveiliging** verder gaan (met een waarschuwing en een bevestiging). Na het wachtwoord
+     kun je **tweestapsverificatie** (TOTP, een authenticator-app) aanzetten, ook optioneel.
+     Je krijgt dan 8 herstelcodes die je één keer te zien krijgt.
+2. **Mealie koppelen**: uitleg voor het API-token en het adres.
+3. **Albert Heijn koppelen**: uitleg voor de inlog via de browserconsole.
+4. **Klaar**: een overzicht van wat er staat, met knoppen naar de koppelingen die nog ontbreken.
+
+Een bestaande installatie (met een passkey of wachtwoord) ziet de installatiehulp niet.
+Staat inloggen uit via `PASSKEY_AUTH_ENABLED=false`, dan valt de beveiligingsstap weg.
+Wachtwoord, tweestapsverificatie en passkeys beheer je daarna onder Beheer > Beveiliging.
+
+Over de beveiliging van het wachtwoord:
+
+- Het wachtwoord wordt met scrypt gehasht en nooit bewaard of gelogd. Minstens 10 tekens.
+- Na 5 mislukte pogingen per IP-adres (of 25 in totaal) is inloggen 15 minuten geblokkeerd.
+- Het TOTP-geheim staat versleuteld in de database, een code werkt één keer, en een
+  herstelcode werkt één keer (alleen de SHA-256 staat in de database).
+- Een nieuw wachtwoord of uitgezette tweestapsverificatie logt andere apparaten uit.
+- Zolang de eerste inlogmethode nog niet is ingesteld kan wie het adres als eerste opent de
+  installatie claimen (dat gold al voor de eerste passkey). Doe de eerste start daarom op een
+  netwerk dat je vertrouwt, of meteen nadat de container draait.
+- Het IP-adres komt uit `X-Forwarded-For` van je reverse proxy (een stap); zet MealieShopper
+  daarom niet rechtstreeks op internet zonder proxy die dat veld zelf instelt.
+
 ## Passkeys
 
 Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de

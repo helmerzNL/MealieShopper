@@ -216,7 +216,7 @@ class ServedAssetsTest(unittest.TestCase):
     def test_brand_mark_replaces_the_ms_placeholder(self):
         html = self.client.get("/").get_data(as_text=True)
         self.assertNotIn(">MS<", html)
-        self.assertEqual(html.count("brand/mark.svg"), 2)  # kop en inlogscherm
+        self.assertEqual(html.count("brand/mark.svg"), 3)  # kop, inlogscherm en installatiehulp
         self.assertIn('<h1 class="wordmark">Mealie<span>Shopper</span></h1>', html)
         self.assertIn("Van recept naar geregeld.", html)
 

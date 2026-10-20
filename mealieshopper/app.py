@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ah, ah_lists, ah_recipes, mealie, mealie_images
+from . import ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding
 from . import auth
 
 
@@ -20,9 +20,11 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-15")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-16")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
+    auth_password.register_routes(app)
+    onboarding.register_routes(app)
 
     try:
         removed = auth.purge_obsolete_secrets()

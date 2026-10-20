@@ -145,6 +145,36 @@ def init_db() -> None:
               value TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS password_credentials (
+              user_id TEXT PRIMARY KEY,
+              password_hash TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mfa_totp (
+              user_id TEXT PRIMARY KEY,
+              secret TEXT NOT NULL,
+              confirmed INTEGER NOT NULL DEFAULT 0,
+              last_counter INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+              code_hash TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS login_attempts (
+              key TEXT PRIMARY KEY,
+              failures INTEGER NOT NULL DEFAULT 0,
+              window_start TEXT NOT NULL,
+              locked_until TEXT
+            );
             """
         )
     _INITIALIZED = True
@@ -160,6 +190,83 @@ def passkey_count() -> int:
     with connect() as conn:
         row = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()
         return int(row["count"] if row else 0)
+
+
+def password_configured() -> bool:
+    ensure_db()
+    with connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS count FROM password_credentials").fetchone()
+        return bool(row and row["count"])
+
+
+def mfa_enabled() -> bool:
+    ensure_db()
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT COUNT(*) AS count FROM mfa_totp WHERE confirmed = 1").fetchone()
+    return bool(row and row["count"])
+
+
+def recovery_codes_left() -> int:
+    ensure_db()
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT COUNT(*) AS count FROM mfa_recovery_codes").fetchone()
+    return int(row["count"] if row else 0)
+
+
+def credentials_exist() -> bool:
+    """Is er al een manier om in te loggen (passkey of wachtwoord)?"""
+    return passkey_count() > 0 or password_configured()
+
+
+# Instellingen zonder geheim (keuzes, vlaggen): onversleuteld in app_settings.
+def get_setting(key: str, default: str = "") -> str:
+    ensure_db()
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row else default
+
+
+def set_setting(key: str, value: str) -> None:
+    ensure_db()
+    with closing(connect()) as conn, conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (key, value, utcnow().isoformat()),
+        )
+
+
+SETTING_AUTH_MODE = "AUTH_MODE"  # "none" = bewust zonder inloggen; verder afgeleid uit de aanwezige gegevens
+SETTING_SESSION_EPOCH = "SESSION_EPOCH"
+
+
+def auth_mode() -> str:
+    return get_setting(SETTING_AUTH_MODE)
+
+
+def auth_required() -> bool:
+    """Moet je inloggen? Niet als de beheerder inloggen uitzette of er bewust voor koos het over te slaan."""
+    if not auth_enabled():
+        return False
+    if credentials_exist():
+        return True
+    return auth_mode() != "none"
+
+
+def session_epoch() -> int:
+    try:
+        return int(get_setting(SETTING_SESSION_EPOCH, "0") or 0)
+    except ValueError:
+        return 0
+
+
+def bump_session_epoch() -> int:
+    """Maak alle bestaande sessies ongeldig (bij een nieuw wachtwoord of uitgezette MFA)."""
+    epoch = session_epoch() + 1
+    set_setting(SETTING_SESSION_EPOCH, str(epoch))
+    return epoch
 
 
 def credential_rows() -> list[dict[str, Any]]:
@@ -258,6 +365,7 @@ def create_token(user_id: str, username: str) -> str:
         {
             "sub": user_id,
             "usr": username,
+            "ep": session_epoch(),
             "iat": utcnow(),
             "exp": utcnow() + timedelta(seconds=SESSION_MAX_AGE_SECONDS),
         },
@@ -282,6 +390,10 @@ def current_user() -> dict[str, Any] | None:
             token = auth_header[7:].strip()
     payload = verify_token(token) if token else None
     if not payload:
+        return None
+    if payload.get("purpose"):
+        return None  # een kaartje voor een tussenstap (bijvoorbeeld MFA) is geen sessie
+    if int(payload.get("ep") or 0) != session_epoch():
         return None
     with connect() as conn:
         row = conn.execute(
@@ -399,29 +511,35 @@ def register_routes(app: Flask) -> None:
     @app.get("/api/auth/status")
     def auth_status():
         user = current_user()
-        configured = passkey_count() > 0
-        return jsonify(
-            {
-                "enabled": auth_enabled(),
-                "configured": configured,
-                "credentialCount": passkey_count(),
-                "setupRequired": auth_enabled() and not configured,
-                "authenticated": bool(user),
-                "username": user["username"] if user else None,
-                "rpId": rp_id(),
-                "rpOrigins": rp_origins(),
-            }
-        )
+        configured = credentials_exist()
+        required = auth_required()
+        payload = {
+            "enabled": required,
+            "envEnabled": auth_enabled(),
+            "configured": configured,
+            "credentialCount": passkey_count(),
+            "methods": {"passkey": passkey_count() > 0, "password": password_configured()},
+            "setupRequired": required and not configured,
+            "authenticated": bool(user),
+            "username": user["username"] if user else None,
+            "rpId": rp_id(),
+            "rpOrigins": rp_origins(),
+        }
+        if user or not required:
+            payload["passwordConfigured"] = password_configured()
+            payload["mfaEnabled"] = mfa_enabled()
+            payload["recoveryCodesLeft"] = recovery_codes_left()
+        return jsonify(payload)
 
     @app.get("/api/auth/credentials")
     def credentials_list():
-        if auth_enabled() and passkey_count() > 0 and not current_user():
+        if auth_required() and credentials_exist() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
         return jsonify({"credentials": credential_rows()})
 
     @app.delete("/api/auth/credentials/<credential_id>")
     def credentials_delete(credential_id: str):
-        if auth_enabled() and not current_user():
+        if auth_required() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
         with connect() as conn:
             row = conn.execute(
@@ -431,7 +549,7 @@ def register_routes(app: Flask) -> None:
             if not row:
                 return jsonify({"error": "Not found"}), 404
             count = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()["count"]
-            if int(count) <= 1 and auth_enabled():
+            if int(count) <= 1 and auth_required() and not password_configured():
                 return jsonify({"error": "Je kunt de laatste passkey niet verwijderen."}), 400
             conn.execute("DELETE FROM passkey_credentials WHERE id=?", (credential_id,))
         return jsonify({"status": "deleted", "remaining": passkey_count()})
@@ -440,7 +558,7 @@ def register_routes(app: Flask) -> None:
     def register_options():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        if passkey_count() > 0 and not current_user():
+        if credentials_exist() and auth_required() and not current_user():
             return jsonify({"error": "Login required to add another passkey"}), 401
 
         body = request.get_json(silent=True) or {}
@@ -469,7 +587,7 @@ def register_routes(app: Flask) -> None:
         ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        if passkey_count() > 0 and not current_user():
+        if credentials_exist() and auth_required() and not current_user():
             return jsonify({"error": "Login required to add another passkey"}), 401
 
         body = request.get_json(silent=True) or {}
@@ -495,6 +613,9 @@ def register_routes(app: Flask) -> None:
         except Exception as exc:
             return jsonify({"error": f"Verification failed: {exc}"}), 400
 
+        from . import onboarding  # lokaal: onboarding importeert dit module
+
+        onboarding.begin()
         now = utcnow().isoformat()
         with connect() as conn:
             conn.execute(
@@ -516,6 +637,7 @@ def register_routes(app: Flask) -> None:
                 """,
                 (credential_id_b64, user_id, cose_key_bytes, sign_count, credential_name, now),
             )
+        set_setting(SETTING_AUTH_MODE, "passkey")
         token = create_token(user_id, username)
         return cookie_response({"status": "ok", "username": username}, token)
 
@@ -598,15 +720,23 @@ def register_routes(app: Flask) -> None:
 
 
 def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
-    if not auth_enabled():
+    if not auth_required():
         return None
     path = request.path
     public_prefixes = ("/static/", "/api/auth/")
-    public_paths = {"/", "/healthz", "/.well-known/webauthn", "/favicon.ico"}
+    public_paths = {
+        "/",
+        "/healthz",
+        "/.well-known/webauthn",
+        "/favicon.ico",
+        # De onboarding moet ook voor de eerste inlog bereikbaar zijn.
+        "/api/onboarding/status",
+        "/api/onboarding/start",
+    }
     if path in public_paths or any(path.startswith(prefix) for prefix in public_prefixes):
         return None
     if current_user():
         return None
-    if passkey_count() == 0:
-        return {"error": "Passkey setup required"}, 401
+    if not credentials_exist():
+        return {"error": "Setup required"}, 401
     return {"error": "Unauthorized"}, 401
