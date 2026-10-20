@@ -26,7 +26,7 @@
         <div class="brand-icon" aria-hidden="true">MS</div>
         <div>
           <h1>MealieShopper</h1>
-          <p>Albert Heijn &amp; Jumbo x Mealie</p>
+          <p>Albert Heijn x Mealie</p>
         </div>
         <div class="auth-chip" id="auth-chip" hidden>
           <span id="auth-chip-text"></span>
@@ -98,7 +98,7 @@
             <h2>Mijn bewaarde recepten</h2>
             <button class="button button--secondary" id="load-ah-recipes">Laden</button>
           </div>
-          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie. Dit gebruikt je AH-koppeling onder Beheer &gt; Albert Heijn; de optionele website-koppeling staat daar ook.</p>
+          <p class="muted">Haal je bewaarde Allerhande-recepten op en importeer ze direct in Mealie. Dit gebruikt je AH-koppeling onder Beheer &gt; Albert Heijn.</p>
           <div id="ah-recipes-message"></div>
           <div id="ah-recipes" class="recipe-grid"></div>
         </div>
@@ -122,7 +122,6 @@
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer">
           <button class="subtab is-active" data-subtab="beheer-ah">Albert Heijn</button>
-          <button class="subtab" data-subtab="beheer-jumbo">Jumbo</button>
           <button class="subtab" data-subtab="beheer-security">Beveiliging</button>
         </nav>
 
@@ -149,40 +148,6 @@
           <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
           <button class="button" id="verify-token">Koppelen</button>
           <div id="token-message"></div>
-        </div>
-        <div class="box">
-          <h2>Website-koppeling (optioneel, voor bewaarde recepten)</h2>
-          <p class="muted">Bewaarde recepten worden eerst via de AH-koppeling hierboven opgehaald. Lukt dat niet, dan wordt als terugval met je AH-account (zelfde e-mailadres en wachtwoord als op ah.nl) ingelogd op de website.</p>
-          <form class="auth-form" id="ah-browser-login-form">
-            <input class="input" id="ah-browser-username" type="email" placeholder="E-mailadres" autocomplete="username">
-            <input class="input" id="ah-browser-password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
-            <button class="button" id="ah-browser-login" type="submit">Koppelen</button>
-          </form>
-          <div id="ah-browser-status"></div>
-          <button class="button button--secondary" id="ah-browser-logout" hidden>Ontkoppelen</button>
-        </div>
-        </div>
-
-        <div id="beheer-jumbo" class="subpanel">
-        <div class="box narrow">
-          <h2>Inloggen bij Jumbo</h2>
-          <p class="muted">Log in met je Jumbo-account (hetzelfde e-mailadres en wachtwoord als in de Jumbo-app). De gegevens worden versleuteld opgeslagen zodat we je mandje kunnen vullen.</p>
-          <form class="auth-form" id="jumbo-login-form">
-            <input class="input" id="jumbo-username" type="email" placeholder="E-mailadres" autocomplete="username">
-            <input class="input" id="jumbo-password" type="password" placeholder="Wachtwoord" autocomplete="current-password">
-            <button class="button" id="jumbo-login" type="submit">Koppelen</button>
-          </form>
-          <div id="jumbo-status"></div>
-          <button class="button button--secondary" id="jumbo-logout" hidden>Ontkoppelen</button>
-        </div>
-        <div class="box">
-          <div class="toolbar">
-            <h2>Mijn bewaarde recepten</h2>
-            <button class="button button--secondary" id="load-jumbo-recipes">Laden</button>
-          </div>
-          <p class="muted">Haal je bewaarde Jumbo-recepten op en importeer ze direct in Mealie.</p>
-          <div id="jumbo-recipes-message"></div>
-          <div id="jumbo-recipes" class="recipe-grid"></div>
         </div>
         </div>
 

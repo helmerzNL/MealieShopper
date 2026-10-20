@@ -55,11 +55,11 @@ sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 
 Het tabblad `AH Items` heeft twee onderdelen:
 
-- **AH Recepten**: je bewaarde Allerhande-recepten ophalen en in Mealie importeren.
-  Dit gebruikt eerst je AH-koppeling (geen wachtwoord nodig). Lukt dat niet, of
-  levert het niets op, dan wordt als terugval ingelogd met de optionele
-  website-koppeling (e-mailadres en wachtwoord onder Beheer > Albert Heijn, via
-  een headless Chromium). Mislukken beide, dan staan beide fouten in de melding.
+- **AH Recepten**: je bewaarde Allerhande-recepten (de receptencollectie van je
+  AH-account) ophalen en in Mealie importeren. Dit gebruikt alleen je AH-koppeling;
+  een wachtwoord of browser is niet nodig. Het importeren haalt de receptgegevens
+  via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de
+  websitepagina's voor servers blokkeert.
 - **AH Lijstjes**: je favoriete AH-lijstjes. Met `Synchroniseren` (per lijstje) of
   `Alles synchroniseren` bewaart MealieShopper een kopie van het lijstje, inclusief
   productnaam, merk, inhoud, prijs en afbeelding, in de SQLite database onder
@@ -68,6 +68,15 @@ Het tabblad `AH Items` heeft twee onderdelen:
   Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar
   en staat er een melding met de AH-fout. Een nieuwe synchronisatie vervangt de
   kopie; mislukt die, dan blijft de vorige kopie staan.
+
+## Opgeruimd
+
+De AH website-koppeling (inloggen met e-mailadres en wachtwoord via een headless
+Chromium) en de Jumbo-koppeling zijn verwijderd, samen met Selenium en Chromium in
+de Docker-image. Bij het opstarten wist MealieShopper de eventueel nog opgeslagen
+`AH_USERNAME`, `AH_PASSWORD`, `AH_COOKIES` en `JUMBO_*`-gegevens uit de database.
+De omgevingsvariabelen `AH_USERNAME`, `AH_PASSWORD`, `JUMBO_USERNAME` en
+`JUMBO_PASSWORD` worden niet meer gelezen en kunnen uit je `.env` of compose.
 
 ## Passkeys
 

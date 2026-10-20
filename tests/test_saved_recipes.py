@@ -11,76 +11,26 @@ API_RESULT = {"recipes": [{"id": "1", "title": "Soep", "image": "", "url": "u"}]
 BROWSER_RESULT = {"recipes": [{"id": "2", "title": "Stamppot", "image": "", "url": "v"}], "total": 1}
 
 
-def patched(token="tok", creds=("", ""), api=None, browser=None):
-    """Patch de bronnen van get_saved_recipes; api/browser zijn resultaat of exception."""
-    def runner(value):
-        def call(*args, **kwargs):
-            if isinstance(value, Exception):
-                raise value
-            return value
-        return call
-
-    return (
-        mock.patch.object(ah, "configured_refresh_token", return_value=token),
-        mock.patch.object(ah, "configured_browser_credentials", return_value=creds),
-        mock.patch.object(ah, "_get_saved_recipes_api", side_effect=runner(api)),
-        mock.patch.object(ah, "_get_saved_recipes_browser", side_effect=runner(browser)),
-    )
-
-
-def run(**kwargs):
-    patches = patched(**kwargs)
-    for patch in patches:
-        patch.start()
-    try:
-        return ah.get_saved_recipes()
-    finally:
-        mock.patch.stopall()
-
-
-class SavedRecipesSelectionTest(unittest.TestCase):
-    def test_api_result_wins_without_browser(self):
-        result = run(api=API_RESULT, creds=("a@b.nl", "pw"), browser=RuntimeError("niet aanroepen"))
-        self.assertEqual(result, API_RESULT)
-
-    def test_api_only_needs_no_password(self):
-        self.assertEqual(run(api=API_RESULT), API_RESULT)
-
-    def test_api_error_falls_back_to_browser(self):
-        result = run(api=RuntimeError("404"), creds=("a@b.nl", "pw"), browser=BROWSER_RESULT)
-        self.assertEqual(result, BROWSER_RESULT)
-
-    def test_empty_api_result_tries_browser(self):
-        empty = {"recipes": [], "total": 0}
-        result = run(api=empty, creds=("a@b.nl", "pw"), browser=BROWSER_RESULT)
-        self.assertEqual(result, BROWSER_RESULT)
-
-    def test_empty_api_result_without_browser_is_returned(self):
-        empty = {"recipes": [], "total": 0}
-        self.assertEqual(run(api=empty), empty)
-
-    def test_empty_api_result_kept_when_browser_fails(self):
-        empty = {"recipes": [], "total": 0}
-        result = run(api=empty, creds=("a@b.nl", "pw"), browser=RuntimeError("login mislukt"))
-        self.assertEqual(result, empty)
-
-    def test_both_fail_reports_both_errors(self):
-        with self.assertRaises(RuntimeError) as ctx:
-            run(api=RuntimeError("AH bewaarde recepten ophalen mislukt (404)"),
-                creds=("a@b.nl", "pw"), browser=RuntimeError("nog steeds op de inlogpagina"))
-        message = str(ctx.exception)
-        self.assertIn("404", message)
-        self.assertIn("website: nog steeds op de inlogpagina", message)
-
-    def test_api_error_without_browser_credentials(self):
-        with self.assertRaises(RuntimeError) as ctx:
-            run(api=RuntimeError("AH bewaarde recepten ophalen mislukt (404)"))
-        self.assertIn("404", str(ctx.exception))
-
-    def test_nothing_linked(self):
-        with self.assertRaises(RuntimeError) as ctx:
-            run(token="")
+class SavedRecipesEntryPointTest(unittest.TestCase):
+    def test_not_linked(self):
+        with mock.patch.object(ah, "configured_refresh_token", return_value=""), \
+                mock.patch.object(ah, "_get_saved_recipes_api", side_effect=AssertionError("niet aanroepen")):
+            with self.assertRaises(RuntimeError) as ctx:
+                ah.get_saved_recipes()
         self.assertIn("Beheer > Albert Heijn", str(ctx.exception))
+
+    def test_linked_uses_the_api_and_passes_paging(self):
+        with mock.patch.object(ah, "configured_refresh_token", return_value="tok"), \
+                mock.patch.object(ah, "_get_saved_recipes_api", return_value=API_RESULT) as api:
+            self.assertEqual(ah.get_saved_recipes(page=2, size=10), API_RESULT)
+        api.assert_called_once_with(2, 10)
+
+    def test_api_error_is_not_swallowed(self):
+        with mock.patch.object(ah, "configured_refresh_token", return_value="tok"), \
+                mock.patch.object(ah, "_get_saved_recipes_api", side_effect=RuntimeError("collectie: 404")):
+            with self.assertRaises(RuntimeError) as ctx:
+                ah.get_saved_recipes()
+        self.assertIn("collectie: 404", str(ctx.exception))
 
 
 def graphql_ok(data):

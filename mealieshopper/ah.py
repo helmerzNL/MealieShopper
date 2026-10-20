@@ -1,4 +1,3 @@
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -8,7 +7,7 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 
-from . import ah_browser, auth
+from . import auth
 
 AH_API_BASE = "https://api.ah.nl"
 AH_LOGIN_BASE = "https://login.ah.nl"
@@ -324,68 +323,6 @@ def save_refresh_token(refresh_token: str) -> None:
     if not token:
         raise RuntimeError("Refresh token ontbreekt")
     auth.set_secret("AH_REFRESH_TOKEN", token)
-
-
-# ---------- Browser (website) credentials for saved-recipe scraping ----------
-
-
-def configured_browser_credentials() -> tuple[str, str]:
-    username = (environ.get("AH_USERNAME") or "").strip() or auth.get_secret("AH_USERNAME")
-    password = (environ.get("AH_PASSWORD") or "").strip() or auth.get_secret("AH_PASSWORD")
-    return username.strip(), password
-
-
-def save_browser_credentials(username: str, password: str) -> None:
-    username = str(username or "").strip()
-    password = str(password or "")
-    if not username or not password:
-        raise RuntimeError("E-mail en wachtwoord zijn verplicht")
-    auth.set_secret("AH_USERNAME", username)
-    auth.set_secret("AH_PASSWORD", password)
-
-
-def clear_browser_credentials() -> None:
-    auth.set_secret("AH_USERNAME", "")
-    auth.set_secret("AH_PASSWORD", "")
-    _save_browser_cookies({})
-
-
-def _save_browser_cookies(cookies: dict[str, str]) -> None:
-    try:
-        auth.set_secret("AH_COOKIES", json.dumps(cookies or {}))
-    except Exception:
-        pass
-
-
-def _load_browser_cookies() -> dict[str, str]:
-    raw = auth.get_secret("AH_COOKIES")
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (ValueError, TypeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def link_browser_account(username: str, password: str) -> dict[str, Any]:
-    username = str(username or "").strip()
-    password = str(password or "")
-    if not username or not password:
-        return {"connected": False, "error": "E-mail en wachtwoord zijn verplicht"}
-    try:
-        cookies = ah_browser.browser_login(username, password)
-    except Exception as exc:
-        return {"connected": False, "error": str(exc)}
-
-    save_browser_credentials(username, password)
-    _save_browser_cookies(cookies)
-    return {"connected": True}
-
-
-def browser_auth_status() -> dict[str, Any]:
-    username, password = configured_browser_credentials()
-    return {"connected": bool(username and password), "username": username}
 
 
 def link_account(value: str) -> dict[str, Any]:
@@ -915,54 +852,14 @@ def _get_saved_recipes_api(page: int, size: int) -> dict[str, Any]:
     raise RuntimeError("; ".join(errors))
 
 
-def _get_saved_recipes_browser(page: int, size: int, username: str, password: str) -> dict[str, Any]:
-    cookies = _load_browser_cookies()
-    try:
-        result = ah_browser.scrape_saved_recipes(cookies, username, password)
-    except Exception as exc:
-        raise RuntimeError(f"AH bewaarde recepten ophalen mislukt: {exc}")
-
-    fresh_cookies = result.get("cookies") if isinstance(result, dict) else None
-    if isinstance(fresh_cookies, dict) and fresh_cookies and fresh_cookies != cookies:
-        _save_browser_cookies(fresh_cookies)
-
-    recipes = result.get("recipes", []) if isinstance(result, dict) else []
-    total = result.get("total", len(recipes)) if isinstance(result, dict) else len(recipes)
-
-    size = max(1, int(size))
-    start = max(0, int(page)) * size
-    return {"recipes": recipes[start:start + size], "total": total}
-
-
 def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
-    """Probeer eerst de OAuth-koppeling; val terug op de website-login (headless browser)."""
-    api_result: dict[str, Any] | None = None
-    api_error = ""
-    if configured_refresh_token():
-        try:
-            api_result = _get_saved_recipes_api(page, size)
-        except RuntimeError as exc:
-            api_error = str(exc)
-        if api_result and api_result["recipes"]:
-            return api_result
-
-    username, password = configured_browser_credentials()
-    if username and password:
-        try:
-            return _get_saved_recipes_browser(page, size, username, password)
-        except RuntimeError as exc:
-            if api_result is not None:
-                return api_result
-            raise RuntimeError(f"{api_error}; website: {exc}" if api_error else str(exc))
-
-    if api_result is not None:
-        return api_result
-    if api_error:
-        raise RuntimeError(api_error)
-    raise RuntimeError(
-        "Geen AH-koppeling gevonden. Koppel je AH-account bij Beheer > Albert Heijn "
-        "om bewaarde recepten op te halen."
-    )
+    """Bewaarde recepten uit de receptencollectie van het AH-account (GraphQL)."""
+    if not configured_refresh_token():
+        raise RuntimeError(
+            "AH account niet gekoppeld. Koppel je AH-account bij Beheer > Albert Heijn "
+            "om bewaarde recepten op te halen."
+        )
+    return _get_saved_recipes_api(page, size)
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
