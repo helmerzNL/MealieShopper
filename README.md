@@ -284,7 +284,7 @@ Er is bewust **geen** tool die je AH-mandje vult of iets verwijdert.
 - OAuth 2.1 met PKCE (S256); apps registreren zichzelf (dynamic client registration), alleen publieke clients, en alleen https-, loopback- of app-redirects.
 - Elk token hoort bij **de gebruiker die toestemming gaf** en geeft alleen die rechten. Toegangstokens gelden een uur, verversingstokens 30 dagen en worden bij elk gebruik vervangen; een verversingstoken dat twee keer wordt gebruikt, trekt de hele reeks in. Tokens staan alleen gehasht in de database.
 - Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Beheer, AI-apps** trek je zelf de toegang van een app in.
-- De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen.
+- De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen. Onder **Wat de assistent kan** zet de beheerder ook elke tool afzonderlijk uit, voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en wordt geweigerd; ze zien de wijziging bij hun volgende verbinding.
 - Wat de assistent leest (receptnamen, productnamen) komt van Mealie en AH; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
 
 ## Configuratie

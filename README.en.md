@@ -284,7 +284,7 @@ There is deliberately **no** tool that fills your AH basket or deletes anything.
 - OAuth 2.1 with PKCE (S256); apps register themselves (dynamic client registration), public clients only, and only https, loopback or app redirects.
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
 - A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
-- The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings.
+- The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings. Under **What the assistant can do** the administrator can also switch each tool off individually, for all users. A switched-off tool is hidden from assistants and refused; they see the change on their next connection.
 - What the assistant reads (recipe names, product names) comes from Mealie and AH; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
 
 ## Configuration

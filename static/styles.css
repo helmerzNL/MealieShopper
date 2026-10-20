@@ -2001,6 +2001,10 @@ body.has-onboarding {
   padding-left: 20px;
 }
 
+.ai-tool-off {
+  opacity: 0.6;
+}
+
 #beheer-ai .form-row {
   flex-wrap: wrap;
   width: 100%;

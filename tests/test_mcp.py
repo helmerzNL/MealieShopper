@@ -696,3 +696,38 @@ class ToolsTest(McpTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ToolSwitchTest(McpTestCase):
+    def setUp(self):
+        super().setUp()
+        self.token = self.grant()[0]["access_token"]
+
+    def switch(self, name, enabled):
+        from mealieshopper import server_settings
+
+        server_settings.set_tools_enabled({name: enabled})
+
+    def listed(self):
+        return {tool["name"] for tool in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
+
+    def test_a_switched_off_tool_is_hidden_and_refused(self):
+        self.assertIn("get_week_menu", self.listed())
+        self.switch("get_week_menu", False)
+        self.assertNotIn("get_week_menu", self.listed())
+        self.assertIn("get_ah_list", self.listed())
+        result = self.call(self.token, "get_week_menu")
+        self.assertTrue(result["isError"])
+        self.assertIn("uitgezet", result["content"][0]["text"])
+
+    def test_switching_it_back_on_restores_it(self):
+        self.switch("get_week_menu", False)
+        self.switch("get_week_menu", True)
+        self.assertIn("get_week_menu", self.listed())
+
+    def test_the_status_marks_disabled_tools(self):
+        user = self.join()
+        self.switch("search_ah_products", False)
+        tools = {tool["name"]: tool["enabled"] for tool in user.get("/api/mcp/status").get_json()["tools"]}
+        self.assertFalse(tools["search_ah_products"])
+        self.assertTrue(tools["get_week_menu"])

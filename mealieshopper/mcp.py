@@ -374,17 +374,27 @@ TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-def tool_descriptors() -> list[dict[str, Any]]:
+def all_tool_descriptors() -> list[dict[str, Any]]:
+    """Alle tools die bestaan, ook de uitgezette (voor het instellingenscherm)."""
     return [
         {"name": name, "description": tool["description"], "inputSchema": tool["inputSchema"], "annotations": tool["annotations"]}
         for name, tool in TOOLS.items()
     ]
 
 
+def tool_descriptors() -> list[dict[str, Any]]:
+    """De tools die een assistent mag gebruiken: alles wat de beheerder niet heeft uitgezet."""
+    off = server_settings.disabled_tools()
+    return [tool for tool in all_tool_descriptors() if tool["name"] not in off]
+
+
 def call_tool(name: str, arguments: Any) -> dict[str, Any]:
     tool = TOOLS.get(name)
     if not tool:
         raise KeyError(name)
+    if name in server_settings.disabled_tools():
+        # Geen protocolfout: het model leest dit en kan de gebruiker vertellen waarom het niet lukt.
+        return {"content": [{"type": "text", "text": "Deze tool is door de beheerder van MealieShopper uitgezet."}], "isError": True}
     handler: Callable[[dict[str, Any]], Any] = tool["handler"]
     try:
         if not isinstance(arguments, dict):

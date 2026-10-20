@@ -7,6 +7,7 @@ nooit gezet, dan bepaalt `MEALIESHOPPER_MCP` (standaard aan).
 """
 from __future__ import annotations
 
+import json
 from os import environ
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,6 +19,7 @@ from .i18n import tr
 
 SETTING_BASE_URL = "PUBLIC_BASE_URL"
 SETTING_MCP = "MCP_ENABLED"
+SETTING_TOOLS_OFF = "MCP_TOOLS_OFF"  # JSON-lijst met de namen van uitgezette MCP-tools
 OFF = {"0", "false", "no", "off"}
 
 
@@ -69,6 +71,34 @@ def mcp_setting() -> tuple[bool, str]:
     return environ.get("MEALIESHOPPER_MCP", "true").strip().lower() not in OFF, "default"
 
 
+def disabled_tools() -> set[str]:
+    """De MCP-tools die de beheerder heeft uitgezet. Alles staat standaard aan."""
+    try:
+        names = json.loads(auth.get_setting(SETTING_TOOLS_OFF) or "[]")
+    except ValueError:
+        return set()
+    return {name for name in names if isinstance(name, str)} if isinstance(names, list) else set()
+
+
+def tool_enabled(name: str) -> bool:
+    return name not in disabled_tools()
+
+
+def set_tools_enabled(changes: dict[str, bool]) -> None:
+    """Zet tools aan of uit (een deel van de lijst is genoeg); onbekende namen worden niet bewaard."""
+    off = disabled_tools()
+    for name, enabled in changes.items():
+        (off.discard if enabled else off.add)(name)
+    auth.set_setting(SETTING_TOOLS_OFF, json.dumps(sorted(off)))
+
+
+def tools_payload() -> list[dict[str, Any]]:
+    from . import mcp  # lokaal: mcp importeert dit module
+
+    off = disabled_tools()
+    return [{"name": tool["name"], "title": tool["annotations"]["title"], "readOnly": tool["annotations"]["readOnlyHint"], "enabled": tool["name"] not in off} for tool in mcp.all_tool_descriptors()]
+
+
 def settings_payload() -> dict[str, Any]:
     base, source = configured_base_url()
     enabled, mcp_source = mcp_setting()
@@ -80,6 +110,7 @@ def settings_payload() -> dict[str, Any]:
         "envBaseUrl": (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/"),
         "mcpEnabled": enabled,
         "mcpSource": mcp_source,
+        "mcpTools": tools_payload(),
         "loginOn": auth.auth_required() and auth.credentials_exist(),
     }
 
@@ -93,7 +124,7 @@ def register_routes(app: Flask) -> None:
     @app.put("/api/server-settings")
     def server_settings_put():
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or not ({"publicBaseUrl", "mcpEnabled"} & set(body)):
+        if not isinstance(body, dict) or not ({"publicBaseUrl", "mcpEnabled", "mcpTools"} & set(body)):
             return jsonify({"error": tr("Geen instelling opgegeven.", "No setting given.")}), 400
         updates: dict[str, str] = {}
         if "publicBaseUrl" in body:
@@ -109,6 +140,20 @@ def register_routes(app: Flask) -> None:
             if not isinstance(body["mcpEnabled"], bool):
                 return jsonify({"error": tr("mcpEnabled moet waar of onwaar zijn.", "mcpEnabled must be true or false.")}), 400
             updates[SETTING_MCP] = "1" if body["mcpEnabled"] else "0"
+        tool_changes: dict[str, bool] = {}
+        if "mcpTools" in body:
+            from . import mcp  # lokaal: mcp importeert dit module
+
+            changes = body["mcpTools"]
+            known = {tool["name"] for tool in mcp.all_tool_descriptors()}
+            if not isinstance(changes, dict) or not all(isinstance(value, bool) for value in changes.values()):
+                return jsonify({"error": tr("mcpTools moet een object met waar/onwaar per tool zijn.", "mcpTools must be an object with true/false per tool.")}), 400
+            unknown = sorted(set(changes) - known)
+            if unknown:
+                return jsonify({"error": tr(f"Onbekende tool: {', '.join(unknown)}", f"Unknown tool: {', '.join(unknown)}")}), 400
+            tool_changes = changes
         for key, value in updates.items():
             auth.set_setting(key, value)
+        if tool_changes:
+            set_tools_enabled(tool_changes)
         return jsonify(settings_payload())
