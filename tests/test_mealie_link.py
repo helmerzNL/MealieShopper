@@ -262,31 +262,21 @@ class StatusTest(MealieTestCase):
 
 
 class AuthKeyTest(MealieTestCase):
-    def test_warning_flag(self):
-        with mock.patch.dict(os.environ, {"MEALIE_URL": URL}):
-            os.environ.pop("MEALIESHOPPER_AUTH_SECRET", None)
-            self.assertTrue(auth.auth_secret_depends_on_mealie_env())
-            self.assertTrue(mealie.status()["authKeyTiedToMealieEnv"])
-            os.environ["MEALIESHOPPER_AUTH_SECRET"] = "vast"
-            self.assertFalse(auth.auth_secret_depends_on_mealie_env())
-            os.environ.pop("MEALIESHOPPER_AUTH_SECRET")
-            os.environ["JWT_SECRET"] = "vast"
-            self.assertFalse(auth.auth_secret_depends_on_mealie_env())
-        os.environ.pop("JWT_SECRET", None)
-        self.assertFalse(auth.auth_secret_depends_on_mealie_env(), "zonder MEALIE_URL in de omgeving geen koppeling")
+    """De sleutel voor opgeslagen gegevens hangt niet van MEALIE_URL of de koppeling af."""
 
     def test_linking_in_the_ui_never_changes_the_encryption_key(self):
         # De sleutel voor opgeslagen gegevens (ook het AH-token) mag niet van de UI-koppeling afhangen.
         with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl"}):
             os.environ.pop("MEALIESHOPPER_AUTH_SECRET", None)
-            before = auth.auth_secret()
+            auth._master_secrets.clear()
+            before = auth.master_secret()
             auth.set_secret("AH_REFRESH_TOKEN", "ah-token")
             with mock.patch.object(mealie.requests, "get", side_effect=mealie_ok()):
                 mealie.link(URL, TOKEN)
-            self.assertEqual(auth.auth_secret(), before)
+            self.assertEqual(auth.master_secret(), before)
             self.assertEqual(auth.get_secret("AH_REFRESH_TOKEN"), "ah-token")
             mealie.clear()
-            self.assertEqual(auth.auth_secret(), before)
+            self.assertEqual(auth.master_secret(), before)
 
     def test_delete_secret(self):
         auth.set_secret("IETS", "waarde")
@@ -351,7 +341,7 @@ class RoutesTest(MealieTestCase):
         html = self.client.get("/").get_data(as_text=True)
         for fragment in ('data-subtab="beheer-mealie"', 'id="mealie-form"', 'id="mealie-token" type="password"',
                          'class="message warning message--action" id="mealie-setup"', 'id="check-mealie"',
-                         'class="message warning" id="mealie-key-warning"', 'id="mealie-unlink"'):
+                         'id="mealie-unlink"'):
             self.assertIn(fragment, html, fragment)
 
 

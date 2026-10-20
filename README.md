@@ -34,10 +34,16 @@ AH_REFRESH_TOKEN=
 PASSKEY_AUTH_ENABLED=false
 ```
 
-`MEALIESHOPPER_AUTH_SECRET` versleutelt je opgeslagen koppelingen en ondertekent je sessies. Zet hem
-vast en verander hem niet achteraf. Is hij niet ingesteld, dan maakt de app zelf een willekeurige
-sessiesleutel (`session.key` in de data-map, alleen leesbaar voor de eigenaar); de opgeslagen
-koppelingen worden dan met een zwakkere, van het pad afgeleide sleutel versleuteld.
+Je hoeft geen geheim in te stellen. Zonder `MEALIESHOPPER_AUTH_SECRET` maakt de app bij de eerste start
+zelf een willekeurig geheim en bewaart dat in de data-map (`secret.key`, alleen leesbaar voor de
+eigenaar). Daaruit volgen twee aparte sleutels: een voor de sessies en een voor de versleuteling van je
+opgeslagen koppelingen (Mealie-token, AH-token) en het MFA-geheim. **Neem de hele data-map, `secret.key`
+ook, mee in je back-ups**: zonder dat bestand zijn de koppelingen en sessies onleesbaar en koppel je
+Mealie en Albert Heijn opnieuw (de app laat dat zien als "niet gekoppeld").
+
+Zet je zelf `MEALIESHOPPER_AUTH_SECRET`, dan staat de sleutel niet op schijf naast de database, bijvoorbeeld
+omdat je hem uit een secret manager haalt. Gebruik dan een lange, vaste, willekeurige waarde
+(`openssl rand -hex 32`) en verander hem niet achteraf, want dan moet je alles opnieuw koppelen.
 
 ### Mealie koppelen
 

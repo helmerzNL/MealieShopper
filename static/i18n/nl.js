@@ -75,7 +75,6 @@ I18N.add("nl", {
   "mealie.token_ph": "Plak hier de token",
   "mealie.unlink": "Ontkoppelen",
   "mealie.note": "De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.",
-  "mealie.key_warning": "<strong>Let op:</strong> je Mealie staat nog in de omgevingsvariabele <code>MEALIE_URL</code> en <code>MEALIESHOPPER_AUTH_SECRET</code> is niet ingesteld. Daardoor hangt de sleutel van je opgeslagen koppelingen (ook die van Albert Heijn) van <code>MEALIE_URL</code> af. Stel eerst <code>MEALIESHOPPER_AUTH_SECRET</code> in voordat je <code>MEALIE_URL</code> weghaalt of wijzigt, anders moet je opnieuw koppelen.",
   "sec.password.title": "Wachtwoord",
   "sec.password.current": "Huidig wachtwoord",
   "field.repeat_password": "Herhaal het wachtwoord",

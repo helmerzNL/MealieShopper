@@ -817,7 +817,6 @@ async function refreshAhStatus() {
 function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
-  $("#mealie-key-warning").hidden = !data.authKeyTiedToMealieEnv;
   $("#mealie-unlink").hidden = data.source !== "ui";
   const source = $("#mealie-source");
   source.hidden = data.source !== "env";

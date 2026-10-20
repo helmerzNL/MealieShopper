@@ -8,6 +8,7 @@ import os
 import secrets
 import sqlite3
 import struct
+import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -66,47 +67,65 @@ def make_challenge() -> bytes:
     return secrets.token_bytes(32)
 
 
-def auth_secret() -> str:
-    configured = os.environ.get("MEALIESHOPPER_AUTH_SECRET") or os.environ.get("JWT_SECRET")
-    if configured:
-        return configured.strip()
-    seed = f"{db_path()}:{os.environ.get('MEALIE_URL', 'mealieshopper')}"
-    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
+_master_secrets: dict[str, str] = {}
+SECRET_FILE = "secret.key"
 
 
-_signing_keys: dict[str, str] = {}
+def master_secret() -> str:
+    """Het geheim waaruit zowel de sessiesleutel als de sleutel voor opgeslagen gegevens volgt.
 
-
-def signing_secret() -> str:
-    """Sleutel waarmee sessies worden ondertekend.
-
-    Is MEALIESHOPPER_AUTH_SECRET (of JWT_SECRET) ingesteld, dan die. Anders een willekeurige sleutel
-    die één keer in de data-map wordt bewaard (`session.key`). De vroegere afgeleide sleutel hing
-    alleen van het pad en MEALIE_URL af en was dus te raden: wie dat wist kon een sessie namaken.
+    Is MEALIESHOPPER_AUTH_SECRET (of JWT_SECRET) ingesteld, dan die: de sleutel staat dan niet bij de
+    database op schijf. Anders maakt de app zelf een willekeurig geheim en bewaart dat eenmalig in de
+    data-map (`secret.key`, alleen leesbaar voor de eigenaar). Dat bestand hoort bij een back-up van de
+    data-map: zonder dat bestand zijn de opgeslagen koppelingen en sessies onleesbaar.
     """
     configured = os.environ.get("MEALIESHOPPER_AUTH_SECRET") or os.environ.get("JWT_SECRET")
     if configured and configured.strip():
         return configured.strip()
-    path = data_dir() / "session.key"
-    cached = _signing_keys.get(str(path))
+    path = data_dir() / SECRET_FILE
+    cached = _master_secrets.get(str(path))
     if cached:
         return cached
-    try:
-        key = path.read_text(encoding="ascii").strip()
-    except FileNotFoundError:
-        key = ""
-    if len(key) < 32:
+    secret = _read_secret_file(path)
+    if not secret:
         data_dir().mkdir(parents=True, exist_ok=True)
-        key = secrets.token_hex(32)
+        secret = secrets.token_hex(32)
         try:
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError:  # een andere werker was ons voor
-            key = path.read_text(encoding="ascii").strip()
+            secret = _read_secret_file(path, wait=True)
         else:
             with os.fdopen(descriptor, "w", encoding="ascii") as handle:
-                handle.write(key)
-    _signing_keys[str(path)] = key
-    return key
+                handle.write(secret)
+    if len(secret) < 32:
+        raise RuntimeError(
+            f"{path} is onleesbaar of onvolledig. Herstel het bestand uit een back-up; zonder dat bestand "
+            "moet je Mealie en Albert Heijn opnieuw koppelen (verwijder het bestand dan en start opnieuw)."
+        )
+    _master_secrets[str(path)] = secret
+    return secret
+
+
+def _read_secret_file(path: Path, wait: bool = False) -> str:
+    """De inhoud van het geheim, of "". Een andere werker kan hem net aanmaken: wacht dan even op de inhoud."""
+    for _ in range(20 if wait else 1):
+        try:
+            text = path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            return ""
+        if len(text) >= 32:
+            return text
+        time.sleep(0.1)
+    return text
+
+
+def _derive(purpose: str) -> bytes:
+    return hashlib.sha256(f"mealieshopper:{purpose}:{master_secret()}".encode("utf-8")).digest()
+
+
+def signing_secret() -> str:
+    """Sleutel waarmee sessies worden ondertekend."""
+    return _derive("sessions").hex()
 
 
 def rp_id() -> str:
@@ -327,8 +346,8 @@ def credential_rows() -> list[dict[str, Any]]:
 
 
 def secret_box() -> Fernet:
-    key = base64.urlsafe_b64encode(hashlib.sha256(auth_secret().encode("utf-8")).digest())
-    return Fernet(key)
+    """Versleuteling voor opgeslagen koppelingen (Mealie-token, AH-token) en het MFA-geheim."""
+    return Fernet(base64.urlsafe_b64encode(_derive("stored-secrets")))
 
 
 def set_secret(key: str, value: str) -> None:
@@ -373,17 +392,6 @@ def delete_secret(key: str) -> None:
         conn.execute("DELETE FROM app_settings WHERE key=?", (key,))
 
 
-def auth_secret_depends_on_mealie_env() -> bool:
-    """True als de sleutel voor opgeslagen gegevens van de omgevingsvariabele MEALIE_URL afhangt.
-
-    Zonder MEALIESHOPPER_AUTH_SECRET (of JWT_SECRET) wordt de sleutel daarvan afgeleid; wie
-    MEALIE_URL dan uit de omgeving haalt, kan opgeslagen koppelingen niet meer ontsleutelen.
-    """
-    if os.environ.get("MEALIESHOPPER_AUTH_SECRET") or os.environ.get("JWT_SECRET"):
-        return False
-    return bool(os.environ.get("MEALIE_URL"))
-
-
 def get_secret(key: str) -> str:
     ensure_db()
     with connect() as conn:
@@ -394,7 +402,8 @@ def get_secret(key: str) -> str:
     try:
         return secret_box().decrypt(value.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError):
-        return value
+        # Een versleutelde waarde met een andere sleutel is onleesbaar (opnieuw koppelen), geen tekst om terug te geven.
+        return "" if value.startswith("gAAAA") else value
 
 
 def create_token(user_id: str, username: str) -> str:

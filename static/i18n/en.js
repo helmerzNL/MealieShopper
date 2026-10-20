@@ -75,7 +75,6 @@ I18N.add("en", {
   "mealie.token_ph": "Paste the token here",
   "mealie.unlink": "Unlink",
   "mealie.note": "The token is stored encrypted and never shown again. The address and token are first checked with Mealie; if something is wrong, nothing is saved.",
-  "mealie.key_warning": "<strong>Note:</strong> your Mealie is still set in the environment variable <code>MEALIE_URL</code> and <code>MEALIESHOPPER_AUTH_SECRET</code> is not set. As a result the key for your stored links (including Albert Heijn) depends on <code>MEALIE_URL</code>. Set <code>MEALIESHOPPER_AUTH_SECRET</code> first before you remove or change <code>MEALIE_URL</code>, otherwise you will have to link again.",
   "sec.password.title": "Password",
   "sec.password.current": "Current password",
   "field.repeat_password": "Repeat the password",
