@@ -2,7 +2,28 @@
 <html lang="nl">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <script>
+      // Onderste menubalk in de geinstalleerde app (PWA) op een klein scherm. Met ?tabbar=1 zie je hem
+      // ook in de browser om te bekijken, met ?tabbar=0 zet je hem uit; de keuze blijft voor dit tabblad.
+      (function () {
+        var forced = null;
+        try {
+          var param = new URLSearchParams(window.location.search).get("tabbar");
+          if (param === "1" || param === "0") {
+            forced = param;
+            window.sessionStorage.setItem("ms-tabbar", param);
+          } else {
+            forced = window.sessionStorage.getItem("ms-tabbar");
+          }
+        } catch (e) { /* opslag kan geblokkeerd zijn; dan geldt alleen de URL-parameter */ }
+        var standalone = window.navigator.standalone === true ||
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+        if (forced === "1" || (standalone && forced !== "0")) {
+          document.documentElement.classList.add("has-tabbar");
+        }
+      })();
+    </script>
     <title>MealieShopper</title>
     <meta name="description" content="Van recept naar geregeld. Je weekmenu, recepten en boodschappen bij elkaar.">
     <meta name="theme-color" content="#176B45">
@@ -70,11 +91,31 @@
 
     <main class="shell">
       <nav class="tabs" aria-label="Hoofdscherm">
-        <button class="tab is-active" data-tab="planner">Weekmenu naar winkel</button>
-        <button class="tab" data-tab="search">Recepten zoeken</button>
-        <button class="tab" data-tab="url">URL importeren</button>
-        <button class="tab" data-tab="ah-items">AH Items</button>
-        <button class="tab" data-tab="beheer">Beheer</button>
+        <button class="tab is-active" data-tab="planner" aria-current="page">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>
+          <span class="tab-text">Weekmenu naar winkel</span>
+          <span class="tab-short" aria-hidden="true">Weekmenu</span>
+        </button>
+        <button class="tab" data-tab="search">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+          <span class="tab-text">Recepten zoeken</span>
+          <span class="tab-short" aria-hidden="true">Zoeken</span>
+        </button>
+        <button class="tab" data-tab="url">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg>
+          <span class="tab-text">URL importeren</span>
+          <span class="tab-short" aria-hidden="true">Importeren</span>
+        </button>
+        <button class="tab" data-tab="ah-items">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8h11l-1 12h-9l-1-12Z"/><path d="M9 8V7a3 3 0 0 1 6 0v1"/></svg>
+          <span class="tab-text">AH Items</span>
+          <span class="tab-short" aria-hidden="true">AH Items</span>
+        </button>
+        <button class="tab" data-tab="beheer">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8.5M17 7h3M4 17h3M11.5 17H20"/><circle cx="14.75" cy="7" r="2.25"/><circle cx="9.25" cy="17" r="2.25"/></svg>
+          <span class="tab-text">Beheer</span>
+          <span class="tab-short" aria-hidden="true">Beheer</span>
+        </button>
       </nav>
 
       <section id="planner" class="panel is-active">

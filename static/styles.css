@@ -50,6 +50,12 @@
   --warning-bg: #fff8e6;
   --warning-border: #e0a100;
 
+  /* Menubalk onderaan op een telefoon: dichter glas en donkerdere inkt, zodat labels leesbaar blijven boven donkere foto's */
+  --tabbar-glass: rgba(255, 255, 255, 0.8);
+  --tabbar-tint: rgba(23, 107, 69, 0.14);
+  --tabbar-ink: #3f4c45;
+  --tabbar-ink-active: #105235;
+
   --radius-card: 12px;
   --radius-control: 8px;
   --control-height: 44px;
@@ -287,6 +293,23 @@ h2 {
   color: #fff;
 }
 
+/* Iconen en korte labels zijn alleen voor de onderste menubalk (PWA op een klein scherm) */
+.tab-icon {
+  display: none;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab-short {
+  display: none;
+}
+
 .panel,
 .subpanel {
   display: none;
@@ -302,6 +325,11 @@ h2 {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.form-row .button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .week-label {
@@ -642,7 +670,7 @@ code {
   padding: 1px 5px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .product-grid {
@@ -831,5 +859,108 @@ a.product-card strong {
   .security-actions .input,
   .credential-row .button {
     width: 100%;
+  }
+}
+
+/* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
+   Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. */
+@media (max-width: 640px) {
+  html.has-tabbar .shell {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  html.has-tabbar .tabs {
+    position: fixed;
+    z-index: 20;
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    width: auto;
+    margin: 0;
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 32px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow:
+      0 10px 32px rgba(24, 37, 30, 0.16),
+      0 0 0 0.5px rgba(24, 37, 30, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    html.has-tabbar .tabs {
+      background: var(--tabbar-glass);
+      -webkit-backdrop-filter: saturate(180%) blur(24px);
+      backdrop-filter: saturate(180%) blur(24px);
+    }
+  }
+
+  html.has-tabbar .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 56px;
+    padding: 6px 2px;
+    border-radius: 26px;
+    color: var(--tabbar-ink);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html.has-tabbar .tab-icon {
+    display: block;
+  }
+
+  html.has-tabbar .tab-text {
+    display: none;
+  }
+
+  html.has-tabbar .tab-short {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  html.has-tabbar .tab:hover:not(.is-active) {
+    background: transparent;
+    color: var(--tabbar-ink);
+  }
+
+  html.has-tabbar .tab:active {
+    transform: scale(0.95);
+  }
+
+  html.has-tabbar .tab.is-active {
+    background: var(--tabbar-tint);
+    color: var(--tabbar-ink-active);
+  }
+
+  html.has-tabbar .tab.is-active .tab-icon {
+    stroke-width: 2.1;
+  }
+
+  html.has-tabbar .tab:focus-visible {
+    outline-offset: -3px;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+  html.has-tabbar .tab {
+    transition: none;
+  }
+
+  html.has-tabbar .tab:active {
+    transform: none;
   }
 }
