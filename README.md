@@ -1,320 +1,249 @@
-# MealieShopper
+<div align="center">
 
-MealieShopper is een kleine Python/Flask app die Mealie koppelt aan Albert Heijn:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="static/brand/wordmark-white.svg">
+  <img src="static/brand/wordmark.svg" alt="MealieShopper" width="360">
+</picture>
 
-- AH/Allerhande recepten zoeken en importeren in Mealie.
-- Recepten importeren via URL.
-- Weekmenu uit Mealie ophalen en ingredienten naar AH zoeken.
-- AH OAuth-login opslaan en gebruiken voor AH lijstjes en het winkelmandje.
-- Passkey/WebAuthn login voor de app.
+**Van recept naar geregeld.**
+Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.nl)-mandje, plus recepten zoeken, bewaren en importeren.
+
+**Nederlands** · [English](README.en.md)
+
+<img src="docs/screenshots/nl/plan.png" alt="MealieShopper op een computer en een telefoon: het weekmenu met plaatjes uit Mealie" width="900">
+
+</div>
+
+## Inhoud
+
+- [Wat kan het?](#wat-kan-het)
+- [Zo ziet het eruit](#zo-ziet-het-eruit)
+- [Snel starten](#snel-starten)
+- [Eerste start](#eerste-start)
+- [Gebruik](#gebruik)
+- [Mealie en Albert Heijn koppelen](#mealie-en-albert-heijn-koppelen)
+- [Beveiliging](#beveiliging)
+- [Configuratie](#configuratie)
+- [Data en back-ups](#data-en-back-ups)
+- [Updaten](#updaten)
+- [Problemen oplossen](#problemen-oplossen)
+- [Ontwikkelen](#ontwikkelen)
+- [Integraties en componenten](#integraties-en-componenten)
+- [Een koffie?](#een-koffie)
+
+## Wat kan het?
+
+- **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Eén knop zoekt voor elk ingrediënt de beste AH-producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je AH-mandje. Twijfelt de app, dan controleer je de regel eerst zelf.
+- **Recepten zoeken en importeren.** Zoek in de recepten van Allerhande en zet ze met één klik in Mealie, of importeer een recept via een link.
+- **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
+- **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app.
+- **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
+- **Nederlands en Engels.** Wissel met de vlaggetjes; de app onthoudt je keuze.
+- **Jij houdt de regie.** Alles draait in je eigen container; je gegevens staan in een SQLite-bestand in je eigen data-map.
+
+## Zo ziet het eruit
+
+Elke afbeelding laat dezelfde pagina zien op een computer en op een telefoon. De recepten en producten zijn voorbeeldgegevens.
+
+### Weekmenu en winkelmandje
+
+Laad je weekmenu uit Mealie. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld.
+
+<img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
+
+### Recepten zoeken
+
+<img src="docs/screenshots/nl/search.png" alt="Recepten zoeken bij Allerhande, met kaarten en een knop om te importeren" width="900">
+
+### AH Items: je bewaarde recepten
+
+Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens twee naast elkaar. Bovenaan zoek je in je recepten.
+
+<img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met een zoekbalk en kaarten met een importknop" width="900">
+
+### AH Items: je lijstjes
+
+Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op naam of op een product, en open een lijstje op dezelfde plek. In een geopend lijstje zet je het hele lijstje met één druk op **In AH-mandje** in je winkelmandje, en pas je per product het aantal aan.
+
+<img src="docs/screenshots/nl/lists.png" alt="AH lijstjes als kaarten, met een zoekbalk en een synchroniseerknop per lijstje" width="900">
+
+<img src="docs/screenshots/nl/list.png" alt="Een geopend lijstje met aanpasbare aantallen, de knop In AH-mandje en de iconen voor terugzetten en synchroniseren" width="900">
+
+## Snel starten
+
+Je hebt een computer of NAS met Docker nodig. Je hoeft niets in te stellen: MealieShopper loopt je bij de eerste start zelf door de beveiliging en de koppelingen.
+
+### Docker Compose (bijvoorbeeld Unraid)
+
+1. Maak een map voor je gegevens, bijvoorbeeld `/mnt/user/appdata/mealieshopper`.
+2. Gebruik de meegeleverde [`docker-compose.yml`](docker-compose.yml). Die publiceert de app op poort `5959` en bewaart je gegevens in `/mnt/user/appdata/mealieshopper`.
+3. Wil je iets instellen? Kopieer [`.env.unraid.example`](.env.unraid.example) naar `.env.unraid` en pas aan wat je nodig hebt. Het bestand is optioneel (Docker Compose 2.24 of nieuwer).
+4. Start:
+
+   ```bash
+   docker compose up -d
+   ```
+
+5. Open `http://<adres van je server>:5959` en volg de installatiehulp.
+
+De image staat op `ghcr.io/helmerznl/mealieshopper:latest`.
+
+### Docker
+
+```bash
+docker run -d --name mealieshopper -p 8000:8000 \
+  -v /mnt/user/appdata/mealieshopper:/data \
+  ghcr.io/helmerznl/mealieshopper:latest
+```
+
+Open daarna `http://localhost:8000`. Zelf bouwen kan met `docker build -t mealieshopper .`.
+
+### Lokaal draaien
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt     # Windows: .\.venv\Scripts\pip
+.venv/bin/python run.py                       # Windows: .\.venv\Scripts\python
+```
+
+De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.local.example) voor de opties.
+
+## Eerste start
+
+Op een nieuwe installatie opent MealieShopper een installatiehulp van vier stappen. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
+
+**1. Beveiliging.** De app kijkt hoe je hem opent.
+
+| Je opent MealieShopper via | Wat je kunt kiezen |
+|---|---|
+| een domeinnaam met HTTPS | een **passkey** (aanbevolen), of gebruikersnaam en wachtwoord |
+| een IP-adres, `localhost`, een `.local`-naam of zonder HTTPS | gebruikersnaam en wachtwoord, of bewust **zonder beveiliging** (met een waarschuwing); passkeys werken daar niet |
+
+Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticator-app. Dat is optioneel, net als het wachtwoord zelf. Je krijgt 8 herstelcodes die je één keer te zien krijgt.
+
+<img src="docs/screenshots/nl/ob-choose.png" alt="Installatiehulp, stap 1: beveiliging kiezen" width="900">
+
+<img src="docs/screenshots/nl/ob-mfa.png" alt="Tweestapsverificatie instellen met een QR-code" width="900">
+
+**2. Mealie koppelen.** Vul het adres van je Mealie en een API-token in; MealieShopper controleert ze bij Mealie voordat er iets wordt bewaard.
+
+<img src="docs/screenshots/nl/ob-mealie.png" alt="Installatiehulp, stap 2: Mealie koppelen met adres en token" width="900">
+
+**3. Albert Heijn koppelen.** Uitleg voor de inlog via de browserconsole, met de inlogknop en het plakveld meteen in de stap. Dit kan alleen op een computer; je kunt de stap overslaan en later doen.
+
+<img src="docs/screenshots/nl/ob-ah.png" alt="Installatiehulp, stap 3: Albert Heijn koppelen" width="900">
+
+**4. Klaar.** Een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je terug naar die stap.
+
+<img src="docs/screenshots/nl/ob-done.png" alt="Installatiehulp, stap 4: overzicht" width="900">
+
+## Gebruik
+
+### Weekmenu naar het AH-mandje
+
+`Weekmenu laden` haalt de week uit Mealie, met de plaatjes. `Voeg toe aan Albert Heijn mandje` zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
+
+Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan gaat het mandje meteen vol. Naast elk product staat een link naar het product bij AH, zodat je kunt controleren of het klopt.
+
+De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart ze in de database. Zo werkt het ook als je Mealie niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan Mealie.
+
+### Recepten zoeken en importeren
+
+Zoek bij `Recepten zoeken` in Allerhande (tot de eerste 2.000 treffers) en kies `Importeer`, of plak bij `URL importeren` een Allerhande-link of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
+
+### AH Items
+
+- **AH Recepten**: je bewaarde Allerhande-recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt ze allemaal op en bewaart ze in MealieShopper. Het tabblad toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een vernieuwing, dan blijft de vorige kopie staan. Zoek bovenaan in je recepten.
+- **AH Lijstjes**: je favoriete lijstjes. Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Een aangepast aantal blijft staan na een nieuwe synchronisatie, en het oorspronkelijke aantal van AH staat er als `AH: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH. `In AH-mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
+
+### Installeren als app
+
+MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen.
+
+- **iPhone en iPad (Safari):** Delen, dan `Zet op beginscherm`.
+- **Android (Chrome):** menu, dan `App installeren`.
+- **Windows en macOS (Edge of Chrome):** het installatie-icoon in de adresbalk.
+
+Installeren werkt alleen via HTTPS (behalve op `localhost`). Wil je de menubalk bekijken zonder te installeren, open dan `?tabbar=1` achter het adres op je telefoon (`?tabbar=0` zet hem weer uit).
+
+### Taal
+
+Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wissel je tussen Nederlands en Engels. De keuze blijft in je browser bewaard; zonder keuze volgt de app je browsertaal. Wat Mealie en Albert Heijn zelf teruggeven (receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
+
+## Mealie en Albert Heijn koppelen
+
+Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**.
+
+### Mealie
+
+1. Open Mealie en ga naar je profiel, onderdeel **API-tokens**.
+2. Geef de token een naam, bijvoorbeeld *MealieShopper*, en kies **Token genereren**.
+3. Kopieer de token meteen: Mealie toont hem maar één keer.
+4. Vul in MealieShopper het adres van je Mealie en de token in en kies **Koppelen**.
+
+Het adres moet bereikbaar zijn vanaf de plek waar MealieShopper draait, niet per se vanaf je telefoon. Draaien ze in dezelfde Docker-omgeving, dan kan het een interne naam zijn zoals `http://mealie:9000`. De token wordt versleuteld bewaard en nooit meer getoond. Een koppeling die je in de app maakt gaat voor op `MEALIE_URL` en `MEALIE_API_TOKEN` uit de omgeving.
+
+### Albert Heijn
+
+AH heeft geen officiële koppeling. MealieShopper logt in zoals de AH-app, in je eigen browser (op een computer):
+
+1. Kies `Inloggen bij Albert Heijn`; er opent een nieuw tabblad.
+2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) **voordat** je inlogt.
+3. Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen, maar in de console staat een rode regel met `appie://login-exit?code=...`.
+4. Plak die regel in MealieShopper en kies `Koppelen`. De code werkt maar één keer en verloopt snel; een melding over een verlopen of gebruikte code betekent: opnieuw inloggen.
+
+Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. AH kan de token bij elke vernieuwing vervangen; MealieShopper bewaart steeds de nieuwste. Draai daarom één instance en houd de data-map op persistente opslag.
+
+## Beveiliging
+
+<img src="docs/screenshots/nl/login.png" alt="De inlogpagina met gebruikersnaam en wachtwoord" width="900">
+
+- **Passkey** (domeinnaam met HTTPS): inloggen met je vingerafdruk, gezicht of schermvergrendeling. Voeg extra passkeys toe onder Beheer, Beveiliging; de laatste passkey kan alleen weg als er een wachtwoord is.
+- **Wachtwoord**: minstens 10 tekens, met scrypt gehasht en nooit bewaard of gelogd. Na 5 mislukte pogingen per IP-adres (of 25 in totaal) is inloggen 15 minuten geblokkeerd.
+- **Tweestapsverificatie** (TOTP, bij inloggen met een wachtwoord): het geheim staat versleuteld in de database, een code werkt één keer, en je krijgt 8 herstelcodes (16 tekens, alleen de SHA-256 staat in de database). Met een passkey heb je geen wachtwoord of tweestapsverificatie nodig; die blokken staan dan ingeklapt.
+- **Sessies**: een HttpOnly cookie. Een nieuw wachtwoord of uitgezette tweestapsverificatie logt andere apparaten uit.
+
+<img src="docs/screenshots/nl/security.png" alt="Beheer, Beveiliging: wachtwoord, tweestapsverificatie en passkeys" width="900">
+
+**Het geheim.** Zonder `MEALIESHOPPER_AUTH_SECRET` maakt de app bij de eerste start zelf een willekeurig geheim en bewaart dat in de data-map (`secret.key`, alleen leesbaar voor de eigenaar). Daaruit volgen twee aparte sleutels: een voor de sessies en een voor de versleuteling van je opgeslagen koppelingen en het MFA-geheim. Zet je zelf `MEALIESHOPPER_AUTH_SECRET`, dan staat de sleutel niet op schijf naast de database; gebruik dan een lange, vaste, willekeurige waarde (`openssl rand -hex 32`) en verander hem niet achteraf.
+
+**Goed om te weten**
+
+- Zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait.
+- Het IP-adres voor de blokkade na mislukte pogingen komt uit `X-Forwarded-For` van je reverse proxy (één stap). Zet MealieShopper dus niet rechtstreeks op internet, maar achter een proxy die dat veld zelf instelt.
+- Passkeys vragen een domeinnaam en HTTPS. Zet dan `RP_ID` (alleen de hostnaam) en `RP_ORIGINS` (het volledige adres), zie [`.env.unraid.example`](.env.unraid.example).
 
 ## Configuratie
 
-Alle omgevingsvariabelen zijn optioneel: bij de eerste start loopt de app je door de
-beveiliging en de koppelingen (zie *Eerste start*). Zet ze in je lokale shell, een `.env`-loader of
-de containeromgeving (`.env.local.example` en `.env.unraid.example` laten alles zien):
+Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.unraid.example`](.env.unraid.example) en [`.env.local.example`](.env.local.example) laten alles zien).
 
-```env
-# Sterk aanbevolen: lang, vast en willekeurig (openssl rand -hex 32)
-MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
-MEALIESHOPPER_DATA_DIR=./data
-MEALIESHOPPER_PUBLIC_BASE_URL=http://localhost:8000
+| Variabele | Doel |
+|---|---|
+| `MEALIESHOPPER_DATA_DIR` | Map voor de database en `secret.key`. In de Docker-image `/data`, lokaal standaard `./data`. |
+| `MEALIESHOPPER_AUTH_SECRET` (of `JWT_SECRET`) | Eigen geheim voor sessies en versleuteling. Zonder deze waarde maakt de app `secret.key`. |
+| `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres, voor de voorbeeldafbeelding als je de link deelt. |
+| `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | Alleen voor passkeys, met een domeinnaam en HTTPS. |
+| `PASSKEY_AUTH_ENABLED` | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
+| `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie via de omgeving; een koppeling uit de app gaat voor. |
+| `AH_REFRESH_TOKEN` | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |
+| `PORT` | Poort bij `python run.py` (standaard 8000). |
+| `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Overschrijven het versienummer en de commit die bij Over staan. |
 
-# Alleen voor passkeys, met een domeinnaam en HTTPS
-RP_NAME=MealieShopper
-RP_ID=mealieshopper.jouwdomein.nl
-RP_ORIGINS=https://mealieshopper.jouwdomein.nl
+## Data en back-ups
 
-# Optioneel: koppel Mealie en AH liever in de app (Beheer)
-MEALIE_URL=https://mealie.jouwdomein.nl
-MEALIE_API_TOKEN=
-AH_REFRESH_TOKEN=
+Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, kopieën van je AH-lijstjes en -recepten, plaatjes uit Mealie) en `secret.key`. **Neem de hele map mee in je back-ups.** Zonder `secret.key` (of je eigen `MEALIESHOPPER_AUTH_SECRET`) zijn de opgeslagen koppelingen en sessies onleesbaar: je koppelt Mealie en Albert Heijn dan opnieuw, en de app laat dat zien als "niet gekoppeld".
 
-# Noodgreep: inloggen helemaal uitzetten
-PASSKEY_AUTH_ENABLED=false
-```
-
-Je hoeft geen geheim in te stellen. Zonder `MEALIESHOPPER_AUTH_SECRET` maakt de app bij de eerste start
-zelf een willekeurig geheim en bewaart dat in de data-map (`secret.key`, alleen leesbaar voor de
-eigenaar). Daaruit volgen twee aparte sleutels: een voor de sessies en een voor de versleuteling van je
-opgeslagen koppelingen (Mealie-token, AH-token) en het MFA-geheim. **Neem de hele data-map, `secret.key`
-ook, mee in je back-ups**: zonder dat bestand zijn de koppelingen en sessies onleesbaar en koppel je
-Mealie en Albert Heijn opnieuw (de app laat dat zien als "niet gekoppeld").
-
-Zet je zelf `MEALIESHOPPER_AUTH_SECRET`, dan staat de sleutel niet op schijf naast de database, bijvoorbeeld
-omdat je hem uit een secret manager haalt. Gebruik dan een lange, vaste, willekeurige waarde
-(`openssl rand -hex 32`) en verander hem niet achteraf, want dan moet je alles opnieuw koppelen.
-
-### Mealie koppelen
-
-Koppel Mealie in de app: **Beheer > Mealie**. Vul het adres van je Mealie in en plak een API-token
-(in Mealie: je profiel, onderdeel API-tokens, `Token genereren`). MealieShopper controleert het adres
-en de token eerst bij Mealie zelf; klopt er iets niet, dan krijg je een duidelijke melding en wordt er
-niets bewaard. Daarna staat het adres en de token versleuteld in de SQLite database onder
-`MEALIESHOPPER_DATA_DIR`; de token wordt nooit meer getoond. Een nieuw weekmenu laden of een recept
-importeren werkt direct, zonder herstart.
-
-`MEALIE_URL` en `MEALIE_API_TOKEN` blijven werken, maar zijn optioneel. Een koppeling uit de app gaat
-voor op de omgevingsvariabelen; de twee bronnen worden nooit gemengd, zodat een token nooit naar een
-ander adres gaat. Met `Ontkoppelen` verwijder je de koppeling uit de app, waarna een eventuele
-omgevingsconfiguratie weer geldt.
-
-**Let op:** zonder `MEALIESHOPPER_AUTH_SECRET` (of `JWT_SECRET`) wordt de sleutel voor je opgeslagen
-koppelingen afgeleid van de omgevingsvariabele `MEALIE_URL`. Stel daarom eerst
-`MEALIESHOPPER_AUTH_SECRET` in voordat je `MEALIE_URL` uit je omgeving haalt of wijzigt; anders kan
-MealieShopper je opgeslagen koppelingen (ook die van Albert Heijn) niet meer ontsleutelen en moet je
-opnieuw koppelen. De app waarschuwt hiervoor in Beheer > Mealie.
-
-`AH_REFRESH_TOKEN` is optioneel en dient alleen als startwaarde. Normaal koppel
-je via de tab `AH koppelen`; MealieShopper slaat de refresh token daarna
-versleuteld op in de SQLite database onder `MEALIESHOPPER_DATA_DIR`. AH kan de
-refresh token bij elke vernieuwing vervangen; de nieuwste waarde wordt steeds in
-de database bewaard en gaat voor op de omgevingsvariabele. Houd de data-map dus
-op persistente opslag en draai één instance.
-
-### AH koppelen
-
-De login loopt direct via `login.ah.nl` in je eigen browser (op een computer):
-
-1. Klik op `Inloggen bij Albert Heijn`; er opent een nieuw tabblad.
-2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) voordat je inlogt.
-3. Log in. De pagina lijkt vast te lopen, maar in de console staat een rode
-   regel met `appie://login-exit?code=...`.
-4. Plak die regel in MealieShopper en klik op `Koppelen`. De code werkt maar
-   een keer en verloopt snel. Een foutmelding over een verlopen of gebruikte
-   code betekent: opnieuw inloggen.
-
-Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. De
-ingebouwde proxy onder `/api/ah/auth/proxy` bestaat nog, maar wordt niet meer
-door de interface gebruikt.
-`MEALIESHOPPER_AUTH_SECRET` moet stabiel blijven; wijzigen logt bestaande
-sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
-`MEALIESHOPPER_DATA_DIR`.
-
-## Weekmenu met afbeeldingen
-
-`Weekmenu laden` toont bij elk gerecht het plaatje uit Mealie. De browser vraagt het plaatje
-aan MealieShopper (`/api/mealie/recipes/<id>/image`); die haalt het met je API-token bij Mealie
-op en bewaart het in de SQLite database (tabel `mealie_images`). Zo werkt het ook als je Mealie
-niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan
-Mealie. Verandert het plaatje in Mealie, dan haalt MealieShopper het opnieuw op; is Mealie
-onbereikbaar, dan blijft het oude plaatje staan. Recepten zonder plaatje tonen alleen tekst.
-
-## Weekmenu naar het AH-mandje
-
-`Voeg toe aan Albert Heijn mandje` zoekt per ingredient de beste vijf producten en rekent uit
-hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft:
-6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een
-fles. Het aantal is altijd 1 tot en met 99.
-
-Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer
-dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en
-het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan
-gaat het mandje meteen vol.
-
-## AH Items
-
-Het tabblad `AH Items` heeft twee onderdelen:
-
-- **AH Recepten**: je bewaarde Allerhande-recepten (de receptencollectie van je
-  AH-account) ophalen en in Mealie importeren. Op een telefoon staan minstens twee
-  recepten naast elkaar, op een groter scherm zoveel als er passen; bovenaan zoek je in je
-  recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt alle recepten op en bewaart ze in
-  MealieShopper (tabellen `ah_saved_recipes` en `ah_saved_recipes_meta`). Het tabblad zelf
-  toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een
-  vernieuwing, dan blijft de vorige kopie staan. Dit gebruikt alleen je AH-koppeling;
-  een wachtwoord of browser is niet nodig. Het importeren haalt de receptgegevens
-  via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de
-  websitepagina's voor servers blokkeert.
-- **AH Lijstjes**: je favoriete AH-lijstjes als kaarten naast elkaar (op een telefoon
-  minstens twee). Het zoekveld bovenaan filtert terwijl je typt, op de naam van het
-  lijstje en op de producten in gesynchroniseerde lijstjes. Een lijstje opent op dezelfde
-  plek; de pijl linksboven (of de terugknop van je telefoon) brengt je terug naar het
-  overzicht, met je zoekterm en scrollpositie. Met `Synchroniseren` (per lijstje) of
-  `Alles synchroniseren` bewaart MealieShopper een kopie van het lijstje, inclusief
-  productnaam, merk, inhoud, prijs en afbeelding, in de SQLite database onder
-  `MEALIESHOPPER_DATA_DIR` (tabellen `ah_lists` en `ah_list_items`). Een geopend
-  lijstje toont de kopie als die er is; de producten linken naar ah.nl.
-  Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar
-  en staat er een melding met de AH-fout. Een nieuwe synchronisatie vervangt de
-  kopie; mislukt die, dan blijft de vorige kopie staan.
-
-## Opgeruimd
-
-De AH website-koppeling (inloggen met e-mailadres en wachtwoord via een headless
-Chromium) en de Jumbo-koppeling zijn verwijderd, samen met Selenium en Chromium in
-de Docker-image. Bij het opstarten wist MealieShopper de eventueel nog opgeslagen
-`AH_USERNAME`, `AH_PASSWORD`, `AH_COOKIES` en `JUMBO_*`-gegevens uit de database.
-De omgevingsvariabelen `AH_USERNAME`, `AH_PASSWORD`, `JUMBO_USERNAME` en
-`JUMBO_PASSWORD` worden niet meer gelezen en kunnen uit je `.env` of compose.
-
-## Huisstijl
-
-Het beeldmerk (een boodschappentasje met een M), de kleuren, de typografie en de PWA-instellingen
-staan beschreven in [`docs/huisstijl.md`](docs/huisstijl.md). Beeldbestanden staan in
-`static/brand/`, lettertypen in `static/fonts/`. Herbouw de exports met
-`python scripts/build_brand.py` (Pillow nodig, alleen tijdens het exporteren).
-
-## Eerste start (onboarding)
-
-Op een nieuwe installatie opent MealieShopper een installatiehulp van vier stappen:
-
-1. **Beveiliging.** De app kijkt hoe je hem opent.
-   - *Met een domeinnaam en HTTPS* (ook via `RP_ID` en een reverse proxy): je kiest een
-     **passkey** (aanbevolen) of een gebruikersnaam met wachtwoord.
-   - *Zonder domeinnaam* (IP-adres, `localhost`, `.local`, of zonder HTTPS): passkeys werken
-     dan niet. Je kunt **gebruikersnaam en wachtwoord** instellen, of bewust **zonder
-     beveiliging** verder gaan (met een waarschuwing en een bevestiging). Na het wachtwoord
-     kun je **tweestapsverificatie** (TOTP, een authenticator-app) aanzetten, ook optioneel.
-     Je krijgt dan 8 herstelcodes die je één keer te zien krijgt.
-2. **Mealie koppelen**: uitleg voor het API-token, met het formulier (adres en token) meteen in de
-   stap. MealieShopper controleert ze bij Mealie voordat er iets wordt bewaard; daarna ga je door.
-3. **Albert Heijn koppelen**: uitleg voor de inlog via de browserconsole, met de inlogknop en het
-   plakveld in de stap (alleen op een computer). Overslaan kan; je kunt het later onder Beheer doen.
-4. **Klaar**: een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je
-   terug naar die stap, zonder de installatiehulp te verlaten.
-
-Een bestaande installatie (met een passkey of wachtwoord) ziet de installatiehulp niet.
-Staat inloggen uit via `PASSKEY_AUTH_ENABLED=false`, dan valt de beveiligingsstap weg.
-Wachtwoord, tweestapsverificatie en passkeys beheer je daarna onder Beheer > Beveiliging.
-
-Over de beveiliging van het wachtwoord:
-
-- Het wachtwoord wordt met scrypt gehasht en nooit bewaard of gelogd. Minstens 10 tekens.
-- Na 5 mislukte pogingen per IP-adres (of 25 in totaal) is inloggen 15 minuten geblokkeerd.
-- Het TOTP-geheim staat versleuteld in de database, een code werkt één keer, en een
-  herstelcode werkt één keer (alleen de SHA-256 staat in de database).
-- Een nieuw wachtwoord of uitgezette tweestapsverificatie logt andere apparaten uit.
-- Zolang de eerste inlogmethode nog niet is ingesteld kan wie het adres als eerste opent de
-  installatie claimen (dat gold al voor de eerste passkey). Doe de eerste start daarom op een
-  netwerk dat je vertrouwt, of meteen nadat de container draait.
-- Het IP-adres komt uit `X-Forwarded-For` van je reverse proxy (een stap); zet MealieShopper
-  daarom niet rechtstreeks op internet zonder proxy die dat veld zelf instelt.
-
-## Taal
-
-De interface is er in het Nederlands en het Engels. Met de vlaggetjes (rechtsboven in de interface,
-op de inlogpagina en in de installatiehulp) wissel je; de keuze blijft in je browser bewaard
-(`localStorage`) en staat ook in de cookie `ms_lang`, zodat de meldingen van de server (inloggen,
-wachtwoord, tweestapsverificatie, beveiligingsstap) in dezelfde taal komen. Zonder keuze volgt de
-app de taal van je browser, en anders het Nederlands. Wat Mealie en Albert Heijn zelf teruggeven
-(receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
-
-De teksten staan in `static/i18n/nl.js` en `static/i18n/en.js`, één tekst per regel. In de HTML staat
-de Nederlandse tekst gewoon in de pagina, met `data-i18n="sleutel"` erbij; in de scripts gebruik je
-`t("sleutel", { naam })` (gewone tekst), `th(...)` (tekst met opmaak; waarden worden ge-escaped) en
-`tn("sleutel", aantal)` (meervoud: `sleutel.one` en `sleutel.other`). Een taal toevoegen betekent een
-bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`.
-`tests/test_i18n.py` bewaakt dat beide woordenboeken dezelfde sleutels en plaatshouders hebben, dat elke
-gebruikte sleutel bestaat en dat de HTML overeenkomt met `nl.js`.
-
-## Over en het versienummer
-
-Het tabblad **Over** toont het versienummer als `vX.Y.Z (commit)`, de integraties en componenten die
-MealieShopper gebruikt (met de versies van de geïnstalleerde Python-pakketten) en een link om me een
-koffie te geven.
-
-Het versienummer staat in het bestand `VERSION` (alleen `X.Y.Z`); verhoog het bij een release. De commit
-komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT` (de GitHub Actions workflow zet het
-op `github.sha`) en lokaal wordt hij uit git gelezen. Voor een handmatige build:
+## Updaten
 
 ```bash
-docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .
+docker compose pull && docker compose up -d
 ```
 
-`MEALIESHOPPER_VERSION` en `MEALIESHOPPER_COMMIT` kunnen beide waarden overschrijven.
+Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf aangevuld. Bij Over zie je welke versie en commit er draait.
 
-## Passkeys
+## Problemen oplossen
 
-Bij een nieuwe installatie toont MealieShopper eerst een setupscherm voor de
-eerste owner passkey. Zodra die bestaat, zijn de app en API-routes beschermd
-met een HttpOnly sessiecookie.
-
-Na het inloggen kun je via de tab `Beveiliging` extra passkeys toevoegen,
-bijvoorbeeld voor je telefoon en laptop. Daar kun je oude passkeys ook
-verwijderen; de laatste passkey blijft beschermd tegen verwijderen zolang
-passkey-auth aan staat.
-
-Voor passkeys moet de browser een secure context hebben. `localhost` werkt via
-HTTP, maar op Unraid of een ander LAN-hostname heb je normaal HTTPS nodig via
-een reverse proxy. Zet dan:
-
-```env
-MEALIESHOPPER_PUBLIC_BASE_URL=https://mealieshopper.sandmount.nl
-RP_ID=mealieshopper.sandmount.nl
-RP_ORIGINS=https://mealieshopper.sandmount.nl
-```
-
-`RP_ID` is alleen de hostname zonder schema of poort. `RP_ORIGINS` is de
-volledige URL waarmee je de app in de browser opent.
-
-## Lokaal draaien
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python run.py
-```
-
-De app luistert standaard op `http://localhost:8000`.
-
-## Docker
-
-```powershell
-docker build -t mealieshopper .
-docker run --rm -p 8000:8000 `
-  -v /mnt/user/appdata/mealieshopper:/data `
-  -e MEALIESHOPPER_AUTH_SECRET=... `
-  mealieshopper
-```
-
-## Unraid met Docker Compose
-
-Kopieer `.env.unraid.example` naar `.env.unraid` en pas aan wat je wilt (alles is optioneel; zonder
-dat bestand start de container ook, met Docker Compose 2.24 of nieuwer) en start daarna:
-
-```bash
-docker compose up -d
-```
-
-De compose gebruikt standaard:
-
-```text
-ghcr.io/helmerznl/mealieshopper:latest
-```
-
-Voor Sandmount/Unraid staat het voorbeeld op:
-
-```env
-RP_ID=mealieshopper.sandmount.nl
-RP_ORIGINS=https://mealieshopper.sandmount.nl
-```
-
-De meegeleverde compose publiceert de app op hostpoort `5959` en mount de
-SQLite data vast naar:
-
-```yaml
-ports:
-  - "5959:8000"
-volumes:
-  - "/mnt/user/appdata/mealieshopper:/data"
-```
-
-Krijg je direct een `Internal Server Error` of een melding dat de auth database
-niet bereikbaar is, controleer dan of de appdata-map bestaat en schrijfbaar is:
-
-```bash
-mkdir -p /mnt/user/appdata/mealieshopper
-```
-
-Controleer ook dat je compose deze mount heeft:
-
-```yaml
-volumes:
-  - "/mnt/user/appdata/mealieshopper:/data"
-```
-
-Op Unraid kun je de rechten herstellen met:
+**Direct een `Internal Server Error`, of de auth-database is niet bereikbaar.** Controleer of de appdata-map bestaat en schrijfbaar is, en of je compose de mount `"/mnt/user/appdata/mealieshopper:/data"` heeft. Op Unraid:
 
 ```bash
 mkdir -p /mnt/user/appdata/mealieshopper
@@ -322,12 +251,68 @@ chown -R nobody:users /mnt/user/appdata/mealieshopper
 chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
-## GitHub Container Registry
+**De passkey werkt niet.** Een passkey vraagt een domeinnaam en HTTPS (op `localhost` werkt het ook). Open MealieShopper via dat adres en controleer `RP_ID` en `RP_ORIGINS`; de installatiehulp legt uit waarom het op een IP-adres niet kan.
 
-De workflow in `.github/workflows/docker.yml` bouwt en pusht automatisch naar:
+**AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
 
-```text
-ghcr.io/helmerznl/mealieshopper:latest
+**"Niet gekoppeld" terwijl je al had gekoppeld.** Dan is `secret.key` (of je eigen geheim) veranderd of ontbreekt; zie *Data en back-ups*. Koppel opnieuw.
+
+**Ik kom er niet meer in.** Heb je je wachtwoord en herstelcodes kwijt, dan kun je de inlog terugzetten (je koppelingen blijven staan). Stop eventueel de container en voer uit:
+
+```bash
+docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
 ```
 
-Dit gebeurt bij pushes naar `main` en kan ook handmatig via `workflow_dispatch`.
+Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiliging opnieuw in.
+
+## Ontwikkelen
+
+```bash
+python -m unittest discover -s tests          # alle tests
+```
+
+- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `onboarding.py`, `mealie.py`, `ah.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
+- **Teksten en talen:** de interface staat in `static/i18n/nl.js` en `en.js`, één tekst per regel. In de HTML staat de Nederlandse tekst in de pagina, met `data-i18n="sleutel"`; in de scripts gebruik je `t("sleutel", { naam })`, `th(...)` (met opmaak, waarden ge-escaped) en `tn("sleutel", aantal)` (meervoud). Een taal toevoegen betekent een bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`. `tests/test_i18n.py` bewaakt dat beide woordenboeken gelijk zijn.
+- **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
+- **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
+- **Container registry:** de workflow bouwt en pusht bij elke push naar `main` (en handmatig via `workflow_dispatch`) naar `ghcr.io/helmerznl/mealieshopper:latest`.
+- **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een demo-omgeving met zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn.
+
+## Integraties en componenten
+
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie of Albert Heijn.
+
+**Integraties**
+
+| Integratie | Waarvoor |
+|---|---|
+| [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten komen hier terecht. Via de API met een token. |
+| [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
+| [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
+| [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
+| [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |
+| [GitHub Container Registry](https://ghcr.io) | Hier staat de Docker-image. |
+
+**Componenten**
+
+| Component | Licentie | Waarvoor |
+|---|---|---|
+| [Python](https://www.python.org) | PSF-2.0 | De programmeertaal van de server. |
+| [Flask](https://flask.palletsprojects.com) | BSD-3-Clause | Het webframework. |
+| [Gunicorn](https://gunicorn.org) | MIT | De webserver in de container. |
+| [PyJWT](https://pyjwt.readthedocs.io) | MIT | Ondertekent sessies. |
+| [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Versleutelt opgeslagen koppelingen en controleert passkeys. |
+| [cbor2](https://github.com/agronholm/cbor2) | MIT | Leest passkey-gegevens. |
+| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en Albert Heijn. |
+| [SQLite](https://sqlite.org) | Public domain | De database. |
+| [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |
+| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Tekent in je browser de QR-code voor tweestapsverificatie. |
+| [Inter](https://rsms.me/inter/) en [Manrope](https://github.com/sharanda/manrope) | OFL-1.1 | De lettertypen. |
+
+De versies van de Python-pakketten zie je in de app bij **Over**.
+
+## Een koffie?
+
+MealieShopper is gratis. Vind je de app handig? Dan waardeer ik het als je me een koffie geeft.
+
+☕ **[buymeacoffee.com/flux76](https://buymeacoffee.com/flux76)**

@@ -13,6 +13,7 @@ const state = {
   ahListHits: {},
   ahListsScroll: 0,
   ahOpenListId: null,
+  ahOpenList: null,
   ahRecipesLoaded: false,
   ahRecipes: [],
   ahRecipeQuery: "",
@@ -23,6 +24,8 @@ const state = {
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
 const MDI_SYNC =
   "M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z";
+const MDI_PLUS = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
+const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_OPEN_IN_NEW =
   "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z";
 
@@ -1088,8 +1091,7 @@ async function syncOneAndReport(listId, button) {
 
 async function syncAllAhLists() {
   const button = $("#sync-all-ah-lists");
-  button.disabled = true;
-  button.textContent = t("list.syncing");
+  setBusy(button, true);
   try {
     const data = await jsonFetch("/api/ah/lists");
     const lists = (data.lists || []).filter((list) => list.source !== "local");
@@ -1116,14 +1118,14 @@ async function syncAllAhLists() {
   } catch (error) {
     message("#ah-lists-warning", error.message);
   } finally {
-    button.disabled = false;
-    button.textContent = t("ah.lists.sync_all");
+    setBusy(button, false);
   }
 }
 
 // Een lijstje opent op dezelfde plek als het overzicht; de pijl (of de terugknop van de telefoon) gaat terug.
 function showAhListsOverview({ restoreScroll = true } = {}) {
   state.ahOpenListId = null;
+  state.ahOpenList = null;
   $("#ah-list-view").hidden = true;
   $("#ah-lists-view").hidden = false;
   if (restoreScroll) window.scrollTo({ top: state.ahListsScroll });
@@ -1132,6 +1134,7 @@ function showAhListsOverview({ restoreScroll = true } = {}) {
 async function openAhList(listId, { push = true } = {}) {
   if (!state.ahOpenListId) state.ahListsScroll = window.scrollY;
   state.ahOpenListId = listId;
+  state.ahOpenList = null;
   if (push) history.pushState({ ahList: listId }, "");
   const known = state.ahLists.find((list) => list.id === listId);
   $("#ah-list-title").textContent = known?.name || t("list.default_title");
@@ -1157,13 +1160,8 @@ async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
     const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}`);
     if (state.ahOpenListId !== listId) return; // inmiddels teruggegaan of een ander lijstje geopend
     const items = data.items || [];
-    const synced = data.source === "local";
-    $("#ah-list-title").textContent = data.name || t("list.default_title");
-    $("#sync-open-ah-list").textContent = synced ? t("list.sync_again") : t("common.sync");
-    $("#ah-list-meta").textContent = synced
-      ? t("list.products_local", { count: I18N.formatNumber(items.length), when: formatSyncTime(data.syncedAt) })
-      : t("list.products_live", { count: I18N.formatNumber(items.length) });
-    $("#ah-list-items").innerHTML = `<div class="product-grid">${items.map(renderAhListItem).join("")}</div>`;
+    state.ahOpenList = data;
+    renderOpenAhList();
     if (keepScroll) window.scrollTo({ top: scroll });
   } catch (error) {
     if (state.ahOpenListId !== listId) return;
@@ -1172,7 +1170,53 @@ async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
   }
 }
 
-function renderAhListItem(item) {
+function renderOpenAhList() {
+  const data = state.ahOpenList;
+  if (!data) return;
+  const items = data.items || [];
+  const synced = data.source === "local";
+  const syncLabel = synced ? t("list.sync_again") : t("common.sync");
+  $("#ah-list-title").textContent = data.name || t("list.default_title");
+  for (const attribute of ["title", "aria-label"]) $("#sync-open-ah-list").setAttribute(attribute, syncLabel);
+  $("#ah-list-items").innerHTML = `<div class="product-grid">${items.map((item) => renderAhListItem(item, synced)).join("")}</div>`;
+  $("#ah-list-to-cart").disabled = !items.length;
+  updateAhListControls();
+  if (!synced && items.length) message("#ah-list-items-message", t("list.qty_sync_first"), "success");
+}
+
+// Reset-knop en "aangepast"-markering volgen de aantallen die nu in state.ahOpenList staan.
+function updateAhListControls() {
+  const items = state.ahOpenList?.items || [];
+  const edited = items.filter((item) => item.edited).length;
+  $("#reset-ah-list").disabled = !edited;
+  const synced = state.ahOpenList?.source === "local";
+  $("#ah-list-meta").textContent =
+    (synced
+      ? t("list.products_local", { count: I18N.formatNumber(items.length), when: formatSyncTime(state.ahOpenList.syncedAt) })
+      : t("list.products_live", { count: I18N.formatNumber(items.length) })) +
+    (edited ? t("list.products_edited", { count: I18N.formatNumber(edited) }) : "");
+  for (const item of items) {
+    const card = $(`#ah-list-items [data-position="${item.position}"]`);
+    if (!card) continue;
+    card.classList.toggle("is-edited", Boolean(item.edited));
+    const note = card.querySelector(".qty__note");
+    if (note) note.textContent = item.edited ? t("list.qty_ah", { count: item.defaultQuantity }) : "";
+  }
+}
+
+function renderQuantityControl(item, title) {
+  const label = (key) => escapeHtml(t(key, { title }));
+  return `
+    <div class="qty">
+      <span class="qty__note">${item.edited ? escapeHtml(t("list.qty_ah", { count: item.defaultQuantity })) : ""}</span>
+      <button type="button" class="qty__step" data-qty-step="-1" aria-label="${label("list.qty_minus")}">${mdiIcon(MDI_MINUS)}</button>
+      <input class="qty__input" type="number" inputmode="numeric" min="1" max="99" step="1" value="${escapeHtml(item.quantity)}" aria-label="${label("list.qty_input")}">
+      <button type="button" class="qty__step" data-qty-step="1" aria-label="${label("list.qty_plus")}">${mdiIcon(MDI_PLUS)}</button>
+    </div>
+  `;
+}
+
+function renderAhListItem(item, editable = false) {
   const product = item.product || {};
   const title = product.title || t("list.product_fallback", { id: item.productId });
   const price = Number(product.price || 0);
@@ -1181,15 +1225,115 @@ function renderAhListItem(item) {
   const body = `
     ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
     <div>
-      <strong>${escapeHtml(item.quantity)}x ${escapeHtml(title)}</strong>
+      <strong>${editable ? "" : `${escapeHtml(item.quantity)}x `}${escapeHtml(title)}</strong>
       ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
       ${product.isBonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
       ${price ? `<small>${escapeHtml(formatPrice(price))}</small>` : ""}
     </div>
   `;
-  return url
-    ? `<a class="product-card" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${body}</a>`
-    : `<article class="product-card">${body}</article>`;
+  const main = url
+    ? `<a class="product-card__main" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${body}</a>`
+    : `<div class="product-card__main">${body}</div>`;
+  return `<article class="product-card product-card--list${item.edited ? " is-edited" : ""}" data-position="${escapeHtml(item.position)}">${main}${editable ? renderQuantityControl(item, title) : ""}</article>`;
+}
+
+// Aantallen: meteen zichtbaar, kort daarna (en voor het mandje altijd) bewaard op de server.
+const pendingQuantities = new Map();
+const quantitySaves = new Set();
+
+function queueQuantity(position, value) {
+  const item = state.ahOpenList?.items.find((entry) => entry.position === position);
+  if (!item) return;
+  item.quantity = value;
+  item.edited = value !== item.defaultQuantity;
+  updateAhListControls();
+  clearTimeout(pendingQuantities.get(position)?.timer);
+  const timer = setTimeout(() => saveQuantity(position), 300);
+  pendingQuantities.set(position, { listId: state.ahOpenListId, value, timer });
+}
+
+function saveQuantity(position) {
+  const pending = pendingQuantities.get(position);
+  if (!pending) return Promise.resolve();
+  clearTimeout(pending.timer);
+  pendingQuantities.delete(position);
+  const save = jsonFetch(`/api/ah/lists/${encodeURIComponent(pending.listId)}/items/${position}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ quantity: pending.value }),
+  })
+    .catch((error) => {
+      message("#ah-list-items-message", t("list.qty_failed", { error: error.message }));
+      if (state.ahOpenListId === pending.listId) loadAhFavoriteListItems(pending.listId, { keepScroll: true });
+    })
+    .finally(() => quantitySaves.delete(save));
+  quantitySaves.add(save);
+  return save;
+}
+
+async function flushQuantities() {
+  for (const position of [...pendingQuantities.keys()]) saveQuantity(position);
+  await Promise.all([...quantitySaves]);
+}
+
+function clampQuantity(value) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) ? Math.min(99, Math.max(1, number)) : 1;
+}
+
+function onQuantityStep(button) {
+  const card = button.closest("[data-position]");
+  const input = card.querySelector(".qty__input");
+  input.value = clampQuantity(Number(input.value) + Number(button.dataset.qtyStep));
+  queueQuantity(Number(card.dataset.position), Number(input.value));
+}
+
+function onQuantityInput(input) {
+  if (input.value === "") return; // nog aan het typen
+  input.value = clampQuantity(input.value);
+  queueQuantity(Number(input.closest("[data-position]").dataset.position), Number(input.value));
+}
+
+async function resetOpenAhList() {
+  const listId = state.ahOpenListId;
+  const button = $("#reset-ah-list");
+  setBusy(button, true);
+  message("#ah-list-items-message", "");
+  try {
+    await flushQuantities();
+    await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/reset`, { method: "POST" });
+    if (state.ahOpenListId !== listId) return;
+    await loadAhFavoriteListItems(listId, { keepScroll: true });
+    message("#ah-list-items-message", t("list.reset_done"), "success");
+  } catch (error) {
+    message("#ah-list-items-message", error.message);
+  } finally {
+    setBusy(button, false);
+    updateAhListControls();
+  }
+}
+
+async function addOpenAhListToCart() {
+  const listId = state.ahOpenListId;
+  const button = $("#ah-list-to-cart");
+  const label = button.querySelector("span");
+  button.disabled = true;
+  label.textContent = t("list.cart_busy");
+  message("#ah-list-items-message", "");
+  try {
+    await flushQuantities();
+    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/cart`, { method: "POST" });
+    message(
+      "#ah-list-items-message",
+      t("list.cart_done", { name: data.name || t("list.default_title"), count: data.added, units: data.units }),
+      "success"
+    );
+  } catch (error) {
+    message("#ah-list-items-message", t("list.cart_failed", { error: error.message }));
+  } finally {
+    label.textContent = t("list.to_cart");
+    button.disabled = !state.ahOpenList?.items?.length;
+  }
 }
 
 function renderSavedRecipeCard(recipe) {
@@ -1411,9 +1555,19 @@ $("#ah-recipe-filter").addEventListener("input", (event) => {
 });
 $("#ah-list-filter").addEventListener("input", onAhListFilter);
 $("#ah-list-back").addEventListener("click", closeAhList);
-$("#sync-open-ah-list").addEventListener("click", (event) =>
-  syncOneAndReport(state.ahOpenListId, event.currentTarget)
-);
+$("#sync-open-ah-list").addEventListener("click", async (event) => {
+  await flushQuantities();
+  syncOneAndReport(state.ahOpenListId, event.currentTarget);
+});
+$("#reset-ah-list").addEventListener("click", resetOpenAhList);
+$("#ah-list-to-cart").addEventListener("click", addOpenAhListToCart);
+$("#ah-list-items").addEventListener("click", (event) => {
+  const step = event.target.closest("[data-qty-step]");
+  if (step) onQuantityStep(step);
+});
+$("#ah-list-items").addEventListener("change", (event) => {
+  if (event.target.matches(".qty__input")) onQuantityInput(event.target);
+});
 $("#ah-lists").addEventListener("click", (event) => {
   const sync = event.target.closest("[data-ah-sync-id]");
   if (sync) return syncOneAndReport(sync.dataset.ahSyncId, sync);

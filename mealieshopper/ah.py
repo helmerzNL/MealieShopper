@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlencode, urlparse
 import requests
 
 from . import auth
+from .i18n import tr
 
 AH_API_BASE = "https://api.ah.nl"
 AH_LOGIN_BASE = "https://login.ah.nl"
@@ -1008,15 +1009,18 @@ def assess_packs(quantity: Any, unit: Any, unit_size: Any) -> tuple[int, str | N
     pack = parse_pack_size(unit_size)
     if pack is None:
         packs = normalize_quantity(needed) if ingredient[1] == "count" else 1
-        return packs, "Verpakkingsgrootte onbekend"
+        return packs, tr("Verpakkingsgrootte onbekend", "Pack size unknown")
     if pack[1] != ingredient[1] or pack[0] <= 0:
         if ingredient[1] == "count":
             return 1, None
-        return 1, f"{unit_text} past niet bij de verpakking ({unit_size})"
+        return 1, tr(
+            f"{unit_text} past niet bij de verpakking ({unit_size})",
+            f"{unit_text} doesn't match the pack ({unit_size})",
+        )
 
     packs = normalize_quantity(math.ceil(ingredient[0] / pack[0] - 1e-9))
     if packs > LARGE_PACK_COUNT:
-        return packs, "Groot aantal verpakkingen"
+        return packs, tr("Groot aantal verpakkingen", "Large number of packs")
     return packs, None
 
 
