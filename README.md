@@ -10,21 +10,34 @@ MealieShopper is een kleine Python/Flask app die Mealie koppelt aan Albert Heijn
 
 ## Configuratie
 
-Zet deze omgevingsvariabelen in je lokale shell, `.env`-loader of containeromgeving:
+Alle omgevingsvariabelen zijn optioneel: bij de eerste start loopt de app je door de
+beveiliging en de koppelingen (zie *Eerste start*). Zet ze in je lokale shell, een `.env`-loader of
+de containeromgeving (`.env.local.example` en `.env.unraid.example` laten alles zien):
 
 ```env
-# Optioneel: Mealie koppel je ook in de app, bij Beheer > Mealie
-MEALIE_URL=https://mealie.jouwdomein.nl
-MEALIE_API_TOKEN=
-AH_REFRESH_TOKEN=
-PASSKEY_AUTH_ENABLED=true
+# Sterk aanbevolen: lang, vast en willekeurig (openssl rand -hex 32)
 MEALIESHOPPER_AUTH_SECRET=<lange-stabiele-random-string>
 MEALIESHOPPER_DATA_DIR=./data
 MEALIESHOPPER_PUBLIC_BASE_URL=http://localhost:8000
+
+# Alleen voor passkeys, met een domeinnaam en HTTPS
 RP_NAME=MealieShopper
-RP_ID=localhost
-RP_ORIGINS=http://localhost:8000
+RP_ID=mealieshopper.jouwdomein.nl
+RP_ORIGINS=https://mealieshopper.jouwdomein.nl
+
+# Optioneel: koppel Mealie en AH liever in de app (Beheer)
+MEALIE_URL=https://mealie.jouwdomein.nl
+MEALIE_API_TOKEN=
+AH_REFRESH_TOKEN=
+
+# Noodgreep: inloggen helemaal uitzetten
+PASSKEY_AUTH_ENABLED=false
 ```
+
+`MEALIESHOPPER_AUTH_SECRET` versleutelt je opgeslagen koppelingen en ondertekent je sessies. Zet hem
+vast en verander hem niet achteraf. Is hij niet ingesteld, dan maakt de app zelf een willekeurige
+sessiesleutel (`session.key` in de data-map, alleen leesbaar voor de eigenaar); de opgeslagen
+koppelingen worden dan met een zwakkere, van het pad afgeleide sleutel versleuteld.
 
 ### Mealie koppelen
 
@@ -209,17 +222,14 @@ De app luistert standaard op `http://localhost:8000`.
 docker build -t mealieshopper .
 docker run --rm -p 8000:8000 `
   -v /mnt/user/appdata/mealieshopper:/data `
-  -e MEALIE_URL=https://mealie.jouwdomein.nl `
-  -e MEALIE_API_TOKEN=... `
   -e MEALIESHOPPER_AUTH_SECRET=... `
-  -e RP_ID=localhost `
-  -e RP_ORIGINS=http://localhost:8000 `
   mealieshopper
 ```
 
 ## Unraid met Docker Compose
 
-Kopieer `.env.unraid.example` naar `.env.unraid`, vul de waarden in en start daarna:
+Kopieer `.env.unraid.example` naar `.env.unraid` en pas aan wat je wilt (alles is optioneel; zonder
+dat bestand start de container ook, met Docker Compose 2.24 of nieuwer) en start daarna:
 
 ```bash
 docker compose up -d

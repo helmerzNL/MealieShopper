@@ -30,6 +30,7 @@ import jwt
 from flask import Flask, jsonify, request
 
 from . import auth
+from .i18n import tr
 
 OWNER_ID = "owner"
 
@@ -101,25 +102,39 @@ def _burn_time(password: str) -> None:
 def validate_username(value: Any) -> tuple[str, str | None]:
     username = str(value or "").strip()
     if not username:
-        return username, "Vul een gebruikersnaam in."
+        return username, tr("Vul een gebruikersnaam in.", "Enter a username.")
     if len(username) > MAX_USERNAME_LENGTH:
-        return username, f"Een gebruikersnaam is maximaal {MAX_USERNAME_LENGTH} tekens."
+        return username, tr(
+            f"Een gebruikersnaam is maximaal {MAX_USERNAME_LENGTH} tekens.",
+            f"A username is at most {MAX_USERNAME_LENGTH} characters.",
+        )
     if any(ord(ch) < 32 or ord(ch) == 127 for ch in username):
-        return username, "Een gebruikersnaam mag geen stuurtekens bevatten."
+        return username, tr(
+            "Een gebruikersnaam mag geen stuurtekens bevatten.", "A username cannot contain control characters."
+        )
     return username, None
 
 
 def validate_password(password: Any, username: str = "") -> str | None:
     if not isinstance(password, str) or not password:
-        return "Vul een wachtwoord in."
+        return tr("Vul een wachtwoord in.", "Enter a password.")
     if len(password) < MIN_PASSWORD_LENGTH:
-        return f"Kies een wachtwoord van minstens {MIN_PASSWORD_LENGTH} tekens."
+        return tr(
+            f"Kies een wachtwoord van minstens {MIN_PASSWORD_LENGTH} tekens.",
+            f"Choose a password of at least {MIN_PASSWORD_LENGTH} characters.",
+        )
     if len(password) > MAX_PASSWORD_LENGTH:
-        return f"Een wachtwoord is maximaal {MAX_PASSWORD_LENGTH} tekens."
+        return tr(
+            f"Een wachtwoord is maximaal {MAX_PASSWORD_LENGTH} tekens.",
+            f"A password is at most {MAX_PASSWORD_LENGTH} characters.",
+        )
     if len(set(password)) < 4:
-        return "Dit wachtwoord is te voorspelbaar. Gebruik meer verschillende tekens."
+        return tr(
+            "Dit wachtwoord is te voorspelbaar. Gebruik meer verschillende tekens.",
+            "This password is too predictable. Use more different characters.",
+        )
     if username and len(username) >= 4 and username.casefold() in password.casefold():
-        return "Zet je gebruikersnaam niet in je wachtwoord."
+        return tr("Zet je gebruikersnaam niet in je wachtwoord.", "Don't put your username in your password.")
     return None
 
 
@@ -214,7 +229,10 @@ def _too_many():
     minutes = max(1, (seconds + 59) // 60)
     response = jsonify(
         {
-            "error": f"Te veel mislukte pogingen. Probeer het over {minutes} {'minuut' if minutes == 1 else 'minuten'} opnieuw.",
+            "error": tr(
+                f"Te veel mislukte pogingen. Probeer het over {minutes} {'minuut' if minutes == 1 else 'minuten'} opnieuw.",
+                f"Too many failed attempts. Try again in {minutes} {'minute' if minutes == 1 else 'minutes'}.",
+            ),
             "retryAfter": seconds,
         }
     )
@@ -334,14 +352,14 @@ def _make_ticket() -> str:
             "ep": auth.session_epoch(),
             "exp": auth.utcnow() + timedelta(seconds=MFA_TICKET_SECONDS),
         },
-        auth.auth_secret(),
+        auth.signing_secret(),
         algorithm="HS256",
     )
 
 
 def _read_ticket(ticket: Any) -> bool:
     try:
-        payload = jwt.decode(str(ticket or ""), auth.auth_secret(), algorithms=["HS256"])
+        payload = jwt.decode(str(ticket or ""), auth.signing_secret(), algorithms=["HS256"])
     except Exception:  # noqa: BLE001
         return False
     return payload.get("purpose") == "mfa" and payload.get("sub") == OWNER_ID and int(payload.get("ep") or 0) == auth.session_epoch()
@@ -362,7 +380,7 @@ def _needs_session():
     """None als het mag; anders het 401-antwoord."""
     # Op een nieuwe installatie (nog geen inlogmethode) is er geen sessie om te vragen.
     if auth.auth_required() and auth.credentials_exist() and not auth.current_user():
-        return _json_error("Log eerst in.", 401)
+        return _json_error(tr("Log eerst in.", "Log in first."), 401)
     return None
 
 
@@ -374,11 +392,15 @@ def register_routes(app: Flask) -> None:
 
         body = request.get_json(silent=True) or {}
         if not auth.auth_enabled():
-            return _json_error("Inloggen staat al uit via de omgevingsvariabelen.", 400)
+            return _json_error(
+                tr("Inloggen staat al uit via de omgevingsvariabelen.", "Login is already turned off through the environment variables."), 400
+            )
         if auth.credentials_exist():
-            return _json_error("Er is al een manier om in te loggen ingesteld.", 409)
+            return _json_error(tr("Er is al een manier om in te loggen ingesteld.", "A way to log in is already set up."), 409)
         if body.get("confirm") is not True:
-            return _json_error("Bevestig dat je zonder beveiliging verder wilt.", 400)
+            return _json_error(
+                tr("Bevestig dat je zonder beveiliging verder wilt.", "Confirm that you want to continue without security."), 400
+            )
         onboarding.begin()
         auth.set_setting(auth.SETTING_AUTH_MODE, "none")
         return jsonify({"status": "ok"})
@@ -389,7 +411,9 @@ def register_routes(app: Flask) -> None:
         from . import onboarding
 
         if not auth.auth_enabled():
-            return _json_error("Inloggen staat uit via de omgevingsvariabelen.", 400)
+            return _json_error(
+                tr("Inloggen staat uit via de omgevingsvariabelen.", "Login is turned off through the environment variables."), 400
+            )
         denied = _needs_session()
         if denied:
             return denied
@@ -406,7 +430,7 @@ def register_routes(app: Flask) -> None:
                 return _too_many()
             if not verify_password(str(body.get("currentPassword") or ""), _stored_hash()):
                 register_failure()
-                return _json_error("Het huidige wachtwoord klopt niet.", 403)
+                return _json_error(tr("Het huidige wachtwoord klopt niet.", "The current password is incorrect."), 403)
             reset_failures()
 
         onboarding.begin()
@@ -419,7 +443,7 @@ def register_routes(app: Flask) -> None:
     @app.post("/api/auth/password/login")
     def password_login():
         if not auth.auth_required() or not auth.password_configured():
-            return _json_error("Inloggen met een wachtwoord is niet ingesteld.", 400)
+            return _json_error(tr("Inloggen met een wachtwoord is niet ingesteld.", "Password login is not set up."), 400)
         if locked_seconds():
             return _too_many()
         body = request.get_json(silent=True) or {}
@@ -439,17 +463,23 @@ def register_routes(app: Flask) -> None:
                 reset_failures()
                 return _session_response()
         register_failure()
-        return _json_error("Gebruikersnaam of wachtwoord klopt niet.", 401)
+        return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
 
     @app.post("/api/auth/password/mfa")
     def password_mfa():
         if not auth.mfa_enabled():
-            return _json_error("Tweestapsverificatie is niet ingesteld.", 400)
+            return _json_error(tr("Tweestapsverificatie is niet ingesteld.", "Two-step verification is not set up."), 400)
         if locked_seconds():
             return _too_many()
         body = request.get_json(silent=True) or {}
         if not _read_ticket(body.get("ticket")):
-            return _json_error("Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.", 401)
+            return _json_error(
+                tr(
+                    "Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.",
+                    "This login attempt has expired. Log in again with your password.",
+                ),
+                401,
+            )
         code = str(body.get("code") or "")
         record = _read_totp(confirmed=True)
         counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
@@ -457,7 +487,7 @@ def register_routes(app: Flask) -> None:
             _save_last_counter(counter)
         elif not _use_recovery_code(code):
             register_failure()
-            return _json_error("Deze code klopt niet.", 401)
+            return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
         reset_failures()
         return _session_response({"recoveryCodesLeft": auth.recovery_codes_left()})
 
@@ -467,9 +497,9 @@ def register_routes(app: Flask) -> None:
         if denied:
             return denied
         if not auth.password_configured():
-            return _json_error("Stel eerst een wachtwoord in.", 400)
+            return _json_error(tr("Stel eerst een wachtwoord in.", "Set a password first."), 400)
         if auth.mfa_enabled():
-            return _json_error("Tweestapsverificatie staat al aan.", 409)
+            return _json_error(tr("Tweestapsverificatie staat al aan.", "Two-step verification is already on."), 409)
         secret = new_totp_secret()
         encrypted = auth.secret_box().encrypt(secret.encode("ascii")).decode("ascii")
         with closing(auth.connect()) as conn, conn:
@@ -502,12 +532,24 @@ def register_routes(app: Flask) -> None:
             return _too_many()
         pending = _read_totp(confirmed=False)
         if not pending or not pending["secret"]:
-            return _json_error("Begin opnieuw met het instellen van tweestapsverificatie.", 400)
+            return _json_error(
+                tr(
+                    "Begin opnieuw met het instellen van tweestapsverificatie.",
+                    "Start setting up two-step verification again.",
+                ),
+                400,
+            )
         body = request.get_json(silent=True) or {}
         counter = check_totp(pending["secret"], str(body.get("code") or ""))
         if counter is None:
             register_failure()
-            return _json_error("Deze code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.", 400)
+            return _json_error(
+                tr(
+                    "Deze code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.",
+                    "This code is incorrect. Check the time on your phone and try again.",
+                ),
+                400,
+            )
         reset_failures()
         codes = new_recovery_codes()
         _store_recovery_codes(codes)
@@ -520,12 +562,12 @@ def register_routes(app: Flask) -> None:
 
     def _check_current_password(body: dict[str, Any]):
         if not auth.password_configured():
-            return _json_error("Er is geen wachtwoord ingesteld.", 400)
+            return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
         if locked_seconds():
             return _too_many()
         if not verify_password(str(body.get("password") or ""), _stored_hash()):
             register_failure()
-            return _json_error("Het wachtwoord klopt niet.", 403)
+            return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
         reset_failures()
         return None
 
@@ -549,7 +591,7 @@ def register_routes(app: Flask) -> None:
         if denied:
             return denied
         if not auth.mfa_enabled():
-            return _json_error("Tweestapsverificatie staat niet aan.", 400)
+            return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
         wrong = _check_current_password(request.get_json(silent=True) or {})
         if wrong:
             return wrong
