@@ -112,7 +112,13 @@ class ResetLoginTest(unittest.TestCase):
                         conn.execute("INSERT OR IGNORE INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')")
                     for key, value in (("ONBOARDING_DONE", "1"), ("AUTH_MODE", "passkey")):
                         auth.set_setting(key, value)
+                    with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
+                        conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('u_anna', 'anna', 'x')")
+                        conn.execute("INSERT OR IGNORE INTO invites (id, token_hash, user_id, username, kind, created_by, created_at, expires_at) VALUES ('i1', 'h', 'u_x', 'bob', 'new', 'owner', 'x', '2999')")
                     exec(compile(code, "readme", "exec"), {})
+                    with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn:
+                        self.assertEqual([row[0] for row in conn.execute("SELECT id FROM users")], ["owner"], lang)
+                        self.assertEqual(conn.execute("SELECT COUNT(*) FROM invites").fetchone()[0], 0, lang)
 
                     status = client.get("/api/onboarding/status").get_json()
                     self.assertTrue(status["needed"], lang)

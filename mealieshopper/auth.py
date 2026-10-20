@@ -28,6 +28,7 @@ from flask import Flask, jsonify, make_response, request
 
 from .i18n import tr
 
+OWNER_ID = "owner"  # de eerste gebruiker is de beheerder; alle anderen zijn gewone gebruikers
 SESSION_COOKIE_NAME = "ms_session"
 SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 _INITIALIZED = False
@@ -231,9 +232,34 @@ def init_db() -> None:
               window_start TEXT NOT NULL,
               locked_until TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS invites (
+              id TEXT PRIMARY KEY,
+              token_hash TEXT NOT NULL UNIQUE,
+              user_id TEXT NOT NULL,
+              username TEXT NOT NULL DEFAULT '',
+              kind TEXT NOT NULL,
+              created_by TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL
+            );
             """
         )
+        _migrate(conn)
     _INITIALIZED = True
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "session_epoch" not in columns:
+        # Elke gebruiker heeft een eigen teller: een nieuw wachtwoord logt alleen die gebruiker overal uit.
+        conn.execute("ALTER TABLE users ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0")
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (SETTING_SESSION_EPOCH,)).fetchone()
+        try:
+            epoch = int(row["value"]) if row else 0
+        except (TypeError, ValueError):
+            epoch = 0
+        conn.execute("UPDATE users SET session_epoch = ?", (epoch,))
 
 
 def ensure_db() -> None:
@@ -241,32 +267,30 @@ def ensure_db() -> None:
         init_db()
 
 
-def passkey_count() -> int:
+def _count(table: str, user_id: str | None, extra: str = "") -> int:
+    """Aantal rijen in `table`, voor één gebruiker of (zonder user_id) voor iedereen."""
     ensure_db()
-    with connect() as conn:
-        row = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()
-        return int(row["count"] if row else 0)
-
-
-def password_configured() -> bool:
-    ensure_db()
-    with connect() as conn:
-        row = conn.execute("SELECT COUNT(*) AS count FROM password_credentials").fetchone()
-        return bool(row and row["count"])
-
-
-def mfa_enabled() -> bool:
-    ensure_db()
+    where = [clause for clause in (extra, "user_id = ?" if user_id else "") if clause]
+    sql = f"SELECT COUNT(*) AS count FROM {table}" + (" WHERE " + " AND ".join(where) if where else "")
     with closing(connect()) as conn:
-        row = conn.execute("SELECT COUNT(*) AS count FROM mfa_totp WHERE confirmed = 1").fetchone()
-    return bool(row and row["count"])
-
-
-def recovery_codes_left() -> int:
-    ensure_db()
-    with closing(connect()) as conn:
-        row = conn.execute("SELECT COUNT(*) AS count FROM mfa_recovery_codes").fetchone()
+        row = conn.execute(sql, (user_id,) if user_id else ()).fetchone()
     return int(row["count"] if row else 0)
+
+
+def passkey_count(user_id: str | None = None) -> int:
+    return _count("passkey_credentials", user_id)
+
+
+def password_configured(user_id: str | None = None) -> bool:
+    return _count("password_credentials", user_id) > 0
+
+
+def mfa_enabled(user_id: str | None = None) -> bool:
+    return _count("mfa_totp", user_id, "confirmed = 1") > 0
+
+
+def recovery_codes_left(user_id: str | None = None) -> int:
+    return _count("mfa_recovery_codes", user_id)
 
 
 def credentials_exist() -> bool:
@@ -311,23 +335,24 @@ def auth_required() -> bool:
     return auth_mode() != "none"
 
 
-def session_epoch() -> int:
-    try:
-        return int(get_setting(SETTING_SESSION_EPOCH, "0") or 0)
-    except ValueError:
-        return 0
-
-
-def bump_session_epoch() -> int:
-    """Maak alle bestaande sessies ongeldig (bij een nieuw wachtwoord of uitgezette MFA)."""
-    epoch = session_epoch() + 1
-    set_setting(SETTING_SESSION_EPOCH, str(epoch))
-    return epoch
-
-
-def credential_rows() -> list[dict[str, Any]]:
+def session_epoch(user_id: str = OWNER_ID) -> int:
     ensure_db()
-    with connect() as conn:
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT session_epoch FROM users WHERE id = ?", (user_id,)).fetchone()
+    return int(row["session_epoch"]) if row else 0
+
+
+def bump_session_epoch(user_id: str = OWNER_ID) -> int:
+    """Maak alle bestaande sessies van een gebruiker ongeldig (bij een nieuw wachtwoord of uitgezette MFA)."""
+    ensure_db()
+    with closing(connect()) as conn, conn:
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?", (user_id,))
+    return session_epoch(user_id)
+
+
+def credential_rows(user_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    ensure_db()
+    with closing(connect()) as conn:
         rows = conn.execute(
             """
             SELECT
@@ -339,8 +364,10 @@ def credential_rows() -> list[dict[str, Any]]:
               u.username
             FROM passkey_credentials c
             JOIN users u ON u.id = c.user_id
+            WHERE c.user_id = ?
             ORDER BY c.created_at DESC
-            """
+            """,
+            (user_id,),
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -411,7 +438,7 @@ def create_token(user_id: str, username: str) -> str:
         {
             "sub": user_id,
             "usr": username,
-            "ep": session_epoch(),
+            "ep": session_epoch(user_id),
             "iat": utcnow(),
             "exp": utcnow() + timedelta(seconds=SESSION_MAX_AGE_SECONDS),
         },
@@ -439,14 +466,29 @@ def current_user() -> dict[str, Any] | None:
         return None
     if payload.get("purpose"):
         return None  # een kaartje voor een tussenstap (bijvoorbeeld MFA) is geen sessie
-    if int(payload.get("ep") or 0) != session_epoch():
-        return None
-    with connect() as conn:
+    with closing(connect()) as conn:
         row = conn.execute(
-            "SELECT id, username, created_at FROM users WHERE id=?",
+            "SELECT id, username, created_at, session_epoch FROM users WHERE id=?",
             (payload.get("sub"),),
         ).fetchone()
-    return dict(row) if row else None
+    if not row or int(payload.get("ep") or 0) != int(row["session_epoch"]):
+        return None
+    user = {"id": row["id"], "username": row["username"], "created_at": row["created_at"]}
+    return {**user, "role": "owner" if user["id"] == OWNER_ID else "user"}
+
+
+def acting_user_id() -> str:
+    """Wie de aanvraag doet: de ingelogde gebruiker, of de eigenaar zolang er nog niemand is ingelogd (eerste start)."""
+    user = current_user()
+    return user["id"] if user else OWNER_ID
+
+
+def is_owner() -> bool:
+    """De eigenaar (beheerder) mag koppelen en gebruikers beheren. Zonder inlog is iedereen de beheerder."""
+    if not auth_required():
+        return True
+    user = current_user()
+    return bool(user and user["id"] == OWNER_ID)
 
 
 def store_challenge(key: str, challenge: bytes) -> None:
@@ -568,49 +610,71 @@ def register_routes(app: Flask) -> None:
             "setupRequired": required and not configured,
             "authenticated": bool(user),
             "username": user["username"] if user else None,
+            "userId": user["id"] if user else None,
+            "role": user["role"] if user else ("owner" if not required else None),
+            "isOwner": is_owner(),
             "rpId": rp_id(),
             "rpOrigins": rp_origins(),
         }
         if user or not required:
-            payload["passwordConfigured"] = password_configured()
-            payload["mfaEnabled"] = mfa_enabled()
-            payload["recoveryCodesLeft"] = recovery_codes_left()
+            uid = user["id"] if user else OWNER_ID
+            payload["credentialCount"] = passkey_count(uid)
+            payload["passwordConfigured"] = password_configured(uid)
+            payload["mfaEnabled"] = mfa_enabled(uid)
+            payload["recoveryCodesLeft"] = recovery_codes_left(uid)
         return jsonify(payload)
 
     @app.get("/api/auth/credentials")
     def credentials_list():
         if auth_required() and credentials_exist() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
-        return jsonify({"credentials": credential_rows()})
+        return jsonify({"credentials": credential_rows(acting_user_id())})
 
     @app.delete("/api/auth/credentials/<credential_id>")
     def credentials_delete(credential_id: str):
         if auth_required() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
+        uid = acting_user_id()  # alleen je eigen passkeys
         with connect() as conn:
             row = conn.execute(
-                "SELECT id FROM passkey_credentials WHERE id=?",
-                (credential_id,),
+                "SELECT id FROM passkey_credentials WHERE id=? AND user_id=?",
+                (credential_id, uid),
             ).fetchone()
             if not row:
                 return jsonify({"error": "Not found"}), 404
-            count = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()["count"]
-            if int(count) <= 1 and auth_required() and not password_configured():
+            count = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials WHERE user_id=?", (uid,)).fetchone()["count"]
+            if int(count) <= 1 and auth_required() and not password_configured(uid):
                 return jsonify({"error": tr("Je kunt de laatste passkey niet verwijderen.", "You cannot delete the last passkey.")}), 400
             conn.execute("DELETE FROM passkey_credentials WHERE id=?", (credential_id,))
-        return jsonify({"status": "deleted", "remaining": passkey_count()})
+        return jsonify({"status": "deleted", "remaining": passkey_count(uid)})
 
     @app.post("/api/auth/register/options")
     def register_options():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        if credentials_exist() and auth_required() and not current_user():
+        body = request.get_json(silent=True) or {}
+        from . import users  # lokaal: users importeert dit module
+
+        invite = None
+        if body.get("invite"):
+            invite = users.find_invite(body.get("invite"))
+            if not invite:
+                return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
+        elif credentials_exist() and auth_required() and not current_user():
             return jsonify({"error": "Login required to add another passkey"}), 401
 
-        body = request.get_json(silent=True) or {}
-        username = str(body.get("username") or "admin").strip() or "admin"
         credential_name = str(body.get("credentialName") or body.get("credential_name") or "Owner passkey").strip()
-        user_id = "owner"
+        if invite:
+            user_id = invite["userId"]
+            username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
+            problem = None if invite["kind"] == "reset" else users.check_new_username(username, invite)
+            if problem:
+                return jsonify({"error": problem}), 400
+        else:
+            user_id = acting_user_id()
+            current = current_user()
+            # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt zijn eigen naam.
+            username = (str(body.get("username") or "admin").strip() or "admin") if user_id == OWNER_ID or not current else current["username"]
         challenge = make_challenge()
         store_challenge(f"register:{user_id}", challenge)
         with connect() as conn:
@@ -633,12 +697,22 @@ def register_routes(app: Flask) -> None:
         ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        if credentials_exist() and auth_required() and not current_user():
-            return jsonify({"error": "Login required to add another passkey"}), 401
-
         body = request.get_json(silent=True) or {}
-        user_id = str(body.get("userId") or body.get("user_id") or "owner")
-        username = str(body.get("username") or "admin").strip() or "admin"
+        from . import users  # lokaal: users importeert dit module
+
+        invite = None
+        if body.get("invite"):
+            invite = users.find_invite(body.get("invite"))
+            if not invite:
+                return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
+            user_id = invite["userId"]
+            username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
+        else:
+            if credentials_exist() and auth_required() and not current_user():
+                return jsonify({"error": "Login required to add another passkey"}), 401
+            user_id = acting_user_id()  # een passkey kun je alleen voor jezelf toevoegen
+            current = current_user()
+            username = (str(body.get("username") or "admin").strip() or "admin") if user_id == OWNER_ID or not current else current["username"]
         credential_name = str(body.get("credentialName") or body.get("credential_name") or "Owner passkey").strip()
         credential = body.get("credential") or {}
         challenge = pop_challenge(f"register:{user_id}")
@@ -661,7 +735,15 @@ def register_routes(app: Flask) -> None:
 
         from . import onboarding  # lokaal: onboarding importeert dit module
 
-        onboarding.begin()
+        if invite:
+            if invite["kind"] == "new" and users.check_new_username(username, invite):
+                return jsonify({"error": users.check_new_username(username, invite)}), 409
+            try:
+                users.register_account(invite, username)  # nieuw account, of de oude inloggegevens wissen bij een reset
+            except users.UsernameTaken:
+                return jsonify({"error": tr("Deze naam is al in gebruik. Kies een andere.", "This name is already taken. Choose another one.")}), 409
+        elif user_id == OWNER_ID:
+            onboarding.begin()
         now = utcnow().isoformat()
         with connect() as conn:
             conn.execute(
@@ -683,7 +765,10 @@ def register_routes(app: Flask) -> None:
                 """,
                 (credential_id_b64, user_id, cose_key_bytes, sign_count, credential_name, now),
             )
-        set_setting(SETTING_AUTH_MODE, "passkey")
+        if invite:
+            users.consume_invite(invite["id"])
+        elif user_id == OWNER_ID:
+            set_setting(SETTING_AUTH_MODE, "passkey")
         token = create_token(user_id, username)
         return cookie_response({"status": "ok", "username": username}, token)
 
@@ -765,11 +850,24 @@ def register_routes(app: Flask) -> None:
         return clear_cookie_response({"status": "ok"})
 
 
+# Alleen de beheerder: Mealie en Albert Heijn koppelen en gebruikers beheren. Gewone gebruikers
+# zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
+ADMIN_PREFIXES = ("/api/users", "/api/mealie/auth", "/api/ah/auth/")
+ADMIN_PATHS = {"/api/ah/auth"}
+ADMIN_EXCEPTIONS = {"/api/ah/auth/status"}
+
+
+def admin_only(path: str) -> bool:
+    if path in ADMIN_EXCEPTIONS:
+        return False
+    return path in ADMIN_PATHS or any(path == prefix or path.startswith(prefix + "/") or (prefix.endswith("/") and path.startswith(prefix)) for prefix in ADMIN_PREFIXES)
+
+
 def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
     if not auth_required():
         return None
     path = request.path
-    public_prefixes = ("/static/", "/api/auth/")
+    public_prefixes = ("/static/", "/api/auth/", "/api/invites/")
     public_paths = {
         "/",
         "/healthz",
@@ -781,7 +879,10 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
     }
     if path in public_paths or any(path.startswith(prefix) for prefix in public_prefixes):
         return None
-    if current_user():
+    user = current_user()
+    if user:
+        if admin_only(path) and user["id"] != OWNER_ID:
+            return {"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}, 403
         return None
     if not credentials_exist():
         return {"error": "Setup required"}, 401

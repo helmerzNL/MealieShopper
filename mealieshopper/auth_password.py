@@ -1,8 +1,8 @@
 """Inloggen met gebruikersnaam en wachtwoord, met optionele tweestapsverificatie (TOTP).
 
 Bedoeld voor installaties zonder domeinnaam, waar passkeys niet werken (WebAuthn vraagt
-HTTPS en een domeinnaam). Er is één eigenaar (`owner`); de sessie is dezelfde cookie als bij
-een passkey, dus de rest van de app merkt geen verschil.
+HTTPS en een domeinnaam). Elke gebruiker (de eigenaar en wie die uitnodigt) heeft een eigen
+wachtwoord en eigen MFA; de sessie is dezelfde cookie als bij een passkey.
 
 Veiligheid in het kort:
 - Wachtwoorden worden met scrypt gehasht (eigen zout per wachtwoord), nooit bewaard of gelogd.
@@ -10,7 +10,7 @@ Veiligheid in het kort:
 - Pogingen worden per IP-adres en in totaal begrensd, en de teller staat in de database.
 - Het TOTP-geheim staat versleuteld in de database; een code werkt maar één keer.
 - Herstelcodes (16 tekens, 80 bit) worden alleen als SHA-256 bewaard en werken één keer.
-- Een nieuw wachtwoord of een uitgezette MFA maakt alle andere sessies ongeldig.
+- Een nieuw wachtwoord of een uitgezette MFA maakt alle sessies van die gebruiker ongeldig.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from flask import Flask, jsonify, request
 from . import auth
 from .i18n import tr
 
-OWNER_ID = "owner"
+OWNER_ID = auth.OWNER_ID
 
 SCRYPT_N = 2**15
 SCRYPT_R = 8
@@ -138,21 +138,21 @@ def validate_password(password: Any, username: str = "") -> str | None:
     return None
 
 
-def _stored_hash() -> str:
+def _stored_hash(user_id: str = OWNER_ID) -> str:
     with closing(auth.connect()) as conn:
         row = conn.execute(
-            "SELECT password_hash FROM password_credentials WHERE user_id = ?", (OWNER_ID,)
+            "SELECT password_hash FROM password_credentials WHERE user_id = ?", (user_id,)
         ).fetchone()
     return str(row["password_hash"]) if row else ""
 
 
-def _owner_username() -> str:
+def _username_of(user_id: str = OWNER_ID) -> str:
     with closing(auth.connect()) as conn:
-        row = conn.execute("SELECT username FROM users WHERE id = ?", (OWNER_ID,)).fetchone()
+        row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
     return str(row["username"]) if row else ""
 
 
-def _store_password(username: str, password: str) -> None:
+def store_password(user_id: str, username: str, password: str) -> None:
     now = auth.utcnow().isoformat()
     password_hash = hash_password(password)
     with closing(auth.connect()) as conn, conn:
@@ -161,15 +161,28 @@ def _store_password(username: str, password: str) -> None:
             INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET username = excluded.username
             """,
-            (OWNER_ID, username, now),
+            (user_id, username, now),
         )
         conn.execute(
             """
             INSERT INTO password_credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at
             """,
-            (OWNER_ID, password_hash, now),
+            (user_id, password_hash, now),
         )
+
+
+def _user_by_name(username: str) -> tuple[str, str] | None:
+    """(id, wachtwoordhash) van de gebruiker met dit wachtwoord-login, zonder hoofdletters te onderscheiden."""
+    wanted = username.casefold()
+    with closing(auth.connect()) as conn:
+        rows = conn.execute(
+            "SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id"
+        ).fetchall()
+    for row in rows:
+        if hmac.compare_digest(str(row["username"]).casefold().encode(), wanted.encode()):
+            return str(row["id"]), str(row["password_hash"])
+    return None
 
 
 # --------------------------------------------------------------- begrenzing
@@ -284,9 +297,9 @@ def otpauth_uri(secret_b32: str, account: str) -> str:
     )
 
 
-def _read_totp(confirmed: bool | None = None) -> dict[str, Any] | None:
+def _read_totp(user_id: str, confirmed: bool | None = None) -> dict[str, Any] | None:
     with closing(auth.connect()) as conn:
-        row = conn.execute("SELECT * FROM mfa_totp WHERE user_id = ?", (OWNER_ID,)).fetchone()
+        row = conn.execute("SELECT * FROM mfa_totp WHERE user_id = ?", (user_id,)).fetchone()
     if not row:
         return None
     if confirmed is not None and bool(row["confirmed"]) != confirmed:
@@ -298,9 +311,9 @@ def _read_totp(confirmed: bool | None = None) -> dict[str, Any] | None:
     return {"secret": secret, "confirmed": bool(row["confirmed"]), "lastCounter": int(row["last_counter"])}
 
 
-def _save_last_counter(counter: int) -> None:
+def _save_last_counter(user_id: str, counter: int) -> None:
     with closing(auth.connect()) as conn, conn:
-        conn.execute("UPDATE mfa_totp SET last_counter = ? WHERE user_id = ?", (counter, OWNER_ID))
+        conn.execute("UPDATE mfa_totp SET last_counter = ? WHERE user_id = ?", (counter, user_id))
 
 
 # -------------------------------------------------------------- herstelcodes
@@ -321,35 +334,35 @@ def new_recovery_codes() -> list[str]:
     return codes
 
 
-def _store_recovery_codes(codes: list[str]) -> None:
+def _store_recovery_codes(user_id: str, codes: list[str]) -> None:
     now = auth.utcnow().isoformat()
     with closing(auth.connect()) as conn, conn:
-        conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (OWNER_ID,))
+        conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (user_id,))
         conn.executemany(
             "INSERT INTO mfa_recovery_codes (code_hash, user_id, created_at) VALUES (?, ?, ?)",
-            [(_hash_recovery(code), OWNER_ID, now) for code in codes],
+            [(_hash_recovery(code), user_id, now) for code in codes],
         )
 
 
-def _use_recovery_code(code: str) -> bool:
+def _use_recovery_code(user_id: str, code: str) -> bool:
     if len(_normalize_recovery(code)) != 16:
         return False
     with closing(auth.connect()) as conn, conn:
         cursor = conn.execute(
             "DELETE FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ?",
-            (OWNER_ID, _hash_recovery(code)),
+            (user_id, _hash_recovery(code)),
         )
         return cursor.rowcount == 1
 
 
 # ------------------------------------------------------------ MFA-kaartje
 
-def _make_ticket() -> str:
+def _make_ticket(user_id: str) -> str:
     return jwt.encode(
         {
             "purpose": "mfa",
-            "sub": OWNER_ID,
-            "ep": auth.session_epoch(),
+            "sub": user_id,
+            "ep": auth.session_epoch(user_id),
             "exp": auth.utcnow() + timedelta(seconds=MFA_TICKET_SECONDS),
         },
         auth.signing_secret(),
@@ -357,12 +370,16 @@ def _make_ticket() -> str:
     )
 
 
-def _read_ticket(ticket: Any) -> bool:
+def _read_ticket(ticket: Any) -> str | None:
+    """Het gebruikers-id waarvoor het kaartje is uitgegeven, of None als het ongeldig of verlopen is."""
     try:
         payload = jwt.decode(str(ticket or ""), auth.signing_secret(), algorithms=["HS256"])
     except Exception:  # noqa: BLE001
-        return False
-    return payload.get("purpose") == "mfa" and payload.get("sub") == OWNER_ID and int(payload.get("ep") or 0) == auth.session_epoch()
+        return None
+    user_id = str(payload.get("sub") or "")
+    if payload.get("purpose") != "mfa" or not user_id or int(payload.get("ep") or 0) != auth.session_epoch(user_id):
+        return None
+    return user_id
 
 
 # --------------------------------------------------------------------- routes
@@ -371,9 +388,9 @@ def _json_error(message: str, status: int):
     return jsonify({"error": message}), status
 
 
-def _session_response(payload: dict[str, Any] | None = None):
-    username = _owner_username() or "admin"
-    return auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, auth.create_token(OWNER_ID, username))
+def session_response(user_id: str, payload: dict[str, Any] | None = None):
+    username = _username_of(user_id) or "admin"
+    return auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, auth.create_token(user_id, username))
 
 
 def _needs_session():
@@ -418,27 +435,38 @@ def register_routes(app: Flask) -> None:
         if denied:
             return denied
         body = request.get_json(silent=True) or {}
-        username, problem = validate_username(body.get("username") or _owner_username() or "admin")
+        uid = auth.acting_user_id()
+        own_name = _username_of(uid)
+        # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt de naam uit de uitnodiging.
+        wanted = body.get("username") if uid == OWNER_ID else None
+        username, problem = validate_username(wanted or own_name or "admin")
         password = body.get("password")
         problem = problem or validate_password(password, username)
+        if not problem and username.casefold() != own_name.casefold():
+            from . import users
+
+            if users.username_taken(username, except_id=uid):
+                problem = tr("Deze naam is al in gebruik.", "This name is already taken.")
         if problem:
             return _json_error(problem, 400)
 
-        replacing = auth.password_configured()
+        replacing = auth.password_configured(uid)
         if replacing:
             if locked_seconds():
                 return _too_many()
-            if not verify_password(str(body.get("currentPassword") or ""), _stored_hash()):
+            if not verify_password(str(body.get("currentPassword") or ""), _stored_hash(uid)):
                 register_failure()
                 return _json_error(tr("Het huidige wachtwoord klopt niet.", "The current password is incorrect."), 403)
             reset_failures()
 
-        onboarding.begin()
-        _store_password(username, password)
-        auth.set_setting(auth.SETTING_AUTH_MODE, "password" if auth.passkey_count() == 0 else "")
+        if uid == OWNER_ID:
+            onboarding.begin()
+        store_password(uid, username, password)
+        if uid == OWNER_ID:
+            auth.set_setting(auth.SETTING_AUTH_MODE, "password" if auth.passkey_count() == 0 else "")
         if replacing:
-            auth.bump_session_epoch()  # andere apparaten moeten opnieuw inloggen
-        return _session_response({"replaced": replacing})
+            auth.bump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
+        return session_response(uid, {"replaced": replacing})
 
     @app.post("/api/auth/password/login")
     def password_login():
@@ -449,30 +477,28 @@ def register_routes(app: Flask) -> None:
         body = request.get_json(silent=True) or {}
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
-        owner = _owner_username()
-        valid_user = bool(username) and hmac.compare_digest(username.casefold().encode(), owner.casefold().encode())
+        found = _user_by_name(username) if username else None
         if len(password) <= MAX_PASSWORD_LENGTH:  # geen scrypt over een absurd lang wachtwoord
-            if valid_user:
-                matches = verify_password(password, _stored_hash())
+            if found:
+                matches = verify_password(password, found[1])
             else:
                 _burn_time(password)
                 matches = False
             if matches:
-                if auth.mfa_enabled():
-                    return jsonify({"status": "mfa", "mfaRequired": True, "ticket": _make_ticket()})
+                if auth.mfa_enabled(found[0]):
+                    return jsonify({"status": "mfa", "mfaRequired": True, "ticket": _make_ticket(found[0])})
                 reset_failures()
-                return _session_response()
+                return session_response(found[0])
         register_failure()
         return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
 
     @app.post("/api/auth/password/mfa")
     def password_mfa():
-        if not auth.mfa_enabled():
-            return _json_error(tr("Tweestapsverificatie is niet ingesteld.", "Two-step verification is not set up."), 400)
         if locked_seconds():
             return _too_many()
         body = request.get_json(silent=True) or {}
-        if not _read_ticket(body.get("ticket")):
+        uid = _read_ticket(body.get("ticket"))
+        if not uid or not auth.mfa_enabled(uid):
             return _json_error(
                 tr(
                     "Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.",
@@ -481,24 +507,25 @@ def register_routes(app: Flask) -> None:
                 401,
             )
         code = str(body.get("code") or "")
-        record = _read_totp(confirmed=True)
+        record = _read_totp(uid, confirmed=True)
         counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
         if counter is not None:
-            _save_last_counter(counter)
-        elif not _use_recovery_code(code):
+            _save_last_counter(uid, counter)
+        elif not _use_recovery_code(uid, code):
             register_failure()
             return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
         reset_failures()
-        return _session_response({"recoveryCodesLeft": auth.recovery_codes_left()})
+        return session_response(uid, {"recoveryCodesLeft": auth.recovery_codes_left(uid)})
 
     @app.post("/api/auth/mfa/start")
     def mfa_start():
         denied = _needs_session()
         if denied:
             return denied
-        if not auth.password_configured():
+        uid = auth.acting_user_id()
+        if not auth.password_configured(uid):
             return _json_error(tr("Stel eerst een wachtwoord in.", "Set a password first."), 400)
-        if auth.mfa_enabled():
+        if auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat al aan.", "Two-step verification is already on."), 409)
         secret = new_totp_secret()
         encrypted = auth.secret_box().encrypt(secret.encode("ascii")).decode("ascii")
@@ -509,9 +536,9 @@ def register_routes(app: Flask) -> None:
                 ON CONFLICT(user_id) DO UPDATE SET secret = excluded.secret, confirmed = 0, last_counter = 0,
                   created_at = excluded.created_at
                 """,
-                (OWNER_ID, encrypted, auth.utcnow().isoformat()),
+                (uid, encrypted, auth.utcnow().isoformat()),
             )
-        account = _owner_username() or "admin"
+        account = _username_of(uid) or "admin"
         return jsonify(
             {
                 "secret": " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)),
@@ -530,7 +557,8 @@ def register_routes(app: Flask) -> None:
             return denied
         if locked_seconds():
             return _too_many()
-        pending = _read_totp(confirmed=False)
+        uid = auth.acting_user_id()
+        pending = _read_totp(uid, confirmed=False)
         if not pending or not pending["secret"]:
             return _json_error(
                 tr(
@@ -552,20 +580,20 @@ def register_routes(app: Flask) -> None:
             )
         reset_failures()
         codes = new_recovery_codes()
-        _store_recovery_codes(codes)
+        _store_recovery_codes(uid, codes)
         with closing(auth.connect()) as conn, conn:
             conn.execute(
-                "UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, OWNER_ID)
+                "UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, uid)
             )
-        auth.bump_session_epoch()
-        return _session_response({"recoveryCodes": codes})
+        auth.bump_session_epoch(uid)
+        return session_response(uid, {"recoveryCodes": codes})
 
-    def _check_current_password(body: dict[str, Any]):
-        if not auth.password_configured():
+    def _check_current_password(uid: str, body: dict[str, Any]):
+        if not auth.password_configured(uid):
             return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
         if locked_seconds():
             return _too_many()
-        if not verify_password(str(body.get("password") or ""), _stored_hash()):
+        if not verify_password(str(body.get("password") or ""), _stored_hash(uid)):
             register_failure()
             return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
         reset_failures()
@@ -576,25 +604,27 @@ def register_routes(app: Flask) -> None:
         denied = _needs_session()
         if denied:
             return denied
-        wrong = _check_current_password(request.get_json(silent=True) or {})
+        uid = auth.acting_user_id()
+        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
         if wrong:
             return wrong
         with closing(auth.connect()) as conn, conn:
-            conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (OWNER_ID,))
-            conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (OWNER_ID,))
-        auth.bump_session_epoch()
-        return _session_response()
+            conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (uid,))
+        auth.bump_session_epoch(uid)
+        return session_response(uid)
 
     @app.post("/api/auth/mfa/recovery")
     def mfa_recovery():
         denied = _needs_session()
         if denied:
             return denied
-        if not auth.mfa_enabled():
+        uid = auth.acting_user_id()
+        if not auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
-        wrong = _check_current_password(request.get_json(silent=True) or {})
+        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
         if wrong:
             return wrong
         codes = new_recovery_codes()
-        _store_recovery_codes(codes)
+        _store_recovery_codes(uid, codes)
         return jsonify({"recoveryCodes": codes})

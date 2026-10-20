@@ -23,6 +23,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - [Usage](#usage)
 - [Linking Mealie and Albert Heijn](#linking-mealie-and-albert-heijn)
 - [Security](#security)
+- [Users and invitations](#users-and-invitations)
 - [Configuration](#configuration)
 - [Data and backups](#data-and-backups)
 - [Updating](#updating)
@@ -38,6 +39,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
+- **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and Albert Heijn and manage the users.
 - **Dutch and English.** Switch with the flags; the app remembers your choice.
 - **You stay in control.** Everything runs in your own container; your data lives in a SQLite file in your own data folder.
 
@@ -213,6 +215,23 @@ With `Check link` you see whether the stored token still works. AH may replace t
 - The IP address used for the block after failed attempts comes from `X-Forwarded-For` of your reverse proxy (one hop). So don't put MealieShopper directly on the internet, but behind a proxy that sets that header itself.
 - Passkeys need a domain name and HTTPS. Then set `RP_ID` (the host name only) and `RP_ORIGINS` (the full address), see [`.env.unraid.example`](.env.unraid.example).
 
+## Users and invitations
+
+The first user, the one who goes through the setup wizard, is the **administrator**. They link Mealie and Albert Heijn and manage the users. Everyone you invite is a **user**: they can use the week menu, the recipes and the AH lists, put products in the AH basket and import recipes, but cannot link or manage anything. The AH basket is that of the linked AH account, so Mealie and AH are shared.
+
+<img src="docs/screenshots/en/users.png" alt="Settings, Users: the administrator with two users, and a form to invite someone" width="900">
+
+1. As administrator go to **Settings, Users** and choose **Create invitation** (with or without a name).
+2. Copy the link and send it on. You only see it once; the link works once and expires after 7 days.
+3. Whoever opens the link chooses a username and a password or a passkey. So you never know their password.
+
+<img src="docs/screenshots/en/invite.png" alt="The page where an invited person creates an account, with a password or a passkey" width="900">
+
+- **Lost their login?** Choose **New login link** for that user. The old login keeps working until the new one is set up, and stops working after that.
+- **Remove** deletes the account and all its login details. The administrator cannot be removed.
+- Every user has their own login details, two-step verification and passkeys under Settings, Security. A new password only logs that user out.
+- Quantities in a list, and the lists themselves, are shared: they belong to the AH account.
+
 ## Configuration
 
 Everything is optional. Set the values in your environment or in `.env.unraid` ([`.env.unraid.example`](.env.unraid.example) and [`.env.local.example`](.env.local.example) show everything).
@@ -260,10 +279,10 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 **I can't get in any more.** If you lost your password and recovery codes, you can reset the login (your links stay). Optionally stop the container and run:
 
 ```bash
-docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
+docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM invites', \"DELETE FROM users WHERE id <> 'owner'\", 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
 ```
 
-Then open the app: the setup guide appears again and you set up security anew.
+Then open the app: the setup guide appears again and you set up security anew. This also removes the other users (your account as administrator stays); invite them again afterwards.
 
 ## Development
 

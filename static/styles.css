@@ -1912,3 +1912,24 @@ body.has-onboarding {
     transform: none;
   }
 }
+
+/* Gebruikers (Beheer > Gebruikers) en regels die alleen de beheerder aangaan */
+.user-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--selection);
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#invite-result .form-row {
+  margin: 8px 0;
+}
+
+#invite-result .input {
+  flex: 1;
+  min-width: 0;
+}

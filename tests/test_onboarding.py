@@ -114,7 +114,7 @@ class LifecycleTest(OnboardingTestCase):
 
     def test_existing_install_with_a_password_is_left_alone(self):
         auth.ensure_db()
-        auth_password._store_password("admin", PASSWORD)
+        auth_password.store_password("owner", "admin", PASSWORD)
         self.assertFalse(self.status()["needed"])
         self.assertEqual(self.status()["authMode"], "password")
 

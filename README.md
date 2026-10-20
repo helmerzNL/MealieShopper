@@ -23,6 +23,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 - [Gebruik](#gebruik)
 - [Mealie en Albert Heijn koppelen](#mealie-en-albert-heijn-koppelen)
 - [Beveiliging](#beveiliging)
+- [Gebruikers en uitnodigen](#gebruikers-en-uitnodigen)
 - [Configuratie](#configuratie)
 - [Data en back-ups](#data-en-back-ups)
 - [Updaten](#updaten)
@@ -38,6 +39,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
+- **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en Albert Heijn en beheert de gebruikers.
 - **Nederlands en Engels.** Wissel met de vlaggetjes; de app onthoudt je keuze.
 - **Jij houdt de regie.** Alles draait in je eigen container; je gegevens staan in een SQLite-bestand in je eigen data-map.
 
@@ -213,6 +215,23 @@ Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. AH kan de t
 - Het IP-adres voor de blokkade na mislukte pogingen komt uit `X-Forwarded-For` van je reverse proxy (één stap). Zet MealieShopper dus niet rechtstreeks op internet, maar achter een proxy die dat veld zelf instelt.
 - Passkeys vragen een domeinnaam en HTTPS. Zet dan `RP_ID` (alleen de hostnaam) en `RP_ORIGINS` (het volledige adres), zie [`.env.unraid.example`](.env.unraid.example).
 
+## Gebruikers en uitnodigen
+
+De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en Albert Heijn en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu, de recepten en de AH-lijstjes gebruiken, producten in het AH-mandje zetten en recepten importeren, maar kan niets koppelen of beheren. Het AH-mandje is dat van het gekoppelde AH-account; Mealie en AH zijn dus gedeeld.
+
+<img src="docs/screenshots/nl/users.png" alt="Beheer, Gebruikers: de beheerder met twee gebruikers, en een formulier om iemand uit te nodigen" width="900">
+
+1. Ga als beheerder naar **Beheer, Gebruikers** en kies **Uitnodiging maken** (met of zonder naam).
+2. Kopieer de link en stuur hem door. Je ziet hem maar één keer; de link werkt één keer en verloopt na 7 dagen.
+3. Wie de link opent, kiest een gebruikersnaam en een wachtwoord of een passkey. Jij kent het wachtwoord dus nooit.
+
+<img src="docs/screenshots/nl/invite.png" alt="De pagina waar een uitgenodigde een account aanmaakt, met wachtwoord of passkey" width="900">
+
+- **Inlog kwijt?** Kies bij die gebruiker **Nieuwe inloglink**. De oude inlog blijft werken tot de nieuwe is ingesteld, en werkt daarna niet meer.
+- **Verwijderen** haalt het account en alle inloggegevens weg. De beheerder kan niet worden verwijderd.
+- Elke gebruiker heeft eigen inloggegevens, eigen tweestapsverificatie en eigen passkeys onder Beheer, Beveiliging. Een nieuw wachtwoord logt alleen die gebruiker uit.
+- Wijzigingen in een lijstje (aantallen) en de lijstjes zelf zijn gedeeld: ze horen bij het AH-account.
+
 ## Configuratie
 
 Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.unraid.example`](.env.unraid.example) en [`.env.local.example`](.env.local.example) laten alles zien).
@@ -260,10 +279,10 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 **Ik kom er niet meer in.** Heb je je wachtwoord en herstelcodes kwijt, dan kun je de inlog terugzetten (je koppelingen blijven staan). Stop eventueel de container en voer uit:
 
 ```bash
-docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
+docker exec -it mealieshopper python -c "import sqlite3; c = sqlite3.connect('/data/auth.sqlite3'); [c.execute(q) for q in ('DELETE FROM password_credentials', 'DELETE FROM mfa_totp', 'DELETE FROM mfa_recovery_codes', 'DELETE FROM passkey_credentials', 'DELETE FROM invites', \"DELETE FROM users WHERE id <> 'owner'\", 'DELETE FROM login_attempts', \"DELETE FROM app_settings WHERE key IN ('AUTH_MODE', 'ONBOARDING_DONE', 'ONBOARDING_ACTIVE')\")]; c.commit()"
 ```
 
-Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiliging opnieuw in.
+Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiliging opnieuw in. Dit verwijdert ook de andere gebruikers (jouw account als beheerder blijft); nodig ze daarna opnieuw uit.
 
 ## Ontwikkelen
 
