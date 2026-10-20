@@ -106,6 +106,34 @@ RECIPE_SUMMARIES_QUERIES = (
 """,
 )
 
+# Receptdetails voor het importeren in Mealie. De laatste variant bevat alleen velden
+# waarvan bekend is dat ze werken; de eerdere voegen portie en afbeelding toe en
+# proberen beide vormen van `preparation.steps`.
+RECIPE_DETAIL_QUERIES = tuple(
+    """
+  query Recipe($id: Int!) {
+    recipe(id: $id) {
+      id
+      title
+      description
+      cookTime
+      %s
+      ingredients {
+        text
+      }
+      preparation {
+        steps%s
+      }
+    }
+  }
+""" % (extra, steps)
+    for extra, steps in (
+        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", " { text }"),
+        ("ovenTime\n      waitTime\n      servings { number }\n      images { url }", ""),
+        ("", ""),
+    )
+)
+
 FAVORITE_LIST_QUERY = """
   query FavoriteListV2($ids: [String!]!) {
     favoriteListV2(ids: $ids) {
@@ -973,3 +1001,70 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
     )
     if not response.ok:
         raise RuntimeError(f"AH winkelmandje vullen mislukt ({response.status_code}): {response.text}")
+
+
+_ALLERHANDE_RECIPE_RE = re.compile(r"ah\.nl/allerhande/recept/R-R(\d+)", re.IGNORECASE)
+
+
+def allerhande_recipe_id(url: str) -> int | None:
+    match = _ALLERHANDE_RECIPE_RE.search(str(url or ""))
+    return int(match.group(1)) if match else None
+
+
+def _iso_minutes(minutes: Any) -> str | None:
+    try:
+        value = int(minutes)
+    except (TypeError, ValueError):
+        return None
+    return f"PT{value}M" if value > 0 else None
+
+
+def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
+    """Allerhande-recept als schema.org Recipe (JSON-LD), via de AH-API zonder paginascraping."""
+    data = _graphql_variants(
+        get_token(), RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"
+    )
+    recipe = data.get("recipe")
+    if not recipe:
+        raise RuntimeError("AH recept niet gevonden")
+
+    ingredients = [
+        str(item.get("text")).strip()
+        for item in recipe.get("ingredients") or []
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    steps = []
+    for step in (recipe.get("preparation") or {}).get("steps") or []:
+        text = step.get("text") if isinstance(step, dict) else step
+        if str(text or "").strip():
+            steps.append({"@type": "HowToStep", "text": str(text).strip()})
+    if not ingredients and not steps:
+        raise RuntimeError("AH recept heeft geen ingredienten of bereiding")
+
+    times = [recipe.get(key) or 0 for key in ("cookTime", "ovenTime", "waitTime")]
+    images = [
+        image.get("url")
+        for image in recipe.get("images") or []
+        if isinstance(image, dict) and image.get("url")
+    ]
+    servings = (recipe.get("servings") or {}).get("number")
+
+    ld: dict[str, Any] = {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": recipe.get("title") or f"Recept {recipe_id}",
+        "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
+        "recipeIngredient": ingredients,
+        "recipeInstructions": steps,
+    }
+    if recipe.get("description"):
+        ld["description"] = recipe["description"]
+    if images:
+        ld["image"] = images
+    if servings:
+        ld["recipeYield"] = f"{servings} personen"
+    if iso := _iso_minutes(recipe.get("cookTime")):
+        ld["cookTime"] = iso
+    if iso := _iso_minutes(sum(int(t) for t in times if isinstance(t, (int, float)))):
+        ld["totalTime"] = iso
+    return ld
