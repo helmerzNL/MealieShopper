@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from os import environ
+from typing import Any
 from urllib.parse import quote_plus
 import sqlite3
 
@@ -12,7 +14,7 @@ from . import auth
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-3")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-4")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -167,6 +169,56 @@ def create_app() -> Flask:
             app.logger.exception("Mealie import error")
             return jsonify({"error": str(exc) or "Import mislukt"}), 424
 
+    def cart_candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, Any]:
+        packs, doubt = ah.assess_packs(quantity, unit, product.get("unitSize"))
+        images = product.get("images") or []
+        return {
+            "productId": product["webshopId"],
+            "title": product["title"],
+            "brand": product.get("brand"),
+            "unitSize": product.get("unitSize"),
+            "price": product["price"]["now"],
+            "image": images[0].get("url") if images and isinstance(images[0], dict) else None,
+            "isBonus": bool(product.get("isBonus")),
+            "url": ah.product_web_url(product["webshopId"]),
+            "packs": packs,
+            "doubt": doubt,
+        }
+
+    @app.post("/api/ah/cart/preview")
+    def ah_cart_preview():
+        """Zoek per ingredient de beste producten en reken het aantal verpakkingen uit.
+
+        Een regel met `doubt` is er niet zeker van; de gebruiker kiest dan zelf.
+        """
+        body = request.get_json(silent=True) or {}
+        items = body.get("items") or []
+        if not items:
+            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+
+        def resolve(item: dict[str, Any]) -> dict[str, Any]:
+            query = str(item.get("query") or "")
+            result = {
+                "query": query,
+                "display": item.get("display") or query,
+                "quantity": item.get("quantity"),
+                "unit": item.get("unit"),
+                "candidates": [],
+            }
+            try:
+                products = ah.search_products(query, 5)
+            except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
+                result["error"] = str(exc)
+                return result
+            result["candidates"] = [
+                cart_candidate(product, item.get("quantity"), item.get("unit")) for product in products
+            ]
+            return result
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            resolved = list(executor.map(resolve, items))
+        return jsonify({"items": resolved})
+
     @app.post("/api/ah/cart")
     def ah_cart():
         body = request.get_json(silent=True) or {}
@@ -177,21 +229,41 @@ def create_app() -> Flask:
         matched = []
         diagnostics = []
         for item in items:
+            query = item.get("query", "")
             try:
-                product = ah.search_product(item.get("query", ""))
+                if item.get("productId"):
+                    # Door de gebruiker bevestigd (of aangepast) in de controlelijst.
+                    matched.append(
+                        {
+                            "query": query,
+                            "productId": item["productId"],
+                            "quantity": ah.normalize_quantity(item.get("quantity")),
+                            "title": item.get("title") or query,
+                            "price": item.get("price") or 0,
+                            "unitSize": item.get("unitSize"),
+                            "image": item.get("image"),
+                        }
+                    )
+                    diagnostics.append({"query": query, "status": "gevonden"})
+                    continue
+                product = ah.search_product(query)
                 if product:
                     matched.append(
                         {
-                            "query": item.get("query", ""),
-                            "product": product,
+                            "query": query,
+                            "productId": product["webshopId"],
                             "quantity": ah.packs_needed(
                                 item.get("quantity"), item.get("unit"), product.get("unitSize")
                             ),
+                            "title": product["title"],
+                            "price": product["price"]["now"],
+                            "unitSize": product.get("unitSize") or product["price"].get("unitSize"),
+                            "image": (product.get("images") or [{"url": None}])[0].get("url"),
                         }
                     )
-                    diagnostics.append({"query": item.get("query", ""), "status": "gevonden"})
+                    diagnostics.append({"query": query, "status": "gevonden"})
                 else:
-                    diagnostics.append({"query": item.get("query", ""), "status": "niet gevonden"})
+                    diagnostics.append({"query": query, "status": "niet gevonden"})
             except Exception as exc:
                 diagnostics.append(
                     {"query": item.get("query", "onbekend"), "status": "fout", "error": str(exc)}
@@ -210,10 +282,7 @@ def create_app() -> Flask:
 
         try:
             ah.add_to_shopping_list(
-                [
-                    {"productId": item["product"]["webshopId"], "quantity": item["quantity"]}
-                    for item in matched
-                ]
+                [{"productId": item["productId"], "quantity": item["quantity"]} for item in matched]
             )
         except Exception as exc:
             app.logger.exception("AH cart error")
@@ -230,13 +299,10 @@ def create_app() -> Flask:
                         "query": item["query"],
                         "quantity": item["quantity"],
                         "product": {
-                            "title": item["product"]["title"],
-                            "price": item["product"]["price"]["now"],
-                            "unitSize": item["product"].get("unitSize")
-                            or item["product"]["price"].get("unitSize"),
-                            "image": (
-                                item["product"].get("images") or [{"url": None}]
-                            )[0].get("url"),
+                            "title": item["title"],
+                            "price": item["price"],
+                            "unitSize": item["unitSize"],
+                            "image": item["image"],
                         },
                     }
                     for item in matched

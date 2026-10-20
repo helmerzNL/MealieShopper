@@ -51,6 +51,18 @@ door de interface gebruikt.
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.
 
+## Weekmenu naar het AH-mandje
+
+`Voeg toe aan Albert Heijn mandje` zoekt per ingredient de beste vijf producten en rekent uit
+hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft:
+6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een
+fles. Het aantal is altijd 1 tot en met 99.
+
+Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer
+dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en
+het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan
+gaat het mandje meteen vol.
+
 ## AH Items
 
 Het tabblad `AH Items` heeft twee onderdelen:

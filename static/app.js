@@ -415,29 +415,178 @@ async function loadMealPlan() {
   }
 }
 
+function formatPrice(value) {
+  const price = Number(value || 0);
+  return price ? `\u20ac${price.toFixed(2).replace(".", ",")}` : "";
+}
+
+function cartCandidateLabel(candidate) {
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" \u2013 ");
+}
+
+function cartSelection(row, candidate, quantity) {
+  return {
+    query: row.query,
+    productId: candidate.productId,
+    quantity,
+    title: candidate.title,
+    price: candidate.price,
+    unitSize: candidate.unitSize,
+    image: candidate.image,
+  };
+}
+
+function showCartResult(data, notFound) {
+  const lines = (data.items || [])
+    .map((item) => {
+      const size = item.product.unitSize ? ` (${escapeHtml(item.product.unitSize)})` : "";
+      return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
+    })
+    .join("");
+  const missing = notFound.length
+    ? ` ${notFound.length} niet gevonden: ${escapeHtml(notFound.join(", "))}.`
+    : "";
+  $("#cart-result").innerHTML = `
+    <div class="message success">${data.added} producten toegevoegd aan je Albert Heijn mandje.${missing}</div>
+    ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
+  `;
+}
+
+async function submitCart(selection, notFound) {
+  const data = await jsonFetch("/api/ah/cart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items: selection }),
+  });
+  showCartResult(data, notFound);
+}
+
+function renderCartReview(rows) {
+  const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
+  const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
+  $("#cart-result").innerHTML = `
+    <div class="box cart-review">
+      <div class="toolbar">
+        <h2>Controleer je mandje</h2>
+        <button class="button" id="confirm-cart"></button>
+        <button class="button button--secondary" id="cancel-cart">Annuleren</button>
+      </div>
+      <p class="muted">${doubts} ${doubts === 1 ? "regel is" : "regels zijn"} gemarkeerd: daar ben ik niet zeker van. Kies het product en het aantal verpakkingen.</p>
+      <div class="review-list">
+        ${rows
+          .map((row, index) => {
+            if (!row.candidates.length) {
+              return `
+                <div class="review-row is-missing">
+                  <input type="checkbox" disabled>
+                  <div class="review-ingredient"><strong>${escapeHtml(row.display)}</strong></div>
+                  <span class="muted">${row.error ? escapeHtml(row.error) : "Niet gevonden"}</span>
+                </div>`;
+            }
+            const first = row.candidates[0];
+            return `
+              <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
+                <input type="checkbox" class="review-include" checked aria-label="Toevoegen">
+                <div class="review-ingredient">
+                  <strong>${escapeHtml(row.display)}</strong>
+                  <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+                </div>
+                <select class="review-product" aria-label="Product">
+                  ${row.candidates
+                    .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
+                    .join("")}
+                </select>
+                <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="Aantal verpakkingen">
+              </div>`;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+
+  const rowElements = [...document.querySelectorAll(".review-row[data-row]")];
+  const updateConfirm = () => {
+    const count = rowElements.filter((el) => el.querySelector(".review-include").checked).length;
+    const button = $("#confirm-cart");
+    button.disabled = count === 0;
+    button.textContent = `Voeg ${count} ${count === 1 ? "product" : "producten"} toe aan mandje`;
+  };
+  rowElements.forEach((el) => {
+    const row = rows[Number(el.dataset.row)];
+    el.querySelector(".review-product").addEventListener("change", (event) => {
+      const candidate = row.candidates[Number(event.target.value)];
+      el.querySelector(".review-qty").value = candidate.packs;
+      el.querySelector(".review-note").textContent = candidate.doubt || "";
+      el.classList.toggle("is-doubt", Boolean(candidate.doubt));
+    });
+    el.querySelector(".review-include").addEventListener("change", updateConfirm);
+  });
+  updateConfirm();
+
+  $("#cancel-cart").addEventListener("click", () => {
+    $("#cart-result").innerHTML = "";
+  });
+  $("#confirm-cart").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const selection = rowElements
+      .filter((el) => el.querySelector(".review-include").checked)
+      .map((el) => {
+        const row = rows[Number(el.dataset.row)];
+        const candidate = row.candidates[Number(el.querySelector(".review-product").value)];
+        const quantity = Math.min(99, Math.max(1, parseInt(el.querySelector(".review-qty").value, 10) || 1));
+        return cartSelection(row, candidate, quantity);
+      });
+    if (!selection.length) return;
+    button.disabled = true;
+    button.textContent = "Toevoegen...";
+    try {
+      await submitCart(selection, notFound);
+    } catch (error) {
+      $("#cart-result").insertAdjacentHTML(
+        "afterbegin",
+        `<div class="message error">${escapeHtml(error.message)}</div>`
+      );
+      updateConfirm();
+    }
+  });
+}
+
 async function addToCart() {
   const ingredients = aggregateIngredients(state.entries);
   if (!ingredients.length) return;
   const button = $("#add-cart");
   button.disabled = true;
-  button.textContent = "Toevoegen...";
+  button.textContent = "Producten zoeken...";
+  $("#cart-result").innerHTML = "";
   try {
-    const items = ingredients.map((ingredient) => ({
-      query: ingredient.food?.name || ingredient.display,
-      // Het aantal verpakkingen rekent de server uit met de verpakkingsgrootte van AH.
-      quantity: Number(ingredient.quantity) || 1,
-      unit: ingredient.unit?.name || ingredient.unit?.abbreviation || null,
-    }));
-    const data = await jsonFetch("/api/ah/cart", {
+    const preview = await jsonFetch("/api/ah/cart/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        items: ingredients.map((ingredient) => ({
+          query: ingredient.food?.name || ingredient.display,
+          display: ingredient.display || ingredient.food?.name || "",
+          // Het aantal verpakkingen rekent de server uit met de verpakkingsgrootte van AH.
+          quantity: ingredient.quantity ?? null,
+          unit: ingredient.unit?.name || ingredient.unit?.abbreviation || null,
+        })),
+      }),
     });
-    $("#cart-result").innerHTML = `
-      <div class="message success">${data.added} producten toegevoegd aan je Albert Heijn mandje${
-        data.skipped ? ` (${data.skipped} niet gevonden)` : ""
-      }.</div>
-    `;
+    const rows = preview.items || [];
+    const unsure = rows.some((row) => row.candidates.length && row.candidates[0].doubt);
+    if (unsure) {
+      renderCartReview(rows);
+    } else {
+      const selection = rows
+        .filter((row) => row.candidates.length)
+        .map((row) => cartSelection(row, row.candidates[0], row.candidates[0].packs));
+      const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
+      if (!selection.length) {
+        $("#cart-result").innerHTML = `<div class="message error">Geen producten gevonden voor de ingredienten.</div>`;
+      } else {
+        await submitCart(selection, notFound);
+      }
+    }
   } catch (error) {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {

@@ -484,33 +484,37 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
     }
 
 
-def search_product(query: str) -> dict[str, Any] | None:
+def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
+    unit_size = item.get("salesUnitSize")
+    price_now = item.get("currentPrice") or item.get("priceBeforeBonus") or 0
+    return {
+        "webshopId": str(item.get("webshopId") or item.get("id")),
+        "title": item.get("title") or query,
+        "price": {"now": price_now, "unitSize": unit_size},
+        "images": item.get("images") or [],
+        "brand": item.get("brand"),
+        "unitSize": unit_size,
+        "isBonus": bool(item.get("isBonus")),
+    }
+
+
+def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     token = get_token()
     response = requests.get(
         f"{AH_API_BASE}/mobile-services/product/search/v2",
         headers=_auth_headers(token, include_content_type=False),
-        params={"query": query, "page": 0, "size": 1, "sortOn": "RELEVANCE"},
+        params={"query": query, "page": 0, "size": max(1, int(limit)), "sortOn": "RELEVANCE"},
         timeout=30,
     )
     if not response.ok:
         raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
+    products = response.json().get("products") or []
+    return [_search_product_dict(item, query) for item in products[: max(1, int(limit))]]
 
-    data = response.json()
-    products = data.get("products") or []
-    if not products:
-        return None
 
-    first = products[0]
-    unit_size = first.get("salesUnitSize")
-    price_now = first.get("currentPrice") or first.get("priceBeforeBonus") or 0
-    return {
-        "webshopId": str(first.get("webshopId") or first.get("id")),
-        "title": first.get("title") or query,
-        "price": {"now": price_now, "unitSize": unit_size},
-        "images": first.get("images") or [],
-        "brand": first.get("brand"),
-        "unitSize": unit_size,
-    }
+def search_product(query: str) -> dict[str, Any] | None:
+    products = search_products(query, 1)
+    return products[0] if products else None
 
 
 def product_web_url(product_id: Any) -> str:
@@ -915,12 +919,18 @@ def parse_pack_size(unit_size: Any) -> tuple[float, str] | None:
     return None
 
 
-def packs_needed(quantity: Any, unit: Any, unit_size: Any) -> int:
-    """Aantal verpakkingen voor een ingredient, op basis van de verpakkingsgrootte van het product.
+LARGE_PACK_COUNT = 10  # meer verpakkingen dan dit laten we de gebruiker controleren
 
-    "6 eieren" bij "10 stuks" is een doosje, "500 g" bij "250 g" zijn er twee. Is de
-    verhouding niet te bepalen (el, tl, teentje, gewicht tegen stuks), dan is het er een.
+
+def assess_packs(quantity: Any, unit: Any, unit_size: Any) -> tuple[int, str | None]:
+    """Aantal verpakkingen voor een ingredient, plus de reden als de berekening onzeker is.
+
+    "6 eieren" bij "10 stuks" is een doosje, "500 g" bij "250 g" zijn er twee. Wat niet
+    te vergelijken valt (el, tl, teentje) of waar een gok volstaat ("2 uien" bij "1 kg")
+    is een verpakking zonder twijfel. Twijfel is er bij een onbekende verpakkingsgrootte,
+    gewicht of volume tegen stuks, of een groot aantal.
     """
+    unit_text = str(unit or "").strip()
     try:
         needed = float(quantity)
     except (TypeError, ValueError):
@@ -928,16 +938,26 @@ def packs_needed(quantity: Any, unit: Any, unit_size: Any) -> int:
     if not needed > 0 or math.isinf(needed):
         needed = 1.0
 
-    ingredient = _measure(needed, str(unit or ""))
+    ingredient = _measure(needed, unit_text)
     if ingredient is None:
-        return 1
+        return 1, None
     pack = parse_pack_size(unit_size)
     if pack is None:
-        # Zonder verpakkingsgrootte telt alleen een los aantal letterlijk.
-        return normalize_quantity(needed) if ingredient[1] == "count" else 1
+        packs = normalize_quantity(needed) if ingredient[1] == "count" else 1
+        return packs, "Verpakkingsgrootte onbekend"
     if pack[1] != ingredient[1] or pack[0] <= 0:
-        return 1
-    return normalize_quantity(math.ceil(ingredient[0] / pack[0] - 1e-9))
+        if ingredient[1] == "count":
+            return 1, None
+        return 1, f"{unit_text} past niet bij de verpakking ({unit_size})"
+
+    packs = normalize_quantity(math.ceil(ingredient[0] / pack[0] - 1e-9))
+    if packs > LARGE_PACK_COUNT:
+        return packs, "Groot aantal verpakkingen"
+    return packs, None
+
+
+def packs_needed(quantity: Any, unit: Any, unit_size: Any) -> int:
+    return assess_packs(quantity, unit, unit_size)[0]
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
