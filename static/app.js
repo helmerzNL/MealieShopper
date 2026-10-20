@@ -192,6 +192,7 @@ async function refreshAuthStatus() {
   await loadCredentials();
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
+    refreshMealieStatus();
   }
   return state.auth;
 }
@@ -694,6 +695,90 @@ async function refreshAhStatus() {
   }
 }
 
+function renderMealieStatus(data, { verified = false } = {}) {
+  const setup = $("#mealie-setup");
+  if (setup) setup.hidden = Boolean(data.configured);
+  $("#mealie-key-warning").hidden = !data.authKeyTiedToMealieEnv;
+  $("#mealie-unlink").hidden = data.source !== "ui";
+  const source = $("#mealie-source");
+  source.hidden = data.source !== "env";
+  source.textContent =
+    data.source === "env"
+      ? "Deze koppeling komt uit de omgevingsvariabelen MEALIE_URL en MEALIE_API_TOKEN. Een koppeling die je hier maakt gaat voor."
+      : "";
+  if (data.url && document.activeElement !== $("#mealie-url") && !$("#mealie-url").value) {
+    $("#mealie-url").value = data.url;
+  }
+  if (!data.configured) {
+    message("#mealie-status", "Mealie is nog niet gekoppeld.", "error");
+  } else if (verified && data.connected) {
+    const details = [data.version ? `versie ${data.version}` : "", data.username ? `gebruiker ${data.username}` : ""]
+      .filter(Boolean)
+      .join(", ");
+    message("#mealie-status", `Mealie werkt: ${data.url}${details ? ` (${details})` : ""}.`, "success");
+  } else if (verified) {
+    message("#mealie-status", data.error || "Mealie reageert niet zoals verwacht.", "error");
+  } else {
+    message("#mealie-status", `Mealie gekoppeld: ${data.url}`, "success");
+  }
+}
+
+async function refreshMealieStatus() {
+  try {
+    renderMealieStatus(await jsonFetch("/api/mealie/status"));
+  } catch (error) {
+    message("#mealie-status", error.message);
+  }
+}
+
+async function checkMealieConnection() {
+  message("#mealie-status", "Koppeling controleren...", "success");
+  try {
+    renderMealieStatus(await jsonFetch("/api/mealie/status?verify=1"), { verified: true });
+  } catch (error) {
+    message("#mealie-status", error.message);
+  }
+}
+
+async function linkMealie(event) {
+  event.preventDefault();
+  const url = $("#mealie-url").value.trim();
+  const token = $("#mealie-token").value.trim();
+  if (!url || !token) {
+    message("#mealie-status", "Vul het adres en de API-token in.");
+    return;
+  }
+  const button = $("#mealie-link");
+  button.disabled = true;
+  button.textContent = "Controleren...";
+  try {
+    const data = await jsonFetch("/api/mealie/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, token }),
+    });
+    $("#mealie-token").value = "";
+    $("#mealie-url").value = data.url;
+    renderMealieStatus(data, { verified: true });
+  } catch (error) {
+    message("#mealie-status", error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Koppelen";
+  }
+}
+
+async function unlinkMealie() {
+  try {
+    const data = await jsonFetch("/api/mealie/auth/logout", { method: "POST", body: "{}" });
+    $("#mealie-token").value = "";
+    $("#mealie-url").value = "";
+    renderMealieStatus(data);
+  } catch (error) {
+    message("#mealie-status", error.message);
+  }
+}
+
 async function checkAhConnection() {
   message("#ah-status", "Koppeling controleren...", "success");
   try {
@@ -1031,6 +1116,10 @@ $("#verify-token").addEventListener("click", async () => {
   }
 });
 $("#check-ah").addEventListener("click", checkAhConnection);
+$("#mealie-form").addEventListener("submit", linkMealie);
+$("#check-mealie").addEventListener("click", checkMealieConnection);
+$("#mealie-unlink").addEventListener("click", unlinkMealie);
+$("#open-mealie-setup").addEventListener("click", () => openBeheer("beheer-mealie"));
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", (event) =>

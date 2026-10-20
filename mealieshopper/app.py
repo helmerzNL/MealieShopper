@@ -20,7 +20,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-7")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-10")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -167,6 +167,23 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("AH list sync error")
             return jsonify({"error": str(exc) or "Synchroniseren mislukt"}), 424
+
+    @app.get("/api/mealie/status")
+    def mealie_status():
+        verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
+        return jsonify(mealie.status(verify=verify))
+
+    @app.post("/api/mealie/auth")
+    def mealie_auth():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(mealie.link(body.get("url"), body.get("token")))
+        except (ValueError, RuntimeError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @app.post("/api/mealie/auth/logout")
+    def mealie_auth_logout():
+        return jsonify(mealie.clear())
 
     @app.post("/api/mealie/import")
     def import_recipe():

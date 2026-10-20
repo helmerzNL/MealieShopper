@@ -13,6 +13,7 @@ MealieShopper is een kleine Python/Flask app die Mealie koppelt aan Albert Heijn
 Zet deze omgevingsvariabelen in je lokale shell, `.env`-loader of containeromgeving:
 
 ```env
+# Optioneel: Mealie koppel je ook in de app, bij Beheer > Mealie
 MEALIE_URL=https://mealie.jouwdomein.nl
 MEALIE_API_TOKEN=
 AH_REFRESH_TOKEN=
@@ -24,6 +25,26 @@ RP_NAME=MealieShopper
 RP_ID=localhost
 RP_ORIGINS=http://localhost:8000
 ```
+
+### Mealie koppelen
+
+Koppel Mealie in de app: **Beheer > Mealie**. Vul het adres van je Mealie in en plak een API-token
+(in Mealie: je profiel, onderdeel API-tokens, `Token genereren`). MealieShopper controleert het adres
+en de token eerst bij Mealie zelf; klopt er iets niet, dan krijg je een duidelijke melding en wordt er
+niets bewaard. Daarna staat het adres en de token versleuteld in de SQLite database onder
+`MEALIESHOPPER_DATA_DIR`; de token wordt nooit meer getoond. Een nieuw weekmenu laden of een recept
+importeren werkt direct, zonder herstart.
+
+`MEALIE_URL` en `MEALIE_API_TOKEN` blijven werken, maar zijn optioneel. Een koppeling uit de app gaat
+voor op de omgevingsvariabelen; de twee bronnen worden nooit gemengd, zodat een token nooit naar een
+ander adres gaat. Met `Ontkoppelen` verwijder je de koppeling uit de app, waarna een eventuele
+omgevingsconfiguratie weer geldt.
+
+**Let op:** zonder `MEALIESHOPPER_AUTH_SECRET` (of `JWT_SECRET`) wordt de sleutel voor je opgeslagen
+koppelingen afgeleid van de omgevingsvariabele `MEALIE_URL`. Stel daarom eerst
+`MEALIESHOPPER_AUTH_SECRET` in voordat je `MEALIE_URL` uit je omgeving haalt of wijzigt; anders kan
+MealieShopper je opgeslagen koppelingen (ook die van Albert Heijn) niet meer ontsleutelen en moet je
+opnieuw koppelen. De app waarschuwt hiervoor in Beheer > Mealie.
 
 `AH_REFRESH_TOKEN` is optioneel en dient alleen als startwaarde. Normaal koppel
 je via de tab `AH koppelen`; MealieShopper slaat de refresh token daarna
