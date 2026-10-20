@@ -72,6 +72,15 @@ door de interface gebruikt.
 sessies uit. De passkeys zelf worden opgeslagen in SQLite onder
 `MEALIESHOPPER_DATA_DIR`.
 
+## Weekmenu met afbeeldingen
+
+`Weekmenu laden` toont bij elk gerecht het plaatje uit Mealie. De browser vraagt het plaatje
+aan MealieShopper (`/api/mealie/recipes/<id>/image`); die haalt het met je API-token bij Mealie
+op en bewaart het in de SQLite database (tabel `mealie_images`). Zo werkt het ook als je Mealie
+niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan
+Mealie. Verandert het plaatje in Mealie, dan haalt MealieShopper het opnieuw op; is Mealie
+onbereikbaar, dan blijft het oude plaatje staan. Recepten zonder plaatje tonen alleen tekst.
+
 ## Weekmenu naar het AH-mandje
 
 `Voeg toe aan Albert Heijn mandje` zoekt per ingredient de beste vijf producten en rekent uit
@@ -89,11 +98,20 @@ gaat het mandje meteen vol.
 Het tabblad `AH Items` heeft twee onderdelen:
 
 - **AH Recepten**: je bewaarde Allerhande-recepten (de receptencollectie van je
-  AH-account) ophalen en in Mealie importeren. Dit gebruikt alleen je AH-koppeling;
+  AH-account) ophalen en in Mealie importeren. Op een telefoon staan minstens twee
+  recepten naast elkaar, op een groter scherm zoveel als er passen; bovenaan zoek je in je
+  recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt alle recepten op en bewaart ze in
+  MealieShopper (tabellen `ah_saved_recipes` en `ah_saved_recipes_meta`). Het tabblad zelf
+  toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een
+  vernieuwing, dan blijft de vorige kopie staan. Dit gebruikt alleen je AH-koppeling;
   een wachtwoord of browser is niet nodig. Het importeren haalt de receptgegevens
   via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de
   websitepagina's voor servers blokkeert.
-- **AH Lijstjes**: je favoriete AH-lijstjes. Met `Synchroniseren` (per lijstje) of
+- **AH Lijstjes**: je favoriete AH-lijstjes als kaarten naast elkaar (op een telefoon
+  minstens twee). Het zoekveld bovenaan filtert terwijl je typt, op de naam van het
+  lijstje en op de producten in gesynchroniseerde lijstjes. Een lijstje opent op dezelfde
+  plek; de pijl linksboven (of de terugknop van je telefoon) brengt je terug naar het
+  overzicht, met je zoekterm en scrollpositie. Met `Synchroniseren` (per lijstje) of
   `Alles synchroniseren` bewaart MealieShopper een kopie van het lijstje, inclusief
   productnaam, merk, inhoud, prijs en afbeelding, in de SQLite database onder
   `MEALIESHOPPER_DATA_DIR` (tabellen `ah_lists` en `ah_list_items`). Een geopend

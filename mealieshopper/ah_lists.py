@@ -7,6 +7,7 @@ de vorige snapshot ongemoeid.
 """
 from __future__ import annotations
 
+import unicodedata
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
@@ -167,6 +168,34 @@ def get_snapshot(list_id: str) -> dict[str, Any] | None:
         "syncedAt": head["synced_at"],
         "source": "local",
     }
+
+
+def _fold(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
+    """Gesynchroniseerde lijstjes waarin een product de zoekwoorden bevat: {lijst-id: [producttitels]}.
+
+    Alle woorden moeten in dezelfde titel (of merknaam) staan. Alleen lokale kopieen
+    worden doorzocht, dus dit werkt ook als AH niet bereikbaar is.
+    """
+    words = _fold(query).split()
+    if not words:
+        return {}
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT list_id, title, brand FROM ah_list_items WHERE title IS NOT NULL ORDER BY list_id, position"
+        ).fetchall()
+    found: dict[str, list[str]] = {}
+    for row in rows:
+        haystack = _fold(f"{row['title']} {row['brand'] or ''}")
+        if all(word in haystack for word in words):
+            titles = found.setdefault(row["list_id"], [])
+            if len(titles) < limit:
+                titles.append(row["title"])
+    return found
 
 
 def sync_list(list_id: str) -> dict[str, Any]:

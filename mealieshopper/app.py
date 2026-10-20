@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ah, ah_lists, mealie
+from . import ah, ah_lists, ah_recipes, mealie, mealie_images
 from . import auth
 
 
@@ -20,7 +20,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-14")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-15")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
@@ -112,12 +112,37 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/recipes/saved")
     def ah_saved_recipes():
-        page = int(request.args.get("page") or 0)
+        # Uit de lokale kopie; ?refresh=1 haalt ze opnieuw bij AH op, ?cached=1 vraagt nooit aan AH.
+        def flag(name: str) -> bool:
+            return (request.args.get(name) or "").strip().lower() in {"1", "true", "yes"}
+
         try:
-            return jsonify(ah.get_saved_recipes(page))
+            return jsonify(ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 424
+
+    @app.get("/api/mealie/recipes/<recipe_id>/image")
+    def mealie_recipe_image(recipe_id: str):
+        if not mealie_images.valid_recipe_id(recipe_id):
+            return jsonify({"error": "Ongeldig recept"}), 400
+        version = (request.args.get("v") or "")[:64]
+        try:
+            content_type, data = mealie_images.get_image(
+                recipe_id, request.args.get("size") or mealie_images.DEFAULT_SIZE, version
+            )
+        except mealie_images.ImageNotFound:
+            return jsonify({"error": "Dit recept heeft geen afbeelding"}), 404
+        except Exception as exc:
+            app.logger.exception("Mealie image error")
+            return jsonify({"error": str(exc) or "Afbeelding ophalen mislukt"}), 424
+        response = Response(data, mimetype=content_type)
+        # Met ?v= (de afbeeldingsversie van Mealie) verandert het adres als het plaatje verandert.
+        response.headers["Cache-Control"] = (
+            "private, max-age=31536000, immutable" if version else "private, max-age=3600"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @app.get("/api/ah/auth/status")
     def ah_auth_status():
@@ -148,6 +173,12 @@ def create_app() -> Flask:
     def ah_lists_overview():
         # Altijd 200: lokale kopieen blijven zichtbaar ook als AH niet bereikbaar is.
         return jsonify(ah_lists.merged_lists())
+
+    @app.get("/api/ah/lists/search")
+    def ah_lists_search():
+        # Alleen de lokale kopieen: snel genoeg om bij elke toetsaanslag te vragen.
+        query = (request.args.get("q") or "").strip()
+        return jsonify({"query": query, "items": ah_lists.search_items(query)})
 
     @app.get("/api/ah/lists/<list_id>")
     def ah_list_detail(list_id: str):

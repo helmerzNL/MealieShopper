@@ -6,7 +6,39 @@ const state = {
   auth: null,
   credentials: [],
   ahListsLoaded: false,
+  ahLists: [],
+  ahListQuery: "",
+  ahListHits: {},
+  ahListsScroll: 0,
+  ahOpenListId: null,
+  ahRecipesLoaded: false,
+  ahRecipes: [],
+  ahRecipeQuery: "",
 };
+
+// Material Design Icons (zie static/icons/LICENSE-mdi.txt)
+const MDI_SYNC =
+  "M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z";
+const MDI_OPEN_IN_NEW =
+  "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z";
+
+function mdiIcon(path, className = "mdi") {
+  return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+}
+
+// Kleine letters zonder accenten, zodat "cafe" ook "café" vindt.
+function foldText(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function matchesWords(text, query) {
+  const words = foldText(query).split(/\s+/).filter(Boolean);
+  const haystack = foldText(text);
+  return words.length > 0 && words.every((word) => haystack.includes(word));
+}
 
 const dayNames = ["zo", "ma", "di", "wo", "do", "vr", "za"];
 const monthNames = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
@@ -359,14 +391,21 @@ function renderMealPlan(entries) {
           ${byDay[date]
             .map(
               (entry) => `
-                <div class="meal">
-                  <span>${escapeHtml(mealLabels[entry.entryType] || entry.entryType)}</span>
-                  <strong>${escapeHtml(entry.recipeDetail?.name || entry.recipe?.name || entry.title || "-")}</strong>
+                <div class="meal${entry.imageUrl ? " meal--with-image" : ""}">
                   ${
-                    entry.recipeDetail
-                      ? `<small>${entry.recipeDetail.recipeIngredient.length} ingredienten</small>`
+                    entry.imageUrl
+                      ? `<img class="meal__image" src="${escapeHtml(entry.imageUrl)}" alt="" width="64" height="64" loading="lazy" data-hide-on-error>`
                       : ""
                   }
+                  <div class="meal__text">
+                    <span>${escapeHtml(mealLabels[entry.entryType] || entry.entryType)}</span>
+                    <strong>${escapeHtml(entry.recipeDetail?.name || entry.recipe?.name || entry.title || "-")}</strong>
+                    ${
+                      entry.recipeDetail
+                        ? `<small>${entry.recipeDetail.recipeIngredient.length} ingredienten</small>`
+                        : ""
+                    }
+                  </div>
                 </div>
               `
             )
@@ -820,56 +859,103 @@ function ahListStatus(list) {
   return `${count} · gesynchroniseerd${when ? ` op ${when}` : ""}${stale}${gone}`;
 }
 
-function renderAhLists(lists) {
+// Korte regels voor op een kaart; de volledige tekst (ahListStatus) staat in de tooltip.
+function ahListCardLines(list) {
+  const total = Number(list.itemCount || 0);
+  const lines = [`${total.toLocaleString("nl-NL")} ${total === 1 ? "item" : "items"}`];
+  if (!list.synced) {
+    lines.push("Niet gesynchroniseerd");
+    return lines;
+  }
+  const date = list.syncedAt ? new Date(list.syncedAt) : null;
+  const day =
+    date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("nl-NL", { day: "numeric", month: "short" }) : "";
+  lines.push(day ? `Gesynchroniseerd ${day}` : "Gesynchroniseerd");
+  if (list.source === "local") lines.push("Alleen lokale kopie");
+  else if (list.syncedCount !== null && list.syncedCount !== list.itemCount) lines.push("Gewijzigd bij AH");
+  return lines;
+}
+
+function visibleAhLists() {
+  const query = state.ahListQuery.trim();
+  if (!query) return state.ahLists;
+  return state.ahLists.filter((list) => matchesWords(list.name, query) || state.ahListHits[list.id]);
+}
+
+function renderAhLists() {
+  const lists = visibleAhLists();
+  const query = state.ahListQuery.trim();
+  let empty = `<p class="muted">Geen AH lijstjes gevonden.</p>`;
+  if (query && state.ahLists.length) {
+    empty = `<p class="muted">Geen lijstjes gevonden met &ldquo;${escapeHtml(query)}&rdquo;.</p>`;
+  }
   $("#ah-lists").innerHTML = lists.length
-    ? `
-      <div class="credential-list">
-        ${lists
-          .map(
-            (list) => `
-              <div class="credential-row">
-                <a href="#" class="list-link" data-ah-list-id="${escapeHtml(list.id)}">
-                  <strong>${escapeHtml(list.name || "-")}</strong>
-                  <small>${escapeHtml(ahListStatus(list))}</small>
-                </a>
-                <div class="row-actions">
-                  <button class="button button--secondary" data-ah-list-id="${escapeHtml(list.id)}">Openen</button>
-                  ${
-                    list.source === "local"
-                      ? ""
-                      : `<button class="button" data-ah-sync-id="${escapeHtml(list.id)}">${
-                          list.synced ? "Opnieuw synchroniseren" : "Synchroniseren"
-                        }</button>`
-                  }
-                </div>
-              </div>
-            `
-          )
-          .join("")}
-      </div>
-    `
-    : `<p class="muted">Geen AH lijstjes gevonden.</p>`;
-  document.querySelectorAll("[data-ah-list-id]").forEach((element) => {
-    element.addEventListener("click", (event) => {
-      event.preventDefault();
-      loadAhFavoriteListItems(element.dataset.ahListId);
-    });
-  });
-  document.querySelectorAll("[data-ah-sync-id]").forEach((button) => {
-    button.addEventListener("click", () => syncOneAndReport(button.dataset.ahSyncId, button));
-  });
+    ? lists
+        .map((list) => {
+          const hits = query ? state.ahListHits[list.id] || [] : [];
+          const syncLabel = list.synced ? "Opnieuw synchroniseren" : "Synchroniseren";
+          return `
+            <div class="list-card">
+              <button type="button" class="list-card__open" data-ah-list-id="${escapeHtml(list.id)}" title="${escapeHtml(ahListStatus(list))}">
+                <strong>${escapeHtml(list.name || "-")}</strong>
+                ${ahListCardLines(list).map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
+                ${hits.length ? `<small class="list-card__hit">Bevat: ${escapeHtml(hits.join(", "))}</small>` : ""}
+              </button>
+              ${
+                list.source === "local"
+                  ? ""
+                  : `<button type="button" class="icon-button list-card__sync" data-ah-sync-id="${escapeHtml(list.id)}" aria-label="${syncLabel}: ${escapeHtml(list.name || "")}" title="${syncLabel}">${mdiIcon(MDI_SYNC)}</button>`
+              }
+            </div>
+          `;
+        })
+        .join("")
+    : empty;
+}
+
+let ahListSearchTimer = null;
+let ahListSearchSeq = 0;
+
+async function searchAhListContents() {
+  const query = state.ahListQuery.trim();
+  const seq = ++ahListSearchSeq;
+  if (!query) {
+    state.ahListHits = {};
+    renderAhLists();
+    return;
+  }
+  try {
+    const data = await jsonFetch(`/api/ah/lists/search?q=${encodeURIComponent(query)}`);
+    if (seq !== ahListSearchSeq) return; // een nieuwere toetsaanslag is al onderweg
+    state.ahListHits = data.items || {};
+  } catch {
+    if (seq !== ahListSearchSeq) return;
+    state.ahListHits = {}; // zoeken op naam blijft werken
+  }
+  renderAhLists();
+}
+
+function onAhListFilter(event) {
+  state.ahListQuery = event.target.value;
+  // Treffers horen bij de vorige zoektekst; weg ermee tot de nieuwe binnen zijn.
+  state.ahListHits = {};
+  ahListSearchSeq++;
+  renderAhLists(); // meteen op naam filteren
+  clearTimeout(ahListSearchTimer);
+  ahListSearchTimer = setTimeout(searchAhListContents, 200);
 }
 
 async function loadAhFavoriteLists() {
   const button = $("#load-ah-lists");
   button.disabled = true;
   button.textContent = "Laden...";
-  $("#ah-list-items").innerHTML = "";
   try {
     const data = await jsonFetch("/api/ah/lists");
-    renderAhLists(data.lists || []);
+    state.ahLists = data.lists || [];
+    renderAhLists();
+    if (state.ahListQuery.trim()) searchAhListContents();
     // Lokale kopieen blijven zichtbaar; meld wel waarom de live lijst ontbreekt.
-    const hasLocal = (data.lists || []).some((list) => list.synced);
+    const hasLocal = state.ahLists.some((list) => list.synced);
     message(
       "#ah-lists-warning",
       data.ahError
@@ -884,33 +970,40 @@ async function loadAhFavoriteLists() {
   }
 }
 
-async function syncAhList(listId, button) {
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Synchroniseren...";
+function setBusy(button, busy, busyText) {
+  if (!button) return;
+  button.disabled = busy;
+  button.classList.toggle("is-busy", busy);
+  if (busyText && !button.querySelector("svg")) {
+    if (busy) button.dataset.label = button.textContent;
+    button.textContent = busy ? busyText : button.dataset.label || button.textContent;
   }
+}
+
+async function syncAhList(listId, button) {
+  setBusy(button, true, "Synchroniseren...");
   try {
     const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/sync`, { method: "POST" });
     return { ok: true, data };
   } catch (error) {
     return { ok: false, error: error.message };
   } finally {
-    if (button) button.disabled = false;
+    setBusy(button, false, "Synchroniseren...");
   }
 }
 
 async function syncOneAndReport(listId, button) {
   const result = await syncAhList(listId, button);
   await loadAhFavoriteLists();
-  if (result.ok) {
-    message(
-      "#ah-lists-warning",
-      `"${result.data.name}" gesynchroniseerd (${result.data.totalSize} items).`,
-      "success"
-    );
-    await loadAhFavoriteListItems(listId);
+  const outcome = result.ok
+    ? [`"${result.data.name}" gesynchroniseerd (${result.data.totalSize} items).`, "success"]
+    : [`Synchroniseren mislukt: ${result.error}`, "error"];
+  if (state.ahOpenListId === listId) {
+    // De lijst staat open: ververs hem op dezelfde plek en meld het resultaat daar.
+    await loadAhFavoriteListItems(listId, { keepScroll: true });
+    message("#ah-list-items-message", ...outcome);
   } else {
-    message("#ah-lists-warning", `Synchroniseren mislukt: ${result.error}`);
+    message("#ah-lists-warning", ...outcome);
   }
 }
 
@@ -949,33 +1042,54 @@ async function syncAllAhLists() {
   }
 }
 
-async function loadAhFavoriteListItems(listId) {
+// Een lijstje opent op dezelfde plek als het overzicht; de pijl (of de terugknop van de telefoon) gaat terug.
+function showAhListsOverview({ restoreScroll = true } = {}) {
+  state.ahOpenListId = null;
+  $("#ah-list-view").hidden = true;
+  $("#ah-lists-view").hidden = false;
+  if (restoreScroll) window.scrollTo({ top: state.ahListsScroll });
+}
+
+async function openAhList(listId, { push = true } = {}) {
+  if (!state.ahOpenListId) state.ahListsScroll = window.scrollY;
+  state.ahOpenListId = listId;
+  if (push) history.pushState({ ahList: listId }, "");
+  const known = state.ahLists.find((list) => list.id === listId);
+  $("#ah-list-title").textContent = known?.name || "AH lijst";
+  $("#ah-list-meta").textContent = "";
+  $("#ah-list-items").innerHTML = "";
+  $("#ah-lists-view").hidden = true;
+  $("#ah-list-view").hidden = false;
+  window.scrollTo({ top: 0 });
+  await loadAhFavoriteListItems(listId);
+  $("#ah-list-title").focus({ preventScroll: true });
+}
+
+function closeAhList() {
+  if (history.state?.ahList) history.back();
+  else showAhListsOverview();
+}
+
+async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
+  const scroll = window.scrollY;
+  message("#ah-list-items-message", "");
   $("#ah-list-items").innerHTML = `<div class="message success">Lijst laden...</div>`;
   try {
     const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}`);
+    if (state.ahOpenListId !== listId) return; // inmiddels teruggegaan of een ander lijstje geopend
     const items = data.items || [];
     const synced = data.source === "local";
-    $("#ah-list-items").innerHTML = `
-      <div class="ingredients">
-        <div class="toolbar">
-          <h2>${escapeHtml(data.name || "AH lijst")}</h2>
-          <button class="button" id="sync-open-ah-list">${synced ? "Opnieuw synchroniseren" : "Synchroniseren"}</button>
-        </div>
-        <p class="muted">${items.length.toLocaleString("nl-NL")} producten · ${
-          synced
-            ? `lokale kopie van ${escapeHtml(formatSyncTime(data.syncedAt))}`
-            : "live van AH, nog niet gesynchroniseerd"
-        }</p>
-        <div class="product-grid">
-          ${items.map(renderAhListItem).join("")}
-        </div>
-      </div>
-    `;
-    $("#sync-open-ah-list").addEventListener("click", (event) =>
-      syncOneAndReport(listId, event.currentTarget)
-    );
+    $("#ah-list-title").textContent = data.name || "AH lijst";
+    $("#sync-open-ah-list").textContent = synced ? "Opnieuw synchroniseren" : "Synchroniseren";
+    $("#ah-list-meta").textContent = `${items.length.toLocaleString("nl-NL")} producten · ${
+      synced ? `lokale kopie van ${formatSyncTime(data.syncedAt)}` : "live van AH, nog niet gesynchroniseerd"
+    }`;
+    $("#ah-list-items").innerHTML = `<div class="product-grid">${items.map(renderAhListItem).join("")}</div>`;
+    if (keepScroll) window.scrollTo({ top: scroll });
   } catch (error) {
-    message("#ah-list-items", error.message);
+    if (state.ahOpenListId !== listId) return;
+    $("#ah-list-items").innerHTML = "";
+    message("#ah-list-items-message", error.message);
   }
 }
 
@@ -1008,46 +1122,76 @@ function renderSavedRecipeCard(recipe) {
       <h3>${escapeHtml(recipe.title || "Onbekend recept")}</h3>
       <div class="card-actions">
         <button class="button" data-import-url="${escapeHtml(url)}">Importeer</button>
-        ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Open recept</a>` : ""}
+        ${
+          url
+            ? `<a class="card-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener" aria-label="Open recept bij AH: ${escapeHtml(recipe.title || "")}">${mdiIcon(MDI_OPEN_IN_NEW)}<span>Open bij AH</span></a>`
+            : ""
+        }
       </div>
       <div class="recipe-import-result"></div>
     </article>
   `;
 }
 
-async function loadSavedRecipes(endpoint, containerId, messageId, button) {
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Laden...";
-  }
-  message(messageId, "");
-  $(containerId).innerHTML = "";
+function renderSavedRecipes() {
+  const query = state.ahRecipeQuery.trim();
+  const all = state.ahRecipes;
+  const recipes = query ? all.filter((recipe) => matchesWords(recipe.title, query)) : all;
+  $("#ah-recipes").innerHTML = recipes.length
+    ? recipes.map(renderSavedRecipeCard).join("")
+    : "";
+  if (!all.length) return;
+  message(
+    "#ah-recipes-message",
+    recipes.length ? "" : `Geen recepten gevonden met "${query}".`,
+    "success"
+  );
+}
+
+function updateSavedRecipesStatus(data) {
+  const total = Number(data.total ?? state.ahRecipes.length);
+  const when = formatSyncTime(data.syncedAt);
+  $("#ah-recipes-status").textContent =
+    `${total.toLocaleString("nl-NL")} ${total === 1 ? "recept" : "recepten"}` +
+    (when ? ` · bewaard in MealieShopper op ${when}` : "") +
+    ` · Vernieuwen haalt ze opnieuw bij AH op.`;
+}
+
+// `cachedOnly`: alleen de lokale kopie tonen, nooit AH vragen (zo opent het tabblad zonder AH-verkeer).
+async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
+  const button = $("#load-ah-recipes");
+  state.ahRecipesLoaded = true;
+  setBusy(button, true, "Laden...");
+  message("#ah-recipes-message", "");
   try {
-    const data = await jsonFetch(endpoint);
-    const recipes = data.recipes || [];
-    if (!recipes.length) {
-      message(messageId, "Geen bewaarde recepten gevonden.", "success");
+    const query = refresh ? "?refresh=1" : cachedOnly ? "?cached=1" : "";
+    const data = await jsonFetch(`/api/ah/recipes/saved${query}`);
+    state.ahRecipes = data.recipes || [];
+    $("#ah-recipe-filter").disabled = !state.ahRecipes.length;
+    button.dataset.label = data.syncedAt ? "Vernieuwen" : "Ophalen bij AH";
+    if (!state.ahRecipes.length) {
+      $("#ah-recipes").innerHTML = "";
+      if (data.source === "none") {
+        $("#ah-recipes-status").textContent =
+          "Je bewaarde recepten zijn nog niet opgehaald. Kies Ophalen bij AH; ze worden daarna in MealieShopper bewaard.";
+      } else {
+        message("#ah-recipes-message", "Geen bewaarde recepten gevonden.", "success");
+      }
       return;
     }
-    $(containerId).innerHTML = recipes.map(renderSavedRecipeCard).join("");
-    $(containerId)
-      .querySelectorAll("[data-import-url]")
-      .forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const result = await importUrl(btn.dataset.importUrl, btn);
-          const target = btn.closest(".recipe-card")?.querySelector(".recipe-import-result");
-          if (target) {
-            target.innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
-          }
-        });
-      });
-  } catch (error) {
-    message(messageId, error.message);
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = "Laden";
+    updateSavedRecipesStatus(data);
+    renderSavedRecipes();
+    if (data.ahError) {
+      message(
+        "#ah-recipes-message",
+        `AH is niet bereikbaar, je ziet de bewaarde kopie: ${data.ahError}`,
+        "error"
+      );
     }
+  } catch (error) {
+    message("#ah-recipes-message", error.message);
+  } finally {
+    setBusy(button, false, "Laden...");
   }
 }
 
@@ -1060,6 +1204,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     $(`#${tab.dataset.tab}`).classList.add("is-active");
     // Zoals een native tabbalk: een andere tab begint bovenaan.
     window.scrollTo({ top: 0 });
+    if (tab.dataset.tab === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   });
 });
 
@@ -1129,8 +1274,45 @@ $("#mealie-unlink").addEventListener("click", unlinkMealie);
 $("#open-mealie-setup").addEventListener("click", () => openBeheer("beheer-mealie"));
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
-$("#load-ah-recipes").addEventListener("click", (event) =>
-  loadSavedRecipes("/api/ah/recipes/saved", "#ah-recipes", "#ah-recipes-message", event.currentTarget)
+$("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
+$("#ah-recipe-filter").addEventListener("input", (event) => {
+  state.ahRecipeQuery = event.target.value;
+  renderSavedRecipes();
+});
+$("#ah-list-filter").addEventListener("input", onAhListFilter);
+$("#ah-list-back").addEventListener("click", closeAhList);
+$("#sync-open-ah-list").addEventListener("click", (event) =>
+  syncOneAndReport(state.ahOpenListId, event.currentTarget)
+);
+$("#ah-lists").addEventListener("click", (event) => {
+  const sync = event.target.closest("[data-ah-sync-id]");
+  if (sync) return syncOneAndReport(sync.dataset.ahSyncId, sync);
+  const open = event.target.closest("[data-ah-list-id]");
+  if (open) openAhList(open.dataset.ahListId);
+});
+$("#ah-recipes").addEventListener("click", async (event) => {
+  const btn = event.target.closest("[data-import-url]");
+  if (!btn) return;
+  const result = await importUrl(btn.dataset.importUrl, btn);
+  const target = btn.closest(".recipe-card")?.querySelector(".recipe-import-result");
+  if (target) target.innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+});
+// De browser zou bij terug zelf een scrollstand kiezen; wij zetten hem terug op de plek in het overzicht.
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+window.addEventListener("popstate", (event) => {
+  if (event.state?.ahList) openAhList(event.state.ahList, { push: false });
+  else if (state.ahOpenListId) showAhListsOverview();
+});
+// Een plaatje dat niet laadt (bijvoorbeeld een recept zonder afbeelding in Mealie) verdwijnt netjes.
+document.addEventListener(
+  "error",
+  (event) => {
+    if (event.target instanceof HTMLImageElement && event.target.hasAttribute("data-hide-on-error")) {
+      event.target.closest(".meal")?.classList.remove("meal--with-image");
+      event.target.remove();
+    }
+  },
+  true
 );
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
 $("#add-passkey").addEventListener("click", addPasskey);
