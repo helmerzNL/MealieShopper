@@ -4,8 +4,12 @@ services:
     container_name: mealieshopper
     restart: unless-stopped
     pull_policy: always
+    # Alles in .env.unraid is optioneel: bij de eerste start loopt de app je door de beveiliging
+    # en de koppelingen met Mealie en Albert Heijn. Zonder dit bestand start de container ook.
+    # (required: false vraagt Docker Compose 2.24 of nieuwer.)
     env_file:
-      - .env.unraid
+      - path: .env.unraid
+        required: false
     ports:
       - "5959:8000"
     volumes:

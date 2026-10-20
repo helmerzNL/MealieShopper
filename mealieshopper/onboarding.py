@@ -15,6 +15,7 @@ from typing import Any
 from flask import Flask, jsonify, request
 
 from . import ah, auth, mealie
+from .i18n import tr
 
 SETTING_ACTIVE = "ONBOARDING_ACTIVE"
 SETTING_DONE = "ONBOARDING_DONE"
@@ -34,15 +35,15 @@ def hostname_info(host: str) -> dict[str, Any]:
         host = host[1:host.index("]")]
     try:
         ipaddress.ip_address(host)
-        return {"host": host, "isIp": True, "isDomain": False, "reason": "een IP-adres"}
+        return {"host": host, "isIp": True, "isDomain": False, "reason": tr("een IP-adres", "an IP address")}
     except ValueError:
         pass
     if host == "localhost" or host.endswith(".localhost"):
-        return {"host": host, "isIp": False, "isDomain": False, "reason": "localhost"}
+        return {"host": host, "isIp": False, "isDomain": False, "reason": tr("localhost", "localhost")}
     if "." not in host:
-        return {"host": host, "isIp": False, "isDomain": False, "reason": "een naam zonder domein"}
+        return {"host": host, "isIp": False, "isDomain": False, "reason": tr("een naam zonder domein", "a name without a domain")}
     if host.endswith(PRIVATE_SUFFIXES):
-        return {"host": host, "isIp": False, "isDomain": False, "reason": "een naam die alleen in je eigen netwerk bestaat"}
+        return {"host": host, "isIp": False, "isDomain": False, "reason": tr("een naam die alleen in je eigen netwerk bestaat", "a name that only exists on your own network")}
     return {"host": host, "isIp": False, "isDomain": True, "reason": ""}
 
 
@@ -54,9 +55,15 @@ def environment() -> dict[str, Any]:
     if passkey_possible:
         why = ""
     elif not info["isDomain"]:
-        why = f"Je opent MealieShopper via {info['reason']} ({info['host']}). Een passkey vraagt een echte domeinnaam."
+        why = tr(
+            f"Je opent MealieShopper via {info['reason']} ({info['host']}). Een passkey vraagt een echte domeinnaam.",
+            f"You are opening MealieShopper through {info['reason']} ({info['host']}). A passkey needs a real domain name.",
+        )
     else:
-        why = "Je opent MealieShopper zonder HTTPS. Een passkey vraagt een beveiligde verbinding (https://)."
+        why = tr(
+            "Je opent MealieShopper zonder HTTPS. Een passkey vraagt een beveiligde verbinding (https://).",
+            "You are opening MealieShopper without HTTPS. A passkey needs a secure connection (https://).",
+        )
     return {
         "host": info["host"],
         "hasDomain": info["isDomain"],

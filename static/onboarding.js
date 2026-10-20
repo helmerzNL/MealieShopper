@@ -1,12 +1,7 @@
 // Installatiehulp voor de eerste start, en het beheer van wachtwoord en tweestapsverificatie (MFA).
 // Wordt na app.js geladen en gebruikt de hulpfuncties daarvan ($, message, jsonFetch, escapeHtml, state).
 
-const OB_STEPS = [
-  { id: "auth", label: "Beveiliging", title: "Beveilig MealieShopper" },
-  { id: "mealie", label: "Mealie", title: "Koppel je Mealie" },
-  { id: "ah", label: "Albert Heijn", title: "Koppel Albert Heijn" },
-  { id: "done", label: "Klaar", title: "Alles staat klaar" },
-];
+const OB_STEPS = [{ id: "auth" }, { id: "mealie" }, { id: "ah" }, { id: "done" }];
 
 const ob = { step: null, sub: "choose", rendered: "", started: false, mfaBusy: false };
 
@@ -76,7 +71,7 @@ function obProgressHtml() {
     const state_ = index < current ? "is-done" : index === current ? "is-current" : "";
     return `<li class="${state_}"${index === current ? ' aria-current="step"' : ""}><span class="ob-progress__dot" aria-hidden="true">${
       index < current ? "&#10003;" : index + 1
-    }</span><span class="ob-progress__label">${escapeHtml(step.label)}</span></li>`;
+    }</span><span class="ob-progress__label">${escapeHtml(t(`ob.step.${step.id}`))}</span></li>`;
   }).join("");
 }
 
@@ -85,8 +80,8 @@ function renderObStep(force = false) {
   if (!force && ob.rendered === key) return;
   ob.rendered = key;
   const index = stepIndex(ob.step);
-  $("#ob-eyebrow").textContent = `Stap ${index + 1} van ${OB_STEPS.length}`;
-  $("#ob-title").textContent = OB_STEPS[index].title;
+  $("#ob-eyebrow").textContent = t("ob.step_of", { n: index + 1, total: OB_STEPS.length });
+  $("#ob-title").textContent = t(`ob.title.${OB_STEPS[index].id}`);
   $("#ob-progress").innerHTML = obProgressHtml();
   const body = $("#ob-body");
   const renderers = { auth: renderObAuth, mealie: renderObMealie, ah: renderObAh, done: renderObDone };
@@ -99,10 +94,10 @@ function renderObStep(force = false) {
 
 function obEnvironmentNote() {
   const env = state.onboarding || {};
-  const where = escapeHtml(env.host || window.location.hostname);
-  return `<p class="ob-env">Je opent MealieShopper via <strong>${where}</strong> ${
-    env.secure ? "(beveiligd met HTTPS)" : "(zonder HTTPS)"
-  }.</p>`;
+  return `<p class="ob-env">${th("ob.env", {
+    host: env.host || window.location.hostname,
+    secure: t(env.secure ? "ob.env.secure" : "ob.env.insecure"),
+  }).replace(/&lt;(\/?)strong&gt;/g, "<$1strong>")}</p>`;
 }
 
 function renderObAuth(body) {
@@ -121,74 +116,75 @@ function renderObAuth(body) {
 function obAuthChoose(body, status) {
   const passkey = `
     <article class="ob-option ob-option--recommended">
-      <span class="ob-badge">Aanbevolen</span>
-      <h3>Passkey</h3>
-      <p>Inloggen met je vingerafdruk, gezicht of schermvergrendeling. Er is geen wachtwoord om te onthouden, te raden of te lekken.</p>
-      <button class="button" type="button" data-ob-action="go-passkey">Passkey instellen</button>
+      <span class="ob-badge">${escapeHtml(t("ob.recommended"))}</span>
+      <h3>${escapeHtml(t("ob.passkey.title"))}</h3>
+      <p>${escapeHtml(t("ob.passkey.text"))}</p>
+      <button class="button" type="button" data-ob-action="go-passkey">${escapeHtml(t("ob.passkey.button"))}</button>
     </article>`;
   const password = (primary) => `
     <article class="ob-option${primary ? " ob-option--recommended" : ""}">
-      ${primary ? '<span class="ob-badge">Aanbevolen</span>' : ""}
-      <h3>Gebruikersnaam en wachtwoord</h3>
-      <p>Een gewoon wachtwoord. Je kunt er daarna tweestapsverificatie bij zetten met een authenticator-app, zodat een gelekt wachtwoord niet genoeg is.</p>
-      <button class="button${primary ? "" : " button--secondary"}" type="button" data-ob-action="go-password">Wachtwoord instellen</button>
+      ${primary ? `<span class="ob-badge">${escapeHtml(t("ob.recommended"))}</span>` : ""}
+      <h3>${escapeHtml(t("ob.password.title"))}</h3>
+      <p>${escapeHtml(t("ob.password.text"))}</p>
+      <button class="button${primary ? "" : " button--secondary"}" type="button" data-ob-action="go-password">${escapeHtml(t("ob.password.button"))}</button>
     </article>`;
+  const welcome = `<p>${escapeHtml(t("ob.welcome"))}</p>`;
   body.innerHTML = status.passkeyAvailable
     ? `
-      <p>Welkom bij MealieShopper. In een paar stappen is alles klaar: eerst beveilig je de app, daarna koppel je Mealie en Albert Heijn.</p>
+      ${welcome}
       ${obEnvironmentNote()}
-      <p>Je hebt een domeinnaam met HTTPS, dus je kunt kiezen hoe je wilt inloggen:</p>
+      <p>${escapeHtml(t("ob.choose.domain"))}</p>
       <div class="ob-options">${passkey}${password(false)}</div>`
     : `
-      <p>Welkom bij MealieShopper. In een paar stappen is alles klaar: eerst beveilig je de app, daarna koppel je Mealie en Albert Heijn.</p>
+      ${welcome}
       ${obEnvironmentNote()}
       <div class="message warning ob-note">
-        <strong>Passkeys werken op dit adres niet.</strong>
+        <strong>${escapeHtml(t("ob.nopasskey.title"))}</strong>
         ${escapeHtml(status.passkeyUnavailableReason || "")}
-        Heb je een domeinnaam met HTTPS (bijvoorbeeld via een reverse proxy), open MealieShopper dan via dat adres als je een passkey wilt.
+        ${escapeHtml(t("ob.nopasskey.hint"))}
       </div>
-      <p>Zonder domeinnaam kun je inloggen met een gebruikersnaam en wachtwoord. Dat is optioneel, net als tweestapsverificatie.</p>
+      <p>${escapeHtml(t("ob.choose.nodomain"))}</p>
       <div class="ob-options">${password(true)}</div>
-      <p class="ob-skip"><button class="link-button" type="button" data-ob-action="go-open">Zonder beveiliging verder (niet aanbevolen)</button></p>`;
+      <p class="ob-skip"><button class="link-button" type="button" data-ob-action="go-open">${escapeHtml(t("ob.skip_security"))}</button></p>`;
 }
 
-function obBackButton(action = "go-choose", label = "Terug") {
-  return `<button class="button button--secondary" type="button" data-ob-action="${action}">${label}</button>`;
+function obBackButton(action = "go-choose", label = t("common.back")) {
+  return `<button class="button button--secondary" type="button" data-ob-action="${action}">${escapeHtml(label)}</button>`;
 }
 
 function obAuthPasskey(body, status) {
   const unavailable = webauthnUnavailableReason();
   body.innerHTML = `
-    <p>Je telefoon, laptop of beveiligingssleutel vraagt je zo om je vingerafdruk, gezicht of schermvergrendeling. Je kunt later extra passkeys toevoegen onder Beheer &gt; Beveiliging.</p>
+    <p>${escapeHtml(t("ob.passkey.intro"))}</p>
     ${unavailable ? `<div class="message error">${escapeHtml(unavailable)}</div>` : ""}
     <form class="auth-form" data-ob-form="passkey" autocomplete="off">
-      <label class="field"><span>Gebruikersnaam</span><input class="input" id="ob-username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
-      <label class="field"><span>Naam van deze passkey</span><input class="input" id="ob-passkey-name" value="Mijn passkey" autocomplete="off"></label>
-      <div class="ob-actions">${obBackButton()}<button class="button" type="submit" ${unavailable ? "disabled" : ""}>Passkey maken</button></div>
+      <label class="field"><span>${escapeHtml(t("field.username"))}</span><input class="input" id="ob-username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+      <label class="field"><span>${escapeHtml(t("ob.passkey.name_label"))}</span><input class="input" id="ob-passkey-name" value="${escapeHtml(t("ob.passkey.default_name"))}" autocomplete="off"></label>
+      <div class="ob-actions">${obBackButton()}<button class="button" type="submit" ${unavailable ? "disabled" : ""}>${escapeHtml(t("ob.passkey.make"))}</button></div>
     </form>`;
 }
 
 function obAuthPassword(body, status) {
   const min = status.minPasswordLength || 10;
   body.innerHTML = `
-    <p>Kies een wachtwoord van minstens ${min} tekens. Een zin van een paar woorden is sterker dan één woord met een cijfer, en makkelijker te onthouden. Een wachtwoordmanager mag.</p>
+    <p>${escapeHtml(t("ob.password.intro", { min }))}</p>
     <form class="auth-form" data-ob-form="password" autocomplete="on">
-      <label class="field"><span>Gebruikersnaam</span><input class="input" id="ob-username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
-      <label class="field"><span>Wachtwoord</span><input class="input" id="ob-password" type="password" autocomplete="new-password" minlength="${min}" required></label>
-      <label class="field"><span>Herhaal het wachtwoord</span><input class="input" id="ob-password2" type="password" autocomplete="new-password" required></label>
-      <label class="check"><input type="checkbox" id="ob-show-password"> Wachtwoord tonen</label>
-      <div class="ob-actions">${obBackButton()}<button class="button" type="submit">Wachtwoord opslaan</button></div>
+      <label class="field"><span>${escapeHtml(t("field.username"))}</span><input class="input" id="ob-username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>${escapeHtml(t("field.password"))}</span><input class="input" id="ob-password" type="password" autocomplete="new-password" minlength="${min}" required></label>
+      <label class="field"><span>${escapeHtml(t("field.repeat_password"))}</span><input class="input" id="ob-password2" type="password" autocomplete="new-password" required></label>
+      <label class="check"><input type="checkbox" id="ob-show-password"> ${escapeHtml(t("ob.password.show"))}</label>
+      <div class="ob-actions">${obBackButton()}<button class="button" type="submit">${escapeHtml(t("ob.password.save"))}</button></div>
     </form>`;
 }
 
 function obAuthMfaOffer(body) {
   body.innerHTML = `
-    <div class="message success">Je wachtwoord is ingesteld en je bent ingelogd.</div>
-    <h3 class="ob-subtitle">Tweestapsverificatie (optioneel)</h3>
-    <p>Met tweestapsverificatie vraagt MealieShopper bij het inloggen ook om een code van 6 cijfers uit een authenticator-app, zoals Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden of Aegis. Zo komt niemand binnen met alleen je wachtwoord.</p>
+    <div class="message success">${escapeHtml(t("ob.password.saved"))}</div>
+    <h3 class="ob-subtitle">${escapeHtml(t("ob.mfa.offer_title"))}</h3>
+    <p>${escapeHtml(t("ob.mfa.offer_text"))}</p>
     <div class="ob-actions">
-      <button class="button button--secondary" type="button" data-ob-action="skip-mfa">Overslaan, ik doe dit later</button>
-      <button class="button" type="button" data-ob-action="go-mfa">Tweestapsverificatie instellen</button>
+      <button class="button button--secondary" type="button" data-ob-action="skip-mfa">${escapeHtml(t("ob.mfa.skip"))}</button>
+      <button class="button" type="button" data-ob-action="go-mfa">${escapeHtml(t("ob.mfa.setup"))}</button>
     </div>`;
 }
 
@@ -196,7 +192,7 @@ function obAuthMfaSetup(body) {
   body.innerHTML = `<div id="ob-mfa"></div>`;
   mfaEnroll($("#ob-mfa"), {
     messageTarget: "#ob-message",
-    cancelLabel: "Nu niet",
+    cancelLabel: "common.cancel_now",
     onCancel: () => obGo("mealie"),
     onDone: async () => {
       await refreshAuthStatus();
@@ -208,74 +204,97 @@ function obAuthMfaSetup(body) {
 function obAuthOpen(body) {
   body.innerHTML = `
     <div class="message warning ob-note">
-      <strong>Zonder beveiliging kan iedereen die dit adres kent MealieShopper gebruiken.</strong>
-      Dat geldt ook voor je gekoppelde Mealie en je Albert Heijn-account: een ander kan je recepten importeren, je lijstjes lezen en je winkelmandje vullen. Doe dit alleen op een netwerk dat je vertrouwt, niet op internet.
+      <strong>${escapeHtml(t("ob.open.warning_title"))}</strong>
+      ${escapeHtml(t("ob.open.warning_text"))}
     </div>
-    <p>Je kunt later altijd een wachtwoord instellen onder Beheer &gt; Beveiliging.</p>
+    <p>${escapeHtml(t("ob.open.later"))}</p>
     <form class="auth-form" data-ob-form="open">
-      <label class="check"><input type="checkbox" id="ob-open-confirm"> Ik begrijp het risico en wil zonder beveiliging verder.</label>
-      <div class="ob-actions">${obBackButton()}<button class="button" type="submit" id="ob-open-submit" disabled>Verder zonder beveiliging</button></div>
+      <label class="check"><input type="checkbox" id="ob-open-confirm"> ${escapeHtml(t("ob.open.confirm"))}</label>
+      <div class="ob-actions">${obBackButton()}<button class="button" type="submit" id="ob-open-submit" disabled>${escapeHtml(t("ob.open.continue"))}</button></div>
     </form>`;
 }
 
 // ------------------------------------------------------------------ stap 2 t/m 4
 
-function obNavigation({ back, next, nextLabel = "Volgende" }) {
-  return `<div class="ob-actions">${back ? obBackButton(`go-${back}`) : "<span></span>"}<button class="button" type="button" data-ob-action="go-${next}">${nextLabel}</button></div>`;
+function obNavigation({ back, next }) {
+  return `<div class="ob-actions">${back ? obBackButton(`go-${back}`) : "<span></span>"}<button class="button" type="button" data-ob-action="go-${next}">${escapeHtml(t("ob.next"))}</button></div>`;
 }
 
 function renderObMealie(body) {
   body.innerHTML = `
-    <p>MealieShopper haalt je weekmenu en recepten uit Mealie en zet geïmporteerde recepten daar neer. Daarvoor heeft de app het adres van je Mealie en een API-token nodig.</p>
+    <p>${escapeHtml(t("ob.mealie.intro"))}</p>
     <div id="ob-mealie-status"></div>
-    <h3 class="ob-subtitle">Zo koppel je Mealie</h3>
-    <ol class="steps">
-      <li>Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
-      <li>Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
-      <li>Kopieer de token meteen: Mealie toont hem maar één keer.</li>
-      <li>Open in MealieShopper <strong>Beheer &gt; Mealie</strong>, vul het adres van je Mealie in (bijvoorbeeld <code>https://mealie.jouwdomein.nl</code>) en plak de token.</li>
-      <li>Kies <strong>Koppelen</strong>. MealieShopper controleert het adres en de token bij Mealie voordat er iets wordt bewaard.</li>
-    </ol>
-    <p class="muted">Het adres moet bereikbaar zijn vanaf de plek waar MealieShopper draait, niet per se vanaf je telefoon. Draaien ze in dezelfde Docker-omgeving, dan kan dat ook een interne naam zijn zoals <code>http://mealie:9000</code>. De token wordt versleuteld opgeslagen en nooit meer getoond.</p>
-    ${obNavigation({ next: "ah" })}`;
+    <div id="ob-mealie-form-area">
+      <h3 class="ob-subtitle">${escapeHtml(t("ob.mealie.how"))}</h3>
+      <ol class="steps">
+        <li>${th("ob.mealie.s1")}</li>
+        <li>${th("ob.mealie.s2")}</li>
+        <li>${th("ob.mealie.s3")}</li>
+      </ol>
+      <form class="auth-form" id="ob-mealie-form" data-ob-form="mealie" autocomplete="off">
+        <label class="field"><span>${escapeHtml(t("mealie.url_label"))}</span><input class="input" id="ob-mealie-url" type="url" inputmode="url" placeholder="${escapeHtml(t("mealie.url_ph"))}" autocomplete="off" spellcheck="false" required></label>
+        <label class="field"><span>${escapeHtml(t("mealie.token_label"))}</span><input class="input" id="ob-mealie-token" type="password" placeholder="${escapeHtml(t("mealie.token_ph"))}" autocomplete="off" spellcheck="false" required></label>
+        <button class="button" type="submit">${escapeHtml(t("mealie.link"))}</button>
+      </form>
+      <p class="muted">${th("ob.mealie.note")}</p>
+    </div>
+    <div class="ob-actions">
+      <button class="button button--secondary" type="button" id="ob-mealie-skip" data-ob-action="go-ah">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-mealie-next" data-ob-action="go-ah" hidden>${escapeHtml(t("ob.mealie.next_ah"))}</button>
+    </div>`;
   loadObIntegrationStatus("mealie");
 }
 
 function renderObAh(body) {
   body.innerHTML = `
-    <p>Met je Albert Heijn-account kan MealieShopper je favoriete lijstjes en bewaarde recepten ophalen en je boodschappen in het AH-mandje zetten. Zoeken naar recepten werkt ook zonder koppeling.</p>
+    <p>${escapeHtml(t("ob.ah.intro"))}</p>
     <div id="ob-ah-status"></div>
-    <h3 class="ob-subtitle">Zo koppel je Albert Heijn</h3>
-    <div class="message warning ob-note">Dit gaat op een <strong>computer</strong> (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. AH biedt geen officiële koppeling; daarom loopt het zo.</div>
-    <ol class="steps">
-      <li>Open <strong>Beheer &gt; Albert Heijn</strong> en kies <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
-      <li>Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code>, of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-      <li>Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
-      <li>In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel.</li>
-      <li>Plak hem in MealieShopper onder <strong>Koppeling afronden</strong> en kies direct <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-    </ol>
-    <p class="muted">Dit kan ook later: je kunt MealieShopper eerst gebruiken en AH daarna koppelen.</p>
-    ${obNavigation({ back: "mealie", next: "done" })}`;
+    <div id="ob-ah-form-area">
+      <h3 class="ob-subtitle">${escapeHtml(t("ob.ah.how"))}</h3>
+      <div class="message warning ob-note">${th("ob.ah.computer")}</div>
+      <ol class="steps">
+        <li>${th("ob.ah.s1")}</li>
+        <li>${th("ob.ah.s2")}</li>
+        <li>${th("ob.ah.s3")}</li>
+        <li>${th("ob.ah.s4")}</li>
+        <li>${th("ob.ah.s5")}</li>
+      </ol>
+      <p><a class="button button--secondary" href="/api/ah/auth/start" target="_blank" rel="noopener">${escapeHtml(t("ahlogin.button"))}</a></p>
+      <form class="auth-form" id="ob-ah-form" data-ob-form="ah" autocomplete="off">
+        <label class="field"><span>${escapeHtml(t("ob.ah.paste_label"))}</span><textarea class="textarea" id="ob-ah-token" rows="3" placeholder="appie://login-exit?code=..." spellcheck="false" required></textarea></label>
+        <button class="button" type="submit">${escapeHtml(t("common.link"))}</button>
+      </form>
+      <p class="muted">${escapeHtml(t("ob.ah.skip_note"))}</p>
+    </div>
+    <div class="ob-actions">
+      ${obBackButton("go-mealie")}
+      <button class="button button--secondary" type="button" id="ob-ah-skip" data-ob-action="go-done">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-ah-next" data-ob-action="go-done" hidden>${escapeHtml(t("ob.ah.next_done"))}</button>
+    </div>`;
   loadObIntegrationStatus("ah");
 }
 
+// Gekoppeld: toon dat, verberg het formulier en maak "volgende" de hoofdknop.
+function obIntegrationDone(which, text) {
+  message(`#ob-${which}-status`, text, "success");
+  $(`#ob-${which}-form-area`).hidden = true;
+  $(`#ob-${which}-skip`).hidden = true;
+  const next = $(`#ob-${which}-next`);
+  next.hidden = false;
+  next.focus({ preventScroll: true });
+}
+
 async function loadObIntegrationStatus(which) {
-  const target = which === "mealie" ? "#ob-mealie-status" : "#ob-ah-status";
+  const target = `#ob-${which}-status`;
   try {
     if (which === "mealie") {
       const data = await jsonFetch("/api/mealie/status");
-      message(
-        target,
-        data.configured ? `Mealie is al gekoppeld: ${data.url}` : "Mealie is nog niet gekoppeld.",
-        data.configured ? "success" : "warning"
-      );
+      if (data.configured) obIntegrationDone("mealie", t("ob.mealie.linked", { url: data.url }));
+      else message(target, t("ob.mealie.not_linked"), "warning");
     } else {
       const data = await jsonFetch("/api/ah/auth/status");
-      message(
-        target,
-        data.connected ? "Je AH-account is al gekoppeld." : "Je AH-account is nog niet gekoppeld.",
-        data.connected ? "success" : "warning"
-      );
+      if (data.connected) obIntegrationDone("ah", t("ob.ah.linked"));
+      else message(target, t("ob.ah.not_linked"), "warning");
     }
   } catch {
     $(target).innerHTML = "";
@@ -285,39 +304,39 @@ async function loadObIntegrationStatus(which) {
 function authModeLabel() {
   const status = state.onboarding || {};
   const auth = state.auth || {};
-  if (status.authMode === "off") return "Inloggen staat uit via de omgevingsvariabelen";
-  if (status.authMode === "none" || !auth.enabled) return "Zonder inloggen";
+  if (status.authMode === "off") return t("ob.mode.off");
+  if (status.authMode === "none" || !auth.enabled) return t("ob.mode.none");
   const parts = [];
-  if (auth.methods?.passkey) parts.push("passkey");
-  if (auth.methods?.password) parts.push("wachtwoord");
-  if (auth.mfaEnabled) parts.push("tweestapsverificatie");
-  return `Inloggen met ${parts.join(" en ") || "wachtwoord"}`;
+  if (auth.methods?.passkey) parts.push(t("ob.mode.passkey"));
+  if (auth.methods?.password) parts.push(t("ob.mode.password"));
+  if (auth.mfaEnabled) parts.push(t("ob.mode.mfa"));
+  return t("ob.mode.login_with", { methods: parts.join(t("ob.mode.and")) || t("ob.mode.password") });
 }
 
 async function renderObDone(body) {
   body.innerHTML = `
-    <p>MealieShopper is klaar voor gebruik. Dit staat er nu:</p>
+    <p>${escapeHtml(t("ob.done.intro"))}</p>
     <ul class="ob-checklist" id="ob-checklist"></ul>
     <div class="ob-actions ob-actions--wrap" id="ob-done-actions"></div>`;
   const [mealie, ah] = await Promise.all([
     jsonFetch("/api/mealie/status").catch(() => ({})),
     jsonFetch("/api/ah/auth/status").catch(() => ({})),
   ]);
-  const item = (ok, text) => `<li class="${ok ? "is-ok" : "is-todo"}"><span class="ob-check" aria-hidden="true">${ok ? "&#10003;" : "&#9675;"}</span><span>${text}</span></li>`;
+  const item = (ok, text) => `<li class="${ok ? "is-ok" : "is-todo"}"><span class="ob-check" aria-hidden="true">${ok ? "&#10003;" : "&#9675;"}</span><span>${escapeHtml(text)}</span></li>`;
   $("#ob-checklist").innerHTML =
-    item(true, `Beveiliging: ${escapeHtml(authModeLabel())}`) +
-    item(Boolean(mealie.configured), mealie.configured ? `Mealie gekoppeld: ${escapeHtml(mealie.url || "")}` : "Mealie nog niet gekoppeld") +
-    item(Boolean(ah.connected), ah.connected ? "Albert Heijn gekoppeld" : "Albert Heijn nog niet gekoppeld (optioneel)");
+    item(true, t("ob.done.security", { mode: authModeLabel() })) +
+    item(Boolean(mealie.configured), mealie.configured ? t("ob.done.mealie_ok", { url: mealie.url || "" }) : t("ob.done.mealie_todo")) +
+    item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo"));
   const actions = [];
-  if (!mealie.configured) actions.push(`<button class="button" type="button" data-ob-action="finish-mealie">Mealie nu koppelen</button>`);
-  if (!ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="finish-ah">Albert Heijn nu koppelen</button>`);
+  if (!mealie.configured) actions.push(`<button class="button" type="button" data-ob-action="go-mealie">${escapeHtml(t("ob.done.link_mealie"))}</button>`);
+  if (!ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-ah">${escapeHtml(t("ob.done.link_ah"))}</button>`);
   actions.push(
-    `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">MealieShopper openen</button>`
+    `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t("ob.done.open"))}</button>`
   );
   $("#ob-done-actions").innerHTML = actions.join("");
 }
 
-async function finishOnboarding(openSubtab) {
+async function finishOnboarding() {
   try {
     await postJson("/api/onboarding/complete");
   } catch (error) {
@@ -328,15 +347,16 @@ async function finishOnboarding(openSubtab) {
   ob.step = null;
   ob.rendered = "";
   renderAuthState();
-  if (openSubtab) openBeheer(openSubtab);
-  else window.scrollTo({ top: 0 });
+  window.scrollTo({ top: 0 });
+  refreshMealieStatus(); // de melding op het weekmenu en de status onder Beheer volgen wat er gekoppeld is
+  refreshAhStatus();
 }
 
 // ---------------------------------------------------------------- acties en formulieren
 
 async function obSubmitPasskey() {
   const username = $("#ob-username").value.trim() || "admin";
-  const credentialName = $("#ob-passkey-name").value.trim() || "Mijn passkey";
+  const credentialName = $("#ob-passkey-name").value.trim() || t("ob.passkey.default_name");
   await registerPasskey({ username, credentialName, messageTarget: "#ob-message" });
   await refreshAuthStatus();
   obGo("mealie");
@@ -344,10 +364,31 @@ async function obSubmitPasskey() {
 
 async function obSubmitPassword() {
   const password = $("#ob-password").value;
-  if (password !== $("#ob-password2").value) throw new Error("De twee wachtwoorden zijn niet hetzelfde.");
+  if (password !== $("#ob-password2").value) throw new Error(t("ob.password.mismatch"));
   await postJson("/api/auth/password", { username: $("#ob-username").value, password });
   await refreshAuthStatus();
   obGo("auth", "mfa-offer");
+}
+
+async function obSubmitMealie() {
+  const data = await postJson("/api/mealie/auth", {
+    url: $("#ob-mealie-url").value.trim(),
+    token: $("#ob-mealie-token").value.trim(),
+  });
+  $("#ob-mealie-token").value = "";
+  const details = [
+    data.version ? t("mealie.version", { version: data.version }) : "",
+    data.username ? t("mealie.user", { user: data.username }) : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  obIntegrationDone("mealie", t("mealie.works", { url: data.url, details: details ? ` (${details})` : "" }));
+}
+
+async function obSubmitAh() {
+  await postJson("/api/ah/auth", { code: $("#ob-ah-token").value.trim() });
+  $("#ob-ah-token").value = "";
+  obIntegrationDone("ah", t("ah.saved"));
 }
 
 async function obSubmitOpen() {
@@ -367,8 +408,6 @@ const OB_ACTIONS = {
   "go-ah": () => obGo("ah"),
   "go-done": () => obGo("done"),
   finish: () => finishOnboarding(),
-  "finish-mealie": () => finishOnboarding("beheer-mealie"),
-  "finish-ah": () => finishOnboarding("beheer-ah"),
 };
 
 $("#ob-body").addEventListener("click", (event) => {
@@ -388,13 +427,13 @@ $("#ob-body").addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   const submit = form.querySelector('[type="submit"]');
-  const handlers = { passkey: obSubmitPasskey, password: obSubmitPassword, open: obSubmitOpen };
+  const handlers = { passkey: obSubmitPasskey, password: obSubmitPassword, open: obSubmitOpen, mealie: obSubmitMealie, ah: obSubmitAh };
   if (submit) submit.disabled = true;
   message("#ob-message", "");
   try {
     await handlers[form.dataset.obForm]();
   } catch (error) {
-    message("#ob-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
+    message("#ob-message", error.name === "NotAllowedError" ? t("passkey.cancelled") : error.message);
     if (submit && form.dataset.obForm !== "open") submit.disabled = false;
   }
 });
@@ -408,7 +447,7 @@ function loadQrLibrary() {
     const script = document.createElement("script");
     script.src = "/static/vendor/qrcode-2.0.4.js";
     script.onload = () => resolve(window.qrcode);
-    script.onerror = () => reject(new Error("QR-code kon niet worden getoond."));
+    script.onerror = () => reject(new Error(t("mfa.qr_load_failed")));
     document.head.appendChild(script);
   });
   return qrLibrary;
@@ -422,7 +461,7 @@ async function drawQr(slot, text) {
     code.make();
     slot.innerHTML = code.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
   } catch {
-    slot.innerHTML = `<p class="muted">De QR-code kon niet worden getoond. Gebruik de sleutel hiernaast.</p>`;
+    slot.innerHTML = `<p class="muted">${escapeHtml(t("mfa.qr_failed"))}</p>`;
   }
 }
 
@@ -449,9 +488,10 @@ async function copyText(text) {
   }
 }
 
-async function mfaEnroll(container, { onDone, onCancel, cancelLabel = "Annuleren", messageTarget }) {
+async function mfaEnroll(container, { onDone, onCancel, cancelLabel = "common.cancel", messageTarget }) {
   ob.mfaBusy = true;
-  container.innerHTML = `<p class="muted">Even geduld...</p>`;
+  container.innerHTML = `<p class="muted" data-i18n="mfa.wait"></p>`;
+  I18N.apply(container);
   let setup;
   try {
     setup = await postJson("/api/auth/mfa/start");
@@ -461,26 +501,28 @@ async function mfaEnroll(container, { onDone, onCancel, cancelLabel = "Annuleren
     message(messageTarget, error.message);
     return;
   }
-  const secret = escapeHtml(setup.secret);
+  // Alle vaste teksten dragen data-i18n: bij een taalwissel midden in het instellen blijft de sleutel
+  // (en dus je al gescande code) gewoon staan en wisselt alleen de tekst.
   container.innerHTML = `
     <ol class="steps">
-      <li>Installeer een authenticator-app, zoals Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden of Aegis.</li>
-      <li>Scan de QR-code met die app.</li>
-      <li>Vul hieronder de code van 6 cijfers in die de app laat zien.</li>
+      <li data-i18n="mfa.setup.s1"></li>
+      <li data-i18n="mfa.setup.s2"></li>
+      <li data-i18n="mfa.setup.s3"></li>
     </ol>
     <div class="qr-box">
-      <div class="qr" role="img" aria-label="QR-code voor tweestapsverificatie"></div>
+      <div class="qr" role="img" data-i18n-attr="aria-label:mfa.qr_label"></div>
       <div class="qr-help">
-        <p class="muted">Lukt scannen niet, of zit je op de telefoon waarop de app staat?</p>
-        <a class="button button--secondary" href="${escapeHtml(setup.otpauthUri)}">Open in je authenticator-app</a>
-        <p class="muted">Of typ deze sleutel over (tijdgebaseerd, 6 cijfers):</p>
-        <p><code class="qr-secret" data-mfa-secret>${secret}</code></p>
+        <p class="muted" data-i18n="mfa.help"></p>
+        <a class="button button--secondary" href="${escapeHtml(setup.otpauthUri)}" data-i18n="mfa.open_app"></a>
+        <p class="muted" data-i18n="mfa.type_key"></p>
+        <p><code class="qr-secret" data-mfa-secret>${escapeHtml(setup.secret)}</code></p>
       </div>
     </div>
     <form class="auth-form" data-mfa-confirm autocomplete="off">
-      <label class="field"><span>Code uit de app</span><input class="input" data-mfa-code inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="7" required></label>
-      <div class="ob-actions"><button class="button button--secondary" type="button" data-mfa-cancel>${escapeHtml(cancelLabel)}</button><button class="button" type="submit">Bevestigen</button></div>
+      <label class="field"><span data-i18n="mfa.code_from_app"></span><input class="input" data-mfa-code inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="7" required></label>
+      <div class="ob-actions"><button class="button button--secondary" type="button" data-mfa-cancel data-i18n="${escapeHtml(cancelLabel)}"></button><button class="button" type="submit" data-i18n="common.confirm"></button></div>
     </form>`;
+  I18N.apply(container);
   drawQr(container.querySelector(".qr"), setup.otpauthUri);
   const form = container.querySelector("[data-mfa-confirm]");
   container.querySelector("[data-mfa-cancel]").addEventListener("click", () => {
@@ -509,22 +551,23 @@ async function mfaEnroll(container, { onDone, onCancel, cancelLabel = "Annuleren
 function showRecoveryCodes(container, codes, onContinue, { heading = true } = {}) {
   const text = codes.join("\n");
   container.innerHTML = `
-    ${heading ? '<div class="message success">Tweestapsverificatie staat aan.</div>' : ""}
-    <h3 class="ob-subtitle">Bewaar je herstelcodes</h3>
-    <p>Raak je telefoon kwijt, dan log je met een van deze codes in. Elke code werkt één keer. Ze worden hierna <strong>niet meer getoond</strong>: bewaar ze in een wachtwoordmanager of print ze.</p>
+    ${heading ? '<div class="message success" data-i18n="mfa.enabled_msg"></div>' : ""}
+    <h3 class="ob-subtitle" data-i18n="mfa.recovery.title"></h3>
+    <p data-i18n-html="mfa.recovery.text"></p>
     <ul class="recovery-codes" data-recovery-codes>${codes.map((code) => `<li><code>${escapeHtml(code)}</code></li>`).join("")}</ul>
     <div class="ob-actions ob-actions--wrap">
-      <button class="button button--secondary" type="button" data-recovery-copy>Kopiëren</button>
-      <button class="button button--secondary" type="button" data-recovery-download>Downloaden (.txt)</button>
+      <button class="button button--secondary" type="button" data-recovery-copy data-i18n="mfa.recovery.copy"></button>
+      <button class="button button--secondary" type="button" data-recovery-download data-i18n="mfa.recovery.download"></button>
     </div>
-    <label class="check"><input type="checkbox" data-recovery-saved> Ik heb mijn herstelcodes veilig bewaard.</label>
-    <div class="ob-actions"><span></span><button class="button" type="button" data-recovery-continue disabled>Doorgaan</button></div>`;
+    <label class="check"><input type="checkbox" data-recovery-saved> <span data-i18n="mfa.recovery.saved"></span></label>
+    <div class="ob-actions"><span></span><button class="button" type="button" data-recovery-continue data-i18n="mfa.recovery.continue" disabled></button></div>`;
+  I18N.apply(container);
   const status = container.querySelector("[data-recovery-copy]");
   status.addEventListener("click", async () => {
-    status.textContent = (await copyText(text)) ? "Gekopieerd" : "Kopiëren lukt niet, selecteer de codes zelf";
+    status.textContent = (await copyText(text)) ? t("mfa.recovery.copied") : t("mfa.recovery.copy_failed");
   });
   container.querySelector("[data-recovery-download]").addEventListener("click", () => {
-    const blob = new Blob([`MealieShopper herstelcodes\n\n${text}\n`], { type: "text/plain" });
+    const blob = new Blob([`${t("mfa.recovery.file")}\n\n${text}\n`], { type: "text/plain" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = "mealieshopper-herstelcodes.txt";
@@ -541,6 +584,31 @@ function showRecoveryCodes(container, codes, onContinue, { heading = true } = {}
 
 // ------------------------------------------------- Beheer > Beveiliging: wachtwoord en MFA
 
+// Inklapbare blokken in Beheer > Beveiliging. De keuze van de gebruiker blijft bij het opnieuw tekenen staan.
+state.secFold = {};
+
+function applyFold(name, { collapsible, defaultOpen, notNeeded }) {
+  const toggle = $(`#${name}-toggle`);
+  const open = collapsible ? state.secFold[name] ?? defaultOpen : true;
+  toggle.disabled = !collapsible;
+  toggle.classList.toggle("is-static", !collapsible);
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.title = collapsible ? t(open ? "sec.collapse" : "sec.expand") : "";
+  $(`#${name}-body`).hidden = !open;
+  $(`#${name}-badge`).hidden = !notNeeded;
+}
+
+for (const name of ["password", "mfa"]) {
+  $(`#${name}-toggle`).addEventListener("click", () => {
+    const toggle = $(`#${name}-toggle`);
+    const open = toggle.getAttribute("aria-expanded") !== "true";
+    state.secFold[name] = open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.title = t(open ? "sec.collapse" : "sec.expand");
+    $(`#${name}-body`).hidden = !open;
+  });
+}
+
 function renderSecurityPanel() {
   const passwordBox = $("#security-password-box");
   const mfaBox = $("#security-mfa-box");
@@ -553,31 +621,39 @@ function renderSecurityPanel() {
   if (!canManage) return;
 
   const configured = Boolean(auth.passwordConfigured);
+  const hasPasskey = Boolean(auth.methods?.passkey);
+  // Met een passkey is een wachtwoord (en dus ook tweestapsverificatie) niet nodig: die delen zijn dan
+  // inklapbaar, en dicht zolang je ze niet gebruikt. Zonder passkey blijven ze open.
+  applyFold("password", { collapsible: hasPasskey, defaultOpen: configured, notNeeded: hasPasskey && !configured });
+  applyFold("mfa", { collapsible: hasPasskey, defaultOpen: configured, notNeeded: hasPasskey && !configured });
   $("#password-intro").textContent = configured
-    ? "Je kunt hier je wachtwoord of gebruikersnaam wijzigen. Andere apparaten moeten daarna opnieuw inloggen."
+    ? t("sec.password.intro_set")
     : !auth.enabled
-      ? "MealieShopper is nu open voor iedereen die het adres kent. Stel een wachtwoord in om inloggen aan te zetten."
-      : "Je logt nu in met een passkey. Je kunt er ook een wachtwoord naast zetten, bijvoorbeeld voor een apparaat zonder passkey.";
+      ? t("sec.password.intro_open")
+      : t("sec.password.intro_passkey");
   $("#pw-current-field").hidden = !configured;
-  $("#pw-new-label").textContent = configured ? "Nieuw wachtwoord" : "Wachtwoord";
-  $("#pw-submit").textContent = configured ? "Wachtwoord wijzigen" : "Wachtwoord instellen";
+  $("#pw-new-label").textContent = configured ? t("sec.password.new") : t("field.password");
+  $("#pw-submit").textContent = configured ? t("sec.password.change") : t("sec.password.set");
   const username = $("#pw-username");
   if (!username.value && document.activeElement !== username) username.value = auth.username || "admin";
 
   const note = $("#mfa-intro");
   const panel = $("#mfa-panel");
-  if (ob.mfaBusy) return; // niet midden in het instellen opnieuw tekenen
+  if (ob.mfaBusy) {
+    I18N.apply(panel); // midden in het instellen: de vaste teksten wisselen mee, de inhoud blijft
+    return;
+  }
   if (!configured) {
-    note.textContent = "Tweestapsverificatie hoort bij inloggen met een wachtwoord. Stel eerst een wachtwoord in.";
+    note.textContent = hasPasskey ? t("sec.mfa.optional_note") : t("sec.mfa.needs_password");
     panel.innerHTML = "";
   } else if (auth.mfaEnabled) {
-    note.textContent = `Staat aan. Bij het inloggen vraagt MealieShopper ook om een code uit je authenticator-app. Je hebt nog ${auth.recoveryCodesLeft ?? 0} herstelcodes.`;
+    note.textContent = t("sec.mfa.on", { count: I18N.formatNumber(auth.recoveryCodesLeft ?? 0) });
     panel.innerHTML = `<div class="ob-actions ob-actions--wrap">
-      <button class="button button--secondary" type="button" data-mfa-action="regen">Nieuwe herstelcodes maken</button>
-      <button class="button button--secondary" type="button" data-mfa-action="disable">Uitzetten</button></div>`;
+      <button class="button button--secondary" type="button" data-mfa-action="regen">${escapeHtml(t("sec.mfa.regen"))}</button>
+      <button class="button button--secondary" type="button" data-mfa-action="disable">${escapeHtml(t("sec.mfa.disable"))}</button></div>`;
   } else {
-    note.textContent = "Staat uit. Met een authenticator-app voeg je bij het inloggen een code van 6 cijfers toe, zodat een gelekt wachtwoord niet genoeg is.";
-    panel.innerHTML = `<button class="button" type="button" data-mfa-action="start">Tweestapsverificatie instellen</button>`;
+    note.textContent = t("sec.mfa.off");
+    panel.innerHTML = `<button class="button" type="button" data-mfa-action="start">${escapeHtml(t("sec.mfa.start"))}</button>`;
   }
 }
 
@@ -587,7 +663,7 @@ async function submitPasswordForm(event) {
   const password = $("#pw-new").value;
   message("#password-message", "");
   if (password !== $("#pw-new2").value) {
-    message("#password-message", "De twee wachtwoorden zijn niet hetzelfde.");
+    message("#password-message", t("ob.password.mismatch"));
     return;
   }
   button.disabled = true;
@@ -598,7 +674,7 @@ async function submitPasswordForm(event) {
       currentPassword: $("#pw-current").value,
     });
     for (const id of ["pw-current", "pw-new", "pw-new2"]) $(`#${id}`).value = "";
-    message("#password-message", data.replaced ? "Wachtwoord gewijzigd." : "Wachtwoord ingesteld. Je bent ingelogd.", "success");
+    message("#password-message", data.replaced ? t("sec.password.changed") : t("sec.password.was_set"), "success");
     await refreshAuthStatus();
   } catch (error) {
     message("#password-message", error.message);
@@ -608,14 +684,11 @@ async function submitPasswordForm(event) {
 }
 
 function askPassword(kind) {
-  const labels = {
-    regen: "Maak nieuwe herstelcodes",
-    disable: "Tweestapsverificatie uitzetten",
-  };
+  const labels = { regen: "sec.mfa.regen_action", disable: "sec.mfa.disable_action" };
   $("#mfa-panel").innerHTML = `
     <form class="auth-form" data-mfa-password="${kind}" autocomplete="off">
-      <label class="field"><span>Bevestig met je wachtwoord</span><input class="input" type="password" id="mfa-password" autocomplete="current-password" required></label>
-      <div class="ob-actions"><button class="button button--secondary" type="button" data-mfa-action="cancel">Annuleren</button><button class="button" type="submit">${labels[kind]}</button></div>
+      <label class="field"><span>${escapeHtml(t("sec.mfa.confirm_password"))}</span><input class="input" type="password" id="mfa-password" autocomplete="current-password" required></label>
+      <div class="ob-actions"><button class="button button--secondary" type="button" data-mfa-action="cancel">${escapeHtml(t("common.cancel"))}</button><button class="button" type="submit">${escapeHtml(t(labels[kind]))}</button></div>
     </form>`;
   $("#mfa-password").focus();
 }
@@ -650,7 +723,7 @@ $("#mfa-panel").addEventListener("submit", async (event) => {
   try {
     if (kind === "disable") {
       await postJson("/api/auth/mfa/disable", { password });
-      message("#mfa-message", "Tweestapsverificatie staat uit.", "success");
+      message("#mfa-message", t("sec.mfa.turned_off"), "success");
       await refreshAuthStatus();
     } else {
       const data = await postJson("/api/auth/mfa/recovery", { password });
@@ -667,5 +740,33 @@ $("#mfa-panel").addEventListener("submit", async (event) => {
     }
   } catch (error) {
     message("#mfa-message", error.message);
+  }
+});
+
+// Een andere taal: de installatiehulp opnieuw tekenen en bewaren wat je al had ingevuld. Midden in het
+// instellen van tweestapsverificatie niet opnieuw tekenen (dat zou een nieuwe sleutel maken); de vaste
+// teksten daar wisselen mee via data-i18n.
+window.addEventListener("ms:languagechange", () => {
+  if (!onboardingVisible()) return;
+  if (ob.mfaBusy) {
+    $("#ob-eyebrow").textContent = t("ob.step_of", { n: stepIndex(ob.step) + 1, total: OB_STEPS.length });
+    $("#ob-title").textContent = t(`ob.title.${ob.step}`);
+    $("#ob-progress").innerHTML = obProgressHtml();
+    I18N.apply($("#ob-body"));
+    return;
+  }
+  const body = $("#ob-body");
+  const saved = [...body.querySelectorAll("input[id]")].map((input) => [input.id, input.type === "checkbox" ? input.checked : input.value]);
+  ob.rendered = "";
+  renderOnboarding();
+  for (const [id, value] of saved) {
+    const input = document.getElementById(id);
+    if (!input) continue;
+    if (input.type === "checkbox") {
+      input.checked = value;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    } else if (!(id === "ob-passkey-name" && Object.values(I18N.messages).some((m) => m["ob.passkey.default_name"] === value))) {
+      input.value = value; // een nog onaangeraakte standaardnaam wisselt gewoon mee van taal
+    }
   }
 });

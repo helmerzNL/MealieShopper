@@ -16,6 +16,8 @@ const state = {
   ahRecipesLoaded: false,
   ahRecipes: [],
   ahRecipeQuery: "",
+  about: null,
+  aboutLoaded: false,
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -42,9 +44,19 @@ function matchesWords(text, query) {
   return words.length > 0 && words.every((word) => haystack.includes(word));
 }
 
-const dayNames = ["zo", "ma", "di", "wo", "do", "vr", "za"];
-const monthNames = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
-const mealLabels = { breakfast: "Ontbijt", lunch: "Lunch", dinner: "Diner", side: "Bijgerecht" };
+// Korte dag- en maandnamen in de gekozen taal ("ma", "okt" / "Mon", "Oct").
+function weekdayShort(date) {
+  return date.toLocaleDateString(I18N.locale(), { weekday: "short" }).replace(/\.$/, "");
+}
+
+function monthShort(date) {
+  return date.toLocaleDateString(I18N.locale(), { month: "short" }).replace(/\.$/, "");
+}
+
+function mealLabel(type) {
+  const key = `meal.${type}`;
+  return I18N.messages.nl[key] ? t(key) : type;
+}
 
 function $(selector) {
   return document.querySelector(selector);
@@ -67,16 +79,16 @@ async function jsonFetch(url, options = {}) {
   } catch (error) {
     const proxyHint =
       response.status === 502 || response.status === 504
-        ? " Een reverse proxy kan het antwoord vervangen of te lang wachten; kijk in de container-logs voor de echte fout."
+        ? t("err.proxy_hint")
         : "";
     throw new Error(
       response.ok
-        ? "Onverwacht antwoord van de server (geen geldige JSON)."
-        : `Serverfout (${response.status}). Is de app bijgewerkt en ben je ingelogd?${proxyHint}`
+        ? t("err.bad_json")
+        : t("err.server", { status: response.status, hint: proxyHint })
     );
   }
   if (!response.ok) {
-    throw new Error(data.error || "Er is iets misgegaan");
+    throw new Error(data.error || t("err.generic"));
   }
   return data;
 }
@@ -107,11 +119,11 @@ function base64urlToBuffer(value) {
 
 function webauthnUnavailableReason() {
   if (!window.PublicKeyCredential || !navigator.credentials) {
-    return "Deze browser ondersteunt geen passkeys.";
+    return t("passkey.unsupported");
   }
   const secure = window.isSecureContext || ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
   if (!secure) {
-    return "Open MealieShopper via HTTPS om passkeys te gebruiken.";
+    return t("passkey.needs_https");
   }
   return "";
 }
@@ -148,7 +160,7 @@ function renderAuthState() {
 
   gate.hidden = !showGate;
   chip.hidden = !authenticated || !auth.enabled;
-  $("#auth-chip-text").textContent = authenticated && auth.username ? `Ingelogd als ${auth.username}` : "";
+  $("#auth-chip-text").textContent = authenticated && auth.username ? t("auth.chip", { name: auth.username }) : "";
 
   if (showGate) {
     const methods = auth.methods || {};
@@ -157,14 +169,14 @@ function renderAuthState() {
     $("#mfa-form").hidden = !mfaStep;
     $("#login-passkey-box").hidden = !methods.passkey || mfaStep;
     $("#login-or").hidden = !(methods.passkey && methods.password);
-    $("#auth-title").textContent = mfaStep ? "Bevestig je login" : "Inloggen";
+    $("#auth-title").textContent = mfaStep ? t("gate.title.mfa") : t("gate.title.login");
     $("#auth-description").textContent = mfaStep
-      ? "Vul de code uit je authenticator-app in."
+      ? t("gate.desc.mfa")
       : methods.password && methods.passkey
-        ? "Log in met je wachtwoord of met je passkey."
+        ? t("gate.desc.both")
         : methods.password
-          ? "Log in met je gebruikersnaam en wachtwoord."
-          : "Bevestig met je passkey om MealieShopper te openen.";
+          ? t("gate.desc.password")
+          : t("gate.desc.passkey");
     const unavailable = webauthnUnavailableReason();
     $("#login-passkey").disabled = Boolean(unavailable);
     if (unavailable && methods.passkey && !methods.password) message("#auth-message", unavailable);
@@ -183,7 +195,7 @@ function renderCredentials() {
   if (!target) return;
   if (!state.auth?.authenticated || !state.auth?.enabled) {
     target.innerHTML = `<p class="muted">${
-      state.auth?.enabled ? "Log in om passkeys te beheren." : "Zet inloggen aan (bijvoorbeeld met een wachtwoord) om passkeys te beheren."
+      state.auth?.enabled ? t("sec.passkeys.login_required") : t("sec.passkeys.enable_login")
     }</p>`;
     return;
   }
@@ -193,19 +205,19 @@ function renderCredentials() {
           (credential) => `
             <div class="credential-row">
               <div>
-                <strong>${escapeHtml(credential.credential_name || "Passkey")}</strong>
-                <small>${escapeHtml(credential.username || "admin")} | aangemaakt ${escapeHtml(formatCredentialDate(credential.created_at))}${
-                  credential.last_used_at ? ` | laatst gebruikt ${escapeHtml(formatCredentialDate(credential.last_used_at))}` : ""
+                <strong>${escapeHtml(credential.credential_name || t("passkey.default_name"))}</strong>
+                <small>${th("passkey.created", { user: credential.username || "admin", date: formatCredentialDate(credential.created_at) })}${
+                  credential.last_used_at ? th("passkey.last_used", { date: formatCredentialDate(credential.last_used_at) }) : ""
                 }</small>
               </div>
               <button class="button button--secondary" data-delete-passkey="${escapeHtml(credential.id)}" ${
                 state.credentials.length <= 1 ? "disabled" : ""
-              }>Verwijderen</button>
+              }>${escapeHtml(t("passkey.delete"))}</button>
             </div>
           `
         )
         .join("")
-    : `<p class="muted">Geen passkeys gevonden.</p>`;
+    : `<p class="muted">${escapeHtml(t("passkey.none"))}</p>`;
   document.querySelectorAll("[data-delete-passkey]").forEach((button) => {
     button.addEventListener("click", () => deletePasskey(button.dataset.deletePasskey));
   });
@@ -235,7 +247,7 @@ async function refreshAuthStatus() {
 }
 
 async function registerPasskey({ username, credentialName, messageTarget }) {
-  message(messageTarget, "Wachten op je passkey prompt...", "success");
+  message(messageTarget, t("passkey.waiting"), "success");
   const payload = await jsonFetch("/api/auth/register/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -263,25 +275,25 @@ async function registerPasskey({ username, credentialName, messageTarget }) {
 
 async function addPasskey() {
   const button = $("#add-passkey");
-  const credentialName = $("#new-passkey-name").value.trim() || "Extra passkey";
+  const credentialName = $("#new-passkey-name").value.trim() || t("passkey.extra_name");
   const username = state.auth?.username || "admin";
   button.disabled = true;
   try {
     await registerPasskey({ username, credentialName, messageTarget: "#security-message" });
-    message("#security-message", "Extra passkey toegevoegd.", "success");
+    message("#security-message", t("passkey.added"), "success");
     await refreshAuthStatus();
   } catch (error) {
-    message("#security-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
+    message("#security-message", error.name === "NotAllowedError" ? t("passkey.cancelled") : error.message);
   } finally {
     button.disabled = false;
   }
 }
 
 async function deletePasskey(credentialId) {
-  if (!window.confirm("Deze passkey verwijderen?")) return;
+  if (!window.confirm(t("passkey.confirm_delete"))) return;
   try {
     await jsonFetch(`/api/auth/credentials/${encodeURIComponent(credentialId)}`, { method: "DELETE" });
-    message("#security-message", "Passkey verwijderd.", "success");
+    message("#security-message", t("passkey.deleted"), "success");
     await refreshAuthStatus();
   } catch (error) {
     message("#security-message", error.message);
@@ -289,7 +301,7 @@ async function deletePasskey(credentialId) {
 }
 
 async function loginWithPasskey() {
-  message("#auth-message", "Wachten op je passkey prompt...", "success");
+  message("#auth-message", t("passkey.waiting"), "success");
   const payload = await jsonFetch("/api/auth/login/options", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -373,8 +385,8 @@ function toggleRecoveryInput() {
   input.inputMode = recovery ? "text" : "numeric";
   input.autocomplete = recovery ? "off" : "one-time-code";
   input.placeholder = recovery ? "XXXX-XXXX-XXXX-XXXX" : "123456";
-  $("#mfa-code-label").textContent = recovery ? "Herstelcode" : "Code uit je authenticator-app";
-  $("#mfa-recovery-toggle").textContent = recovery ? "Toch de code uit de app gebruiken" : "Herstelcode gebruiken";
+  $("#mfa-code-label").textContent = recovery ? t("mfa.recovery_label") : t("mfa.code_label");
+  $("#mfa-recovery-toggle").textContent = recovery ? t("mfa.use_app") : t("mfa.use_recovery");
   input.value = "";
   input.focus();
 }
@@ -385,7 +397,7 @@ async function handlePasskeyLogin() {
   try {
     await loginWithPasskey();
   } catch (error) {
-    message("#auth-message", error.name === "NotAllowedError" ? "Passkey prompt geannuleerd." : error.message);
+    message("#auth-message", error.name === "NotAllowedError" ? t("passkey.cancelled") : error.message);
   } finally {
     button.disabled = false;
   }
@@ -400,7 +412,7 @@ function getWeekBounds(offset = 0) {
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   const iso = (d) => d.toISOString().slice(0, 10);
-  const label = (d) => `${d.getDate()} ${monthNames[d.getMonth()]}`;
+  const label = (d) => `${d.getDate()} ${monthShort(d)}`;
   return { start: iso(monday), end: iso(sunday), label: `${label(monday)} - ${label(sunday)}` };
 }
 
@@ -409,17 +421,17 @@ function updateWeekLabel() {
   $("#week-range").textContent = week.label;
   $("#week-offset").textContent =
     state.weekOffset === 0
-      ? "Deze week"
+      ? t("week.this")
       : state.weekOffset === 1
-        ? "Volgende week"
+        ? t("week.next")
         : state.weekOffset === -1
-          ? "Vorige week"
-          : `${state.weekOffset > 0 ? "+" : ""}${state.weekOffset} weken`;
+          ? t("week.prev")
+          : t("week.weeks", { n: `${state.weekOffset > 0 ? "+" : ""}${state.weekOffset}` });
 }
 
 function formatDate(dateStr) {
   const date = new Date(`${dateStr}T00:00:00`);
-  return `${dayNames[date.getDay()]} ${date.getDate()} ${monthNames[date.getMonth()]}`;
+  return `${weekdayShort(date)} ${date.getDate()} ${monthShort(date)}`;
 }
 
 function aggregateIngredients(entries) {
@@ -459,11 +471,11 @@ function renderMealPlan(entries) {
                       : ""
                   }
                   <div class="meal__text">
-                    <span>${escapeHtml(mealLabels[entry.entryType] || entry.entryType)}</span>
+                    <span>${escapeHtml(mealLabel(entry.entryType))}</span>
                     <strong>${escapeHtml(entry.recipeDetail?.name || entry.recipe?.name || entry.title || "-")}</strong>
                     ${
                       entry.recipeDetail
-                        ? `<small>${entry.recipeDetail.recipeIngredient.length} ingredienten</small>`
+                        ? `<small>${escapeHtml(tn("plan.ingredients_count", entry.recipeDetail.recipeIngredient.length))}</small>`
                         : ""
                     }
                   </div>
@@ -479,15 +491,15 @@ function renderMealPlan(entries) {
   const ingredients = aggregateIngredients(entries);
   if (!entries.length) {
     $("#ingredients-panel").innerHTML = "";
-    message("#planner-message", "Geen maaltijden gepland voor deze week.", "success");
+    message("#planner-message", t("plan.none_planned"), "success");
     return;
   }
   $("#ingredients-panel").innerHTML = ingredients.length
     ? `
       <div class="box ingredients">
         <div class="toolbar">
-          <h2>Alle ingredienten (${ingredients.length})</h2>
-          <button class="button" id="add-cart">Voeg toe aan Albert Heijn mandje</button>
+          <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
+          <button class="button" id="add-cart">${escapeHtml(t("plan.add_cart"))}</button>
         </div>
         <ul>
           ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
@@ -502,7 +514,7 @@ async function loadMealPlan() {
   const button = $("#load-plan");
   const week = getWeekBounds(state.weekOffset);
   button.disabled = true;
-  button.textContent = "Laden...";
+  button.textContent = t("plan.loading");
   message("#planner-message", "");
   $("#cart-result").innerHTML = "";
   try {
@@ -512,7 +524,7 @@ async function loadMealPlan() {
     message("#planner-message", error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Weekmenu laden";
+    button.textContent = t("plan.load");
   }
 }
 
@@ -522,7 +534,7 @@ const ICON_EXTERNAL =
 
 function formatPrice(value) {
   const price = Number(value || 0);
-  return price ? `\u20ac${price.toFixed(2).replace(".", ",")}` : "";
+  return price ? `\u20ac${price.toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
 }
 
 function cartCandidateLabel(candidate) {
@@ -560,10 +572,10 @@ function showCartResult(data, notFound) {
     })
     .join("");
   const missing = notFound.length
-    ? ` ${notFound.length} niet gevonden: ${escapeHtml(notFound.join(", "))}.`
+    ? th("cart.missing", { count: notFound.length, names: notFound.join(", ") })
     : "";
   $("#cart-result").innerHTML = `
-    <div class="message success">Je boodschappen staan klaar: ${data.added} producten in je Albert Heijn mandje.${missing}</div>
+    <div class="message success">${th("cart.ready", { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
 }
@@ -583,11 +595,11 @@ function renderCartReview(rows) {
   $("#cart-result").innerHTML = `
     <div class="box cart-review">
       <div class="toolbar">
-        <h2>Controleer je mandje</h2>
+        <h2>${escapeHtml(t("cart.review_title"))}</h2>
         <button class="button" id="confirm-cart"></button>
-        <button class="button button--secondary" id="cancel-cart">Annuleren</button>
+        <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
       </div>
-      <p class="muted">${doubts} ${doubts === 1 ? "regel is" : "regels zijn"} gemarkeerd: daar ben ik niet zeker van. Kies het product en het aantal verpakkingen.</p>
+      <p class="muted">${escapeHtml(tn("cart.doubts", doubts))}</p>
       <div class="review-list">
         ${rows
           .map((row, index) => {
@@ -596,24 +608,24 @@ function renderCartReview(rows) {
                 <div class="review-row is-missing">
                   <input type="checkbox" disabled>
                   <div class="review-ingredient"><strong>${escapeHtml(row.display)}</strong></div>
-                  <span class="muted">${row.error ? escapeHtml(row.error) : "Niet gevonden"}</span>
+                  <span class="muted">${row.error ? escapeHtml(row.error) : escapeHtml(t("cart.not_found"))}</span>
                 </div>`;
             }
             const first = row.candidates[0];
             return `
               <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
-                <input type="checkbox" class="review-include" checked aria-label="Toevoegen">
+                <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
                 <div class="review-ingredient">
                   <strong>${escapeHtml(row.display)}</strong>
                   <small class="review-note">${escapeHtml(first.doubt || "")}</small>
                 </div>
-                <select class="review-product" aria-label="Product">
+                <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
                   ${row.candidates
                     .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
                     .join("")}
                 </select>
-                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="Bekijk dit product bij AH om te controleren of het klopt">Bekijk bij AH ${ICON_EXTERNAL}</a>
-                <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="Aantal verpakkingen">
+                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>
+                <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
               </div>`;
           })
           .join("")}
@@ -626,7 +638,7 @@ function renderCartReview(rows) {
     const count = rowElements.filter((el) => el.querySelector(".review-include").checked).length;
     const button = $("#confirm-cart");
     button.disabled = count === 0;
-    button.textContent = `Voeg ${count} ${count === 1 ? "product" : "producten"} toe aan mandje`;
+    button.textContent = tn("cart.confirm", count);
   };
   rowElements.forEach((el) => {
     const row = rows[Number(el.dataset.row)];
@@ -660,7 +672,7 @@ function renderCartReview(rows) {
       });
     if (!selection.length) return;
     button.disabled = true;
-    button.textContent = "Toevoegen...";
+    button.textContent = t("cart.adding");
     try {
       await submitCart(selection, notFound);
     } catch (error) {
@@ -678,7 +690,7 @@ async function addToCart() {
   if (!ingredients.length) return;
   const button = $("#add-cart");
   button.disabled = true;
-  button.textContent = "Producten zoeken...";
+  button.textContent = t("cart.searching");
   $("#cart-result").innerHTML = "";
   try {
     const preview = await jsonFetch("/api/ah/cart/preview", {
@@ -704,7 +716,7 @@ async function addToCart() {
         .map((row) => cartSelection(row, row.candidates[0], row.candidates[0].packs));
       const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
       if (!selection.length) {
-        $("#cart-result").innerHTML = `<div class="message error">Geen producten gevonden voor de ingredienten.</div>`;
+        $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
       } else {
         await submitCart(selection, notFound);
       }
@@ -713,7 +725,7 @@ async function addToCart() {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {
     button.disabled = false;
-    button.textContent = "Voeg toe aan Albert Heijn mandje";
+    button.textContent = t("plan.add_cart");
   }
 }
 
@@ -725,20 +737,24 @@ async function searchRecipes(page = 0) {
   message("#search-message", "");
   $("#recipe-results").innerHTML = "";
   try {
-    const data = await jsonFetch(`/api/ah/search?q=${encodeURIComponent(query)}&page=${page}`);
-    const total = Number(data.total);
-    $("#search-count").textContent = `${total.toLocaleString("nl-NL")} recepten gevonden${
-      total > 2000 ? ", de eerste 2.000 zijn te bekijken" : ""
-    }`;
-    $("#recipe-results").innerHTML = (data.recipes || []).map(renderRecipeCard).join("");
-    $("#prev-page").hidden = page === 0;
-    $("#next-page").hidden = !(data.hasNextPage ?? total > (page + 1) * 12);
-    document.querySelectorAll("[data-import-url]").forEach((button) => {
-      button.addEventListener("click", () => importUrl(button.dataset.importUrl, button));
-    });
+    state.searchData = await jsonFetch(`/api/ah/search?q=${encodeURIComponent(query)}&page=${page}`);
+    renderSearchResults();
   } catch (error) {
     message("#search-message", error.message);
   }
+}
+
+function renderSearchResults() {
+  const data = state.searchData;
+  if (!data) return;
+  const total = Number(data.total);
+  $("#search-count").textContent = tn("search.count", total, { limit: total > 2000 ? t("search.limit") : "" });
+  $("#recipe-results").innerHTML = (data.recipes || []).map(renderRecipeCard).join("");
+  $("#prev-page").hidden = state.searchPage === 0;
+  $("#next-page").hidden = !(data.hasNextPage ?? total > (state.searchPage + 1) * 12);
+  document.querySelectorAll("#recipe-results [data-import-url]").forEach((button) => {
+    button.addEventListener("click", () => importUrl(button.dataset.importUrl, button));
+  });
 }
 
 function renderRecipeCard(recipe) {
@@ -751,11 +767,11 @@ function renderRecipeCard(recipe) {
       ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(recipe.title)}" loading="lazy">` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       ${recipe.description ? `<p class="muted">${escapeHtml(recipe.description)}</p>` : ""}
-      ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? `${totalTime} min` : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? `${recipe.servings} pers.` : ""}</p>` : ""}
+      ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
       <div class="tags">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
       <div class="card-actions">
-        <button class="button" data-import-url="${escapeHtml(ahUrl)}">Importeer</button>
-        <a href="${escapeHtml(ahUrl)}" target="_blank" rel="noreferrer">Open bij AH</a>
+        <button class="button" data-import-url="${escapeHtml(ahUrl)}">${escapeHtml(t("recipe.import"))}</button>
+        <a href="${escapeHtml(ahUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t("recipe.open_ah"))}</a>
       </div>
     </article>
   `;
@@ -764,7 +780,7 @@ function renderRecipeCard(recipe) {
 async function importUrl(url, button = null) {
   if (button) {
     button.disabled = true;
-    button.textContent = "Importeren...";
+    button.textContent = t("recipe.importing");
   }
   try {
     const data = await jsonFetch("/api/mealie/import", {
@@ -772,14 +788,14 @@ async function importUrl(url, button = null) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
-    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer">Bekijk in Mealie</a>` : "";
-    return { ok: true, html: `Recept geimporteerd.${link}` };
+    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
+    return { ok: true, html: `${escapeHtml(t("recipe.imported"))}${link}` };
   } catch (error) {
     return { ok: false, html: error.message };
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "Importeer";
+      button.textContent = t("recipe.import");
     }
   }
 }
@@ -790,7 +806,7 @@ async function refreshAhStatus() {
     const data = await jsonFetch("/api/ah/auth/status");
     message(
       "#ah-status",
-      data.connected ? "AH account gekoppeld." : "AH account nog niet gekoppeld.",
+      data.connected ? t("ah.linked") : t("ah.not_linked"),
       data.connected ? "success" : "error"
     );
   } catch (error) {
@@ -807,22 +823,25 @@ function renderMealieStatus(data, { verified = false } = {}) {
   source.hidden = data.source !== "env";
   source.textContent =
     data.source === "env"
-      ? "Deze koppeling komt uit de omgevingsvariabelen MEALIE_URL en MEALIE_API_TOKEN. Een koppeling die je hier maakt gaat voor."
+      ? t("mealie.source_env")
       : "";
   if (data.url && document.activeElement !== $("#mealie-url") && !$("#mealie-url").value) {
     $("#mealie-url").value = data.url;
   }
   if (!data.configured) {
-    message("#mealie-status", "Mealie is nog niet gekoppeld.", "error");
+    message("#mealie-status", t("mealie.not_linked"), "error");
   } else if (verified && data.connected) {
-    const details = [data.version ? `versie ${data.version}` : "", data.username ? `gebruiker ${data.username}` : ""]
+    const details = [
+      data.version ? t("mealie.version", { version: data.version }) : "",
+      data.username ? t("mealie.user", { user: data.username }) : "",
+    ]
       .filter(Boolean)
       .join(", ");
-    message("#mealie-status", `Mealie werkt: ${data.url}${details ? ` (${details})` : ""}.`, "success");
+    message("#mealie-status", t("mealie.works", { url: data.url, details: details ? ` (${details})` : "" }), "success");
   } else if (verified) {
-    message("#mealie-status", data.error || "Mealie reageert niet zoals verwacht.", "error");
+    message("#mealie-status", data.error || t("mealie.unexpected"), "error");
   } else {
-    message("#mealie-status", `Mealie gekoppeld: ${data.url}`, "success");
+    message("#mealie-status", t("mealie.linked", { url: data.url }), "success");
   }
 }
 
@@ -835,7 +854,7 @@ async function refreshMealieStatus() {
 }
 
 async function checkMealieConnection() {
-  message("#mealie-status", "Koppeling controleren...", "success");
+  message("#mealie-status", t("mealie.checking"), "success");
   try {
     renderMealieStatus(await jsonFetch("/api/mealie/status?verify=1"), { verified: true });
   } catch (error) {
@@ -848,12 +867,12 @@ async function linkMealie(event) {
   const url = $("#mealie-url").value.trim();
   const token = $("#mealie-token").value.trim();
   if (!url || !token) {
-    message("#mealie-status", "Vul het adres en de API-token in.");
+    message("#mealie-status", t("mealie.fill_both"));
     return;
   }
   const button = $("#mealie-link");
   button.disabled = true;
-  button.textContent = "Controleren...";
+  button.textContent = t("mealie.checking_btn");
   try {
     const data = await jsonFetch("/api/mealie/auth", {
       method: "POST",
@@ -867,7 +886,7 @@ async function linkMealie(event) {
     message("#mealie-status", error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Koppelen";
+    button.textContent = t("common.link");
   }
 }
 
@@ -883,15 +902,15 @@ async function unlinkMealie() {
 }
 
 async function checkAhConnection() {
-  message("#ah-status", "Koppeling controleren...", "success");
+  message("#ah-status", t("ah.checking"), "success");
   try {
     const data = await jsonFetch("/api/ah/auth/status?verify=1");
     if (data.connected) {
-      message("#ah-status", "AH account gekoppeld en werkt.", "success");
+      message("#ah-status", t("ah.works"), "success");
     } else {
       message(
         "#ah-status",
-        data.error || "AH account nog niet gekoppeld, of de koppeling is verlopen. Log opnieuw in.",
+        data.error || t("ah.expired"),
         "error"
       );
     }
@@ -904,36 +923,36 @@ function formatSyncTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("nl-NL", { dateStyle: "medium", timeStyle: "short" });
+  return date.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" });
 }
 
 function ahListStatus(list) {
   const total = Number(list.itemCount || 0);
-  const count = `${total.toLocaleString("nl-NL")} ${total === 1 ? "item" : "items"}`;
-  if (!list.synced) return `${count} · niet gesynchroniseerd`;
+  const count = tn("list.items", total);
+  if (!list.synced) return `${count} · ${t("list.not_synced")}`;
   const when = formatSyncTime(list.syncedAt);
   const stale =
     list.source === "both" && list.syncedCount !== null && list.syncedCount !== list.itemCount
-      ? " · gewijzigd bij AH"
+      ? ` · ${t("list.changed_at_ah")}`
       : "";
-  const gone = list.source === "local" ? " · alleen lokale kopie" : "";
-  return `${count} · gesynchroniseerd${when ? ` op ${when}` : ""}${stale}${gone}`;
+  const gone = list.source === "local" ? ` · ${t("list.local_only")}` : "";
+  return `${count} · ${when ? t("list.synced_on", { when }) : t("list.synced")}${stale}${gone}`;
 }
 
 // Korte regels voor op een kaart; de volledige tekst (ahListStatus) staat in de tooltip.
 function ahListCardLines(list) {
   const total = Number(list.itemCount || 0);
-  const lines = [`${total.toLocaleString("nl-NL")} ${total === 1 ? "item" : "items"}`];
+  const lines = [tn("list.items", total)];
   if (!list.synced) {
-    lines.push("Niet gesynchroniseerd");
+    lines.push(t("list.card.not_synced"));
     return lines;
   }
   const date = list.syncedAt ? new Date(list.syncedAt) : null;
   const day =
-    date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("nl-NL", { day: "numeric", month: "short" }) : "";
-  lines.push(day ? `Gesynchroniseerd ${day}` : "Gesynchroniseerd");
-  if (list.source === "local") lines.push("Alleen lokale kopie");
-  else if (list.syncedCount !== null && list.syncedCount !== list.itemCount) lines.push("Gewijzigd bij AH");
+    date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(I18N.locale(), { day: "numeric", month: "short" }) : "";
+  lines.push(day ? t("list.card.synced_day", { day }) : t("list.card.synced"));
+  if (list.source === "local") lines.push(t("list.card.local_only"));
+  else if (list.syncedCount !== null && list.syncedCount !== list.itemCount) lines.push(t("list.card.changed"));
   return lines;
 }
 
@@ -946,26 +965,26 @@ function visibleAhLists() {
 function renderAhLists() {
   const lists = visibleAhLists();
   const query = state.ahListQuery.trim();
-  let empty = `<p class="muted">Geen AH lijstjes gevonden.</p>`;
+  let empty = `<p class="muted">${escapeHtml(t("list.none"))}</p>`;
   if (query && state.ahLists.length) {
-    empty = `<p class="muted">Geen lijstjes gevonden met &ldquo;${escapeHtml(query)}&rdquo;.</p>`;
+    empty = `<p class="muted">${th("list.no_match", { query })}</p>`;
   }
   $("#ah-lists").innerHTML = lists.length
     ? lists
         .map((list) => {
           const hits = query ? state.ahListHits[list.id] || [] : [];
-          const syncLabel = list.synced ? "Opnieuw synchroniseren" : "Synchroniseren";
+          const syncLabel = list.synced ? t("list.sync_again") : t("common.sync");
           return `
             <div class="list-card">
               <button type="button" class="list-card__open" data-ah-list-id="${escapeHtml(list.id)}" title="${escapeHtml(ahListStatus(list))}">
                 <strong>${escapeHtml(list.name || "-")}</strong>
                 ${ahListCardLines(list).map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
-                ${hits.length ? `<small class="list-card__hit">Bevat: ${escapeHtml(hits.join(", "))}</small>` : ""}
+                ${hits.length ? `<small class="list-card__hit">${th("list.contains", { titles: hits.join(", ") })}</small>` : ""}
               </button>
               ${
                 list.source === "local"
                   ? ""
-                  : `<button type="button" class="icon-button list-card__sync" data-ah-sync-id="${escapeHtml(list.id)}" aria-label="${syncLabel}: ${escapeHtml(list.name || "")}" title="${syncLabel}">${mdiIcon(MDI_SYNC)}</button>`
+                  : `<button type="button" class="icon-button list-card__sync" data-ah-sync-id="${escapeHtml(list.id)}" aria-label="${escapeHtml(syncLabel)}: ${escapeHtml(list.name || "")}" title="${escapeHtml(syncLabel)}">${mdiIcon(MDI_SYNC)}</button>`
               }
             </div>
           `;
@@ -1009,7 +1028,7 @@ function onAhListFilter(event) {
 async function loadAhFavoriteLists() {
   const button = $("#load-ah-lists");
   button.disabled = true;
-  button.textContent = "Laden...";
+  button.textContent = t("saved.loading");
   try {
     const data = await jsonFetch("/api/ah/lists");
     state.ahLists = data.lists || [];
@@ -1020,14 +1039,14 @@ async function loadAhFavoriteLists() {
     message(
       "#ah-lists-warning",
       data.ahError
-        ? `AH is niet bereikbaar${hasLocal ? ", je ziet de gesynchroniseerde kopieen" : ""}: ${data.ahError}`
+        ? t("list.ah_down", { copies: hasLocal ? t("list.ah_down_copies") : "", error: data.ahError })
         : ""
     );
   } catch (error) {
     message("#ah-lists", error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Laden";
+    button.textContent = t("common.load");
   }
 }
 
@@ -1042,14 +1061,14 @@ function setBusy(button, busy, busyText) {
 }
 
 async function syncAhList(listId, button) {
-  setBusy(button, true, "Synchroniseren...");
+  setBusy(button, true, t("list.syncing"));
   try {
     const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/sync`, { method: "POST" });
     return { ok: true, data };
   } catch (error) {
     return { ok: false, error: error.message };
   } finally {
-    setBusy(button, false, "Synchroniseren...");
+    setBusy(button, false, t("list.syncing"));
   }
 }
 
@@ -1057,8 +1076,8 @@ async function syncOneAndReport(listId, button) {
   const result = await syncAhList(listId, button);
   await loadAhFavoriteLists();
   const outcome = result.ok
-    ? [`"${result.data.name}" gesynchroniseerd (${result.data.totalSize} items).`, "success"]
-    : [`Synchroniseren mislukt: ${result.error}`, "error"];
+    ? [t("list.sync_done", { name: result.data.name, count: result.data.totalSize }), "success"]
+    : [t("list.sync_failed", { error: result.error }), "error"];
   if (state.ahOpenListId === listId) {
     // De lijst staat open: ververs hem op dezelfde plek en meld het resultaat daar.
     await loadAhFavoriteListItems(listId, { keepScroll: true });
@@ -1071,14 +1090,14 @@ async function syncOneAndReport(listId, button) {
 async function syncAllAhLists() {
   const button = $("#sync-all-ah-lists");
   button.disabled = true;
-  button.textContent = "Synchroniseren...";
+  button.textContent = t("list.syncing");
   try {
     const data = await jsonFetch("/api/ah/lists");
     const lists = (data.lists || []).filter((list) => list.source !== "local");
     if (!lists.length) {
       message(
         "#ah-lists-warning",
-        data.ahError ? `AH is niet bereikbaar: ${data.ahError}` : "Geen AH lijstjes om te synchroniseren."
+        data.ahError ? t("list.ah_down_short", { error: data.ahError }) : t("list.none_to_sync")
       );
       return;
     }
@@ -1091,15 +1110,15 @@ async function syncAllAhLists() {
     message(
       "#ah-lists-warning",
       failures.length
-        ? `${lists.length - failures.length} van ${lists.length} gesynchroniseerd. Mislukt: ${failures.join("; ")}`
-        : `${lists.length} lijstjes gesynchroniseerd.`,
+        ? t("list.sync_partial", { done: lists.length - failures.length, total: lists.length, failures: failures.join("; ") })
+        : t("list.sync_all_done", { count: lists.length }),
       failures.length ? "error" : "success"
     );
   } catch (error) {
     message("#ah-lists-warning", error.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Alles synchroniseren";
+    button.textContent = t("ah.lists.sync_all");
   }
 }
 
@@ -1116,7 +1135,7 @@ async function openAhList(listId, { push = true } = {}) {
   state.ahOpenListId = listId;
   if (push) history.pushState({ ahList: listId }, "");
   const known = state.ahLists.find((list) => list.id === listId);
-  $("#ah-list-title").textContent = known?.name || "AH lijst";
+  $("#ah-list-title").textContent = known?.name || t("list.default_title");
   $("#ah-list-meta").textContent = "";
   $("#ah-list-items").innerHTML = "";
   $("#ah-lists-view").hidden = true;
@@ -1134,17 +1153,17 @@ function closeAhList() {
 async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
   const scroll = window.scrollY;
   message("#ah-list-items-message", "");
-  $("#ah-list-items").innerHTML = `<div class="message success">Lijst laden...</div>`;
+  $("#ah-list-items").innerHTML = `<div class="message success">${escapeHtml(t("list.loading"))}</div>`;
   try {
     const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}`);
     if (state.ahOpenListId !== listId) return; // inmiddels teruggegaan of een ander lijstje geopend
     const items = data.items || [];
     const synced = data.source === "local";
-    $("#ah-list-title").textContent = data.name || "AH lijst";
-    $("#sync-open-ah-list").textContent = synced ? "Opnieuw synchroniseren" : "Synchroniseren";
-    $("#ah-list-meta").textContent = `${items.length.toLocaleString("nl-NL")} producten · ${
-      synced ? `lokale kopie van ${formatSyncTime(data.syncedAt)}` : "live van AH, nog niet gesynchroniseerd"
-    }`;
+    $("#ah-list-title").textContent = data.name || t("list.default_title");
+    $("#sync-open-ah-list").textContent = synced ? t("list.sync_again") : t("common.sync");
+    $("#ah-list-meta").textContent = synced
+      ? t("list.products_local", { count: I18N.formatNumber(items.length), when: formatSyncTime(data.syncedAt) })
+      : t("list.products_live", { count: I18N.formatNumber(items.length) });
     $("#ah-list-items").innerHTML = `<div class="product-grid">${items.map(renderAhListItem).join("")}</div>`;
     if (keepScroll) window.scrollTo({ top: scroll });
   } catch (error) {
@@ -1156,7 +1175,7 @@ async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
 
 function renderAhListItem(item) {
   const product = item.product || {};
-  const title = product.title || `Product ${item.productId}`;
+  const title = product.title || t("list.product_fallback", { id: item.productId });
   const price = Number(product.price || 0);
   const url = item.url || product.url || "";
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
@@ -1165,8 +1184,8 @@ function renderAhListItem(item) {
     <div>
       <strong>${escapeHtml(item.quantity)}x ${escapeHtml(title)}</strong>
       ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-      ${product.isBonus ? `<small class="bonus">Bonus</small>` : ""}
-      ${price ? `<small>&euro;${price.toFixed(2).replace(".", ",")}</small>` : ""}
+      ${product.isBonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
+      ${price ? `<small>${escapeHtml(formatPrice(price))}</small>` : ""}
     </div>
   `;
   return url
@@ -1180,12 +1199,12 @@ function renderSavedRecipeCard(recipe) {
   return `
     <article class="recipe-card">
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
-      <h3>${escapeHtml(recipe.title || "Onbekend recept")}</h3>
+      <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
       <div class="card-actions">
-        <button class="button" data-import-url="${escapeHtml(url)}">Importeer</button>
+        <button class="button" data-import-url="${escapeHtml(url)}">${escapeHtml(t("recipe.import"))}</button>
         ${
           url
-            ? `<a class="card-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener" aria-label="Open recept bij AH: ${escapeHtml(recipe.title || "")}">${mdiIcon(MDI_OPEN_IN_NEW)}<span>Open bij AH</span></a>`
+            ? `<a class="card-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener" aria-label="${escapeHtml(t("recipe.open_label", { title: recipe.title || "" }))}">${mdiIcon(MDI_OPEN_IN_NEW)}<span>${escapeHtml(t("recipe.open_ah"))}</span></a>`
             : ""
         }
       </div>
@@ -1204,7 +1223,7 @@ function renderSavedRecipes() {
   if (!all.length) return;
   message(
     "#ah-recipes-message",
-    recipes.length ? "" : `Geen recepten gevonden met "${query}".`,
+    recipes.length ? "" : t("saved.none_match", { query }),
     "success"
   );
 }
@@ -1212,31 +1231,39 @@ function renderSavedRecipes() {
 function updateSavedRecipesStatus(data) {
   const total = Number(data.total ?? state.ahRecipes.length);
   const when = formatSyncTime(data.syncedAt);
+  state.ahRecipesMeta = data;
   $("#ah-recipes-status").textContent =
-    `${total.toLocaleString("nl-NL")} ${total === 1 ? "recept" : "recepten"}` +
-    (when ? ` · bewaard in MealieShopper op ${when}` : "") +
-    ` · Vernieuwen haalt ze opnieuw bij AH op.`;
+    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") + t("saved.status_hint");
 }
 
 // `cachedOnly`: alleen de lokale kopie tonen, nooit AH vragen (zo opent het tabblad zonder AH-verkeer).
+function refreshSavedRecipesStatus() {
+  const meta = state.ahRecipesMeta;
+  if (state.ahRecipes.length && meta) updateSavedRecipesStatus(meta);
+  else $("#ah-recipes-status").textContent = state.ahRecipesLoaded ? t("saved.not_fetched") : t("saved.intro");
+  const button = $("#load-ah-recipes");
+  button.dataset.label = state.ahRecipesFetched ? t("saved.refresh") : t("saved.fetch");
+  if (!button.disabled) button.textContent = button.dataset.label;
+}
+
 async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
   const button = $("#load-ah-recipes");
   state.ahRecipesLoaded = true;
-  setBusy(button, true, "Laden...");
+  setBusy(button, true, t("saved.loading"));
   message("#ah-recipes-message", "");
   try {
     const query = refresh ? "?refresh=1" : cachedOnly ? "?cached=1" : "";
     const data = await jsonFetch(`/api/ah/recipes/saved${query}`);
     state.ahRecipes = data.recipes || [];
     $("#ah-recipe-filter").disabled = !state.ahRecipes.length;
-    button.dataset.label = data.syncedAt ? "Vernieuwen" : "Ophalen bij AH";
+    button.dataset.label = data.syncedAt ? t("saved.refresh") : t("saved.fetch");
+    state.ahRecipesFetched = Boolean(data.syncedAt);
     if (!state.ahRecipes.length) {
       $("#ah-recipes").innerHTML = "";
       if (data.source === "none") {
-        $("#ah-recipes-status").textContent =
-          "Je bewaarde recepten zijn nog niet opgehaald. Kies Ophalen bij AH; ze worden daarna in MealieShopper bewaard.";
+        $("#ah-recipes-status").textContent = t("saved.not_fetched");
       } else {
-        message("#ah-recipes-message", "Geen bewaarde recepten gevonden.", "success");
+        message("#ah-recipes-message", t("saved.none"), "success");
       }
       return;
     }
@@ -1245,14 +1272,14 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
     if (data.ahError) {
       message(
         "#ah-recipes-message",
-        `AH is niet bereikbaar, je ziet de bewaarde kopie: ${data.ahError}`,
+        t("saved.ah_down", { error: data.ahError }),
         "error"
       );
     }
   } catch (error) {
     message("#ah-recipes-message", error.message);
   } finally {
-    setBusy(button, false, "Laden...");
+    setBusy(button, false, t("saved.loading"));
   }
 }
 
@@ -1266,6 +1293,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     // Zoals een native tabbalk: een andere tab begint bovenaan.
     window.scrollTo({ top: 0 });
     if (tab.dataset.tab === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
+    if (tab.dataset.tab === "about" && !state.aboutLoaded) loadAbout();
   });
 });
 
@@ -1285,6 +1313,48 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     }
   });
 });
+
+// Over: versie en commit van deze installatie, de gebruikte componenten en integraties.
+async function loadAbout() {
+  state.aboutLoaded = true;
+  message("#about-message", "");
+  try {
+    state.about = await jsonFetch("/api/about");
+    renderAbout();
+  } catch (error) {
+    state.aboutLoaded = false;
+    message("#about-message", `${t("about.failed")} ${error.message}`);
+  }
+}
+
+function renderAbout() {
+  const about = state.about;
+  if (!about) return;
+  $("#about-version").textContent = about.label;
+  const groups = ["integrations", "server", "interface"];
+  $("#about-components").innerHTML = groups
+    .map((group) => {
+      const items = about.components.filter((component) => component.group === group);
+      return `
+        <h3 class="about-group">${escapeHtml(t(`about.group.${group}`))}</h3>
+        <ul class="about-list">
+          ${items
+            .map(
+              (component) => `
+                <li>
+                  <div class="about-list__head">
+                    <a href="${escapeHtml(component.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(component.name)}</a>
+                    ${component.version ? `<span class="about-list__version">${escapeHtml(component.version)}</span>` : ""}
+                  </div>
+                  <small>${escapeHtml(t(`about.desc.${component.id}`))}</small>
+                  ${component.license ? `<small class="about-list__license">${escapeHtml(t("about.license", { license: component.license }))}</small>` : ""}
+                </li>`
+            )
+            .join("")}
+        </ul>`;
+    })
+    .join("");
+}
 
 function openBeheer(subtab = "beheer-ah") {
   document.querySelector('[data-tab="beheer"]').click();
@@ -1322,7 +1392,7 @@ $("#verify-token").addEventListener("click", async () => {
       body: JSON.stringify({ code: token }),
     });
     $("#token-input").value = "";
-    message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
+    message("#token-message", t("ah.saved"), "success");
     await refreshAhStatus();
   } catch (error) {
     message("#token-message", error.message);
@@ -1390,19 +1460,37 @@ const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
   openBeheer("beheer-ah");
   $("#token-input").value = params.get("ah_refresh");
-  message("#token-message", "Refresh token ontvangen.", "success");
+  message("#token-message", t("ah.refresh_received"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_connected")) {
   openBeheer("beheer-ah");
-  message("#token-message", "AH account gekoppeld en opgeslagen.", "success");
+  message("#token-message", t("ah.saved"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_error")) {
   openBeheer("beheer-ah");
-  message("#token-message", `AH redirect mislukt: ${params.get("ah_error")}`);
+  message("#token-message", t("ah.redirect_failed", { error: params.get("ah_error") }));
   history.replaceState({}, "", "/");
 }
+
+// Een andere taal: alles wat uit gegevens is opgebouwd opnieuw tekenen (de vaste teksten doet i18n.js).
+window.addEventListener("ms:languagechange", () => {
+  updateWeekLabel();
+  if (state.entries) renderMealPlan(state.entries);
+  renderSearchResults();
+  renderAuthState();
+  renderCredentials();
+  renderAhLists();
+  if (state.ahOpenListId) loadAhFavoriteListItems(state.ahOpenListId, { keepScroll: true });
+  renderSavedRecipes();
+  refreshSavedRecipesStatus();
+  renderAbout();
+  if (state.auth?.authenticated || !state.auth?.enabled) {
+    refreshAhStatus();
+    refreshMealieStatus();
+  }
+});
 
 updateWeekLabel();
 // Pas starten als ook onboarding.js (het laatste script) is geladen.

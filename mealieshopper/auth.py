@@ -25,6 +25,8 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.hashes import SHA256
 from flask import Flask, jsonify, make_response, request
 
+from .i18n import tr
+
 SESSION_COOKIE_NAME = "ms_session"
 SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 _INITIALIZED = False
@@ -70,6 +72,41 @@ def auth_secret() -> str:
         return configured.strip()
     seed = f"{db_path()}:{os.environ.get('MEALIE_URL', 'mealieshopper')}"
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
+
+
+_signing_keys: dict[str, str] = {}
+
+
+def signing_secret() -> str:
+    """Sleutel waarmee sessies worden ondertekend.
+
+    Is MEALIESHOPPER_AUTH_SECRET (of JWT_SECRET) ingesteld, dan die. Anders een willekeurige sleutel
+    die één keer in de data-map wordt bewaard (`session.key`). De vroegere afgeleide sleutel hing
+    alleen van het pad en MEALIE_URL af en was dus te raden: wie dat wist kon een sessie namaken.
+    """
+    configured = os.environ.get("MEALIESHOPPER_AUTH_SECRET") or os.environ.get("JWT_SECRET")
+    if configured and configured.strip():
+        return configured.strip()
+    path = data_dir() / "session.key"
+    cached = _signing_keys.get(str(path))
+    if cached:
+        return cached
+    try:
+        key = path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        key = ""
+    if len(key) < 32:
+        data_dir().mkdir(parents=True, exist_ok=True)
+        key = secrets.token_hex(32)
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:  # een andere werker was ons voor
+            key = path.read_text(encoding="ascii").strip()
+        else:
+            with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+                handle.write(key)
+    _signing_keys[str(path)] = key
+    return key
 
 
 def rp_id() -> str:
@@ -369,14 +406,14 @@ def create_token(user_id: str, username: str) -> str:
             "iat": utcnow(),
             "exp": utcnow() + timedelta(seconds=SESSION_MAX_AGE_SECONDS),
         },
-        auth_secret(),
+        signing_secret(),
         algorithm="HS256",
     )
 
 
 def verify_token(token: str) -> dict[str, Any] | None:
     try:
-        return jwt.decode(token, auth_secret(), algorithms=["HS256"])
+        return jwt.decode(token, signing_secret(), algorithms=["HS256"])
     except Exception:
         return None
 
@@ -550,7 +587,7 @@ def register_routes(app: Flask) -> None:
                 return jsonify({"error": "Not found"}), 404
             count = conn.execute("SELECT COUNT(*) AS count FROM passkey_credentials").fetchone()["count"]
             if int(count) <= 1 and auth_required() and not password_configured():
-                return jsonify({"error": "Je kunt de laatste passkey niet verwijderen."}), 400
+                return jsonify({"error": tr("Je kunt de laatste passkey niet verwijderen.", "You cannot delete the last passkey.")}), 400
             conn.execute("DELETE FROM passkey_credentials WHERE id=?", (credential_id,))
         return jsonify({"status": "deleted", "remaining": passkey_count()})
 

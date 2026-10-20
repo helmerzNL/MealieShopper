@@ -54,21 +54,21 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_five_tabs_with_icon_long_and_short_label(self):
+    def test_six_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["planner", "search", "url", "ah-items", "beheer"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 5)
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 10, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["planner", "search", "url", "ah-items", "beheer", "about"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 6)
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Weekmenu", "Zoeken", "Importeren", "AH Items", "Beheer"])
-        long = re.findall(r'<span class="tab-text">([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "AH Items", "Beheer"])
+        self.assertEqual(short, ["Weekmenu", "Zoeken", "Importeren", "AH Items", "Beheer", "Over"])
+        long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
+        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "AH Items", "Beheer", "Over"])
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog"],
+            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
@@ -121,7 +121,7 @@ class TabbarStyleTest(unittest.TestCase):
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(5", "border-radius: 32px",
+        for declaration in ("position: fixed", "grid-template-columns: repeat(6", "border-radius: 32px",
                             "bottom: max(12px, env(safe-area-inset-bottom))",
                             "left: max(12px, env(safe-area-inset-left))",
                             "right: max(12px, env(safe-area-inset-right))"):
@@ -143,7 +143,7 @@ class TabbarStyleTest(unittest.TestCase):
         self.assertGreaterEqual(int(re.search(r"min-height: (\d+)px", tab).group(1)), 44)
         self.assertIn("flex-direction: column", tab)
         self.assertIn("font-weight: 600", tab)
-        self.assertRegex(tab, r"font-size: 1[01]px")
+        self.assertRegex(tab, r"font-size: (10|11)(\.5)?px")
 
     def test_motion_respects_the_reduced_motion_setting(self):
         reduced = self.media[self.media.index("prefers-reduced-motion"):]

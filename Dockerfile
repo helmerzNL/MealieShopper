@@ -10,6 +10,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+ARG GIT_COMMIT=unknown
+ENV MEALIESHOPPER_COMMIT=$GIT_COMMIT
+
+COPY VERSION .
 COPY mealieshopper ./mealieshopper
 COPY static ./static
 COPY templates ./templates

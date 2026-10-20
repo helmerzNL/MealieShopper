@@ -106,8 +106,8 @@ Schrijf kort en concreet: "Zoek bij AH", "Weekmenu laden", "Je boodschappen staa
 ## Navigatie op een telefoon
 
 In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
-zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
-MDI-icoon en een kort label (`Weekmenu`, `Zoeken`, `Importeren`, `AH Items`, `Beheer`), een
+zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: zes items met een
+MDI-icoon en een kort label (`Weekmenu`, `Zoeken`, `Importeren`, `AH Items`, `Beheer`, `Over`), een
 groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
 de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
@@ -123,6 +123,13 @@ de tekst.
 - **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
   (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
   bepaalt of de balk er is.
+
+## Taalkiezer
+
+Twee vlaggetjes (Nederland en Verenigd Koninkrijk) als losse knoppen van minstens 44 px, met de
+taalnaam in de eigen taal als `aria-label` en `aria-pressed` voor de gekozen taal; de gekozen vlag heeft
+een groene ring, de andere is gedimd. De vlaggen zijn inline SVG (geen emoji, want Windows toont daar
+letters) en staan in de kop, op de inlogpagina en in de installatiehulp. Zie het hoofdstuk Taal in de README.
 
 ## Wat is gecontroleerd
 

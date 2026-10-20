@@ -477,3 +477,57 @@ class PasskeyRuleTest(AuthPasswordTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SigningKeyTest(unittest.TestCase):
+    """Zonder MEALIESHOPPER_AUTH_SECRET mag de sessiesleutel niet te raden zijn."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        env = mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        for name in ("MEALIESHOPPER_AUTH_SECRET", "JWT_SECRET", "MEALIE_URL"):
+            os.environ.pop(name, None)
+        auth._signing_keys.clear()
+        self.addCleanup(auth._signing_keys.clear)
+        cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
+        cost.start()
+        self.addCleanup(cost.stop)
+
+    def test_key_is_random_stored_once_and_private(self):
+        first = auth.signing_secret()
+        self.assertGreaterEqual(len(first), 64)
+        auth._signing_keys.clear()
+        self.assertEqual(auth.signing_secret(), first, "blijft gelijk na een herstart")
+        path = os.path.join(self.tmp, "session.key")
+        self.assertEqual(oct(os.stat(path).st_mode & 0o777), "0o600")
+        os.remove(path)
+        auth._signing_keys.clear()
+        self.assertNotEqual(auth.signing_secret(), first)
+
+    def test_a_session_signed_with_the_old_derived_secret_is_rejected(self):
+        app = create_app()
+        client = app.test_client()
+        client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+        derived = auth.auth_secret()  # de vroegere, te raden sleutel
+        forged = auth.jwt.encode({"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, derived, algorithm="HS256")
+        attacker = app.test_client()
+        attacker.set_cookie(auth.SESSION_COOKIE_NAME, forged)
+        self.assertFalse(attacker.get("/api/auth/status").get_json()["authenticated"])
+        self.assertEqual(attacker.get("/api/ah/lists/search?q=x").status_code, 401)
+        self.assertTrue(client.get("/api/auth/status").get_json()["authenticated"], "de echte sessie werkt")
+
+    def test_configured_secret_wins(self):
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_AUTH_SECRET": " zelf-gekozen "}):
+            self.assertEqual(auth.signing_secret(), "zelf-gekozen")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "session.key")))
+
+    def test_encryption_key_for_stored_secrets_is_unchanged(self):
+        # Bestaande installaties moeten hun opgeslagen Mealie- en AH-gegevens kunnen blijven lezen.
+        auth.init_db()
+        auth.set_secret("X", "waarde")
+        self.assertEqual(auth.get_secret("X"), "waarde")
+        self.assertEqual(auth.auth_secret(), auth.hashlib.sha256(f"{auth.db_path()}:mealieshopper".encode()).hexdigest())

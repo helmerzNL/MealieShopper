@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding
+from . import about, ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding
 from . import auth
 
 
@@ -20,7 +20,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-16")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-17")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -85,6 +85,10 @@ def create_app() -> Flask:
     @app.get("/healthz")
     def healthz():
         return jsonify({"ok": True})
+
+    @app.get("/api/about")
+    def about_info():
+        return jsonify(about.about())
 
     @app.get("/api/mealplan")
     def mealplan():
