@@ -157,11 +157,13 @@
 
     <header class="topbar">
       <div class="topbar__inner">
-        <img class="brand-mark" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="48" height="48">
-        <div>
-          <h1 class="wordmark">Mealie<span>Shopper</span></h1>
-          <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
-        </div>
+        <a class="brand-link" id="brand-home" href="/" title="Naar het startscherm" data-i18n-attr="title:brand.home">
+          <img class="brand-mark" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="48" height="48">
+          <div>
+            <h1 class="wordmark">Mealie<span>Shopper</span></h1>
+            <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
+          </div>
+        </a>
         <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>

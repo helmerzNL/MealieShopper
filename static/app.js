@@ -1470,6 +1470,13 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+// Het logo brengt je naar het startscherm (de eerste tab); met Ctrl, Cmd of de middelste knop opent het gewoon een nieuw tabblad.
+$("#brand-home").addEventListener("click", (event) => {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  document.querySelector('.tab[data-tab="planner"]').click();
+});
+
 document.querySelectorAll(".subtab").forEach((subtab) => {
   subtab.addEventListener("click", () => {
     const panel = subtab.closest(".panel");

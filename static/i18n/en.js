@@ -12,6 +12,7 @@ I18N.add("en", {
   "gate.passkey": "Log in with a passkey",
   "ob.progress_label": "Progress",
   "brand.tagline": "From recipe to sorted.",
+  "brand.home": "Go to the start screen",
   "auth.logout": "Log out",
   "nav.main": "Main screens",
   "nav.plan": "Week menu to shop",

@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.5.3
+
+*English summary: Click the logo in the header to go to the start screen (the first tab).*
+
+### Nieuw in 1.5.3
+
+- **Het logo in de kop is klikbaar** en brengt je naar het startscherm (Weekmenu naar winkel), vanaf elke tab. Met Ctrl, Cmd of de middelste muisknop opent het startscherm in een nieuw tabblad. Het logo is ook met het toetsenbord te bereiken.
+
 ## v1.5.2
 
 *English summary: You can now search within your receipts: type a product (for example "soda") and see which receipts contain it, with the matching lines, and the matching lines are highlighted when you open a receipt.*
