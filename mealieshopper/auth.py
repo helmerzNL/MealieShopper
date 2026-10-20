@@ -853,7 +853,7 @@ def register_routes(app: Flask) -> None:
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
 ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/mealie/auth", "/api/ah/auth/")
-ADMIN_PATHS = {"/api/ah/auth"}
+ADMIN_PATHS = {"/api/ah/auth", "/api/ah/explore"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status"}
 
 

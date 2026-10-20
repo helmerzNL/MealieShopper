@@ -503,7 +503,8 @@ class ProtocolTest(McpTestCase):
 
     def test_tools_list_has_schemas_and_honest_annotations(self):
         tools = {t["name"]: t for t in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
-        self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie"})
+        self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
+                             "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)
@@ -511,7 +512,68 @@ class ProtocolTest(McpTestCase):
             self.assertIs(tool["annotations"]["destructiveHint"], False, name)
         self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["import_recipe_to_mealie"])
         # Geen enkele tool vult het mandje of verwijdert iets.
-        self.assertFalse(any("cart" in n or "basket" in n or "delete" in n for n in tools))
+        # De tools die over het mandje of bestellingen gaan, lezen alleen; er is geen tool die iets toevoegt, wijzigt of verwijdert.
+        for name, tool in tools.items():
+            if any(word in name for word in ("cart", "basket", "order", "receipt", "delete", "remove", "clear")):
+                self.assertTrue(name.startswith(("get_", "list_", "search_")), name)
+                self.assertTrue(tool["annotations"]["readOnlyHint"], name)
+        self.assertFalse(any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in tools))
+
+
+class PurchaseToolsTest(McpTestCase):
+    def setUp(self):
+        super().setUp()
+        self.token = self.grant()[0]["access_token"]
+
+    def data(self, name, args=None):
+        result = self.call(self.token, name, args)
+        self.assertFalse(result["isError"], result["content"][0]["text"])
+        return json.loads(result["content"][0]["text"])
+
+    def seed(self):
+        from mealieshopper import ah_orders
+
+        ah_orders.save_basket({"id": 9, "state": "OPEN", "total": 4.5, "items": [{"productId": 1, "title": "Koffiebonen", "quantity": 2, "amount": 4.5}]})
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]), mock.patch.object(
+            ah, "get_order_details", return_value={"id": 5, "state": "DELIVERED", "deliveryDate": "2026-10-20", "items": [{"productId": 1, "title": "Koffiebonen", "brand": "AH", "quantity": 1, "amount": 5.0, "taxonomy": "Koffie"}]}
+        ):
+            ah_orders.sync_orders()
+        with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-01T10:00:00", "total": 5.0}]), mock.patch.object(
+            ah, "get_receipt", return_value={"id": "R1", "items": [{"productId": 1, "name": "Koffiebonen", "quantity": 1, "price": 5.0, "amount": 5.0}], "discounts": [], "payments": [{"method": "PIN", "amount": 5.0}]}
+        ):
+            ah_orders.sync_receipts()
+
+    def test_empty_copy_says_so(self):
+        basket = self.data("get_ah_basket")
+        self.assertEqual((basket["itemCount"], basket["syncedAt"]), (0, None))
+        self.assertIn("Nog niet gesynchroniseerd", basket["note"])
+        self.assertIn("Nog niet gesynchroniseerd", self.data("list_ah_orders")["note"])
+
+    def test_tools_read_the_local_copy_and_never_ask_ah(self):
+        self.seed()
+        with mock.patch.object(ah, "_get_json", side_effect=AssertionError("AH")), mock.patch.object(ah, "_graphql", side_effect=AssertionError("AH")):
+            basket = self.data("get_ah_basket")
+            orders = self.data("list_ah_orders")
+            order = self.data("get_ah_order", {"order_id": 5})
+            receipts = self.data("list_ah_receipts")
+            receipt = self.data("get_ah_receipt", {"receipt_id": "R1"})
+            found = self.data("search_ah_purchases", {"query": "koffie"})
+        self.assertIn("niet de boodschappenlijst", basket["note"])
+        self.assertEqual((basket["units"], basket["total"]), (2, 4.5))
+        self.assertEqual((orders["total"], orders["orders"][0]["id"], orders["orders"][0]["itemCount"]), (1, 5, 1))
+        self.assertEqual((order["items"][0]["title"], order["items"][0]["taxonomy"]), ("Koffiebonen", "Koffie"))
+        self.assertEqual((receipts["receipts"][0]["id"], receipt["payments"][0]["method"]), ("R1", "PIN"))
+        self.assertEqual((found["total"], found["products"][0]["product"]), (2, "Koffiebonen"))
+
+    def test_unknown_ids_and_bad_input_are_tool_errors(self):
+        self.seed()
+        for name, args in (("get_ah_order", {"order_id": 999}), ("get_ah_order", {"order_id": "x"}), ("get_ah_order", {}), ("get_ah_receipt", {"receipt_id": "nope"}), ("search_ah_purchases", {"query": " "})):
+            self.assertTrue(self.call(self.token, name, args)["isError"], (name, args))
+
+    def test_limits(self):
+        self.seed()
+        self.assertEqual(len(self.data("list_ah_orders", {"limit": 1})["orders"]), 1)
+        self.assertEqual(len(self.data("search_ah_purchases", {"query": "koffie", "limit": 1})["occurrences"]), 1)
 
 
 class ToolsTest(McpTestCase):

@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.5.0
+
+*English summary: MealieShopper can now keep your Albert Heijn order basket, orders and in-store receipts as a local copy, so you can browse and search your purchase history without a connection to AH, and your AI assistant can query it. Delivered orders are archived permanently once an open order has been delivered. An owner-only explorer reports which of the unofficial AH routes work, to find out how to fetch past orders.*
+
+### Nieuw in 1.5.0
+
+- **Bestelmandje, bestellingen en kassabonnen** onder AH Items > Bestellingen. Het bestelmandje is de actieve bestelling bij AH (en dus iets anders dan de boodschappenlijst waar "In AH-mandje" naartoe schrijft; dat staat ook in de interface). Open bestellingen komen uit AH; kassabonnen zijn je aankopen in de winkel.
+- **Alles staat in een lokale kopie.** Bekijken en zoeken gaan uit die kopie en vragen nooit iets aan AH, dus de bestelhistorie is ook te zien als AH niet bereikbaar is. Alleen het synchroniseer-icoon praat met AH; mislukt dat, dan blijft de kopie staan en zie je de fout.
+- **Slim synchroniseren.** Een volgende synchronisatie haalt alleen op wat nieuw is. Het bestelmandje is een momentopname. Een open bestelling wordt bijgewerkt zolang hij open is; verdwijnt hij uit de open bestellingen, dan haalt MealieShopper hem een laatste keer op en bewaart hem als **afgeleverd**, voor altijd. Kassabonnen komen er in porties van 40 bij, zodat een synchronisatie kort blijft.
+- **Zoeken in al je aankopen**: wanneer en hoe vaak kocht ik iets, in bestellingen en op kassabonnen, met het detail van elke bestelling en bon.
+- **AI-assistenten** kunnen dit bevragen met zes nieuwe tools (alleen lezen, uit de lokale kopie, met het tijdstip van de laatste synchronisatie): `get_ah_basket`, `list_ah_orders`, `get_ah_order`, `list_ah_receipts`, `get_ah_receipt` en `search_ah_purchases`. Het toestemmingsscherm noemt dit.
+- **Privacy:** het afleveradres wordt niet opgehaald en niet bewaard, alleen datum en tijdvak. Bestellingen en kassabonnen horen bij het gedeelde AH-account en zijn voor alle gebruikers te zien, net als de lijstjes.
+- **AH-routes verkennen** (alleen de beheerder, onder Beheer > Albert Heijn): roept de onofficiële leesroutes aan en meldt welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard en het rapport bevat geen namen, adressen, prijzen of id's. Daarmee zoeken we uit hoe afgeleverde bestellingen uit het verleden zijn op te vragen.
+- Een bestelling waarvan je het nummer kent, is al op te halen met de code (`add_order_by_id`); de knop daarvoor volgt zodra de verkenner laat zien hoe AH de lijst van afgeleverde bestellingen geeft.
+
+### Goed om te weten
+
+- Deze AH-routes zijn onofficieel en niet door ons tegen een echt account geprobeerd: ze volgen de community-bibliotheek `appie-go`. Gebruik **AH-routes verkennen** als iets niet werkt en deel het rapport.
+
 ## v1.4.1
 
 ### Fixes

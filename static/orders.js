@@ -1,0 +1,313 @@
+// Bestellingen, bestelmandje en kassabonnen: lezen uit de lokale kopie, synchroniseren bij AH.
+// Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, t, tn, escapeHtml, formatPrice, ...).
+
+const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false };
+
+function dayLabel(value) {
+  const date = new Date(String(value || "").length === 10 ? `${value}T12:00:00` : value);
+  if (!value || Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(I18N.locale(), { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function slotLabel(start, end) {
+  const clock = (value) => (/(\d{2}:\d{2})/.exec(String(value || "")) || [])[1] || "";
+  const from = clock(start);
+  const to = clock(end);
+  return from && to ? `${from}-${to}` : from || to;
+}
+
+function money(value) {
+  return value === null || value === undefined ? "" : formatPrice(value);
+}
+
+function purchaseItem(item) {
+  const meta = [item.brand, item.unitSize].filter(Boolean).join(" · ");
+  return `
+    <article class="product-card">
+      ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy">` : ""}
+      <div>
+        <strong>${escapeHtml(item.quantity)}x ${escapeHtml(item.title || item.name || "")}</strong>
+        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+        ${item.taxonomy ? `<small>${escapeHtml(item.taxonomy)}</small>` : ""}
+        ${item.bonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
+        ${item.amount ? `<small>${escapeHtml(money(item.amount))}</small>` : ""}
+      </div>
+    </article>`;
+}
+
+function renderBasket() {
+  const basket = ordersState.basket;
+  const target = $("#ah-basket");
+  $("#ah-basket-note").textContent = t("orders.basket_note");
+  if (!basket?.syncedAt) {
+    target.innerHTML = `<p class="muted">${escapeHtml(t("orders.never_synced"))}</p>`;
+    return;
+  }
+  if (!basket.itemCount) {
+    target.innerHTML = `<p class="muted">${escapeHtml(t("orders.basket_empty", { when: formatSyncTime(basket.syncedAt) }))}</p>`;
+    return;
+  }
+  const delivery = [dayLabel(basket.deliveryDate), slotLabel(basket.slotStart, basket.slotEnd)].filter(Boolean).join(", ");
+  const summary = [
+    tn("list.items", basket.itemCount),
+    t("orders.units", { count: I18N.formatNumber(basket.units) }),
+    money(basket.total),
+    delivery ? t("orders.delivery", { when: delivery }) : "",
+    t("orders.updated", { when: formatSyncTime(basket.syncedAt) }),
+  ].filter(Boolean);
+  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map(purchaseItem).join("")}</div>`;
+}
+
+function renderOrderList() {
+  const target = $("#ah-order-list");
+  if (!ordersState.orders.length) {
+    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.ordersSyncedAt ? t("orders.none") : t("orders.never_synced"))}</p>`;
+    return;
+  }
+  target.innerHTML = ordersState.orders
+    .map((order) => {
+      const lines = [
+        order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
+        [slotLabel(order.slotStart, order.slotEnd), money(order.total)].filter(Boolean).join(" · "),
+        order.itemsSynced ? tn("list.items", order.itemCount) : t("orders.items_pending"),
+      ].filter(Boolean);
+      return `
+        <div class="list-card">
+          <button type="button" class="list-card__open" data-order-id="${escapeHtml(order.id)}">
+            <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
+            ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
+          </button>
+        </div>`;
+    })
+    .join("");
+}
+
+function receiptDay(receipt) {
+  const date = new Date(receipt.dateTime);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderReceiptList() {
+  const target = $("#ah-receipt-list");
+  if (!ordersState.receipts.length) {
+    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.receiptsSyncedAt ? t("orders.receipts_none") : t("orders.never_synced"))}</p>`;
+    return;
+  }
+  target.innerHTML = ordersState.receipts
+    .map(
+      (receipt) => `
+        <div class="credential-row">
+          <div>
+            <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
+            <small>${escapeHtml([money(receipt.total), receipt.detailsSynced ? tn("list.items", receipt.itemCount) : t("orders.items_pending")].filter(Boolean).join(" · "))}</small>
+          </div>
+          <button class="button button--secondary" type="button" data-receipt-id="${escapeHtml(receipt.id)}">${escapeHtml(t("orders.view"))}</button>
+        </div>`
+    )
+    .join("");
+}
+
+function renderOrders() {
+  renderBasket();
+  renderOrderList();
+  renderReceiptList();
+  if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
+}
+
+async function loadOrders() {
+  message("#ah-orders-message", "");
+  try {
+    const [basket, orders, receipts] = await Promise.all([jsonFetch("/api/ah/basket"), jsonFetch("/api/ah/orders"), jsonFetch("/api/ah/receipts")]);
+    Object.assign(ordersState, { basket, orders: orders.orders, ordersSyncedAt: orders.syncedAt, receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
+    renderOrders();
+  } catch (error) {
+    message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
+  }
+}
+
+// ---- synchroniseren: eerst het mandje, dan de bestellingen, dan de kassabonnen; een deel dat mislukt stopt de rest niet
+async function syncOrders() {
+  const button = $("#sync-orders");
+  setBusy(button, true);
+  message("#ah-orders-message", "");
+  const done = [];
+  const failed = [];
+  const run = async (what, path, report) => {
+    try {
+      report(await jsonFetch(path, { method: "POST" }));
+    } catch (error) {
+      failed.push(t("orders.sync_failed", { what, error: error.message }));
+    }
+  };
+  await run(t("orders.part.basket"), "/api/ah/basket/sync", () => done.push(t("orders.sync_basket")));
+  await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
+    done.push(tn("orders.sync_orders", data.open));
+    if (data.archived) done.push(tn("orders.sync_archived", data.archived));
+  });
+  await run(t("orders.part.receipts"), "/api/ah/receipts/sync", (data) => {
+    done.push(tn("orders.sync_receipts", data.new));
+    if (data.remaining) done.push(tn("orders.sync_remaining", data.remaining));
+  });
+  await loadOrders();
+  const text = [done.length ? `${done.join(", ")}.` : "", ...failed].filter(Boolean).join(" ");
+  message("#ah-orders-message", text, failed.length ? "error" : "success");
+  setBusy(button, false);
+}
+
+// ---- zoeken in alles wat je kocht
+let purchaseTimer = null;
+let purchaseSeq = 0;
+
+function renderPurchaseResults(data) {
+  const box = $("#ah-purchase-results");
+  const query = ordersState.query.trim();
+  box.hidden = !query;
+  $("#ah-orders-main").hidden = Boolean(query);
+  if (!query) return;
+  if (!data) {
+    box.innerHTML = "";
+    return;
+  }
+  if (!data.products.length) {
+    box.innerHTML = `<p class="muted">${th("orders.search_none", { query })}</p>`;
+    return;
+  }
+  const products = data.products
+    .map(
+      (product) => `<div class="credential-row"><div><strong>${escapeHtml(product.product)}</strong>
+        <small>${escapeHtml([t("orders.last_bought", { date: dayLabel(product.lastDate) }), tn("orders.times", product.times), t("orders.quantity", { count: I18N.formatNumber(product.totalQuantity) })].join(" · "))}</small></div></div>`
+    )
+    .join("");
+  const occurrences = data.occurrences
+    .map(
+      (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>
+        <small>${escapeHtml([dayLabel(entry.date), t(entry.source === "kassabon" ? "orders.source.receipt" : "orders.source.order"), entry.quantity ? `${entry.quantity}x` : "", money(entry.amount)].filter(Boolean).join(" · "))}</small></div>
+        <button class="button button--secondary" type="button" ${entry.source === "kassabon" ? `data-receipt-id="${escapeHtml(entry.id)}"` : `data-order-id="${escapeHtml(entry.id)}"`}>${escapeHtml(t("orders.view"))}</button></div>`
+    )
+    .join("");
+  box.innerHTML = `<p class="muted">${escapeHtml(t("orders.search_summary", { products: data.products.length, total: data.total }))}</p>
+    <div class="credential-list">${products}</div><h3>${escapeHtml(t("orders.occurrences"))}</h3><div class="credential-list">${occurrences}</div>`;
+}
+
+async function searchPurchases() {
+  const seq = ++purchaseSeq;
+  const query = ordersState.query.trim();
+  if (!query) {
+    ordersState.hits = null;
+    renderPurchaseResults(null);
+    return;
+  }
+  try {
+    const data = await jsonFetch(`/api/ah/purchases/search?q=${encodeURIComponent(query)}`);
+    if (seq !== purchaseSeq) return;
+    ordersState.hits = data;
+    renderPurchaseResults(data);
+  } catch (error) {
+    if (seq === purchaseSeq) message("#ah-orders-message", error.message);
+  }
+}
+
+$("#ah-purchase-filter").addEventListener("input", (event) => {
+  ordersState.query = event.target.value;
+  ordersState.hits = null;
+  purchaseSeq++;
+  renderPurchaseResults(null);
+  clearTimeout(purchaseTimer);
+  purchaseTimer = setTimeout(searchPurchases, 250);
+});
+
+// ---- één bestelling of kassabon openen
+function showPurchaseOverview() {
+  $("#ah-order-detail").hidden = true;
+  $("#ah-orders-view").hidden = false;
+}
+
+async function openPurchase(kind, id) {
+  $("#ah-orders-view").hidden = true;
+  $("#ah-order-detail").hidden = false;
+  $("#ah-order-title").textContent = "";
+  $("#ah-order-meta").textContent = "";
+  $("#ah-order-items").innerHTML = "";
+  try {
+    if (kind === "order") {
+      const order = await jsonFetch(`/api/ah/orders/${encodeURIComponent(id)}`);
+      $("#ah-order-title").textContent = dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id });
+      $("#ah-order-meta").textContent = [
+        t("orders.order_title", { id: order.id }),
+        order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
+        slotLabel(order.slotStart, order.slotEnd),
+        money(order.total),
+        t("orders.updated", { when: formatSyncTime(order.syncedAt) }),
+      ].filter(Boolean).join(" · ");
+      $("#ah-order-items").innerHTML = order.items.length
+        ? `<div class="product-grid">${order.items.map(purchaseItem).join("")}</div>`
+        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+    } else {
+      const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
+      $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
+      $("#ah-order-meta").textContent = money(receipt.total);
+      const extra = [
+        receipt.discounts.length ? `<h3>${escapeHtml(t("orders.discounts"))}</h3>${receipt.discounts.map((d) => `<p>${escapeHtml(d.name)}: ${escapeHtml(money(d.amount))}</p>`).join("")}` : "",
+        receipt.payments.length ? `<h3>${escapeHtml(t("orders.payments"))}</h3>${receipt.payments.map((p) => `<p>${escapeHtml(p.method)}: ${escapeHtml(money(p.amount))}</p>`).join("")}` : "",
+      ].join("");
+      $("#ah-order-items").innerHTML = receipt.items.length
+        ? `<div class="product-grid">${receipt.items.map((line) => purchaseItem({ quantity: line.quantity, title: line.name, amount: line.amount })).join("")}</div>${extra}`
+        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>${extra}`;
+    }
+    $("#ah-order-title").focus({ preventScroll: true });
+  } catch (error) {
+    $("#ah-order-items").innerHTML = "";
+    showPurchaseOverview();
+    message("#ah-orders-message", error.message);
+  }
+}
+
+$("#sync-orders").addEventListener("click", syncOrders);
+$("#ah-order-back").addEventListener("click", showPurchaseOverview);
+$("#ah-items-bestellingen").addEventListener("click", (event) => {
+  const order = event.target.closest("[data-order-id]");
+  const receipt = event.target.closest("[data-receipt-id]");
+  if (order) openPurchase("order", order.dataset.orderId);
+  else if (receipt) openPurchase("receipt", receipt.dataset.receiptId);
+});
+
+// ---- verkenner (alleen de beheerder): welke AH-routes werken, en met welke velden?
+let exploreReport = null;
+
+async function runExplore() {
+  const button = $("#explore-run");
+  setBusy(button, true);
+  message("#explore-message", "");
+  try {
+    exploreReport = await jsonFetch("/api/ah/explore", { method: "POST" });
+    $("#explore-summary").textContent = t("explore.summary", { ok: exploreReport.ok, total: exploreReport.probes.length });
+    $("#explore-output").textContent = JSON.stringify(exploreReport, null, 2);
+    $("#explore-report").hidden = false;
+    if (!exploreReport.linked) message("#explore-message", t("explore.not_linked"));
+  } catch (error) {
+    message("#explore-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+$("#explore-run").addEventListener("click", runExplore);
+$("#explore-copy").addEventListener("click", async (event) => {
+  const text = $("#explore-output").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents($("#explore-output"));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    document.execCommand("copy");
+  }
+  event.currentTarget.textContent = t("users.copied");
+  setTimeout(() => (event.currentTarget.textContent = t("users.copy")), 2000);
+});
+
+window.addEventListener("ms:languagechange", () => {
+  if (ordersState.loaded) renderOrders();
+  if (exploreReport) $("#explore-summary").textContent = t("explore.summary", { ok: exploreReport.ok, total: exploreReport.probes.length });
+});

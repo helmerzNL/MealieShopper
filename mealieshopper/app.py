@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_lists, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, server_settings, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, server_settings, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-25")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-26")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -243,6 +243,62 @@ def create_app() -> Flask:
                 "name": snapshot.get("name"),
             }
         )
+
+    # --- bestelmandje, bestellingen en kassabonnen: lezen uit de lokale kopie, synchroniseren bij AH ----------
+
+    def ah_sync(action, error_text: str):
+        try:
+            return jsonify(action())
+        except Exception as exc:  # noqa: BLE001 - AH is onofficieel; toon de fout, de bewaarde kopie blijft staan
+            app.logger.exception("AH order sync error")
+            return jsonify({"error": str(exc) or error_text}), 424
+
+    @app.get("/api/ah/basket")
+    def ah_basket():
+        return jsonify(ah_orders.get_basket())
+
+    @app.post("/api/ah/basket/sync")
+    def ah_basket_sync():
+        return ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
+
+    @app.get("/api/ah/orders")
+    def ah_orders_list():
+        return jsonify(ah_orders.list_orders())
+
+    @app.get("/api/ah/orders/<int:order_id>")
+    def ah_order_detail(order_id: int):
+        order = ah_orders.get_order(order_id)
+        if not order:
+            return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
+        return jsonify(order)
+
+    @app.post("/api/ah/orders/sync")
+    def ah_orders_sync():
+        return ah_sync(ah_orders.sync_orders, tr("Bestellingen ophalen mislukt", "Fetching the orders failed"))
+
+    @app.get("/api/ah/receipts")
+    def ah_receipts_list():
+        return jsonify(ah_orders.list_receipts())
+
+    @app.get("/api/ah/receipts/<receipt_id>")
+    def ah_receipt_detail(receipt_id: str):
+        receipt = ah_orders.get_receipt(receipt_id)
+        if not receipt:
+            return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
+        return jsonify(receipt)
+
+    @app.post("/api/ah/receipts/sync")
+    def ah_receipts_sync():
+        return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
+
+    @app.get("/api/ah/purchases/search")
+    def ah_purchases_search():
+        return jsonify(ah_orders.search_purchases(request.args.get("q") or ""))
+
+    @app.post("/api/ah/explore")
+    def ah_explore_routes():
+        # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
+        return jsonify(ah_explore.explore())
 
     @app.get("/api/mealie/status")
     def mealie_status():

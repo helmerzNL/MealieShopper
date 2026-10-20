@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_recipes, auth, mealie, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, mealie, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -216,6 +216,53 @@ def tool_import_recipe(args: dict[str, Any]) -> Any:
     return {"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)}
 
 
+def _copy_note(synced: str | None) -> str:
+    return f"Uit de lokale kopie van {synced[:16].replace('T', ' ')} (UTC)." if synced else "Nog niet gesynchroniseerd: de kopie is leeg. De eigenaar synchroniseert onder AH Items > Bestellingen."
+
+
+def tool_basket(args: dict[str, Any]) -> Any:
+    basket = ah_orders.get_basket()
+    return {"note": _copy_note(basket["syncedAt"]) + " Dit is het bestelmandje (de actieve bestelling bij AH), niet de boodschappenlijst.", **basket}
+
+
+def tool_list_orders(args: dict[str, Any]) -> Any:
+    data = ah_orders.list_orders()
+    limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
+    orders = data["orders"]
+    return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
+
+
+def tool_get_order(args: dict[str, Any]) -> Any:
+    try:
+        order_id = int(args.get("order_id"))
+    except (TypeError, ValueError):
+        raise ToolError("Geef het nummer van een bestelling op (zie list_ah_orders)") from None
+    order = ah_orders.get_order(order_id)
+    if not order:
+        raise ToolError("Deze bestelling staat niet in de lokale kopie")
+    return order
+
+
+def tool_list_receipts(args: dict[str, Any]) -> Any:
+    data = ah_orders.list_receipts()
+    limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
+    return {"note": _copy_note(data["syncedAt"]), "total": len(data["receipts"]), "receipts": data["receipts"][:limit]}
+
+
+def tool_get_receipt(args: dict[str, Any]) -> Any:
+    receipt = ah_orders.get_receipt(_text(args.get("receipt_id"), 100))
+    if not receipt:
+        raise ToolError("Deze kassabon staat niet in de lokale kopie (zie list_ah_receipts)")
+    return receipt
+
+
+def tool_search_purchases(args: dict[str, Any]) -> Any:
+    query = _text(args.get("query"), 200)
+    if not query:
+        raise ToolError("Geef een zoekterm op")
+    return ah_orders.search_purchases(query, limit=max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50))))
+
+
 def _schema(properties: dict[str, Any] | None = None, required: list[str] | None = None) -> dict[str, Any]:
     schema: dict[str, Any] = {"type": "object", "properties": properties or {}, "additionalProperties": False}
     if required:
@@ -278,6 +325,45 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "title": "AH-producten zoeken"},
         "handler": tool_search_products,
+    },
+    "get_ah_basket": {
+        "description": "Het bestelmandje: de actieve bestelling bij Albert Heijn (producten, aantallen, totaal, gekozen bezorgmoment). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie. Niet de boodschappenlijst.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Bestelmandje"},
+        "handler": tool_basket,
+    },
+    "list_ah_orders": {
+        "description": "AH-bestellingen uit de lokale kopie, open bestellingen eerst en daarna de afgeleverde, met datum, bezorgvenster en totaal. Gebruik het nummer met get_ah_order.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "AH-bestellingen"},
+        "handler": tool_list_orders,
+    },
+    "get_ah_order": {
+        "description": "De producten van één AH-bestelling (naam, merk, aantal, prijs, bonus, categorie), uit de lokale kopie.",
+        "inputSchema": _schema({"order_id": {"type": "integer", "description": "Het nummer uit list_ah_orders."}}, ["order_id"]),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "AH-bestelling bekijken"},
+        "handler": tool_get_order,
+    },
+    "list_ah_receipts": {
+        "description": "Kassabonnen van aankopen in de winkel, nieuwste eerst, uit de lokale kopie. Gebruik het id met get_ah_receipt.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bonnen, standaard 50."}}),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Kassabonnen"},
+        "handler": tool_list_receipts,
+    },
+    "get_ah_receipt": {
+        "description": "De regels, kortingen en betalingen van één kassabon, uit de lokale kopie.",
+        "inputSchema": _schema({"receipt_id": {"type": "string", "description": "Het id uit list_ah_receipts."}}, ["receipt_id"]),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Kassabon bekijken"},
+        "handler": tool_get_receipt,
+    },
+    "search_ah_purchases": {
+        "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam. Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
+        "inputSchema": _schema(
+            {"query": {"type": "string", "description": "Bijvoorbeeld 'koffie'."}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal losse aankopen, standaard 50."}},
+            ["query"],
+        ),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Aankopen doorzoeken"},
+        "handler": tool_search_purchases,
     },
     "import_recipe_to_mealie": {
         "description": "Importeer een recept van een webpagina (ook Allerhande) in Mealie. Maakt een nieuw recept aan; er wordt niets overschreven of verwijderd.",
@@ -346,7 +432,8 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "serverInfo": {"name": "mealieshopper", "title": "MealieShopper", "version": _version()},
                 "instructions": (
                     "MealieShopper koppelt Mealie aan Albert Heijn. Gebruik de tools om het weekmenu, "
-                    "recepten, AH-lijstjes en AH-producten te bekijken en om een recept in Mealie te importeren. "
+                    "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
+                    "(die laatste drie komen uit een lokale kopie met een tijdstip) en om een recept in Mealie te importeren. "
                     "Het AH-mandje vullen kan niet via deze server."
                 ),
             },

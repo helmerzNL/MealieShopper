@@ -258,6 +258,7 @@
         <nav class="subtabs" aria-label="AH Items" data-i18n-attr="aria-label:ah.nav">
           <button class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes">AH Recepten</button>
           <button class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists">AH Lijstjes</button>
+          <button class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders">Bestellingen</button>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -308,6 +309,40 @@
           <div id="ah-list-items"></div>
         </div>
         </div>
+
+        <div id="ah-items-bestellingen" class="subpanel">
+        <div class="box box--wide" id="ah-orders-view">
+          <div class="toolbar">
+            <h2 data-i18n="orders.title">Bestellingen en kassabonnen</h2>
+            <button class="icon-button" id="sync-orders" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+          </div>
+          <p class="muted" data-i18n="orders.intro">Je bestelmandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
+          <label class="searchbar">
+            <span class="visually-hidden" data-i18n="orders.search">Zoek in je aankopen</span>
+            <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
+            <input class="input" id="ah-purchase-filter" type="search" placeholder="Zoek in je aankopen" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:orders.search_ph">
+          </label>
+          <div id="ah-orders-message"></div>
+          <div id="ah-purchase-results" hidden></div>
+          <div id="ah-orders-main">
+            <h3 data-i18n="orders.basket_title">Bestelmandje</h3>
+            <p class="muted" id="ah-basket-note"></p>
+            <div id="ah-basket"></div>
+            <h3 data-i18n="orders.orders_title">Bestellingen</h3>
+            <div id="ah-order-list" class="list-grid"></div>
+            <h3 data-i18n="orders.receipts_title">Kassabonnen</h3>
+            <div id="ah-receipt-list" class="credential-list"></div>
+          </div>
+        </div>
+        <div class="box box--wide" id="ah-order-detail" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="ah-order-back" type="button" aria-label="Terug" data-i18n-attr="aria-label:orders.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="ah-order-title" tabindex="-1"></h2>
+          </div>
+          <p class="muted" id="ah-order-meta"></p>
+          <div id="ah-order-items"></div>
+        </div>
+        </div>
       </section>
 
       <section id="beheer" class="panel">
@@ -342,6 +377,17 @@
           <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
           <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
           <div id="token-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="explore.title">AH-routes verkennen</h2>
+          <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+          <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+          <div id="explore-message"></div>
+          <div id="explore-report" hidden>
+            <p class="muted" id="explore-summary"></p>
+            <pre class="ai-code" id="explore-output"></pre>
+            <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+          </div>
         </div>
         </div>
 
@@ -515,6 +561,7 @@
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='orders.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>
