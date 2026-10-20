@@ -76,11 +76,13 @@ Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op 
 
 ### AH Items: bestellingen en kassabonnen
 
-Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en hoe je betaalde. Alles staat in een lokale kopie; het zoekveld doorzoekt al je aankopen en laat zien wanneer en hoe vaak je iets kocht. Het bestelmandje en je bestellingen bij AH komen binnenkort.
+Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en hoe je betaalde. Alles staat in een lokale kopie; het zoekveld doorzoekt al je aankopen en laat zien wanneer en hoe vaak je iets kocht, en **op welke kassabonnen** een product staat (zoek bijvoorbeeld op "frisdrank"); open je zo'n bon, dan zijn de passende regels geel gemarkeerd. Het bestelmandje en je bestellingen bij AH komen binnenkort.
 
 <img src="docs/screenshots/nl/receipts.png" alt="De lijst met kassabonnen en een zoekveld in je aankopen" width="900">
 
 <img src="docs/screenshots/nl/receipt.png" alt="Een kassabon zoals op papier" width="900">
+
+<img src="docs/screenshots/nl/receipt-search.png" alt="Zoeken op product: de kassabonnen waarop het staat, met de passende regels" width="900">
 
 ## Snel starten
 

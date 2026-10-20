@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-29")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-30")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -290,6 +290,10 @@ def create_app() -> Flask:
     @app.post("/api/ah/receipts/sync")
     def ah_receipts_sync():
         return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
+
+    @app.get("/api/ah/receipts/search")
+    def ah_receipts_search():
+        return jsonify(ah_orders.search_receipts(request.args.get("q") or ""))
 
     @app.get("/api/ah/purchases/search")
     def ah_purchases_search():

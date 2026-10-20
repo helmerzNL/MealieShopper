@@ -2141,3 +2141,16 @@ body.has-onboarding {
 #ah-orders-soon {
   margin: 4px 0 22px;
 }
+
+.receipt-hits {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.receipt__hit {
+  margin: 0 -4px;
+  padding: 0 4px;
+  background: #ffe97a;
+  border-radius: 2px;
+}
