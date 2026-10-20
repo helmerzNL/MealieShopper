@@ -105,8 +105,9 @@ class OverviewScriptTest(unittest.TestCase):
         self.assertIn("data-hide-on-error", JS)
 
     def test_user_text_is_never_put_in_html_unescaped(self):
-        # De zoektekst komt via message() (die escaped) of escapeHtml() op het scherm.
-        self.assertIn("escapeHtml(query)", JS)
+        # De zoektekst komt via th() (dat de waarden escaped) of via message() (dat alles escaped) op het scherm.
+        self.assertIn('th("list.no_match", { query })', JS)
+        self.assertIn('t("saved.none_match", { query })', JS)
 
 
 if __name__ == "__main__":

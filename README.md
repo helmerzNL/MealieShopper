@@ -161,9 +161,12 @@ Op een nieuwe installatie opent MealieShopper een installatiehulp van vier stapp
      beveiliging** verder gaan (met een waarschuwing en een bevestiging). Na het wachtwoord
      kun je **tweestapsverificatie** (TOTP, een authenticator-app) aanzetten, ook optioneel.
      Je krijgt dan 8 herstelcodes die je één keer te zien krijgt.
-2. **Mealie koppelen**: uitleg voor het API-token en het adres.
-3. **Albert Heijn koppelen**: uitleg voor de inlog via de browserconsole.
-4. **Klaar**: een overzicht van wat er staat, met knoppen naar de koppelingen die nog ontbreken.
+2. **Mealie koppelen**: uitleg voor het API-token, met het formulier (adres en token) meteen in de
+   stap. MealieShopper controleert ze bij Mealie voordat er iets wordt bewaard; daarna ga je door.
+3. **Albert Heijn koppelen**: uitleg voor de inlog via de browserconsole, met de inlogknop en het
+   plakveld in de stap (alleen op een computer). Overslaan kan; je kunt het later onder Beheer doen.
+4. **Klaar**: een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je
+   terug naar die stap, zonder de installatiehulp te verlaten.
 
 Een bestaande installatie (met een passkey of wachtwoord) ziet de installatiehulp niet.
 Staat inloggen uit via `PASSKEY_AUTH_ENABLED=false`, dan valt de beveiligingsstap weg.
@@ -181,6 +184,39 @@ Over de beveiliging van het wachtwoord:
   netwerk dat je vertrouwt, of meteen nadat de container draait.
 - Het IP-adres komt uit `X-Forwarded-For` van je reverse proxy (een stap); zet MealieShopper
   daarom niet rechtstreeks op internet zonder proxy die dat veld zelf instelt.
+
+## Taal
+
+De interface is er in het Nederlands en het Engels. Met de vlaggetjes (rechtsboven in de interface,
+op de inlogpagina en in de installatiehulp) wissel je; de keuze blijft in je browser bewaard
+(`localStorage`) en staat ook in de cookie `ms_lang`, zodat de meldingen van de server (inloggen,
+wachtwoord, tweestapsverificatie, beveiligingsstap) in dezelfde taal komen. Zonder keuze volgt de
+app de taal van je browser, en anders het Nederlands. Wat Mealie en Albert Heijn zelf teruggeven
+(receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
+
+De teksten staan in `static/i18n/nl.js` en `static/i18n/en.js`, één tekst per regel. In de HTML staat
+de Nederlandse tekst gewoon in de pagina, met `data-i18n="sleutel"` erbij; in de scripts gebruik je
+`t("sleutel", { naam })` (gewone tekst), `th(...)` (tekst met opmaak; waarden worden ge-escaped) en
+`tn("sleutel", aantal)` (meervoud: `sleutel.one` en `sleutel.other`). Een taal toevoegen betekent een
+bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`.
+`tests/test_i18n.py` bewaakt dat beide woordenboeken dezelfde sleutels en plaatshouders hebben, dat elke
+gebruikte sleutel bestaat en dat de HTML overeenkomt met `nl.js`.
+
+## Over en het versienummer
+
+Het tabblad **Over** toont het versienummer als `vX.Y.Z (commit)`, de integraties en componenten die
+MealieShopper gebruikt (met de versies van de geïnstalleerde Python-pakketten) en een link om me een
+koffie te geven.
+
+Het versienummer staat in het bestand `VERSION` (alleen `X.Y.Z`); verhoog het bij een release. De commit
+komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT` (de GitHub Actions workflow zet het
+op `github.sha`) en lokaal wordt hij uit git gelezen. Voor een handmatige build:
+
+```bash
+docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .
+```
+
+`MEALIESHOPPER_VERSION` en `MEALIESHOPPER_COMMIT` kunnen beide waarden overschrijven.
 
 ## Passkeys
 

@@ -55,30 +55,55 @@ class MarkupTest(unittest.TestCase):
             self.assertEqual(client.get("/static/vendor/LICENSE-qrcode.txt").status_code, 200)
 
 
+def dictionary(lang: str) -> dict[str, str]:
+    source = (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
+    import json
+
+    return {json.loads(f'"{k}"'): json.loads(f'"{v}"') for k, v in re.findall(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', source, re.M)}
+
+
+NL = dictionary("nl")
+
+
 class ScriptTest(unittest.TestCase):
     def test_four_steps_in_the_asked_order(self):
-        ids = re.findall(r'\{ id: "(\w+)", label', OB_JS)
+        ids = re.findall(r'\{ id: "(\w+)" \}', OB_JS)
         self.assertEqual(ids, ["auth", "mealie", "ah", "done"])
+        self.assertEqual([NL[f"ob.step.{i}"] for i in ids], ["Beveiliging", "Mealie", "Albert Heijn", "Klaar"])
 
     def test_security_step_follows_the_domain_rule(self):
-        for needle in ("status.passkeyAvailable", "go-passkey", "go-password", "go-open", "passkeyUnavailableReason",
-                       "Passkeys werken op dit adres niet", "Zonder beveiliging verder"):
+        for needle in ("status.passkeyAvailable", "go-passkey", "go-password", "go-open", "passkeyUnavailableReason"):
             self.assertIn(needle, OB_JS, needle)
+        self.assertIn("Passkeys werken op dit adres niet", NL["ob.nopasskey.title"])
+        self.assertIn("Zonder beveiliging verder", NL["ob.skip_security"])
         # Zonder domeinnaam is het wachtwoord de aanbevolen keuze en is overslaan mogelijk;
         # met een domeinnaam staat de passkey bovenaan en is er geen 'zonder beveiliging'.
-        with_domain = OB_JS[OB_JS.index("body.innerHTML = status.passkeyAvailable"):OB_JS.index("function obBackButton")]
-        domain_part, no_domain_part = with_domain.split(": `", 1)
+        choose = OB_JS[OB_JS.index("body.innerHTML = status.passkeyAvailable"):OB_JS.index("function obBackButton")]
+        domain_part, no_domain_part = choose.split(": `", 1)
         self.assertNotIn("go-open", domain_part)
         self.assertIn("go-open", no_domain_part)
 
     def test_mfa_is_optional_and_recovery_codes_must_be_acknowledged(self):
-        for needle in ("skip-mfa", "Overslaan", "data-recovery-saved", "disabled", "niet meer getoond"):
+        for needle in ("skip-mfa", "data-recovery-saved", "disabled"):
             self.assertIn(needle, OB_JS, needle)
+        self.assertIn("Overslaan", NL["ob.mfa.skip"])
+        self.assertIn("niet meer getoond", NL["mfa.recovery.text"])
 
     def test_explanations_for_mealie_and_ah(self):
-        for needle in ("API-tokens", "Token genereren", "Beheer &gt; Mealie", "http://mealie:9000",
-                       "appie://login-exit?code=", "ontwikkelaarsconsole", "computer"):
+        mealie = " ".join(NL[k] for k in NL if k.startswith("ob.mealie."))
+        ah = " ".join(NL[k] for k in NL if k.startswith("ob.ah."))
+        for needle in ("API-tokens", "Token genereren", "http://mealie:9000"):
+            self.assertIn(needle, mealie, needle)
+        for needle in ("appie://login-exit?code=", "ontwikkelaarsconsole", "computer"):
+            self.assertIn(needle, ah, needle)
+
+    def test_mealie_and_ah_are_linked_inside_the_wizard(self):
+        # Geen sprong naar Beheer: de formulieren staan in de stappen en je gaat daarna gewoon door.
+        for needle in ('data-ob-form="mealie"', 'data-ob-form="ah"', '"/api/mealie/auth"', '"/api/ah/auth"',
+                       "obIntegrationDone", 'id="ob-mealie-next"', 'id="ob-ah-next"', 'id="ob-mealie-skip"', 'id="ob-ah-skip"'):
             self.assertIn(needle, OB_JS, needle)
+        self.assertNotIn("finish-mealie", OB_JS)
+        self.assertNotIn("openBeheer", OB_JS)
 
     def test_opt_out_needs_an_explicit_confirmation(self):
         self.assertIn("ob-open-confirm", OB_JS)
@@ -95,6 +120,18 @@ class ScriptTest(unittest.TestCase):
     def test_login_page_hides_when_the_wizard_takes_over(self):
         self.assertIn("onboardingVisible()", APP_JS)
         self.assertIn("!auth.setupRequired", APP_JS)
+
+    def test_security_blocks_fold_away_when_a_passkey_exists(self):
+        self.assertIn('collapsible: hasPasskey', OB_JS)
+        for name in ("password", "mfa"):
+            self.assertIn(f'id="{name}-toggle"', HTML)
+            self.assertIn(f'id="{name}-body"', HTML)
+            self.assertIn(f'id="{name}-badge"', HTML)
+        self.assertIn("Niet nodig", NL["sec.not_needed"])
+        self.assertIn("Niet nodig", NL["sec.password.intro_passkey"])
+        self.assertIn("passkey", NL["sec.password.intro_passkey"])
+        self.assertIn("Niet nodig", NL["sec.mfa.optional_note"])
+        self.assertIn("gebruikersnaam en wachtwoord", NL["sec.mfa.optional_note"])
 
 
 class StyleTest(unittest.TestCase):

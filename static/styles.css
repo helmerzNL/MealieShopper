@@ -1493,6 +1493,216 @@ body.has-onboarding {
   }
 }
 
+/* Inklapbare blokken (Beheer > Beveiliging) */
+.fold__title {
+  margin: 0;
+}
+
+.fold__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--control-height);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fold__toggle:disabled {
+  cursor: default;
+}
+
+.fold__toggle .fold__chevron {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  fill: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.fold__toggle[aria-expanded="true"] .fold__chevron {
+  transform: rotate(180deg);
+}
+
+.fold__toggle.is-static .fold__chevron {
+  display: none;
+}
+
+.fold__badge {
+  border-radius: 999px;
+  background: var(--selection);
+  padding: 2px 10px;
+  color: var(--primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fold__body[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold__toggle .fold__chevron {
+    transition: none;
+  }
+}
+
+/* Over */
+.about-version {
+  margin: 4px 0 12px;
+  font-size: 15px;
+}
+
+.about-version strong {
+  margin-left: 6px;
+  font-family: var(--font-heading, inherit);
+  font-size: 24px;
+  overflow-wrap: anywhere;
+}
+
+.about-group {
+  margin: 22px 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.about-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.about-list li {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 10px 12px;
+}
+
+.about-list__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.about-list__head a {
+  color: var(--primary);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.about-list__version {
+  border-radius: 999px;
+  background: var(--surface-muted);
+  padding: 1px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.about-list small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.about-list .about-list__license {
+  font-size: 12px;
+}
+
+.about-coffee p {
+  margin: 8px 0 14px;
+}
+
+.coffee-button svg {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  fill: currentColor;
+}
+
+/* Taalkiezer met vlaggen (nl en en) */
+.flag-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.lang-switch {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.lang-switch__button {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: pointer;
+}
+
+.lang-switch__button .flag {
+  display: block;
+  width: 30px;
+  height: 21px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(24, 37, 30, 0.25);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lang-switch__button:hover .flag {
+  opacity: 0.9;
+}
+
+.lang-switch__button.is-active .flag {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
+}
+
+.auth-card .lang-switch {
+  margin: -8px -8px 4px 0;
+  justify-content: flex-end;
+}
+
+.topbar__inner .lang-switch + .auth-chip {
+  margin-left: 8px;
+}
+
+.onboarding__head .lang-switch {
+  align-self: flex-start;
+  margin-right: -8px;
+  margin-top: -6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-switch__button .flag {
+    transition: none;
+  }
+}
+
 /* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
    Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. */
 @media (max-width: 640px) {
@@ -1507,7 +1717,7 @@ body.has-onboarding {
     right: max(12px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 2px;
     width: auto;
     margin: 0;
@@ -1537,10 +1747,10 @@ body.has-onboarding {
     gap: 3px;
     min-width: 0;
     min-height: 56px;
-    padding: 6px 2px;
+    padding: 6px 1px;
     border-radius: 26px;
     color: var(--tabbar-ink);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     line-height: 1.1;
     transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;

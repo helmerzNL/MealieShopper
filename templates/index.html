@@ -61,35 +61,45 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=config.ASSET_VERSION) }}">
   </head>
   <body>
+    <svg class="flag-sprite" width="0" height="0" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="flag-nl" viewBox="0 0 28 20" preserveAspectRatio="xMidYMid slice"><rect width="28" height="7" fill="#AE1C28"/><rect y="7" width="28" height="6" fill="#fff"/><rect y="13" width="28" height="7" fill="#21468B"/></symbol>
+        <symbol id="flag-gb" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><clipPath id="flag-gb-a"><path d="M0,0 v30 h60 v-30 z"/></clipPath><clipPath id="flag-gb-b"><path d="M30,15 h30 v15 z v15 h-30 z h-30 v-15 z v-15 h30 z"/></clipPath><g clip-path="url(#flag-gb-a)"><path d="M0,0 v30 h60 v-30 z" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" clip-path="url(#flag-gb-b)" stroke="#C8102E" stroke-width="4"/><path d="M30,0 v30 M0,15 h60" stroke="#fff" stroke-width="10"/><path d="M30,0 v30 M0,15 h60" stroke="#C8102E" stroke-width="6"/></g></symbol>
+      </defs>
+    </svg>
     <section id="auth-gate" class="auth-gate" hidden>
       <div class="auth-card">
+        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+        </div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
-        <h2 id="auth-title">Inloggen</h2>
+        <h2 id="auth-title" data-i18n="gate.title.login">Inloggen</h2>
         <p id="auth-description" class="muted"></p>
         <div id="auth-message" role="alert"></div>
         <form class="auth-form" id="login-form" hidden>
           <label class="field">
-            <span>Gebruikersnaam</span>
+            <span data-i18n="field.username">Gebruikersnaam</span>
             <input class="input" id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           </label>
           <label class="field">
-            <span>Wachtwoord</span>
+            <span data-i18n="field.password">Wachtwoord</span>
             <input class="input" id="login-password" type="password" autocomplete="current-password" required>
           </label>
-          <button class="button" id="login-submit" type="submit">Inloggen</button>
+          <button class="button" id="login-submit" type="submit" data-i18n="gate.submit">Inloggen</button>
         </form>
         <form class="auth-form" id="mfa-form" hidden>
           <label class="field">
-            <span id="mfa-code-label">Code uit je authenticator-app</span>
+            <span id="mfa-code-label" data-i18n="mfa.code_label">Code uit je authenticator-app</span>
             <input class="input" id="mfa-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" autocapitalize="characters" spellcheck="false" required>
           </label>
-          <button class="button" id="mfa-submit" type="submit">Bevestigen</button>
-          <button class="link-button" id="mfa-recovery-toggle" type="button">Herstelcode gebruiken</button>
-          <button class="button button--secondary" id="mfa-cancel" type="button">Terug</button>
+          <button class="button" id="mfa-submit" type="submit" data-i18n="common.confirm">Bevestigen</button>
+          <button class="link-button" id="mfa-recovery-toggle" type="button" data-i18n="mfa.use_recovery">Herstelcode gebruiken</button>
+          <button class="button button--secondary" id="mfa-cancel" type="button" data-i18n="common.back">Terug</button>
         </form>
-        <p class="auth-or muted" id="login-or" hidden>of</p>
+        <p class="auth-or muted" id="login-or" hidden data-i18n="common.or">of</p>
         <div class="auth-form" id="login-passkey-box" hidden>
-          <button class="button button--secondary" id="login-passkey" type="button">Inloggen met passkey</button>
+          <button class="button button--secondary" id="login-passkey" type="button" data-i18n="gate.passkey">Inloggen met passkey</button>
         </div>
       </div>
     </section>
@@ -102,8 +112,12 @@
             <p class="onboarding__eyebrow" id="ob-eyebrow"></p>
             <h2 id="ob-title" tabindex="-1"></h2>
           </div>
+          <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
+        </div>
         </header>
-        <ol class="ob-progress" id="ob-progress" aria-label="Voortgang"></ol>
+        <ol class="ob-progress" id="ob-progress" aria-label="Voortgang" data-i18n-attr="aria-label:ob.progress_label"></ol>
         <div id="ob-message" role="alert"></div>
         <div id="ob-body"></div>
       </div>
@@ -114,57 +128,66 @@
         <img class="brand-mark" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="48" height="48">
         <div>
           <h1 class="wordmark">Mealie<span>Shopper</span></h1>
-          <p>Van recept naar geregeld.</p>
+          <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
+        </div>
+        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+          <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
+          <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
         </div>
         <div class="auth-chip" id="auth-chip" hidden>
           <span id="auth-chip-text"></span>
-          <button type="button" id="auth-logout">Uitloggen</button>
+          <button type="button" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
         </div>
       </div>
     </header>
 
     <main class="shell">
-      <nav class="tabs" aria-label="Hoofdscherm">
+      <nav class="tabs" aria-label="Hoofdscherm" data-i18n-attr="aria-label:nav.main">
         <button class="tab is-active" data-tab="planner" aria-current="page">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg>
-          <span class="tab-text">Weekmenu naar winkel</span>
-          <span class="tab-short" aria-hidden="true">Weekmenu</span>
+          <span class="tab-text" data-i18n="nav.plan">Weekmenu naar winkel</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.plan_short">Weekmenu</span>
         </button>
         <button class="tab" data-tab="search">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiMagnify"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
-          <span class="tab-text">Recepten zoeken</span>
-          <span class="tab-short" aria-hidden="true">Zoeken</span>
+          <span class="tab-text" data-i18n="nav.search">Recepten zoeken</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.search_short">Zoeken</span>
         </button>
         <button class="tab" data-tab="url">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLinkVariant"><path d="M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z"/></svg>
-          <span class="tab-text">URL importeren</span>
-          <span class="tab-short" aria-hidden="true">Importeren</span>
+          <span class="tab-text" data-i18n="nav.import">URL importeren</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.import_short">Importeren</span>
         </button>
         <button class="tab" data-tab="ah-items">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiBasket"><path d="M5.5,21C4.72,21 4.04,20.55 3.71,19.9V19.9L1.1,10.44L1,10A1,1 0 0,1 2,9H6.58L11.18,2.43C11.36,2.17 11.66,2 12,2C12.34,2 12.65,2.17 12.83,2.44L17.42,9H22A1,1 0 0,1 23,10L22.96,10.29L20.29,19.9C19.96,20.55 19.28,21 18.5,21H5.5M12,4.74L9,9H15L12,4.74M12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13Z"/></svg>
-          <span class="tab-text">AH Items</span>
-          <span class="tab-short" aria-hidden="true">AH Items</span>
+          <span class="tab-text" data-i18n="nav.ah">AH Items</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">AH Items</span>
         </button>
         <button class="tab" data-tab="beheer">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCog"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-          <span class="tab-text">Beheer</span>
-          <span class="tab-short" aria-hidden="true">Beheer</span>
+          <span class="tab-text" data-i18n="nav.settings">Beheer</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.settings_short">Beheer</span>
+        </button>
+        <button class="tab" data-tab="about">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
+          <span class="tab-text" data-i18n="nav.about">Over</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.about_short">Over</span>
         </button>
       </nav>
 
       <section id="planner" class="panel is-active">
         <div class="message warning message--action" id="mealie-setup" hidden>
-          <span><strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.</span>
-          <button class="button inline-button" id="open-mealie-setup" type="button">Mealie koppelen</button>
+          <span data-i18n-html="plan.mealie_missing"><strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.</span>
+          <button class="button inline-button" id="open-mealie-setup" type="button" data-i18n="mealie.link">Mealie koppelen</button>
         </div>
         <div class="toolbar">
-          <button class="icon-button" id="prev-week" aria-label="Vorige week">&lsaquo;</button>
+          <button class="icon-button" id="prev-week" aria-label="Vorige week" data-i18n-attr="aria-label:plan.prev_week">&lsaquo;</button>
           <div class="week-label">
             <strong id="week-range"></strong>
             <span id="week-offset"></span>
           </div>
-          <button class="icon-button" id="next-week" aria-label="Volgende week">&rsaquo;</button>
-          <button class="button" id="load-plan">Weekmenu laden</button>
+          <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
+          <button class="button" id="load-plan" data-i18n="plan.load">Weekmenu laden</button>
         </div>
         <div id="planner-message"></div>
         <div id="meal-days" class="day-grid"></div>
@@ -174,46 +197,46 @@
 
       <section id="search" class="panel">
         <form class="form-row" id="search-form">
-          <input class="input" id="recipe-query" placeholder="Zoek een recept op Allerhande...">
-          <button class="button" type="submit">Zoek bij AH</button>
+          <input class="input" id="recipe-query" placeholder="Zoek een recept op Allerhande..." data-i18n-attr="placeholder:search.placeholder">
+          <button class="button" type="submit" data-i18n="search.submit">Zoek bij AH</button>
         </form>
         <div id="search-message"></div>
         <div id="search-count" class="muted"></div>
         <div id="recipe-results" class="recipe-grid recipe-grid--compact"></div>
         <div class="pager">
-          <button class="button button--secondary" id="prev-page" hidden>Vorige</button>
-          <button class="button button--secondary" id="next-page" hidden>Volgende</button>
+          <button class="button button--secondary" id="prev-page" hidden data-i18n="common.previous">Vorige</button>
+          <button class="button button--secondary" id="next-page" hidden data-i18n="common.next">Volgende</button>
         </div>
       </section>
 
       <section id="url" class="panel">
         <div class="box narrow">
-          <h2>Recept importeren via URL</h2>
-          <p class="muted">Plak een Allerhande-link of een andere receptensite.</p>
+          <h2 data-i18n="import.title">Recept importeren via URL</h2>
+          <p class="muted" data-i18n="import.help">Plak een Allerhande-link of een andere receptensite.</p>
           <form class="form-row" id="import-form">
             <input class="input" id="import-url" type="url" placeholder="https://www.ah.nl/allerhande/recept/...">
-            <button class="button" type="submit">Importeer</button>
+            <button class="button" type="submit" data-i18n="import.submit">Importeer</button>
           </form>
         </div>
         <div id="import-message"></div>
       </section>
 
       <section id="ah-items" class="panel">
-        <nav class="subtabs" aria-label="AH Items">
-          <button class="subtab is-active" data-subtab="ah-items-recepten">AH Recepten</button>
-          <button class="subtab" data-subtab="ah-items-lijstjes">AH Lijstjes</button>
+        <nav class="subtabs" aria-label="AH Items" data-i18n-attr="aria-label:ah.nav">
+          <button class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes">AH Recepten</button>
+          <button class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists">AH Lijstjes</button>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
         <div class="box box--wide">
           <div class="toolbar">
-            <h2>Mijn bewaarde recepten</h2>
+            <h2 data-i18n="ah.recipes.title">Mijn bewaarde recepten</h2>
             <button class="button button--secondary" id="load-ah-recipes">Ophalen bij AH</button>
           </div>
           <label class="searchbar">
-            <span class="visually-hidden">Zoek in je recepten</span>
+            <span class="visually-hidden" data-i18n="ah.recipes.search">Zoek in je recepten</span>
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
-            <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled>
+            <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
           <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Beheer &gt; Albert Heijn.</p>
           <div id="ah-recipes-message"></div>
@@ -224,22 +247,22 @@
         <div id="ah-items-lijstjes" class="subpanel">
         <div class="box box--wide" id="ah-lists-view">
           <div class="toolbar">
-            <h2>Favoriete AH lijstjes</h2>
-            <button class="button button--secondary" id="sync-all-ah-lists">Alles synchroniseren</button>
-            <button class="button button--secondary" id="load-ah-lists">Laden</button>
+            <h2 data-i18n="ah.lists.title">Favoriete AH lijstjes</h2>
+            <button class="button button--secondary" id="sync-all-ah-lists" data-i18n="ah.lists.sync_all">Alles synchroniseren</button>
+            <button class="button button--secondary" id="load-ah-lists" data-i18n="common.load">Laden</button>
           </div>
           <label class="searchbar">
-            <span class="visually-hidden">Zoek in je lijstjes</span>
+            <span class="visually-hidden" data-i18n="ah.lists.search">Zoek in je lijstjes</span>
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
-            <input class="input" id="ah-list-filter" type="search" placeholder="Zoek in je lijstjes" autocomplete="off" enterkeyhint="search">
+            <input class="input" id="ah-list-filter" type="search" placeholder="Zoek in je lijstjes" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:ah.lists.search_ph">
           </label>
-          <p class="muted">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de AH-koppeling niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de AH-koppeling niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
           <div id="ah-lists-warning"></div>
           <div id="ah-lists" class="list-grid"></div>
         </div>
         <div class="box box--wide" id="ah-list-view" hidden>
           <div class="list-header">
-            <button class="icon-button" id="ah-list-back" type="button" aria-label="Terug naar de lijstjes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <button class="icon-button" id="ah-list-back" type="button" aria-label="Terug naar de lijstjes" data-i18n-attr="aria-label:ah.lists.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <h2 id="ah-list-title" tabindex="-1"></h2>
             <button class="button" id="sync-open-ah-list" type="button">Synchroniseren</button>
           </div>
@@ -251,116 +274,142 @@
       </section>
 
       <section id="beheer" class="panel">
-        <nav class="subtabs" aria-label="Beheer">
-          <button class="subtab is-active" data-subtab="beheer-ah">Albert Heijn</button>
-          <button class="subtab" data-subtab="beheer-mealie">Mealie</button>
-          <button class="subtab" data-subtab="beheer-security">Beveiliging</button>
+        <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
+          <button class="subtab is-active" data-subtab="beheer-ah" data-i18n="settings.tab.ah">Albert Heijn</button>
+          <button class="subtab" data-subtab="beheer-mealie" data-i18n="settings.tab.mealie">Mealie</button>
+          <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
         </nav>
 
         <div id="beheer-ah" class="subpanel is-active">
         <div class="box">
-          <h2>Inloggen via Albert Heijn</h2>
-          <p class="muted">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
+          <h2 data-i18n="ahlogin.title">Inloggen via Albert Heijn</h2>
+          <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
           <ol class="steps">
-            <li>Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
-            <li>Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-            <li>Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
-            <li>In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
-            <li>Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
+            <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+            <li data-i18n="ahlogin.step3">Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
+            <li data-i18n-html="ahlogin.step4">In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
+            <li data-i18n-html="ahlogin.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
           </ol>
           <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
-            <button class="button inline-button" id="ah-login" type="submit">Inloggen bij Albert Heijn</button>
+            <button class="button inline-button" id="ah-login" type="submit" data-i18n="ahlogin.button">Inloggen bij Albert Heijn</button>
           </form>
           <div id="ah-status"></div>
-          <button class="button button--secondary" id="check-ah">Koppeling controleren</button>
+          <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
         </div>
         <div class="box">
-          <h2>Koppeling afronden</h2>
-          <p class="muted">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
+          <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
           <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
-          <button class="button" id="verify-token">Koppelen</button>
+          <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
           <div id="token-message"></div>
         </div>
         </div>
 
         <div id="beheer-mealie" class="subpanel">
         <div class="box">
-          <h2>Mealie koppelen</h2>
-          <p class="muted">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
+          <h2 data-i18n="mealie.link">Mealie koppelen</h2>
+          <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
           <ol class="steps">
-            <li>Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
-            <li>Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
-            <li>Kopieer de token meteen: Mealie toont hem maar één keer.</li>
+            <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
+            <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
+            <li data-i18n="mealie.step3">Kopieer de token meteen: Mealie toont hem maar één keer.</li>
           </ol>
           <form class="auth-form" id="mealie-form" autocomplete="off">
             <label class="field">
-              <span>Adres van je Mealie</span>
-              <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false">
+              <span data-i18n="mealie.url_label">Adres van je Mealie</span>
+              <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.url_ph">
             </label>
             <label class="field">
-              <span>API-token</span>
-              <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false">
+              <span data-i18n="mealie.token_label">API-token</span>
+              <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.token_ph">
             </label>
-            <button class="button" id="mealie-link" type="submit">Koppelen</button>
+            <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
           </form>
           <div id="mealie-status"></div>
           <p class="muted" id="mealie-source" hidden></p>
           <div class="toolbar">
-            <button class="button button--secondary" id="check-mealie">Koppeling controleren</button>
-            <button class="button button--secondary" id="mealie-unlink" hidden>Ontkoppelen</button>
+            <button class="button button--secondary" id="check-mealie" data-i18n="common.check_link">Koppeling controleren</button>
+            <button class="button button--secondary" id="mealie-unlink" hidden data-i18n="mealie.unlink">Ontkoppelen</button>
           </div>
-          <p class="muted">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
-          <div class="message warning" id="mealie-key-warning" hidden>
+          <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
+          <div class="message warning" id="mealie-key-warning" hidden data-i18n-html="mealie.key_warning">
             <strong>Let op:</strong> je Mealie staat nog in de omgevingsvariabele <code>MEALIE_URL</code> en <code>MEALIESHOPPER_AUTH_SECRET</code> is niet ingesteld. Daardoor hangt de sleutel van je opgeslagen koppelingen (ook die van Albert Heijn) van <code>MEALIE_URL</code> af. Stel eerst <code>MEALIESHOPPER_AUTH_SECRET</code> in voordat je <code>MEALIE_URL</code> weghaalt of wijzigt, anders moet je opnieuw koppelen.
           </div>
         </div>
         </div>
 
         <div id="beheer-security" class="subpanel">
-        <div class="box" id="security-password-box">
-          <h2>Wachtwoord</h2>
+        <div class="box fold" id="security-password-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="password-toggle" aria-expanded="true" aria-controls="password-body"><span data-i18n="sec.password.title">Wachtwoord</span><span class="fold__badge" id="password-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <p class="muted" id="password-intro"></p>
-          <form class="auth-form" id="password-form" autocomplete="off">
-            <label class="field">
-              <span>Gebruikersnaam</span>
-              <input class="input" id="pw-username" autocomplete="username" autocapitalize="none" spellcheck="false">
-            </label>
-            <label class="field" id="pw-current-field" hidden>
-              <span>Huidig wachtwoord</span>
-              <input class="input" id="pw-current" type="password" autocomplete="current-password">
-            </label>
-            <label class="field">
-              <span id="pw-new-label">Wachtwoord</span>
-              <input class="input" id="pw-new" type="password" autocomplete="new-password">
-            </label>
-            <label class="field">
-              <span>Herhaal het wachtwoord</span>
-              <input class="input" id="pw-new2" type="password" autocomplete="new-password">
-            </label>
-            <button class="button" id="pw-submit" type="submit">Wachtwoord instellen</button>
-          </form>
-          <div id="password-message"></div>
+          <div class="fold__body" id="password-body">
+            <form class="auth-form" id="password-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="field.username">Gebruikersnaam</span>
+                <input class="input" id="pw-username" autocomplete="username" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="field" id="pw-current-field" hidden>
+                <span data-i18n="sec.password.current">Huidig wachtwoord</span>
+                <input class="input" id="pw-current" type="password" autocomplete="current-password">
+              </label>
+              <label class="field">
+                <span id="pw-new-label" data-i18n="field.password">Wachtwoord</span>
+                <input class="input" id="pw-new" type="password" autocomplete="new-password">
+              </label>
+              <label class="field">
+                <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
+                <input class="input" id="pw-new2" type="password" autocomplete="new-password">
+              </label>
+              <button class="button" id="pw-submit" type="submit" data-i18n="sec.password.set">Wachtwoord instellen</button>
+            </form>
+            <div id="password-message"></div>
+          </div>
         </div>
-        <div class="box" id="security-mfa-box">
-          <h2>Tweestapsverificatie</h2>
+        <div class="box fold" id="security-mfa-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mfa-toggle" aria-expanded="true" aria-controls="mfa-body"><span data-i18n="sec.mfa.title">Tweestapsverificatie</span><span class="fold__badge" id="mfa-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <p class="muted" id="mfa-intro"></p>
-          <div id="mfa-panel"></div>
-          <div id="mfa-message"></div>
+          <div class="fold__body" id="mfa-body">
+            <div id="mfa-panel"></div>
+            <div id="mfa-message"></div>
+          </div>
         </div>
         <div class="box">
-          <h2>Passkeys</h2>
-          <p class="muted">Voeg extra apparaten toe of verwijder oude passkeys.</p>
+          <h2 data-i18n="sec.passkeys.title">Passkeys</h2>
+          <p class="muted" data-i18n="sec.passkeys.intro">Voeg extra apparaten toe of verwijder oude passkeys.</p>
           <div id="credentials-list" class="credential-list"></div>
           <div class="security-actions">
             <input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off">
-            <button class="button" id="add-passkey">Passkey toevoegen</button>
+            <button class="button" id="add-passkey" data-i18n="sec.passkeys.add">Passkey toevoegen</button>
           </div>
           <div id="security-message"></div>
         </div>
         </div>
       </section>
+
+      <section id="about" class="panel">
+        <div class="box box--wide about-box">
+          <h2 data-i18n="about.title">Over MealieShopper</h2>
+          <p class="about-version"><span class="muted" data-i18n="about.version_label">Versie</span> <strong id="about-version">-</strong></p>
+          <p class="muted" data-i18n="about.tagline">MealieShopper haalt je weekmenu uit Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.</p>
+        </div>
+        <div class="box box--wide about-box">
+          <h2 data-i18n="about.components_title">Componenten en integraties</h2>
+          <p class="muted" data-i18n="about.components_intro">Dit gebruikt MealieShopper. De onderdelen zijn open source en worden gebruikt onder hun eigen licentie.</p>
+          <div id="about-message"></div>
+          <div id="about-components"></div>
+        </div>
+        <div class="box box--wide about-box about-coffee">
+          <h2 data-i18n="about.coffee.title">Waardeer je MealieShopper?</h2>
+          <p data-i18n="about.coffee.text">MealieShopper is gratis. Vind je de app handig? Dan waardeer ik het als je me een koffie geeft.</p>
+          <a class="button coffee-button" id="about-coffee" href="https://buymeacoffee.com/flux76" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2,21H20V19H2M20,8H18V5H20M20,3H4V13A4,4 0 0,0 8,17H14A4,4 0 0,0 18,13V10H20A2,2 0 0,0 22,8V5C22,3.89 21.1,3 20,3Z"/></svg><span data-i18n="about.coffee.button">Geef me een koffie</span></a>
+        </div>
+      </section>
     </main>
 
+    <script src="{{ url_for('static', filename='i18n.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='i18n/nl.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
