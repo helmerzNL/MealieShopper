@@ -394,6 +394,24 @@ def get_receipt(receipt_id: str) -> dict[str, Any] | None:
 
 # --- zoeken in alles wat je kocht -----------------------------------------------------------------
 
+def search_receipts(query: Any, limit: int = 200) -> dict[str, Any]:
+    """Op welke kassabonnen staat een product? Per bon de regels die passen (alle woorden moeten erin staan), nieuwste eerst.
+
+    `unsearched` telt de bonnen waarvan de regels nog niet zijn opgehaald: die kunnen nog niet worden doorzocht.
+    """
+    words = ah_lists._fold(query).split()
+    with closing(_connect()) as conn:
+        receipts = conn.execute("SELECT * FROM ah_receipts ORDER BY date_time DESC, receipt_id DESC").fetchall()
+        lines = conn.execute("SELECT receipt_id, name, quantity, amount FROM ah_receipt_items ORDER BY receipt_id, position").fetchall() if words else []
+    unsearched = sum(1 for row in receipts if not row["details_synced"])
+    matches: dict[str, list[dict[str, Any]]] = {}
+    for line in lines:
+        if all(word in ah_lists._fold(line["name"]) for word in words):
+            matches.setdefault(line["receipt_id"], []).append({"name": line["name"], "quantity": line["quantity"], "amount": line["amount"]})
+    found = [{**_receipt_json(row), "matches": matches[row["receipt_id"]]} for row in receipts if row["receipt_id"] in matches]
+    return {"query": str(query).strip(), "receipts": found[: max(1, int(limit))], "total": len(found), "unsearched": unsearched if words else 0}
+
+
 def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
     """Waar en wanneer kocht je een product? Zoekt in bestellingen en kassabonnen (alle woorden moeten erin staan)."""
     words = ah_lists._fold(query).split()

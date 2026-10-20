@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.5.2
+
+*English summary: You can now search within your receipts: type a product (for example "soda") and see which receipts contain it, with the matching lines, and the matching lines are highlighted when you open a receipt.*
+
+### Nieuw in 1.5.2
+
+- **Zoeken in kassabonnen.** Typ een product (bijvoorbeeld "frisdrank") in het zoekveld en je ziet op welke kassabonnen het staat, met per bon de regels die passen. Zoeken negeert hoofdletters en accenten en alle woorden moeten erin staan. Open je een bon vanuit de zoekresultaten, dan zijn de passende regels geel gemarkeerd.
+- Bonnen waarvan de producten nog niet zijn opgehaald kunnen nog niet worden doorzocht; de app zegt hoeveel dat er zijn en vraagt om opnieuw te synchroniseren.
+- Nieuwe route `GET /api/ah/receipts/search?q=`, lokaal en alleen voor ingelogde gebruikers.
+
 ## v1.5.1
 
 *English summary: Receipts now look like an Albert Heijn paper receipt. Delivered orders are fetched from AH (the latest 10 closed orders per request) and an empty order basket is no longer an error. Because AH's order routes are not available right now, the order basket and orders show a "coming soon" line and only receipts are synced. The explorer was extended to find out how to reach further back than 10 delivered orders.*

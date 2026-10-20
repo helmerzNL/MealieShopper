@@ -321,9 +321,29 @@ class SearchTest(AhOrdersTestCase):
         self.assertEqual(self.client.get("/api/ah/purchases/search?q=koffie").get_json()["products"][0]["product"], "Koffiebonen")
         self.assertEqual(self.client.get("/api/ah/purchases/search?q=").get_json()["products"], [])
 
+    def test_receipts_with_a_product_are_listed_with_the_matching_lines(self):
+        with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R2", "dateTime": "2026-10-20T10:00:00", "total": 9.0}, {"id": "R1", "dateTime": "2026-10-18T10:00:00", "total": 5.0}, {"id": "R0", "dateTime": "2026-10-01T10:00:00", "total": 7.0}]), mock.patch.object(
+            ah, "get_receipt", side_effect=lambda rid: {"id": rid, "items": [{"productId": 1, "name": "Cola Frisdank 1,5L", "quantity": 2, "price": 1.5, "amount": 3.0}, {"productId": 2, "name": "Brood", "quantity": 1, "price": 2.0, "amount": 2.0}] if rid == "R2" else [{"productId": 3, "name": "Appelsap", "quantity": 1, "price": 1.0, "amount": 1.0}], "discounts": [], "payments": []}
+        ):
+            self.client.post("/api/ah/receipts/sync")
+        data = self.client.get("/api/ah/receipts/search?q=FRISDANK").get_json()
+        self.assertEqual((data["total"], data["unsearched"]), (1, 0))
+        self.assertEqual(data["receipts"][0]["id"], "R2")
+        self.assertEqual(data["receipts"][0]["matches"], [{"name": "Cola Frisdank 1,5L", "quantity": 2, "amount": 3.0}])
+        both = self.client.get("/api/ah/receipts/search?q=a").get_json()
+        self.assertEqual([r["id"] for r in both["receipts"]], ["R2", "R1", "R0"][: both["total"]])
+        self.assertEqual(self.client.get("/api/ah/receipts/search?q=").get_json(), {"query": "", "receipts": [], "total": 0, "unsearched": 0})
+
+    def test_receipts_without_their_lines_are_counted_as_not_searched(self):
+        with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R9", "dateTime": "2026-10-19T10:00:00", "total": 4.0}]), mock.patch.object(ah, "get_receipt", side_effect=RuntimeError("AH even weg")):
+            self.client.post("/api/ah/receipts/sync")
+        data = self.client.get("/api/ah/receipts/search?q=melk").get_json()
+        self.assertEqual((data["total"], data["unsearched"]), (1, 1))  # R1 (melk) is gevonden; R9 kon niet worden doorzocht
+
     def test_search_is_local(self):
         with mock.patch.object(ah, "_get_json", side_effect=AssertionError("AH")), mock.patch.object(ah, "_graphql", side_effect=AssertionError("AH")):
             self.assertEqual(self.client.get("/api/ah/purchases/search?q=melk").status_code, 200)
+            self.assertEqual(self.client.get("/api/ah/receipts/search?q=melk").status_code, 200)
 
 
 class ExploreTest(unittest.TestCase):
@@ -396,7 +416,7 @@ class PermissionsTest(unittest.TestCase):
 
     def test_everything_needs_a_login(self):
         anonymous = self.app.test_client()
-        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/purchases/search?q=x", "/api/ah/orders/1"):
+        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/purchases/search?q=x", "/api/ah/receipts/search?q=x", "/api/ah/orders/1"):
             self.assertEqual(anonymous.get(path).status_code, 401, path)
         for path in ("/api/ah/basket/sync", "/api/ah/orders/sync", "/api/ah/receipts/sync", "/api/ah/explore"):
             self.assertEqual(anonymous.post(path).status_code, 401, path)

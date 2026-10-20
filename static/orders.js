@@ -85,6 +85,16 @@ function renderOrderList() {
     .join("");
 }
 
+// Zonder hoofdletters en accenten, zoals de server zoekt
+function foldText(value) {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function matchesQuery(name, words) {
+  const folded = foldText(name);
+  return words.length > 0 && words.every((word) => folded.includes(word));
+}
+
 function receiptDay(receipt) {
   const date = new Date(receipt.dateTime);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" });
@@ -182,7 +192,7 @@ function renderPurchaseResults(data) {
     box.innerHTML = "";
     return;
   }
-  if (!data.products.length) {
+  if (!data.products.length && !data.receiptHits?.total) {
     box.innerHTML = `<p class="muted">${th("orders.search_none", { query })}</p>`;
     return;
   }
@@ -192,15 +202,31 @@ function renderPurchaseResults(data) {
         <small>${escapeHtml([t("orders.last_bought", { date: dayLabel(product.lastDate) }), tn("orders.times", product.times), t("orders.quantity", { count: I18N.formatNumber(product.totalQuantity) })].join(" · "))}</small></div></div>`
     )
     .join("");
-  const occurrences = data.occurrences
+  const orderHits = ORDERS_COMING_SOON ? [] : data.occurrences.filter((entry) => entry.source === "bestelling");
+  const occurrences = orderHits
     .map(
       (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>
-        <small>${escapeHtml([dayLabel(entry.date), t(entry.source === "kassabon" ? "orders.source.receipt" : "orders.source.order"), entry.quantity ? `${entry.quantity}x` : "", money(entry.amount)].filter(Boolean).join(" · "))}</small></div>
-        <button class="button button--secondary" type="button" ${entry.source === "kassabon" ? `data-receipt-id="${escapeHtml(entry.id)}"` : `data-order-id="${escapeHtml(entry.id)}"`}>${escapeHtml(t("orders.view"))}</button></div>`
+        <small>${escapeHtml([dayLabel(entry.date), t("orders.source.order"), entry.quantity ? `${entry.quantity}x` : "", money(entry.amount)].filter(Boolean).join(" · "))}</small></div>
+        <button class="button button--secondary" type="button" data-order-id="${escapeHtml(entry.id)}">${escapeHtml(t("orders.view"))}</button></div>`
+    )
+    .join("");
+  const found = data.receiptHits || { receipts: [], total: 0, unsearched: 0 };
+  const receipts = found.receipts
+    .map(
+      (receipt) => `<div class="credential-row">
+        <div>
+          <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
+          <small>${escapeHtml(money(receipt.total))}</small>
+          <ul class="receipt-hits">${receipt.matches.map((line) => `<li>${escapeHtml(line.quantity)}x ${escapeHtml(line.name)}${line.amount === null ? "" : ` · ${escapeHtml(money(line.amount))}`}</li>`).join("")}</ul>
+        </div>
+        <button class="button button--secondary" type="button" data-receipt-id="${escapeHtml(receipt.id)}">${escapeHtml(t("orders.view"))}</button></div>`
     )
     .join("");
   box.innerHTML = `<p class="muted">${escapeHtml(t("orders.search_summary", { products: data.products.length, total: data.total }))}</p>
-    <div class="credential-list">${products}</div><h3>${escapeHtml(t("orders.occurrences"))}</h3><div class="credential-list">${occurrences}</div>`;
+    <div class="credential-list">${products}</div>
+    ${found.total ? `<h3>${escapeHtml(tn("orders.search_receipts", found.total))}</h3><div class="credential-list">${receipts}</div>` : ""}
+    ${found.unsearched ? `<p class="muted">${escapeHtml(tn("orders.search_unsearched", found.unsearched))}</p>` : ""}
+    ${occurrences ? `<h3>${escapeHtml(t("orders.occurrences"))}</h3><div class="credential-list">${occurrences}</div>` : ""}`;
 }
 
 async function searchPurchases() {
@@ -212,10 +238,11 @@ async function searchPurchases() {
     return;
   }
   try {
-    const data = await jsonFetch(`/api/ah/purchases/search?q=${encodeURIComponent(query)}`);
+    const q = encodeURIComponent(query);
+    const [data, receiptHits] = await Promise.all([jsonFetch(`/api/ah/purchases/search?q=${q}`), jsonFetch(`/api/ah/receipts/search?q=${q}`)]);
     if (seq !== purchaseSeq) return;
-    ordersState.hits = data;
-    renderPurchaseResults(data);
+    ordersState.hits = { ...data, receiptHits };
+    renderPurchaseResults(ordersState.hits);
   } catch (error) {
     if (seq === purchaseSeq) message("#ah-orders-message", error.message);
   }
@@ -236,10 +263,10 @@ function receiptMethod(method) {
   return name === "PIN" ? t("orders.receipt.pin") : name === "CASH" ? t("orders.receipt.cash") : name;
 }
 
-function receiptPaper(receipt) {
+function receiptPaper(receipt, words = []) {
   const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
   const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
-  const lines = receipt.items.map((line) => row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], "receipt__line"));
+  const lines = receipt.items.map((line) => row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`));
   const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
   const units = receipt.items.reduce((sum, line) => sum + (line.quantity || 0), 0);
   const payments = receipt.payments.map((entry) => row([receiptMethod(entry.method), money(entry.amount)], "receipt__pay"));
@@ -288,7 +315,7 @@ async function openPurchase(kind, id) {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
       $("#ah-order-items").innerHTML = receipt.items.length
-        ? receiptPaper(receipt)
+        ? receiptPaper(receipt, foldText(ordersState.query).split(/\s+/).filter(Boolean))
         : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
     }
     $("#ah-order-title").focus({ preventScroll: true });
