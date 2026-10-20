@@ -728,6 +728,87 @@ a.product-card strong {
   font-weight: 600;
 }
 
+.product-card--list {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.product-card__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.product-card__main:hover strong {
+  text-decoration: underline;
+}
+
+.product-card--list.is-edited {
+  border-color: var(--primary);
+}
+
+.qty {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.qty__note {
+  flex: 1;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.qty__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.qty__step:hover {
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.qty__step svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.qty__input {
+  width: 52px;
+  height: 36px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.qty__input::-webkit-outer-spin-button,
+.qty__input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1091,6 +1172,30 @@ a.product-card strong {
   flex: none;
 }
 
+.list-header__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-cart {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-cart svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 @media (max-width: 640px) {
   .recipe-grid--compact,
   .list-grid {
@@ -1110,8 +1215,13 @@ a.product-card strong {
     flex: 1 1 0;
   }
 
-  .list-header .button {
-    width: 100%;
+  .list-header__actions {
+    flex: 1 1 100%;
+  }
+
+  .list-header__actions .list-cart {
+    flex: 1;
+    justify-content: center;
   }
 }
 

@@ -12,6 +12,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import about, ah, ah_lists, ah_recipes, auth_password, mealie, mealie_images, onboarding
 from . import auth
+from .i18n import tr
 
 
 # Python kent .webmanifest niet overal; browsers verwachten application/manifest+json.
@@ -20,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-18")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-19")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -204,6 +205,46 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("AH list sync error")
             return jsonify({"error": str(exc) or "Synchroniseren mislukt"}), 424
+
+    @app.patch("/api/ah/lists/<list_id>/items/<int:position>")
+    def ah_list_item_quantity(list_id: str, position: int):
+        body = request.get_json(silent=True) or {}
+        try:
+            snapshot = ah_lists.set_quantity(list_id, position, body.get("quantity"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not snapshot:
+            return jsonify({"error": tr("Regel niet gevonden. Synchroniseer het lijstje eerst.", "Line not found. Sync the list first.")}), 404
+        return jsonify(snapshot)
+
+    @app.post("/api/ah/lists/<list_id>/reset")
+    def ah_list_reset(list_id: str):
+        snapshot = ah_lists.reset_quantities(list_id)
+        if not snapshot:
+            return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
+        return jsonify(snapshot)
+
+    @app.post("/api/ah/lists/<list_id>/cart")
+    def ah_list_to_cart(list_id: str):
+        """Zet het hele lijstje met een druk op de knop in het AH-mandje, met de aantallen zoals ze nu staan."""
+        snapshot = ah_lists.get_snapshot(list_id)
+        try:
+            if not snapshot:
+                snapshot = ah.get_favorite_list_items(list_id)
+            items = ah_lists.cart_items_from(snapshot)
+            if not items:
+                return jsonify({"error": tr("Dit lijstje heeft geen producten.", "This list has no products.")}), 400
+            ah.add_to_shopping_list(items)
+        except Exception as exc:  # noqa: BLE001 - AH is onofficieel; geef de fout door
+            app.logger.exception("AH list to cart error")
+            return jsonify({"error": str(exc) or tr("Toevoegen aan het mandje mislukt", "Adding to the basket failed")}), 424
+        return jsonify(
+            {
+                "added": len(items),
+                "units": sum(item["quantity"] for item in items),
+                "name": snapshot.get("name"),
+            }
+        )
 
     @app.get("/api/mealie/status")
     def mealie_status():

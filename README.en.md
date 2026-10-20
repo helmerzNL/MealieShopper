@@ -63,11 +63,11 @@ Your saved Allerhande recipes live in MealieShopper, at least two side by side o
 
 ### AH Items: your lists
 
-Your favourite lists as cards. Sync them to MealieShopper, search by name or by product, and open a list in the same place.
+Your favourite lists as cards. Sync them to MealieShopper, search by name or by product, and open a list in the same place. In an opened list you put the whole list in your basket with one press on **Add to AH basket**, and you change the quantity per product.
 
 <img src="docs/screenshots/en/lists.png" alt="AH lists as cards, with a search bar and a sync button per list" width="900">
 
-<img src="docs/screenshots/en/list.png" alt="An opened list with products and a back arrow" width="900">
+<img src="docs/screenshots/en/list.png" alt="An opened list with adjustable quantities, the Add to AH basket button and the reset and sync icons" width="900">
 
 ## Quick start
 
@@ -154,7 +154,7 @@ Under `Find recipes` search Allerhande (up to the first 2,000 hits) and choose `
 ### AH Items
 
 - **AH Recipes**: your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
-- **AH Lists**: your favourite lists. With `Sync` (per list) or `Sync all` MealieShopper keeps a copy, including product name, brand, size, price and picture. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
+- **AH Lists**: your favourite lists. With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. A changed quantity stays after a new sync, and the original quantity from AH is shown next to it as `AH: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH. `Add to AH basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
 
 ### Installing as an app
 

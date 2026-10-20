@@ -4,6 +4,10 @@ De lijstjes worden bij AH opgehaald en als snapshot in SQLite bewaard, zodat ze
 zichtbaar blijven als de AH-koppeling (tijdelijk) niet werkt. Een synchronisatie
 vervangt de snapshot van dat lijstje in een keer; mislukt het ophalen, dan blijft
 de vorige snapshot ongemoeid.
+
+Aantallen zijn aan te passen. `default_quantity` is het aantal zoals AH het geeft,
+`quantity` het aantal dat de gebruiker wil. Een synchronisatie bewaart de door de
+gebruiker aangepaste aantallen (per product) en haalt de rest weer bij AH op.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ CREATE TABLE IF NOT EXISTS ah_list_items (
   item_id TEXT,
   product_id INTEGER NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 1,
+  default_quantity INTEGER,
   title TEXT,
   brand TEXT,
   unit_size TEXT,
@@ -48,6 +53,10 @@ def _connect():
     conn = auth.connect()
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_list_items)")}
+    if "default_quantity" not in columns:  # database van voor de aanpasbare aantallen
+        conn.execute("ALTER TABLE ah_list_items ADD COLUMN default_quantity INTEGER")
+        conn.execute("UPDATE ah_list_items SET default_quantity = quantity")
     return conn
 
 
@@ -58,11 +67,15 @@ def _now() -> str:
 def _item_row(row: Any) -> dict[str, Any]:
     product_id = row["product_id"]
     has_product = bool(row["title"])
+    default = row["default_quantity"] or row["quantity"]
     return {
         "id": row["item_id"],
+        "position": row["position"],
         "productId": product_id,
         "url": row["url"] or ah.product_web_url(product_id),
         "quantity": row["quantity"],
+        "defaultQuantity": default,
+        "edited": row["quantity"] != default,
         "product": {
             "id": product_id,
             "url": row["url"] or ah.product_web_url(product_id),
@@ -86,18 +99,32 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     name = str(live.get("name") or "AH lijst")
     synced_at = _now()
 
+    with closing(_connect()) as conn:
+        previous = conn.execute(
+            "SELECT product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
+            (list_id,),
+        ).fetchall()
+    # Door de gebruiker aangepaste aantallen, per product (een product kan er dubbel in staan).
+    kept: dict[int, list[int]] = {}
+    for row in previous:
+        if row["quantity"] != (row["default_quantity"] or row["quantity"]):
+            kept.setdefault(row["product_id"], []).append(row["quantity"])
+
     rows = []
     for position, item in enumerate(live.get("items") or []):
         product = item.get("product") or {}
         product_id = int(item.get("productId") or 0)
         price = product.get("price")
+        default = max(1, int(item.get("quantity") or 1))
+        quantity = kept[product_id].pop(0) if kept.get(product_id) else default
         rows.append(
             (
                 list_id,
                 position,
                 item.get("id"),
                 product_id,
-                max(1, int(item.get("quantity") or 1)),
+                quantity,
+                default,
                 product.get("title"),
                 product.get("brand"),
                 product.get("unitSize"),
@@ -120,9 +147,9 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
         conn.executemany(
             """
             INSERT INTO ah_list_items (
-              list_id, position, item_id, product_id, quantity, title, brand,
+              list_id, position, item_id, product_id, quantity, default_quantity, title, brand,
               unit_size, price, image, url, is_bonus
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -165,6 +192,7 @@ def get_snapshot(list_id: str) -> dict[str, Any] | None:
         "name": head["name"],
         "totalSize": len(items),
         "items": items,
+        "editedCount": sum(1 for item in items if item["edited"]),
         "syncedAt": head["synced_at"],
         "source": "local",
     }
@@ -196,6 +224,57 @@ def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
             if len(titles) < limit:
                 titles.append(row["title"])
     return found
+
+
+MAX_QUANTITY = ah.MAX_CART_QUANTITY
+
+
+def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] | None:
+    """Pas het aantal van een regel in een gesynchroniseerd lijstje aan. None als de regel niet bestaat."""
+    try:
+        value = int(quantity)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("Aantal moet een geheel getal zijn") from None
+    if not 1 <= value <= MAX_QUANTITY:
+        raise ValueError(f"Aantal moet tussen 1 en {MAX_QUANTITY} liggen")
+    with closing(_connect()) as conn, conn:
+        changed = conn.execute(
+            "UPDATE ah_list_items SET quantity = ? WHERE list_id = ? AND position = ?",
+            (value, normalize_id(list_id), position),
+        ).rowcount
+    return get_snapshot(list_id) if changed else None
+
+
+def reset_quantities(list_id: str) -> dict[str, Any] | None:
+    """Zet alle aangepaste aantallen terug naar de waarden zoals AH ze gaf."""
+    if not get_snapshot(list_id):
+        return None
+    with closing(_connect()) as conn, conn:
+        conn.execute(
+            "UPDATE ah_list_items SET quantity = COALESCE(default_quantity, quantity) WHERE list_id = ?",
+            (normalize_id(list_id),),
+        )
+    return get_snapshot(list_id)
+
+
+def cart_items(list_id: str) -> list[dict[str, Any]]:
+    """De regels van een lokaal lijstje zoals ze naar het AH-mandje gaan."""
+    snapshot = get_snapshot(list_id)
+    if not snapshot:
+        return []
+    return cart_items_from(snapshot)
+
+
+def cart_items_from(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "productId": item["productId"],
+            "quantity": item["quantity"],
+            "title": (item.get("product") or {}).get("title") or "",
+        }
+        for item in snapshot.get("items") or []
+        if item.get("productId")
+    ]
 
 
 def sync_list(list_id: str) -> dict[str, Any]:

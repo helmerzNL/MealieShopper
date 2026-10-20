@@ -63,11 +63,11 @@ Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens
 
 ### AH Items: je lijstjes
 
-Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op naam of op een product, en open een lijstje op dezelfde plek.
+Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op naam of op een product, en open een lijstje op dezelfde plek. In een geopend lijstje zet je het hele lijstje met één druk op **In AH-mandje** in je winkelmandje, en pas je per product het aantal aan.
 
 <img src="docs/screenshots/nl/lists.png" alt="AH lijstjes als kaarten, met een zoekbalk en een synchroniseerknop per lijstje" width="900">
 
-<img src="docs/screenshots/nl/list.png" alt="Een geopend lijstje met producten en een terugpijl" width="900">
+<img src="docs/screenshots/nl/list.png" alt="Een geopend lijstje met aanpasbare aantallen, de knop In AH-mandje en de iconen voor terugzetten en synchroniseren" width="900">
 
 ## Snel starten
 
@@ -154,7 +154,7 @@ Zoek bij `Recepten zoeken` in Allerhande (tot de eerste 2.000 treffers) en kies 
 ### AH Items
 
 - **AH Recepten**: je bewaarde Allerhande-recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt ze allemaal op en bewaart ze in MealieShopper. Het tabblad toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een vernieuwing, dan blijft de vorige kopie staan. Zoek bovenaan in je recepten.
-- **AH Lijstjes**: je favoriete lijstjes. Met `Synchroniseren` (per lijstje) of `Alles synchroniseren` bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
+- **AH Lijstjes**: je favoriete lijstjes. Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Een aangepast aantal blijft staan na een nieuwe synchronisatie, en het oorspronkelijke aantal van AH staat er als `AH: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH. `In AH-mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
 
 ### Installeren als app
 
