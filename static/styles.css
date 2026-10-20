@@ -2028,3 +2028,116 @@ body.has-onboarding {
   height: 20px;
   accent-color: var(--primary);
 }
+
+/* Kassabon: een strook papier zoals uit de kassa, ook in de donkere modus licht */
+.receipt {
+  --paper: #f7f4ea;
+  --ink: #202020;
+  position: relative;
+  box-sizing: border-box;
+  width: min(100%, 400px);
+  margin: 12px auto 28px;
+  padding: 22px 18px 20px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.22));
+}
+
+.receipt::before,
+.receipt::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9px;
+  background: linear-gradient(135deg, var(--paper) 50%, transparent 50%) 0 0 / 12px 12px repeat-x,
+    linear-gradient(225deg, var(--paper) 50%, transparent 50%) 0 0 / 12px 12px repeat-x;
+}
+
+.receipt::before {
+  top: -9px;
+  transform: scaleY(-1);
+}
+
+.receipt::after {
+  bottom: -9px;
+}
+
+.receipt__head {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.receipt__store {
+  font-size: 18px;
+  letter-spacing: 0.18em;
+}
+
+.receipt__row {
+  display: grid;
+  grid-template-columns: 5.5ch minmax(0, 1fr) 6ch 7ch;
+  gap: 0 8px;
+}
+
+.receipt__row > span {
+  overflow-wrap: anywhere;
+}
+
+.receipt__row > span:nth-child(3),
+.receipt__row > span:nth-child(4) {
+  text-align: right;
+}
+
+.receipt__cols {
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed var(--ink);
+  font-size: 11px;
+}
+
+.receipt__line .receipt__c1 {
+  text-transform: uppercase;
+}
+
+.receipt__bonus {
+  font-style: italic;
+}
+
+.receipt__section {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+.receipt__rule {
+  margin: 8px 0;
+  border-top: 1px dashed var(--ink);
+}
+
+.receipt__total,
+.receipt__pay {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.receipt__total {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.receipt__total > span:nth-child(2),
+.receipt__pay > span:nth-child(2) {
+  text-align: right;
+}
+
+.receipt__total > span:first-child,
+.receipt__pay > span:first-child {
+  text-align: left;
+}
+
+#ah-orders-soon {
+  margin: 4px 0 22px;
+}
