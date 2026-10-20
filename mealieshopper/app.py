@@ -6,17 +6,25 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import ah, ah_lists, jumbo, mealie
+from . import ah, ah_lists, mealie
 from . import auth
 
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261019-5")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-1")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
 
-    # Fouten van externe diensten (AH, Jumbo, Mealie) geven we terug als 424 in
+    try:
+        removed = auth.purge_obsolete_secrets()
+        if removed:
+            app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)
+    except (sqlite3.Error, OSError):
+        # Een onbereikbare data-map meldt zich bij het eerste gebruik; opstarten blijft mogelijk.
+        app.logger.warning("Kon oude koppelingsgegevens niet opruimen", exc_info=True)
+
+    # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
     # door hun eigen HTML-pagina, waardoor de echte foutmelding verdwijnt.
 
@@ -260,32 +268,6 @@ def create_app() -> Flask:
             return jsonify({"connected": True, "type": result.get("type")})
         return jsonify({"error": result["error"]}), 400
 
-    @app.get("/api/ah/browser/status")
-    def ah_browser_status():
-        try:
-            return jsonify(ah.browser_auth_status())
-        except Exception as exc:
-            app.logger.exception("AH browser status error")
-            return jsonify({"connected": False, "error": str(exc)}), 424
-
-    @app.post("/api/ah/browser/auth")
-    def ah_browser_auth():
-        body = request.get_json(silent=True) or {}
-        username = (body.get("username") or "").strip()
-        password = body.get("password") or ""
-        if not username or not password:
-            return jsonify({"error": "E-mail en wachtwoord zijn verplicht"}), 400
-
-        result = ah.link_browser_account(username, password)
-        if result.get("connected"):
-            return jsonify(result)
-        return jsonify({"error": result.get("error") or "Inloggen mislukt"}), 400
-
-    @app.post("/api/ah/browser/auth/logout")
-    def ah_browser_auth_logout():
-        ah.clear_browser_credentials()
-        return jsonify({"connected": False})
-
     @app.get("/api/ah/auth/start")
     def ah_auth_start():
         return redirect(ah.login_url(), code=302)
@@ -412,128 +394,6 @@ def create_app() -> Flask:
             response.headers.add("Set-Cookie", ah.sanitize_login_cookie(cookie))
 
         return response
-
-    @app.get("/api/jumbo/auth/status")
-    def jumbo_auth_status():
-        try:
-            verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-            return jsonify(jumbo.auth_status(verify=verify))
-        except Exception as exc:
-            app.logger.exception("Jumbo auth status error")
-            return jsonify({"connected": False, "error": str(exc)}), 424
-
-    @app.post("/api/jumbo/auth")
-    def jumbo_auth():
-        body = request.get_json(silent=True) or {}
-        username = (body.get("username") or "").strip()
-        password = body.get("password") or ""
-        if not username or not password:
-            return jsonify({"error": "E-mail en wachtwoord zijn verplicht"}), 400
-
-        result = jumbo.link_account(username, password)
-        if result.get("connected"):
-            return jsonify(result)
-        return jsonify({"error": result.get("error") or "Inloggen mislukt"}), 400
-
-    @app.post("/api/jumbo/auth/logout")
-    def jumbo_auth_logout():
-        jumbo.clear_credentials()
-        return jsonify({"connected": False})
-
-    @app.get("/api/jumbo/search")
-    def jumbo_search():
-        query = (request.args.get("q") or "").strip()
-        if not query:
-            return jsonify({"error": "Zoekterm ontbreekt"}), 400
-        try:
-            return jsonify({"product": jumbo.search_product(query)})
-        except Exception as exc:
-            app.logger.exception("Jumbo search error")
-            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 424
-
-    @app.get("/api/jumbo/recipes/saved")
-    def jumbo_saved_recipes():
-        try:
-            return jsonify(jumbo.get_saved_recipes())
-        except Exception as exc:
-            app.logger.exception("Jumbo saved recipes error")
-            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 424
-
-    @app.post("/api/jumbo/cart")
-    def jumbo_cart():
-        body = request.get_json(silent=True) or {}
-        items = body.get("items") or []
-        if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
-
-        matched = []
-        diagnostics = []
-        for item in items:
-            try:
-                product = jumbo.search_product(item.get("query", ""))
-                if product:
-                    matched.append(
-                        {
-                            "query": item.get("query", ""),
-                            "product": product,
-                            "quantity": item.get("quantity", 1),
-                        }
-                    )
-                    diagnostics.append({"query": item.get("query", ""), "status": "gevonden"})
-                else:
-                    diagnostics.append({"query": item.get("query", ""), "status": "niet gevonden"})
-            except Exception as exc:
-                diagnostics.append(
-                    {"query": item.get("query", "onbekend"), "status": "fout", "error": str(exc)}
-                )
-
-        if not matched:
-            return (
-                jsonify(
-                    {
-                        "error": "Geen producten gevonden voor de opgegeven ingredienten",
-                        "diagnostics": diagnostics,
-                    }
-                ),
-                404,
-            )
-
-        try:
-            jumbo.add_to_basket(
-                [
-                    {
-                        "sku": item["product"]["sku"],
-                        "unit": item["product"]["unit"],
-                        "quantity": item["quantity"],
-                    }
-                    for item in matched
-                ]
-            )
-        except Exception as exc:
-            app.logger.exception("Jumbo cart error")
-            return jsonify({"error": str(exc)}), 424
-
-        skipped = [item for item in diagnostics if item["status"] != "gevonden"]
-        return jsonify(
-            {
-                "added": len(matched),
-                "skipped": len(skipped),
-                "skippedItems": [item["query"] for item in skipped],
-                "items": [
-                    {
-                        "query": item["query"],
-                        "quantity": item["quantity"],
-                        "product": {
-                            "title": item["product"]["title"],
-                            "price": item["product"]["price"]["now"],
-                            "unitSize": item["product"].get("unitSize"),
-                            "image": item["product"].get("image"),
-                        },
-                    }
-                    for item in matched
-                ],
-            }
-        )
 
     return app
 

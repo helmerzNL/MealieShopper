@@ -8,6 +8,7 @@ import os
 import secrets
 import sqlite3
 import struct
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,28 @@ def set_secret(key: str, value: str) -> None:
             """,
             (key, encrypted, utcnow().isoformat()),
         )
+
+
+# Inloggegevens en cookies van verwijderde functies (AH website-koppeling, Jumbo).
+OBSOLETE_SECRET_KEYS = (
+    "AH_USERNAME",
+    "AH_PASSWORD",
+    "AH_COOKIES",
+    "JUMBO_USERNAME",
+    "JUMBO_PASSWORD",
+    "JUMBO_COOKIES",
+)
+
+
+def purge_obsolete_secrets() -> int:
+    """Verwijder opgeslagen gegevens van functies die niet meer bestaan; geeft het aantal rijen."""
+    init_db()  # idempotent (CREATE TABLE IF NOT EXISTS); werkt ook voor een nieuwe data-map
+    placeholders = ",".join("?" for _ in OBSOLETE_SECRET_KEYS)
+    with closing(connect()) as conn, conn:
+        cursor = conn.execute(
+            f"DELETE FROM app_settings WHERE key IN ({placeholders})", OBSOLETE_SECRET_KEYS
+        )
+        return cursor.rowcount
 
 
 def get_secret(key: str) -> str:

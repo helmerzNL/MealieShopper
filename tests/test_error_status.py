@@ -5,7 +5,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, jumbo, mealie  # noqa: E402
+from mealieshopper import ah, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 
@@ -38,10 +38,6 @@ class ExternalErrorStatusTest(unittest.TestCase):
             self.assert_424(
                 self.client.get("/api/mealplan?start=2026-10-19&end=2026-10-25"), "Mealie onbereikbaar"
             )
-
-    def test_jumbo_saved_recipes(self):
-        with mock.patch.object(jumbo, "get_saved_recipes", side_effect=RuntimeError("Jumbo sessie verlopen")):
-            self.assert_424(self.client.get("/api/jumbo/recipes/saved"), "Jumbo sessie verlopen")
 
 
 if __name__ == "__main__":

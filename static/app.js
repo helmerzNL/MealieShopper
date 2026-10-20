@@ -5,11 +5,8 @@ const state = {
   searchQuery: "",
   auth: null,
   credentials: [],
-  store: "ah",
   ahListsLoaded: false,
 };
-
-const storeLabels = { ah: "Albert Heijn", jumbo: "Jumbo" };
 
 const dayNames = ["zo", "ma", "di", "wo", "do", "vr", "za"];
 const monthNames = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
@@ -195,8 +192,6 @@ async function refreshAuthStatus() {
   await loadCredentials();
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
-    refreshJumboStatus();
-    refreshAhBrowserStatus();
   }
   return state.auth;
 }
@@ -391,17 +386,7 @@ function renderMealPlan(entries) {
       <div class="box ingredients">
         <div class="toolbar">
           <h2>Alle ingredienten (${ingredients.length})</h2>
-          <div class="store-select" role="group" aria-label="Kies winkel">
-            <label class="store-option">
-              <input type="radio" name="store" value="ah"${state.store === "ah" ? " checked" : ""}>
-              <span>Albert Heijn</span>
-            </label>
-            <label class="store-option">
-              <input type="radio" name="store" value="jumbo"${state.store === "jumbo" ? " checked" : ""}>
-              <span>Jumbo</span>
-            </label>
-          </div>
-          <button class="button" id="add-cart">Voeg toe aan ${escapeHtml(storeLabels[state.store])} mandje</button>
+          <button class="button" id="add-cart">Voeg toe aan Albert Heijn mandje</button>
         </div>
         <ul>
           ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
@@ -409,13 +394,6 @@ function renderMealPlan(entries) {
       </div>
     `
     : "";
-  document.querySelectorAll('input[name="store"]').forEach((radio) => {
-    radio.addEventListener("change", () => {
-      state.store = radio.value;
-      const button = $("#add-cart");
-      if (button) button.textContent = `Voeg toe aan ${storeLabels[state.store]} mandje`;
-    });
-  });
   $("#add-cart")?.addEventListener("click", addToCart);
 }
 
@@ -440,9 +418,6 @@ async function loadMealPlan() {
 async function addToCart() {
   const ingredients = aggregateIngredients(state.entries);
   if (!ingredients.length) return;
-  const store = state.store === "jumbo" ? "jumbo" : "ah";
-  const storeLabel = storeLabels[store];
-  const endpoint = store === "jumbo" ? "/api/jumbo/cart" : "/api/ah/cart";
   const button = $("#add-cart");
   button.disabled = true;
   button.textContent = "Toevoegen...";
@@ -451,13 +426,13 @@ async function addToCart() {
       query: ingredient.food?.name || ingredient.display,
       quantity: Math.max(1, Math.round(ingredient.quantity || 1)),
     }));
-    const data = await jsonFetch(endpoint, {
+    const data = await jsonFetch("/api/ah/cart", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
     });
     $("#cart-result").innerHTML = `
-      <div class="message success">${data.added} producten toegevoegd aan je ${escapeHtml(storeLabel)} mandje${
+      <div class="message success">${data.added} producten toegevoegd aan je Albert Heijn mandje${
         data.skipped ? ` (${data.skipped} niet gevonden)` : ""
       }.</div>
     `;
@@ -465,7 +440,7 @@ async function addToCart() {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {
     button.disabled = false;
-    button.textContent = `Voeg toe aan ${storeLabel} mandje`;
+    button.textContent = "Voeg toe aan Albert Heijn mandje";
   }
 }
 
@@ -562,44 +537,6 @@ async function checkAhConnection() {
     }
   } catch (error) {
     message("#ah-status", error.message);
-  }
-}
-
-async function refreshJumboStatus() {
-  if (!$("#jumbo-status")) return;
-  try {
-    const data = await jsonFetch("/api/jumbo/auth/status");
-    const connected = Boolean(data.connected);
-    message(
-      "#jumbo-status",
-      connected
-        ? `Jumbo account gekoppeld${data.username ? ` (${data.username})` : ""}.`
-        : "Jumbo account nog niet gekoppeld.",
-      connected ? "success" : "error"
-    );
-    const logout = $("#jumbo-logout");
-    if (logout) logout.hidden = !connected;
-  } catch (error) {
-    message("#jumbo-status", error.message);
-  }
-}
-
-async function refreshAhBrowserStatus() {
-  if (!$("#ah-browser-status")) return;
-  try {
-    const data = await jsonFetch("/api/ah/browser/status");
-    const connected = Boolean(data.connected);
-    message(
-      "#ah-browser-status",
-      connected
-        ? `AH website-koppeling actief${data.username ? ` (${data.username})` : ""}.`
-        : "AH website-koppeling nog niet gemaakt (alleen nodig voor bewaarde recepten).",
-      connected ? "success" : "error"
-    );
-    const logout = $("#ah-browser-logout");
-    if (logout) logout.hidden = !connected;
-  } catch (error) {
-    message("#ah-browser-status", error.message);
   }
 }
 
@@ -927,89 +864,6 @@ $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", (event) =>
   loadSavedRecipes("/api/ah/recipes/saved", "#ah-recipes", "#ah-recipes-message", event.currentTarget)
 );
-$("#load-jumbo-recipes").addEventListener("click", (event) =>
-  loadSavedRecipes("/api/jumbo/recipes/saved", "#jumbo-recipes", "#jumbo-recipes-message", event.currentTarget)
-);
-$("#jumbo-login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const username = $("#jumbo-username").value.trim();
-  const password = $("#jumbo-password").value;
-  if (!username || !password) {
-    message("#jumbo-status", "Vul je e-mailadres en wachtwoord in.");
-    return;
-  }
-  const button = $("#jumbo-login");
-  button.disabled = true;
-  button.textContent = "Koppelen...";
-  try {
-    await jsonFetch("/api/jumbo/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    $("#jumbo-password").value = "";
-    await refreshJumboStatus();
-  } catch (error) {
-    message("#jumbo-status", error.message);
-  } finally {
-    button.disabled = false;
-    button.textContent = "Koppelen";
-  }
-});
-$("#jumbo-logout").addEventListener("click", async () => {
-  try {
-    await jsonFetch("/api/jumbo/auth/logout", { method: "POST", body: "{}" });
-    $("#jumbo-username").value = "";
-    $("#jumbo-password").value = "";
-    await refreshJumboStatus();
-  } catch (error) {
-    message("#jumbo-status", error.message);
-  }
-});
-
-const ahBrowserForm = $("#ah-browser-login-form");
-if (ahBrowserForm) {
-  ahBrowserForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const username = $("#ah-browser-username").value.trim();
-    const password = $("#ah-browser-password").value;
-    if (!username || !password) {
-      message("#ah-browser-status", "E-mail en wachtwoord zijn verplicht");
-      return;
-    }
-    const button = $("#ah-browser-login");
-    button.disabled = true;
-    const originalLabel = button.textContent;
-    button.textContent = "Koppelen...";
-    try {
-      await jsonFetch("/api/ah/browser/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      $("#ah-browser-password").value = "";
-      await refreshAhBrowserStatus();
-    } catch (error) {
-      message("#ah-browser-status", error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = originalLabel;
-    }
-  });
-}
-const ahBrowserLogout = $("#ah-browser-logout");
-if (ahBrowserLogout) {
-  ahBrowserLogout.addEventListener("click", async () => {
-    try {
-      await jsonFetch("/api/ah/browser/auth/logout", { method: "POST", body: "{}" });
-      $("#ah-browser-username").value = "";
-      $("#ah-browser-password").value = "";
-      await refreshAhBrowserStatus();
-    } catch (error) {
-      message("#ah-browser-status", error.message);
-    }
-  });
-}
 $("#auth-primary").addEventListener("click", handleAuthPrimary);
 $("#add-passkey").addEventListener("click", addPasskey);
 $("#auth-logout").addEventListener("click", async () => {
