@@ -424,6 +424,17 @@ function cartCandidateLabel(candidate) {
   return [candidate.title, candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" \u2013 ");
 }
 
+function openProductPopup(url) {
+  // Een klein venster naast de lijst, zodat je het product kunt vergelijken zonder de lijst kwijt te raken.
+  const popup = window.open(url, "ah-product", "popup=yes,width=1000,height=800,resizable=yes,scrollbars=yes");
+  if (popup) {
+    popup.opener = null;
+    popup.focus();
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
 function cartSelection(row, candidate, quantity) {
   return {
     query: row.query,
@@ -496,6 +507,7 @@ function renderCartReview(rows) {
                     .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
                     .join("")}
                 </select>
+                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="Bekijk dit product bij AH om te controleren of het klopt">Bekijk bij AH &#8599;</a>
                 <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="Aantal verpakkingen">
               </div>`;
           })
@@ -516,10 +528,15 @@ function renderCartReview(rows) {
     el.querySelector(".review-product").addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
       el.querySelector(".review-qty").value = candidate.packs;
+      el.querySelector(".review-link").href = candidate.url;
       el.querySelector(".review-note").textContent = candidate.doubt || "";
       el.classList.toggle("is-doubt", Boolean(candidate.doubt));
     });
     el.querySelector(".review-include").addEventListener("change", updateConfirm);
+    el.querySelector(".review-link").addEventListener("click", (event) => {
+      event.preventDefault();
+      openProductPopup(event.currentTarget.href);
+    });
   });
   updateConfirm();
 
