@@ -12,6 +12,7 @@ I18N.add("nl", {
   "gate.passkey": "Inloggen met passkey",
   "ob.progress_label": "Voortgang",
   "brand.tagline": "Van recept naar geregeld.",
+  "brand.home": "Naar het startscherm",
   "auth.logout": "Uitloggen",
   "nav.main": "Hoofdscherm",
   "nav.plan": "Weekmenu naar winkel",
