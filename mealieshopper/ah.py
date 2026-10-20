@@ -862,6 +862,18 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     return _get_saved_recipes_api(page, size)
 
 
+MAX_CART_QUANTITY = 99  # AH weigert een aantal buiten 1..99 met een 400
+
+
+def normalize_quantity(value: Any) -> int:
+    """Aantal verpakkingen voor het AH-winkelmandje, altijd binnen 1..99."""
+    try:
+        quantity = int(round(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return 1
+    return min(MAX_CART_QUANTITY, max(1, quantity))
+
+
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
     token = get_user_token()
     shopping_items = []
@@ -872,7 +884,7 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         except (TypeError, ValueError) as exc:
             raise RuntimeError(f"Ongeldig productId voor AH winkelmandje: {product_id_raw}") from exc
 
-        quantity = max(1, int(item.get("quantity") or 1))
+        quantity = normalize_quantity(item.get("quantity"))
         description = str(item.get("title") or item.get("query") or "").strip()
         shopping_items.append(
             {

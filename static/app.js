@@ -343,6 +343,13 @@ function aggregateIngredients(entries) {
   return result;
 }
 
+function cartQuantity(ingredient) {
+  // Een hoeveelheid met eenheid (500 g, 2 el) is geen aantal verpakkingen: koop er een.
+  if (ingredient.unit && (ingredient.unit.name || ingredient.unit.abbreviation)) return 1;
+  const quantity = Math.round(Number(ingredient.quantity) || 1);
+  return Math.min(99, Math.max(1, quantity));
+}
+
 function renderMealPlan(entries) {
   const byDay = {};
   for (const entry of entries) {
@@ -424,7 +431,7 @@ async function addToCart() {
   try {
     const items = ingredients.map((ingredient) => ({
       query: ingredient.food?.name || ingredient.display,
-      quantity: Math.max(1, Math.round(ingredient.quantity || 1)),
+      quantity: cartQuantity(ingredient),
     }));
     const data = await jsonFetch("/api/ah/cart", {
       method: "POST",
