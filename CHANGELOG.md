@@ -4,11 +4,12 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.50.0
 
-*English summary: Version number set to 2.50.0. The static-file version (cache buster) is raised, so browsers and the installed app load the current scripts and translations. Without it, the new "Stores" menu under Settings (added in 2.12.0) could show its raw text key "settings.tab.stores" instead of "Stores"/"Winkels" until the cache was cleared. Nothing else changes.*
+*English summary: Version number set to 2.50.0. The static-file version (cache buster) is raised, so browsers and the installed app load the current scripts and translations. Without it, the new "Stores" menu under Settings (added in 2.12.0) could show its raw text key "settings.tab.stores" instead of "Stores"/"Winkels" until the cache was cleared. The store picker on the Stores page is now the first drop-down in the sub-tab bar too, styled like the one under Settings. Nothing else changes.*
 
 ### Nieuw in 2.50.0
 
 - **Versienummer 2.50.0.** De versie van MealieShopper is op verzoek van de beheerder op 2.50.0 gezet.
+- **Winkelkeuze in het menu van Winkels.** De winkelkeuze bovenaan de pagina **Winkels** (Albert Heijn, Jumbo, Picnic) is geen losse keuzelijst meer, maar het eerste uitklapmenu in de subtabbalk, in dezelfde stijl als **Beheer > Winkels**. De knop toont de gekozen winkel; met één gekoppelde winkel blijft hij verborgen, zoals voorheen.
 - **Winkelmenu toont weer "Winkels".** Na 2.12.0 kon de knop **Winkels** onder Beheer de sleutel `settings.tab.stores` tonen in plaats van de tekst, omdat een browser of de geïnstalleerde app de oude vertaalbestanden uit zijn cache bleef gebruiken. De versie van de statische bestanden (`MEALIESHOPPER_ASSET_VERSION`) is opgehoogd, zodat de nieuwe bestanden worden geladen.
 
 ### Goed om te weten
