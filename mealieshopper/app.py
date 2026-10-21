@@ -650,7 +650,7 @@ def create_app() -> Flask:
     def picnic_favorites():
         # Alleen lezen: de favoriete producten uit de Favorieten-tab van de Picnic-app.
         try:
-            return jsonify({"products": picnic.get_favorites()})
+            return jsonify(picnic.get_favorites())
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
