@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.6.0
+
+*English summary: MealieShopper can now fill a Picnic basket as well as an Albert Heijn one. The administrator links Picnic under Settings > Picnic (email, password and the code Picnic sends), and the planner then lets you choose the supermarket. Products go straight into the real Picnic basket; an order is never placed. Three read-only MCP tools show Picnic products, your basket and your deliveries. The Picnic API is unofficial and has not been tried against a live account yet: use the explorer under Settings > Picnic to check which routes work.*
+
+### Nieuw in 1.6.0
+
+- **Picnic naast Albert Heijn.** De beheerder koppelt Picnic onder **Beheer > Picnic** met e-mailadres, wachtwoord en de code die Picnic per sms of e-mail stuurt. Daarna kies je in de planner naar welke supermarkt het weekmenu gaat; de keuze wordt onthouden in je browser. Het wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versleuteld. Picnic vernieuwt die sessie zelf; MealieShopper bewaart de nieuwste.
+- **Zelfde controlelijst als bij AH.** Per ingrediënt zoekt MealieShopper de beste Picnic-producten, rekent het aantal verpakkingen uit en laat je twijfelgevallen eerst controleren. Een Picnic-product heeft geen webpagina, dus de regel `Bekijk bij AH` ontbreekt daar.
+- **Direct in het echte Picnic-mandje.** Anders dan bij AH (een boodschappenlijstje) komen de producten in je winkelmandje. Er wordt nooit een bestelling geplaatst: controleer het mandje in de Picnic-app en reken daar af. Mislukt één product, dan staan de andere er wel in en meldt de app welke ontbreken.
+- **Drie nieuwe MCP-tools, alleen lezen:** `search_picnic_products`, `get_picnic_basket` en `list_picnic_deliveries`. Ze halen live bij Picnic op (zonder adres) en zijn bij AI-apps afzonderlijk uit te zetten. Het mandje vullen kan niet via MCP.
+- **Picnic-routes verkennen** (alleen de beheerder): toont welke onofficiële Picnic-routes werken en welke velden erin zitten, zonder namen, adressen, prijzen of id's.
+- Nieuwe routes onder `/api/picnic/` (koppelen, zoeken, mandje, leveringen); koppelen en verkennen zijn alleen voor de beheerder. Optioneel: `PICNIC_COUNTRY_CODE` (`NL`, `DE` of `FR`).
+
+### Goed om te weten
+
+- De Picnic-API is **niet officieel** en zonder bericht te wijzigen; de aanroepen volgen de community-libraries `python-picnic-api2` en `picnic-api`. Deze versie is getest met nagebootste antwoorden en **nog niet met een echt Picnic-account**: gebruik **Picnic-routes verkennen** om te zien wat er werkt, en meld wat afwijkt.
+- Nog niet voor Picnic: lokale kopie van leveringen, de installatiehulp en lijstjes, kassabonnen en recepten (Picnic kent die niet op dezelfde manier).
+
+### Intern
+
+- De verpakkingsrekenmachine (`parse_pack_size`, `assess_packs`, `normalize_quantity`) staat nu in `mealieshopper/packs.py` en is voor alle supermarkten gedeeld; `ah.py` blijft ze doorgeven, dus bestaande aanroepen werken ongewijzigd. De controlelijst-route is gedeeld tussen AH en Picnic.
+
 ## v1.5.3
 
 *English summary: Click the logo in the header to go to the start screen (the first tab).*

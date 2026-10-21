@@ -2,8 +2,8 @@
 
 Streamable HTTP, zonder sessies en zonder streams: elk JSON-RPC-verzoek is een POST dat direct een
 JSON-antwoord krijgt. De tools lezen (weekmenu, recepten zoeken, AH-lijstjes en -producten) en
-kunnen een recept in Mealie importeren. Er is bewust geen tool die het AH-mandje vult of iets
-verwijdert.
+kunnen een recept in Mealie importeren. Er is bewust geen tool die het AH- of Picnic-mandje vult of
+iets verwijdert.
 
 Toegang loopt via OAuth (zie oauth.py). De server staat alleen aan als de app zelf inloggen
 vraagt, zodat de MCP-ingang nooit open staat op een installatie zonder beveiliging.
@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, mealie, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, mealie, picnic, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -191,6 +191,35 @@ def tool_search_products(args: dict[str, Any]) -> Any:
     }
 
 
+def _picnic_linked() -> None:
+    if not picnic.configured_auth_key():
+        raise ToolError("Picnic is niet gekoppeld. De beheerder koppelt het bij Beheer, Picnic.")
+
+
+def tool_search_picnic_products(args: dict[str, Any]) -> Any:
+    query = _text(args.get("query"), 200)
+    if not query:
+        raise ToolError("Geef een zoekterm op")
+    _picnic_linked()
+    limit = max(1, min(10, int(args.get("limit") or 5)))
+    return {
+        "products": [
+            {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus")}
+            for item in picnic.search_products(query, limit)
+        ]
+    }
+
+
+def tool_picnic_basket(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    return picnic.get_cart()
+
+
+def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
+
+
 def _private_host(hostname: str) -> bool:
     """Een adres op je eigen netwerk (Mealie zou het ophalen vanaf jouw server)."""
     host = hostname.strip("[]").rstrip(".").casefold()
@@ -326,6 +355,27 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "AH-producten zoeken"},
         "handler": tool_search_products,
     },
+    "search_picnic_products": {
+        "description": "Zoek producten in het assortiment van Picnic: naam, inhoud, prijs en of er een aanbieding is. Live opgehaald bij Picnic.",
+        "inputSchema": _schema(
+            {"query": {"type": "string", "description": "Productnaam."}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."}},
+            ["query"],
+        ),
+        "annotations": {**READ_ONLY, "title": "Picnic-producten zoeken"},
+        "handler": tool_search_picnic_products,
+    },
+    "get_picnic_basket": {
+        "description": "Het winkelmandje bij Picnic: producten, aantallen en totaal. Live opgehaald; er wordt niets aan veranderd.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Picnic-mandje"},
+        "handler": tool_picnic_basket,
+    },
+    "list_picnic_deliveries": {
+        "description": "Leveringen van het Picnic-account met status, bezorgvenster en totaal. Live opgehaald, zonder adres.",
+        "inputSchema": _schema({"current_only": {"type": "boolean", "description": "Alleen de lopende leveringen, standaard alle."}}),
+        "annotations": {**READ_ONLY, "title": "Picnic-leveringen"},
+        "handler": tool_picnic_deliveries,
+    },
     "get_ah_basket": {
         "description": "Het bestelmandje: de actieve bestelling bij Albert Heijn (producten, aantallen, totaal, gekozen bezorgmoment). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie. Niet de boodschappenlijst.",
         "inputSchema": _schema(),
@@ -441,10 +491,11 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "mealieshopper", "title": "MealieShopper", "version": _version()},
                 "instructions": (
-                    "MealieShopper koppelt Mealie aan Albert Heijn. Gebruik de tools om het weekmenu, "
+                    "MealieShopper koppelt Mealie aan Albert Heijn en Picnic. Gebruik de tools om het weekmenu, "
                     "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
-                    "(die laatste drie komen uit een lokale kopie met een tijdstip) en om een recept in Mealie te importeren. "
-                    "Het AH-mandje vullen kan niet via deze server."
+                    "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje en -leveringen "
+                    "live te bekijken en om een recept in Mealie te importeren. "
+                    "Het AH-mandje vullen kan niet via deze server, en het Picnic-mandje ook niet."
                 ),
             },
         }

@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, server_settings, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261020-31")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-1")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -351,11 +351,12 @@ def create_app() -> Flask:
             "doubt": doubt,
         }
 
-    @app.post("/api/ah/cart/preview")
-    def ah_cart_preview():
+    def cart_preview(search: Any, make_candidate: Any) -> Any:
         """Zoek per ingredient de beste producten en reken het aantal verpakkingen uit.
 
-        Een regel met `doubt` is er niet zeker van; de gebruiker kiest dan zelf.
+        Een regel met `doubt` is er niet zeker van; de gebruiker kiest dan zelf. Gedeeld door
+        alle supermarkten: `search(query, limit)` en `make_candidate(product, quantity, unit)`
+        zijn de enige winkelspecifieke delen.
         """
         body = request.get_json(silent=True) or {}
         items = body.get("items") or []
@@ -372,18 +373,22 @@ def create_app() -> Flask:
                 "candidates": [],
             }
             try:
-                products = ah.search_products(query, 5)
+                products = search(query, 5)
             except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
                 result["error"] = str(exc)
                 return result
             result["candidates"] = [
-                cart_candidate(product, item.get("quantity"), item.get("unit")) for product in products
+                make_candidate(product, item.get("quantity"), item.get("unit")) for product in products
             ]
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:
             resolved = list(executor.map(resolve, items))
         return jsonify({"items": resolved})
+
+    @app.post("/api/ah/cart/preview")
+    def ah_cart_preview():
+        return cart_preview(ah.search_products, cart_candidate)
 
     @app.post("/api/ah/cart")
     def ah_cart():
@@ -475,6 +480,131 @@ def create_app() -> Flask:
                 ],
             }
         )
+
+    # --- Picnic -------------------------------------------------------------------------
+    # Zelfde opzet als AH, met twee verschillen: inloggen heeft een tweestapscode, en de producten
+    # gaan direct in het echte Picnic-winkelmandje (er is geen apart boodschappenlijstje).
+
+    def picnic_error(exc: Exception) -> Any:
+        """Fouten van de gebruiker (400) apart van fouten van Picnic zelf (424)."""
+        if isinstance(exc, (ValueError, picnic.PicnicAuthError, picnic.Picnic2FAError)):
+            return jsonify({"error": str(exc)}), 400
+        app.logger.exception("Picnic error")
+        return jsonify({"error": str(exc) or "Picnic fout"}), 424
+
+    @app.get("/api/picnic/auth/status")
+    def picnic_auth_status():
+        verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
+        return jsonify(picnic.status(verify=verify))
+
+    @app.post("/api/picnic/auth")
+    def picnic_auth():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(picnic.login(body.get("email"), body.get("password") or ""))
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/auth/2fa/request")
+    def picnic_auth_2fa_request():
+        body = request.get_json(silent=True) or {}
+        try:
+            picnic.request_2fa_code(body.get("channel") or "SMS")
+            return jsonify({"requested": True})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/auth/2fa/verify")
+    def picnic_auth_2fa_verify():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(picnic.verify_2fa(body.get("code")))
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/auth/logout")
+    def picnic_auth_logout():
+        return jsonify(picnic.unlink())
+
+    @app.get("/api/picnic/search")
+    def picnic_search():
+        query = (request.args.get("q") or "").strip()
+        if not query:
+            return jsonify({"error": "Zoekterm ontbreekt"}), 400
+        try:
+            return jsonify({"products": picnic.search_products(query, 10)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/cart/preview")
+    def picnic_cart_preview():
+        return cart_preview(picnic.search_products, picnic.candidate)
+
+    @app.get("/api/picnic/cart")
+    def picnic_cart_get():
+        try:
+            return jsonify(picnic.get_cart())
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/cart")
+    def picnic_cart():
+        body = request.get_json(silent=True) or {}
+        items = body.get("items") or []
+        if not items:
+            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+
+        matched: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        for item in items:
+            query = item.get("query", "")
+            try:
+                if item.get("productId"):
+                    # Door de gebruiker bevestigd (of aangepast) in de controlelijst.
+                    matched.append({"productId": item["productId"], "quantity": item.get("quantity"), "query": query})
+                    continue
+                product = picnic.search_product(query)
+            except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, picnic.PicnicAuthError):
+                    return picnic_error(exc)
+                skipped.append(query or "onbekend")
+                continue
+            if not product:
+                skipped.append(query or "onbekend")
+                continue
+            found = picnic.candidate(product, item.get("quantity"), item.get("unit"))
+            matched.append({"productId": found["productId"], "quantity": found["packs"], "query": query})
+
+        if not matched:
+            return jsonify({"error": "Geen producten gevonden voor de opgegeven ingredienten", "skippedItems": skipped}), 404
+        try:
+            result = picnic.add_to_cart(matched)
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+        failed_ids = {entry["productId"] for entry in result["failed"]}
+        skipped += [entry["query"] for entry in matched if entry["productId"] in failed_ids]
+        return jsonify(
+            {
+                "added": len(result["added"]),
+                "skipped": len(skipped),
+                "skippedItems": skipped,
+                "failed": result["failed"],
+                "cart": result["cart"],
+            }
+        )
+
+    @app.get("/api/picnic/deliveries")
+    def picnic_deliveries():
+        current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
+        try:
+            return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/explore")
+    def picnic_explore_routes():
+        # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
+        return jsonify(picnic_explore.explore())
 
     @app.post("/api/ah/auth")
     def ah_auth():
