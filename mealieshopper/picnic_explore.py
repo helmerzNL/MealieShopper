@@ -195,6 +195,65 @@ def code_report(page: Any) -> dict[str, Any]:
     }
 
 
+def page_outline(page: Any, limit: int = 80) -> list[str]:
+    """De opbouw van een pagina in leesvolgorde: koppen (tekst van onderdelen zonder producten) en groepen producttegels.
+
+    Zo zien we of er een eigen kopje bij de favorieten staat en hoeveel producten daaronder komen. Alleen korte
+    teksten van onderdelen zonder producten komen erin, nooit productnamen.
+    """
+    out: list[str] = []
+    run = 0
+
+    def flush() -> None:
+        nonlocal run
+        if run:
+            out.append(f"tegels: {run}")
+            run = 0
+
+    def has_tile(node: Any) -> bool:
+        return any(n.get("type") == "SELLING_UNIT_TILE" for n in picnic._walk(node))
+
+    def visit(node: Any) -> None:
+        nonlocal run
+        if isinstance(node, list):
+            for item in node:
+                visit(item)
+        elif isinstance(node, dict):
+            if node.get("type") == "SELLING_UNIT_TILE":
+                run += 1
+            elif node.get("type") == "PML" and not has_tile(node):
+                heads = [n["markdown"].strip() for n in picnic._walk(node) if n.get("type") == "RICH_TEXT" and isinstance(n.get("markdown"), str)]
+                heads = [_redact(h)[:40] for h in heads if 0 < len(h.strip()) <= 40]
+                if heads:
+                    flush()
+                    out.append("kop: " + " | ".join(heads[:3]))
+            else:
+                for value in node.values():
+                    visit(value)
+
+    visit(page)
+    flush()
+    return out[:limit]
+
+
+_LIKE_CONSTANTS = (
+    re.compile(r"===\s*undefined\s*\?\s*(true|false)"),
+    re.compile(r"isSavedValue\s*=\s*(true|false)"),
+    re.compile(r"likedSellables:\s*\{\s*\[\"s\d+\"\]:\s*(true|false)"),
+)
+
+
+def like_constants(page: Any) -> dict[str, list[str]]:
+    """De waar/onwaar-waarden die de server in de hartjescode van een productpagina heeft gezet (per soort plek)."""
+    found: dict[str, set[str]] = {}
+    for node in picnic._walk(page):
+        text = node.get("expression")
+        if isinstance(text, str):
+            for index, pattern in enumerate(_LIKE_CONSTANTS):
+                found.setdefault(f"plek {index + 1}", set()).update(pattern.findall(text))
+    return {key: sorted(values) for key, values in sorted(found.items())}
+
+
 def saved_report(page: dict[str, Any]) -> dict[str, Any]:
     """Hoe de pagina markeert welke producten favoriet zijn: de vorm van het veld `saved` en wat we ervan maken."""
     values = [node["saved"] for node in picnic._walk(page) if "saved" in node]
@@ -381,6 +440,30 @@ def explore() -> dict[str, Any]:
             ):
                 report, code_page = _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
                 probes.append(report)
+        # De opbouw van de pagina van de tab, en de pagina's die zij zelf later laadt (`pageConfig`).
+        if isinstance(favorites_page, dict):
+            probes.append({"name": "favorieten: opbouw van de pagina van de tab (koppen en groepen tegels)", "ok": True,
+                           "info": {"opbouw": page_outline(favorites_page)}})
+            lazy_ids = list(dict.fromkeys(
+                n["pageConfig"]["id"] for n in picnic._walk(favorites_page)
+                if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
+                and picnic._PAGE_REFERENCE.match(n["pageConfig"]["id"])))[:4]
+            for lazy_id in lazy_ids:
+                report, lazy_page = _probe(f"favorieten: later geladen pagina {_redact(lazy_id)}",
+                                           lambda i=lazy_id: picnic._authed("GET", f"/pages/{i}", text=True), _page_info)
+                probes.append(report)
+                if isinstance(lazy_page, dict):
+                    probes.append({"name": f"favorieten: opbouw en markering van {_redact(lazy_id)}", "ok": True,
+                                   "info": {"opbouw": page_outline(lazy_page), "saved": saved_report(lazy_page)}})
+        # Zet de server zelf in de hartjescode van een productpagina of het product favoriet is? Kijk bij een paar producten.
+        sample = (picnic.products_from_page(favorites_page)[:8] if isinstance(favorites_page, dict) else [])
+        flags: dict[str, Any] = {}
+        for index, product in enumerate(sample):
+            try:
+                flags[f"product {index + 1}"] = like_constants(picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
+            except Exception as exc:  # noqa: BLE001 - een product dat niet laadt slaan we over
+                flags[f"product {index + 1}"] = f"fout: {type(exc).__name__}"
+        probes.append({"name": "favorieten: waar/onwaar in de hartjescode van de productpagina's (per product)", "ok": True, "info": flags})
         for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
             report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
                                     lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
