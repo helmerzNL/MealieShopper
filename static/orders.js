@@ -1,10 +1,6 @@
 // Bestellingen, bestelmandje en kassabonnen: lezen uit de lokale kopie, synchroniseren bij AH.
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, t, tn, escapeHtml, formatPrice, ...).
 
-// Bestelmandje en bestellingen wachten tot AH ze weer levert; de code staat klaar. Op false worden ze weer getoond en gesynchroniseerd.
-// Geldt alleen voor AH: Jumbo-bestellingen werken wel.
-const ORDERS_COMING_SOON = true;
-
 // De winkel komt uit de keuze in de tab Winkels (state.itemsStore in app.js): "ah" of "jumbo".
 function ordersApi() {
   return `/api/${state.itemsStore}`;
@@ -12,10 +8,6 @@ function ordersApi() {
 
 function ordersAreJumbo() {
   return state.itemsStore === "jumbo";
-}
-
-function ordersSoon() {
-  return !ordersAreJumbo() && ORDERS_COMING_SOON;
 }
 
 const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false };
@@ -83,17 +75,12 @@ function renderBasket() {
   target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map(purchaseItem).join("")}</div>`;
 }
 
-// Het bestelmandje staat in het tabblad Mandje (basket.js), uit de lokale kopie. AH levert het nog niet:
-// zie ORDERS_COMING_SOON hierboven.
+// Het bestelmandje staat in het tabblad Mandje (basket.js), uit de lokale kopie.
 async function showAhBasket() {
   $("#basket-content").innerHTML = `
     <p class="muted" id="ah-basket-note"></p>
-    ${ORDERS_COMING_SOON ? "" : `<p><button class="button button--secondary" id="ah-basket-sync" type="button">${escapeHtml(t("common.sync"))}</button></p>`}
+    <p><button class="button button--secondary" id="ah-basket-sync" type="button">${escapeHtml(t("common.sync"))}</button></p>
     <div id="ah-basket"></div>`;
-  if (ORDERS_COMING_SOON) {
-    $("#ah-basket-note").textContent = t("basket.ah_soon");
-    return;
-  }
   $("#ah-basket-sync").addEventListener("click", syncAhBasket);
   ordersState.basket = await jsonFetch("/api/ah/basket");
   renderBasket();
@@ -114,29 +101,29 @@ async function syncAhBasket() {
   }
 }
 
+function orderCard(order) {
+  const lines = [
+    order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
+    [slotLabel(order.slotStart, order.slotEnd), money(order.total)].filter(Boolean).join(" · "),
+    order.itemsSynced ? tn("list.items", order.itemCount) : t("orders.items_pending"),
+  ].filter(Boolean);
+  return `
+    <div class="list-card">
+      <button type="button" class="list-card__open" data-order-id="${escapeHtml(order.id)}">
+        <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
+        ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
+      </button>
+    </div>`;
+}
+
+// Aankomende bestellingen (nog open, nieuwste eerst) en afgelopen bestellingen (geleverd, nieuwste eerst)
 function renderOrderList() {
-  const target = $("#ah-order-list");
-  if (!ordersState.orders.length) {
-    const none = ordersAreJumbo() ? t("orders.none_jumbo") : t("orders.none");
-    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.ordersSyncedAt ? none : t("orders.never_synced"))}</p>`;
-    return;
-  }
-  target.innerHTML = ordersState.orders
-    .map((order) => {
-      const lines = [
-        order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
-        [slotLabel(order.slotStart, order.slotEnd), money(order.total)].filter(Boolean).join(" · "),
-        order.itemsSynced ? tn("list.items", order.itemCount) : t("orders.items_pending"),
-      ].filter(Boolean);
-      return `
-        <div class="list-card">
-          <button type="button" class="list-card__open" data-order-id="${escapeHtml(order.id)}">
-            <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
-            ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
-          </button>
-        </div>`;
-    })
-    .join("");
+  const upcoming = ordersState.orders.filter((order) => order.kind === "open").sort((a, b) => String(a.deliveryDate || "").localeCompare(String(b.deliveryDate || "")));
+  const past = ordersState.orders.filter((order) => order.kind !== "open");
+  const never = !ordersState.ordersSyncedAt;
+  const empty = (text) => `<p class="muted">${escapeHtml(never ? t("orders.never_synced") : text)}</p>`;
+  $("#ah-order-upcoming").innerHTML = upcoming.length ? upcoming.map(orderCard).join("") : empty(t("orders.upcoming_none"));
+  $("#ah-order-list").innerHTML = past.length ? past.map(orderCard).join("") : empty(ordersAreJumbo() ? t("orders.none_jumbo") : t("orders.none"));
 }
 
 // Zonder hoofdletters en accenten, zoals de server zoekt
@@ -176,13 +163,10 @@ function renderReceiptList() {
 
 function renderOrders() {
   const jumbo = ordersAreJumbo();
-  const soon = ordersSoon();
   $("#ah-orders-intro").hidden = jumbo;
   $("#jumbo-orders-intro").hidden = !jumbo;
   $("#ah-receipts-block").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
-  $("#ah-orders-section").hidden = soon;
-  $("#ah-orders-soon").hidden = !soon;
-  if (!soon) renderOrderList();
+  renderOrderList();
   if (!jumbo) renderReceiptList();
   if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
 }
@@ -200,10 +184,8 @@ async function loadOrders() {
     }
     const receipts = await jsonFetch("/api/ah/receipts");
     Object.assign(ordersState, { receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
-    if (!ORDERS_COMING_SOON) {
-      const orders = await jsonFetch("/api/ah/orders");
-      Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt });
-    }
+    const orders = await jsonFetch("/api/ah/orders");
+    Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt });
     if (store !== state.itemsStore) return;
     renderOrders();
   } catch (error) {
@@ -233,7 +215,7 @@ async function syncOrders() {
       if (data.storeReceipts) done.push(tn("orders.jumbo_receipts", data.storeReceipts));
       if (data.detailError) failed.push(t("orders.jumbo_detail_error", { error: data.detailError }));
     });
-  } else if (!ORDERS_COMING_SOON) {
+  } else {
     await run(t("orders.part.basket"), "/api/ah/basket/sync", () => done.push(t("orders.sync_basket")));
     await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
       done.push(tn("orders.sync_orders", data.open));
@@ -277,7 +259,7 @@ function renderPurchaseResults(data) {
         <small>${escapeHtml([t("orders.last_bought", { date: dayLabel(product.lastDate) }), tn("orders.times", product.times), t("orders.quantity", { count: I18N.formatNumber(product.totalQuantity) })].join(" · "))}</small></div></div>`
     )
     .join("");
-  const orderHits = ordersSoon() ? [] : data.occurrences.filter((entry) => entry.source === "bestelling");
+  const orderHits = data.occurrences.filter((entry) => entry.source === "bestelling");
   const occurrences = orderHits
     .map(
       (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>

@@ -2244,10 +2244,6 @@ body.has-onboarding {
   text-align: left;
 }
 
-#ah-orders-soon {
-  margin: 4px 0 22px;
-}
-
 .receipt-hits {
   margin: 4px 0 0;
   padding-left: 18px;
@@ -2297,4 +2293,8 @@ body.has-onboarding {
 .update-facts dd {
   margin: 0;
   font-weight: 600;
+}
+
+#ah-orders-main h3 {
+  margin: 24px 0 10px;
 }
