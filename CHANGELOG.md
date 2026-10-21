@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.8.1
+
+*English summary: Fixes Picnic (and Jumbo) error messages that had become too vague: a refused login, a wrong code or an expired link explain themselves again. Messages that can contain a store's own answer still never reach the screen.*
+
+### Opgelost in 1.8.1
+
+- **Duidelijke meldingen bij Picnic en Jumbo.** Een geweigerde login, een onjuiste of verlopen code en een verlopen koppeling zeiden alleen nog "aanvraag ongeldig". Ze noemen nu weer wat er aan de hand is, bijvoorbeeld "controleer e-mailadres en wachtwoord".
+- **Het antwoord van de winkel zelf blijft uit beeld.** Die meldingen zijn teksten van MealieShopper. Wat Picnic of Jumbo zelf terugstuurt, gaat alleen naar het logboek; bij een storing zie je een algemene melding (`Picnic fout`).
+- **Koppeling controleren bij Picnic** toont bij een verlopen koppeling de uitleg (opnieuw koppelen) en bij andere fouten alleen het soort fout.
+
 ## v1.8.0
 
 *English summary: Picnic now shows the next available delivery slots under the filled basket and through a new read-only MCP tool, `list_picnic_delivery_slots`. The basket also reports what you actually pay and what your membership saves. The Picnic route explorer checks more routes (account, lists, store, suggestions, product page) so the next steps can be built on real answers. Choosing a slot and placing an order remain in the Picnic app.*
