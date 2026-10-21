@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.10.0
+
+*English summary: Your own Jumbo recipe lists (such as "Kerst") are now next to Favourites under Stores > Recipes (choose Jumbo): a list picker with the recipe counts, 24 recipes per page with "More recipes", and the same "View" and "Import" buttons. They come from jumbo.com's own stored request (getRecipeListById). The MCP tools list_jumbo_recipe_lists and get_jumbo_recipe_list replace list_jumbo_favorite_recipes (get_jumbo_recipe_list without a list gives the favourites), and the explorer got a probe for an own list. Built from the real request of jumbo.com but tried only with mocked responses so far; the answer is read by its shape (recipe cards and paginationInfo), so a different nesting does no harm.*
+
+### Nieuw in 2.10.0
+
+- **Je eigen receptenlijstjes bij Jumbo.** Onder **Winkels > Recepten** (keuze *Jumbo*) staat nu een keuzelijst met *Favorieten* en je eigen lijstjes (zoals *Kerst*), met het aantal recepten erbij. Elk lijstje werkt als de Favorieten: per 24 met `Meer recepten`, `Bekijken` voor de ingrediënten en de bereiding, en `Importeer` in Mealie. Heb je geen eigen lijstjes of lukt het overzicht niet, dan zie je alleen je Favorieten zoals voorheen.
+- **MCP.** `list_jumbo_recipe_lists` (je lijsten met aantallen) en `get_jumbo_recipe_list` (de recepten van een lijst, op naam of id; zonder opgave de Favorieten). Ze vervangen `list_jumbo_favorite_recipes` uit 2.9.0.
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de proef *een eigen receptenlijst* (aantal en vorm, geen titels).
+
+### Goed om te weten
+
+- Het antwoord van de lijst lezen we aan zijn vorm (de receptkaarten en `paginationInfo`), want de vorm van een eigen lijstje kennen we alleen uit de aanvraag. Klopt het totaal niet, dan telt MealieShopper wat er binnenkomt.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
 ## v2.9.2
 
 *English summary: Fix: the Albert Heijn basket is now read correctly. AH nests the product in each shopping-list line (`productDetails.product`) and spells the ticked-off flag `strikedthrough`, so every line used to be skipped. The basket now shows the products with image, brand, size and price. Paging through past orders uses the confirmed row offset.*
