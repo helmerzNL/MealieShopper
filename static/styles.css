@@ -369,6 +369,13 @@ h2 {
   gap: 4px;
 }
 
+/* De winkelkeuze in Winkels kiest iets in plaats van een pagina te openen: lichte vulling in plaats van de actieve kleur. */
+.subtab-menu__toggle--select,
+.subtab-menu__toggle--select:hover {
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
 .subtab-menu__chevron {
   flex: none;
   width: 20px;

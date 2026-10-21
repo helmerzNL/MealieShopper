@@ -656,16 +656,15 @@ const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 function renderItemsStore() {
   const stores = itemsStores();
   if (!stores.includes(state.itemsStore)) state.itemsStore = "ah";
-  const slot = $("#items-store-slot");
-  if (slot) {
-    slot.innerHTML =
-      stores.length > 1
-        ? `<select id="items-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-            ${stores.map((key) => `<option value="${key}"${state.itemsStore === key ? " selected" : ""}>${STORES[key].name}</option>`).join("")}
-          </select>`
-        : "";
-    $("#items-store")?.addEventListener("change", (event) => switchItemsStore(event.target.value));
-  }
+  // De winkelkeuze is het eerste uitklapmenu in de subtabbalk; met maar één winkel valt er niets te kiezen.
+  $("#items-store-menu").hidden = stores.length < 2;
+  $("#items-store-name").textContent = itemsStoreName();
+  $("#items-store-list").innerHTML = stores
+    .map(
+      (key) =>
+        `<button class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
+    )
+    .join("");
   // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
   const hide = (subtab, hidden) =>
@@ -679,7 +678,7 @@ function renderItemsStore() {
   JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
-  if (open?.hidden) document.querySelector("#ah-items .subtab:not([hidden])")?.click();
+  if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
 }
 
 function switchItemsStore(store) {
@@ -1600,36 +1599,47 @@ $("#brand-home").addEventListener("click", (event) => {
   document.querySelector('.tab[data-tab="planner"]').click();
 });
 
-// Onder Beheer staan de winkels in één uitklapmenu: de knop is actief zolang een van de winkels open is.
-const storesToggle = $("#beheer-stores-toggle");
-const storesList = $("#beheer-stores-list");
-
-function setStoresMenu(open) {
-  storesList.hidden = !open;
-  storesToggle.setAttribute("aria-expanded", String(open));
+// Uitklapmenu's in een subtabbalk (Beheer > Winkels en de winkelkeuze in Winkels): de knop opent de lijst; die sluit
+// bij een keuze, een klik elders en Esc.
+function setSubtabMenu(menu, open) {
+  menu.querySelector(".subtab-menu__list").hidden = !open;
+  menu.querySelector(".subtab-menu__toggle").setAttribute("aria-expanded", String(open));
 }
 
-storesToggle.addEventListener("click", () => setStoresMenu(storesList.hidden));
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("#beheer-stores-menu")) setStoresMenu(false);
+document.querySelectorAll(".subtab-menu").forEach((menu) => {
+  const toggle = menu.querySelector(".subtab-menu__toggle");
+  toggle.addEventListener("click", () => setSubtabMenu(menu, menu.querySelector(".subtab-menu__list").hidden));
+  menu.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || menu.querySelector(".subtab-menu__list").hidden) return;
+    setSubtabMenu(menu, false);
+    toggle.focus();
+  });
 });
-$("#beheer-stores-menu").addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || storesList.hidden) return;
-  setStoresMenu(false);
-  storesToggle.focus();
+document.addEventListener("click", (event) => {
+  document.querySelectorAll(".subtab-menu").forEach((menu) => {
+    if (!menu.contains(event.target)) setSubtabMenu(menu, false);
+  });
 });
 
-document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item").forEach((subtab) => {
+$("#items-store-list").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-store]");
+  if (!item) return;
+  setSubtabMenu($("#items-store-menu"), false);
+  switchItemsStore(item.dataset.store);
+});
+
+document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]").forEach((subtab) => {
   subtab.addEventListener("click", () => {
     const panel = subtab.closest(".panel");
     if (!panel) return;
     panel
-      .querySelectorAll(".subtab, .subtab-menu__item, .subpanel")
+      .querySelectorAll(".subtab, .subtab-menu__item[data-subtab], .subpanel")
       .forEach((item) => item.classList.remove("is-active"));
     subtab.classList.add("is-active");
-    if (subtab.classList.contains("subtab-menu__item")) {
-      storesToggle.classList.add("is-active");
-      setStoresMenu(false);
+    const menu = subtab.closest(".subtab-menu");
+    if (menu) {
+      menu.querySelector(".subtab-menu__toggle").classList.add("is-active");
+      setSubtabMenu(menu, false);
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");

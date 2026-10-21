@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.51.0
+
+*English summary: The store picker on the Stores page is now the first drop-down menu in the sub-tab bar, styled like the "Stores" menu under Settings, instead of a separate select box above it. The button shows the chosen store; with only one linked store it stays hidden, as before. The static-file version is raised again so browsers load the new scripts and styles.*
+
+### Nieuw in 2.51.0
+
+- **Winkelkeuze in het menu van Winkels.** De winkelkeuze bovenaan de pagina **Winkels** (Albert Heijn, Jumbo, Picnic) is geen losse keuzelijst meer, maar het eerste uitklapmenu in de subtabbalk, in dezelfde stijl als **Beheer > Winkels**. De knop toont de gekozen winkel; met één gekoppelde winkel blijft hij verborgen, zoals voorheen.
+
+### Goed om te weten
+
+- Het wisselen van winkel werkt zoals voorheen: Picnic begint bij de recepten, Albert Heijn en Jumbo bij de lijstjes.
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
+- Pull requests: bouwt voort op #80 (winkels onder één menu bij Beheer) en #82 (versie 2.50.0).
+
 ## v2.50.0
 
 *English summary: Version number set to 2.50.0. The static-file version (cache buster) is raised, so browsers and the installed app load the current scripts and translations. Without it, the new "Stores" menu under Settings (added in 2.12.0) could show its raw text key "settings.tab.stores" instead of "Stores"/"Winkels" until the cache was cleared. Nothing else changes.*
