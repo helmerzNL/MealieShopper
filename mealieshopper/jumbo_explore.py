@@ -63,11 +63,18 @@ def explore() -> dict[str, Any]:
         ("bereikbaar: www.jumbo.com/api/graphql (zonder inloggen)", "POST", jumbo.GRAPHQL_URL,
          {"json": {"operationName": "Reach", "query": "query Reach { __typename }"}}),
     ):
-        report, _ = _probe(name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data)
+        report, _ = _probe(
+            name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data, include_error_message=False
+        )
         probes.append(report)
 
     linked = bool(jumbo.configured_refresh_token())
-    report, _ = _probe("toegangstoken vernieuwen (auth.jumbo.com/oauth/token)", lambda: jumbo.get_access_token(force=True), lambda _: "ok")
+    report, _ = _probe(
+        "toegangstoken vernieuwen (auth.jumbo.com/oauth/token)",
+        lambda: jumbo.get_access_token(force=True),
+        lambda _: "ok",
+        include_error_message=False,
+    )
     probes.append(report)
 
     report, _ = _probe(
@@ -78,16 +85,27 @@ def explore() -> dict[str, Any]:
             "velden gebruikt voor de query": jumbo.SEARCH_EXTRA_FIELDS[jumbo._search_variant] or "(alleen de kernvelden)",
             "eerste product": shape(products[0] if products else None),
         },
+        include_error_message=False,
     )
     probes.append(report)
 
-    report, _ = _probe("mandje: GraphQL activeBasket", jumbo.get_cart)
+    report, _ = _probe("mandje: GraphQL activeBasket", jumbo.get_cart, include_error_message=False)
     probes.append(report)
 
-    report, _ = _probe("mandje vullen: addBasketLines met een lege lijst (voegt niets toe)", _empty_add_probe, lambda data: data)
+    report, _ = _probe(
+        "mandje vullen: addBasketLines met een lege lijst (voegt niets toe)",
+        _empty_add_probe,
+        lambda data: data,
+        include_error_message=False,
+    )
     probes.append(report)
 
-    report, _ = _probe("typen van het antwoord op addBasketLines (introspectie)", _possible_result_types, lambda names: names or ["leeg"])
+    report, _ = _probe(
+        "typen van het antwoord op addBasketLines (introspectie)",
+        _possible_result_types,
+        lambda names: names or ["leeg"],
+        include_error_message=False,
+    )
     probes.append(report)
 
     return {

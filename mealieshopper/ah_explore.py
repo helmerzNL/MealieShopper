@@ -59,13 +59,20 @@ def shape(value: Any, key: str = "", depth: int = 0) -> Any:
     return type(value).__name__
 
 
-def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+def _probe(
+    name: str,
+    call: Callable[[], Any],
+    summarize: Callable[[Any], Any] | None = None,
+    *,
+    include_error_message: bool = True,
+) -> tuple[dict[str, Any], Any]:
     try:
         result = call()
     except requests.RequestException as exc:
         return {"name": name, "ok": False, "error": f"netwerkfout: {type(exc).__name__}"}, None
     except Exception as exc:  # noqa: BLE001 - een route die faalt is precies wat we willen weten
-        return {"name": name, "ok": False, "error": str(exc)[:300]}, None
+        error = str(exc)[:300] if include_error_message else type(exc).__name__
+        return {"name": name, "ok": False, "error": error}, None
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
 
 

@@ -489,7 +489,7 @@ def create_app() -> Flask:
         if isinstance(exc, (ValueError, *user_errors)):
             return jsonify({"error": str(exc)}), 400
         app.logger.exception("%s error", label)
-        return jsonify({"error": str(exc) or f"{label} fout"}), 424
+        return jsonify({"error": f"{label} fout"}), 424
 
     def store_cart(store: Any, error: Any, auth_error: type) -> Any:
         """Zoek (indien nodig) de producten en zet ze in het mandje van de winkel; nooit een bestelling."""
