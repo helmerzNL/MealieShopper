@@ -217,6 +217,19 @@ def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
+    report, _ = _probe(
+        "favoriete recepten: opgeslagen query FavoriteRecipes",
+        jumbo_recipes.get_favorites,
+        lambda found: {
+            "recepten op de pagina": len(found["recipes"]),
+            "recepten in totaal": found["total"],
+            "volgende pagina": found["hasNext"],
+            "eerste recept": shape(found["recipes"][0] if found["recipes"] else None),
+            "werkt via": _route("FavoriteRecipes"),
+        },
+    )
+    probes.append(report)
+
     first_recipe = next(iter((found or {}).get("recipes") or []), None)
     if first_recipe:
         report, _ = _probe(

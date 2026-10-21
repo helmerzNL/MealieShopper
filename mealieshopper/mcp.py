@@ -310,6 +310,21 @@ def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     }
 
 
+def tool_jumbo_favorite_recipes(args: dict[str, Any]) -> Any:
+    """De favoriete recepten van de eigenaar bij Jumbo, per pagina. Alleen lezen."""
+    _jumbo_linked()
+    found = jumbo_recipes.get_favorites(args.get("page"))
+    return {
+        "total": found["total"],
+        "page": found["page"],
+        "hasNext": found["hasNext"],
+        "recipes": [
+            {"id": r["id"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "rating": r["rating"], "url": r["url"]}
+            for r in found["recipes"]
+        ],
+    }
+
+
 def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
     """Een Jumbo-recept met ingrediënten en bereiding. Alleen lezen; er wordt niets geïmporteerd."""
     _jumbo_linked()
@@ -587,6 +602,12 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "title": "Jumbo-recepten zoeken"},
         "handler": tool_search_jumbo_recipes,
+    },
+    "list_jumbo_favorite_recipes": {
+        "description": "De favoriete recepten van de eigenaar bij Jumbo (naam, tijd, personen, waardering en link), per pagina van 24. Live opgehaald. Gebruik het id met get_jumbo_recipe.",
+        "inputSchema": _schema({"page": {"type": "integer", "minimum": 1, "description": "Pagina, beginnend bij 1."}}),
+        "annotations": {**READ_ONLY, "title": "Favoriete Jumbo-recepten"},
+        "handler": tool_jumbo_favorite_recipes,
     },
     "get_jumbo_recipe": {
         "description": "Een Jumbo-recept met ingrediënten en bereiding. Importeren in Mealie doe je in MealieShopper zelf.",

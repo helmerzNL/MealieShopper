@@ -327,6 +327,7 @@
           <button class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders">Bestellingen</button>
           <button class="subtab" data-subtab="ah-items-picnic" hidden data-i18n="picnic.recipes.tab">Recepten</button>
           <button class="subtab" data-subtab="ah-items-picnic-favorieten" hidden data-i18n="picnic.favorites.tab">Favorieten</button>
+          <button class="subtab" data-subtab="ah-items-jumbo-recepten" hidden data-i18n="jumbo.favorites.tab">Recepten</button>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -460,6 +461,28 @@
           <p class="muted" id="picnic-favorites-status"></p>
           <div id="picnic-favorites-message"></div>
           <div id="picnic-favorites" class="product-grid"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-jumbo-recepten" class="subpanel">
+        <div class="box box--wide" id="jumbo-favorites-view">
+          <div class="toolbar">
+            <h2 data-i18n="jumbo.favorites.title">Favoriete recepten van Jumbo</h2>
+            <button class="button button--secondary" id="load-jumbo-favorites" type="button" data-i18n="common.load">Laden</button>
+          </div>
+          <p class="muted" data-i18n="jumbo.favorites.intro">Je favoriete recepten op jumbo.com. Open een recept voor de ingrediënten en de bereiding, of importeer het in Mealie. Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
+          <p class="muted" id="jumbo-favorites-status"></p>
+          <div id="jumbo-favorites-message"></div>
+          <div id="jumbo-favorites" class="recipe-grid recipe-grid--compact"></div>
+          <p><button class="button button--secondary" id="jumbo-favorites-more" type="button" hidden data-i18n="rsearch.more">Meer recepten</button></p>
+        </div>
+        <div class="box box--wide" id="jumbo-recipe-view" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="jumbo-recipe-back" type="button" aria-label="Terug naar de favorieten" data-i18n-attr="aria-label:jumbo.favorites.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="jumbo-recipe-title" tabindex="-1"></h2>
+          </div>
+          <div id="jumbo-recipe-message"></div>
+          <div id="jumbo-recipe-body"></div>
         </div>
         </div>
       </section>

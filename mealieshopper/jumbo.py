@@ -721,6 +721,7 @@ PERSISTED_QUERIES = {
     "getRecipesListers": "00435d1bce6b5ea2104effb39acc45785a7af43880729d098bd7da99c596021e",
     "getRecipe": "6726ea8758d025225b93db5f464f3e292d18982b1f43d4b6eeec09c081485b41",
     "getRecipesByIds": "daae32449ff23a883e7eded6efdf1d47f29a172af8e538ec2ab05710f9d06da2",
+    "FavoriteRecipes": "66516d14849720eac6d873da34dffe7cbd055ed42b8adeda8b31b8b79d5cebf6",  # de lijst Favorieten, per pagina
 }
 # Welke clientnaam en welk transport de router voor deze queries wil is niet bekend; we proberen ze na
 # elkaar en onthouden wat werkte (de verkenner meldt het).

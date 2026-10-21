@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.9.0
+
+*English summary: Your favourite Jumbo recipes are now under Stores > Recipes (choose Jumbo): 24 per page with "More recipes", "View" (ingredients, method, tip, nutrition) and "Import" into Mealie. They come from jumbo.com's own stored request (FavoriteRecipes). A read-only MCP tool (list_jumbo_favorite_recipes) and an explorer probe were added. Your own recipe lists (such as "Kerst") are not shown yet. The recipe view is now shared between Find recipes and the favourites. Built from the real answer of jumbo.com but tried only with mocked responses so far.*
+
+### Nieuw in 2.9.0
+
+- **Je favoriete Jumbo-recepten.** Onder **Winkels > Recepten** (keuze *Jumbo*) staan je favorieten van jumbo.com, per 24 met `Meer recepten`. `Bekijken` toont de ingrediënten, de bereiding, de tip en de voedingswaarden; `Importeer` zet het recept in Mealie. Alle Jumbo-recepten zoek je bij **Recepten zoeken**.
+- **MCP.** `list_jumbo_favorite_recipes` (alleen lezen); met `get_jumbo_recipe` haalt een AI-assistent de ingrediënten en bereiding op.
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de proef *favoriete recepten* (aantallen en vorm, geen titels).
+
+### Goed om te weten
+
+- **Eigen receptenlijstjes ontbreken nog** (zoals *Kerst*). Het overzicht kent ze, maar de aanvraag die de recepten van zo'n lijstje geeft, is alleen bekend voor *Favorieten*.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
 ## v2.8.0
 
 *English summary: "Find recipes" now searches Albert Heijn, Jumbo and Picnic at the same time (Jumbo and Picnic as soon as they are linked). Results are grouped per store, with "More recipes" for AH and Jumbo; a failing store leaves the others in place. For Jumbo and Picnic, "View" opens the recipe in the same tab with ingredients and method, and "Import" puts it in Mealie. Picnic has no recipe search, so MealieShopper filters your saved recipes and the cookbook by name. The separate Jumbo search under Stores > Recipes from 2.7.0 moved here, and AH results now show the result of an import under the card.*

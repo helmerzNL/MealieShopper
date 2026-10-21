@@ -183,6 +183,34 @@ class ListTest(TempDataDirTest):
         ]}}]}}
         self.assertEqual([r["id"] for r in jumbo_recipes.summaries(page)], ["700001", "700002"])
 
+    def test_favourites_read_the_list_page_with_total_and_next_page(self):
+        def favourites(page, ids, total=75, has_next=True):
+            return {"recipeListsV2": {"items": [{
+                "id": "61308753ccf27832bfe2ed55", "title": "Favorieten", "type": "FAVORITE_LIST", "totalRecipes": total,
+                "items": {
+                    "paginationInfo": {"pageSize": 24, "currentPage": page, "totalPages": 4, "totalSize": total, "hasPreviousPage": page > 1, "hasNextPage": has_next},
+                    "recipeListItems": [{"id": f"i{i}", "recipeId": str(i), "orderIndex": 0, "recipe": card(str(i), f"Recept {i}")} for i in ids],
+                },
+            }]}}
+
+        with mock.patch.object(jumbo, "_persisted_query", return_value=favourites(2, [700001, 700002])) as query:
+            found = jumbo_recipes.get_favorites("2")
+        self.assertEqual(query.call_args.args, ("FavoriteRecipes", {"size": 24, "page": 2}))
+        self.assertEqual(jumbo.PERSISTED_QUERIES["FavoriteRecipes"], "66516d14849720eac6d873da34dffe7cbd055ed42b8adeda8b31b8b79d5cebf6")
+        self.assertEqual((found["total"], found["page"], found["hasNext"], [r["id"] for r in found["recipes"]]), (75, 2, True, ["700001", "700002"]))
+        self.assertEqual(found["recipes"][0]["url"], "https://www.jumbo.com/recepten/recept-700001-700001")
+        with mock.patch.object(jumbo, "_persisted_query", return_value=favourites(4, [700003], has_next=False)):
+            self.assertFalse(jumbo_recipes.get_favorites(4)["hasNext"])
+        with mock.patch.object(jumbo, "_persisted_query", return_value=favourites(1, [700001])) as query:
+            jumbo_recipes.get_favorites("onzin")
+            jumbo_recipes.get_favorites(0)
+        self.assertEqual([c.args[1]["page"] for c in query.call_args_list], [1, 1])  # een slechte pagina wordt de eerste
+
+    def test_a_missing_list_is_an_empty_page(self):
+        for answer in ({}, {"recipeListsV2": None}, {"recipeListsV2": {"items": []}}):
+            with mock.patch.object(jumbo, "_persisted_query", return_value=answer):
+                self.assertEqual(jumbo_recipes.get_favorites(), {"recipes": [], "total": 0, "page": 1, "hasNext": False})
+
     def test_by_ids_sends_the_ids_of_the_website(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipesByIds": [card("999582", "Een")]}) as query:
             recipes = jumbo_recipes.get_by_ids(["1000578", "999582"])
@@ -212,6 +240,15 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual((done.status_code, done.get_json()["slug"]), (200, "romige-pasta"))
         url, data = imported.call_args.args
         self.assertEqual((url, data["name"]), ("https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001", "Romige pasta met tomaat"))
+
+    def test_the_favourites_route_pages(self):
+        answer = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 30, "hasNextPage": True}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}]}}
+        with mock.patch.object(jumbo, "_persisted_query", return_value=answer) as query:
+            body = self.client.get("/api/jumbo/favorite-recipes?page=2").get_json()
+        self.assertEqual(query.call_args.args[1], {"size": 24, "page": 2})
+        self.assertEqual((body["total"], body["hasNext"], body["pageSize"], body["recipes"][0]["id"]), (30, True, 24, "700001"))
+        with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
+            self.assertEqual(self.client.get("/api/jumbo/favorite-recipes").status_code, 424)
 
     def test_errors_are_clear(self):
         self.assertEqual(self.client.get("/api/jumbo/recipes/niet%20geldig").status_code, 400)
@@ -254,6 +291,11 @@ class McpAndExplorerTest(TempDataDirTest):
         self.assertEqual((found["total"], [r["id"] for r in found["recipes"]]), (9, ["1001249"]))
         with self.assertRaises(mcp.ToolError):
             mcp.tool_search_jumbo_recipes({})
+        favourites = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 5, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}]}}
+        with mock.patch.object(jumbo, "_persisted_query", return_value=favourites):
+            mine = mcp.tool_jumbo_favorite_recipes({"page": 1})
+        self.assertEqual((mine["total"], mine["hasNext"], [r["id"] for r in mine["recipes"]]), (5, False, ["700001"]))
+        self.assertTrue(mcp.TOOLS["list_jumbo_favorite_recipes"]["annotations"]["readOnlyHint"])
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}):
             recipe = mcp.tool_get_jumbo_recipe({"recipe_id": "700001"})
         self.assertEqual(recipe["ingredients"][0], "2 Uien")
@@ -271,11 +313,13 @@ class McpAndExplorerTest(TempDataDirTest):
                 return {"recipes": [card("700001", "Geheime titel")]}
             if operation == "getRecipesListers":
                 return search_answer([card("700001", "Geheime titel")], total=3)
+            if operation == "FavoriteRecipes":
+                return {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 9, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Geheime titel")}]}}]}}
             return {"favouriteLists": {"items": [{"id": "l1", "title": "Geheime lijst", "totalRecipes": 5, "type": "FAVORITE_LIST"}]}}
 
         with mock.patch.object(jumbo, "_persisted_query", side_effect=answer):
             probes = {p["name"]: p for p in jumbo_explore.explore()["probes"] if "recept" in p["name"]}
-        self.assertEqual(len(probes), 4)
+        self.assertEqual(len(probes), 5)
         self.assertTrue(all(p["ok"] for p in probes.values()), probes)
         self.assertEqual(probes["recepten zoeken: opgeslagen query getRecipesListers"]["info"]["recepten in totaal"], 3)
         self.assertNotIn("Geheime titel", repr(probes))
