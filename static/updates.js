@@ -76,7 +76,7 @@ function renderUpdate() {
   if (data.enabled === false) {
     message("#update-status", t("update.disabled"), "warning");
   } else if (data.error && !data.latest) {
-    message("#update-status", t("update.failed"), "error");
+    message("#update-status", t("update.failed", { detail: data.errorDetail || "?" }), "error");
   } else if (data.available) {
     message("#update-status", t("update.available", { version: `v${data.latest}` }), "warning");
   } else if (!data.latest) {
@@ -84,7 +84,7 @@ function renderUpdate() {
   } else {
     message("#update-status", t("update.up_to_date"), "success");
   }
-  if (data.error && data.latest) status.insertAdjacentHTML("beforeend", `<div class="message error">${escapeHtml(t("update.failed"))}</div>`);
+  if (data.error && data.latest) status.insertAdjacentHTML("beforeend", `<div class="message error">${escapeHtml(t("update.failed", { detail: data.errorDetail || "?" }))}</div>`);
   const checked = data.checkedAt ? new Date(data.checkedAt) : null;
   $("#update-checked").textContent =
     checked && !Number.isNaN(checked.getTime())

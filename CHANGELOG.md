@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.14.5
+
+*English summary: When the update check fails, the Updates tab and the server log now say why (for example "HTTP 403 (rate limit)", "Timeout" or "ConnectionError") instead of only "failed".*
+
+### Verbeterd in 1.14.5
+
+- **Updatecheck: de oorzaak van een fout.** Mislukt de updatecheck, dan staat er nu bij Beheer > Updates ook waarom (bijvoorbeeld `HTTP 403 (rate limit)`, `Timeout`, `ConnectionError` of `SSLError`), en de serverlog bevat de volledige melding. Zo zie je of de server GitHub (`api.github.com`) niet kan bereiken of dat GitHub het verzoek weigert.
+
 ## v1.14.0
 
 *English summary: Your completed Jumbo orders are now in MealieShopper under Stores > Orders (choose Jumbo): date, delivery time, total and the products, kept as a local copy, with a search over everything you bought and two read-only MCP tools (list_jumbo_orders, get_jumbo_order). The order list comes from jumbo.com's own stored request (OnlineOrdersAndStoreReceipts); the products of one order are requested with ordinary queries built from the field names of the website's answer, because the stored request for the order detail is not known yet. If Jumbo refuses those, the list still syncs and the sync reports why, and the explorer shows which variant worked. Your delivery address, customer number and reservation number are never stored. Store receipts and running orders are not shown for Jumbo yet. Built from the real answers of jumbo.com but tried only with mocked responses so far.*

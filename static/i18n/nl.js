@@ -643,7 +643,7 @@ I18N.add("nl", {
   "update.up_to_date": "Je gebruikt de nieuwste versie.",
   "update.available": "Er is een nieuwe versie beschikbaar: {version}.",
   "update.no_release": "Er is op GitHub nog geen release gepubliceerd.",
-  "update.failed": "De updatecheck is mislukt. Is GitHub bereikbaar vanaf deze server?",
+  "update.failed": "De updatecheck is mislukt ({detail}). Is GitHub (api.github.com) bereikbaar vanaf deze server?",
   "update.disabled": "De updatecheck staat uit (MEALIESHOPPER_UPDATE_CHECK).",
   "update.banner": "Er is een nieuwe versie van MealieShopper: {latest} (jij hebt {current}).",
   "update.view": "Bekijken",
