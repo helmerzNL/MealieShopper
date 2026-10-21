@@ -988,12 +988,22 @@ def parse_order(raw: Any) -> dict[str, Any]:
     }
 
 
+class JumboOrderDetailError(JumboSchemaError):
+    """Jumbo weigerde elke variant van de aanvraag voor de producten van een bestelling."""
+
+
+def _scrub(text: str, limit: int = 160) -> str:
+    """Een foutmelding van Jumbo voor in een melding: korter, zonder lange cijferreeksen of id's (bestelnummers, klant-id)."""
+    text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<id>", " ".join(str(text).split()))
+    return re.sub(r"\d{6,}", "<nr>", text)[:limit]
+
+
 def get_order(order_id: str) -> dict[str, Any]:
     """De producten van één bestelling (gewone query; de werkende variant onthouden we)."""
     order_id = str(order_id or "").strip()
     if not _ORDER_ID_RE.match(order_id):
         raise ValueError(tr("Onbekende bestelling", "Unknown order"))
-    last: Exception | None = None
+    causes: list[str] = []
     start = _working_order_detail[0] if _working_order_detail else 0
     for step in list(range(start, len(ORDER_DETAIL_ARGUMENTS))) + list(range(start)):
         name, kind = ORDER_DETAIL_ARGUMENTS[step]
@@ -1004,10 +1014,12 @@ def get_order(order_id: str) -> dict[str, Any]:
         except JumboAuthError:
             raise
         except RuntimeError as exc:  # onbekend veld of type: de volgende variant proberen
-            last = exc
+            cause = _scrub(str(exc))
+            if cause not in causes:
+                causes.append(cause)
             continue
         _working_order_detail[:] = [step]
         order = parse_order(data.get("order"))
         order["id"] = order["id"] or order_id
         return order
-    raise RuntimeError(str(last))
+    raise JumboOrderDetailError(f"{len(ORDER_DETAIL_ARGUMENTS)} varianten geweigerd: " + " | ".join(causes[:3]))

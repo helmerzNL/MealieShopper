@@ -182,6 +182,18 @@ class OrderDetailTest(TempDataDirTest):
                 jumbo.get_order("5")
         self.assertEqual(graphql.call_count, len(jumbo.ORDER_DETAIL_ARGUMENTS))
 
+    def test_the_refusal_names_what_jumbo_said_without_numbers_or_ids(self):
+        refused = RuntimeError(f"400: invalid type for variable orderId 7000000001 customer {CUSTOMER}")
+        with mock.patch.object(jumbo, "_graphql", side_effect=[refused] * 4 + [RuntimeError("GraphQL: Persisted query required")] * 4):
+            with self.assertRaises(jumbo.JumboOrderDetailError) as caught:
+                jumbo.get_order("7000000001")
+        message = str(caught.exception)
+        self.assertIn("8 varianten geweigerd", message)
+        self.assertIn("400: invalid type for variable orderId <nr> customer <id>", message)
+        self.assertIn("Persisted query required", message)
+        self.assertNotIn(CUSTOMER, message)
+        self.assertNotIn("7000000001", message)
+
     def test_a_broken_link_stops_at_once_and_bad_ids_are_refused(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboAuthError("koppeling")) as graphql:
             with self.assertRaises(jumbo.JumboAuthError):
@@ -259,12 +271,19 @@ class LocalCopyTest(TempDataDirTest):
         self.assertEqual((result["new"], result["remaining"]), (0, 0))
         self.assertTrue(all(o["itemsSynced"] for o in jumbo_orders.list_orders()["orders"]))
 
+    def test_the_sync_reports_jumbos_own_words_for_the_refusal(self):
+        with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])), \
+                mock.patch.object(jumbo, "_graphql", side_effect=RuntimeError("400: Persisted query required")):
+            result = jumbo_orders.sync_orders()
+        self.assertTrue(result["detailError"].startswith("JumboOrderDetailError: 8 varianten geweigerd"))
+        self.assertIn("Persisted query required", result["detailError"])
+
     def test_it_gives_up_after_three_failures_in_a_row_when_nothing_works(self):
         listed_orders = [listed(i) for i in range(1, 11)]
         with mock.patch.object(jumbo, "_persisted_query", return_value=page(listed_orders)), \
                 mock.patch.object(jumbo, "get_order", side_effect=RuntimeError("nee")) as get_order:
             result = jumbo_orders.sync_orders()
-        self.assertEqual((get_order.call_count, result["remaining"], result["detailError"]), (3, 10, "RuntimeError"))
+        self.assertEqual((get_order.call_count, result["remaining"], result["detailError"]), (3, 10, "RuntimeError"))  # een andere fout: alleen het type
 
     def test_one_failing_order_does_not_stop_the_others(self):
         result = self.sync([listed(1), listed(2)], {"2": order(2, [line(2)])})
