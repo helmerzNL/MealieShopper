@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.50.0
+
+*English summary: Version number set to 2.50.0. The static-file version (cache buster) is raised, so browsers and the installed app load the current scripts and translations. Without it, the new "Stores" menu under Settings (added in 2.12.0) could show its raw text key "settings.tab.stores" instead of "Stores"/"Winkels" until the cache was cleared. Nothing else changes.*
+
+### Nieuw in 2.50.0
+
+- **Versienummer 2.50.0.** De versie van MealieShopper is op verzoek van de beheerder op 2.50.0 gezet.
+- **Winkelmenu toont weer "Winkels".** Na 2.12.0 kon de knop **Winkels** onder Beheer de sleutel `settings.tab.stores` tonen in plaats van de tekst, omdat een browser of de geïnstalleerde app de oude vertaalbestanden uit zijn cache bleef gebruiken. De versie van de statische bestanden (`MEALIESHOPPER_ASSET_VERSION`) is opgehoogd, zodat de nieuwe bestanden worden geladen.
+
+### Goed om te weten
+
+- Ziet een browser de sleutel toch nog, vernieuw de pagina dan een keer geforceerd (of sluit en open de app opnieuw).
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
+- Pull requests: de wijziging die hierop voortbouwt is #80 (winkels onder één menu bij Beheer, 2.12.0).
+
 ## v2.13.0
 
 *English summary: The setup guide on the first start now also links Jumbo and Picnic. It has six steps instead of four: Security, Mealie, Albert Heijn, Jumbo, Picnic, Done. The Jumbo step works like Albert Heijn (log in on jumbo.com, paste the line from the browser console); the Picnic step takes your email address and password and, when Picnic asks for it, the code you get by text message or email, all in the same step. Both steps can be skipped, and the final overview lists them with a button to go back. An existing installation with login switched off that only has Jumbo or Picnic linked no longer gets the setup guide either.*
