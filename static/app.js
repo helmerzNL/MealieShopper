@@ -651,6 +651,7 @@ function itemsStores() {
 }
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];
+const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 
 function renderItemsStore() {
   const stores = itemsStores();
@@ -665,7 +666,7 @@ function renderItemsStore() {
         : "";
     $("#items-store")?.addEventListener("change", (event) => switchItemsStore(event.target.value));
   }
-  // AH heeft recepten, Jumbo niet (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen.
+  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
   const hide = (subtab, hidden) =>
     document.querySelectorAll(`[data-subtab="${subtab}"]`).forEach((button) => {
@@ -675,6 +676,7 @@ function renderItemsStore() {
   hide("ah-items-lijstjes", picnic);
   hide("ah-items-bestellingen", picnic);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
+  JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
   if (open?.hidden) document.querySelector("#ah-items .subtab:not([hidden])")?.click();
@@ -693,12 +695,12 @@ function switchItemsStore(store) {
   renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
   // Een tab die bij de gekozen winkel niet bestaat, maakt plaats: Picnic begint bij de recepten, AH en Jumbo bij de
-  // lijstjes (Jumbo heeft geen recepten in deze tab). Anders blijft de tab waar hij was.
+  // lijstjes (Jumbo heeft zijn favoriete recepten in een eigen tabblad). Anders blijft de tab waar hij was.
   const active = document.querySelector("#ah-items .subtab.is-active");
   const activeId = active?.dataset.subtab || "";
   if (state.itemsStore === "picnic") {
     if (!PICNIC_SUBTABS.includes(activeId)) document.querySelector('[data-subtab="ah-items-picnic"]').click();
-  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten")) {
+  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten") || (state.itemsStore !== "jumbo" && JUMBO_SUBTABS.includes(activeId))) {
     document.querySelector('[data-subtab="ah-items-lijstjes"]').click();
   } else if (document.querySelector("#ah-items-lijstjes.is-active")) {
     state.ahListsLoaded = true;
@@ -1614,6 +1616,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
+    if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof loadJumboFavorites === "function" && !jumboFavorites.loaded) loadJumboFavorites();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

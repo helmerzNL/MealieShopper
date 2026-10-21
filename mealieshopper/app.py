@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-14")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-15")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -920,6 +920,14 @@ def create_app() -> Flask:
         # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
         try:
             return jsonify({**jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/favorite-recipes")
+    def jumbo_favorite_recipes():
+        # Alleen lezen: je favoriete recepten bij Jumbo, per pagina (`page` begint bij 1).
+        try:
+            return jsonify({**jumbo_recipes.get_favorites(request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 

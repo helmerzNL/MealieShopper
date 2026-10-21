@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.9.0
+
+*English summary: Your favourite Jumbo recipes are now under Stores > Recipes (choose Jumbo): 24 per page with "More recipes", "View" (ingredients, method, tip, nutrition) and "Import" into Mealie. They come from jumbo.com's own stored request (FavoriteRecipes). A read-only MCP tool (list_jumbo_favorite_recipes) and an explorer probe were added. Your own recipe lists (such as "Kerst") are not shown yet. The recipe view is now shared between Find recipes and the favourites. Built from the real answer of jumbo.com but tried only with mocked responses so far.*
+
+### Nieuw in 2.9.0
+
+- **Je favoriete Jumbo-recepten.** Onder **Winkels > Recepten** (keuze *Jumbo*) staan je favorieten van jumbo.com, per 24 met `Meer recepten`. `Bekijken` toont de ingrediënten, de bereiding, de tip en de voedingswaarden; `Importeer` zet het recept in Mealie. Alle Jumbo-recepten zoek je bij **Recepten zoeken**.
+- **MCP.** `list_jumbo_favorite_recipes` (alleen lezen); met `get_jumbo_recipe` haalt een AI-assistent de ingrediënten en bereiding op.
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de proef *favoriete recepten* (aantallen en vorm, geen titels).
+
+### Goed om te weten
+
+- **Eigen receptenlijstjes ontbreken nog** (zoals *Kerst*). Het overzicht kent ze, maar de aanvraag die de recepten van zo'n lijstje geeft, is alleen bekend voor *Favorieten*.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
 ## v2.8.1
 
 *English summary: Picnic orders. Under Stores > Picnic there is a new Orders tab. Upcoming deliveries are fetched live; delivered orders are synced to a local copy in MealieShopper (date, delivery window, status, total and the products with quantity, size and price), so they stay viewable without a connection to Picnic. Sync fetches the overview and the products of up to 25 orders at a time, newest first; a delivered order is never deleted again. Open an order and put all its products back in your Picnic basket with one button (an order is never placed). The MCP tools list_picnic_orders and get_picnic_order read the local copy; get_picnic_delivery fetches one delivery live. No address is stored. Note: this account has no deliveries yet (the explorer shows an empty list), so the shape of an order is built from the known Picnic API and unverified; the explorer now also reports the shape of the first delivery as soon as there is one.*

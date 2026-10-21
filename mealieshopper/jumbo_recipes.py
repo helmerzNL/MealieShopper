@@ -1,4 +1,4 @@
-"""Recepten van Jumbo (jumbo.com/recepten): zoeken, je receptenlijsten, één recept met ingrediënten en
+"""Recepten van Jumbo (jumbo.com/recepten): zoeken, je favoriete recepten, je receptenlijsten, één recept met ingrediënten en
 bereiding, en het omzetten naar een schema.org Recipe zodat Mealie het kan importeren.
 
 De site vraagt alles met opgeslagen queries (hash en variabelen, geen querytekst); dezelfde aanvragen sturen wij
@@ -130,6 +130,32 @@ def get_lists() -> list[dict[str, Any]]:
             count = raw.get("totalRecipes")
             lists.append({"id": str(raw["id"]), "name": str(raw["title"]).strip(), "kind": kind, "count": count if isinstance(count, int) else 0})
     return lists
+
+
+def get_favorites(page: Any = 1) -> dict[str, Any]:
+    """Je favoriete recepten (de lijst *Favorieten* onder *Mijn recepten*), per pagina van `RECIPE_PAGE`.
+
+    `{recipes, total, page, hasNext}`; `page` begint bij 1, zoals bij de website.
+    """
+    try:
+        number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        number = 1
+    data = jumbo._persisted_query("FavoriteRecipes", {"size": RECIPE_PAGE, "page": number})
+    lists = (data.get("recipeListsV2") or {}).get("items")
+    favourites = next((item for item in lists or [] if isinstance(item, dict)), None)
+    if favourites is None:
+        return {"recipes": [], "total": 0, "page": number, "hasNext": False}
+    items = favourites.get("items") if isinstance(favourites.get("items"), dict) else {}
+    info = items.get("paginationInfo") if isinstance(items.get("paginationInfo"), dict) else {}
+    recipes = summaries(items.get("recipeListItems"))
+    total = info.get("totalSize") if isinstance(info.get("totalSize"), int) else favourites.get("totalRecipes")
+    return {
+        "recipes": recipes,
+        "total": total if isinstance(total, int) and total >= 0 else len(recipes),
+        "page": number,
+        "hasNext": bool(info.get("hasNextPage")),
+    }
 
 
 def search(query: Any, offset: Any = 0) -> dict[str, Any]:

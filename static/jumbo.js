@@ -129,8 +129,56 @@ $("#jumbo-explore-copy").addEventListener("click", async (event) => {
   setTimeout(() => (event.currentTarget.textContent = t("users.copy")), 2000);
 });
 
+// ---- Je favoriete recepten bij Jumbo (tab Winkels > Recepten): per pagina, openen en importeren
+const jumboFavorites = { recipes: [], total: 0, page: 0, hasNext: false, loaded: false };
+
+function renderJumboFavorites() {
+  const data = jumboFavorites;
+  $("#jumbo-favorites").innerHTML = data.recipes.map((recipe) => renderStoreRecipeCard("jumbo", recipe)).join("");
+  $("#jumbo-favorites-status").textContent = data.recipes.length ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : "";
+  $("#jumbo-favorites-more").hidden = !data.hasNext;
+  if (data.loaded && !data.recipes.length) message("#jumbo-favorites-message", t("jumbo.favorites.none"), "success");
+}
+
+async function loadJumboFavorites(append = false) {
+  const button = append ? $("#jumbo-favorites-more") : $("#load-jumbo-favorites");
+  setBusy(button, true);
+  message("#jumbo-favorites-message", "");
+  const page = append ? jumboFavorites.page + 1 : 1;
+  try {
+    const answer = await jsonFetch(`/api/jumbo/favorite-recipes?page=${page}`);
+    const known = new Set(append ? jumboFavorites.recipes.map((recipe) => String(recipe.id)) : []);
+    const fresh = (answer.recipes || []).filter((recipe) => !known.has(String(recipe.id)));
+    jumboFavorites.recipes = append ? [...jumboFavorites.recipes, ...fresh] : fresh;
+    jumboFavorites.total = answer.total ?? jumboFavorites.recipes.length;
+    jumboFavorites.page = page;
+    // Een pagina zonder nieuwe recepten: stop met "Meer recepten", anders blijft die knop eindeloos staan.
+    jumboFavorites.hasNext = Boolean(answer.hasNext) && (!append || Boolean(fresh.length));
+    jumboFavorites.loaded = true;
+    renderJumboFavorites();
+  } catch (error) {
+    if (!append) jumboFavorites.recipes = [];
+    jumboFavorites.hasNext = false;
+    renderJumboFavorites();
+    message("#jumbo-favorites-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+$("#load-jumbo-favorites").addEventListener("click", () => loadJumboFavorites(false));
+$("#jumbo-favorites-more").addEventListener("click", () => loadJumboFavorites(true));
+$("#jumbo-recipe-back").addEventListener("click", () => showRecipeList(FAVORITES_HOST));
+$("#jumbo-favorites").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-store-open]");
+  const importButton = event.target.closest("[data-store-import]");
+  if (open) openStoreRecipe("jumbo", open.dataset.storeOpen.split(":", 2)[1], FAVORITES_HOST);
+  if (importButton) importStoreRecipe("jumbo", importButton.dataset.storeImport.split(":", 2)[1], importButton, importButton.closest(".recipe-card").querySelector(".recipe-import-result"));
+});
+
 window.addEventListener("ms:languagechange", () => {
   renderJumboStatus();
   renderStoreChoice();
   renderJumboExploreSummary();
+  if (jumboFavorites.loaded) renderJumboFavorites();
 });

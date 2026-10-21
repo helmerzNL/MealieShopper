@@ -152,47 +152,53 @@ async function importStoreRecipe(store, id, button, target) {
   }
 }
 
-function showRecipeSearchList() {
-  $("#search-detail").hidden = true;
-  $("#search-main").hidden = false;
+// Het detailscherm hoort bij een "gastheer": het zoekresultaat (`search-detail`) of de favorieten van Jumbo (`jumbo-recipe`).
+// De elementen heten `#<voorvoegsel>-title`, `-body`, `-message`, `-import` en `-import-result`.
+const SEARCH_HOST = { prefix: "search-detail", list: "#search-main", detail: "#search-detail", known: (store) => recipeSearch[store].recipes };
+const FAVORITES_HOST = { prefix: "jumbo-recipe", list: "#jumbo-favorites-view", detail: "#jumbo-recipe-view", known: () => jumboFavorites.recipes };
+
+function showRecipeList(host) {
+  $(host.detail).hidden = true;
+  $(host.list).hidden = false;
 }
 
-async function openStoreRecipe(store, id) {
-  $("#search-main").hidden = true;
-  $("#search-detail").hidden = false;
-  $("#search-detail-title").textContent = recipeSearch[store].recipes.find((recipe) => String(recipe.id) === String(id))?.name || "";
-  $("#search-detail-body").innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
-  message("#search-detail-message", "");
-  $("#search-detail-title").focus();
+async function openStoreRecipe(store, id, host = SEARCH_HOST) {
+  $(host.list).hidden = true;
+  $(host.detail).hidden = false;
+  $(`#${host.prefix}-title`).textContent = host.known(store).find((recipe) => String(recipe.id) === String(id))?.name || "";
+  $(`#${host.prefix}-body`).innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
+  message(`#${host.prefix}-message`, "");
+  $(`#${host.prefix}-title`).focus();
   try {
-    renderStoreRecipeDetail(store, await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`));
+    renderStoreRecipeDetail(store, await jsonFetch(`/api/${store}/recipes/${encodeURIComponent(id)}`), host);
   } catch (error) {
-    $("#search-detail-body").innerHTML = "";
-    message("#search-detail-message", error.message);
+    $(`#${host.prefix}-body`).innerHTML = "";
+    message(`#${host.prefix}-message`, error.message);
   }
 }
 
-function renderStoreRecipeDetail(store, recipe) {
-  $("#search-detail-title").textContent = recipe.name;
+function renderStoreRecipeDetail(store, recipe, host) {
+  const prefix = host.prefix;
+  $(`#${prefix}-title`).textContent = recipe.name;
   const facts = [
     recipe.portions ? t("rsearch.portions", { count: recipe.portions }) : "",
     recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "",
-    recipe.rating ? `★ ${I18N.formatNumber(recipe.rating)}${recipe.ratingCount ? ` (${I18N.formatNumber(recipe.ratingCount)})` : ""}` : "",
+    recipe.rating ? `\u2605 ${I18N.formatNumber(recipe.rating)}${recipe.ratingCount ? ` (${I18N.formatNumber(recipe.ratingCount)})` : ""}` : "",
     recipe.author || "",
   ].filter(Boolean);
   const ingredients = (recipe.ingredients || []).map((item) => `<li>${escapeHtml(item.line)}</li>`).join("");
   const steps = (recipe.steps || []).map((text) => `<li>${escapeHtml(text)}</li>`).join("");
-  const nutrition = (recipe.nutrition || []).map((item) => `${item.name} ${I18N.formatNumber(item.quantity)} ${item.unit}`.trim()).join(" · ");
-  $("#search-detail-body").innerHTML = `
+  const nutrition = (recipe.nutrition || []).map((item) => `${item.name} ${I18N.formatNumber(item.quantity)} ${item.unit}`.trim()).join(" \u00b7 ");
+  $(`#${prefix}-body`).innerHTML = `
     <div class="picnic-recipe">
       ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(recipe.image)}" alt="" data-hide-on-error>` : ""}
-      ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" · "))}</p>` : ""}
+      ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" \u00b7 "))}</p>` : ""}
       ${recipe.description ? `<p>${escapeHtml(recipe.description)}</p>` : ""}
       <p>
-        <button class="button" type="button" id="search-detail-import">${escapeHtml(t("recipe.import"))}</button>
+        <button class="button" type="button" id="${prefix}-import">${escapeHtml(t("recipe.import"))}</button>
         ${recipe.url ? `<a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("rsearch.on_site"))}</a>` : ""}
       </p>
-      <div id="search-detail-import-result"></div>
+      <div id="${prefix}-import-result"></div>
       <h3>${escapeHtml(t("rsearch.ingredients"))}</h3>
       ${ingredients ? `<ul class="picnic-recipe__list">${ingredients}</ul>` : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients"))}</p>`}
       <h3>${escapeHtml(t("rsearch.steps"))}</h3>
@@ -201,11 +207,11 @@ function renderStoreRecipeDetail(store, recipe) {
       ${recipe.tip ? `<h3>${escapeHtml(t("rsearch.tip"))}</h3><p>${escapeHtml(recipe.tip)}</p>` : ""}
       ${nutrition ? `<p class="muted">${escapeHtml(t("rsearch.nutrition", { values: nutrition }))}</p>` : ""}
     </div>`;
-  $("#search-detail-import").addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $("#search-detail-import-result")));
+  $(`#${prefix}-import`).addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $(`#${prefix}-import-result`)));
 }
 
 $("#search-form").addEventListener("submit", runRecipeSearch);
-$("#search-detail-back").addEventListener("click", showRecipeSearchList);
+$("#search-detail-back").addEventListener("click", () => showRecipeList(SEARCH_HOST));
 $("#search-ah-more").addEventListener("click", async (event) => {
   setBusy(event.currentTarget, true);
   await fetchSearchStore("ah", true);
