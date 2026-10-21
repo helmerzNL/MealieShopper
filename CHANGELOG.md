@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.4.0
+
+*English summary: Your Albert Heijn orders are back. Under Stores > Orders you see your upcoming orders (still open, with their delivery time) and your past orders (delivered, kept for good), next to your receipts, and the order basket is back under the Basket tab. The "coming soon" lines are gone.*
+
+### Nieuw in 2.4.0
+
+- **Bestellingen bij Albert Heijn zijn terug.** Onder **Winkels > Bestellingen** staan je **aankomende bestellingen** (nog open, met bezorgmoment en totaal, de eerstvolgende eerst) en je **afgelopen bestellingen** (geleverd, de nieuwste eerst), boven je kassabonnen. Open een bestelling voor de producten. Wat is afgeleverd blijft voor altijd bewaard en geannuleerde bestellingen worden overgeslagen.
+- **Het AH-bestelmandje is terug** onder het tabblad **Mandje**, met een knop om te synchroniseren. Is er geen actieve bestelling, dan is het mandje gewoon leeg.
+- Het synchroniseer-icoon haalt weer in één keer het mandje, de open en afgeronde bestellingen en de kassabonnen op; een deel dat mislukt stopt de rest niet. De producten van maximaal 15 bestellingen komen per keer binnen (staat er "nog zonder producten", synchroniseer dan opnieuw).
+- Het zoekveld zoekt weer ook in de producten van je bestellingen, naast de kassabonnen.
+- De "komen binnenkort"-regels zijn weggehaald en `ORDERS_COMING_SOON` bestaat niet meer.
+- AH geeft per keer de laatste 10 afgeronde bestellingen. Hoe je verder terug komt, zoekt **AH-routes verkennen** (Beheer > Albert Heijn) uit; draai die en deel het rapport.
+
 ## v2.3.0
 
 *English summary: Picnic is now a choice in the store list under Stores, next to Albert Heijn and Jumbo. Choosing Picnic shows two tabs: Recipes (the Picnic recipes from v2.2.0, no longer a separate tab) and the new Favorites, the products from the Favorites tab of the Picnic app, each with a button to put it in your Picnic basket. MealieShopper finds the favorites page itself through the tab bar that Picnic sends to its app (/bootstrap). A read-only MCP tool, list_picnic_favorites, shows them to your AI assistant. The explorer now reports that tab bar. Not tried against a real account yet.*

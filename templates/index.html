@@ -348,7 +348,7 @@
             <h2 data-i18n="orders.title">Bestellingen en kassabonnen</h2>
             <button class="icon-button" id="sync-orders" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
           </div>
-          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
+          <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je aankomende en afgelopen bestellingen bij Albert Heijn en je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
           <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
           <label class="searchbar">
             <span class="visually-hidden" data-i18n="orders.search">Zoek in je aankopen</span>
@@ -358,11 +358,10 @@
           <div id="ah-orders-message"></div>
           <div id="ah-purchase-results" hidden></div>
           <div id="ah-orders-main">
-            <p class="muted" id="ah-orders-soon" data-i18n="orders.soon">Het bestelmandje en je bestellingen bij Albert Heijn komen binnenkort.</p>
-            <div id="ah-orders-section" hidden>
-              <h3 data-i18n="orders.orders_title">Bestellingen</h3>
-              <div id="ah-order-list" class="list-grid"></div>
-            </div>
+            <h3 data-i18n="orders.upcoming_title">Aankomende bestellingen</h3>
+            <div id="ah-order-upcoming" class="list-grid"></div>
+            <h3 data-i18n="orders.past_title">Afgelopen bestellingen</h3>
+            <div id="ah-order-list" class="list-grid"></div>
             <div id="ah-receipts-block">
               <h3 data-i18n="orders.receipts_title">Kassabonnen</h3>
               <div id="ah-receipt-list" class="credential-list"></div>

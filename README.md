@@ -78,7 +78,11 @@ Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op 
 
 ### Winkels: AH-bestellingen en kassabonnen
 
-Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en hoe je betaalde. Alles staat in een lokale kopie; het zoekveld doorzoekt al je aankopen en laat zien wanneer en hoe vaak je iets kocht, en **op welke kassabonnen** een product staat (zoek bijvoorbeeld op "frisdrank"); open je zo'n bon, dan zijn de passende regels geel gemarkeerd. Het bestelmandje en je bestellingen bij AH komen binnenkort.
+Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en hoe je betaalde. Alles staat in een lokale kopie; het zoekveld doorzoekt al je aankopen en laat zien wanneer en hoe vaak je iets kocht, en **op welke kassabonnen** een product staat (zoek bijvoorbeeld op "frisdrank"); open je zo'n bon, dan zijn de passende regels geel gemarkeerd. Daarboven staan je **aankomende bestellingen** (nog open, met bezorgmoment) en je **afgelopen bestellingen** (geleverd, voor altijd bewaard); open een bestelling voor de producten. Het bestelmandje staat onder het tabblad Mandje.
+
+<img src="docs/screenshots/nl/history.png" alt="Aankomende en afgelopen bestellingen, met het synchroniseer-icoon en een zoekveld" width="900">
+
+<img src="docs/screenshots/nl/order.png" alt="Een bestelling met de producten" width="900">
 
 <img src="docs/screenshots/nl/receipts.png" alt="De lijst met kassabonnen en een zoekveld in je aankopen" width="900">
 

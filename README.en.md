@@ -78,7 +78,11 @@ Your favourite lists as cards. Sync them to MealieShopper, search by name or by 
 
 ### Stores: AH orders and receipts
 
-Your **receipts** from the shop, shown the way they look on paper: quantity, description, price and amount, the bonus lines, the total and how you paid. Everything is kept in a local copy; the search field searches all your purchases and shows when and how often you bought something, and **which receipts** a product is on (search for "soda", for example); open such a receipt and the matching lines are highlighted. The order basket and your orders at AH are coming soon.
+Your **receipts** from the shop, shown the way they look on paper: quantity, description, price and amount, the bonus lines, the total and how you paid. Everything is kept in a local copy; the search field searches all your purchases and shows when and how often you bought something, and **which receipts** a product is on (search for "soda", for example); open such a receipt and the matching lines are highlighted. Above them are your **upcoming orders** (still open, with their delivery time) and your **past orders** (delivered, kept for good); open an order for its products. The order basket is under the Basket tab.
+
+<img src="docs/screenshots/en/history.png" alt="Upcoming and past orders, with the sync icon and a search field" width="900">
+
+<img src="docs/screenshots/en/order.png" alt="An order with its products" width="900">
 
 <img src="docs/screenshots/en/receipts.png" alt="The list of receipts and a search field for your purchases" width="900">
 
