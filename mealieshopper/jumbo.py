@@ -446,8 +446,11 @@ ACTIVE_BASKET_QUERY = (
 ADD_LINES_MUTATION = (
     "mutation BasketPageAddBasketItems($input: AddBasketLinesInput!) {\n  addBasketLines(input: $input) {\n"
     "    __typename\n    ... on Basket {\n      id\n      totalProductCount\n" + _BASKET_LINES +
-    "    }\n    ... on BasketError { errorMessage reason }\n  }\n}"
+    "    }\n  }\n}"
 )
+# De foutvariant van addBasketLines heet in Jumbo's schema niet `BasketError` (dat geeft een validatiefout,
+# bevestigd met de verkenner op een echte server). We kennen de naam niet, dus selecteren we alleen
+# `__typename` en melden die bij een fout; `jumbo_explore.py` toont hem.
 _EMPTY_BASKET_REASONS = ("NOT_FOUND", "NO_ACTIVE", "EMPTY", "NO_BASKET")
 
 
@@ -476,11 +479,17 @@ def basket_summary(basket: Any, total: Any = None) -> dict[str, Any]:
     }
 
 
-def _union(data: dict[str, Any], field: str) -> dict[str, Any]:
-    """Jumbo meldt fouten als gewoon antwoord (HTTP 200) met `__typename: BasketError`."""
-    value = data.get(field) or {}
-    if value.get("__typename") == "BasketError":
-        raise RuntimeError(f"{value.get('reason') or 'BasketError'}: {value.get('errorMessage') or ''}".strip(": "))
+def _added_basket(data: dict[str, Any]) -> dict[str, Any]:
+    """Het mandje na `addBasketLines`. Jumbo meldt fouten als gewoon antwoord (HTTP 200) met een andere typenaam."""
+    value = data.get("addBasketLines") or {}
+    typename = value.get("__typename")
+    if typename != "Basket":
+        raise RuntimeError(
+            tr(
+                f"Jumbo weigerde het toevoegen aan het mandje ({typename or 'geen antwoord'}).",
+                f"Jumbo refused to add to the basket ({typename or 'no answer'}).",
+            )
+        )
     return value
 
 
@@ -501,7 +510,7 @@ def _add_lines(lines: list[dict[str, Any]]) -> Any:
     data = _graphql(
         ADD_LINES_MUTATION, {"input": {"lines": lines, "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
-    return _union(data, "addBasketLines")
+    return _added_basket(data)
 
 
 def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:

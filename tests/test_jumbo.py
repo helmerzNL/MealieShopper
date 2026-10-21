@@ -335,7 +335,7 @@ class BasketTest(TempDataDirTest):
         self.assertEqual(result["failed"], [])
 
     def test_a_refused_batch_is_retried_per_product(self):
-        error = {"addBasketLines": {"__typename": "BasketError", "reason": "OUT_OF_STOCK", "errorMessage": "x"}}
+        error = {"addBasketLines": {"__typename": "AddBasketLinesError"}}
         result, graphql = self.add(
             [{"productId": "1", "quantity": 1}, {"productId": "2", "quantity": 1}], [error, error, self.ok()])
         self.assertEqual(graphql.call_count, 3)
@@ -343,8 +343,22 @@ class BasketTest(TempDataDirTest):
         self.assertEqual([a["productId"] for a in result["added"]], ["2"])
 
     def test_a_single_refused_product_is_reported(self):
-        error = {"addBasketLines": {"__typename": "BasketError", "reason": "OUT_OF_STOCK", "errorMessage": ""}}
+        error = {"addBasketLines": {"__typename": "AddBasketLinesError"}}
         result, _ = self.add([{"productId": "1", "quantity": 1}], [error])
+        self.assertEqual((result["added"], len(result["failed"])), ([], 1))
+
+    def test_the_add_mutation_does_not_name_an_error_type_jumbo_does_not_have(self):
+        # Jumbo weigerde `... on BasketError` bij addBasketLines met een validatiefout (echte server).
+        self.assertNotIn("BasketError", jumbo.ADD_LINES_MUTATION)
+        self.assertIn("... on Basket {", jumbo.ADD_LINES_MUTATION)
+        self.assertIn("BasketError", jumbo.ACTIVE_BASKET_QUERY)  # activeBasket kent hem wel
+
+    def test_a_refusal_names_the_type_jumbo_answered_with(self):
+        result, _ = self.add([{"productId": "1", "quantity": 1}], [{"addBasketLines": {"__typename": "SomethingNew"}}])
+        self.assertIn("SomethingNew", result["failed"][0]["error"])
+
+    def test_an_empty_answer_is_a_refusal_too(self):
+        result, _ = self.add([{"productId": "1", "quantity": 1}], [{}])
         self.assertEqual((result["added"], len(result["failed"])), ([], 1))
 
     def test_a_dead_link_aborts_the_whole_add(self):
@@ -424,7 +438,7 @@ class ExploreTest(TempDataDirTest):
                 mock.patch.object(jumbo, "get_access_token", return_value="acc"), \
                 mock.patch.object(jumbo, "search_products", return_value=found), \
                 mock.patch.object(jumbo, "get_cart", return_value={"items": [], "totalCount": 0, "totalPrice": None}), \
-                mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "BasketError", "reason": "EMPTY_LINES"}}):
+                mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "AddBasketLinesError"}}):
             report = jumbo_explore.explore()
         names = [p["name"] for p in report["probes"]]
         self.assertTrue(names[0].startswith("bereikbaar"))
@@ -433,12 +447,20 @@ class ExploreTest(TempDataDirTest):
         dumped = json.dumps(report)
         for secret in ("SECRET-SKU", "Geheime Melk", "1.23"):
             self.assertNotIn(secret, dumped)
-        self.assertIn("EMPTY_LINES", dumped)  # de reden is een vaste code, geen persoonlijk gegeven
+        self.assertIn("AddBasketLinesError", dumped)  # een typenaam, geen persoonlijk gegeven
 
     def test_the_empty_add_probe_never_adds_anything(self):
-        with mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "BasketError", "reason": "X"}}) as graphql:
-            jumbo_explore._empty_add_probe()
+        with mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "Basket"}}) as graphql:
+            result = jumbo_explore._empty_add_probe()
         self.assertEqual(graphql.call_args.args[1], {"input": {"lines": [], "type": "ECOMMERCE"}})
+        self.assertEqual(result, {"typename": "Basket"})
+
+    def test_the_result_types_are_listed_when_introspection_allows_it(self):
+        data = {"__type": {"possibleTypes": [{"name": "Basket"}, {"name": "AddBasketLinesError"}]}}
+        with mock.patch.object(jumbo, "_graphql", return_value=data):
+            self.assertEqual(jumbo_explore._possible_result_types(), ["Basket", "AddBasketLinesError"])
+        with mock.patch.object(jumbo, "_graphql", return_value={"__type": None}):
+            self.assertEqual(jumbo_explore._possible_result_types(), [])
 
 
 if __name__ == "__main__":

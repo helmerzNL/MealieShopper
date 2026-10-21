@@ -34,12 +34,24 @@ def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
 
 
 def _empty_add_probe() -> dict[str, Any]:
-    """Het mandje-vullen-pad met een lege lijst: er wordt niets toegevoegd, we zien alleen of het pad klopt."""
+    """Het mandje-vullen-pad met een lege lijst: er wordt niets toegevoegd, we zien alleen of het pad klopt.
+
+    `typename` is `Basket` bij succes of de naam van Jumbo's foutvariant (een typenaam, geen persoonsgegeven).
+    """
     data = jumbo._graphql(
         jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
-    result = data.get("addBasketLines") or {}
-    return {"typename": result.get("__typename"), "reason": result.get("reason")}
+    return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
+
+
+def _possible_result_types() -> list[str]:
+    """Welke antwoorden kan `addBasketLines` geven? Introspectie staat bij Jumbo meestal uit; de fout zegt dat dan."""
+    data = jumbo._graphql(
+        'query AddBasketLinesResultTypes { __type(name: "AddBasketLinesResult") { possibleTypes { name } } }',
+        None,
+        "AddBasketLinesResultTypes",
+    )
+    return [str(entry.get("name")) for entry in ((data.get("__type") or {}).get("possibleTypes") or []) if isinstance(entry, dict)]
 
 
 def explore() -> dict[str, Any]:
@@ -73,6 +85,9 @@ def explore() -> dict[str, Any]:
     probes.append(report)
 
     report, _ = _probe("mandje vullen: addBasketLines met een lege lijst (voegt niets toe)", _empty_add_probe, lambda data: data)
+    probes.append(report)
+
+    report, _ = _probe("typen van het antwoord op addBasketLines (introspectie)", _possible_result_types, lambda names: names or ["leeg"])
     probes.append(report)
 
     return {
