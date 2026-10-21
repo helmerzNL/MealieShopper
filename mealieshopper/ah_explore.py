@@ -27,8 +27,8 @@ MAX_DEPTH = 7
 # Statussen waarmee we vragen naar niet-open bestellingen. Een onbekende waarde geeft een fout van AH,
 # en die fout noemt vaak de geldige waarden.
 STATUS_CANDIDATES = ("CLOSED", "ALL")
-# Mogelijke manieren om meer dan de eerste 10 afgeronde bestellingen te vragen; AH meldt zelf welke argumenten bestaan.
-PAGING_CANDIDATES = ("limit: 5", "first: 5", "pagination: {offset: 0, limit: 5}", "page: 1", "offset: 5")
+# AH geeft per keer 10 afgeronde bestellingen en kent het argument `offset`; deze waarden laten zien hoe het telt.
+PAGING_OFFSETS = (1, 5, 10, 20)
 
 
 def _union(shapes: list[Any]) -> Any:
@@ -71,17 +71,6 @@ def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] |
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
 
 
-def _type_name(spec: Any) -> str:
-    """Een GraphQL-type als tekst, bijvoorbeeld `Int!` of `[String]`."""
-    if not isinstance(spec, dict):
-        return "?"
-    if spec.get("kind") == "NON_NULL":
-        return f"{_type_name(spec.get('ofType'))}!"
-    if spec.get("kind") == "LIST":
-        return f"[{_type_name(spec.get('ofType'))}]"
-    return str(spec.get("name") or "?")
-
-
 def _raw_get(path: str, params: dict[str, Any] | None = None) -> Any:
     return ah._get_json(path, params)
 
@@ -112,20 +101,17 @@ def explore() -> dict[str, Any]:
     def results_of(data: Any) -> list[dict[str, Any]]:
         return [entry for entry in ((((data or {}).get("orderFulfillments") or {}).get("result")) or []) if isinstance(entry, dict)]
 
-    # Hoe pagineer je door de afgeronde bestellingen? De namen van argumenten en statussen zijn geen persoonlijke gegevens.
-    def introspect(data: Any) -> Any:
-        fields = {field["name"]: field for field in ((data.get("__type") or {}).get("fields") or [])}
-        field = fields.get("orderFulfillments") or {}
-        return {"orderFulfillments-argumenten": [f'{arg["name"]}: {_type_name(arg.get("type"))}' for arg in field.get("args") or []]}
+    # Bladeren door de afgeronde bestellingen: `offset` bestaat, maar telt hij rijen of pagina's? Alleen tellingen, geen id's:
+    # bij rijen overlapt offset 5 met 5 van de 10 bestellingen op offset 0, bij pagina's met geen enkele.
+    first_ids = {entry.get("orderId") for entry in results_of(closed_data)}
+    for offset in PAGING_OFFSETS:
+        query = ah.FULFILLMENTS_QUERY.replace("status: OPEN", f"status: CLOSED, offset: {offset}")
 
-    report, _ = _probe("argumenten van orderFulfillments (introspectie)", lambda: _raw_graphql("query { __type(name: \"Query\") { fields { name args { name type { kind name ofType { kind name ofType { kind name } } } } } } }"), introspect)
-    probes.append(report)
-    report, _ = _probe("statussen van FulfillmentStatus (introspectie)", lambda: _raw_graphql("query { __type(name: \"FulfillmentStatus\") { enumValues { name } } }"),
-                       lambda data: [value["name"] for value in (data.get("__type") or {}).get("enumValues") or []])
-    probes.append(report)
-    for extra in PAGING_CANDIDATES:
-        query = ah.FULFILLMENTS_QUERY.replace("status: OPEN", f"status: CLOSED, {extra}")
-        report, _ = _probe(f"afgeronde bestellingen met {extra}", lambda q=query: _raw_graphql(q), lambda data: {"aantal": len(results_of(data))})
+        def paging(data: Any) -> Any:
+            ids = {entry.get("orderId") for entry in results_of(data)}
+            return {"aantal": len(ids), "ook_op_offset_0": len(ids & first_ids)}
+
+        report, _ = _probe(f"afgeronde bestellingen met offset: {offset}", lambda q=query: _raw_graphql(q), paging)
         probes.append(report)
 
     closed = results_of(closed_data)

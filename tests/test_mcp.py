@@ -537,7 +537,7 @@ class PurchaseToolsTest(McpTestCase):
         from mealieshopper import ah_orders
 
         ah_orders.save_basket({"id": 9, "state": "OPEN", "total": 4.5, "items": [{"productId": 1, "title": "Koffiebonen", "quantity": 2, "amount": 4.5}]})
-        with mock.patch.object(ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]), mock.patch.object(
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]), mock.patch.object(ah, "get_closed_fulfillments", return_value=[]), mock.patch.object(
             ah, "get_order_details", return_value={"id": 5, "state": "DELIVERED", "deliveryDate": "2026-10-20", "items": [{"productId": 1, "title": "Koffiebonen", "brand": "AH", "quantity": 1, "amount": 5.0, "taxonomy": "Koffie"}]}
         ):
             ah_orders.sync_orders()

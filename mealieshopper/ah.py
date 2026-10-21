@@ -1011,14 +1011,18 @@ def _get_json(path: str, params: dict[str, Any] | None = None) -> Any:
 def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
     product = entry.get("product") or {}
     images = product.get("images") or []
+    # In de bestelling is `amount` een aantal (een geheel getal), geen bedrag: het bedrag van de regel is aantal x prijs.
+    # Alleen een kommagetal zonder bekende prijs behandelen we als bedrag.
+    quantity = _int(entry.get("quantity")) or _int(entry.get("amount")) or 0
+    price = _number(product.get("currentPrice") if product.get("currentPrice") is not None else product.get("priceBeforeBonus"))
     return {
         "productId": _int(product.get("webshopId") or product.get("id")),
         "title": _text(product.get("title")),
         "brand": _text(product.get("brand")),
         "unitSize": _text(product.get("salesUnitSize")),
-        "quantity": _int(entry.get("quantity")) or 0,
-        "amount": _number(entry.get("amount")),
-        "price": _number(product.get("currentPrice") if product.get("currentPrice") is not None else product.get("priceBeforeBonus")),
+        "quantity": quantity,
+        "amount": round(quantity * price, 2) if price is not None else (_number(entry.get("amount")) if isinstance(entry.get("amount"), float) else None),
+        "price": price,
         "priceBeforeBonus": _number(product.get("priceBeforeBonus")),
         "bonus": bool(product.get("isBonus")),
         "taxonomy": _text(taxonomy),
@@ -1088,13 +1092,14 @@ def get_open_fulfillments() -> list[dict[str, Any]]:
     return _fulfillments("OPEN")
 
 
-def get_closed_fulfillments() -> list[dict[str, Any]]:
-    """Afgeronde bestellingen: afgeleverd of geannuleerd (`deliveryStatus`). AH geeft er per keer hoogstens 10."""
-    return _fulfillments("CLOSED")
+def get_closed_fulfillments(offset: int = 0) -> list[dict[str, Any]]:
+    """Afgeronde bestellingen, nieuwste eerst: afgeleverd of geannuleerd (`deliveryStatus`). AH geeft er per keer 10; `offset` bladert verder."""
+    return _fulfillments("CLOSED", offset)
 
 
-def _fulfillments(status: str) -> list[dict[str, Any]]:
-    data = _graphql(get_user_token(), FULFILLMENTS_QUERY.replace("status: OPEN", f"status: {status}"), {}, "AH bestellingen ophalen")
+def _fulfillments(status: str, offset: int = 0) -> list[dict[str, Any]]:
+    arguments = f"status: {status}" + (f", offset: {int(offset)}" if offset else "")
+    data = _graphql(get_user_token(), FULFILLMENTS_QUERY.replace("status: OPEN", arguments), {}, "AH bestellingen ophalen")
     result = ((data.get("orderFulfillments") or {}).get("result")) or []
     orders = []
     for entry in result:
