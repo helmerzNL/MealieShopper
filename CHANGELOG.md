@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.10.0
+
+*English summary: You can now manage your Picnic basket from MealieShopper: change the quantity of a product, remove a product, or empty the whole basket (with a confirmation). Changes go straight to your real Picnic basket; an order is never placed. These are not available through MCP. The basket editing routes follow the unofficial Picnic API and have not been tried against a live basket yet.*
+
+### Nieuw in 1.10.0
+
+- **Je Picnic-mandje beheren in de planner.** Kies je Picnic als supermarkt, dan staat naast de keuzelijst de knop **Picnic-mandje bekijken**. Het mandje verschijnt ook vanzelf na het vullen. Per product pas je het aantal aan (min, plus of typen), haal je het uit het mandje (kruisje) of leeg je het hele mandje, dat laatste na een bevestiging. Onderaan staat wat je moet betalen en wat je lidmaatschap bespaart.
+- **Zo kun je het weekmenu vaker naar Picnic sturen** zonder dat aantallen verdubbelen: kijk na het vullen in het mandje en zet aantallen terug waar nodig.
+- **Directe wijzigingen, nooit een bestelling.** Elke aanpassing gaat meteen naar je echte Picnic-mandje; bestellen en een bezorgmoment kiezen doe je in de Picnic-app.
+- Nieuwe routes: `PUT /api/picnic/cart/items/<product>` met `{"quantity": n}` (0 haalt het product weg, 0 tot en met 99) en `POST /api/picnic/cart/clear` met `{"confirm": true}`. Zonder die bevestiging gebeurt er niets.
+- **Niet via MCP.** Net als het vullen kan een AI-assistent het mandje niet aanpassen of legen; de MCP-tools blijven alleen-lezen.
+
+### Goed om te weten
+
+- Picnic kent alleen toevoegen en verwijderen. Een exact aantal zetten leest daarom eerst het mandje en voegt het verschil toe of haalt het weg.
+- **Nog niet met een echt gevuld mandje geprobeerd.** De routes (`cart/add_product`, `cart/remove_product`, `cart/clear`) volgen de community-libraries; het mandje van het testaccount was leeg. Weigert Picnic `cart/clear`, dan haalt MealieShopper elk product apart weg. Meld wat afwijkt.
+
+### Intern
+
+- Nieuwe test `test_static_scripts`: faalt als twee scripts in `static/` dezelfde globale functie verschillend definiëren (de oorzaak van het Jumbo-probleem uit 1.9.1).
+
 ## v1.9.1
 
 *English summary: Fixes Picnic (and Jumbo) error messages that had become too vague: a refused login, a wrong code or an expired link explain themselves again. Messages that can contain a store's own answer still never reach the screen.*

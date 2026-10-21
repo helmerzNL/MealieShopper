@@ -617,6 +617,26 @@ def create_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
+    @app.put("/api/picnic/cart/items/<product_id>")
+    def picnic_cart_set_quantity(product_id: str):
+        # Een exact aantal; 0 haalt het product uit het mandje. Plaatst nooit een bestelling.
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(picnic.set_quantity(product_id, body.get("quantity")))
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/cart/clear")
+    def picnic_cart_clear():
+        # Het hele mandje leegmaken vraagt om een expliciete bevestiging, ook van andere aanroepers.
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") is not True:
+            return jsonify({"error": "Bevestiging ontbreekt"}), 400
+        try:
+            return jsonify(picnic.clear_cart())
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
     @app.get("/api/picnic/slots")
     def picnic_slots():
         # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.

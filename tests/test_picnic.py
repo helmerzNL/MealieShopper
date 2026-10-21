@@ -237,6 +237,100 @@ class CartTest(TempDataDirTest):
             self.assertIn("items", picnic.cart_summary(cart))
 
 
+def cart_with(**quantities):
+    """Een mandje met de gegeven producten (id -> aantal), zoals Picnic het teruggeeft."""
+    return {"total_count": sum(quantities.values()), "items": [
+        {"id": f"l{pid}", "items": [{"id": pid, "name": pid.upper(),
+                                     "decorators": [{"type": "QUANTITY", "quantity": qty}]}]}
+        for pid, qty in quantities.items()]}
+
+
+def paths_and_bodies(call):
+    return [(c.args[1].rsplit("/api/15", 1)[1], c.kwargs.get("json")) for c in call.call_args_list]
+
+
+class CartEditingTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        picnic.save_auth_key("key")
+
+    def test_raising_a_quantity_adds_the_difference(self):
+        replies = [response(cart_with(s1=2)), response(cart_with(s1=5))]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            cart = picnic.set_quantity("s1", 5)
+        self.assertEqual(paths_and_bodies(call), [("/cart", None), ("/cart/add_product", {"product_id": "s1", "count": 3})])
+        self.assertEqual(cart["items"][0]["quantity"], 5)
+
+    def test_lowering_a_quantity_removes_the_difference(self):
+        replies = [response(cart_with(s1=4)), response(cart_with(s1=1))]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            picnic.set_quantity("s1", 1)
+        self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
+
+    def test_zero_removes_the_whole_line(self):
+        replies = [response(cart_with(s1=3)), response(cart_with())]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            cart = picnic.set_quantity("s1", 0)
+        self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
+        self.assertEqual(cart["items"], [])
+
+    def test_an_unchanged_quantity_changes_nothing(self):
+        with mock.patch.object(picnic.requests, "request", return_value=response(cart_with(s1=2))) as call:
+            picnic.set_quantity("s1", 2)
+        self.assertEqual(call.call_count, 1)  # alleen het mandje lezen
+
+    def test_a_product_that_is_not_in_the_cart_counts_as_zero(self):
+        replies = [response(cart_with(s2=1)), response(cart_with(s2=1, s1=2))]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            picnic.set_quantity("s1", 2)
+        self.assertEqual(paths_and_bodies(call)[1], ("/cart/add_product", {"product_id": "s1", "count": 2}))
+
+    def test_bad_input_is_rejected_before_any_request(self):
+        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+            for product, quantity in (("", 1), ("s1", -1), ("s1", 100), ("s1", "veel"), ("s1", None),
+                                      ("s1", 1.5), ("s1", True)):
+                with self.assertRaises(ValueError, msg=repr((product, quantity))):
+                    picnic.set_quantity(product, quantity)
+
+    def test_clear_uses_picnics_route_and_counts_what_was_removed(self):
+        replies = [response(cart_with(s1=2, s2=1)), response(cart_with())]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            result = picnic.clear_cart()
+        self.assertEqual([p for p, _ in paths_and_bodies(call)], ["/cart", "/cart/clear"])
+        self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
+
+    def test_clear_falls_back_to_removing_each_product(self):
+        replies = [response(cart_with(s1=2, s2=1)), response({"x": 1}, status=404),
+                   response(cart_with(s2=1)), response(cart_with())]
+        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
+            result = picnic.clear_cart()
+        self.assertEqual(paths_and_bodies(call)[2:], [
+            ("/cart/remove_product", {"product_id": "s1", "count": 2}),
+            ("/cart/remove_product", {"product_id": "s2", "count": 1})])
+        self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
+
+    def test_clearing_an_empty_cart_is_a_no_op(self):
+        with mock.patch.object(picnic.requests, "request", return_value=response(cart_with())) as call:
+            self.assertEqual(picnic.clear_cart()["removed"], 0)
+        self.assertEqual(call.call_count, 1)
+
+    def test_a_dead_link_is_not_hidden_by_the_fallback(self):
+        bad = response({"error": {"code": "AUTH_ERROR"}}, status=401)
+        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), bad]):
+            with self.assertRaises(picnic.PicnicAuthError):
+                picnic.clear_cart()
+
+    def test_nothing_here_places_an_order(self):
+        # Alleen de mandje-routes; geen checkout of bestelroute.
+        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), response(cart_with())]) as call:
+            picnic.set_quantity("s1", 0)
+        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), response(cart_with())]) as other:
+            picnic.clear_cart()
+        for path, _ in paths_and_bodies(call) + paths_and_bodies(other):
+            self.assertTrue(path.startswith("/cart"), path)
+            self.assertNotIn("checkout", path)
+
+
 class DeliverySlotsTest(TempDataDirTest):
     CART = {
         "selected_slot": {"slot_id": "s2", "state": "IMPLICIT"},
@@ -396,6 +490,27 @@ class PicnicRoutesTest(TempDataDirTest):
     def test_empty_requests_are_400(self):
         for path in ("/api/picnic/cart", "/api/picnic/cart/preview"):
             self.assertEqual(self.client.post(path, json={"items": []}).status_code, 400, path)
+
+    def test_quantity_route(self):
+        cart = {"items": [], "totalCount": 0}
+        with mock.patch.object(picnic, "set_quantity", return_value=cart) as setq:
+            body = self.client.put("/api/picnic/cart/items/s1", json={"quantity": 3}).get_json()
+        setq.assert_called_once_with("s1", 3)
+        self.assertEqual(body, cart)
+        with mock.patch.object(picnic, "set_quantity", side_effect=ValueError("Het aantal moet een heel getal zijn")):
+            reply = self.client.put("/api/picnic/cart/items/s1", json={"quantity": "x"})
+        self.assertEqual((reply.status_code, reply.get_json()["error"]), (400, "Het aantal moet een heel getal zijn"))
+        with mock.patch.object(picnic, "set_quantity", side_effect=RuntimeError("500: stuk")):
+            self.assertEqual(self.client.put("/api/picnic/cart/items/s1", json={"quantity": 1}).status_code, 424)
+
+    def test_clear_route_needs_confirmation(self):
+        with mock.patch.object(picnic, "clear_cart", side_effect=AssertionError("niet zonder bevestiging")):
+            for body in ({}, {"confirm": "yes"}, {"confirm": 1}, {"confirm": False}):
+                self.assertEqual(self.client.post("/api/picnic/cart/clear", json=body).status_code, 400, body)
+        with mock.patch.object(picnic, "clear_cart", return_value={"removed": 2, "cart": {"items": []}}) as clear:
+            body = self.client.post("/api/picnic/cart/clear", json={"confirm": True}).get_json()
+        clear.assert_called_once_with()
+        self.assertEqual(body["removed"], 2)
 
     def test_slots_route(self):
         slots = [{"id": "s1", "available": True}]

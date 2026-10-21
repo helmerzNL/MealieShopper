@@ -524,6 +524,7 @@ function renderMealPlan(entries) {
         <div class="toolbar">
           <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
           <span id="cart-store-slot"></span>
+          <span id="cart-extra-slot"></span>
           <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
         </div>
         <ul>
@@ -628,10 +629,12 @@ function renderStoreChoice() {
       }
       const button = $("#add-cart");
       if (button) button.textContent = cartButtonLabel();
+      if (typeof renderPicnicBasketButton === "function") renderPicnicBasketButton();
     });
   }
   const button = $("#add-cart");
   if (button) button.textContent = cartButtonLabel();
+  if (typeof renderPicnicBasketButton === "function") renderPicnicBasketButton();
   renderItemsStore();
 }
 
@@ -706,7 +709,10 @@ function showCartResult(data, notFound) {
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
-  if (state.store === "picnic" && typeof showPicnicSlots === "function") showPicnicSlots();
+  if (state.store === "picnic" && typeof showPicnicSlots === "function") {
+    showPicnicBasket();
+    showPicnicSlots();
+  }
 }
 
 async function submitCart(selection, notFound) {

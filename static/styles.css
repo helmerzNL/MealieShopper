@@ -840,6 +840,57 @@ a.product-card__main:hover strong {
   margin-top: 14px;
 }
 
+.picnic-basket {
+  margin-top: 14px;
+}
+
+.basket-lines {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.basket-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.basket-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.basket-qty .review-qty {
+  width: 64px;
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+
+.basket-price {
+  min-width: 64px;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .basket-line {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .basket-title {
+    grid-column: 1 / -1;
+  }
+}
+
 .review-list {
   display: grid;
   gap: 8px;

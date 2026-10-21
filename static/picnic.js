@@ -165,6 +165,120 @@ async function showPicnicSlots() {
   );
 }
 
+// ---- Het Picnic-mandje bekijken en aanpassen (aantallen, product weg, mandje legen)
+// Alles gaat direct naar je echte Picnic-mandje. Er wordt nooit een bestelling geplaatst.
+function renderPicnicBasketButton() {
+  const slot = $("#cart-extra-slot");
+  if (!slot) return;
+  const box = $("#picnic-basket");
+  if (state.store !== "picnic") {
+    slot.innerHTML = "";
+    if (box) box.innerHTML = "";
+    return;
+  }
+  slot.innerHTML = `<button class="button button--secondary" id="picnic-basket-open" type="button">${escapeHtml(t("picnic.basket_open"))}</button>`;
+  $("#picnic-basket-open").addEventListener("click", showPicnicBasket);
+}
+
+async function showPicnicBasket() {
+  const box = $("#picnic-basket");
+  if (!box) return;
+  try {
+    renderPicnicBasket(await jsonFetch("/api/picnic/cart"));
+  } catch (error) {
+    box.innerHTML = `<div class="box picnic-basket"><div id="picnic-basket-message"></div></div>`;
+    message("#picnic-basket-message", error.message);
+  }
+}
+
+function renderPicnicBasket(cart, note = "") {
+  const box = $("#picnic-basket");
+  if (!box || state.store !== "picnic") return;
+  const items = cart.items || [];
+  const lines = items
+    .map((item) => {
+      const size = item.unitSize ? ` <small class="muted">${escapeHtml(item.unitSize)}</small>` : "";
+      const price = item.price ? `<span class="basket-price">${escapeHtml(formatPrice(item.price))}</span>` : '<span class="basket-price"></span>';
+      const title = escapeHtml(item.title || "-");
+      if (!item.id) return `<li class="basket-line"><span class="basket-title">${title}${size}</span><span class="basket-qty">${escapeHtml(item.quantity)}\u00d7</span>${price}<span></span></li>`;
+      return `
+        <li class="basket-line" data-id="${escapeHtml(item.id)}">
+          <span class="basket-title">${title}${size}</span>
+          <span class="basket-qty">
+            <button class="icon-button" type="button" data-act="less" aria-label="${escapeHtml(t("picnic.basket_less"))}">\u2212</button>
+            <input class="review-qty" type="number" min="0" max="99" value="${escapeHtml(item.quantity)}" data-act="set" aria-label="${escapeHtml(t("picnic.basket_qty"))}">
+            <button class="icon-button" type="button" data-act="more" aria-label="${escapeHtml(t("picnic.basket_more"))}">+</button>
+          </span>
+          ${price}
+          <button class="icon-button" type="button" data-act="remove" aria-label="${escapeHtml(t("picnic.basket_remove"))}" title="${escapeHtml(t("picnic.basket_remove"))}">\u00d7</button>
+        </li>`;
+    })
+    .join("");
+  const totals = [
+    cart.checkoutTotal ? t("picnic.basket_checkout", { amount: formatPrice(cart.checkoutTotal) }) : cart.totalPrice ? t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }) : "",
+    cart.savings ? t("picnic.basket_savings", { amount: formatPrice(cart.savings) }) : "",
+  ].filter(Boolean);
+  box.innerHTML = `
+    <div class="box picnic-basket">
+      <div class="toolbar">
+        <h2>${escapeHtml(t("picnic.basket_title"))}</h2>
+        ${items.length ? `<button class="button button--secondary" id="picnic-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button>` : ""}
+      </div>
+      <div id="picnic-basket-message">${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}</div>
+      ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("picnic.basket_empty"))}</p>`}
+      ${totals.length ? `<p><strong>${escapeHtml(totals.join(" \u00b7 "))}</strong></p>` : ""}
+      <p class="muted">${escapeHtml(t("picnic.basket_hint"))}</p>
+    </div>`;
+  $("#picnic-basket-clear")?.addEventListener("click", () => clearPicnicBasket(items));
+  box.querySelectorAll(".basket-line[data-id]").forEach((line) => {
+    const id = line.dataset.id;
+    const input = line.querySelector('[data-act="set"]');
+    const current = Number(input.value);
+    line.querySelector('[data-act="less"]').addEventListener("click", () => setPicnicQuantity(id, Math.max(0, current - 1)));
+    line.querySelector('[data-act="more"]').addEventListener("click", () => setPicnicQuantity(id, Math.min(99, current + 1)));
+    line.querySelector('[data-act="remove"]').addEventListener("click", () => setPicnicQuantity(id, 0));
+    input.addEventListener("change", () => {
+      const value = Number(input.value);
+      if (Number.isInteger(value) && value >= 0 && value <= 99) setPicnicQuantity(id, value);
+      else input.value = current;
+    });
+  });
+}
+
+function setPicnicBasketBusy(busy) {
+  document.querySelectorAll("#picnic-basket button, #picnic-basket input").forEach((el) => {
+    el.disabled = busy;
+  });
+}
+
+async function setPicnicQuantity(productId, quantity) {
+  setPicnicBasketBusy(true);
+  try {
+    const cart = await jsonFetch(`/api/picnic/cart/items/${encodeURIComponent(productId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity }),
+    });
+    renderPicnicBasket(cart);
+  } catch (error) {
+    setPicnicBasketBusy(false);
+    message("#picnic-basket-message", error.message);
+  }
+}
+
+async function clearPicnicBasket(items) {
+  const count = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  if (!window.confirm(t("picnic.basket_clear_confirm", { count }))) return;
+  setPicnicBasketBusy(true);
+  try {
+    const data = await postJson("/api/picnic/cart/clear", { confirm: true });
+    renderPicnicBasket(data.cart || { items: [] }, t("picnic.basket_cleared", { count: data.removed }));
+  } catch (error) {
+    setPicnicBasketBusy(false);
+    message("#picnic-basket-message", error.message);
+  }
+}
+
 $("#picnic-form").addEventListener("submit", loginToPicnic);
 $("#picnic-code-form").addEventListener("submit", confirmPicnicCode);
 $("#picnic-send-sms").addEventListener("click", () => requestPicnicCode("SMS"));
