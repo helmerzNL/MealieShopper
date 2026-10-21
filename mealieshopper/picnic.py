@@ -91,7 +91,8 @@ def _call(
             data = None
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code") in AUTH_ERROR_CODES:
-        raise PicnicAuthError(error.get("message") or error["code"])
+        # Bewust niet de tekst van Picnic zelf: de aanroeper kiest een eigen, begrijpelijke melding.
+        raise PicnicAuthError(tr("Picnic weigerde de sessie", "Picnic refused the session"))
     if not response.ok:
         raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
     return data, new_token
@@ -203,7 +204,12 @@ def _two_factor(path: str, body: dict[str, Any], *, token: str | None = None) ->
     data, new_token = _call("POST", path, token=token, body=body)
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code"):
-        raise Picnic2FAError(error.get("message") or error["code"])
+        raise Picnic2FAError(
+            tr(
+                "Picnic weigerde de code: controleer hem of vraag een nieuwe aan",
+                "Picnic refused the code: check it or request a new one",
+            )
+        )
     return new_token
 
 
@@ -230,7 +236,9 @@ def status(verify: bool = False) -> dict[str, Any]:
             result["verified"] = True
         except Exception as exc:  # noqa: BLE001 - de reden tonen we aan de beheerder
             result["verified"] = False
-            result["error"] = str(exc)
+            # Onze eigen tekst bij een verlopen koppeling; bij andere fouten alleen het type, want het
+            # bericht kan een stuk van Picnics antwoord bevatten.
+            result["error"] = str(exc) if isinstance(exc, PicnicAuthError) else type(exc).__name__
     return result
 
 

@@ -485,9 +485,15 @@ def create_app() -> Flask:
     # Elke winkel is een module met search_product, candidate en add_to_cart (zie picnic.py, jumbo.py).
 
     def store_error(label: str, exc: Exception, *user_errors: type) -> Any:
-        """Fouten van de gebruiker (400) apart van fouten van de winkel zelf (424)."""
+        """Fouten van de gebruiker (400) apart van fouten van de winkel zelf (424).
+
+        De 400-fouten (ValueError en de `user_errors`) dragen een tekst die wij zelf schreven, zoals
+        "controleer e-mailadres en wachtwoord"; die tonen we. De winkelmodules zetten het ruwe antwoord
+        van de winkel nooit in zulke fouten. Bij een 424 kan het antwoord van de winkel erin zitten:
+        die gaat naar het logboek en de gebruiker krijgt alleen een algemene melding.
+        """
         if isinstance(exc, (ValueError, *user_errors)):
-            return jsonify({"error": f"{label} aanvraag ongeldig"}), 400
+            return jsonify({"error": str(exc) or f"{label} aanvraag ongeldig"}), 400
         app.logger.exception("%s error", label)
         return jsonify({"error": f"{label} fout"}), 424
 

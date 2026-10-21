@@ -412,6 +412,41 @@ class PicnicRoutesTest(TempDataDirTest):
         with mock.patch.object(picnic, "get_cart", side_effect=RuntimeError("500: stuk")):
             self.assertEqual(self.client.get("/api/picnic/cart").status_code, 424)
 
+    def test_user_errors_show_our_own_explanation(self):
+        bad = response({"error": {"code": "AUTH_INVALID_CRED", "message": "geheim detail van Picnic"}}, status=401)
+        with mock.patch.object(picnic.requests, "request", return_value=bad):
+            reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "fout"})
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("e-mailadres en wachtwoord", reply.get_json()["error"])
+        self.assertNotIn("geheim", reply.get_data(as_text=True))
+
+    def test_wrong_code_shows_our_text_not_picnics(self):
+        login = response({"second_factor_authentication_required": True}, token="pending")
+        with mock.patch.object(picnic.requests, "request", return_value=login):
+            picnic.login("jan@example.com", "geheim")
+        bad = response({"error": {"code": "TWO_FA_INVALID", "message": "geheim detail van Picnic"}})
+        with mock.patch.object(picnic.requests, "request", return_value=bad):
+            reply = self.client.post("/api/picnic/auth/2fa/verify", json={"code": "000000"})
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("code", reply.get_json()["error"])
+        self.assertNotIn("geheim", reply.get_data(as_text=True))
+
+    def test_picnic_failures_stay_generic_for_the_user(self):
+        with mock.patch.object(picnic, "get_cart", side_effect=RuntimeError("500: antwoord met geheim")):
+            reply = self.client.get("/api/picnic/cart")
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
+
+    def test_status_check_does_not_echo_picnic_responses(self):
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic.requests, "request", return_value=response({"x": "geheim"}, status=500)):
+            result = picnic.status(verify=True)
+        self.assertEqual(result["error"], "RuntimeError")
+        bad = response({"error": {"code": "AUTH_ERROR", "message": "geheim"}}, status=401)
+        with mock.patch.object(picnic.requests, "request", return_value=bad):
+            result = picnic.status(verify=True)
+        self.assertIn("Koppel opnieuw", result["error"])
+        self.assertNotIn("geheim", json.dumps(result))
+
     def test_login_routes_delegate(self):
         with mock.patch.object(picnic, "login", return_value={"connected": False, "twoFactorRequired": True}) as login:
             body = self.client.post("/api/picnic/auth", json={"email": "a@b.nl", "password": "pw"}).get_json()
