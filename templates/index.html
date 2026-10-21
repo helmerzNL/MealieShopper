@@ -445,9 +445,10 @@
         <div class="box box--wide" id="picnic-orders-list-view">
           <div class="toolbar">
             <h2 data-i18n="picnic.orders.title">Bestellingen van Picnic</h2>
-            <button class="button button--secondary" id="load-picnic-orders" type="button" data-i18n="common.load">Laden</button>
+            <button class="button button--secondary" id="sync-picnic-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
           </div>
-          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende en afgelopen bezorgingen bij Picnic, live opgehaald. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen bij Picnic (live opgehaald) en je afgeleverde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" id="picnic-orders-synced"></p>
           <div id="picnic-orders-message"></div>
           <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
           <div id="picnic-orders-upcoming"></div>

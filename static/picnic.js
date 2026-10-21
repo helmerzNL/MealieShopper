@@ -3,7 +3,7 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
-const picnicOrders = { deliveries: [], detail: null, loaded: false, run: 0 };
+const picnicOrders = { upcoming: [], past: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
 const picnicFavorites = { products: [], total: 0, filtered: true, pending: 0, run: 0, query: "", loaded: false };
 
 function postJson(url, body = {}) {
@@ -373,7 +373,7 @@ $("#picnic-favorites").addEventListener("click", (event) => {
   if (add) addPicnicFavorite(add.dataset.picnicAdd, add, add.closest(".product-card").querySelector(".favorite-result"));
 });
 
-// ---- Bestellingen: je leveringen bij Picnic, live opgehaald (alleen lezen)
+// ---- Bestellingen: aankomende leveringen live, afgeleverde bestellingen uit de lokale kopie (zie picnic_orders.py)
 function picnicOrderStatus(status) {
   const known = {
     CURRENT: t("picnic.orders.status.current"),
@@ -387,14 +387,15 @@ function picnicOrderDay(order) {
   return dayLabel(order.deliveredStart || order.windowStart || order.etaStart);
 }
 
-function picnicOrderCard(order) {
+function picnicOrderCard(order, source) {
   const lines = [
     picnicOrderStatus(order.status),
     [slotLabel(order.windowStart, order.windowEnd), money(order.total)].filter(Boolean).join(" \u00b7 "),
+    source === "local" ? (order.itemsSynced ? tn("list.items", order.itemCount || 0) : t("orders.items_pending")) : "",
   ].filter(Boolean);
   return `
     <div class="list-card">
-      <button type="button" class="list-card__open" data-picnic-order="${escapeHtml(order.id)}">
+      <button type="button" class="list-card__open" data-picnic-order="${escapeHtml(order.id)}" data-source="${source}">
         <strong>${escapeHtml(picnicOrderDay(order) || t("picnic.orders.order_title", { id: order.id }))}</strong>
         ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
       </button>
@@ -402,32 +403,65 @@ function picnicOrderCard(order) {
 }
 
 function renderPicnicOrders() {
-  const upcoming = picnicOrders.deliveries.filter((order) => String(order.status).toUpperCase() === "CURRENT");
-  const past = picnicOrders.deliveries.filter((order) => String(order.status).toUpperCase() !== "CURRENT");
-  const empty = (text) => (picnicOrders.loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
-  $("#picnic-orders-upcoming").innerHTML = upcoming.length ? upcoming.map(picnicOrderCard).join("") : empty(t("picnic.orders.upcoming_none"));
-  $("#picnic-orders-past").innerHTML = past.length ? past.map(picnicOrderCard).join("") : empty(t("picnic.orders.none"));
+  const { upcoming, past, syncedAt, loaded } = picnicOrders;
+  const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
+  $("#picnic-orders-upcoming").innerHTML = upcoming.length
+    ? upcoming.map((order) => picnicOrderCard(order, "live")).join("")
+    : empty(picnicOrders.upcomingFailed ? t("picnic.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
+  $("#picnic-orders-past").innerHTML = past.length
+    ? past.map((order) => picnicOrderCard(order, "local")).join("")
+    : empty(syncedAt ? t("picnic.orders.none") : t("picnic.orders.never_synced"));
+  $("#picnic-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
 }
 
+// De bewaarde bestellingen komen uit de lokale kopie en werken zonder Picnic; de aankomende halen we live op en
+// ontbreken (met een melding) als Picnic niet bereikbaar is.
 async function loadPicnicOrders() {
-  const button = $("#load-picnic-orders");
   const run = ++picnicOrders.run;
-  setBusy(button, true);
   message("#picnic-orders-message", "");
   try {
-    const data = await jsonFetch("/api/picnic/deliveries");
+    const [local, live] = await Promise.all([
+      jsonFetch("/api/picnic/orders"),
+      jsonFetch("/api/picnic/deliveries?current=1").then((data) => data.deliveries || null, () => null),
+    ]);
     if (run !== picnicOrders.run) return;
-    picnicOrders.deliveries = data.deliveries || [];
-    picnicOrders.loaded = true;
+    Object.assign(picnicOrders, {
+      past: local.orders || [],
+      syncedAt: local.syncedAt,
+      upcoming: (live || []).filter((order) => String(order.status).toUpperCase() === "CURRENT"),
+      upcomingFailed: live === null,
+      loaded: true,
+    });
     renderPicnicOrders();
   } catch (error) {
-    if (run !== picnicOrders.run) return;
-    picnicOrders.deliveries = [];
-    renderPicnicOrders();
-    message("#picnic-orders-message", error.message);
-  } finally {
-    if (run === picnicOrders.run) setBusy(button, false);
+    if (run === picnicOrders.run) message("#picnic-orders-message", error.message);
   }
+}
+
+// Synchroniseren haalt de afgeleverde bestellingen bij Picnic op en bewaart ze; een deel van de producten per keer.
+async function syncPicnicOrders() {
+  const button = $("#sync-picnic-orders");
+  setBusy(button, true);
+  message("#picnic-orders-message", "");
+  let text = "";
+  let failed = false;
+  try {
+    const data = await postJson("/api/picnic/orders/sync");
+    const done = [tn("picnic.orders.sync_done", data.orders)];
+    if (data.new) done.push(tn("picnic.orders.sync_new", data.new));
+    if (data.remaining && !data.detailError) done.push(tn("picnic.orders.sync_remaining", data.remaining));
+    text = `${done.join(", ")}.`;
+    if (data.detailError) {
+      failed = true;
+      text += ` ${t("picnic.orders.sync_detail_error", { error: data.detailError })}`;
+    }
+  } catch (error) {
+    failed = true;
+    text = t("orders.sync_failed", { what: t("orders.part.orders"), error: error.message });
+  }
+  await loadPicnicOrders();
+  message("#picnic-orders-message", text, failed ? "error" : "success");
+  setBusy(button, false);
 }
 
 function showPicnicOrderList() {
@@ -448,7 +482,21 @@ function renderPicnicOrderItem(item) {
     </article>`;
 }
 
-async function openPicnicOrder(id) {
+// Een bewaarde bestelling lezen we uit de lokale kopie; staan de producten daar nog niet, dan proberen we Picnic zelf.
+async function fetchPicnicOrder(id, source) {
+  if (source === "local") {
+    const order = await jsonFetch(`/api/picnic/orders/${encodeURIComponent(id)}`);
+    if (order.itemsSynced) return order;
+    try {
+      return { ...order, ...(await jsonFetch(`/api/picnic/deliveries/${encodeURIComponent(id)}`)) };
+    } catch {
+      return order;
+    }
+  }
+  return jsonFetch(`/api/picnic/deliveries/${encodeURIComponent(id)}`);
+}
+
+async function openPicnicOrder(id, source) {
   $("#picnic-orders-list-view").hidden = true;
   $("#picnic-order-view").hidden = false;
   $("#picnic-order-title").textContent = t("picnic.orders.order_title", { id });
@@ -459,14 +507,15 @@ async function openPicnicOrder(id) {
   picnicOrders.detail = null;
   const open = ++picnicOrders.run;
   try {
-    const order = await jsonFetch(`/api/picnic/deliveries/${encodeURIComponent(id)}`);
+    const order = await fetchPicnicOrder(id, source);
     if (open !== picnicOrders.run) return;
+    const items = order.items || [];
     picnicOrders.detail = order;
     $("#picnic-order-title").textContent = picnicOrderDay(order) || t("picnic.orders.order_title", { id });
-    $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", tn("list.items", order.itemCount || 0)].filter(Boolean).join(" \u00b7 ");
-    $("#picnic-order-items").innerHTML = (order.items || []).map(renderPicnicOrderItem).join("");
-    $("#picnic-order-add-all").hidden = !(order.items || []).some((item) => item.id);
-    if (!(order.items || []).length) message("#picnic-order-message", t("picnic.orders.no_items"), "success");
+    $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0)].filter(Boolean).join(" \u00b7 ");
+    $("#picnic-order-items").innerHTML = items.map(renderPicnicOrderItem).join("");
+    $("#picnic-order-add-all").hidden = !items.some((item) => item.id);
+    if (!items.length) message("#picnic-order-message", order.itemsSynced === false ? t("picnic.orders.items_not_synced") : t("picnic.orders.no_items"), "success");
     $("#picnic-order-title").focus();
   } catch (error) {
     message("#picnic-order-message", error.message);
@@ -492,12 +541,12 @@ async function addPicnicOrderToBasket() {
   }
 }
 
-$("#load-picnic-orders").addEventListener("click", loadPicnicOrders);
+$("#sync-picnic-orders").addEventListener("click", syncPicnicOrders);
 $("#picnic-order-back").addEventListener("click", showPicnicOrderList);
 $("#picnic-order-add-all").addEventListener("click", addPicnicOrderToBasket);
 $("#picnic-orders-list-view").addEventListener("click", (event) => {
   const open = event.target.closest("[data-picnic-order]");
-  if (open) openPicnicOrder(open.dataset.picnicOrder);
+  if (open) openPicnicOrder(open.dataset.picnicOrder, open.dataset.source);
 });
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)
