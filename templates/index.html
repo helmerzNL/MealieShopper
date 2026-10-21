@@ -206,6 +206,7 @@
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCog"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
           <span class="tab-text" data-i18n="nav.settings">Beheer</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.settings_short">Beheer</span>
+          <span class="update-dot" id="update-dot-tab" hidden></span>
         </button>
         <button class="tab" data-tab="about">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
@@ -213,6 +214,14 @@
           <span class="tab-short" aria-hidden="true" data-i18n="nav.about_short">Over</span>
         </button>
       </nav>
+
+      <div class="message warning message--action" id="update-banner" role="status" hidden>
+        <span id="update-banner-text"></span>
+        <span class="message__actions">
+          <button class="button inline-button" id="update-banner-open" type="button" data-i18n="update.view">Bekijken</button>
+          <button class="button button--secondary inline-button" id="update-banner-dismiss" type="button" data-i18n="update.dismiss">Later</button>
+        </span>
+      </div>
 
       <section id="planner" class="panel is-active">
         <div class="message warning message--action" id="mealie-setup" hidden>
@@ -375,6 +384,7 @@
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
           <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
           <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
+          <button class="subtab" data-subtab="beheer-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
         </nav>
 
         <div id="beheer-ah" class="subpanel is-active">
@@ -650,6 +660,29 @@
           <div id="invites-list" class="credential-list"></div>
         </div>
         </div>
+
+        <div id="beheer-updates" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="update.title">Updatecheck</h2>
+          <p class="muted" data-i18n="update.intro">MealieShopper kijkt op GitHub of er een nieuwere versie is dan deze installatie. Er gaat geen informatie over jou, je gegevens of deze installatie mee.</p>
+          <dl class="update-facts">
+            <dt data-i18n="update.current">Geïnstalleerde versie</dt>
+            <dd id="update-current">-</dd>
+            <dt data-i18n="update.latest">Nieuwste versie</dt>
+            <dd id="update-latest">-</dd>
+          </dl>
+          <div id="update-status"></div>
+          <p class="muted" id="update-checked"></p>
+          <div id="update-howto" hidden>
+            <h3 data-i18n="update.how_title">Bijwerken</h3>
+            <p class="muted" data-i18n-html="update.how">Haal de nieuwste image op (<code>ghcr.io/helmerznl/mealieshopper:latest</code>) en start de container opnieuw. Je gegevens staan in de data-map en blijven bewaard.</p>
+          </div>
+          <div class="security-actions">
+            <button class="button" type="button" id="update-check" data-i18n="update.check">Nu controleren</button>
+            <a class="button button--secondary" id="update-notes" href="#" target="_blank" rel="noopener noreferrer" hidden data-i18n="update.notes">Release-notes op GitHub</a>
+          </div>
+        </div>
+        </div>
       </section>
 
       <section id="about" class="panel">
@@ -682,6 +715,7 @@
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>

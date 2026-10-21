@@ -327,6 +327,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address (for the preview image, invitation links and the AI connection). Optional: the app detects it itself, and an address the administrator enters under Settings, AI apps takes precedence. |
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
 | `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Settings, AI apps takes precedence. |
+| `MEALIESHOPPER_UPDATE_CHECK` | Set to `false` to turn the update check off (Settings, Updates). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
@@ -345,6 +346,8 @@ docker compose pull && docker compose up -d
 ```
 
 With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
+
+**Update check.** Under **Settings, Updates** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 ## Troubleshooting
 
