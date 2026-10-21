@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, mcp, mealie, oauth, picnic  # noqa: E402
+from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -593,18 +593,19 @@ class ToolsTest(McpTestCase):
         return json.loads(self.text(result))
 
     def test_picnic_recipes_tool(self):
-        recipes = [{"id": f"r{n}", "name": f"Recept {n}"} for n in range(5)]
+        recipes = [{"id": f"r{n}", "name": f"Recept {n}", "image": "https://x/y.png", "minutes": 20, "tags": [], "segment": None} for n in range(5)]
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_recipes", return_value=recipes) as get:
+                mock.patch.object(picnic_recipes, "get_recipes", return_value=recipes) as get:
             default = self.data("list_picnic_recipes")
             cookbook = self.data("list_picnic_recipes", {"source": "cookbook", "limit": 2})
         self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
         self.assertEqual((cookbook["source"], cookbook["total"], len(cookbook["recipes"])), ("cookbook", 5, 2))
         self.assertEqual([c.args for c in get.call_args_list], [("saved",), ("cookbook",)])
+        self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "tags"})  # geen afbeeldingsadressen
 
     def test_picnic_recipes_tool_refuses_unknown_sources_and_an_unlinked_account(self):
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_recipes", side_effect=AssertionError("niet ophalen")):
+                mock.patch.object(picnic_recipes, "get_recipes", side_effect=AssertionError("niet ophalen")):
             self.assertTrue(self.call(self.token, "list_picnic_recipes", {"source": "boodschappen"})["isError"])
         with mock.patch.object(picnic, "configured_auth_key", return_value=""):
             self.assertTrue(self.call(self.token, "list_picnic_recipes")["isError"])

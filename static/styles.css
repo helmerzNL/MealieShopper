@@ -837,6 +837,22 @@ a.product-card__main:hover strong {
   columns: 2 260px;
 }
 
+.picnic-recipe__image {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  margin-bottom: 12px;
+  border-radius: var(--radius-control);
+}
+
+.picnic-recipe__list {
+  margin: 8px 0 16px;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+
 .picnic-slots {
   margin-top: 14px;
 }

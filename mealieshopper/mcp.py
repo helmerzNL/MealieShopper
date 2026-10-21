@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, mealie, picnic, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, mealie, picnic, picnic_recipes, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -312,11 +312,13 @@ def tool_picnic_slots(args: dict[str, Any]) -> Any:
 def tool_picnic_recipes(args: dict[str, Any]) -> Any:
     _picnic_linked()
     source = str(args.get("source") or "saved").strip().lower()
-    if source not in picnic.RECIPE_PAGES:
-        raise ToolError("Kies als bron saved (opgeslagen recepten) of cookbook (het kookboek)")
+    if source not in picnic_recipes.SOURCES:
+        raise ToolError("Kies als bron saved (bewaard), cookbook (het kookboek) of ordered (opnieuw bestellen)")
     limit = max(1, min(100, int(args.get("limit") or 30)))
-    recipes = picnic.get_recipes(source)
-    return {"source": source, "total": len(recipes), "recipes": recipes[:limit]}
+    recipes = picnic_recipes.get_recipes(source)
+    # Alleen wat een assistent nodig heeft; de afbeeldingsadressen laten we weg.
+    brief = [{"id": r["id"], "name": r["name"], "minutes": r["minutes"], "tags": r["tags"]} for r in recipes[:limit]]
+    return {"source": source, "total": len(recipes), "recipes": brief}
 
 
 def _private_host(hostname: str) -> bool:
@@ -497,10 +499,10 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_picnic_slots,
     },
     "list_picnic_recipes": {
-        "description": "Recepten van Picnic: je opgeslagen recepten (saved) of het kookboek (cookbook), met id en naam. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
+        "description": "Recepten van Picnic: je bewaarde recepten (saved), het kookboek (cookbook) of recepten die je eerder bestelde (ordered), met id, naam, kooktijd en labels. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
         "inputSchema": _schema(
             {
-                "source": {"type": "string", "enum": ["saved", "cookbook"], "description": "saved = opgeslagen in de Picnic-app (standaard), cookbook = het kookboek."},
+                "source": {"type": "string", "enum": ["saved", "cookbook", "ordered"], "description": "saved = Koken > Bewaard (standaard), cookbook = het kookboek, ordered = Opnieuw bestellen."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal recepten, standaard 30."},
             }
         ),

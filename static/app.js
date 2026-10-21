@@ -1618,6 +1618,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
+    if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

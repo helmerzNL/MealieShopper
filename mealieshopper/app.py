@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_recipes, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-3")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-4")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -647,13 +647,39 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.get("/api/picnic/recipes")
-    def picnic_recipes():
+    def picnic_recipe_list():
         # Alleen lezen: de recepten van Picnic (opgeslagen of het kookboek), met id en naam.
         source = (request.args.get("source") or "saved").strip().lower()
         try:
-            return jsonify({"source": source, "recipes": picnic.get_recipes(source)})
+            return jsonify({"source": source, "recipes": picnic_recipes.get_recipes(source)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
+
+    @app.get("/api/picnic/recipes/<recipe_id>")
+    def picnic_recipe_detail(recipe_id: str):
+        # Alleen lezen: één recept met ingrediënten en bereiding.
+        try:
+            return jsonify(picnic_recipes.get_recipe(recipe_id))
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.post("/api/picnic/recipes/<recipe_id>/import")
+    def picnic_recipe_import(recipe_id: str):
+        # Zet het recept in Mealie, als schema.org Recipe (Picnic-recepten hebben geen webpagina).
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            recipe = picnic_recipes.get_recipe(recipe_id)
+            slug = mealie.import_via_jsonld(picnic_recipes.source_url(recipe_id), picnic_recipes.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("Picnic recipe import error")
+            if isinstance(exc, (ValueError, picnic.PicnicAuthError)):
+                return picnic_error(exc)
+            # De melding van Mealie of Picnic kan het antwoord van de dienst bevatten: alleen in het logboek.
+            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
 
     @app.get("/api/picnic/slots")
     def picnic_slots():
