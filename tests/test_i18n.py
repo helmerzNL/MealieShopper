@@ -21,6 +21,7 @@ SOURCES = {
     "ai.js": (STATIC / "ai.js").read_text(encoding="utf-8"),
     "orders.js": (STATIC / "orders.js").read_text(encoding="utf-8"),
     "picnic.js": (STATIC / "picnic.js").read_text(encoding="utf-8"),
+    "recipe_search.js": (STATIC / "recipe_search.js").read_text(encoding="utf-8"),
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),

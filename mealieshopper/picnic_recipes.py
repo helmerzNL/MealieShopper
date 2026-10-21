@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import picnic
+from .ah_lists import _fold
 from .i18n import tr
 
 SOURCES = {
@@ -130,6 +131,35 @@ def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf de receptenpagina in een onbekend formaat", "Picnic returned the recipes page in an unknown format"))
     return summaries(page)
+
+
+def search(query: Any) -> dict[str, Any]:
+    """Zoek op naam in de recepten van Picnic (je bewaarde recepten en het kookboek): alle woorden moeten in de naam staan.
+
+    Picnic heeft geen zoekfunctie voor recepten, dus we filteren de lijsten zelf. `{recipes, total}`, zonder dubbelen.
+    """
+    words = _fold(query).split()
+    if not words:
+        raise ValueError(tr("Zoekterm ontbreekt", "Search term missing"))
+    found: dict[str, dict[str, Any]] = {}
+    failed: Exception | None = None
+    reached = 0
+    for source in ("saved", "cookbook"):
+        try:
+            recipes = get_recipes(source)
+        except picnic.PicnicAuthError:
+            raise  # de koppeling zelf is stuk: de tweede lijst helpt niet
+        except Exception as exc:  # noqa: BLE001 - de andere lijst kan wel lukken
+            failed = exc
+            continue
+        reached += 1
+        for recipe in recipes:
+            if all(word in _fold(recipe["name"]) for word in words):
+                found.setdefault(recipe["id"], recipe)
+    if not reached and failed:
+        raise failed
+    matches = list(found.values())
+    return {"recipes": matches, "total": len(matches)}
 
 
 # --- één recept ---------------------------------------------------------------------------------
