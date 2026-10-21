@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.6.1
+
+*English summary: The explorer report found how the Picnic app changes a favorite: `POST pages/task/toggle-sellable-favorite` with `{"payload": {"sellable_id": "s…", "status": "UNLIKE"}}`, after which the app reloads the "zero order" page of the Favorites tab. So that page does change with your favorites. Reading them is still open: the product page's heart starts from a state the app fills itself. The explorer now reports the outline of the Favorites page (headings and runs of product tiles), the pages it loads lazily, and the true/false values the server puts in the heart code of a handful of product pages, to see which one marks your favorites. No behaviour change in the app.*
+
+### Verkenner
+
+- Uit het rapport: een favoriet weghalen gaat met **`POST pages/task/toggle-sellable-favorite`** met `{"payload": {"sellable_id": "s…", "status": "UNLIKE"}}` (waarschijnlijk `LIKE` om er een toe te voegen). Daarna laadt de app de pagina `purchase-page-…-zero-order-targeted` opnieuw: die pagina verandert dus mee met je favorieten.
+- `/bootstrap` heeft naast de tabs geen favorieten (alleen instellingen), en alle gegokte routes geven 404.
+- Nieuw: de opbouw van de pagina van de tab Favorieten in leesvolgorde: koppen en groepen producttegels (`kop: …`, `tegels: 12`). Zo zien we of de favorieten een eigen kopje hebben en hoeveel producten eronder staan. Alleen korte teksten van onderdelen zonder producten komen erin, nooit productnamen.
+- Nieuw: de pagina's die de Favorieten-pagina zelf later laadt (`pageConfig`), met hun opbouw en de markering `saved`.
+- Nieuw: de waar/onwaar-waarden die de server in de hartjescode van de productpagina's van acht producten zet. Verschillen die per product, dan is dat de markering van je favorieten.
+
+### Goed om te weten
+
+- De app zelf verandert niet; de Favorieten-tab toont nog de uitleg uit 2.4.3.
+- De verkenner roept `toggle-sellable-favorite` niet aan: alleen lezen.
+
 ## v2.6.0
 
 *English summary: There is now a dark/light mode button next to the language flags (top right, on the login page and in the setup guide). The choice is kept in your browser; without a choice MealieShopper follows your device setting, also when that changes. The AI consent page follows the device setting too.*

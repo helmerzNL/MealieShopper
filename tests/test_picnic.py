@@ -710,6 +710,28 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual(report["volledige code van de hartjesknop"], [code.replace("1000024", "<id>")])
         self.assertEqual(report["pagina's die later laden (pageConfig)"], ["aisle-page ? aisle_id=FRUIT, index=3"])
 
+    def test_page_outline_lists_headings_and_runs_of_tiles_but_no_product_names(self):
+        from mealieshopper import picnic_explore
+
+        def head(text):
+            return {"type": "PML", "pml": {"component": {"children": [{"type": "RICH_TEXT", "markdown": text}]}}}
+
+        def product(unit_id):
+            return {"type": "PML", "pml": {"component": {"children": [{"type": "RICH_TEXT", "markdown": "Geheime melk"},
+                                                                          {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": unit_id}}]}}}
+        page = {"body": {"children": [head("Jouw favorieten"), product("s1"), product("s2"), head("Bakkerij"), product("s3")]}}
+        outline = picnic_explore.page_outline(page)
+        self.assertEqual(outline, ["kop: Jouw favorieten", "tegels: 2", "kop: Bakkerij", "tegels: 1"])
+        self.assertNotIn("Geheime", json.dumps(outline))
+        self.assertEqual(picnic_explore.page_outline(None), [])
+
+    def test_like_constants_read_the_values_the_server_put_in_the_heart_code(self):
+        from mealieshopper import picnic_explore
+        page = {"a": {"expression": 'const f = likedSellables["s1000"] === undefined ? true : likedSellables["s1000"];'},
+                "b": {"expression": 'setGlobalState("sellable-favorites", {likedSellables: {["s1000"]: false}}); let isSavedValue = true;'}}
+        self.assertEqual(picnic_explore.like_constants(page), {"plek 1": ["true"], "plek 2": ["true"], "plek 3": ["false"]})
+        self.assertEqual(picnic_explore.like_constants({}), {})
+
     def test_favorite_values_report_flags_and_shapes_but_no_texts(self):
         from mealieshopper import picnic_explore
         page = {"a": {"isFavorite": True, "favoriteTitle": "Melk van Anna"}, "b": {"isFavorite": False, "saved": {"x": 1}}}
