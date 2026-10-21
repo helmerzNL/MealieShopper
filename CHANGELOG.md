@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.5.2
+
+*English summary: The last explorer report shows where the favorites are NOT: the Favorites tab of an account without deliveries is a "zero order" page of suggested products (`purchase-page-…-zero-order-targeted`), and the heart on a product reads `getGlobalState("sellable-favorites").likedSellables`, a state the app fills itself, not something in the page. The explorer now reports the full code of the heart button, the pages that load lazily, the fields of `/bootstrap` next to the tabs, the "remove favorite" dialog with the right parameters and a handful of guessed favorites routes, to find what fills that state. No behaviour change in the app.*
+
+### Verkenner
+
+- Uit het rapport: de tab *Favorieten* van een account zonder leveringen toont een pagina met voorgestelde producten (`purchase-page-…-zero-order-targeted`); daar staat niets over jouw favorieten op. Het hartje bij een product leest `getGlobalState("sellable-favorites").likedSellables`: een toestand die de app zelf vult. De pagina's bevatten dus geen favorieten; de app haalt ze ergens anders.
+- Nieuw: de volledige code van de hartjesknop op de productpagina (met getallen en id's vervangen door `<id>`), zodat te zien is of er een route of actie achter zit.
+- Nieuw: welke pagina's er later nog worden geladen (`pageConfig`: pagina en namen van de parameters).
+- Nieuw: de velden van `/bootstrap` naast de tabs (alleen de vorm), in de hoop dat de toestand `sellable-favorites` daar zit.
+- Nieuw: de bevestiging bij een favoriet weghalen met parameters als zoekopdracht (de vorige keer was het een 404 omdat de parameters in de verkeerde vorm stonden), en een paar gokken voor favorietenroutes (`/favorites`, `/sellable-favorites`, …).
+- *Opnieuw bestellen* is leeg omdat het account nog niets heeft laten bezorgen (`purchases-meals-plan-item-empty`).
+
+### Goed om te weten
+
+- De app zelf verandert niet. Zonder de bron van `sellable-favorites` blijft de lijst op de Favorieten-tab leeg met een uitleg.
+- De code van de hartjesknop is Picnics eigen code en kan in uitzonderlijke gevallen de naam van een product bevatten (een melding als *toegevoegd aan favorieten*); persoonlijke gegevens staan er niet in.
+
 ## v2.5.1
 
 *English summary: The explorer report shows this account has 0 completed deliveries, so the Favorites tab points to the "no purchases" page, whose `saved` field is empty and the page `purchases-page-root` only has two products; none of them says which products you favorited. The explorer now reports how those pages (and the product page and the "remove favorite" dialog) fetch their data: addresses, requests, waiting components and state, with numbers and ids redacted, so the real favorites source can be found. No behaviour change in the app.*
