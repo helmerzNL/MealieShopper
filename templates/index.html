@@ -354,6 +354,7 @@
         <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
           <button class="subtab is-active" data-subtab="beheer-ah" data-admin-only data-i18n="settings.tab.ah">Albert Heijn</button>
           <button class="subtab" data-subtab="beheer-picnic" data-admin-only data-i18n="settings.tab.picnic">Picnic</button>
+          <button class="subtab" data-subtab="beheer-jumbo" data-admin-only data-i18n="settings.tab.jumbo">Jumbo</button>
           <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
           <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
@@ -446,6 +447,46 @@
             <p class="muted" id="picnic-explore-summary"></p>
             <pre class="ai-code" id="picnic-explore-output"></pre>
             <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+          </div>
+        </div>
+        </div>
+
+        <div id="beheer-jumbo" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="jumbo.title">Inloggen bij Jumbo</h2>
+          <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+          <ol class="steps">
+            <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
+            <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+            <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
+            <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
+            <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+          </ol>
+          <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
+            <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
+          </form>
+          <div id="jumbo-status"></div>
+          <div class="toolbar">
+            <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+            <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
+          </div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
+          <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+          <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
+          <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+          <div id="jumbo-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h2>
+          <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
+          <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+          <div id="jumbo-explore-message"></div>
+          <div id="jumbo-explore-report" hidden>
+            <p class="muted" id="jumbo-explore-summary"></p>
+            <pre class="ai-code" id="jumbo-explore-output"></pre>
+            <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
           </div>
         </div>
         </div>
@@ -564,7 +605,7 @@
         </div>
         <div class="box" id="ai-tools-box" hidden>
           <h2 data-i18n="ai.tools_title">Wat de assistent kan</h2>
-          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH- of Picnic-mandje niet vullen.</p>
+          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen.</p>
           <p class="muted" id="ai-tools-owner-note" data-i18n="ai.tools_owner_note" hidden>Als beheerder zet je hier tools uit voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en niet meer te gebruiken; ze zien de wijziging bij de volgende verbinding.</p>
           <ul class="ai-tools" id="ai-tools"></ul>
         </div>
@@ -623,6 +664,7 @@
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='orders.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>

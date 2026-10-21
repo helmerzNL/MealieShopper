@@ -23,6 +23,7 @@ async function refreshPicnicStatus() {
   try {
     const data = await jsonFetch("/api/picnic/auth/status");
     picnicState.connected = Boolean(data.connected);
+    state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorPending) && !data.connected;
     renderPicnicStatus();
   } catch (error) {
@@ -65,6 +66,7 @@ async function loginToPicnic(event) {
     });
     $("#picnic-password").value = "";
     picnicState.connected = Boolean(data.connected);
+    state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorRequired);
     renderPicnicStatus();
     renderStoreChoice();
@@ -84,6 +86,7 @@ async function confirmPicnicCode(event) {
     await postJson("/api/picnic/auth/2fa/verify", { code: $("#picnic-code").value.trim() });
     $("#picnic-code").value = "";
     picnicState.connected = true;
+    state.linkedStores.picnic = true;
     picnicState.codePending = false;
     message("#picnic-code-message", "");
     renderPicnicStatus();
@@ -99,8 +102,8 @@ async function unlinkPicnic() {
   try {
     await postJson("/api/picnic/auth/logout");
     picnicState.connected = false;
+    state.linkedStores.picnic = false;
     picnicState.codePending = false;
-    state.store = "ah";
     renderPicnicStatus();
     renderStoreChoice();
   } catch (error) {

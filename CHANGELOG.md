@@ -2,21 +2,49 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.7.0
+## v1.7.1
 
-*English summary: Picnic now shows the next available delivery slots under the filled basket and through a new read-only MCP tool, `list_picnic_delivery_slots`. The basket also reports what you actually pay and what your membership saves. The Picnic route explorer checks more routes (account, lists, store, suggestions, product page) so the next steps can be built on real answers. Choosing a slot and placing an order remain in the Picnic app.*
+*English summary: Fixes adding products to the Jumbo basket. The explorer, run on a real server, showed that Jumbo's addBasketLines answer cannot be a BasketError, so every add would have failed validation. The query no longer names that type and an error now reports the type Jumbo answered with. The explorer also shows the type name and tries to list the possible answers. Picnic delivery slots and fuller basket totals are now available, and the Picnic route explorer checks more read-only endpoints.*
 
-### Nieuw in 1.7.0
+### Opgelost in 1.7.1
 
-- **Bezorgmomenten van Picnic.** Na het vullen van je Picnic-mandje laat de planner de eerstvolgende beschikbare bezorgmomenten zien, met de minimale bestelwaarde. Picnic levert die in het mandje-antwoord mee; ze zijn dus live en er wordt niets gekozen of gereserveerd. Het bezorgmoment kies je zelf in de Picnic-app. Nieuwe route: `GET /api/picnic/slots`.
-- **Nieuwe MCP-tool, alleen lezen:** `list_picnic_delivery_slots` (beschikbare bezorgmomenten met begin, einde, uiterste bestelmoment en minimale bestelwaarde). Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
-- **Mandje met echt totaal.** `get_picnic_basket` en `GET /api/picnic/cart` melden nu ook wat je werkelijk betaalt (`checkoutTotal`, met bezorgkosten en statiegeld) en wat je lidmaatschap bespaart (`savings`).
-- **Picnic-routes verkennen kijkt verder.** Naast zoeken, mandje en leveringen worden nu ook account, lijstjes, winkel, suggesties en de productpagina aangeroepen. Alleen lezen en zonder persoonlijke gegevens in het rapport. Zo zien we welke uitbreidingen (lijstjes, productinfo) mogelijk zijn.
+- **Producten toevoegen aan het Jumbo-mandje** mislukte altijd met een validatiefout van Jumbo (`Fragment cannot be spread here as objects of type "AddBasketLinesResult" can never be of type "BasketError"`). De foutvariant van `addBasketLines` heet in Jumbo's schema anders dan bij `activeBasket`. De query noemt dat type nu niet meer; bij een weigering meldt de app de typenaam die Jumbo teruggaf (bijvoorbeeld `Jumbo weigerde het toevoegen aan het mandje (…)`).
+- **Jumbo-routes verkennen** toont bij het (lege) toevoegen nu de typenaam van het antwoord (`Basket` of Jumbo's foutvariant) en probeert de mogelijke antwoorden op te vragen; introspectie staat bij Jumbo meestal uit, en dan zegt de foutmelding dat.
 
 ### Goed om te weten
 
-- Het zoeken, het mandje en de leveringsroutes zijn bevestigd met een echt Picnic-account: de verkenner gaf voor alle vijf routes een antwoord. De vorm van de bezorgmomenten is daaruit afgeleid. De vorm van een levering en van een gevuld mandje is nog niet gezien (het account had geen leveringen en een leeg mandje); meld wat afwijkt.
-- Een bezorgmoment kiezen of een bestelling plaatsen kan niet vanuit MealieShopper, en dat blijft zo.
+- Het rapport van de verkenner op een echte server **bevestigde**: Jumbo laat de server toe (`auth.jumbo.com` en `www.jumbo.com/api/graphql` antwoorden gewoon), het token vernieuwen werkt, zoeken werkt (met pakmaat en plaatje) en het mandje lezen werkt.
+- Het toevoegen zelf is met deze versie nog **niet met een echt product bevestigd**. Zet één product in het Jumbo-mandje en meld de uitkomst; de foutmelding noemt nu de typenaam, waarmee een volgende versie ook de reden kan tonen.
+
+### Ook toegevoegd in 1.7.1
+
+- **Bezorgmomenten van Picnic.** Na het vullen van je Picnic-mandje laat de planner de eerstvolgende beschikbare bezorgmomenten zien, met de minimale bestelwaarde. Er wordt niets gekozen of gereserveerd. Nieuwe route: `GET /api/picnic/slots` en alleen-lezen MCP-tool `list_picnic_delivery_slots`.
+- **Mandje met echt totaal.** `get_picnic_basket` en `GET /api/picnic/cart` melden nu ook wat je werkelijk betaalt (`checkoutTotal`, met bezorgkosten en statiegeld) en wat je lidmaatschap bespaart (`savings`).
+- **Picnic-routes verkennen kijkt verder.** Naast zoeken, mandje en leveringen worden nu ook account, lijstjes, winkel, suggesties en de productpagina aangeroepen. Alleen lezen en zonder persoonlijke gegevens in het rapport.
+- De bezorgmomenten zijn afgeleid uit de Picnic API; de vorm van een levering en van een gevuld mandje is nog niet met een echt account gezien. Een bezorgmoment kiezen of een bestelling plaatsen kan niet vanuit MealieShopper.
+
+## v1.7.0
+
+*English summary: MealieShopper can now fill a Jumbo basket too. Jumbo moved from REST to Auth0 and GraphQL since the removed v1.2.0 link, so linking now works like Albert Heijn: the administrator logs in in their own browser and pastes the jumbo://callbacks/login line from the console. No headless browser, no stored password. The planner's supermarket list now offers Albert Heijn, Picnic and Jumbo. Jumbo may refuse a server address, so the explorer under Settings > Jumbo first checks reachability. Not yet tried against a live Jumbo account.*
+
+### Nieuw in 1.7.0
+
+- **Jumbo naast Albert Heijn en Picnic.** De beheerder koppelt Jumbo onder **Beheer > Jumbo**: inloggen in je eigen browser en de regel `jumbo://callbacks/login?code=...` uit de console plakken, net als bij AH. Jouw browser lost de bot-controle van Jumbo op, dus er is **geen headless browser (Chromium/Selenium)** nodig. MealieShopper bewaart geen wachtwoord, alleen het refresh-token van Jumbo, versleuteld, en bewaart steeds de nieuwste als Jumbo het vervangt.
+- **Zoeken en mandje.** Per ingrediënt zoekt MealieShopper de beste Jumbo-producten (met aanbieding, pakmaat en een link naar het product), rekent het aantal verpakkingen uit en laat twijfelgevallen eerst controleren. De producten komen direct in je echte Jumbo-mandje; er wordt nooit een bestelling geplaatst. Mislukt één product, dan staan de andere er wel in en meldt de app welke ontbreken.
+- **De keuzelijst in de planner** biedt nu Albert Heijn, Picnic en Jumbo, voor zover gekoppeld. De controlelijst toont bij AH en Jumbo een link naar het product (`Bekijk product`).
+- **Twee nieuwe MCP-tools, alleen lezen:** `search_jumbo_products` en `get_jumbo_basket`. Het mandje vullen kan niet via MCP.
+- **Jumbo-routes verkennen** (alleen de beheerder): controleert eerst of Jumbo jouw server toelaat (`auth.jumbo.com` en `www.jumbo.com/api/graphql`) en roept daarna zoeken en het mandje aan; het mandje vullen alleen met een lege lijst. Zonder namen, prijzen of id's, dus veilig te delen.
+- Nieuwe routes onder `/api/jumbo/` (koppelen, zoeken, mandje); koppelen en verkennen zijn alleen voor de beheerder.
+
+### Goed om te weten
+
+- **Jumbo kan een server weigeren.** Een eerdere Jumbo-koppeling (v1.2.0) liep vast op de bot-bescherming van Jumbo voor server- en datacenter-adressen. Die routes zijn inmiddels anders (Auth0 en GraphQL in plaats van REST), maar of Jumbo jouw server toelaat is niet vooraf te weten: draai **Jumbo-routes verkennen**. Weigert Jumbo, dan werkt de koppeling vanaf die plek niet en komt er geen headless browser terug.
+- De Jumbo-API is **niet officieel** en zonder bericht te wijzigen. De aanroepen volgen de community-projecten `jumbo-mcp` en `jumbo-cli`. Deze versie is getest met nagebootste antwoorden en **nog niet met een echt Jumbo-account**. Vooral het mandje vullen (`addBasketLines`) is alleen elders met cookie-login gezien; gebruik de verkenner en meld wat afwijkt.
+- Nog niet voor Jumbo: boodschappenlijstje, kassabonnen, bestellingen, de installatiehulp en recepten.
+
+### Intern
+
+- De winkelmand-route die producten zoekt en in het mandje zet is gedeeld tussen Picnic en Jumbo (`store_cart` in `app.py`); `static/app.js` kent de winkels in één tabel (`STORES`). De tekst bij de productlink in de controlelijst is winkel-neutraal gemaakt.
 
 ## v1.6.0
 

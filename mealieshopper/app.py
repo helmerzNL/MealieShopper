@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
 from . import auth
 from .i18n import tr
 
@@ -481,16 +481,68 @@ def create_app() -> Flask:
             }
         )
 
+    # --- Winkels die direct in het echte mandje schrijven (Picnic, Jumbo) ---------------------
+    # Elke winkel is een module met search_product, candidate en add_to_cart (zie picnic.py, jumbo.py).
+
+    def store_error(label: str, exc: Exception, *user_errors: type) -> Any:
+        """Fouten van de gebruiker (400) apart van fouten van de winkel zelf (424)."""
+        if isinstance(exc, (ValueError, *user_errors)):
+            return jsonify({"error": str(exc)}), 400
+        app.logger.exception("%s error", label)
+        return jsonify({"error": str(exc) or f"{label} fout"}), 424
+
+    def store_cart(store: Any, error: Any, auth_error: type) -> Any:
+        """Zoek (indien nodig) de producten en zet ze in het mandje van de winkel; nooit een bestelling."""
+        body = request.get_json(silent=True) or {}
+        items = body.get("items") or []
+        if not items:
+            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+
+        matched: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        for item in items:
+            query = item.get("query", "")
+            try:
+                if item.get("productId"):
+                    # Door de gebruiker bevestigd (of aangepast) in de controlelijst.
+                    matched.append({"productId": item["productId"], "quantity": item.get("quantity"), "query": query})
+                    continue
+                product = store.search_product(query)
+            except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, auth_error):
+                    return error(exc)
+                skipped.append(query or "onbekend")
+                continue
+            if not product:
+                skipped.append(query or "onbekend")
+                continue
+            found = store.candidate(product, item.get("quantity"), item.get("unit"))
+            matched.append({"productId": found["productId"], "quantity": found["packs"], "query": query})
+
+        if not matched:
+            return jsonify({"error": "Geen producten gevonden voor de opgegeven ingredienten", "skippedItems": skipped}), 404
+        try:
+            result = store.add_to_cart(matched)
+        except Exception as exc:  # noqa: BLE001
+            return error(exc)
+        failed_ids = {entry["productId"] for entry in result["failed"]}
+        skipped += [entry["query"] for entry in matched if entry["productId"] in failed_ids]
+        return jsonify(
+            {
+                "added": len(result["added"]),
+                "skipped": len(skipped),
+                "skippedItems": skipped,
+                "failed": result["failed"],
+                "cart": result["cart"],
+            }
+        )
+
     # --- Picnic -------------------------------------------------------------------------
     # Zelfde opzet als AH, met twee verschillen: inloggen heeft een tweestapscode, en de producten
     # gaan direct in het echte Picnic-winkelmandje (er is geen apart boodschappenlijstje).
 
     def picnic_error(exc: Exception) -> Any:
-        """Fouten van de gebruiker (400) apart van fouten van Picnic zelf (424)."""
-        if isinstance(exc, (ValueError, picnic.PicnicAuthError, picnic.Picnic2FAError)):
-            return jsonify({"error": str(exc)}), 400
-        app.logger.exception("Picnic error")
-        return jsonify({"error": str(exc) or "Picnic fout"}), 424
+        return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError)
 
     @app.get("/api/picnic/auth/status")
     def picnic_auth_status():
@@ -549,49 +601,7 @@ def create_app() -> Flask:
 
     @app.post("/api/picnic/cart")
     def picnic_cart():
-        body = request.get_json(silent=True) or {}
-        items = body.get("items") or []
-        if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
-
-        matched: list[dict[str, Any]] = []
-        skipped: list[str] = []
-        for item in items:
-            query = item.get("query", "")
-            try:
-                if item.get("productId"):
-                    # Door de gebruiker bevestigd (of aangepast) in de controlelijst.
-                    matched.append({"productId": item["productId"], "quantity": item.get("quantity"), "query": query})
-                    continue
-                product = picnic.search_product(query)
-            except Exception as exc:  # noqa: BLE001
-                if isinstance(exc, picnic.PicnicAuthError):
-                    return picnic_error(exc)
-                skipped.append(query or "onbekend")
-                continue
-            if not product:
-                skipped.append(query or "onbekend")
-                continue
-            found = picnic.candidate(product, item.get("quantity"), item.get("unit"))
-            matched.append({"productId": found["productId"], "quantity": found["packs"], "query": query})
-
-        if not matched:
-            return jsonify({"error": "Geen producten gevonden voor de opgegeven ingredienten", "skippedItems": skipped}), 404
-        try:
-            result = picnic.add_to_cart(matched)
-        except Exception as exc:  # noqa: BLE001
-            return picnic_error(exc)
-        failed_ids = {entry["productId"] for entry in result["failed"]}
-        skipped += [entry["query"] for entry in matched if entry["productId"] in failed_ids]
-        return jsonify(
-            {
-                "added": len(result["added"]),
-                "skipped": len(skipped),
-                "skippedItems": skipped,
-                "failed": result["failed"],
-                "cart": result["cart"],
-            }
-        )
+        return store_cart(picnic, picnic_error, picnic.PicnicAuthError)
 
     @app.get("/api/picnic/deliveries")
     def picnic_deliveries():
@@ -614,6 +624,64 @@ def create_app() -> Flask:
     def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(picnic_explore.explore())
+
+    # --- Jumbo --------------------------------------------------------------------------
+    # Koppelen werkt zoals bij AH (de beheerder plakt een regel uit de browserconsole); de producten
+    # gaan, net als bij Picnic, direct in het echte mandje.
+
+    def jumbo_error(exc: Exception) -> Any:
+        return store_error("Jumbo", exc, jumbo.JumboAuthError)
+
+    @app.get("/api/jumbo/auth/status")
+    def jumbo_auth_status():
+        verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
+        return jsonify(jumbo.status(verify=verify))
+
+    @app.get("/api/jumbo/auth/start")
+    def jumbo_auth_start():
+        return redirect(jumbo.start_login(), code=302)
+
+    @app.post("/api/jumbo/auth")
+    def jumbo_auth():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(jumbo.link_account(body.get("code") or body.get("token") or ""))
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.post("/api/jumbo/auth/logout")
+    def jumbo_auth_logout():
+        return jsonify(jumbo.unlink())
+
+    @app.get("/api/jumbo/search")
+    def jumbo_search():
+        query = (request.args.get("q") or "").strip()
+        if not query:
+            return jsonify({"error": "Zoekterm ontbreekt"}), 400
+        try:
+            return jsonify({"products": jumbo.search_products(query, 10)})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.post("/api/jumbo/cart/preview")
+    def jumbo_cart_preview():
+        return cart_preview(jumbo.search_products, jumbo.candidate)
+
+    @app.get("/api/jumbo/cart")
+    def jumbo_cart_get():
+        try:
+            return jsonify(jumbo.get_cart())
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.post("/api/jumbo/cart")
+    def jumbo_cart():
+        return store_cart(jumbo, jumbo_error, jumbo.JumboAuthError)
+
+    @app.post("/api/jumbo/explore")
+    def jumbo_explore_routes():
+        # Alleen de beheerder (auth.ADMIN_PATHS): meldt of Jumbo deze server toelaat en de vorm van de antwoorden.
+        return jsonify(jumbo_explore.explore())
 
     @app.post("/api/ah/auth")
     def ah_auth():

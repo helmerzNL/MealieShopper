@@ -505,7 +505,8 @@ class ProtocolTest(McpTestCase):
         tools = {t["name"]: t for t in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
         self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
-                             "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "list_picnic_delivery_slots"})
+                             "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries",
+                             "list_picnic_delivery_slots", "search_jumbo_products", "get_jumbo_basket"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)

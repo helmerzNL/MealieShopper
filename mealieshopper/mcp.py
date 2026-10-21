@@ -2,8 +2,8 @@
 
 Streamable HTTP, zonder sessies en zonder streams: elk JSON-RPC-verzoek is een POST dat direct een
 JSON-antwoord krijgt. De tools lezen (weekmenu, recepten zoeken, AH-lijstjes en -producten) en
-kunnen een recept in Mealie importeren. Er is bewust geen tool die het AH- of Picnic-mandje vult of
-iets verwijdert.
+kunnen een recept in Mealie importeren. Er is bewust geen tool die het AH-, Picnic- of Jumbo-mandje vult
+of iets verwijdert.
 
 Toegang loopt via OAuth (zie oauth.py). De server staat alleen aan als de app zelf inloggen
 vraagt, zodat de MCP-ingang nooit open staat op een installatie zonder beveiliging.
@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, mealie, picnic, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, mealie, picnic, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -215,6 +215,30 @@ def tool_picnic_basket(args: dict[str, Any]) -> Any:
     return picnic.get_cart()
 
 
+def _jumbo_linked() -> None:
+    if not jumbo.configured_refresh_token():
+        raise ToolError("Jumbo is niet gekoppeld. De beheerder koppelt het bij Beheer, Jumbo.")
+
+
+def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
+    query = _text(args.get("query"), 200)
+    if not query:
+        raise ToolError("Geef een zoekterm op")
+    _jumbo_linked()
+    limit = max(1, min(10, int(args.get("limit") or 5)))
+    return {
+        "products": [
+            {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus"), "url": item.get("url")}
+            for item in jumbo.search_products(query, limit)
+        ]
+    }
+
+
+def tool_jumbo_basket(args: dict[str, Any]) -> Any:
+    _jumbo_linked()
+    return jumbo.get_cart()
+
+
 def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
     _picnic_linked()
     return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
@@ -388,6 +412,21 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Picnic-bezorgmomenten"},
         "handler": tool_picnic_slots,
     },
+    "search_jumbo_products": {
+        "description": "Zoek producten in het assortiment van Jumbo: naam, inhoud, prijs, of er een aanbieding is en de link. Live opgehaald bij Jumbo.",
+        "inputSchema": _schema(
+            {"query": {"type": "string", "description": "Productnaam."}, "limit": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Aantal resultaten, standaard 5."}},
+            ["query"],
+        ),
+        "annotations": {**READ_ONLY, "title": "Jumbo-producten zoeken"},
+        "handler": tool_search_jumbo_products,
+    },
+    "get_jumbo_basket": {
+        "description": "Het winkelmandje bij Jumbo: producten, aantallen en totaal. Live opgehaald; er wordt niets aan veranderd.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Jumbo-mandje"},
+        "handler": tool_jumbo_basket,
+    },
     "get_ah_basket": {
         "description": "Het bestelmandje: de actieve bestelling bij Albert Heijn (producten, aantallen, totaal, gekozen bezorgmoment). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie. Niet de boodschappenlijst.",
         "inputSchema": _schema(),
@@ -503,11 +542,11 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "mealieshopper", "title": "MealieShopper", "version": _version()},
                 "instructions": (
-                    "MealieShopper koppelt Mealie aan Albert Heijn en Picnic. Gebruik de tools om het weekmenu, "
+                    "MealieShopper koppelt Mealie aan Albert Heijn, Picnic en Jumbo. Gebruik de tools om het weekmenu, "
                     "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
                     "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje, -leveringen en -bezorgmomenten "
-                    "live te bekijken en om een recept in Mealie te importeren. "
-                    "Het AH-mandje vullen kan niet via deze server, en het Picnic-mandje ook niet."
+                    "en Jumbo-producten en -mandje live te bekijken en om een recept in Mealie te importeren. "
+                    "Het AH-mandje vullen kan niet via deze server, en het Picnic- en Jumbo-mandje ook niet."
                 ),
             },
         }
