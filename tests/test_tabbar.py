@@ -54,21 +54,21 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_six_tabs_with_icon_long_and_short_label(self):
+    def test_seven_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["planner", "search", "url", "ah-items", "beheer", "about"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 6)
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["planner", "basket", "search", "url", "ah-items", "beheer", "about"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 7)
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Weekmenu", "Zoeken", "Importeren", "Winkels", "Beheer", "Over"])
+        self.assertEqual(short, ["Menu", "Mandje", "Zoeken", "Import", "Winkels", "Beheer", "Over"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "Winkels", "Beheer", "Over"])
+        self.assertEqual(long, ["Weekmenu naar winkel", "Mandje", "Recepten zoeken", "URL importeren", "Winkels", "Beheer", "Over"])
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiCart", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
@@ -121,7 +121,7 @@ class TabbarStyleTest(unittest.TestCase):
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(6", "border-radius: 32px",
+        for declaration in ("position: fixed", "grid-template-columns: repeat(7", "border-radius: 32px",
                             "bottom: max(12px, env(safe-area-inset-bottom))",
                             "left: max(12px, env(safe-area-inset-left))",
                             "right: max(12px, env(safe-area-inset-right))"):

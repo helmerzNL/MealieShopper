@@ -22,6 +22,23 @@ async function refreshJumboStatus() {
   renderStoreChoice();
 }
 
+// ---- Het Jumbo-mandje in het tabblad Mandje (alleen lezen)
+async function showJumboBasket() {
+  const cart = await jsonFetch("/api/jumbo/cart");
+  const items = cart.items || [];
+  const lines = items
+    .map((item) => {
+      const price = item.price ? escapeHtml(formatPrice(item.price)) : "";
+      return `<li class="basket-line"><span class="basket-title">${escapeHtml(item.title || "-")}</span><span class="basket-qty">${escapeHtml(item.quantity)}\u00d7</span><span class="basket-price">${price}</span><span></span></li>`;
+    })
+    .join("");
+  const total = cart.totalPrice ? `<p><strong>${escapeHtml(t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }))}</strong></p>` : "";
+  $("#basket-content").innerHTML = `
+    ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("basket.jumbo_empty"))}</p>`}
+    ${total}
+    <p class="muted">${escapeHtml(t("basket.jumbo_hint"))}</p>`;
+}
+
 async function checkJumboConnection() {
   message("#jumbo-status", t("ah.checking"), "success");
   try {
