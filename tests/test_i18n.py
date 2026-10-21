@@ -205,9 +205,25 @@ class PageTest(unittest.TestCase):
 
     def test_app_redraws_data_driven_parts_on_a_language_change(self):
         handler = SOURCES["app.js"][SOURCES["app.js"].index('addEventListener("ms:languagechange"'):]
-        for call in ("updateWeekLabel()", "renderMealPlan(", "renderSearchResults()", "renderAhLists()", "renderSavedRecipes()",
+        for call in ("updateWeekLabel()", "renderMealPlan(", "renderAhLists()", "renderSavedRecipes()",
                      "renderAuthState()", "refreshSavedRecipesStatus()"):
             self.assertIn(call, handler, call)
+
+    def test_recipe_results_redraw_themselves_on_a_language_change(self):
+        # app.js riep eens `renderSearchResults()` aan, een functie die niet meer bestaat: een ReferenceError die de
+        # rest van de luisteraar oversloeg. De receptenresultaten tekent recipe_search.js zelf opnieuw.
+        self.assertNotIn("renderSearchResults", JS)
+        handler = SOURCES["recipe_search.js"][SOURCES["recipe_search.js"].index('addEventListener("ms:languagechange"'):]
+        self.assertIn("SEARCH_STORES.forEach(renderSearchStore)", handler)
+
+    def test_languagechange_handler_in_app_only_calls_functions_that_exist(self):
+        handler = SOURCES["app.js"][SOURCES["app.js"].index('addEventListener("ms:languagechange"'):]
+        handler = handler[: handler.index("\n});")]
+        defined = set(re.findall(r"^(?:async\s+)?function\s+(\w+)\s*\(", JS, re.M))
+        guarded = set(re.findall(r'typeof (\w+) === "function"', handler))
+        for name in re.findall(r"(?<![.\w])((?:render|refresh|load|update)\w+)\(", handler):
+            if name not in guarded:
+                self.assertIn(name, defined, f"{name}() wordt aangeroepen maar bestaat nergens")
 
     def test_changing_language_mid_mfa_setup_does_not_restart_it(self):
         handler = SOURCES["onboarding.js"][SOURCES["onboarding.js"].index('addEventListener("ms:languagechange"'):]

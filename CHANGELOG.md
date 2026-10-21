@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.9.2
+
+*English summary: Fix: changing the language in the web interface threw `ReferenceError: renderSearchResults is not defined` in the browser console and skipped the rest of the redraw (login state, AH lists, saved recipes, About, status badges). The call referred to a function that no longer exists; the recipe results are already redrawn by `recipe_search.js` itself, so the call was removed. A test now fails if the language handler calls a function that does not exist.*
+
+### Opgelost in 2.9.2
+
+- **Van taal wisselen gaf een fout in de browser.** `app.js` riep bij een taalwissel `renderSearchResults()` aan, een functie die sinds het opsplitsen van het receptenzoeken niet meer bestaat. Dat gaf `ReferenceError: renderSearchResults is not defined` en de rest van de herberekening werd overgeslagen: de inlogstatus, de AH-lijstjes, de opgeslagen recepten, het tabblad Over en de statusbadges bleven in de oude taal staan tot je de pagina herlaadde. De aanroep is weggehaald: de receptenresultaten (Albert Heijn, Jumbo en Picnic) tekent `recipe_search.js` bij een taalwissel zelf opnieuw, met vertaalde knoppen en meta-teksten.
+- **Nieuwe test.** `tests/test_i18n.py` controleert nu dat `renderSearchResults` nergens meer voorkomt, dat `recipe_search.js` de resultaten zelf opnieuw tekent en dat de taalwissel-luisteraar in `app.js` alleen functies aanroept die bestaan. De oude controle eiste juist de aanroep `renderSearchResults()` en is aangepast.
+
 ## v2.9.1
 
 *English summary: Fix: the Albert Heijn basket in the Basket tab was empty because it showed the active web-shop order, while the weekly menu writes to your shopping list (what you see in the AH app). It now shows that shopping list and refreshes it when you open the tab.*

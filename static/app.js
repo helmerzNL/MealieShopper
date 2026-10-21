@@ -1789,10 +1789,10 @@ if (params.get("ah_error")) {
 }
 
 // Een andere taal: alles wat uit gegevens is opgebouwd opnieuw tekenen (de vaste teksten doet i18n.js).
+// De receptenresultaten tekent recipe_search.js zelf opnieuw met zijn eigen luisteraar.
 window.addEventListener("ms:languagechange", () => {
   updateWeekLabel();
   if (state.entries) renderMealPlan(state.entries);
-  renderSearchResults();
   renderAuthState();
   renderCredentials();
   renderAhLists();
