@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.51.1
+
+*English summary: The "Stores" menu under Settings no longer carries a fixed "Stores" title: its button shows the chosen store (Albert Heijn, Picnic or Jumbo), just like the store picker on the Stores page. The static-file version is raised so browsers load the new script.*
+
+### Aangepast in 2.51.1
+
+- **Beheer > Winkels zonder titel.** De knop van het winkelmenu onder Beheer toont niet meer de vaste titel *Winkels*, maar de gekozen winkel (*Albert Heijn*, *Picnic* of *Jumbo*), zodat de balk er hetzelfde uitziet als bij de winkelkeuze op de pagina **Winkels**. Voor schermlezers heet de knop nog steeds *Winkels*.
+
+### Goed om te weten
+
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
+- Pull requests: bouwt voort op #80 (winkels onder één menu bij Beheer) en #83 (winkelkeuze op Winkels).
+
 ## v2.51.0
 
 *English summary: The store picker on the Stores page is now the first drop-down menu in the sub-tab bar, styled like the "Stores" menu under Settings, instead of a separate select box above it. The button shows the chosen store; with only one linked store it stays hidden, as before. The static-file version is raised again so browsers load the new scripts and styles.*

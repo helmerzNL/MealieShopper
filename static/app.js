@@ -1639,6 +1639,8 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     const menu = subtab.closest(".subtab-menu");
     if (menu) {
       menu.querySelector(".subtab-menu__toggle").classList.add("is-active");
+      // Beheer > Winkels: de knop toont de gekozen winkel, zoals de winkelkeuze in Winkels.
+      if (menu.id === "beheer-stores-menu") $("#beheer-stores-name").textContent = subtab.textContent;
       setSubtabMenu(menu, false);
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
