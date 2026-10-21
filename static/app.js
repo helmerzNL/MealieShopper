@@ -647,25 +647,43 @@ function itemsStoreName() {
   return STORES[state.itemsStore].name;
 }
 
+// De winkels die in de tab Winkels te kiezen zijn: AH altijd, Jumbo en Picnic zodra ze gekoppeld zijn.
+function itemsStores() {
+  return ["ah", ...["jumbo", "picnic"].filter((key) => state.linkedStores[key])];
+}
+
+const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten"];
+
 function renderItemsStore() {
-  if (!state.linkedStores.jumbo) state.itemsStore = "ah";
+  const stores = itemsStores();
+  if (!stores.includes(state.itemsStore)) state.itemsStore = "ah";
   const slot = $("#items-store-slot");
   if (slot) {
-    slot.innerHTML = state.linkedStores.jumbo
-      ? `<select id="items-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-          <option value="ah"${state.itemsStore === "ah" ? " selected" : ""}>${STORES.ah.name}</option>
-          <option value="jumbo"${state.itemsStore === "jumbo" ? " selected" : ""}>${STORES.jumbo.name}</option>
-        </select>`
-      : "";
+    slot.innerHTML =
+      stores.length > 1
+        ? `<select id="items-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
+            ${stores.map((key) => `<option value="${key}"${state.itemsStore === key ? " selected" : ""}>${STORES[key].name}</option>`).join("")}
+          </select>`
+        : "";
     $("#items-store")?.addEventListener("change", (event) => switchItemsStore(event.target.value));
   }
-  document.querySelectorAll('[data-subtab="ah-items-recepten"]').forEach((button) => {
-    button.hidden = state.itemsStore !== "ah";
-  });
+  // AH heeft recepten, Jumbo niet; lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten en favorieten.
+  const picnic = state.itemsStore === "picnic";
+  const hide = (subtab, hidden) =>
+    document.querySelectorAll(`[data-subtab="${subtab}"]`).forEach((button) => {
+      button.hidden = hidden;
+    });
+  hide("ah-items-recepten", state.itemsStore !== "ah");
+  hide("ah-items-lijstjes", picnic);
+  hide("ah-items-bestellingen", picnic);
+  PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
+  // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
+  const open = document.querySelector("#ah-items .subtab.is-active");
+  if (open?.hidden) document.querySelector("#ah-items .subtab:not([hidden])")?.click();
 }
 
 function switchItemsStore(store) {
-  state.itemsStore = store === "jumbo" ? "jumbo" : "ah";
+  state.itemsStore = itemsStores().includes(store) ? store : "ah";
   // Een andere winkel heeft andere lijstjes: begin met een schone lijst en laad opnieuw.
   state.ahListsLoaded = false;
   state.ahLists = [];
@@ -676,9 +694,13 @@ function switchItemsStore(store) {
   renderAhLists();
   renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
-  // Jumbo heeft geen recepten: ga naar de lijstjes. Bij AH blijft de tab waar hij was.
+  // Een tab die bij de gekozen winkel niet bestaat, maakt plaats: Picnic begint bij de recepten, AH en Jumbo bij de
+  // lijstjes (Jumbo heeft geen recepten). Anders blijft de tab waar hij was.
   const active = document.querySelector("#ah-items .subtab.is-active");
-  if (state.itemsStore === "jumbo" && active?.dataset.subtab === "ah-items-recepten") {
+  const activeId = active?.dataset.subtab || "";
+  if (state.itemsStore === "picnic") {
+    if (!PICNIC_SUBTABS.includes(activeId)) document.querySelector('[data-subtab="ah-items-picnic"]').click();
+  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten")) {
     document.querySelector('[data-subtab="ah-items-lijstjes"]').click();
   } else if (document.querySelector("#ah-items-lijstjes.is-active")) {
     state.ahListsLoaded = true;
@@ -1619,6 +1641,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
+    if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

@@ -289,7 +289,8 @@
           <button class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes">AH Recepten</button>
           <button class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists">Lijstjes</button>
           <button class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders">Bestellingen</button>
-          <button class="subtab" data-subtab="ah-items-picnic" id="picnic-recipes-tab" hidden data-i18n="picnic.recipes.tab">Picnic-recepten</button>
+          <button class="subtab" data-subtab="ah-items-picnic" hidden data-i18n="picnic.recipes.tab">Recepten</button>
+          <button class="subtab" data-subtab="ah-items-picnic-favorieten" hidden data-i18n="picnic.favorites.tab">Favorieten</button>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -406,6 +407,24 @@
           </div>
           <div id="picnic-recipe-message"></div>
           <div id="picnic-recipe-body"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-picnic-favorieten" class="subpanel">
+        <div class="box box--wide">
+          <div class="toolbar">
+            <h2 data-i18n="picnic.favorites.title">Favorieten van Picnic</h2>
+            <button class="button button--secondary" id="load-picnic-favorites" type="button" data-i18n="common.load">Laden</button>
+          </div>
+          <label class="searchbar">
+            <span class="visually-hidden" data-i18n="picnic.favorites.search">Zoek in je favorieten</span>
+            <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
+            <input class="input" id="picnic-favorite-filter" type="search" placeholder="Zoek in je favorieten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:picnic.favorites.search">
+          </label>
+          <p class="muted" data-i18n="picnic.favorites.intro">De producten uit de tab Favorieten van de Picnic-app. Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" id="picnic-favorites-status"></p>
+          <div id="picnic-favorites-message"></div>
+          <div id="picnic-favorites" class="product-grid"></div>
         </div>
         </div>
       </section>
