@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.13.0
+
+*English summary: Settings has a new Updates tab with an update check. MealieShopper looks at GitHub for the latest release and compares it with the running version. When a newer version exists, the administrator gets a notice under the tab bar (with "View" and "Later"), a dot on the Settings tab and on Updates, and the Updates tab links to the release notes and says how to update. The answer is kept for six hours (or ask again with "Check now"), nothing about you or the installation is sent, and `MEALIESHOPPER_UPDATE_CHECK=false` turns it off.*
+
+### Nieuw in 1.13.0
+
+- **Updatecheck.** Bij **Beheer > Updates** staat welke versie er draait en wat de nieuwste release op GitHub is, met een knop **Nu controleren**, een link naar de release-notes en uitleg hoe je bijwerkt (nieuwste image ophalen en de container herstarten).
+- **Melding bij een nieuwe versie.** Is er een nieuwere release, dan krijgt de beheerder onder de tabbalk een melding met **Bekijken** (brengt je naar Beheer > Updates) en **Later** (verbergt de melding voor die versie; bij de volgende versie komt hij terug). Het bolletje bij **Beheer** en **Updates** blijft staan tot je bijwerkt. Gewone gebruikers zien niets.
+- **Rustig voor GitHub en voor je privacy.** De app vraagt alleen de laatste gepubliceerde release op, hooguit om de zes uur en met een rem op **Nu controleren**. Er gaat geen informatie over jou of de installatie mee. Is GitHub niet bereikbaar, dan staat er een melding en blijft een eerder gevonden update zichtbaar.
+
+### Goed om te weten
+
+- Uitzetten kan met de omgevingsvariabele `MEALIESHOPPER_UPDATE_CHECK=false` (zie de README); het tabblad zegt dan dat de check uit staat.
+- Alleen de beheerder ziet en gebruikt de updatecheck (`/api/update`).
+
 ## v1.12.0
 
 *English summary: There is a new Basket tab with a store list (Albert Heijn, Picnic, Jumbo, as far as linked). Picnic's basket moved here from the planner, with the quantity, remove and empty controls and the delivery slots; Jumbo's basket is shown read-only; the Albert Heijn order basket moved here from Stores > Orders (it still says "coming soon"). After filling a Picnic or Jumbo basket from the week menu, a "View basket" button takes you to the tab. The tab bar now has seven tabs, so two short Dutch labels got shorter ("Menu", "Import") to fit a phone.*

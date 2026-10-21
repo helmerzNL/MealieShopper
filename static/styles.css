@@ -289,6 +289,7 @@ h2 {
 
 .tab,
 .subtab {
+  position: relative;
   min-height: var(--control-height);
   padding: 0 16px;
   background: transparent;
@@ -2233,4 +2234,42 @@ body.has-onboarding {
   padding: 0 4px;
   background: #ffe97a;
   border-radius: 2px;
+}
+
+/* Updatecheck (Beheer > Updates): een bolletje bij de tab en een melding als er een nieuwe versie is */
+.update-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.message__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.message__actions .inline-button {
+  margin-top: 0;
+}
+
+.update-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 16px 0;
+}
+
+.update-facts dt {
+  color: var(--muted);
+}
+
+.update-facts dd {
+  margin: 0;
+  font-weight: 600;
 }

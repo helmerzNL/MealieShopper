@@ -327,6 +327,7 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres (voor de voorbeeldafbeelding, uitnodigingslinks en de AI-koppeling). Optioneel: de app herkent het zelf, en een adres dat de beheerder bij Beheer, AI-apps invult gaat voor. |
 | `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | Alleen voor passkeys, met een domeinnaam en HTTPS. |
 | `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Beheer, AI-apps gaat voor. |
+| `MEALIESHOPPER_UPDATE_CHECK` | Met `false` zet je de updatecheck uit (Beheer, Updates). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
 | `PASSKEY_AUTH_ENABLED` | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie via de omgeving; een koppeling uit de app gaat voor. |
 | `AH_REFRESH_TOKEN` | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |
@@ -345,6 +346,8 @@ docker compose pull && docker compose up -d
 ```
 
 Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf aangevuld. Bij Over zie je welke versie en commit er draait.
+
+**Updatecheck.** Onder **Beheer, Updates** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 ## Problemen oplossen
 

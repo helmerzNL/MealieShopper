@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -88,6 +88,15 @@ def create_app() -> Flask:
     @app.get("/api/about")
     def about_info():
         return jsonify(about.about())
+
+    # Alleen de beheerder: /api/update staat in auth.ADMIN_PREFIXES.
+    @app.get("/api/update")
+    def update_status():
+        return jsonify(updates.status())
+
+    @app.post("/api/update/check")
+    def update_check():
+        return jsonify(updates.status(force=True))
 
     @app.get("/api/mealplan")
     def mealplan():

@@ -193,6 +193,7 @@ function renderAuthState() {
   if (typeof renderSecurityPanel === "function") renderSecurityPanel();
   if (typeof renderInviteGate === "function") renderInviteGate();
   if (typeof applyRole === "function") applyRole();
+  if (typeof renderUpdate === "function") renderUpdate();
 }
 
 function formatCredentialDate(value) {
@@ -265,6 +266,7 @@ async function refreshAuthStatus() {
     refreshMealieStatus();
     if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
     if (typeof refreshJumboStatus === "function") refreshJumboStatus();
+    if (typeof startUpdateCheck === "function") startUpdateCheck();
   }
   return state.auth;
 }
@@ -1804,6 +1806,7 @@ window.addEventListener("ms:languagechange", () => {
   renderSavedRecipes();
   refreshSavedRecipesStatus();
   renderAbout();
+  if (typeof renderUpdate === "function") renderUpdate();
   if (typeof renderUsers === "function") renderUsers();
   if (typeof renderInviteGate === "function") renderInviteGate();
   if (state.auth?.authenticated || !state.auth?.enabled) {
