@@ -309,13 +309,13 @@ class RoutesTest(TempDataDirTest):
 
     def test_routes_read_the_copy_and_sync_talks_to_jumbo(self):
         self.assertEqual(self.client.get("/api/jumbo/orders").get_json(), {"syncedAt": None, "orders": []})
-        with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(6090770204)])), \
-                mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(6090770204, [line(1)]))):
+        with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(7000000001)])), \
+                mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(7000000001, [line(1)]))):
             synced = self.client.post("/api/jumbo/orders/sync")
         self.assertEqual((synced.status_code, synced.get_json()["orders"]), (200, 1))
         overview = self.client.get("/api/jumbo/orders").get_json()
-        self.assertEqual(overview["orders"][0]["id"], "6090770204")  # tekst: past niet altijd in een int van JavaScript-code
-        self.assertEqual(self.client.get("/api/jumbo/orders/6090770204").get_json()["items"][0]["productId"], "000001STK")
+        self.assertEqual(overview["orders"][0]["id"], "7000000001")  # het nummer blijft tekst
+        self.assertEqual(self.client.get("/api/jumbo/orders/7000000001").get_json()["items"][0]["productId"], "000001STK")
         self.assertEqual(self.client.get("/api/jumbo/orders/1").status_code, 404)
         self.assertEqual(self.client.get("/api/jumbo/purchases/search?q=kwark").get_json()["total"], 1)
 
@@ -349,16 +349,16 @@ class McpAndExplorerTest(TempDataDirTest):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
 
     def test_the_explorer_reports_shapes_without_personal_data(self):
-        listing = page([listed(6090770204)], receipts=2)
+        listing = page([listed(7000000001)], receipts=2)
         with mock.patch.object(jumbo, "_persisted_query", return_value=listing), \
-                mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(6090770204, [line(1)]))):
+                mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(7000000001, [line(1)]))):
             probes = {p["name"]: p for p in jumbo_explore.explore()["probes"]}
         orders_probe = probes["mijn bestellingen: opgeslagen query OnlineOrdersAndStoreReceipts"]
         self.assertTrue(orders_probe["ok"])
         self.assertEqual((orders_probe["info"]["bestellingen"], orders_probe["info"]["winkelbonnen volgens Jumbo"]), (1, 2))
         self.assertTrue(probes["een bestelling met producten: GetOrder"]["ok"])
         text = repr(probes)
-        for private in (STREET, CUSTOMER, RESERVATION, "6090770204", "Jumbo Kwark"):
+        for private in (STREET, CUSTOMER, RESERVATION, "7000000001", "Jumbo Kwark"):
             self.assertNotIn(private, text)
 
 
