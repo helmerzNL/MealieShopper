@@ -515,6 +515,7 @@ I18N.add("nl", {
   "sec.mfa.disable_action": "Tweestapsverificatie uitzetten",
   "sec.mfa.turned_off": "Tweestapsverificatie staat uit.",
   "lang.switch": "Taal",
+  "theme.dark": "Donkere modus",
   "mealie.checking_btn": "Controleren...",
   "saved.intro": "Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Beheer > Albert Heijn.",
   "sec.not_needed": "Niet nodig",

@@ -191,6 +191,10 @@ MealieShopper is a PWA: you can install it and it then opens without a browser b
 
 Installing only works over HTTPS (except on `localhost`). To look at the menu bar without installing, open `?tabbar=1` after the address on your phone (`?tabbar=0` turns it off again).
 
+### Dark and light
+
+Next to the flags is a button (moon or sun) that switches between the light and the dark theme. The choice is kept in your browser; without a choice the app follows your device setting.
+
 ### Language
 
 With the flags (top right, on the login page and in the setup guide) you switch between Dutch and English. The choice is kept in your browser; without a choice the app follows your browser language. What Mealie and Albert Heijn return themselves (recipe names, product names and their error messages) stays as they send it.

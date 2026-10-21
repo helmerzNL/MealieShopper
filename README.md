@@ -191,6 +191,10 @@ MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browse
 
 Installeren werkt alleen via HTTPS (behalve op `localhost`). Wil je de menubalk bekijken zonder te installeren, open dan `?tabbar=1` achter het adres op je telefoon (`?tabbar=0` zet hem weer uit).
 
+### Donker en licht
+
+Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en het donkere thema wisselt. De keuze blijft in je browser bewaard; zonder keuze volgt de app de instelling van je apparaat.
+
 ### Taal
 
 Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wissel je tussen Nederlands en Engels. De keuze blijft in je browser bewaard; zonder keuze volgt de app je browsertaal. Wat Mealie en Albert Heijn zelf teruggeven (receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.

@@ -24,6 +24,18 @@
         }
       })();
     </script>
+    <script>
+      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Staat hier in de kop,
+      // zodat de pagina niet eerst licht flitst. static/theme.js regelt de knop.
+      (function () {
+        var theme = null;
+        try { theme = window.localStorage.getItem("ms-theme"); } catch (e) { /* opslag geblokkeerd: het apparaat beslist */ }
+        if (theme !== "dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
     <title>MealieShopper</title>
     <meta name="description" content="Van recept naar geregeld. Je weekmenu, recepten en boodschappen bij elkaar.">
     <meta name="theme-color" content="#176B45">
@@ -69,10 +81,10 @@
     </svg>
     <section id="auth-gate" class="auth-gate" hidden>
       <div class="auth-card">
-        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+        <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div>
+        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
         <h2 id="auth-title" data-i18n="gate.title.login">Inloggen</h2>
         <p id="auth-description" class="muted"></p>
@@ -106,10 +118,10 @@
 
     <section id="invite-gate" class="auth-gate" hidden>
       <div class="auth-card">
-        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+        <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div>
+        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <img class="brand-mark brand-mark--large" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="64" height="64">
         <h2 id="invite-title" tabindex="-1"></h2>
         <p id="invite-description" class="muted"></p>
@@ -144,10 +156,10 @@
             <p class="onboarding__eyebrow" id="ob-eyebrow"></p>
             <h2 id="ob-title" tabindex="-1"></h2>
           </div>
-          <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+          <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div>
+        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         </header>
         <ol class="ob-progress" id="ob-progress" aria-label="Voortgang" data-i18n-attr="aria-label:ob.progress_label"></ol>
         <div id="ob-message" role="alert"></div>
@@ -164,10 +176,10 @@
             <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
           </div>
         </a>
-        <div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
+        <div class="switches"><div class="lang-switch" role="group" aria-label="Taal" data-i18n-attr="aria-label:lang.switch">
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
-        </div>
+        </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
         <div class="auth-chip" id="auth-chip" hidden>
           <span id="auth-chip-text"></span>
           <button type="button" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
@@ -761,6 +773,7 @@
     <script src="{{ url_for('static', filename='i18n.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='i18n/nl.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='i18n/en.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='theme.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='app.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>

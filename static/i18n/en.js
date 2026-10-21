@@ -515,6 +515,7 @@ I18N.add("en", {
   "sec.mfa.disable_action": "Turn off two-step verification",
   "sec.mfa.turned_off": "Two-step verification is off.",
   "lang.switch": "Language",
+  "theme.dark": "Dark mode",
   "mealie.checking_btn": "Checking...",
   "saved.intro": "Your saved Allerhande recipes are fetched from AH and then kept in MealieShopper. This uses your AH link under Settings > Albert Heijn.",
   "sec.not_needed": "Not needed",
