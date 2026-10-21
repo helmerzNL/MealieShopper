@@ -487,7 +487,7 @@ def create_app() -> Flask:
     def store_error(label: str, exc: Exception, *user_errors: type) -> Any:
         """Fouten van de gebruiker (400) apart van fouten van de winkel zelf (424)."""
         if isinstance(exc, (ValueError, *user_errors)):
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": f"{label} aanvraag ongeldig"}), 400
         app.logger.exception("%s error", label)
         return jsonify({"error": f"{label} fout"}), 424
 

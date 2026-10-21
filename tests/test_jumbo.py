@@ -155,6 +155,7 @@ class AccessTokenTest(TempDataDirTest):
         with mock.patch.object(jumbo.requests, "post", return_value=bad):
             result = jumbo.status(verify=True)
         self.assertEqual((result["connected"], result["verified"]), (True, False))
+        self.assertEqual(result["error"], "JumboAuthError")
         self.assertNotIn("secret-token", json.dumps(result))
 
     def test_status_without_link(self):
@@ -397,9 +398,7 @@ class JumboRoutesTest(TempDataDirTest):
         self.assertEqual(response.get_json()["error"], "Jumbo fout")
 
     def test_explorer_reports_error_type_without_exception_details(self):
-        report, _ = jumbo_explore._probe(
-            "test", mock.Mock(side_effect=RuntimeError("private response body")), include_error_message=False
-        )
+        report, _ = jumbo_explore._probe("test", mock.Mock(side_effect=RuntimeError("private response body")))
         self.assertEqual(report["error"], "RuntimeError")
 
     def test_preview_uses_jumbo_candidates(self):
