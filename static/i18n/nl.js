@@ -587,6 +587,7 @@ I18N.add("nl", {
   "picnic.favorites.search": "Zoek in je favorieten",
   "picnic.favorites.intro": "Alleen de producten die je zelf als favoriet hebt opgeslagen in de Picnic-app. Met de knop zet je er één in je Picnic-mandje; bestellen doe je in de Picnic-app.",
   "picnic.favorites.unknown": "Picnic geeft in de app-gegevens niet door welke producten je als favoriet hebt opgeslagen. De pagina bevat {count} producten, maar dat zijn niet jouw favorieten, dus ik toon ze niet.",
+  "picnic.favorites.checking": "Nog {count} producten controleren…",
   "picnic.favorites.count": "Aantal favorieten: {count}.",
   "picnic.favorites.none": "Je Picnic-favorieten zijn leeg.",
   "picnic.favorites.none_match": "Geen favoriet met \"{query}\".",

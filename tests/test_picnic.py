@@ -42,6 +42,7 @@ class TempDataDirTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         auth.init_db()
+        picnic.clear_favorites_cache()
 
 
 class SearchParsingTest(unittest.TestCase):
@@ -640,6 +641,59 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s1"], 3, True))
         self.assertEqual(asked, ["s1", "s2"])  # s3 staat onder een andere kop en wordt niet opgevraagd
 
+    def lazy_pages(self):
+        pages = {"favorites-root": self_page(self.heading("Favorieten"), *[pml_tile(tile(f"s{n}", f"P{n}", "1 st")) for n in range(1, 6)])}
+        for n in range(1, 6):
+            pages[f"product-details-page-root?id=s{n}"] = self.heart_page(f"s{n}", n in (2, 4))
+        return pages
+
+    def test_products_are_checked_lazily_in_steps_and_remembered(self):
+        asked = []
+        real = picnic.product_favorite_flag
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
+            first = picnic.get_favorites(budget=2)
+            self.assertEqual(([p["id"] for p in first["products"]], first["pending"], first["filtered"]), (["s2"], 3, True))
+            second = picnic.get_favorites(budget=2)
+            self.assertEqual(([p["id"] for p in second["products"]], second["pending"]), (["s2", "s4"], 1))
+            last = picnic.get_favorites(budget=2)
+            self.assertEqual(([p["id"] for p in last["products"]], last["pending"]), (["s2", "s4"], 0))
+            self.assertEqual(asked, ["s1", "s2", "s3", "s4", "s5"])  # elk product precies één keer opgevraagd
+            again = picnic.get_favorites()
+            self.assertEqual(([p["id"] for p in again["products"]], again["pending"]), (["s2", "s4"], 0))
+            self.assertEqual(len(asked), 5)
+
+    def test_refresh_forgets_what_was_known(self):
+        asked = []
+        real = picnic.product_favorite_flag
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
+            picnic.get_favorites()
+            picnic.get_favorites()
+            self.assertEqual(len(asked), 5)
+            picnic.get_favorites(refresh=True)
+            self.assertEqual(len(asked), 10)
+
+    def test_remembered_flags_expire(self):
+        asked = []
+        real = picnic.product_favorite_flag
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
+            picnic.get_favorites()
+            with mock.patch.object(picnic.time, "monotonic", return_value=picnic.time.monotonic() + picnic.FLAG_CACHE_SECONDS + 1):
+                picnic.get_favorites()
+        self.assertEqual(len(asked), 10)
+
+    def test_a_product_that_does_not_load_is_not_asked_again_right_away(self):
+        pages = {"favorites-root": self_page(self.heading("Favorieten"), pml_tile(tile("s1", "P1", "1 st")))}  # geen productpagina: 404
+        asked = []
+
+        def broken(product_id):
+            asked.append(product_id)
+            raise RuntimeError("404")
+        with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=broken):
+            first = picnic.get_favorites(budget=1)
+            second = picnic.get_favorites(budget=1)
+        self.assertEqual((first["products"], first["pending"], first["filtered"]), ([], 0, False))
+        self.assertEqual((second["filtered"], len(asked)), (False, 1))
+
     def test_without_a_favorites_heading_the_first_products_are_checked(self):
         pages = {"favorites-root": self_page(pml_tile(tile("s1", "Prei", "1 st")), pml_tile(tile("s2", "Melk", "1 l"))),
                  "product-details-page-root?id=s1": self.heart_page("s1", False),
@@ -668,8 +722,8 @@ class FavoritesTest(TempDataDirTest):
             with self.assertRaises(picnic.PicnicAuthError):
                 picnic.get_favorites()
 
-    def test_the_purchases_page_is_tried_when_the_tab_marks_nothing(self):
-        pages = {"favorites-root": search_page(tile("s1", "Melk", "1 l"), tile("s2", "Eieren", "10 stuks")),
+    def test_the_purchases_page_is_tried_when_the_tab_page_has_no_products(self):
+        pages = {"favorites-root": {"body": {"children": []}},
                  "purchases-page-root": self_page(pml_tile(tile("s3", "Kaas", "400 g"), True), pml_tile(tile("s4", "Ham", "100 g"), False))}
         with self.serve(pages):
             found = picnic.get_favorites()

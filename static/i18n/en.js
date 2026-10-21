@@ -587,6 +587,7 @@ I18N.add("en", {
   "picnic.favorites.search": "Search your favorites",
   "picnic.favorites.intro": "Only the products you saved as favorites yourself in the Picnic app. The button puts one in your Picnic basket; you order in the Picnic app.",
   "picnic.favorites.unknown": "Picnic doesn't tell us in the app data which products you saved as favorites. The page holds {count} products, but those aren't your favorites, so they are not shown.",
+  "picnic.favorites.checking": "Still checking {count} products…",
   "picnic.favorites.count": "Number of favorites: {count}.",
   "picnic.favorites.none": "Your Picnic favorites are empty.",
   "picnic.favorites.none_match": "No favorite matches \"{query}\".",
