@@ -41,6 +41,10 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic en Jumbo, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
 - **Bestellingen en kassabonnen.** Je AH-mandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel, bewaard in een eigen kopie zodat je ze ook zonder verbinding met AH kunt bekijken en doorzoeken ("wanneer kocht ik voor het laatst koffie?"). Ook je AI-assistent kan ze bevragen.
+- **Picnic en Jumbo onder Winkels.** Kies de winkel in het winkelmenu: bij Picnic je recepten, favorieten en bestellingen, bij Jumbo je lijstjes, bestellingen en receptenlijsten. Wat kan, bewaart MealieShopper als lokale kopie, met dezelfde knoppen als bij Albert Heijn.
+- **Installatiehulp.** Op de eerste start loop je in zes stappen langs de beveiliging en de koppelingen met Mealie, Albert Heijn, Jumbo en Picnic.
+- **Auditlog en updatecheck.** De beheerder ziet elk verzoek aan de winkels en van AI-assistenten (met export) en krijgt een melding als er een nieuwe versie is.
+- **Donker en licht.** Een knop naast de vlaggetjes wisselt van thema; zonder keuze volgt de app je apparaat.
 - **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
 - **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en Albert Heijn en beheert de gebruikers.
@@ -58,9 +62,39 @@ Laad je weekmenu uit Mealie. Het aantal verpakkingen wordt uitgerekend met de ve
 
 <img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
 
+### Naar Picnic of Jumbo
+
+Is Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke supermarkt het weekmenu gaat. De producten komen direct in het mandje van die winkel; **Mandje bekijken** brengt je naar het tabblad Mandje. Er wordt nooit een bestelling geplaatst.
+
+<img src="docs/screenshots/nl/plan-picnic.png" alt="Het weekmenu met de supermarktkeuze Picnic en de melding dat de boodschappen in het Picnic-mandje staan" width="900">
+
+### Mandje
+
+Eén tabblad voor je mandje bij elke gekoppelde winkel, te kiezen in de keuzelijst bovenaan. Bij Albert Heijn is dat de boodschappenlijst waar het weekmenu in schrijft.
+
+<img src="docs/screenshots/nl/basket.png" alt="Het tabblad Mandje met het AH-mandje: producten met aantal en prijs" width="900">
+
+Bij Picnic pas je aantallen aan, haal je producten weg of leeg je het mandje, en staan eronder wat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten. Jumbo toont het mandje alleen.
+
+<img src="docs/screenshots/nl/basket-picnic.png" alt="Het Picnic-mandje met plus- en minknoppen, het te betalen bedrag en de bezorgmomenten" width="900">
+
+<img src="docs/screenshots/nl/basket-jumbo.png" alt="Het Jumbo-mandje, alleen om te bekijken" width="900">
+
 ### Recepten zoeken
 
 <img src="docs/screenshots/nl/search.png" alt="Recepten zoeken bij Allerhande, met kaarten en een knop om te importeren" width="900">
+
+Zijn Jumbo en Picnic gekoppeld, dan zoek je in één keer in alle drie; de resultaten staan per winkel bij elkaar. Bij Jumbo en Picnic opent **Bekijken** het recept op dezelfde plek, met de ingrediënten en de bereiding.
+
+<img src="docs/screenshots/nl/search-stores.png" alt="Zoekresultaten van Jumbo met kaarten, tijd, personen en waardering" width="900">
+
+<img src="docs/screenshots/nl/search-detail.png" alt="Een Jumbo-recept met ingrediënten, bereiding en de knoppen Importeer en Bekijk op de site" width="900">
+
+### Winkels kiezen
+
+Onder **Winkels** staat het winkelmenu als eerste knop in de tabbalk. Het toont de gekozen winkel en klapt open met de gekoppelde winkels: Albert Heijn, Jumbo en Picnic. Met één gekoppelde winkel is het menu verborgen.
+
+<img src="docs/screenshots/nl/stores-menu.png" alt="Het uitgeklapte winkelmenu met Albert Heijn, Jumbo en Picnic" width="900">
 
 ### Winkels: je bewaarde AH-recepten
 
@@ -89,6 +123,42 @@ Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijv
 <img src="docs/screenshots/nl/receipt.png" alt="Een kassabon zoals op papier" width="900">
 
 <img src="docs/screenshots/nl/receipt-search.png" alt="Zoeken op product: de kassabonnen waarop het staat, met de passende regels" width="900">
+
+### Winkels: Picnic
+
+Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; open een recept voor de ingrediënten en de bereiding, of importeer het in Mealie.
+
+<img src="docs/screenshots/nl/picnic-recipes.png" alt="Picnic-recepten als kaarten, met een keuze tussen Bewaard, Opnieuw bestellen en Kookboek" width="900">
+
+**Favorieten** toont de producten die je in de Picnic-app als favoriet hebt gemarkeerd, met een knop om er één in je Picnic-mandje te zetten.
+
+<img src="docs/screenshots/nl/picnic-favorites.png" alt="Favoriete Picnic-producten met een knop In mandje per product" width="900">
+
+**Bestellingen** toont je aankomende bezorgingen (live opgehaald) en je afgeleverde bestellingen, die je met *Synchroniseren* lokaal bewaart. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje.
+
+<img src="docs/screenshots/nl/picnic-orders.png" alt="Picnic-bestellingen: aankomend en afgeleverd, met het synchroniseer-icoon" width="900">
+
+<img src="docs/screenshots/nl/picnic-order.png" alt="Een afgeleverde Picnic-bestelling met producten en de knop Alles in mandje" width="900">
+
+### Winkels: Jumbo
+
+Kies in het winkelmenu **Jumbo**. Je ziet je **lijstjes** (je eigen lijstjes, Favorieten en het boodschappenlijstje), je **bestellingen** en je **receptenlijsten**.
+
+<img src="docs/screenshots/nl/jumbo-lists.png" alt="Jumbo-lijstjes als kaarten: het boodschappenlijstje, eigen lijstjes en Favorieten" width="900">
+
+<img src="docs/screenshots/nl/jumbo-orders.png" alt="Afgeronde Jumbo-bestellingen met datum, bezorgtijd en totaal" width="900">
+
+Bij **Recepten** kies je Favorieten of een van je eigen lijstjes; `Bekijken` toont de ingrediënten, de bereiding en de voedingswaarden, en `Importeer` zet het recept in Mealie.
+
+<img src="docs/screenshots/nl/jumbo-recipes.png" alt="Receptenlijst bij Jumbo met een keuzelijst en kaarten" width="900">
+
+<img src="docs/screenshots/nl/jumbo-recipe.png" alt="Een Jumbo-recept met ingrediënten, bereiding, tip en voedingswaarden" width="900">
+
+### Donker thema
+
+Met de maan- of zonknop naast de vlaggetjes wissel je tussen licht en donker; zonder keuze volgt de app je apparaat.
+
+<img src="docs/screenshots/nl/dark.png" alt="Het weekmenu in het donkere thema" width="900">
 
 ## Snel starten
 
@@ -131,7 +201,7 @@ De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.loca
 
 ## Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Beheer**. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
 
 **1. Beveiliging.** De app kijkt hoe je hem opent.
 
@@ -156,7 +226,11 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 **4. Jumbo koppelen.** Werkt net als bij Albert Heijn: uitleg voor de inlog via de browserconsole, met de inlogknop en het plakveld meteen in de stap. Dit kan alleen op een computer; gebruik je Jumbo niet, dan sla je de stap over.
 
+<img src="docs/screenshots/nl/ob-jumbo.png" alt="Installatiehulp, stap 4: Jumbo koppelen" width="900">
+
 **5. Picnic koppelen.** Vul je e-mailadres en wachtwoord van Picnic in. Vraagt Picnic om een code, dan verschijnt er in dezelfde stap een veld voor; de code komt per sms (of per e-mail, via de knop eronder). Je wachtwoord wordt niet bewaard. Ook deze stap kun je overslaan.
+
+<img src="docs/screenshots/nl/ob-picnic.png" alt="Installatiehulp, stap 5: Picnic koppelen, met het veld voor de bevestigingscode" width="900">
 
 **6. Klaar.** Een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je terug naar die stap.
 
@@ -172,13 +246,17 @@ Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stu
 
 De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart ze in de database. Zo werkt het ook als je Mealie niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan Mealie.
 
+### Mandje
+
+Het tabblad **Mandje** toont het mandje van de winkel die je bovenaan kiest (Albert Heijn, Picnic en Jumbo, voor zover gekoppeld). Bij Albert Heijn is dat de boodschappenlijst waar het weekmenu in schrijft, uit een lokale kopie die je met **Synchroniseren** ververst. Bij Picnic pas je aantallen aan (met `−` en `+` of door te typen), haal je een product weg of leeg je het mandje na een bevestiging; dat gaat direct naar je echte mandje. Eronder staan het bedrag dat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten (kiezen doe je in de Picnic-app). Jumbo toont het mandje alleen. Na het vullen vanuit het weekmenu brengt **Mandje bekijken** je erheen.
+
 ### Recepten zoeken en importeren
 
 `Recepten zoeken` zoekt tegelijk bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) en **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Kies `Importeer` om een recept in Mealie te zetten, of bij Jumbo en Picnic `Bekijken` voor de ingrediënten en de bereiding. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
 
 ### Winkels
 
-Het tabblad **Winkels** (voorheen *AH Items*) laat per winkel zien wat MealieShopper bewaart. Is Jumbo gekoppeld, dan staat bovenaan een keuzelijst met **Albert Heijn** en **Jumbo**; bij Jumbo staan hier je receptenlijsten (zie *Jumbo*); alle Jumbo-recepten zoek je bij **Recepten zoeken**.
+Het tabblad **Winkels** (voorheen *AH Items*) laat per winkel zien wat MealieShopper bewaart. Is naast Albert Heijn ook Jumbo of Picnic gekoppeld, dan kies je de winkel in het uitklapmenu links in de tabbalk; de knop toont de gekozen winkel. Met alleen Albert Heijn is het menu er niet. Picnic heeft recepten, favorieten en bestellingen, Jumbo lijstjes, bestellingen en receptenlijsten (zie *Picnic* en *Jumbo*); alle Jumbo-recepten zoek je bij **Recepten zoeken**.
 
 - **AH Recepten**: je bewaarde Allerhande-recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt ze allemaal op en bewaart ze in MealieShopper. Het tabblad toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een vernieuwing, dan blijft de vorige kopie staan. Zoek bovenaan in je recepten.
 - **Lijstjes**: bij AH je favoriete lijstjes, bij Jumbo je eigen lijstjes, Favorieten en het boodschappenlijstje (zie *Jumbo*). Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Synchroniseren voegt nieuwe items toe en haalt weg wat bij AH is verdwenen, maar laat een aantal dat je hebt aangepast met rust (de melding zegt hoeveel aangepaste aantallen zijn behouden). Het oorspronkelijke aantal staat er als `Op lijstje: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH, nadat je een waarschuwing hebt bevestigd. `In mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
@@ -205,7 +283,13 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en Albert Heijn koppelen
 
-Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**.
+Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat bij **Winkels** een uitklapmenu met Albert Heijn, Picnic en Jumbo; de knop toont de gekozen winkel en je opent er de koppeling, de instellingen en de verkenner van die winkel. Mealie heeft een eigen tab. Alleen de beheerder ziet dit.
+
+<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte winkelmenu: Albert Heijn, Picnic en Jumbo" width="900">
+
+<img src="docs/screenshots/nl/settings-picnic.png" alt="Beheer, Winkels, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
+
+<img src="docs/screenshots/nl/settings-jumbo.png" alt="Beheer, Winkels, Jumbo: inloggen via de browserconsole" width="900">
 
 ### Mealie
 
@@ -305,9 +389,17 @@ MealieShopper heeft een [MCP](https://modelcontextprotocol.io)-server op `<adres
 | `list_ah_orders`, `get_ah_order` | Je bestellingen en de producten van één bestelling, uit de lokale kopie. |
 | `list_ah_receipts`, `get_ah_receipt` | Je kassabonnen uit de winkel en de regels van één bon. |
 | `search_ah_purchases` | Waar en wanneer je een product kocht, in alle bewaarde bestellingen en kassabonnen. |
+| `search_picnic_products`, `get_picnic_basket` | Picnic-producten zoeken en je Picnic-mandje, live opgehaald. |
+| `list_picnic_deliveries`, `get_picnic_delivery`, `list_picnic_delivery_slots` | Je Picnic-leveringen (ook de lopende), de producten van één levering en de eerstvolgende bezorgmomenten. |
+| `list_picnic_orders`, `get_picnic_order` | Je afgeleverde Picnic-bestellingen en hun producten, uit de lokale kopie. |
+| `list_picnic_favorites`, `list_picnic_recipes` | Je favoriete Picnic-producten en je Picnic-recepten (bewaard, kookboek of opnieuw bestellen). |
+| `search_jumbo_products`, `get_jumbo_basket` | Jumbo-producten zoeken en je Jumbo-mandje, live opgehaald. |
+| `list_jumbo_lists`, `get_jumbo_list` | Je Jumbo-lijstjes (boodschappenlijstje, eigen lijstjes, Favorieten) en de producten erin. |
+| `list_jumbo_orders`, `get_jumbo_order` | Je Jumbo-bestellingen en hun producten, uit de lokale kopie. |
+| `search_jumbo_recipes`, `get_jumbo_recipe`, `list_jumbo_recipe_lists`, `get_jumbo_recipe_list` | Jumbo-recepten zoeken en bekijken, en je receptenlijsten (Favorieten en eigen lijstjes). |
 | `import_recipe_to_mealie` | Een recept in Mealie importeren. Dit maakt iets nieuws aan en overschrijft niets. |
 
-Er is bewust **geen** tool die je AH-mandje vult of iets verwijdert.
+Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert.
 
 **Instellen**
 
@@ -353,6 +445,10 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 
 **Auditlog.** Onder **Beheer, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel, alleen fouten tonen en zoeken. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
 
+<img src="docs/screenshots/nl/audit.png" alt="Beheer, Auditlog: samenvatting per dienst, filters en de laatste verzoeken" width="900">
+
+<img src="docs/screenshots/nl/audit-detail.png" alt="Een geopende regel in de auditlog, met het verzoek en het antwoord" width="900">
+
 ## Data en back-ups
 
 Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, kopieën van je AH-lijstjes en -recepten, je bestelgeschiedenis en kassabonnen, plaatjes uit Mealie) en `secret.key`. **Neem de hele map mee in je back-ups.** Zonder `secret.key` (of je eigen `MEALIESHOPPER_AUTH_SECRET`) zijn de opgeslagen koppelingen en sessies onleesbaar: je koppelt Mealie en Albert Heijn dan opnieuw, en de app laat dat zien als "niet gekoppeld".
@@ -365,7 +461,11 @@ docker compose pull && docker compose up -d
 
 Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf aangevuld. Bij Over zie je welke versie en commit er draait.
 
+<img src="docs/screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
+
 **Updatecheck.** Onder **Beheer, Updates** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
+
+<img src="docs/screenshots/nl/updates.png" alt="Beheer, Updates: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
 
 ## Problemen oplossen
 
@@ -401,7 +501,7 @@ Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiligin
 python -m unittest discover -s tests          # alle tests
 ```
 
-- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
+- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
 - **Teksten en talen:** de interface staat in `static/i18n/nl.js` en `en.js`, één tekst per regel. In de HTML staat de Nederlandse tekst in de pagina, met `data-i18n="sleutel"`; in de scripts gebruik je `t("sleutel", { naam })`, `th(...)` (met opmaak, waarden ge-escaped) en `tn("sleutel", aantal)` (meervoud). Een taal toevoegen betekent een bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`. `tests/test_i18n.py` bewaakt dat beide woordenboeken gelijk zijn.
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
 - **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `main`: de workflow `.github/workflows/release.yml` maakt dan de tag en de GitHub release, met die tekst. Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`

@@ -41,6 +41,10 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your AH basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
+- **Picnic and Jumbo under Stores.** Choose the store in the store menu: at Picnic your recipes, favourites and orders, at Jumbo your lists, orders and recipe lists. Where possible MealieShopper keeps a local copy, with the same buttons as at Albert Heijn.
+- **Setup guide.** On the first start you go through security and the links with Mealie, Albert Heijn, Jumbo and Picnic in six steps.
+- **Audit log and update check.** The administrator sees every request to the stores and from AI assistants (with export) and gets a notice when a new version is available.
+- **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and Albert Heijn and manage the users.
@@ -58,9 +62,39 @@ Load your week menu from Mealie. The number of packs is calculated with the pack
 
 <img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient the product and the number of packs, with one marked line" width="900">
 
+### To Picnic or Jumbo
+
+If Picnic or Jumbo is linked, you choose next to the button which supermarket the week menu goes to. The products go straight into the basket at that store; **View basket** takes you to the Basket tab. An order is never placed.
+
+<img src="docs/screenshots/en/plan-picnic.png" alt="The week menu with the supermarket choice Picnic and the message that the groceries are in the Picnic basket" width="900">
+
+### Basket
+
+One tab for your basket at every linked store, chosen in the list at the top. At Albert Heijn that is the shopping list the week menu writes to.
+
+<img src="docs/screenshots/en/basket.png" alt="The Basket tab with the AH basket: products with quantity and price" width="900">
+
+At Picnic you change quantities, remove products or empty the basket, and below it you see what you pay, what your membership saves and the next available delivery slots. Jumbo shows the basket read-only.
+
+<img src="docs/screenshots/en/basket-picnic.png" alt="The Picnic basket with plus and minus buttons, the amount to pay and the delivery slots" width="900">
+
+<img src="docs/screenshots/en/basket-jumbo.png" alt="The Jumbo basket, read-only" width="900">
+
 ### Find recipes
 
 <img src="docs/screenshots/en/search.png" alt="Searching Allerhande recipes, with cards and an import button" width="900">
+
+If Jumbo and Picnic are linked, you search all three at once; the results are grouped per store. At Jumbo and Picnic, **View** opens the recipe in the same place, with the ingredients and the method.
+
+<img src="docs/screenshots/en/search-stores.png" alt="Jumbo search results with cards, time, servings and rating" width="900">
+
+<img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Import and View on the site buttons" width="900">
+
+### Choosing a store
+
+Under **Stores** the store menu is the first button in the tab bar. It shows the chosen store and opens with the linked stores: Albert Heijn, Jumbo and Picnic. With one linked store the menu is hidden.
+
+<img src="docs/screenshots/en/stores-menu.png" alt="The opened store menu with Albert Heijn, Jumbo and Picnic" width="900">
 
 ### Stores: your saved AH recipes
 
@@ -89,6 +123,42 @@ Your **receipts** from the shop, shown the way they look on paper: quantity, des
 <img src="docs/screenshots/en/receipt.png" alt="A receipt as it looks on paper" width="900">
 
 <img src="docs/screenshots/en/receipt-search.png" alt="Searching by product: the receipts it is on, with the matching lines" width="900">
+
+### Stores: Picnic
+
+Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; open a recipe for the ingredients and the method, or import it into Mealie.
+
+<img src="docs/screenshots/en/picnic-recipes.png" alt="Picnic recipes as cards, with a choice between Saved, Order again and Cookbook" width="900">
+
+**Favorites** shows the products you marked as favourite in the Picnic app, with a button to put one in your Picnic basket.
+
+<img src="docs/screenshots/en/picnic-favorites.png" alt="Favourite Picnic products with an Add to basket button per product" width="900">
+
+**Orders** shows your upcoming deliveries (fetched live) and your delivered orders, which you keep locally with *Sync*. Open an order for its products and put them in your Picnic basket again with one button.
+
+<img src="docs/screenshots/en/picnic-orders.png" alt="Picnic orders: upcoming and delivered, with the sync icon" width="900">
+
+<img src="docs/screenshots/en/picnic-order.png" alt="A delivered Picnic order with products and the Everything in basket button" width="900">
+
+### Stores: Jumbo
+
+Choose **Jumbo** in the store menu. You see your **lists** (your own lists, Favourites and the shopping list), your **orders** and your **recipe lists**.
+
+<img src="docs/screenshots/en/jumbo-lists.png" alt="Jumbo lists as cards: the shopping list, own lists and Favourites" width="900">
+
+<img src="docs/screenshots/en/jumbo-orders.png" alt="Completed Jumbo orders with date, delivery time and total" width="900">
+
+Under **Recipes** you choose Favourites or one of your own lists; `View` shows the ingredients, the method and the nutrition values, and `Import` puts the recipe in Mealie.
+
+<img src="docs/screenshots/en/jumbo-recipes.png" alt="Recipe list at Jumbo with a list picker and cards" width="900">
+
+<img src="docs/screenshots/en/jumbo-recipe.png" alt="A Jumbo recipe with ingredients, method, tip and nutrition values" width="900">
+
+### Dark theme
+
+The moon or sun button next to the flags switches between light and dark; without a choice the app follows your device.
+
+<img src="docs/screenshots/en/dark.png" alt="The week menu in the dark theme" width="900">
 
 ## Quick start
 
@@ -131,7 +201,7 @@ The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.loca
 
 ## First start
 
-On a new installation MealieShopper opens a six-step setup guide. An existing installation (with a passkey or password) does not see it.
+On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings**. An existing installation (with a passkey or password) does not see it.
 
 **1. Security.** The app looks at how you open it.
 
@@ -156,7 +226,11 @@ After the password you can turn on **two-step verification** with an authenticat
 
 **4. Link Jumbo.** Works just like Albert Heijn: instructions for logging in through the browser console, with the login button and the paste field right in the step. This only works on a computer; if you don't use Jumbo, skip the step.
 
+<img src="docs/screenshots/en/ob-jumbo.png" alt="Setup guide, step 4: linking Jumbo" width="900">
+
 **5. Link Picnic.** Enter your Picnic email address and password. If Picnic asks for a code, a field for it appears in the same step; the code arrives by text message (or by email, with the button below it). Your password is not stored. You can skip this step too.
+
+<img src="docs/screenshots/en/ob-picnic.png" alt="Setup guide, step 5: linking Picnic, with the field for the confirmation code" width="900">
 
 **6. Done.** An overview of what is set up. If a link is missing, a button takes you back to that step.
 
@@ -172,13 +246,17 @@ If the app is unsure somewhere (unknown pack size, weight against pieces, or mor
 
 MealieShopper fetches the pictures from Mealie itself with your API token and keeps them in the database. That way it also works when your Mealie can't be reached directly from your phone, and next time nothing is asked of Mealie.
 
+### Basket
+
+The **Basket** tab shows the basket of the store you choose at the top (Albert Heijn, Picnic and Jumbo, as far as linked). At Albert Heijn that is the shopping list the week menu writes to, from a local copy that you refresh with **Sync**. At Picnic you change quantities (with `−` and `+` or by typing), remove a product or empty the basket after a confirmation; that goes straight to your real basket. Below it are the amount you pay, what your membership saves and the next available delivery slots (you choose one in the Picnic app). Jumbo shows the basket read-only. After filling from the week menu, **View basket** takes you there.
+
 ### Searching and importing recipes
 
 `Find recipes` searches **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time. The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Choose `Import` to put a recipe in Mealie, or for Jumbo and Picnic `View` for the ingredients and the method. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
 ### Stores
 
-The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keeps. If Jumbo is linked, a list with **Albert Heijn** and **Jumbo** appears at the top; at Jumbo it shows your recipe lists (see *Jumbo*); you search all Jumbo recipes under **Find recipes**.
+The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keeps. If Jumbo or Picnic is linked next to Albert Heijn, you choose the store in the drop-down menu on the left of the tab bar; its button shows the chosen store. With only Albert Heijn the menu is not there. Picnic has recipes, favourites and orders, Jumbo lists, orders and recipe lists (see *Picnic* and *Jumbo*); you search all Jumbo recipes under **Find recipes**.
 
 - **AH Recipes**: your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
 - **Lists**: at AH your favourite lists, at Jumbo your own lists, Favourites and the shopping list (see *Jumbo*). With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `On list: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
@@ -205,7 +283,13 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and Albert Heijn
 
-This is also in the setup guide, and you can always do it later under **Settings**.
+This is also in the setup guide, and you can always do it later under **Settings**. There, **Stores** is a drop-down menu with Albert Heijn, Picnic and Jumbo; its button shows the chosen store and you open the link, the settings and the explorer of that store from it. Mealie has a tab of its own. Only the administrator sees this.
+
+<img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
+
+<img src="docs/screenshots/en/settings-picnic.png" alt="Settings, Stores, Picnic: logging in with email address and password" width="900">
+
+<img src="docs/screenshots/en/settings-jumbo.png" alt="Settings, Stores, Jumbo: logging in through the browser console" width="900">
 
 ### Mealie
 
@@ -305,9 +389,17 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 | `list_ah_orders`, `get_ah_order` | Your orders and the products of one order, from the local copy. |
 | `list_ah_receipts`, `get_ah_receipt` | Your receipts from the shop and the lines of one receipt. |
 | `search_ah_purchases` | Where and when you bought a product, in all kept orders and receipts. |
+| `search_picnic_products`, `get_picnic_basket` | Search Picnic products and your Picnic basket, fetched live. |
+| `list_picnic_deliveries`, `get_picnic_delivery`, `list_picnic_delivery_slots` | Your Picnic deliveries (including the current ones), the products of one delivery and the next delivery slots. |
+| `list_picnic_orders`, `get_picnic_order` | Your delivered Picnic orders and their products, from the local copy. |
+| `list_picnic_favorites`, `list_picnic_recipes` | Your favourite Picnic products and your Picnic recipes (saved, cookbook or order again). |
+| `search_jumbo_products`, `get_jumbo_basket` | Search Jumbo products and your Jumbo basket, fetched live. |
+| `list_jumbo_lists`, `get_jumbo_list` | Your Jumbo lists (shopping list, own lists, Favourites) and the products in them. |
+| `list_jumbo_orders`, `get_jumbo_order` | Your Jumbo orders and their products, from the local copy. |
+| `search_jumbo_recipes`, `get_jumbo_recipe`, `list_jumbo_recipe_lists`, `get_jumbo_recipe_list` | Search and view Jumbo recipes, and your recipe lists (Favourites and own lists). |
 | `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
 
-There is deliberately **no** tool that fills your AH basket or deletes anything.
+There is deliberately **no** tool that fills a basket at a store or deletes anything.
 
 **Setting up**
 
@@ -353,6 +445,10 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 **Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
 
+<img src="docs/screenshots/en/audit.png" alt="Settings, Audit log: summary per service, filters and the latest requests" width="900">
+
+<img src="docs/screenshots/en/audit-detail.png" alt="An opened entry in the audit log, with the request and the answer" width="900">
+
 ## Data and backups
 
 Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your AH lists and recipes, your order history and receipts, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and Albert Heijn again, and the app shows that as "not linked".
@@ -365,7 +461,11 @@ docker compose pull && docker compose up -d
 
 With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
 
+<img src="docs/screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
+
 **Update check.** Under **Settings, Updates** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
+
+<img src="docs/screenshots/en/updates.png" alt="Settings, Updates: the installed and the latest version, with the notice at the top" width="900">
 
 ## Troubleshooting
 
@@ -401,7 +501,7 @@ Then open the app: the setup guide appears again and you set up security anew. T
 python -m unittest discover -s tests          # all tests
 ```
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`: the workflow `.github/workflows/release.yml` then creates the tag and the GitHub release with that text. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
