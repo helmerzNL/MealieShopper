@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.14.7
+
+*English summary: The products of a Jumbo order should now come in. Jumbo's own error message from 1.14.6 showed that the order query expects the order number as a Float (`Variable "$orderId" of type "String!" used in position expecting type "Float!"`), so MealieShopper now asks for it that way first (a plain number). The other variants stay as a fallback. Tried only with mocked responses so far: sync again under Stores > Orders > Jumbo.*
+
+### Opgelost in 1.14.7
+
+- **Producten van Jumbo-bestellingen.** De foutmelding uit 1.14.6 liet zien dat Jumbo bij `order(orderId: …)` een `Float!` verwacht (*Variable "$orderId" of type "String!" used in position expecting type "Float!"*). Dat type en de naam `orderId` bleken dus goed, alleen het type niet. MealieShopper vraagt de bestelling nu eerst met een `Float!` (het nummer als gewoon getal); de andere varianten blijven als terugval. Synchroniseer opnieuw onder **Winkels > Bestellingen > Jumbo**; per keer komen de producten van de 25 nieuwste bestellingen die ze nog missen binnen.
+
 ## v1.14.6
 
 *English summary: When Jumbo refuses the requests for the products of an order, the sync message now says what Jumbo answered (with order numbers and ids removed) instead of only "RuntimeError", and the explorer shows the same. This is a diagnostic step: the products of an order still need Jumbo's own stored request (operationName, hash, variables) from the browser's Network tab.*

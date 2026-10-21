@@ -165,16 +165,32 @@ class OrderDetailTest(TempDataDirTest):
         self.assertTrue(all(operation == "GetOrder" for operation in ["GetOrder"]))
         self.assertEqual(len(attempts), tried + 1)  # de tweede keer meteen de werkende variant
 
+    def test_the_first_variant_is_the_one_jumbo_asked_for_a_float_sent_as_a_number(self):
+        seen = []
+
+        def fake(query, variables, operation, client):
+            seen.append((query, variables))
+            return {"order": order(5, [])}
+
+        with mock.patch.object(jumbo, "_graphql", side_effect=fake):
+            jumbo.get_order("5")
+        self.assertEqual(len(seen), 1)
+        self.assertIn("query GetOrder($orderId: Float!)", seen[0][0])
+        self.assertIn("order(orderId: $orderId)", seen[0][0])
+        self.assertEqual(seen[0][1], {"orderId": 5})
+
     def test_a_string_variant_sends_the_id_as_text(self):
         seen = []
 
         def fake(query, variables, operation, client):
             seen.append(variables)
+            if "$orderId: String!" not in query or "order(orderId:" not in query:
+                raise RuntimeError("400: nee")
             return {"order": order(5, [])}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
             jumbo.get_order("5")
-        self.assertEqual(seen, [{"orderId": "5"}])
+        self.assertEqual(seen[-1], {"orderId": "5"})
 
     def test_every_variant_failing_raises_the_last_error(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboSchemaError("nee")) as graphql:
@@ -184,11 +200,11 @@ class OrderDetailTest(TempDataDirTest):
 
     def test_the_refusal_names_what_jumbo_said_without_numbers_or_ids(self):
         refused = RuntimeError(f"400: invalid type for variable orderId 7000000001 customer {CUSTOMER}")
-        with mock.patch.object(jumbo, "_graphql", side_effect=[refused] * 4 + [RuntimeError("GraphQL: Persisted query required")] * 4):
+        with mock.patch.object(jumbo, "_graphql", side_effect=[refused] * 5 + [RuntimeError("GraphQL: Persisted query required")] * 5):
             with self.assertRaises(jumbo.JumboOrderDetailError) as caught:
                 jumbo.get_order("7000000001")
         message = str(caught.exception)
-        self.assertIn("8 varianten geweigerd", message)
+        self.assertIn("10 varianten geweigerd", message)
         self.assertIn("400: invalid type for variable orderId <nr> customer <id>", message)
         self.assertIn("Persisted query required", message)
         self.assertNotIn(CUSTOMER, message)
@@ -275,7 +291,7 @@ class LocalCopyTest(TempDataDirTest):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])), \
                 mock.patch.object(jumbo, "_graphql", side_effect=RuntimeError("400: Persisted query required")):
             result = jumbo_orders.sync_orders()
-        self.assertTrue(result["detailError"].startswith("JumboOrderDetailError: 8 varianten geweigerd"))
+        self.assertTrue(result["detailError"].startswith("JumboOrderDetailError: 10 varianten geweigerd"))
         self.assertIn("Persisted query required", result["detailError"])
 
     def test_it_gives_up_after_three_failures_in_a_row_when_nothing_works(self):
