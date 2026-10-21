@@ -120,7 +120,7 @@ def _save_order(conn, header: dict[str, Any], items: list[dict[str, Any]] | None
 
 
 def _error_name(exc: Exception) -> str:
-    """Het fouttype; bij een schemafout ook Jumbo's validatiemelding (alleen veld- en typenamen uit onze query)."""
+    """Het fouttype; bij een schemafout (ook van de bestelling-aanvraag) ook Jumbo's melding, zonder nummers of id's."""
     if isinstance(exc, jumbo.JumboSchemaError):
         return f"{type(exc).__name__}: {str(exc)[:200]}"
     return type(exc).__name__

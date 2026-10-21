@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.14.6
+
+*English summary: When Jumbo refuses the requests for the products of an order, the sync message now says what Jumbo answered (with order numbers and ids removed) instead of only "RuntimeError", and the explorer shows the same. This is a diagnostic step: the products of an order still need Jumbo's own stored request (operationName, hash, variables) from the browser's Network tab.*
+
+### Verbeterd in 1.14.6
+
+- **Duidelijke reden als de producten van Jumbo-bestellingen niet binnenkomen.** De melding na het synchroniseren zei alleen `RuntimeError`. Nu staat erin wat Jumbo antwoordde op de acht varianten van de aanvraag (bijvoorbeeld de HTTP-status en de foutmelding), met bestelnummers en id's weggehaald. **Jumbo-routes verkennen** toont dezelfde tekst bij de proef *een bestelling met producten*. De lijst met bestellingen werkt al; de producten wachten tot de opgeslagen aanvraag van de bestelpagina bekend is (`operationName`, hash en variabelen uit het tabblad Netwerk).
+
 ## v1.14.5
 
 *English summary: When the update check fails, the Updates tab and the server log now say why (for example "HTTP 403 (rate limit)", "Timeout" or "ConnectionError") instead of only "failed".*
