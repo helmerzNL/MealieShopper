@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.13.1
+
+*English summary: Picnic basket fixes, based on a real filled basket. The lines now add up to the total: a line with a discount shows the price without discount struck through and what you pay. Products that are not available right now are marked and a notice says they will not be delivered. The plus button and the quantity field stop at the maximum Picnic allows per product.*
+
+### Opgelost in 1.13.1
+
+- **Regelprijzen tellen op tot het totaal.** In het Picnic-mandje stond bij een aanbieding of lidmaatschapskorting de prijs zonder korting, waardoor de regels meer opleverden dan je totaal (bij het testmandje €35,90 tegen €35,03). Nu staat bij zo'n regel de prijs zonder korting doorgestreept en daarachter wat je betaalt. Dit geldt ook voor `get_picnic_basket` (veld `price`, en `listPrice` als er korting is).
+- **Waarschuwing bij niet-beschikbare producten.** Picnic meldt per product of het nu leverbaar is. Een product dat dat niet is, krijgt *Niet beschikbaar* achter de naam, en boven het mandje staat dat zulke producten niet worden bezorgd. Ook in `get_picnic_basket` (veld `available`).
+- **Maximum per product.** Elk product heeft een maximum per bestelling. De plus-knop en het aantalveld stoppen daar, en melden het als je er overheen typt. Zet je het via de route `PUT /api/picnic/cart/items/<product>` toch hoger, dan weigert MealieShopper dat voordat er iets in het mandje verandert. Veld `maxCount`.
+
+### Goed om te weten
+
+- De kortingsprijs is afgeleid uit de vorm van een echt gevuld mandje: Picnic geeft twee bedragen per regel en het lagere is wat je betaalt. Controleer na het bijwerken met je mandje dat de regels optellen tot het totaal.
+- Waarom een product niet beschikbaar is (uitverkocht, andere bezorgdag) meldt Picnic niet in het mandje.
+
 ## v1.13.0
 
 *English summary: Settings has a new Updates tab with an update check. MealieShopper looks at GitHub for the latest release and compares it with the running version. When a newer version exists, the administrator gets a notice under the tab bar (with "View" and "Later"), a dot on the Settings tab and on Updates, and the Updates tab links to the release notes and says how to update. The answer is kept for six hours (or ask again with "Check now"), nothing about you or the installation is sent, and `MEALIESHOPPER_UPDATE_CHECK=false` turns it off.*

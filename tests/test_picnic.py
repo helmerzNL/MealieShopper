@@ -249,6 +249,58 @@ def paths_and_bodies(call):
     return [(c.args[1].rsplit("/api/15", 1)[1], c.kwargs.get("json")) for c in call.call_args_list]
 
 
+class RealCartShapeTest(unittest.TestCase):
+    """De vorm van een gevuld mandje, zoals de verkenner hem meldde (veldnamen, geen echte waarden)."""
+
+    def line(self, pid, display_price, price, quantity=1, max_count=10):
+        return {"id": f"l{pid}", "display_price": display_price, "price": price, "type": "ORDER_LINE",
+                "decorators": [{"type": "PRICE", "display_price": display_price, "text": "x"}],
+                "items": [{"id": pid, "name": pid.upper(), "price": 100, "unit_quantity": "1 st", "max_count": max_count,
+                           "image_ids": ["i"], "decorators": [{"type": "QUANTITY", "quantity": quantity}]}]}
+
+    def cart(self):
+        return {"total_count": 3, "total_price": 480, "checkout_total_price": 480, "membership_savings": 70,
+                "analytics_context_data": {"items_list": [
+                    {"product_id": "s1", "is_available": True, "is_in_recipe": False, "quantity": 2},
+                    {"product_id": "s2", "is_available": False, "is_in_recipe": False, "quantity": 1}]},
+                "items": [self.line("s1", 300, 300, quantity=2, max_count=8), self.line("s2", 250, 180)]}
+
+    def test_the_paid_price_is_the_lower_one_and_the_other_is_the_list_price(self):
+        first, second = picnic.cart_summary(self.cart())["items"]
+        self.assertEqual((first["price"], first["listPrice"]), (3.0, None))
+        self.assertEqual((second["price"], second["listPrice"]), (1.8, 2.5))
+
+    def test_it_does_not_matter_which_field_holds_the_discount(self):
+        cart = self.cart()
+        cart["items"][1]["display_price"], cart["items"][1]["price"] = 180, 250
+        second = picnic.cart_summary(cart)["items"][1]
+        self.assertEqual((second["price"], second["listPrice"]), (1.8, 2.5))
+
+    def test_lines_add_up_to_the_total(self):
+        summary = picnic.cart_summary(self.cart())
+        self.assertAlmostEqual(sum(i["price"] for i in summary["items"]), summary["totalPrice"], places=2)
+
+    def test_availability_and_max_count_are_read(self):
+        first, second = picnic.cart_summary(self.cart())["items"]
+        self.assertEqual((first["available"], second["available"]), (True, False))
+        self.assertEqual((first["maxCount"], second["maxCount"]), (8, 10))
+
+    def test_unknown_availability_is_none_not_unavailable(self):
+        cart = self.cart()
+        del cart["analytics_context_data"]
+        self.assertEqual([i["available"] for i in picnic.cart_summary(cart)["items"]], [None, None])
+
+    def test_odd_values_do_not_crash(self):
+        cart = self.cart()
+        cart["items"][0]["price"] = "x"
+        cart["items"][1]["display_price"] = None
+        cart["items"][1]["price"] = None
+        cart["items"][0]["items"][0]["max_count"] = "veel"
+        cart["analytics_context_data"] = {"items_list": [None, {"product_id": "s1"}, "x"]}
+        items = picnic.cart_summary(cart)["items"]
+        self.assertEqual((items[0]["price"], items[1]["price"], items[0]["maxCount"]), (3.0, None, None))
+
+
 class CartEditingTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
@@ -273,6 +325,15 @@ class CartEditingTest(TempDataDirTest):
             cart = picnic.set_quantity("s1", 0)
         self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
         self.assertEqual(cart["items"], [])
+
+    def test_more_than_picnic_allows_is_refused_before_anything_is_added(self):
+        cart = cart_with(s1=2)
+        cart["items"][0]["items"][0]["max_count"] = 5
+        with mock.patch.object(picnic.requests, "request", return_value=response(cart)) as call:
+            with self.assertRaisesRegex(ValueError, "maximaal 5"):
+                picnic.set_quantity("s1", 6)
+            self.assertEqual(picnic.set_quantity("s1", 5)["items"][0]["id"], "s1")
+        self.assertNotIn("/cart/add_product", [p for p, _ in paths_and_bodies(call)][:1])
 
     def test_an_unchanged_quantity_changes_nothing(self):
         with mock.patch.object(picnic.requests, "request", return_value=response(cart_with(s1=2))) as call:
