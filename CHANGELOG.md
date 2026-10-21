@@ -10,6 +10,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Duidelijke meldingen bij Picnic en Jumbo.** Een geweigerde login, een onjuiste of verlopen code en een verlopen koppeling zeiden alleen nog "aanvraag ongeldig". Ze noemen nu weer wat er aan de hand is, bijvoorbeeld "controleer e-mailadres en wachtwoord".
 - **Het antwoord van de winkel zelf blijft uit beeld.** Die meldingen zijn teksten van MealieShopper. Wat Picnic of Jumbo zelf terugstuurt, gaat alleen naar het logboek; bij een storing zie je een algemene melding (`Picnic fout`).
+- **Jumbo stond niet meer in de supermarktkeuze van de planner.** Bij het samenvoegen van de Picnic- en Jumbo-wijzigingen was in `picnic.js` een oude `renderStoreChoice` teruggekomen die de nieuwe uit `app.js` overschreef (alleen AH en Picnic, en een gekozen Jumbo sprong terug naar AH). Die kopie is weg. Een nieuwe test (`test_static_scripts`) faalt voortaan als twee scripts dezelfde functie verschillend definiëren.
 - **Koppeling controleren bij Picnic** toont bij een verlopen koppeling de uitleg (opnieuw koppelen) en bij andere fouten alleen het soort fout.
 
 ## v1.8.0
