@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, mealie, picnic, picnic_recipes, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_recipes, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -293,6 +293,36 @@ def tool_jumbo_list(args: dict[str, Any]) -> Any:
     }
 
 
+def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
+    """Zoek in de recepten van Jumbo. Alleen lezen."""
+    _jumbo_linked()
+    query = _text(args.get("query"), 100)
+    if not query:
+        raise ToolError("Geef een zoekterm op")
+    found = jumbo_recipes.search(query)
+    limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 10)))
+    return {
+        "total": found["total"],
+        "recipes": [
+            {"id": r["id"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "rating": r["rating"], "url": r["url"]}
+            for r in found["recipes"][:limit]
+        ],
+    }
+
+
+def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
+    """Een Jumbo-recept met ingrediënten en bereiding. Alleen lezen; er wordt niets geïmporteerd."""
+    _jumbo_linked()
+    try:
+        recipe = jumbo_recipes.get_recipe(_text(args.get("recipe_id"), 30))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
+    return {key: recipe[key] for key in ("name", "description", "portions", "minutes", "url", "tip")} | {
+        "ingredients": [item["line"] for item in recipe["ingredients"]],
+        "steps": recipe["steps"],
+    }
+
+
 def tool_jumbo_basket(args: dict[str, Any]) -> Any:
     _jumbo_linked()
     return jumbo.get_cart()
@@ -545,6 +575,24 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": _schema({"list": {"type": "string", "description": "Id of (deel van) de naam van het lijstje, bijvoorbeeld 'Favorieten'. Standaard het boodschappenlijstje."}}),
         "annotations": {**READ_ONLY, "title": "Jumbo-lijstje"},
         "handler": tool_jumbo_list,
+    },
+    "search_jumbo_recipes": {
+        "description": "Zoek recepten bij Jumbo (naam, tijd, personen, waardering en link). Live opgehaald. Gebruik het id met get_jumbo_recipe.",
+        "inputSchema": _schema(
+            {
+                "query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'pasta'."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal recepten, standaard 10."},
+            },
+            ["query"],
+        ),
+        "annotations": {**READ_ONLY, "title": "Jumbo-recepten zoeken"},
+        "handler": tool_search_jumbo_recipes,
+    },
+    "get_jumbo_recipe": {
+        "description": "Een Jumbo-recept met ingrediënten en bereiding. Importeren in Mealie doe je in MealieShopper zelf.",
+        "inputSchema": _schema({"recipe_id": {"type": "string", "description": "Het id uit search_jumbo_recipes."}}, ["recipe_id"]),
+        "annotations": {**READ_ONLY, "title": "Jumbo-recept bekijken"},
+        "handler": tool_get_jumbo_recipe,
     },
     "list_jumbo_orders": {
         "description": "Jumbo-bestellingen uit de lokale kopie, nieuwste eerst, met datum, bezorgwijze, status en totaal (zonder adres). Gebruik het nummer met get_jumbo_order.",

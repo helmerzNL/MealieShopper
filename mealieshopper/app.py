@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_recipes, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_recipes, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -873,6 +873,42 @@ def create_app() -> Flask:
     @app.get("/api/jumbo/purchases/search")
     def jumbo_purchases_search():
         return jsonify(jumbo_orders.search_purchases(request.args.get("q") or ""))
+
+    # Recepten: zoekresultaten, één recept met ingrediënten en bereiding, en importeren in Mealie.
+
+    @app.get("/api/jumbo/recipes")
+    def jumbo_recipe_list():
+        # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
+        try:
+            return jsonify({**jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/recipes/<recipe_id>")
+    def jumbo_recipe_detail(recipe_id: str):
+        # Alleen lezen: één recept met ingrediënten en bereiding.
+        try:
+            return jsonify(jumbo_recipes.get_recipe(recipe_id))
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.post("/api/jumbo/recipes/<recipe_id>/import")
+    def jumbo_recipe_import(recipe_id: str):
+        # Zet het recept in Mealie, als schema.org Recipe met de link naar jumbo.com als bron.
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            recipe = jumbo_recipes.get_recipe(recipe_id)
+            slug = mealie.import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("Jumbo recipe import error")
+            if isinstance(exc, (ValueError, jumbo.JumboAuthError)):
+                return jumbo_error(exc)
+            # De melding van Mealie of Jumbo kan het antwoord van de dienst bevatten: alleen in het logboek.
+            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
 
     @app.post("/api/jumbo/explore")
     def jumbo_explore_routes():

@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from . import ah, auth
+from . import ah, auth, jumbo, jumbo_recipes
 
 log = logging.getLogger(__name__)
 
@@ -237,6 +237,15 @@ def import_from_url(url: str) -> str:
             return import_via_jsonld(url, ah.get_recipe_jsonld(recipe_id))
         except Exception as exc:  # noqa: BLE001 - val terug op de pagina-import
             errors.append(f"AH-API: {exc}")
+
+    # Jumbo-recepten ook via de API: jumbo.com weert servers, en zo komen ingrediënten en bereiding zeker mee.
+    jumbo_id = jumbo_recipes.recipe_id_from_url(url)
+    if jumbo_id and jumbo.configured_refresh_token():
+        try:
+            recipe = jumbo_recipes.get_recipe(jumbo_id)
+            return import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))
+        except Exception as exc:  # noqa: BLE001 - val terug op de pagina-import
+            errors.append(f"Jumbo-API: {exc}")
 
     try:
         return import_via_url(url)
