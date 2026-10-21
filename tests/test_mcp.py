@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, mcp, mealie, oauth  # noqa: E402
+from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, mcp, mealie, oauth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -506,7 +506,7 @@ class ProtocolTest(McpTestCase):
         self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries",
-                             "list_picnic_delivery_slots", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
+                             "list_picnic_delivery_slots", "list_picnic_recipes", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
@@ -591,6 +591,23 @@ class ToolsTest(McpTestCase):
         result = self.call(self.token, name, args)
         self.assertFalse(result["isError"], self.text(result))
         return json.loads(self.text(result))
+
+    def test_picnic_recipes_tool(self):
+        recipes = [{"id": f"r{n}", "name": f"Recept {n}"} for n in range(5)]
+        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
+                mock.patch.object(picnic, "get_recipes", return_value=recipes) as get:
+            default = self.data("list_picnic_recipes")
+            cookbook = self.data("list_picnic_recipes", {"source": "cookbook", "limit": 2})
+        self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
+        self.assertEqual((cookbook["source"], cookbook["total"], len(cookbook["recipes"])), ("cookbook", 5, 2))
+        self.assertEqual([c.args for c in get.call_args_list], [("saved",), ("cookbook",)])
+
+    def test_picnic_recipes_tool_refuses_unknown_sources_and_an_unlinked_account(self):
+        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
+                mock.patch.object(picnic, "get_recipes", side_effect=AssertionError("niet ophalen")):
+            self.assertTrue(self.call(self.token, "list_picnic_recipes", {"source": "boodschappen"})["isError"])
+        with mock.patch.object(picnic, "configured_auth_key", return_value=""):
+            self.assertTrue(self.call(self.token, "list_picnic_recipes")["isError"])
 
     def test_week_menu(self):
         entries = [

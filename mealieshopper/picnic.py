@@ -539,6 +539,46 @@ def clear_cart() -> dict[str, Any]:
     return {"removed": sum(item["quantity"] for item in before["items"]), "cart": cart}
 
 
+# --- recepten ---------------------------------------------------------------------------------
+# Picnic levert recepten als pagina's (een boom van onderdelen). Elk receptonderdeel heeft in zijn
+# analysegegevens `recipe_id` en `recipe_name`; daar lezen we de recepten uit.
+
+RECIPE_PAGES = {
+    "saved": "saved-deep-dive-page-content",  # de recepten die je in de app hebt opgeslagen
+    "cookbook": "cookbook-page-content",  # het kookboek met alle recepten van Picnic
+}
+
+
+def analytics_data(node: Any) -> list[dict[str, Any]]:
+    """De analysegegevens (`analytics.contexts[].data`) van een onderdeel van een pagina."""
+    analytics = node.get("analytics") if isinstance(node, dict) and isinstance(node.get("analytics"), dict) else {}
+    return [c["data"] for c in analytics.get("contexts") or [] if isinstance(c, dict) and isinstance(c.get("data"), dict)]
+
+
+def recipe_summaries(page: Any) -> list[dict[str, Any]]:
+    """De recepten (id en naam) uit een receptpagina van Picnic, zonder dubbelen en in paginavolgorde."""
+    seen: set[str] = set()
+    recipes: list[dict[str, Any]] = []
+    for node in _walk(page):
+        for data in analytics_data(node):
+            recipe_id, name = data.get("recipe_id"), data.get("recipe_name")
+            if isinstance(recipe_id, str) and recipe_id and isinstance(name, str) and name.strip() and recipe_id not in seen:
+                seen.add(recipe_id)
+                recipes.append({"id": recipe_id, "name": name.strip()})
+    return recipes
+
+
+def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
+    """Recepten van Picnic: `saved` (opgeslagen in de app) of `cookbook` (het kookboek)."""
+    source = str(source or "saved").strip().lower()
+    if source not in RECIPE_PAGES:
+        raise ValueError(tr("Onbekende bron voor recepten (kies saved of cookbook)", "Unknown recipe source (choose saved or cookbook)"))
+    page = _authed("GET", f"/pages/{RECIPE_PAGES[source]}", text=True)
+    if not isinstance(page, dict):
+        raise RuntimeError(tr("Picnic gaf de receptenpagina in een onbekend formaat", "Picnic returned the recipes page in an unknown format"))
+    return recipe_summaries(page)
+
+
 def _delivery_summary(delivery: dict[str, Any]) -> dict[str, Any]:
     slot = delivery.get("slot") if isinstance(delivery.get("slot"), dict) else {}
     eta = delivery.get("eta2") if isinstance(delivery.get("eta2"), dict) else {}

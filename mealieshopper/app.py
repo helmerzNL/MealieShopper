@@ -646,6 +646,15 @@ def create_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
+    @app.get("/api/picnic/recipes")
+    def picnic_recipes():
+        # Alleen lezen: de recepten van Picnic (opgeslagen of het kookboek), met id en naam.
+        source = (request.args.get("source") or "saved").strip().lower()
+        try:
+            return jsonify({"source": source, "recipes": picnic.get_recipes(source)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
     @app.get("/api/picnic/slots")
     def picnic_slots():
         # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.
