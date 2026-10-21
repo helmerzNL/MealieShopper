@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-13")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-14")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -694,7 +694,10 @@ def create_app() -> Flask:
     def picnic_recipe_list():
         # Alleen lezen: de recepten van Picnic (opgeslagen of het kookboek), met id en naam.
         source = (request.args.get("source") or "saved").strip().lower()
+        query = (request.args.get("q") or "").strip()
         try:
+            if query:  # zoeken in je bewaarde recepten en het kookboek, voor Recepten zoeken
+                return jsonify({"source": "search", **picnic_recipes.search(query)})
             return jsonify({"source": source, "recipes": picnic_recipes.get_recipes(source)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)

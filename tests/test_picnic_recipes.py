@@ -144,6 +144,53 @@ class SourcesTest(TempDataDirTest):
                 picnic_recipes.get_recipes("saved")
 
 
+class SearchTest(TempDataDirTest):
+    """Recepten zoeken: Picnic heeft geen zoekfunctie, dus we filteren je bewaarde recepten en het kookboek op naam."""
+
+    LISTS = {
+        "saved": [{"id": "r1", "name": "Romige pasta met zalm"}, {"id": "r2", "name": "Rode curry"}],
+        "cookbook": [{"id": "r1", "name": "Romige pasta met zalm"}, {"id": "r3", "name": "Pasta Pesto"}, {"id": "r4", "name": "Pâté met brood"}],
+    }
+
+    def test_all_words_must_be_in_the_name_without_accents_and_capitals_and_without_duplicates(self):
+        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=lambda source: self.LISTS[source]):
+            found = picnic_recipes.search("PASTA")
+            both = picnic_recipes.search("pasta zalm")
+            accents = picnic_recipes.search("pate")
+        self.assertEqual([r["id"] for r in found["recipes"]], ["r1", "r3"])  # r1 staat in beide lijsten, maar telt één keer
+        self.assertEqual(found["total"], 2)
+        self.assertEqual([r["id"] for r in both["recipes"]], ["r1"])
+        self.assertEqual([r["id"] for r in accents["recipes"]], ["r4"])
+
+    def test_an_empty_term_is_refused(self):
+        with self.assertRaises(ValueError):
+            picnic_recipes.search("   ")
+
+    def test_one_list_failing_still_searches_the_other_and_both_failing_is_an_error(self):
+        def only_cookbook(source):
+            if source == "saved":
+                raise RuntimeError("stuk")
+            return self.LISTS[source]
+
+        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=only_cookbook):
+            self.assertEqual([r["id"] for r in picnic_recipes.search("pesto")["recipes"]], ["r3"])
+        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=RuntimeError("stuk")):
+            with self.assertRaises(RuntimeError):
+                picnic_recipes.search("pesto")
+
+    def test_a_broken_link_is_not_hidden_behind_the_other_list(self):
+        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=picnic.PicnicAuthError("koppeling")) as get:
+            with self.assertRaises(picnic.PicnicAuthError):
+                picnic_recipes.search("pasta")
+        self.assertEqual(get.call_count, 1)
+
+    def test_the_route_searches_when_q_is_given(self):
+        client = create_app().test_client()
+        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=lambda source: self.LISTS[source]):
+            body = client.get("/api/picnic/recipes?q=pesto").get_json()
+        self.assertEqual((body["source"], body["total"], body["recipes"][0]["id"]), ("search", 1, "r3"))
+
+
 class DetailsTest(TempDataDirTest):
     def test_the_recipe_is_read_from_its_page(self):
         recipe = picnic_recipes.details(detail_page(), "r1")
