@@ -690,6 +690,18 @@ class FavoritesTest(TempDataDirTest):
         self.assertNotIn("Geheime", json.dumps(report))
         self.assertEqual(picnic_explore.saved_report({})["vorm van saved"], "komt niet voor")
 
+    def test_code_report_finds_addresses_and_favorite_code_and_redacts_ids(self):
+        from mealieshopper import picnic_explore
+        page = {"a": {"type": "EXPRESSION", "name": "onPressHeart12345", "expression": "toggleFavorite(sellable_id)"},
+                "b": {"type": "SUSPENSE", "id": "x", "url": "/api/15/favorites/s1000024"}, "c": {"state": {"saved": {}}},
+                "d": {"type": "RICH_TEXT", "markdown": "Geheime melk"}}
+        report = picnic_explore.code_report(page)
+        self.assertEqual(report["adressen en verzoeken"], ["url: /api/15/favorites/s<id>"])
+        self.assertIn("name: onPressHeart<id>", report["code over favorieten of opslaan"])
+        self.assertEqual(report["toestand (state)"], {"saved": {}})
+        self.assertNotIn("Geheime", json.dumps(report))
+        self.assertEqual(picnic_explore.code_report(None)["toestand (state)"], "leeg")
+
     def test_favorite_values_report_flags_and_shapes_but_no_texts(self):
         from mealieshopper import picnic_explore
         page = {"a": {"isFavorite": True, "favoriteTitle": "Melk van Anna"}, "b": {"isFavorite": False, "saved": {"x": 1}}}

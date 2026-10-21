@@ -135,6 +135,44 @@ def favorite_values(page: Any) -> dict[str, Any]:
     return {key: sorted(values)[:6] for key, values in sorted(found.items())}
 
 
+_CODE_KEYS = {"expression", "name", "callback", "actionType", "id", "type"}
+_CODE_WORD = re.compile(r"favou?rit|saved|purchase|heart|fetch|request|resource|endpoint|query|mutation|task|load", re.I)
+_ADDRESS_KEYS = {"url", "path", "endpoint", "resource", "uri", "href", "method", "query", "request", "mutation", "operation", "task"}
+
+
+def _redact(text: str) -> str:
+    return re.sub(r"[0-9a-f]{8,}|\d{3,}", "<id>", text)[:200]
+
+
+def code_report(page: Any) -> dict[str, Any]:
+    """Hoe een pagina haar gegevens ophaalt: de 'code' in de paginaboom, zonder persoonlijke waarden.
+
+    Een Picnic-pagina bevat naast onderdelen ook uitdrukkingen, acties en wachtonderdelen (`SUSPENSE`) die
+    gegevens elders ophalen. Daar zit de bron van de favorieten. We melden alleen de velden van dat soort onderdelen,
+    adressen en korte stukjes code over favorieten of opslaan, met getallen en id's vervangen door `<id>`.
+    """
+    code: set[str] = set()
+    addresses: set[str] = set()
+    suspense: list[Any] = []
+    states: list[Any] = []
+    for node in picnic._walk(page):
+        for key, value in node.items():
+            if isinstance(value, str) and key in _ADDRESS_KEYS:
+                addresses.add(f"{key}: {_redact(value)}")
+            elif isinstance(value, str) and key in _CODE_KEYS and _CODE_WORD.search(value):
+                code.add(f"{key}: {_redact(value)}")
+        if node.get("type") == "SUSPENSE" and len(suspense) < 3:
+            suspense.append(shape(node))
+        if isinstance(node.get("state"), dict) and node["state"]:
+            states.append(shape(node["state"]))
+    return {
+        "adressen en verzoeken": sorted(addresses)[:30],
+        "code over favorieten of opslaan": sorted(code)[:40],
+        "wachtonderdelen (SUSPENSE)": suspense,
+        "toestand (state)": _union(states) if states else "leeg",
+    }
+
+
 def saved_report(page: dict[str, Any]) -> dict[str, Any]:
     """Hoe de pagina markeert welke producten favoriet zijn: de vorm van het veld `saved` en wat we ervan maken."""
     values = [node["saved"] for node in picnic._walk(page) if "saved" in node]
@@ -309,6 +347,17 @@ def explore() -> dict[str, Any]:
             probes.append(report)
             if isinstance(purchases, dict):
                 probes.append({"name": f"favorieten: de markering `saved` op {page_id}", "ok": True, "info": saved_report(purchases)})
+        for page_id in (reference, "purchases-page-root", "purchased-deep-dive-page-content", "meals-purchase-page-root"):
+            report, code_page = _probe(f"favorieten: hoe {page_id} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), code_report)
+            probes.append(report)
+        first_product = next(iter(picnic.products_from_page(favorites_page)), None) if isinstance(favorites_page, dict) else None
+        if first_product:
+            for name, page_id in (
+                ("de bevestiging bij een favoriet weghalen", f"unfavorite-confirmation-dialog,presentation-mode=MODAL_OVER_CONTEXT,sellable_id={first_product['id']}"),
+                ("een productpagina", f"product-details-page-root?id={first_product['id']}"),
+            ):
+                report, code_page = _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
+                probes.append(report)
         for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
             report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
                                     lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
