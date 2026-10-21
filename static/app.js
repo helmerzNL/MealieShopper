@@ -1,8 +1,6 @@
 const state = {
   weekOffset: 0,
   entries: null,
-  searchPage: 0,
-  searchQuery: "",
   auth: null,
   credentials: [],
   ahListsLoaded: false,
@@ -653,7 +651,6 @@ function itemsStores() {
 }
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten"];
-const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 
 function renderItemsStore() {
   const stores = itemsStores();
@@ -668,7 +665,7 @@ function renderItemsStore() {
         : "";
     $("#items-store")?.addEventListener("change", (event) => switchItemsStore(event.target.value));
   }
-  // AH en Jumbo hebben recepten (elk een eigen tabblad); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten en favorieten.
+  // AH heeft recepten, Jumbo niet (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten en favorieten.
   const picnic = state.itemsStore === "picnic";
   const hide = (subtab, hidden) =>
     document.querySelectorAll(`[data-subtab="${subtab}"]`).forEach((button) => {
@@ -678,7 +675,6 @@ function renderItemsStore() {
   hide("ah-items-lijstjes", picnic);
   hide("ah-items-bestellingen", picnic);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
-  JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
   if (open?.hidden) document.querySelector("#ah-items .subtab:not([hidden])")?.click();
@@ -697,12 +693,12 @@ function switchItemsStore(store) {
   renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
   // Een tab die bij de gekozen winkel niet bestaat, maakt plaats: Picnic begint bij de recepten, AH en Jumbo bij de
-  // lijstjes (Jumbo heeft zijn recepten in een eigen tabblad). Anders blijft de tab waar hij was.
+  // lijstjes (Jumbo heeft geen recepten in deze tab). Anders blijft de tab waar hij was.
   const active = document.querySelector("#ah-items .subtab.is-active");
   const activeId = active?.dataset.subtab || "";
   if (state.itemsStore === "picnic") {
     if (!PICNIC_SUBTABS.includes(activeId)) document.querySelector('[data-subtab="ah-items-picnic"]').click();
-  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten") || (state.itemsStore !== "jumbo" && JUMBO_SUBTABS.includes(activeId))) {
+  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten")) {
     document.querySelector('[data-subtab="ah-items-lijstjes"]').click();
   } else if (document.querySelector("#ah-items-lijstjes.is-active")) {
     state.ahListsLoaded = true;
@@ -898,34 +894,6 @@ async function addToCart() {
   }
 }
 
-async function searchRecipes(page = 0) {
-  const query = $("#recipe-query").value.trim();
-  if (!query) return;
-  state.searchQuery = query;
-  state.searchPage = page;
-  message("#search-message", "");
-  $("#recipe-results").innerHTML = "";
-  try {
-    state.searchData = await jsonFetch(`/api/ah/search?q=${encodeURIComponent(query)}&page=${page}`);
-    renderSearchResults();
-  } catch (error) {
-    message("#search-message", error.message);
-  }
-}
-
-function renderSearchResults() {
-  const data = state.searchData;
-  if (!data) return;
-  const total = Number(data.total);
-  $("#search-count").textContent = tn("search.count", total, { limit: total > 2000 ? t("search.limit") : "" });
-  $("#recipe-results").innerHTML = (data.recipes || []).map(renderRecipeCard).join("");
-  $("#prev-page").hidden = state.searchPage === 0;
-  $("#next-page").hidden = !(data.hasNextPage ?? total > (state.searchPage + 1) * 12);
-  document.querySelectorAll("#recipe-results [data-import-url]").forEach((button) => {
-    button.addEventListener("click", () => importUrl(button.dataset.importUrl, button));
-  });
-}
-
 function renderRecipeCard(recipe) {
   const ahUrl = `https://www.ah.nl${recipe.webPath}`;
   const imageUrl = recipe.images?.[0]?.url;
@@ -942,6 +910,7 @@ function renderRecipeCard(recipe) {
         <button class="button" data-import-url="${escapeHtml(ahUrl)}">${escapeHtml(t("recipe.import"))}</button>
         <a href="${escapeHtml(ahUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t("recipe.open_ah"))}</a>
       </div>
+      <div class="recipe-import-result"></div>
     </article>
   `;
 }
@@ -1644,7 +1613,6 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
-    if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof focusJumboRecipeSearch === "function") focusJumboRecipeSearch();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();
@@ -1709,12 +1677,6 @@ $("#next-week").addEventListener("click", () => {
   updateWeekLabel();
 });
 $("#load-plan").addEventListener("click", loadMealPlan);
-$("#search-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  searchRecipes(0);
-});
-$("#prev-page").addEventListener("click", () => searchRecipes(state.searchPage - 1));
-$("#next-page").addEventListener("click", () => searchRecipes(state.searchPage + 1));
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());

@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.8.0
+
+*English summary: "Find recipes" now searches Albert Heijn, Jumbo and Picnic at the same time (Jumbo and Picnic as soon as they are linked). Results are grouped per store, with "More recipes" for AH and Jumbo; a failing store leaves the others in place. For Jumbo and Picnic, "View" opens the recipe in the same tab with ingredients and method, and "Import" puts it in Mealie. Picnic has no recipe search, so MealieShopper filters your saved recipes and the cookbook by name. The separate Jumbo search under Stores > Recipes from 2.7.0 moved here, and AH results now show the result of an import under the card.*
+
+### Verbeterd in 2.8.0
+
+- **Recepten zoeken bij AH, Jumbo en Picnic tegelijk.** Eén zoekveld; de resultaten staan per winkel bij elkaar. Jumbo en Picnic doen mee zodra ze gekoppeld zijn. Een winkel die niet antwoordt of een fout geeft, laat de andere resultaten staan, met de melding bij die winkel.
+- **Meer recepten.** In plaats van Vorige en Volgende laden AH en Jumbo de volgende pagina onder de resultaten die er al staan (`Meer recepten`).
+- **Bekijken en importeren bij Jumbo en Picnic.** `Bekijken` opent het recept in hetzelfde tabblad met ingrediënten, bereiding en (bij Jumbo) tip en voedingswaarden; `Importeer` zet het in Mealie.
+- **Picnic doorzoeken op naam.** Picnic heeft geen zoekfunctie voor recepten; MealieShopper filtert je bewaarde recepten en het kookboek op de woorden uit je zoekopdracht (accenten en hoofdletters tellen niet).
+- **Het Jumbo-zoekveld uit 2.7.0 is verplaatst** van Winkels > Recepten naar Recepten zoeken. Bij AH verschijnt het resultaat van een import nu onder de kaart.
+
 ## v2.7.0
 
 *English summary: Jumbo recipes are in MealieShopper. Under Stores > Recipes (choose Jumbo) you search all recipes of jumbo.com, open one to see the ingredients, method, tip and nutrition values, and import it into Mealie as a schema.org recipe (with the jumbo.com link as its source). Pasting a jumbo.com recipe link into the importer also goes through the Jumbo API when Jumbo is linked. Two read-only MCP tools (search_jumbo_recipes, get_jumbo_recipe) and explorer probes were added. Your own recipe lists (Favourites and custom lists) are not shown yet: Jumbo's request that returns the recipes of one list is still needed. Built from the real answers of jumbo.com (getRecipe, getRecipesListers, getRecipeLists) but tried only with mocked responses so far.*
