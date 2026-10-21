@@ -332,8 +332,16 @@ def explore() -> dict[str, Any]:
         ("leveringen: POST deliveries/summary", "/deliveries/summary", "POST", []),
         ("lopende leveringen: POST deliveries/summary [CURRENT]", "/deliveries/summary", "POST", ["CURRENT"]),
     ):
-        report, _ = _probe(name, lambda m=method, p=path, b=body: picnic._authed(m, p, body=b))
+        report, result = _probe(name, lambda m=method, p=path, b=body: picnic._authed(m, p, body=b))
         probes.append(report)
+        if path == "/deliveries/summary" and body == [] and isinstance(result, list):
+            delivery_ids = [picnic._delivery_summary(d)["id"] for d in result if isinstance(d, dict)]
+            probes.append({"name": "bestellingen: aantal leveringen in het overzicht", "ok": True, "info": {"aantal": len(result)}})
+            # Met een eerste levering kijken we ook hoe één bestelling eruitziet (de producten zitten daarin).
+            first_id = next((str(i) for i in delivery_ids if i and picnic._DELIVERY_ID.match(str(i))), None)
+            if first_id:
+                detail_report, _ = _probe("bestelling: GET deliveries/<id> (de eerste levering)", lambda i=first_id: picnic._authed("GET", f"/deliveries/{i}"))
+                probes.append(detail_report)
 
     # Routes die we nog niet gebruiken maar uit de community-libraries kennen. Zo zie je welke
     # uitbreidingen mogelijk zijn zonder dat er iets wordt gewijzigd.

@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_recipes, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-13")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-15")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -623,6 +623,36 @@ def create_app() -> Flask:
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    # Afgeleverde bestellingen: lezen uit de lokale kopie, synchroniseren bij Picnic. De ids zijn tekst (leveringsnummers).
+
+    @app.get("/api/picnic/orders")
+    def picnic_orders_list():
+        return jsonify(picnic_orders.list_orders())
+
+    @app.get("/api/picnic/orders/<order_id>")
+    def picnic_order_detail(order_id: str):
+        order = picnic_orders.get_order(order_id)
+        if not order:
+            return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
+        return jsonify(order)
+
+    @app.post("/api/picnic/orders/sync")
+    def picnic_orders_sync():
+        try:
+            return jsonify(picnic_orders.sync_orders())
+        except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
+            return picnic_error(exc)
+
+    @app.get("/api/picnic/deliveries/<delivery_id>")
+    def picnic_delivery(delivery_id: str):
+        # Alleen lezen: één levering met haar producten.
+        try:
+            return jsonify(picnic.get_delivery(delivery_id))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
