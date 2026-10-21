@@ -182,7 +182,8 @@ def get_basket() -> dict[str, Any]:
 
 
 def sync_basket() -> dict[str, Any]:
-    save_basket(ah.get_active_order())
+    """Bewaar het AH-mandje: de boodschappenlijst waar het weekmenu in schrijft (niet de actieve bestelling)."""
+    save_basket(ah.get_shopping_list())
     return get_basket()
 
 
@@ -232,17 +233,14 @@ def _forget_order(conn, order_id: int) -> None:
 
 
 def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
-    """Alle afgeronde bestellingen, nieuwste eerst, bladerend met `offset` (AH geeft er per keer 10).
+    """Alle afgeronde bestellingen, nieuwste eerst, bladerend met `offset` (AH geeft er per keer 10 en telt de offset in rijen).
 
-    Of `offset` rijen of pagina's telt is niet bekend: na de eerste pagina proberen we eerst de rij-offset en geeft die niets
-    nieuws, dan paginanummer 1. Het bladeren stopt als een pagina niets nieuws geeft (einde, of AH negeert de offset) en
-    zodra alles op een pagina al is bewaard of geannuleerd: oudere bestellingen zijn dan ook al binnen. Een mislukte
-    pagina houdt het gevondene.
+    Het bladeren stopt als een pagina niets nieuws geeft (einde, of AH negeert de offset) en zodra alles op een pagina al is
+    bewaard of geannuleerd: oudere bestellingen zijn dan ook al binnen. Een mislukte pagina houdt het gevondene.
     """
     found: list[dict[str, Any]] = []
     seen: set[int] = set()
     offset = 0
-    mode = None  # "rows" of "pages", zodra duidelijk
     for _ in range(MAX_CLOSED_PAGES):
         try:
             page = ah.get_closed_fulfillments(offset)
@@ -250,17 +248,12 @@ def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
             break
         new = [order for order in page if order["id"] not in seen]
         if not new:
-            if mode is None and offset > 1:
-                offset, mode = 1, "pages"  # de rij-offset gaf niets: misschien telt AH pagina's
-                continue
             break
-        if mode is None and offset:
-            mode = "rows" if offset > 1 else "pages"
         found.extend(new)
         seen.update(order["id"] for order in new)
         if all(order["id"] in complete or order.get("deliveryStatus") == "CANCELLED" for order in new):
             break
-        offset += 1 if mode == "pages" else len(page)
+        offset += len(page)
     return found
 
 

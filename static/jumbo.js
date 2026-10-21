@@ -129,8 +129,32 @@ $("#jumbo-explore-copy").addEventListener("click", async (event) => {
   setTimeout(() => (event.currentTarget.textContent = t("users.copy")), 2000);
 });
 
-// ---- Je favoriete recepten bij Jumbo (tab Winkels > Recepten): per pagina, openen en importeren
-const jumboFavorites = { recipes: [], total: 0, page: 0, hasNext: false, loaded: false };
+// ---- Je receptenlijsten bij Jumbo (tab Winkels > Recepten): Favorieten en eigen lijstjes, per pagina, openen en importeren
+const jumboFavorites = { lists: [], listsLoaded: false, recipes: [], total: 0, page: 0, hasNext: false, loaded: false };
+
+function renderJumboRecipeLists() {
+  const select = $("#jumbo-recipe-list");
+  const keep = select.value;
+  select.innerHTML = jumboFavorites.lists
+    .map((list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(`${list.name} (${I18N.formatNumber(list.count)})`)}</option>`)
+    .join("");
+  if (jumboFavorites.lists.some((list) => list.id === keep)) select.value = keep;
+  select.hidden = jumboFavorites.lists.length < 2; // met alleen Favorieten valt er niets te kiezen
+}
+
+async function loadJumboRecipeLists() {
+  try {
+    jumboFavorites.lists = (await jsonFetch("/api/jumbo/recipe-lists")).lists || [];
+  } catch {
+    jumboFavorites.lists = []; // het overzicht lukt niet: toon alleen je Favorieten
+  }
+  jumboFavorites.listsLoaded = true;
+  renderJumboRecipeLists();
+}
+
+function currentJumboRecipeList() {
+  return jumboFavorites.lists.find((list) => list.id === $("#jumbo-recipe-list").value);
+}
 
 function renderJumboFavorites() {
   const data = jumboFavorites;
@@ -144,9 +168,13 @@ async function loadJumboFavorites(append = false) {
   const button = append ? $("#jumbo-favorites-more") : $("#load-jumbo-favorites");
   setBusy(button, true);
   message("#jumbo-favorites-message", "");
+  if (!jumboFavorites.listsLoaded) await loadJumboRecipeLists();
   const page = append ? jumboFavorites.page + 1 : 1;
+  const list = currentJumboRecipeList();
+  // Favorieten hebben hun eigen aanvraag; een eigen lijstje wordt op id gevraagd.
+  const url = list && list.kind !== "favorites" ? `/api/jumbo/recipe-lists/${encodeURIComponent(list.id)}?page=${page}` : `/api/jumbo/favorite-recipes?page=${page}`;
   try {
-    const answer = await jsonFetch(`/api/jumbo/favorite-recipes?page=${page}`);
+    const answer = await jsonFetch(url);
     const known = new Set(append ? jumboFavorites.recipes.map((recipe) => String(recipe.id)) : []);
     const fresh = (answer.recipes || []).filter((recipe) => !known.has(String(recipe.id)));
     jumboFavorites.recipes = append ? [...jumboFavorites.recipes, ...fresh] : fresh;
@@ -166,6 +194,7 @@ async function loadJumboFavorites(append = false) {
   }
 }
 
+$("#jumbo-recipe-list").addEventListener("change", () => loadJumboFavorites(false));
 $("#load-jumbo-favorites").addEventListener("click", () => loadJumboFavorites(false));
 $("#jumbo-favorites-more").addEventListener("click", () => loadJumboFavorites(true));
 $("#jumbo-recipe-back").addEventListener("click", () => showRecipeList(FAVORITES_HOST));
@@ -180,5 +209,6 @@ window.addEventListener("ms:languagechange", () => {
   renderJumboStatus();
   renderStoreChoice();
   renderJumboExploreSummary();
+  if (jumboFavorites.listsLoaded) renderJumboRecipeLists();
   if (jumboFavorites.loaded) renderJumboFavorites();
 });

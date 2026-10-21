@@ -206,6 +206,56 @@ class ListTest(TempDataDirTest):
             jumbo_recipes.get_favorites(0)
         self.assertEqual([c.args[1]["page"] for c in query.call_args_list], [1, 1])  # een slechte pagina wordt de eerste
 
+    def test_an_own_list_is_asked_by_id_and_read_wherever_the_cards_sit(self):
+        own = {"recipeList": {"id": "639d928592257300137bcad7", "title": "Kerst", "description": "", "type": "CATEGORY", "totalRecipes": 2, "__typename": "RecipeListV2", "items": {
+            "paginationInfo": {"pageSize": 24, "currentPage": 1, "totalPages": 1, "totalSize": 2, "hasPreviousPage": False, "hasNextPage": False, "__typename": "PagePaginationInfo"},
+            "recipeListItems": [{"recipe": dict(card("700001", "Een"), labels=[{"label": "kerst", "relativeUrl": "/recepten/kerst"}]), "__typename": "RecipeListItem"},
+                                {"recipe": card("700002", "Twee"), "__typename": "RecipeListItem"}]}}}
+        with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
+            found = jumbo_recipes.get_list_recipes("639d928592257300137bcad7", "3")
+        self.assertEqual(query.call_args.args, ("getRecipeListById", {"listId": "639d928592257300137bcad7", "itemsInput": {"page": 3, "size": 24}}))
+        self.assertEqual(jumbo.PERSISTED_QUERIES["getRecipeListById"], "ce93016895c6c68fb4c70ee182a773b7e3402a4f14a61f5e0c5bbb8019b97587")
+        self.assertEqual((found["total"], found["page"], found["hasNext"], [r["id"] for r in found["recipes"]]), (2, 3, False, ["700001", "700002"]))
+        # zonder paginationInfo: het totaal van het lijstje zelf, anders het aantal gevonden recepten
+        bare = {"x": {"totalRecipes": 9, "items": [{"recipe": card("700001", "Een")}]}}
+        with mock.patch.object(jumbo, "_persisted_query", return_value=bare):
+            self.assertEqual(jumbo_recipes.get_list_recipes("abc")["total"], 9)
+        with mock.patch.object(jumbo, "_persisted_query", return_value={"x": [{"recipe": card("700001", "Een")}]}):
+            self.assertEqual(jumbo_recipes.get_list_recipes("abc")["total"], 1)
+        with mock.patch.object(jumbo, "_persisted_query") as query:
+            for bad in ("", "a b", "x;y", "z" * 70):
+                with self.assertRaises(ValueError):
+                    jumbo_recipes.get_list_recipes(bad)
+        query.assert_not_called()
+
+    LISTS = [{"id": "61308753ccf27832bfe2ed55", "name": "Favorieten", "kind": "favorites", "count": 75},
+             {"id": "63e68c068089d600134305cb", "name": "Dit willen we vaker eten!", "kind": "own", "count": 14},
+             {"id": "639d928592257300137bcad7", "name": "Kerst", "kind": "own", "count": 2}]
+
+    def test_a_list_is_found_by_id_or_name_and_favourites_are_the_default(self):
+        with mock.patch.object(jumbo_recipes, "get_lists", return_value=self.LISTS):
+            self.assertEqual(jumbo_recipes.resolve_list("")["name"], "Favorieten")
+            self.assertEqual(jumbo_recipes.resolve_list(None)["name"], "Favorieten")
+            self.assertEqual(jumbo_recipes.resolve_list("kerst")["id"], "639d928592257300137bcad7")
+            self.assertEqual(jumbo_recipes.resolve_list("639d928592257300137bcad7")["name"], "Kerst")
+            self.assertEqual(jumbo_recipes.resolve_list("vaker eten")["name"], "Dit willen we vaker eten!")
+            with self.assertRaises(ValueError) as nothing:
+                jumbo_recipes.resolve_list("zomer")
+            self.assertIn("Kerst", str(nothing.exception))
+        with mock.patch.object(jumbo_recipes, "get_lists", return_value=self.LISTS + [{"id": "x", "name": "Kerst 2", "kind": "own", "count": 1}]):
+            with self.assertRaises(ValueError) as several:
+                jumbo_recipes.resolve_list("kerst")
+            self.assertIn("Welke lijst", str(several.exception))
+        with mock.patch.object(jumbo_recipes, "get_lists", return_value=[]):
+            with self.assertRaises(ValueError):
+                jumbo_recipes.resolve_list("")
+
+    def test_favourites_use_their_own_request_and_other_lists_the_list_request(self):
+        with mock.patch.object(jumbo_recipes, "get_favorites", return_value={"x": 1}) as fav, mock.patch.object(jumbo_recipes, "get_list_recipes", return_value={"x": 2}) as own:
+            self.assertEqual(jumbo_recipes.get_recipes_of(self.LISTS[0], 2), {"x": 1})
+            self.assertEqual(jumbo_recipes.get_recipes_of(self.LISTS[2], 3), {"x": 2})
+        self.assertEqual((fav.call_args.args, own.call_args.args), ((2,), ("639d928592257300137bcad7", 3)))
+
     def test_a_missing_list_is_an_empty_page(self):
         for answer in ({}, {"recipeListsV2": None}, {"recipeListsV2": {"items": []}}):
             with mock.patch.object(jumbo, "_persisted_query", return_value=answer):
@@ -250,6 +300,19 @@ class RoutesTest(TempDataDirTest):
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
             self.assertEqual(self.client.get("/api/jumbo/favorite-recipes").status_code, 424)
 
+    def test_the_list_routes(self):
+        with mock.patch.object(jumbo_recipes, "get_lists", return_value=ListTest.LISTS):
+            lists = self.client.get("/api/jumbo/recipe-lists").get_json()["lists"]
+        self.assertEqual([item["name"] for item in lists], ["Favorieten", "Dit willen we vaker eten!", "Kerst"])
+        own = {"x": {"items": {"paginationInfo": {"totalSize": 2, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}}
+        with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
+            body = self.client.get("/api/jumbo/recipe-lists/639d928592257300137bcad7?page=1").get_json()
+        self.assertEqual(query.call_args.args[0], "getRecipeListById")
+        self.assertEqual((body["total"], body["pageSize"], body["recipes"][0]["id"]), (2, 24, "700001"))
+        self.assertEqual(self.client.get("/api/jumbo/recipe-lists/a%20b").status_code, 400)
+        with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
+            self.assertEqual(self.client.get("/api/jumbo/recipe-lists/abc").status_code, 424)
+
     def test_errors_are_clear(self):
         self.assertEqual(self.client.get("/api/jumbo/recipes/niet%20geldig").status_code, 400)
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
@@ -291,11 +354,20 @@ class McpAndExplorerTest(TempDataDirTest):
         self.assertEqual((found["total"], [r["id"] for r in found["recipes"]]), (9, ["1001249"]))
         with self.assertRaises(mcp.ToolError):
             mcp.tool_search_jumbo_recipes({})
-        favourites = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 5, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}]}}
-        with mock.patch.object(jumbo, "_persisted_query", return_value=favourites):
-            mine = mcp.tool_jumbo_favorite_recipes({"page": 1})
-        self.assertEqual((mine["total"], mine["hasNext"], [r["id"] for r in mine["recipes"]]), (5, False, ["700001"]))
-        self.assertTrue(mcp.TOOLS["list_jumbo_favorite_recipes"]["annotations"]["readOnlyHint"])
+        with mock.patch.object(jumbo_recipes, "get_lists", return_value=ListTest.LISTS):
+            self.assertEqual([item["name"] for item in mcp.tool_list_jumbo_recipe_lists({})["lists"]], ["Favorieten", "Dit willen we vaker eten!", "Kerst"])
+            own = {"x": {"items": {"paginationInfo": {"totalSize": 2, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}}
+            with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
+                kerst = mcp.tool_get_jumbo_recipe_list({"list": "Kerst"})
+            self.assertEqual((query.call_args.args[0], kerst["list"], kerst["total"], [r["id"] for r in kerst["recipes"]]), ("getRecipeListById", "Kerst", 2, ["700001"]))
+            favourites = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 5, "hasNextPage": True}, "recipeListItems": [{"recipe": card("700003", "Drie")}]}}]}}
+            with mock.patch.object(jumbo, "_persisted_query", return_value=favourites) as query:
+                mine = mcp.tool_get_jumbo_recipe_list({"page": 1})
+            self.assertEqual((query.call_args.args[0], mine["list"], mine["hasNext"]), ("FavoriteRecipes", "Favorieten", True))
+            with self.assertRaises(mcp.ToolError):
+                mcp.tool_get_jumbo_recipe_list({"list": "zomer"})
+        for name in ("list_jumbo_recipe_lists", "get_jumbo_recipe_list"):
+            self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}):
             recipe = mcp.tool_get_jumbo_recipe({"recipe_id": "700001"})
         self.assertEqual(recipe["ingredients"][0], "2 Uien")
@@ -313,17 +385,21 @@ class McpAndExplorerTest(TempDataDirTest):
                 return {"recipes": [card("700001", "Geheime titel")]}
             if operation == "getRecipesListers":
                 return search_answer([card("700001", "Geheime titel")], total=3)
+            if operation == "getRecipeListById":
+                return {"x": {"items": {"paginationInfo": {"totalSize": 2, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Geheime titel")}]}}}
             if operation == "FavoriteRecipes":
                 return {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 9, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Geheime titel")}]}}]}}
-            return {"favouriteLists": {"items": [{"id": "l1", "title": "Geheime lijst", "totalRecipes": 5, "type": "FAVORITE_LIST"}]}}
+            return {"favouriteLists": {"items": [{"id": "l1", "title": "Geheime lijst", "totalRecipes": 5, "type": "FAVORITE_LIST"}]},
+                    "customerLists": {"items": [{"id": "l2", "title": "Geheime eigen lijst", "totalRecipes": 2, "type": "CATEGORY"}]}}
 
         with mock.patch.object(jumbo, "_persisted_query", side_effect=answer):
             probes = {p["name"]: p for p in jumbo_explore.explore()["probes"] if "recept" in p["name"]}
-        self.assertEqual(len(probes), 5)
+        self.assertEqual(len(probes), 6)
         self.assertTrue(all(p["ok"] for p in probes.values()), probes)
         self.assertEqual(probes["recepten zoeken: opgeslagen query getRecipesListers"]["info"]["recepten in totaal"], 3)
         self.assertNotIn("Geheime titel", repr(probes))
         self.assertNotIn("Geheime lijst", repr(probes))
+        self.assertNotIn("Geheime eigen lijst", repr(probes))
         self.assertNotIn("Romige pasta", repr(probes))
 
 

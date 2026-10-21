@@ -2,11 +2,11 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.10.0
+## v2.11.0
 
 *English summary: New Settings > Audit log (administrator only). It records every request MealieShopper makes to Albert Heijn, Picnic and Jumbo (method, address, status, duration, request and answer) and every request an AI assistant makes over MCP (tool, input, result), including the steps where an assistant links up. A store request made while an MCP tool runs is linked to that tool call, so you can see exactly what an assistant's question caused. Filter by store or errors, search, open an entry for details, export (JSON or CSV) or copy entries, clear the log. Passwords, tokens, codes, cookies and e-mail addresses are replaced by "[verborgen]" before storing; headers are never stored; entries are deleted after 30 days. Four optional settings: MEALIESHOPPER_AUDIT_LOG, _BODIES, _BODY_CHARS and _RETENTION_DAYS.*
 
-### Nieuw in 2.10.0
+### Nieuw in 2.11.0
 
 - **Auditlog.** Onder **Beheer > Auditlog** (alleen de beheerder) staat het verkeer met Albert Heijn, Picnic en Jumbo: elk verzoek met tijd, methode en adres, uitkomst, duur, het verzoek en het antwoord. Een GraphQL-verzoek aan Jumbo of AH heet naar zijn operatie (bijvoorbeeld *GraphQL FavoriteRecipes*). Fouten en netwerkstoringen staan er ook in, en een doorverwijzing telt als één verzoek.
 - **MCP-verzoeken van AI-assistenten.** Elk `initialize`, `tools/list` en `tools/call` komt in de log, met de app (bijvoorbeeld *Claude*) en gebruiker erachter, de ingevoerde argumenten en het resultaat. Ook geweigerde verzoeken (geen of ongeldig token, te groot, onbekend protocol) en de OAuth-stappen waarmee een assistent koppelt staan erin; van die stappen bewaren we nooit de tokens.
@@ -22,6 +22,40 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Antwoorden kunnen persoonlijke gegevens bevatten**, zoals je bestellingen. Alleen de beheerder ziet de log, en na 30 dagen worden regels gewist. Wil je dat niet, zet dan `MEALIESHOPPER_AUDIT_BODIES=false`.
 - Verkeer met Mealie en GitHub (de updatecheck) staat bewust niet in de log. Van de AH-loginproxy bewaren we alleen de pagina's, geen stijlen, scripts of inhoud.
 - De log legt alleen vast: er verandert niets aan wat de koppelingen of de MCP-tools doen.
+
+## v2.10.0
+
+*English summary: Your own Jumbo recipe lists (such as "Kerst") are now next to Favourites under Stores > Recipes (choose Jumbo): a list picker with the recipe counts, 24 recipes per page with "More recipes", and the same "View" and "Import" buttons. They come from jumbo.com's own stored request (getRecipeListById). The MCP tools list_jumbo_recipe_lists and get_jumbo_recipe_list replace list_jumbo_favorite_recipes (get_jumbo_recipe_list without a list gives the favourites), and the explorer got a probe for an own list. Built from the real request of jumbo.com but tried only with mocked responses so far; the answer is read by its shape (recipe cards and paginationInfo), so a different nesting does no harm.*
+
+### Nieuw in 2.10.0
+
+- **Je eigen receptenlijstjes bij Jumbo.** Onder **Winkels > Recepten** (keuze *Jumbo*) staat nu een keuzelijst met *Favorieten* en je eigen lijstjes (zoals *Kerst*), met het aantal recepten erbij. Elk lijstje werkt als de Favorieten: per 24 met `Meer recepten`, `Bekijken` voor de ingrediënten en de bereiding, en `Importeer` in Mealie. Heb je geen eigen lijstjes of lukt het overzicht niet, dan zie je alleen je Favorieten zoals voorheen.
+- **MCP.** `list_jumbo_recipe_lists` (je lijsten met aantallen) en `get_jumbo_recipe_list` (de recepten van een lijst, op naam of id; zonder opgave de Favorieten). Ze vervangen `list_jumbo_favorite_recipes` uit 2.9.0.
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de proef *een eigen receptenlijst* (aantal en vorm, geen titels).
+
+### Goed om te weten
+
+- Het antwoord van de lijst lezen we aan zijn vorm (de receptkaarten en `paginationInfo`), want de vorm van een eigen lijstje kennen we alleen uit de aanvraag. Klopt het totaal niet, dan telt MealieShopper wat er binnenkomt.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
+## v2.9.2
+
+*English summary: Fix: the Albert Heijn basket is now read correctly. AH nests the product in each shopping-list line (`productDetails.product`) and spells the ticked-off flag `strikedthrough`, so every line used to be skipped. The basket now shows the products with image, brand, size and price. Paging through past orders uses the confirmed row offset.*
+
+### Opgelost in 2.9.2
+
+- **Het AH-mandje bleef leeg.** Het rapport van **AH-routes verkennen** liet zien dat AH het product in elke regel van de boodschappenlijst onder `productDetails.product` zet en het vinkje `strikedthrough` noemt; de eerste versie zocht op een andere plek en sloeg daardoor elke regel over. Het mandje leest nu de regels goed en toont per product de afbeelding, het merk, de inhoud, de prijs, de bonus en het bedrag (aantal x prijs). Afgevinkte regels staan er nog steeds niet bij; een vrije tekstregel zonder product blijft staan.
+- **Afgelopen bestellingen:** de verkenner bevestigde dat `offset` rijen telt (bij jou 21 afgeronde bestellingen). Het bladeren is daarop vereenvoudigd en de controle in de verkenner is verwijderd.
+
+## v2.9.1
+
+*English summary: Fix: the Albert Heijn basket in the Basket tab was empty because it showed the active web-shop order, while the weekly menu writes to your shopping list (what you see in the AH app). It now shows that shopping list and refreshes it when you open the tab.*
+
+### Opgelost in 2.9.1
+
+- **Het AH-mandje in het tabblad Mandje toonde niets**, ook als je producten via het weekmenu in je AH-mandje had gezet en ze in de AH-app zag. Die producten staan op je **boodschappenlijst** bij AH, terwijl het tabblad de actieve bestelling van de webwinkel las (die vaak leeg is). Het tabblad toont nu die boodschappenlijst (naam en aantal; afgevinkte regels staan er niet bij), haalt hem op zodra je het tabblad opent en bewaart een kopie, die blijft staan als AH even niet bereikbaar is.
+- De tool `get_ah_basket` van de AI-assistent leest dezelfde lijst.
+- **AH-routes verkennen** meldt nu ook de vorm van de boodschappenlijst. De vorm van dat antwoord is nog niet tegen een echt account gezien: staat er niets of iets geks, draai de verkenner dan en deel het rapport.
 
 ## v2.9.0
 

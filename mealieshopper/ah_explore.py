@@ -27,8 +27,6 @@ MAX_DEPTH = 7
 # Statussen waarmee we vragen naar niet-open bestellingen. Een onbekende waarde geeft een fout van AH,
 # en die fout noemt vaak de geldige waarden.
 STATUS_CANDIDATES = ("CLOSED", "ALL")
-# AH geeft per keer 10 afgeronde bestellingen en kent het argument `offset`; deze waarden laten zien hoe het telt.
-PAGING_OFFSETS = (1, 5, 10, 20)
 
 
 def _union(shapes: list[Any]) -> Any:
@@ -83,6 +81,9 @@ def explore() -> dict[str, Any]:
     """Roep alle leesroutes aan en geef een rapport met de vorm van de antwoorden."""
     probes: list[dict[str, Any]] = []
 
+    report, _ = _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
+    probes.append(report)
+
     report, active = _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))
     probes.append(report)
 
@@ -100,19 +101,6 @@ def explore() -> dict[str, Any]:
 
     def results_of(data: Any) -> list[dict[str, Any]]:
         return [entry for entry in ((((data or {}).get("orderFulfillments") or {}).get("result")) or []) if isinstance(entry, dict)]
-
-    # Bladeren door de afgeronde bestellingen: `offset` bestaat, maar telt hij rijen of pagina's? Alleen tellingen, geen id's:
-    # bij rijen overlapt offset 5 met 5 van de 10 bestellingen op offset 0, bij pagina's met geen enkele.
-    first_ids = {entry.get("orderId") for entry in results_of(closed_data)}
-    for offset in PAGING_OFFSETS:
-        query = ah.FULFILLMENTS_QUERY.replace("status: OPEN", f"status: CLOSED, offset: {offset}")
-
-        def paging(data: Any) -> Any:
-            ids = {entry.get("orderId") for entry in results_of(data)}
-            return {"aantal": len(ids), "ook_op_offset_0": len(ids & first_ids)}
-
-        report, _ = _probe(f"afgeronde bestellingen met offset: {offset}", lambda q=query: _raw_graphql(q), paging)
-        probes.append(report)
 
     closed = results_of(closed_data)
     delivered = next((entry for entry in closed if (entry.get("delivery") or {}).get("status") != "CANCELLED"), None)

@@ -75,7 +75,8 @@ function renderBasket() {
   target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map(purchaseItem).join("")}</div>`;
 }
 
-// Het bestelmandje staat in het tabblad Mandje (basket.js), uit de lokale kopie.
+// Het AH-mandje (de boodschappenlijst waar het weekmenu in schrijft) staat in het tabblad Mandje (basket.js):
+// eerst de lokale kopie, daarna haalt het de actuele lijst op. Mislukt dat, dan blijft de kopie staan met de fout.
 async function showAhBasket() {
   $("#basket-content").innerHTML = `
     <p class="muted" id="ah-basket-note"></p>
@@ -84,6 +85,7 @@ async function showAhBasket() {
   $("#ah-basket-sync").addEventListener("click", syncAhBasket);
   ordersState.basket = await jsonFetch("/api/ah/basket");
   renderBasket();
+  syncAhBasket();
 }
 
 async function syncAhBasket() {

@@ -310,11 +310,22 @@ def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_jumbo_favorite_recipes(args: dict[str, Any]) -> Any:
-    """De favoriete recepten van de eigenaar bij Jumbo, per pagina. Alleen lezen."""
+def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
+    """Je receptenlijsten bij Jumbo: Favorieten en eigen lijstjes, met aantallen. Alleen lezen."""
     _jumbo_linked()
-    found = jumbo_recipes.get_favorites(args.get("page"))
+    return {"lists": jumbo_recipes.get_lists()}
+
+
+def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
+    """De recepten van een Jumbo-receptenlijst (standaard Favorieten), per pagina. Alleen lezen."""
+    _jumbo_linked()
+    try:
+        info = jumbo_recipes.resolve_list(_text(args.get("list"), 120))
+        found = jumbo_recipes.get_recipes_of(info, args.get("page"))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
     return {
+        "list": info["name"],
         "total": found["total"],
         "page": found["page"],
         "hasNext": found["hasNext"],
@@ -432,7 +443,7 @@ def _copy_note(synced: str | None) -> str:
 
 def tool_basket(args: dict[str, Any]) -> Any:
     basket = ah_orders.get_basket()
-    return {"note": _copy_note(basket["syncedAt"]) + " Dit is het bestelmandje (de actieve bestelling bij AH), niet de boodschappenlijst.", **basket}
+    return {"note": _copy_note(basket["syncedAt"]) + " Dit is het AH-mandje: de producten die via MealieShopper of de AH-app op de boodschappenlijst staan.", **basket}
 
 
 def tool_list_orders(args: dict[str, Any]) -> Any:
@@ -646,11 +657,22 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Jumbo-recepten zoeken"},
         "handler": tool_search_jumbo_recipes,
     },
-    "list_jumbo_favorite_recipes": {
-        "description": "De favoriete recepten van de eigenaar bij Jumbo (naam, tijd, personen, waardering en link), per pagina van 24. Live opgehaald. Gebruik het id met get_jumbo_recipe.",
-        "inputSchema": _schema({"page": {"type": "integer", "minimum": 1, "description": "Pagina, beginnend bij 1."}}),
-        "annotations": {**READ_ONLY, "title": "Favoriete Jumbo-recepten"},
-        "handler": tool_jumbo_favorite_recipes,
+    "list_jumbo_recipe_lists": {
+        "description": "Je receptenlijsten bij Jumbo: Favorieten en je eigen lijstjes (naam, soort en aantal recepten). Gebruik de naam of het id met get_jumbo_recipe_list.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Jumbo-receptenlijsten"},
+        "handler": tool_list_jumbo_recipe_lists,
+    },
+    "get_jumbo_recipe_list": {
+        "description": "De recepten van een Jumbo-receptenlijst (naam, tijd, personen, waardering en link), per pagina van 24. Zonder opgave de Favorieten. Live opgehaald. Gebruik het id met get_jumbo_recipe.",
+        "inputSchema": _schema(
+            {
+                "list": {"type": "string", "description": "Id of (deel van) de naam van de lijst, bijvoorbeeld 'Kerst'. Standaard Favorieten."},
+                "page": {"type": "integer", "minimum": 1, "description": "Pagina, beginnend bij 1."},
+            }
+        ),
+        "annotations": {**READ_ONLY, "title": "Jumbo-receptenlijst"},
+        "handler": tool_get_jumbo_recipe_list,
     },
     "get_jumbo_recipe": {
         "description": "Een Jumbo-recept met ingrediënten en bereiding. Importeren in Mealie doe je in MealieShopper zelf.",
@@ -677,9 +699,9 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_jumbo_basket,
     },
     "get_ah_basket": {
-        "description": "Het bestelmandje: de actieve bestelling bij Albert Heijn (producten, aantallen, totaal, gekozen bezorgmoment). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie. Niet de boodschappenlijst.",
+        "description": "Het AH-mandje: de producten die via MealieShopper of de AH-app op je Albert Heijn-boodschappenlijst staan (naam en aantal). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie.",
         "inputSchema": _schema(),
-        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Bestelmandje"},
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "AH-mandje"},
         "handler": tool_basket,
     },
     "list_ah_orders": {
@@ -792,7 +814,7 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "serverInfo": {"name": "mealieshopper", "title": "MealieShopper", "version": _version()},
                 "instructions": (
                     "MealieShopper koppelt Mealie aan Albert Heijn, Picnic en Jumbo. Gebruik de tools om het weekmenu, "
-                    "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
+                    "recepten, AH-lijstjes, AH-producten, het AH-mandje, bestellingen en kassabonnen te bekijken "
                     "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -favorieten, -mandje, -leveringen, -bezorgmomenten en -recepten "
                     "en Jumbo-producten en -mandje live te bekijken en om een recept in Mealie te importeren. "
                     "Het AH-mandje vullen kan niet via deze server, en het Picnic- en Jumbo-mandje ook niet."

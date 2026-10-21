@@ -507,7 +507,7 @@ class ProtocolTest(McpTestCase):
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
-                         "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_favorite_recipes", "get_jumbo_recipe"})
+                         "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)
@@ -561,7 +561,7 @@ class PurchaseToolsTest(McpTestCase):
             receipts = self.data("list_ah_receipts")
             receipt = self.data("get_ah_receipt", {"receipt_id": "R1"})
             found = self.data("search_ah_purchases", {"query": "koffie"})
-        self.assertIn("niet de boodschappenlijst", basket["note"])
+        self.assertIn("boodschappenlijst", basket["note"])
         self.assertEqual((basket["units"], basket["total"]), (2, 4.5))
         self.assertEqual((orders["total"], orders["orders"][0]["id"], orders["orders"][0]["itemCount"]), (1, 5, 1))
         self.assertEqual((order["items"][0]["title"], order["items"][0]["taxonomy"]), ("Koffiebonen", "Koffie"))
