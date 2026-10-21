@@ -55,6 +55,16 @@
   --tabbar-tint: rgba(23, 107, 69, 0.14);
   --tabbar-ink: #3f4c45;
   --tabbar-ink-active: #105235;
+  --tabbar-solid: rgba(255, 255, 255, 0.97);
+  --tabbar-border: rgba(255, 255, 255, 0.7);
+
+  /* Tekst op een primair vlak, balk bovenaan, scherm achter de inlogkaart en kleine details */
+  --on-primary: #fff;
+  --topbar-bg: rgba(255, 255, 255, 0.96);
+  --gate-bg: rgba(245, 247, 246, 0.96);
+  --code-on-message: rgba(255, 255, 255, 0.7);
+  --flag-ring: rgba(24, 37, 30, 0.25);
+  --shadow-ink: 24, 37, 30; /* rgb-waarden voor schaduwen */
 
   --radius-card: 12px;
   --radius-control: 8px;
@@ -62,6 +72,46 @@
 
   --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-heading: "Manrope", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Donker thema: wordt gezet met data-theme="dark" op <html> (zie static/theme.js en de kop van de pagina). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #4cc38a;
+  --primary-strong: #7bd9ab;
+  --selection: #1d3a2c;
+
+  --bg: #0f1613;
+  --surface: #17211c;
+  --surface-muted: #1e2b24;
+  --text: #e6eee9;
+  --muted: #9fb0a6;
+  --border: #2d3d34;
+
+  --success-text: #8fe0b4;
+  --success-bg: #163326;
+  --success-border: #2a5c43;
+  --danger: #ff8a80;
+  --danger-bg: #3a1b18;
+  --danger-border: #7a2f29;
+  --warning-text: #f2c35a;
+  --warning-bg: #33280d;
+  --warning-border: #a67c00;
+
+  --tabbar-glass: rgba(23, 33, 28, 0.8);
+  --tabbar-tint: rgba(76, 195, 138, 0.18);
+  --tabbar-ink: #b4c4ba;
+  --tabbar-ink-active: #7bd9ab;
+  --tabbar-solid: rgba(23, 33, 28, 0.97);
+  --tabbar-border: rgba(255, 255, 255, 0.12);
+
+  --on-primary: #0b1f15;
+  --topbar-bg: rgba(15, 22, 19, 0.96);
+  --gate-bg: rgba(15, 22, 19, 0.96);
+  --code-on-message: rgba(0, 0, 0, 0.3);
+  --flag-ring: rgba(255, 255, 255, 0.35);
+  --shadow-ink: 0, 0, 0;
 }
 
 * {
@@ -103,7 +153,7 @@ select:focus-visible {
   top: 0;
   z-index: 10;
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--topbar-bg);
 }
 
 .brand-link {
@@ -137,7 +187,7 @@ select:focus-visible {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(245, 247, 246, 0.96);
+  background: var(--gate-bg);
 }
 
 .auth-card {
@@ -146,7 +196,7 @@ select:focus-visible {
   border-radius: var(--radius-card);
   background: var(--surface);
   padding: 24px;
-  box-shadow: 0 24px 80px rgba(24, 37, 30, 0.18);
+  box-shadow: 0 24px 80px rgba(var(--shadow-ink), 0.18);
 }
 
 .auth-card h2 {
@@ -305,7 +355,7 @@ h2 {
 .tab.is-active,
 .subtab.is-active {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 /* Iconen: Material Design Icons (Pictogrammers, licentie in static/icons/). In de bovenste tabs staan
@@ -369,7 +419,7 @@ h2 {
 .icon-button {
   min-height: var(--control-height);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   padding: 0 18px;
 }
 
@@ -493,7 +543,7 @@ h2 {
 }
 
 .message.warning code {
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--code-on-message);
 }
 
 /* Melding met een knop ernaast */
@@ -1481,7 +1531,7 @@ body.has-onboarding {
 .ob-progress li.is-current .ob-progress__dot {
   border-color: var(--primary);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .ob-progress li.is-done .ob-progress__dot {
@@ -1557,7 +1607,7 @@ body.has-onboarding {
   border-radius: 999px;
   background: var(--primary);
   padding: 2px 10px;
-  color: #fff;
+  color: var(--on-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1860,11 +1910,51 @@ body.has-onboarding {
   overflow: hidden;
 }
 
+.switches {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
 .lang-switch {
   display: flex;
   flex: none;
   gap: 2px;
-  margin-left: auto;
+}
+
+/* Knop voor donker en licht, naast de vlaggen: de maan in het lichte thema, de zon in het donkere */
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--primary);
+}
+
+.theme-toggle__icon {
+  grid-area: 1 / 1;
+  width: 24px;
+  height: 24px;
+}
+
+.theme-toggle__icon--sun,
+:root[data-theme="dark"] .theme-toggle__icon--moon {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-toggle__icon--sun {
+  display: block;
 }
 
 .lang-switch__button {
@@ -1884,7 +1974,7 @@ body.has-onboarding {
   width: 30px;
   height: 21px;
   border-radius: 4px;
-  box-shadow: 0 0 0 1px rgba(24, 37, 30, 0.25);
+  box-shadow: 0 0 0 1px var(--flag-ring);
   opacity: 0.55;
   transition: opacity 0.15s ease, box-shadow 0.15s ease;
 }
@@ -1898,16 +1988,16 @@ body.has-onboarding {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary);
 }
 
-.auth-card .lang-switch {
+.auth-card .switches {
   margin: -8px -8px 4px 0;
   justify-content: flex-end;
 }
 
-.topbar__inner .lang-switch + .auth-chip {
+.topbar__inner .switches + .auth-chip {
   margin-left: 8px;
 }
 
-.onboarding__head .lang-switch {
+.onboarding__head .switches {
   align-self: flex-start;
   margin-right: -8px;
   margin-top: -6px;
@@ -1938,13 +2028,13 @@ body.has-onboarding {
     width: auto;
     margin: 0;
     padding: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--tabbar-border);
     border-radius: 32px;
-    background: rgba(255, 255, 255, 0.97);
+    background: var(--tabbar-solid);
     box-shadow:
-      0 10px 32px rgba(24, 37, 30, 0.16),
-      0 0 0 0.5px rgba(24, 37, 30, 0.1),
-      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      0 10px 32px rgba(var(--shadow-ink), 0.16),
+      0 0 0 0.5px rgba(var(--shadow-ink), 0.1),
+      inset 0 1px 0 var(--tabbar-border);
   }
 
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {

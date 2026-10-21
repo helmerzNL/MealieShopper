@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.6.0
+
+*English summary: There is now a dark/light mode button next to the language flags (top right, on the login page and in the setup guide). The choice is kept in your browser; without a choice MealieShopper follows your device setting, also when that changes. The AI consent page follows the device setting too.*
+
+### Nieuw in 2.6.0
+
+- **Donkere en lichte modus.** Naast de vlaggetjes staat een knop (een maan in het lichte thema, een zon in het donkere) waarmee je wisselt. Hij staat overal waar de vlaggen staan: bovenaan de app, op de inlogpagina, bij een uitnodiging en in de installatiehulp. De keuze blijft in je browser bewaard (`ms-theme`); zonder keuze volgt MealieShopper de instelling van je apparaat, ook als die tijdens het gebruik wisselt. Het thema wordt al in de kop van de pagina gezet, zodat een donker scherm niet eerst licht oplicht. De themakleur van de browser (`theme-color`) wisselt mee.
+- **Donker thema in de huisstijl:** basilicumgroen blijft het accent (lichter op donker, met donkere tekst op groene knoppen), meldingen houden hun kleuren en de onderste menubalk in de geinstalleerde app krijgt een donkere variant. De kassabon en de QR-code blijven licht, zoals op papier.
+- **Toestemmingsscherm voor AI-apps** (OAuth) volgt de instelling van je apparaat.
+
 ## v2.5.2
 
 *English summary: The last explorer report shows where the favorites are NOT: the Favorites tab of an account without deliveries is a "zero order" page of suggested products (`purchase-page-…-zero-order-targeted`), and the heart on a product reads `getGlobalState("sellable-favorites").likedSellables`, a state the app fills itself, not something in the page. The explorer now reports the full code of the heart button, the pages that load lazily, the fields of `/bootstrap` next to the tabs, the "remove favorite" dialog with the right parameters and a handful of guessed favorites routes, to find what fills that state. No behaviour change in the app.*

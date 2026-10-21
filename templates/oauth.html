@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <meta name="theme-color" content="#176B45">
+    <script>
+      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Staat hier in de kop,
+      // zodat de pagina niet eerst licht flitst. static/theme.js regelt de knop.
+      (function () {
+        var theme = null;
+        try { theme = window.localStorage.getItem("ms-theme"); } catch (e) { /* opslag geblokkeerd: het apparaat beslist */ }
+        if (theme !== "dark" && theme !== "light") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
     <title>MealieShopper</title>
     <link rel="icon" href="{{ url_for('static', filename='brand/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=config.ASSET_VERSION) }}">

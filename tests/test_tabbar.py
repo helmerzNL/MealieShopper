@@ -129,8 +129,11 @@ class TabbarStyleTest(unittest.TestCase):
         self.assertIn("backdrop-filter: saturate(180%) blur(24px)", self.media)
         self.assertIn("-webkit-backdrop-filter", self.media, "Safari heeft de voorvoegsel nodig")
         self.assertIn("@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))", self.media)
-        solid = re.search(r"html\.has-tabbar \.tabs\s*{.*?background: rgba\(255, 255, 255, ([\d.]+)\)", self.media, re.S)
-        self.assertGreaterEqual(float(solid.group(1)), 0.95, "zonder glas een bijna dichte balk")
+        self.assertRegex(self.media, r"(?s)html\.has-tabbar \.tabs\s*{.*?background: var\(--tabbar-solid\)")
+        for theme in (r":root\s*{", r':root\[data-theme="dark"\]\s*{'):
+            tokens = re.search(theme + r"(.*?)\n}", CSS, re.S).group(1)
+            solid = re.search(r"--tabbar-solid: rgba\([\d, ]+, ([\d.]+)\)", tokens)
+            self.assertGreaterEqual(float(solid.group(1)), 0.95, "zonder glas een bijna dichte balk")
 
     def test_content_never_hides_behind_the_bar(self):
         shell = re.search(r"html\.has-tabbar \.shell\s*{(.*?)}", self.media, re.S).group(1)
@@ -151,7 +154,7 @@ class TabbarStyleTest(unittest.TestCase):
         self.assertIn("transform: none", reduced)
 
     def test_focus_ring_stays_inside_the_pill(self):
-        self.assertRegex(self.media, r"html\.has-tabbar \.tab:focus-visible\s*{\s*outline-offset: -3px")
+        self.assertRegex(self.media, r"(?s)html\.has-tabbar \.tab:focus-visible\s*{\s*outline-offset: -3px")
 
     def test_code_no_longer_breaks_inside_words(self):
         code = re.search(r"^code\s*{(.*?)}", CSS, re.S | re.M).group(1)
