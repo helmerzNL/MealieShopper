@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from typing import Any
 from urllib.parse import quote
 
@@ -24,6 +25,7 @@ RECIPE_PAGES = (
     ("opgeslagen recepten: GET pages/saved-deep-dive-page-content", "saved-deep-dive-page-content"),
     ("kookboek: GET pages/cookbook-page-content", "cookbook-page-content"),
     ("recepten-startpagina: GET pages/meals-page-root", "meals-page-root"),
+    ("opnieuw bestellen: GET pages/meals-purchase-page-root", "meals-purchase-page-root"),
 )
 # Waar de favorieten staan weet geen enkele library. Dit zijn gokken op basis van de naamgeving van de
 # andere pagina's; een 404 kost niets en de pagina's die wel bestaan verraden zich.
@@ -54,8 +56,17 @@ FAVORITE_GUESSES = (
     "my-profile-page-root",
     "profile-page-root",
     "account-page-root",
-    "meals-purchase-page-root",
+    "favorites-tab-page-root",
+    "favourites-tab-page-root",
+    "favorite-selling-units-page-root",
+    "favorites-deep-dive-page",
+    "saved-products-deep-dive-page-content",
+    "liked-deep-dive-page-content",
+    "wishlist-deep-dive-page-content",
 )
+_FAVORITE_WORD = re.compile(r"favou?rite|bookmark|wish|liked|heart|saved", re.I)
+# Velden waarvan de waarde een vaste naam is (een id van een onderdeel, een soort, een pictogram), geen tekst van jou.
+_NAME_FIELDS = {"id", "name", "type", "testID", "iconKey", "actionType", "callback", "schema", "component"}
 _RECIPE_KEY = re.compile(r"selling_group|recipe|sellable", re.I)
 _LINK = re.compile(r"(?:picnic://|/pages/|page_id=|pageId=)[^\s\"'<>)]*")
 
@@ -86,6 +97,28 @@ def _clean_link(link: str) -> str:
     names = sorted({part.split("=")[0] for part in query.split("&") if part})
     path = re.sub(r"[0-9a-f]{8,}|\d{3,}", "<id>", path)
     return path + ("?" + "&".join(names) if names else "")
+
+
+def favorite_hits(page: Any) -> list[str]:
+    """Namen van velden en onderdelen op een pagina die over favorieten gaan (`is_favorite`, `favorite-button`).
+
+    We kijken alleen naar veldnamen en naar vaste namen in velden als `id` en `type`, nooit naar teksten die
+    bij een product of recept horen, zodat het rapport veilig te delen blijft.
+    """
+    hits: set[str] = set()
+    for node in picnic._walk(page):
+        for key, value in node.items():
+            if _FAVORITE_WORD.search(key):
+                hits.add(f"veld: {key}")
+            if key in _NAME_FIELDS and isinstance(value, str) and len(value) <= 80 and " " not in value and _FAVORITE_WORD.search(value):
+                hits.add(f"{key}: " + re.sub(r"[0-9a-f]{8,}|\d{3,}", "<id>", value))
+    return sorted(hits)[:40]
+
+
+def type_census(page: Any) -> dict[str, int]:
+    """Hoe vaak elke soort onderdeel (`type`) op een pagina voorkomt. Zo zien we of een pagina leeg is of anders is opgebouwd."""
+    counts = Counter(node["type"] for node in picnic._walk(page) if isinstance(node.get("type"), str) and len(node["type"]) <= 40)
+    return dict(counts.most_common(15))
 
 
 def page_links(page: Any) -> list[str]:
@@ -122,6 +155,7 @@ def _page_info(page: Any) -> dict[str, Any]:
     return {"formaat": "JSON", "bovenste velden": sorted(page) if isinstance(page, dict) else shape(page),
             "receptonderdelen": len(recipe_tiles(page)),
             "producttegels": sum(1 for node in picnic._walk(page) if node.get("type") == "SELLING_UNIT_TILE"),
+            "soorten onderdelen": type_census(page), "favoriet-namen": favorite_hits(page),
             "verwijzingen": page_links(page)}
 
 
@@ -163,8 +197,14 @@ def explore() -> dict[str, Any]:
             ("productpagina: GET pages/product-details-page-root", f"/pages/product-details-page-root?id={first['id']}")
         )
     for name, path in candidates:
-        report, _ = _probe(name, lambda p=path: picnic._authed("GET", p))
+        report, result = _probe(name, lambda p=path: picnic._authed("GET", p))
         probes.append(report)
+        if path.startswith("/pages/") and result is not None:
+            probes.append({"name": f"{name}: namen en verwijzingen rond favorieten", "ok": True,
+                           "info": {"favoriet-namen": favorite_hits(result), "verwijzingen": page_links(result)}})
+    if page is not None:
+        probes.append({"name": "zoekpagina: namen en verwijzingen rond favorieten", "ok": True,
+                       "info": {"favoriet-namen": favorite_hits(page), "verwijzingen": page_links(page)}})
 
     # Recepten: eerst de pagina's, dan de vorm van één receptonderdeel en van een receptpagina.
     recipe_page: Any = None

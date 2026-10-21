@@ -2,6 +2,7 @@
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, setBusy, t, ...).
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
+const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -26,6 +27,7 @@ async function refreshPicnicStatus() {
     state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorPending) && !data.connected;
     renderPicnicStatus();
+    renderPicnicRecipesTab();
   } catch (error) {
     message("#picnic-status", error.message);
   }
@@ -154,6 +156,136 @@ function picnicSlotsHtml() {
     .join("");
   return `<div class="picnic-slots"><strong>${escapeHtml(t("picnic.slots_title"))}</strong><ul class="cart-lines">${items}</ul><p class="muted">${escapeHtml(t("picnic.slots_hint"))}</p></div>`;
 }
+
+// ---- Picnic-recepten (Winkels > Picnic-recepten): bewaard, opnieuw bestellen en het kookboek
+function renderPicnicRecipesTab() {
+  const tab = $("#picnic-recipes-tab");
+  if (!tab) return;
+  tab.hidden = !picnicState.connected;
+  // Ontkoppeld terwijl het tabblad openstaat: ga terug naar de eerste tab van Winkels.
+  if (tab.hidden && tab.classList.contains("is-active")) document.querySelector('[data-subtab="ah-items-recepten"]').click();
+}
+
+function picnicRecipeMeta(recipe) {
+  return [recipe.minutes ? t("picnic.recipes.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])].filter(Boolean).join(" \u00b7 ");
+}
+
+function renderPicnicRecipeCard(recipe) {
+  const meta = picnicRecipeMeta(recipe);
+  return `
+    <article class="recipe-card" data-picnic-recipe="${escapeHtml(recipe.id)}">
+      ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
+      <h3>${escapeHtml(recipe.name)}</h3>
+      ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
+      <div class="card-actions">
+        <button class="button button--secondary" type="button" data-picnic-open="${escapeHtml(recipe.id)}">${escapeHtml(t("picnic.recipes.open"))}</button>
+        <button class="button" type="button" data-picnic-import="${escapeHtml(recipe.id)}">${escapeHtml(t("recipe.import"))}</button>
+      </div>
+      <div class="recipe-import-result"></div>
+    </article>`;
+}
+
+function renderPicnicRecipes() {
+  const query = picnicRecipes.query.trim();
+  const all = picnicRecipes.recipes;
+  const shown = query ? all.filter((recipe) => matchesWords(recipe.name, query)) : all;
+  $("#picnic-recipes").innerHTML = shown.map(renderPicnicRecipeCard).join("");
+  $("#picnic-recipe-filter").disabled = !all.length;
+  $("#picnic-recipes-status").textContent = all.length ? t("picnic.recipes.count", { count: I18N.formatNumber(all.length) }) : "";
+  if (!picnicRecipes.loaded) return;
+  message("#picnic-recipes-message", !all.length ? t("picnic.recipes.none") : shown.length ? "" : t("picnic.recipes.none_match", { query }), "success");
+}
+
+async function loadPicnicRecipes() {
+  const button = $("#load-picnic-recipes");
+  setBusy(button, true);
+  message("#picnic-recipes-message", "");
+  picnicRecipes.source = $("#picnic-recipe-source").value;
+  try {
+    const data = await jsonFetch(`/api/picnic/recipes?source=${encodeURIComponent(picnicRecipes.source)}`);
+    picnicRecipes.recipes = data.recipes || [];
+    picnicRecipes.loaded = true;
+    renderPicnicRecipes();
+  } catch (error) {
+    picnicRecipes.recipes = [];
+    renderPicnicRecipes();
+    message("#picnic-recipes-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function importPicnicRecipe(id, button, target) {
+  button.disabled = true;
+  button.textContent = t("recipe.importing");
+  try {
+    const data = await postJson(`/api/picnic/recipes/${encodeURIComponent(id)}/import`);
+    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
+    target.innerHTML = `<div class="message success">${escapeHtml(t("recipe.imported"))}${link}</div>`;
+  } catch (error) {
+    target.innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = t("recipe.import");
+  }
+}
+
+function showPicnicRecipeList() {
+  $("#picnic-recipe-view").hidden = true;
+  $("#picnic-recipes-view").hidden = false;
+}
+
+async function openPicnicRecipe(id) {
+  $("#picnic-recipes-view").hidden = true;
+  $("#picnic-recipe-view").hidden = false;
+  $("#picnic-recipe-title").textContent = picnicRecipes.recipes.find((recipe) => recipe.id === id)?.name || "";
+  $("#picnic-recipe-body").innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
+  message("#picnic-recipe-message", "");
+  $("#picnic-recipe-title").focus();
+  try {
+    renderPicnicRecipeDetail(await jsonFetch(`/api/picnic/recipes/${encodeURIComponent(id)}`));
+  } catch (error) {
+    $("#picnic-recipe-body").innerHTML = "";
+    message("#picnic-recipe-message", error.message);
+  }
+}
+
+function renderPicnicRecipeDetail(recipe) {
+  $("#picnic-recipe-title").textContent = recipe.name;
+  const facts = [
+    recipe.portions ? t("picnic.recipes.portions", { count: recipe.portions }) : "",
+    recipe.minutes ? t("picnic.recipes.minutes", { count: recipe.minutes }) : "",
+  ].filter(Boolean);
+  const ingredients = (recipe.ingredients || []).map((item) => `<li>${escapeHtml(item.line)}</li>`).join("");
+  const steps = (recipe.steps || []).map((text) => `<li>${escapeHtml(text)}</li>`).join("");
+  $("#picnic-recipe-body").innerHTML = `
+    <div class="picnic-recipe">
+      ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(recipe.image)}" alt="" data-hide-on-error>` : ""}
+      ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" \u00b7 "))}</p>` : ""}
+      <p><button class="button" type="button" id="picnic-recipe-import">${escapeHtml(t("recipe.import"))}</button></p>
+      <div id="picnic-recipe-import-result"></div>
+      <h3>${escapeHtml(t("picnic.recipes.ingredients"))}</h3>
+      ${ingredients ? `<ul class="picnic-recipe__list">${ingredients}</ul>` : `<p class="muted">${escapeHtml(t("picnic.recipes.no_ingredients"))}</p>`}
+      <h3>${escapeHtml(t("picnic.recipes.steps"))}</h3>
+      ${steps ? `<ol class="picnic-recipe__list">${steps}</ol>` : `<p class="muted">${escapeHtml(t("picnic.recipes.no_steps"))}</p>`}
+      ${recipe.stepsPortions && recipe.stepsPortions !== recipe.portions ? `<p class="muted">${escapeHtml(t("picnic.recipes.steps_for", { count: recipe.stepsPortions }))}</p>` : ""}
+    </div>`;
+  $("#picnic-recipe-import").addEventListener("click", (event) => importPicnicRecipe(recipe.id, event.currentTarget, $("#picnic-recipe-import-result")));
+}
+
+$("#load-picnic-recipes").addEventListener("click", loadPicnicRecipes);
+$("#picnic-recipe-source").addEventListener("change", loadPicnicRecipes);
+$("#picnic-recipe-back").addEventListener("click", showPicnicRecipeList);
+$("#picnic-recipe-filter").addEventListener("input", (event) => {
+  picnicRecipes.query = event.target.value;
+  renderPicnicRecipes();
+});
+$("#picnic-recipes").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-picnic-open]");
+  const importButton = event.target.closest("[data-picnic-import]");
+  if (open) openPicnicRecipe(open.dataset.picnicOpen);
+  if (importButton) importPicnicRecipe(importButton.dataset.picnicImport, importButton, importButton.closest(".recipe-card").querySelector(".recipe-import-result"));
+});
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)
 // Alles gaat direct naar je echte Picnic-mandje. Er wordt nooit een bestelling geplaatst.
@@ -284,6 +416,7 @@ $("#picnic-explore-copy").addEventListener("click", async (event) => {
 });
 
 window.addEventListener("ms:languagechange", () => {
+  if (picnicRecipes.loaded) renderPicnicRecipes();
   renderPicnicStatus();
   renderStoreChoice();
   renderPicnicExploreSummary();
