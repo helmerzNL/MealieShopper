@@ -3,6 +3,7 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
+const picnicFavorites = { products: [], query: "", loaded: false };
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -27,7 +28,6 @@ async function refreshPicnicStatus() {
     state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorPending) && !data.connected;
     renderPicnicStatus();
-    renderPicnicRecipesTab();
   } catch (error) {
     message("#picnic-status", error.message);
   }
@@ -157,15 +157,8 @@ function picnicSlotsHtml() {
   return `<div class="picnic-slots"><strong>${escapeHtml(t("picnic.slots_title"))}</strong><ul class="cart-lines">${items}</ul><p class="muted">${escapeHtml(t("picnic.slots_hint"))}</p></div>`;
 }
 
-// ---- Picnic-recepten (Winkels > Picnic-recepten): bewaard, opnieuw bestellen en het kookboek
-function renderPicnicRecipesTab() {
-  const tab = $("#picnic-recipes-tab");
-  if (!tab) return;
-  tab.hidden = !picnicState.connected;
-  // Ontkoppeld terwijl het tabblad openstaat: ga terug naar de eerste tab van Winkels.
-  if (tab.hidden && tab.classList.contains("is-active")) document.querySelector('[data-subtab="ah-items-recepten"]').click();
-}
-
+// ---- Picnic in de tab Winkels (de keuzelijst staat in app.js): Recepten en Favorieten
+// Recepten: bewaard, opnieuw bestellen en het kookboek
 function picnicRecipeMeta(recipe) {
   return [recipe.minutes ? t("picnic.recipes.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])].filter(Boolean).join(" \u00b7 ");
 }
@@ -285,6 +278,75 @@ $("#picnic-recipes").addEventListener("click", (event) => {
   const importButton = event.target.closest("[data-picnic-import]");
   if (open) openPicnicRecipe(open.dataset.picnicOpen);
   if (importButton) importPicnicRecipe(importButton.dataset.picnicImport, importButton, importButton.closest(".recipe-card").querySelector(".recipe-import-result"));
+});
+
+// Favorieten: de producten uit de tab Favorieten van de Picnic-app
+function renderPicnicFavoriteCard(product) {
+  const meta = [product.unitSize, product.price ? formatPrice(product.price) : ""].filter(Boolean).join(" \u00b7 ");
+  return `
+    <article class="product-card" data-picnic-favorite="${escapeHtml(product.id)}">
+      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      <div>
+        <strong>${escapeHtml(product.title)}</strong>
+        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+        ${product.isBonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
+        <button class="button button--secondary" type="button" data-picnic-add="${escapeHtml(product.id)}">${escapeHtml(t("picnic.favorites.add"))}</button>
+        <div class="favorite-result"></div>
+      </div>
+    </article>`;
+}
+
+function renderPicnicFavorites() {
+  const query = picnicFavorites.query.trim();
+  const all = picnicFavorites.products;
+  const shown = query ? all.filter((product) => matchesWords(product.title, query)) : all;
+  $("#picnic-favorites").innerHTML = shown.map(renderPicnicFavoriteCard).join("");
+  $("#picnic-favorite-filter").disabled = !all.length;
+  $("#picnic-favorites-status").textContent = all.length ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) }) : "";
+  if (!picnicFavorites.loaded) return;
+  message("#picnic-favorites-message", !all.length ? t("picnic.favorites.none") : shown.length ? "" : t("picnic.favorites.none_match", { query }), "success");
+}
+
+async function loadPicnicFavorites() {
+  const button = $("#load-picnic-favorites");
+  setBusy(button, true);
+  message("#picnic-favorites-message", "");
+  try {
+    picnicFavorites.products = (await jsonFetch("/api/picnic/favorites")).products || [];
+    picnicFavorites.loaded = true;
+    renderPicnicFavorites();
+  } catch (error) {
+    picnicFavorites.products = [];
+    renderPicnicFavorites();
+    message("#picnic-favorites-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function addPicnicFavorite(productId, button, target) {
+  button.disabled = true;
+  try {
+    const title = picnicFavorites.products.find((product) => product.id === productId)?.title || "";
+    const data = await postJson("/api/picnic/cart", { items: [{ query: title, productId, quantity: 1 }] });
+    target.innerHTML = data.added
+      ? `<div class="message success">${escapeHtml(t("picnic.favorites.added"))}</div>`
+      : `<div class="message error">${escapeHtml(t("cart.not_found"))}</div>`;
+  } catch (error) {
+    target.innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+$("#load-picnic-favorites").addEventListener("click", loadPicnicFavorites);
+$("#picnic-favorite-filter").addEventListener("input", (event) => {
+  picnicFavorites.query = event.target.value;
+  renderPicnicFavorites();
+});
+$("#picnic-favorites").addEventListener("click", (event) => {
+  const add = event.target.closest("[data-picnic-add]");
+  if (add) addPicnicFavorite(add.dataset.picnicAdd, add, add.closest(".product-card").querySelector(".favorite-result"));
 });
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)
@@ -417,6 +479,7 @@ $("#picnic-explore-copy").addEventListener("click", async (event) => {
 
 window.addEventListener("ms:languagechange", () => {
   if (picnicRecipes.loaded) renderPicnicRecipes();
+  if (picnicFavorites.loaded) renderPicnicFavorites();
   renderPicnicStatus();
   renderStoreChoice();
   renderPicnicExploreSummary();

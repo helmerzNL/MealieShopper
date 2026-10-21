@@ -506,7 +506,7 @@ class ProtocolTest(McpTestCase):
         self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries",
-                             "list_picnic_delivery_slots", "list_picnic_recipes", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
+                             "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
@@ -602,6 +602,17 @@ class ToolsTest(McpTestCase):
         self.assertEqual((cookbook["source"], cookbook["total"], len(cookbook["recipes"])), ("cookbook", 5, 2))
         self.assertEqual([c.args for c in get.call_args_list], [("saved",), ("cookbook",)])
         self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "tags"})  # geen afbeeldingsadressen
+
+    def test_picnic_favorites_tool(self):
+        products = [{"id": f"s{n}", "title": f"Product {n}", "unitSize": "1 l", "price": 1.5, "isBonus": n == 0,
+                     "image": "https://x/y.png", "maxCount": 5} for n in range(4)]
+        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
+                mock.patch.object(picnic, "get_favorites", return_value=products):
+            data = self.data("list_picnic_favorites", {"limit": 2})
+            self.assertEqual((data["total"], len(data["products"])), (4, 2))
+            self.assertEqual(set(data["products"][0]), {"title", "size", "price", "promotion"})
+        with mock.patch.object(picnic, "configured_auth_key", return_value=""):
+            self.assertTrue(self.call(self.token, "list_picnic_favorites")["isError"])
 
     def test_picnic_recipes_tool_refuses_unknown_sources_and_an_unlinked_account(self):
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \

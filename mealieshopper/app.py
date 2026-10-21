@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-4")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-5")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -643,6 +643,14 @@ def create_app() -> Flask:
             return jsonify({"error": "Bevestiging ontbreekt"}), 400
         try:
             return jsonify(picnic.clear_cart())
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.get("/api/picnic/favorites")
+    def picnic_favorites():
+        # Alleen lezen: de favoriete producten uit de Favorieten-tab van de Picnic-app.
+        try:
+            return jsonify({"products": picnic.get_favorites()})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 

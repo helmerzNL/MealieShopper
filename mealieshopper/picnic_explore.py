@@ -240,6 +240,18 @@ def explore() -> dict[str, Any]:
             probes.append({"name": f"onderdelen in een receptonderdeel ({label}): soort en velden", "ok": True,
                            "shape": pml_vocabulary(recipe_tiles(page)[0])})
 
+    # De tabbalk van de app: daar staat de pagina van de Favorieten-tab in.
+    report, tabs = _probe(
+        "tabbalk van de app: GET bootstrap (id, soort, titel, label en pagina per tab)",
+        picnic.bootstrap_tabs,
+        lambda found: {"tabs": found, "favorietenpagina": picnic.favorites_reference(found)},
+    )
+    probes.append(report)
+    reference = picnic.favorites_reference(tabs or [])
+    if reference:
+        report, _ = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
+        probes.append(report)
+
     # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
     for page_id in FAVORITE_GUESSES:
         report, _ = _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
@@ -247,7 +259,7 @@ def explore() -> dict[str, Any]:
 
     # Het antwoord van Picnic bij een fout kan van alles bevatten; in het rapport staan alleen de codes.
     for probe in probes:
-        if not probe["ok"]:
+        if not probe["ok"] and "error" in probe:
             probe["error"] = short_error(probe["error"])
 
     return {

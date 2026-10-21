@@ -505,6 +505,120 @@ def recipe_page(*tiles):
     return {"id": "page", "type": "STATE_BOUNDARY", "child": {"children": [{"children": list(tiles)}]}}
 
 
+def bootstrap(*tabs):
+    return {"landing_tab_id": "t0", "tabs": list(tabs)}
+
+
+def page_tab(tab_id, reference, label=None, title=None):
+    return {"id": tab_id, "tab_type": "PAGE", "title": title, "accessibility": {"label": label, "hint": "x"},
+            "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": reference}}
+
+
+class FavoritesTest(TempDataDirTest):
+    TABS = bootstrap(page_tab("store", "store-root", "Winkel"), page_tab("favs", "favorites-root", "Favorieten"),
+                     {"id": "cart", "tab_type": "CART", "target": None}, page_tab("cook", "meals-page-root", "Koken"))
+
+    def setUp(self):
+        super().setUp()
+        picnic.save_auth_key("key")
+
+    def serve(self, pages):
+        def fake(method, path, **kwargs):
+            if path == "/bootstrap":
+                return response(self.TABS)
+            return response(pages[path.split("/pages/", 1)[1]]) if "/pages/" in path else response({})
+        return mock.patch.object(picnic.requests, "request", side_effect=lambda m, url, **kw: fake(m, url.rsplit("/api/15", 1)[1]))
+
+    def test_the_tabs_are_read_from_bootstrap(self):
+        with mock.patch.object(picnic.requests, "request", return_value=response(self.TABS)):
+            tabs = picnic.bootstrap_tabs()
+        self.assertEqual([t["id"] for t in tabs], ["store", "favs", "cart", "cook"])
+        self.assertEqual((tabs[1]["reference"], tabs[1]["label"], tabs[2]["reference"]), ("favorites-root", "Favorieten", None))
+        for odd in (None, {}, {"tabs": None}, {"tabs": ["x", None]}, []):
+            with mock.patch.object(picnic.requests, "request", return_value=response(odd)):
+                self.assertEqual(picnic.bootstrap_tabs(), [])
+
+    def test_the_favorites_tab_is_found_by_its_words(self):
+        find = picnic.favorites_reference
+        self.assertEqual(find([{"id": "favs", "title": None, "label": "Favorieten", "reference": "favorites-root"}]), "favorites-root")
+        self.assertEqual(find([{"id": "x", "title": "My Favourites", "label": None, "reference": "p"}]), "p")
+        self.assertEqual(find([{"id": "favorites", "title": None, "label": None, "reference": "p"}]), "p")
+        self.assertIsNone(find([{"id": "store", "title": "Winkel", "label": None, "reference": "store-root"}]))
+        self.assertIsNone(find([{"id": "favorites", "title": None, "label": "Favorieten", "reference": None}]))  # een tab zonder pagina
+        self.assertIsNone(find([{"id": "favorites", "label": "Favorieten", "reference": "a/b"}]))  # geen geldige paginanaam
+
+    def test_products_come_from_the_page_of_the_tab(self):
+        pages = {"favorites-root": search_page(tile("s1", "Halfvolle melk", "1 l", 129), tile("s2", "Eieren", "10 stuks", 249))}
+        with self.serve(pages):
+            products = picnic.get_favorites()
+        self.assertEqual([(p["id"], p["title"], p["price"]) for p in products], [("s1", "Halfvolle melk", 1.29), ("s2", "Eieren", 2.49)])
+
+    def test_the_pages_it_links_to_are_followed_when_the_tab_has_no_products(self):
+        link = {"onPress": "open picnic://store/page;id=favorites-deep-dive-page-content,presentation-mode=X"}
+        pages = {"favorites-root": {"body": {"children": [link]}},
+                 "favorites-deep-dive-page-content": {"child": {"children": [tile("s9", "Kaas", "400 g", 599)]}}}
+        with self.serve(pages):
+            self.assertEqual([p["id"] for p in picnic.get_favorites()], ["s9"])
+
+    def test_following_links_stops_after_a_few_pages_and_never_loops(self):
+        page = {"body": {"links": [f"picnic://store/page;id=sub-{n}" for n in range(10)] + ["picnic://store/page;id=favorites-root"]}}
+        asked = []
+
+        def fake(method, url, **kwargs):
+            path = url.rsplit("/api/15", 1)[1]
+            asked.append(path)
+            return response(self.TABS if path == "/bootstrap" else page if path == "/pages/favorites-root" else {})
+        with mock.patch.object(picnic.requests, "request", side_effect=fake):
+            self.assertEqual(picnic.get_favorites(), [])
+        self.assertEqual([p for p in asked if p.startswith("/pages/sub-")], [f"/pages/sub-{n}" for n in range(picnic.MAX_LINKED_PAGES)])
+        self.assertEqual(asked.count("/pages/favorites-root"), 1)
+
+    def test_no_favorites_tab_is_reported(self):
+        with mock.patch.object(picnic.requests, "request", return_value=response(bootstrap(page_tab("store", "store-root", "Winkel")))):
+            with self.assertRaisesRegex(RuntimeError, "geen Favorieten-tab"):
+                picnic.get_favorites()
+
+    def test_a_page_that_is_not_json_is_reported_and_nothing_is_written(self):
+        reply = response(None)
+        reply.content, reply.text = b"RSC", "RSC"
+        reply.json.side_effect = ValueError("geen json")
+        calls = []
+
+        def fake(method, url, **kwargs):
+            calls.append(method)
+            return response(self.TABS) if url.endswith("/bootstrap") else reply
+        with mock.patch.object(picnic.requests, "request", side_effect=fake):
+            with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
+                picnic.get_favorites()
+        self.assertEqual(set(calls), {"GET"})
+
+    def test_favorites_route(self):
+        client = create_app().test_client()
+        with mock.patch.object(picnic, "get_favorites", return_value=[{"id": "s1", "title": "Melk"}]):
+            self.assertEqual(client.get("/api/picnic/favorites").get_json(), {"products": [{"id": "s1", "title": "Melk"}]})
+        with mock.patch.object(picnic, "get_favorites", side_effect=RuntimeError("500: antwoord met geheim")):
+            reply = client.get("/api/picnic/favorites")
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
+
+    def test_the_explorer_reports_the_tabs_and_the_page_it_chose(self):
+        from mealieshopper import picnic_explore
+        pages = {"favorites-root": search_page(tile("s1", "Melk", "1 l"))}
+
+        def fake(method, url, **kwargs):
+            path = url.rsplit("/api/15", 1)[1]
+            if path == "/bootstrap":
+                return response(self.TABS)
+            return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
+        with mock.patch.object(picnic.requests, "request", side_effect=fake):
+            report = picnic_explore.explore()
+        names = {p["name"]: p for p in report["probes"]}
+        tabs = next(p for n, p in names.items() if n.startswith("tabbalk"))
+        self.assertEqual(tabs["info"]["favorietenpagina"], "favorites-root")
+        self.assertEqual([t["id"] for t in tabs["info"]["tabs"]], ["store", "favs", "cart", "cook"])
+        self.assertTrue(names["favorieten: GET pages/favorites-root"]["ok"])
+        self.assertEqual(names["favorieten: GET pages/favorites-root"]["info"]["producttegels"], 1)
+
+
 class RecipeExploreTest(TempDataDirTest):
     TILE = {"type": "TILE", "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
             "pml": {"component": {"text": "Geheime pasta van Jan"}}}

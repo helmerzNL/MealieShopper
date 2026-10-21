@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.3.0
+
+*English summary: Picnic is now a choice in the store list under Stores, next to Albert Heijn and Jumbo. Choosing Picnic shows two tabs: Recipes (the Picnic recipes from v2.2.0, no longer a separate tab) and the new Favorites, the products from the Favorites tab of the Picnic app, each with a button to put it in your Picnic basket. MealieShopper finds the favorites page itself through the tab bar that Picnic sends to its app (/bootstrap). A read-only MCP tool, list_picnic_favorites, shows them to your AI assistant. The explorer now reports that tab bar. Not tried against a real account yet.*
+
+### Nieuw in 2.3.0
+
+- **Picnic in de keuzelijst bij Winkels.** Naast **Albert Heijn** en **Jumbo** staat nu **Picnic** (zodra het gekoppeld is). Kies je Picnic, dan blijven er twee tabs over: **Recepten** (de Picnic-recepten uit 2.2.0, niet meer een los tabblad) en **Favorieten**. Lijstjes en Bestellingen horen bij AH en Jumbo en verdwijnen bij Picnic; wissel je terug, dan komen de tabs van die winkel terug.
+- **Favorieten van Picnic.** De producten uit de tab Favorieten van de Picnic-app, met naam, inhoud, prijs en een aanbiedingslabel, en een knop **In mandje** die er één in je Picnic-mandje zet (er wordt niets besteld). Zoeken op naam kan ook. Nieuwe route: `GET /api/picnic/favorites`.
+- **Zelf de favorietenpagina vinden.** Geen enkele library kent de pagina, maar Picnic stuurt zijn app de tabbalk (`/bootstrap`) met per tab de pagina waar hij naartoe gaat. MealieShopper zoekt de tab die over favorieten gaat en haalt die pagina op. Staan er op die pagina zelf geen producten, dan volgt MealieShopper de pagina's waarnaar hij verwijst (maximaal vier), omdat de inhoud van een tab bij Picnic vaak op een aparte pagina staat.
+- **Nieuwe MCP-tool, alleen lezen:** `list_picnic_favorites` (naam, inhoud, prijs en aanbieding). Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
+- **De verkenner meldt de tabbalk** van de app (id, soort, titel, label en pagina per tab) en welke pagina als Favorieten is gekozen, met de vorm van die pagina. Zo is te zien waarom de favorieten leeg blijven als dat gebeurt.
+
+### Goed om te weten
+
+- **Nog niet tegen een echt account geprobeerd.** Het zoeken van de Favorieten-tab op naam (*favoriet*/*favorite* in de id, titel, label of pagina) is een aanname. Blijft de lijst leeg of staat er een melding, deel dan het verkennerrapport: daarin staat de hele tabbalk.
+- Antwoordt Picnic voor een pagina met tekst in plaats van JSON, dan kan MealieShopper de favorieten niet lezen en meldt dat.
+
 ## v2.2.0
 
 *English summary: Your Picnic recipes are now in the app. Under Stores there is a new Picnic recipes tab with the lists Saved (Cook > Saved), Order again and the Cookbook, as cards like the AH recipes. Opening a recipe shows the ingredients and the preparation, and an Import button puts the recipe in Mealie. The cookbook names are read from the tiles (the explorer showed they have no name in their data), and the route explorer now measures what is on the pages that were empty and looks for the favorites page through field names and ids, without any texts. The favorite products are not found yet.*

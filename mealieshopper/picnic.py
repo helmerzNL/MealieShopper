@@ -14,6 +14,7 @@ nooit een bestelling geplaatst: de gebruiker rondt dat zelf af in de app.
 from __future__ import annotations
 
 import json
+import re
 import time
 from hashlib import md5
 from os import environ
@@ -294,14 +295,94 @@ def _product(unit: dict[str, Any]) -> dict[str, Any] | None:
 
 def products_from_search_page(page: Any) -> list[dict[str, Any]]:
     """Haal de producten uit het zoekresultaat van Picnic (een boom met SELLING_UNIT_TILE-knopen)."""
+    return products_from_page(page.get("body") if isinstance(page, dict) else None)
+
+
+def products_from_page(page: Any) -> list[dict[str, Any]]:
+    """De producten (SELLING_UNIT_TILE-onderdelen) op een willekeurige pagina van Picnic, zonder dubbelen."""
     seen: set[str] = set()
     products: list[dict[str, Any]] = []
-    for node in _walk(page.get("body") if isinstance(page, dict) else None):
+    for node in _walk(page):
         unit = node.get("sellingUnit") if node.get("type") == "SELLING_UNIT_TILE" else None
         product = _product(unit) if isinstance(unit, dict) else None
         if product and product["id"] not in seen:
             seen.add(product["id"])
             products.append(product)
+    return products
+
+
+# --- favorieten ---------------------------------------------------------------------------------
+# Waar de favorieten staan weet geen enkele library. Picnic zegt het zelf: `/bootstrap` bevat de tabbalk van
+# de app, met per tab de pagina waar hij naartoe gaat. We zoeken de tab die over favorieten gaat.
+
+_FAVORITE_TAB = re.compile(r"favou?rit|favoriet", re.I)
+_PAGE_REFERENCE = re.compile(r"^[A-Za-z0-9_.:;,=&?%-]{1,200}$")
+_LINKED_PAGE = re.compile(r"picnic://store/page;id=([A-Za-z0-9_.-]+)")
+MAX_LINKED_PAGES = 4
+
+
+def bootstrap_tabs() -> list[dict[str, Any]]:
+    """De tabs van de Picnic-app: id, soort, titel, label en de pagina waar de tab naartoe gaat."""
+    data = _authed("GET", "/bootstrap")
+    tabs = []
+    for tab in data.get("tabs") or [] if isinstance(data, dict) else []:
+        if not isinstance(tab, dict):
+            continue
+        target = tab.get("target") if isinstance(tab.get("target"), dict) else {}
+        accessibility = tab.get("accessibility") if isinstance(tab.get("accessibility"), dict) else {}
+        tabs.append(
+            {
+                "id": tab.get("id"),
+                "type": tab.get("tab_type"),
+                "title": tab["title"][:60] if isinstance(tab.get("title"), str) else None,
+                "label": accessibility["label"][:60] if isinstance(accessibility.get("label"), str) else None,
+                "reference": target.get("reference") if target.get("type") == "PICNIC_PAGE_REFERENCE" and isinstance(target.get("reference"), str) else None,
+            }
+        )
+    return tabs
+
+
+def favorites_reference(tabs: list[dict[str, Any]]) -> str | None:
+    """De pagina van de tab die over favorieten gaat, of None als de tabbalk er geen heeft."""
+    for tab in tabs:
+        words = " ".join(str(tab.get(key) or "") for key in ("id", "title", "label", "reference"))
+        if tab.get("reference") and _FAVORITE_TAB.search(words) and _PAGE_REFERENCE.match(tab["reference"]):
+            return tab["reference"]
+    return None
+
+
+def _page(reference: str) -> Any:
+    return _authed("GET", f"/pages/{reference}", text=True)
+
+
+def get_favorites() -> list[dict[str, Any]]:
+    """De favoriete producten: de producten op de pagina van de Favorieten-tab van de app.
+
+    Staan er op die pagina zelf geen producten, dan volgen we de pagina's waar hij naar verwijst (de inhoud
+    van een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
+    """
+    reference = favorites_reference(bootstrap_tabs())
+    if not reference:
+        raise RuntimeError(
+            tr(
+                "Picnic heeft geen Favorieten-tab in de app gevonden",
+                "Picnic has no Favorites tab in the app",
+            )
+        )
+    page = _page(reference)
+    if not isinstance(page, dict):
+        raise RuntimeError(tr("Picnic gaf de favorieten in een onbekend formaat", "Picnic returned the favorites in an unknown format"))
+    products = products_from_page(page)
+    followed: list[str] = []
+    for linked in dict.fromkeys(_LINKED_PAGE.findall(json.dumps(page))):
+        if products or len(followed) >= MAX_LINKED_PAGES:
+            break
+        if linked == reference or not _PAGE_REFERENCE.match(linked):
+            continue
+        followed.append(linked)
+        sub_page = _page(linked)
+        if isinstance(sub_page, dict):
+            products = products_from_page(sub_page)
     return products
 
 
