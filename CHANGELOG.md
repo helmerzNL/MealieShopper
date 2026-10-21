@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.7.1
+
+*English summary: Fixes adding products to the Jumbo basket. The explorer, run on a real server, showed that Jumbo's addBasketLines answer cannot be a BasketError, so every add would have failed validation. The query no longer names that type and an error now reports the type Jumbo answered with. The explorer also shows the type name and tries to list the possible answers. The same run confirmed that Jumbo accepts the server, the token refresh, search and reading the basket work.*
+
+### Opgelost in 1.7.1
+
+- **Producten toevoegen aan het Jumbo-mandje** mislukte altijd met een validatiefout van Jumbo (`Fragment cannot be spread here as objects of type "AddBasketLinesResult" can never be of type "BasketError"`). De foutvariant van `addBasketLines` heet in Jumbo's schema anders dan bij `activeBasket`. De query noemt dat type nu niet meer; bij een weigering meldt de app de typenaam die Jumbo teruggaf (bijvoorbeeld `Jumbo weigerde het toevoegen aan het mandje (…)`).
+- **Jumbo-routes verkennen** toont bij het (lege) toevoegen nu de typenaam van het antwoord (`Basket` of Jumbo's foutvariant) en probeert de mogelijke antwoorden op te vragen; introspectie staat bij Jumbo meestal uit, en dan zegt de foutmelding dat.
+
+### Goed om te weten
+
+- Het rapport van de verkenner op een echte server **bevestigde**: Jumbo laat de server toe (`auth.jumbo.com` en `www.jumbo.com/api/graphql` antwoorden gewoon), het token vernieuwen werkt, zoeken werkt (met pakmaat en plaatje) en het mandje lezen werkt.
+- Het toevoegen zelf is met deze versie nog **niet met een echt product bevestigd**. Zet één product in het Jumbo-mandje en meld de uitkomst; de foutmelding noemt nu de typenaam, waarmee een volgende versie ook de reden kan tonen.
+
 ## v1.7.0
 
 *English summary: MealieShopper can now fill a Jumbo basket too. Jumbo moved from REST to Auth0 and GraphQL since the removed v1.2.0 link, so linking now works like Albert Heijn: the administrator logs in in their own browser and pastes the jumbo://callbacks/login line from the console. No headless browser, no stored password. The planner's supermarket list now offers Albert Heijn, Picnic and Jumbo. Jumbo may refuse a server address, so the explorer under Settings > Jumbo first checks reachability. Not yet tried against a live Jumbo account.*
