@@ -675,7 +675,7 @@ I18N.add("en", {
   "update.up_to_date": "You are on the latest version.",
   "update.available": "A new version is available: {version}.",
   "update.no_release": "No release has been published on GitHub yet.",
-  "update.failed": "The update check failed ({detail}). Can this server reach GitHub (api.github.com)?",
+  "update.failed": "The update check failed ({detail}). Can this server reach GitHub (github.com)?",
   "update.disabled": "The update check is turned off (MEALIESHOPPER_UPDATE_CHECK).",
   "update.banner": "There is a new version of MealieShopper: {latest} (you have {current}).",
   "update.view": "View",

@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.4.1
+
+*English summary: Fixes "The update check failed (HTTP 403 (rate limit))". The check no longer uses api.github.com, where anonymous requests are limited to 60 per hour per IP address (easily used up on a shared address), but the public releases page, which GitHub redirects to the latest release tag. Nothing else changes.*
+
+### Opgelost in 2.4.1
+
+- **Updatecheck: `HTTP 403 (rate limit)`.** GitHub beperkt anonieme aanvragen naar `api.github.com` tot 60 per uur per IP-adres; op een gedeeld adres was die limiet al op, en dan faalde de updatecheck. De check kijkt nu op `github.com/helmerzNL/MealieShopper/releases/latest`, dat GitHub doorverwijst naar de nieuwste release-tag. Die pagina valt niet onder de API-limiet. Er verandert verder niets: nog steeds hooguit om de zes uur, zonder informatie over jou of de installatie.
+
 ## v2.4.0
 
 *English summary: Your Albert Heijn orders are back. Under Stores > Orders you see your upcoming orders (still open, with their delivery time) and your past orders (delivered, kept for good), next to your receipts, and the order basket is back under the Basket tab. The "coming soon" lines are gone.*

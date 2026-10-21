@@ -1,7 +1,10 @@
 """Updatecheck: kijkt op GitHub of er een nieuwere release is dan de versie die nu draait.
 
-Alleen de laatste (gepubliceerde, niet-voorlopige) release van de repository wordt opgevraagd; er gaat
-geen informatie over de installatie of de gebruikers mee. Het antwoord blijft in het geheugen staan, zodat
+Alleen de laatste (gepubliceerde, niet-voorlopige) release van de repository wordt opgevraagd, via de
+doorverwijzing van github.com/<repo>/releases/latest naar de tag; er gaat geen informatie over de
+installatie of de gebruikers mee. Dat gaat bewust niet via api.github.com: anonieme aanvragen daar zijn
+beperkt tot 60 per uur per IP-adres, en een server die dat adres deelt (of veel van GitHub haalt) kreeg
+daardoor "HTTP 403 (rate limit)". Het antwoord blijft in het geheugen staan, zodat
 GitHub niet bij elke paginaweergave wordt gevraagd. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 """
 from __future__ import annotations
@@ -19,7 +22,8 @@ import requests
 from . import about
 
 REPO = "helmerzNL/MealieShopper"
-API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
+LATEST_URL = f"https://github.com/{REPO}/releases/latest"
+TAG = re.compile(r"/releases/tag/(v?\d+(?:\.\d+)*)(?:[/?#]|$)")
 OFF = {"0", "false", "no", "off"}
 SUCCESS_TTL = 6 * 3600  # seconden dat een gelukt antwoord blijft staan
 FAILURE_TTL = 10 * 60  # na een mislukte poging wachten we even met een nieuwe
@@ -66,39 +70,35 @@ def describe_error(exc: Exception) -> str:
 
 def _fetch_latest() -> dict[str, str]:
     response = requests.get(
-        API_URL,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "MealieShopper-update-check"},
+        LATEST_URL,
+        headers={"User-Agent": "MealieShopper-update-check"},
         timeout=TIMEOUT,
+        allow_redirects=False,
     )
-    if response.status_code == 404:  # er is nog geen release gepubliceerd
-        return {"version": "", "url": "", "name": "", "publishedAt": ""}
-    response.raise_for_status()
-    data = response.json()
-    version = str(data.get("tag_name") or "").strip().lstrip("vV")
-    url = str(data.get("html_url") or "")
-    if not parse_version(version):
-        raise ValueError("onverwacht antwoord van GitHub")
-    if not url.startswith(f"https://github.com/{REPO}/"):
-        url = f"https://github.com/{REPO}/releases/tag/v{version}"
-    return {
-        "version": version,
-        "url": url,
-        "name": str(data.get("name") or ""),
-        "publishedAt": str(data.get("published_at") or ""),
-    }
+    if response.status_code == 404:  # de repository is niet te zien
+        return {"version": "", "url": ""}
+    if not 300 <= response.status_code < 400:
+        response.raise_for_status()
+        raise ValueError(f"onverwacht antwoord van GitHub (HTTP {response.status_code})")
+    location = response.headers.get("Location", "")
+    match = TAG.search(location)
+    if not match:
+        if location.rstrip("/").endswith("/releases"):  # er is nog geen release gepubliceerd
+            return {"version": "", "url": ""}
+        raise ValueError("onverwachte doorverwijzing van GitHub")
+    version = match.group(1).lstrip("vV")
+    return {"version": version, "url": f"https://github.com/{REPO}/releases/tag/v{version}"}
 
 
 def _payload(latest: dict[str, str] | None, error: bool, checked_at: float, detail: str = "") -> dict[str, Any]:
     current = about.build_info()["version"]
-    latest = latest or {"version": "", "url": "", "name": "", "publishedAt": ""}
+    latest = latest or {"version": "", "url": ""}
     return {
         "enabled": True,
         "current": current,
         "latest": latest["version"],
         "available": is_newer(latest["version"], current),
         "url": latest["url"],
-        "name": latest["name"],
-        "publishedAt": latest["publishedAt"],
         "checkedAt": datetime.fromtimestamp(checked_at, timezone.utc).isoformat(timespec="seconds") if checked_at else "",
         "error": error,
         "errorDetail": detail,
