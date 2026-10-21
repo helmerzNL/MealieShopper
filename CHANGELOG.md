@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.15.0
+
+*English summary: Two things for Picnic. The basket now adds up: a discounted line shows the price without discount struck through and what you pay, products that are not available right now are marked with a notice, and the plus button and quantity field stop at the maximum Picnic allows per product. And the route explorer now also checks Picnic's recipe pages (saved recipes, the cookbook, the recipes home and a recipe's details) and tries a list of likely pages for the favorites; that is the first step toward reading your Picnic recipes and favorites into MealieShopper, so nothing is imported yet. Errors in the explorer report now show only the status and error code.*
+
+### Nieuw in 1.15.0
+
+- **Picnic-routes verkennen kijkt naar recepten.** De verkenner roept de receptpagina's van Picnic aan (opgeslagen recepten, kookboek, receptenstartpagina en de details van één recept, zoals de community-libraries `picnic-api` en `mcp-de-picnic` ze kennen) en meldt hoeveel receptonderdelen erop staan, welke velden zo'n onderdeel heeft en naar welke pagina's de pagina verwijst, zonder namen of id's. Is een antwoord geen JSON, dan meldt het rapport dat en de grootte.
+- **Zoeken naar de favorieten.** Picnic heeft een favorietenpagina, maar geen library noemt hem. De verkenner probeert een lijst waarschijnlijke paginanamen; een pagina die bestaat wordt met zijn vorm en verwijzingen gemeld, de rest geeft een 404.
+- Nog **niets wordt ingelezen**: eerst moet de vorm van die pagina's bekend zijn. Draai de verkenner (Beheer > Picnic) en deel het rapport; daarmee bouwen we het inlezen van je recepten en favorieten.
+
+### Opgelost in 1.15.0
+
+- **Regelprijzen in het Picnic-mandje tellen op tot het totaal.** Bij een aanbieding of lidmaatschapskorting stond de prijs zonder korting, waardoor de regels meer opleverden dan je totaal (bij het testmandje €35,90 tegen €35,03). Nu staat bij zo'n regel de prijs zonder korting doorgestreept en daarachter wat je betaalt. Dit geldt ook voor `get_picnic_basket` (veld `price`, en `listPrice` als er korting is).
+- **Waarschuwing bij niet-beschikbare producten.** Picnic meldt per product of het nu leverbaar is. Een product dat dat niet is, krijgt *Niet beschikbaar* achter de naam, en boven het mandje staat dat zulke producten niet worden bezorgd. Ook in `get_picnic_basket` (veld `available`).
+- **Maximum per product.** De plus-knop en het aantalveld stoppen bij het maximum dat Picnic per bestelling toestaat en melden het als je er overheen typt. Zet je het via `PUT /api/picnic/cart/items/<product>` toch hoger, dan weigert MealieShopper dat voordat er iets verandert. Veld `maxCount`.
+
+### Goed om te weten
+
+- De kortingsprijs is afgeleid uit de vorm van een echt gevuld mandje: Picnic geeft twee bedragen per regel en het lagere is wat je betaalt. Controleer na het bijwerken dat de regels optellen tot het totaal. Waarom een product niet beschikbaar is, meldt Picnic niet in het mandje.
+- In het verkennerrapport staat bij een mislukte route nu alleen de statuscode en de foutcode (bijvoorbeeld `404 NOT_FOUND`), niet meer de tekst van Picnic zelf. Bij alle verkenners tonen de velden `type`, `schema`, `component` en `actionType` hun waarde: dat zijn vaste namen van onderdelen, geen persoonlijke gegevens.
+
 ## v1.14.6
 
 *English summary: When Jumbo refuses the requests for the products of an order, the sync message now says what Jumbo answered (with order numbers and ids removed) instead of only "RuntimeError", and the explorer shows the same. This is a diagnostic step: the products of an order still need Jumbo's own stored request (operationName, hash, variables) from the browser's Network tab.*

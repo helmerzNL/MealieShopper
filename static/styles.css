@@ -877,6 +877,15 @@ a.product-card__main:hover strong {
   text-align: center;
 }
 
+.basket-line.is-unavailable .basket-title {
+  opacity: 0.7;
+}
+
+.basket-unavailable {
+  color: var(--danger, #b3261e);
+  font-weight: 600;
+}
+
 .basket-price {
   min-width: 64px;
   text-align: right;

@@ -9,12 +9,87 @@ producten en id's worden vervangen door hun type. Zo kun je het rapport veilig d
 """
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
+from urllib.parse import quote
 
 from . import picnic
 from .ah_explore import _probe, shape
 
 SEARCH_TERM = "melk"
+
+# Receptpagina's van Picnic, zoals de community-libraries `picnic-api` (MRVDH) en `mcp-de-picnic` ze noemen.
+RECIPE_PAGES = (
+    ("opgeslagen recepten: GET pages/saved-deep-dive-page-content", "saved-deep-dive-page-content"),
+    ("kookboek: GET pages/cookbook-page-content", "cookbook-page-content"),
+    ("recepten-startpagina: GET pages/meals-page-root", "meals-page-root"),
+)
+# Waar de favorieten staan weet geen enkele library. Dit zijn gokken op basis van de naamgeving van de
+# andere pagina's; een 404 kost niets en de pagina's die wel bestaan verraden zich.
+FAVORITE_GUESSES = (
+    "favorites-deep-dive-page-content",
+    "favourites-deep-dive-page-content",
+    "favorites-page-root",
+    "favorites-page-content",
+    "favourites-page-root",
+    "my-favorites-page-root",
+    "purchased-deep-dive-page-content",
+    "previously-bought-page-root",
+    "my-products-page-root",
+    "my-profile-page-root",
+    "profile-page-root",
+    "account-page-root",
+    "meals-purchase-page-root",
+)
+_RECIPE_KEY = re.compile(r"selling_group|recipe|sellable", re.I)
+_LINK = re.compile(r"(?:picnic://|/pages/|page_id=|pageId=)[^\s\"'<>)]*")
+
+
+def short_error(message: str) -> str:
+    """Een foutmelding van Picnic als statuscode en foutcode (`404 NOT_FOUND`), zonder de rest van het antwoord."""
+    status, _, rest = str(message).partition(":")
+    if not status.strip().isdigit():
+        return str(message)[:80]
+    try:
+        code = (json.loads(rest).get("error") or {}).get("code")
+    except (ValueError, AttributeError):
+        code = None
+    return f"{status.strip()} {code}" if isinstance(code, str) else status.strip()
+
+
+def _contexts(node: dict[str, Any]) -> list[dict[str, Any]]:
+    analytics = node.get("analytics") if isinstance(node.get("analytics"), dict) else {}
+    return [c.get("data") for c in analytics.get("contexts") or [] if isinstance(c, dict) and isinstance(c.get("data"), dict)]
+
+
+def recipe_tiles(page: Any) -> list[dict[str, Any]]:
+    """Onderdelen van een pagina waarvan de analysegegevens een recept (selling group) noemen."""
+    return [node for node in picnic._walk(page) if any(_RECIPE_KEY.search(key) for data in _contexts(node) for key in data)]
+
+
+def _clean_link(link: str) -> str:
+    """Een verwijzing naar een pagina zonder waarden: alleen de naam van de pagina en de namen van de parameters."""
+    path, _, query = link.partition("?")
+    names = sorted({part.split("=")[0] for part in query.split("&") if part})
+    path = re.sub(r"[0-9a-f]{8,}|\d{3,}", "<id>", path)
+    return path + ("?" + "&".join(names) if names else "")
+
+
+def page_links(page: Any) -> list[str]:
+    """De pagina's waar een pagina naar verwijst (diepe links), zonder id's. Zo vinden we pagina's die we niet kennen."""
+    strings = [page] if isinstance(page, str) else [v for node in picnic._walk(page) for v in node.values() if isinstance(v, str)]
+    found = {_clean_link(match) for text in strings for match in _LINK.findall(text)}
+    return sorted(found)[:40]
+
+
+def _page_info(page: Any) -> dict[str, Any]:
+    if isinstance(page, str):
+        # Geen JSON: waarschijnlijk een React Server Components-antwoord. We melden alleen de grootte en de soorten.
+        return {"formaat": "tekst (geen JSON)", "lengte": len(page), "noemt SELLING_GROUP": "SELLING_GROUP" in page,
+                "verwijzingen": page_links(page)}
+    return {"formaat": "JSON", "bovenste velden": sorted(page) if isinstance(page, dict) else shape(page),
+            "receptonderdelen": len(recipe_tiles(page)), "verwijzingen": page_links(page)}
 
 
 def explore() -> dict[str, Any]:
@@ -57,6 +132,36 @@ def explore() -> dict[str, Any]:
     for name, path in candidates:
         report, _ = _probe(name, lambda p=path: picnic._authed("GET", p))
         probes.append(report)
+
+    # Recepten: eerst de pagina's, dan de vorm van één receptonderdeel en van een receptpagina.
+    recipe_page: Any = None
+    for name, page_id in RECIPE_PAGES:
+        report, result = _probe(name, lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+        probes.append(report)
+        if result is not None and not isinstance(result, str):
+            tile = next(iter(recipe_tiles(result)), None)
+            if tile is not None and recipe_page is None:
+                recipe_page = (page_id, tile)
+    if recipe_page:
+        probes.append({"name": f"een receptonderdeel uit {recipe_page[0]} (ruwe vorm)", "ok": True, "shape": shape(recipe_page[1])})
+        recipe_id = next((str(v) for data in _contexts(recipe_page[1]) for k, v in data.items() if _RECIPE_KEY.search(k) and isinstance(v, str)), "")
+        if recipe_id:
+            report, _ = _probe(
+                "receptdetails: GET pages/selling-group-details-page",
+                lambda: picnic._authed("GET", f"/pages/selling-group-details-page?selling_group_id={quote(recipe_id, safe='')}", text=True),
+                _page_info,
+            )
+            probes.append(report)
+
+    # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
+    for page_id in FAVORITE_GUESSES:
+        report, _ = _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+        probes.append(report)
+
+    # Het antwoord van Picnic bij een fout kan van alles bevatten; in het rapport staan alleen de codes.
+    for probe in probes:
+        if not probe["ok"]:
+            probe["error"] = short_error(probe["error"])
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
