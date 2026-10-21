@@ -607,6 +607,7 @@ function showCartResult(data, notFound) {
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
+  if (state.store === "picnic" && typeof showPicnicSlots === "function") showPicnicSlots();
 }
 
 async function submitCart(selection, notFound) {

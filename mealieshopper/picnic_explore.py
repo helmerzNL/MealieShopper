@@ -41,6 +41,23 @@ def explore() -> dict[str, Any]:
         report, _ = _probe(name, lambda m=method, p=path, b=body: picnic._authed(m, p, body=b))
         probes.append(report)
 
+    # Routes die we nog niet gebruiken maar uit de community-libraries kennen. Zo zie je welke
+    # uitbreidingen mogelijk zijn zonder dat er iets wordt gewijzigd.
+    first = next(iter(picnic.products_from_search_page(page)), None) if page is not None else None
+    candidates = [
+        ("account: GET user (alleen de vorm)", "/user"),
+        ("lijstjes: GET lists", "/lists"),
+        ("winkel: GET my_store", "/my_store"),
+        ("suggesties: GET suggest", f"/suggest?search_term={SEARCH_TERM}"),
+    ]
+    if first:
+        candidates.append(
+            ("productpagina: GET pages/product-details-page-root", f"/pages/product-details-page-root?id={first['id']}")
+        )
+    for name, path in candidates:
+        report, _ = _probe(name, lambda p=path: picnic._authed("GET", p))
+        probes.append(report)
+
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
         "linked": bool(picnic.configured_auth_key()),

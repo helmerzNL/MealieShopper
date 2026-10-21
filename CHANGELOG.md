@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.7.0
+
+*English summary: Picnic now shows the next available delivery slots under the filled basket and through a new read-only MCP tool, `list_picnic_delivery_slots`. The basket also reports what you actually pay and what your membership saves. The Picnic route explorer checks more routes (account, lists, store, suggestions, product page) so the next steps can be built on real answers. Choosing a slot and placing an order remain in the Picnic app.*
+
+### Nieuw in 1.7.0
+
+- **Bezorgmomenten van Picnic.** Na het vullen van je Picnic-mandje laat de planner de eerstvolgende beschikbare bezorgmomenten zien, met de minimale bestelwaarde. Picnic levert die in het mandje-antwoord mee; ze zijn dus live en er wordt niets gekozen of gereserveerd. Het bezorgmoment kies je zelf in de Picnic-app. Nieuwe route: `GET /api/picnic/slots`.
+- **Nieuwe MCP-tool, alleen lezen:** `list_picnic_delivery_slots` (beschikbare bezorgmomenten met begin, einde, uiterste bestelmoment en minimale bestelwaarde). Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
+- **Mandje met echt totaal.** `get_picnic_basket` en `GET /api/picnic/cart` melden nu ook wat je werkelijk betaalt (`checkoutTotal`, met bezorgkosten en statiegeld) en wat je lidmaatschap bespaart (`savings`).
+- **Picnic-routes verkennen kijkt verder.** Naast zoeken, mandje en leveringen worden nu ook account, lijstjes, winkel, suggesties en de productpagina aangeroepen. Alleen lezen en zonder persoonlijke gegevens in het rapport. Zo zien we welke uitbreidingen (lijstjes, productinfo) mogelijk zijn.
+
+### Goed om te weten
+
+- Het zoeken, het mandje en de leveringsroutes zijn bevestigd met een echt Picnic-account: de verkenner gaf voor alle vijf routes een antwoord. De vorm van de bezorgmomenten is daaruit afgeleid. De vorm van een levering en van een gevuld mandje is nog niet gezien (het account had geen leveringen en een leeg mandje); meld wat afwijkt.
+- Een bezorgmoment kiezen of een bestelling plaatsen kan niet vanuit MealieShopper, en dat blijft zo.
+
 ## v1.6.0
 
 *English summary: MealieShopper can now fill a Picnic basket as well as an Albert Heijn one. The administrator links Picnic under Settings > Picnic (email, password and the code Picnic sends), and the planner then lets you choose the supermarket. Products go straight into the real Picnic basket; an order is never placed. Three read-only MCP tools show Picnic products, your basket and your deliveries. The Picnic API is unofficial and has not been tried against a live account yet: use the explorer under Settings > Picnic to check which routes work.*

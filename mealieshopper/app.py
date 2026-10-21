@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-1")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-2")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -598,6 +598,15 @@ def create_app() -> Flask:
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.get("/api/picnic/slots")
+    def picnic_slots():
+        # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.
+        try:
+            limit = max(1, min(30, int(request.args.get("limit") or 8)))
+            return jsonify({"slots": picnic.get_delivery_slots(limit)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 

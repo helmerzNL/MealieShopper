@@ -220,6 +220,12 @@ def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
     return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
 
 
+def tool_picnic_slots(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    limit = max(1, min(30, int(args.get("limit") or 10)))
+    return {"slots": picnic.get_delivery_slots(limit)}
+
+
 def _private_host(hostname: str) -> bool:
     """Een adres op je eigen netwerk (Mealie zou het ophalen vanaf jouw server)."""
     host = hostname.strip("[]").rstrip(".").casefold()
@@ -376,6 +382,12 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Picnic-leveringen"},
         "handler": tool_picnic_deliveries,
     },
+    "list_picnic_delivery_slots": {
+        "description": "De eerstvolgende bezorgmomenten van Picnic die nog beschikbaar zijn: begin, einde, uiterste bestelmoment en minimale bestelwaarde. Live opgehaald; er wordt geen moment gekozen of gereserveerd.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Aantal bezorgmomenten, standaard 10."}}),
+        "annotations": {**READ_ONLY, "title": "Picnic-bezorgmomenten"},
+        "handler": tool_picnic_slots,
+    },
     "get_ah_basket": {
         "description": "Het bestelmandje: de actieve bestelling bij Albert Heijn (producten, aantallen, totaal, gekozen bezorgmoment). Uit de lokale kopie, met het tijdstip van de laatste synchronisatie. Niet de boodschappenlijst.",
         "inputSchema": _schema(),
@@ -493,7 +505,7 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "instructions": (
                     "MealieShopper koppelt Mealie aan Albert Heijn en Picnic. Gebruik de tools om het weekmenu, "
                     "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
-                    "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje en -leveringen "
+                    "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje, -leveringen en -bezorgmomenten "
                     "live te bekijken en om een recept in Mealie te importeren. "
                     "Het AH-mandje vullen kan niet via deze server, en het Picnic-mandje ook niet."
                 ),
