@@ -25,6 +25,7 @@ COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] 
     ("ah", "integrations", "Albert Heijn", None, None, None, "https://www.ah.nl"),
     ("allerhande", "integrations", "Allerhande", None, None, None, "https://www.ah.nl/allerhande"),
     ("picnic", "integrations", "Picnic", None, None, None, "https://picnic.app"),
+    ("jumbo", "integrations", "Jumbo", None, None, None, "https://www.jumbo.com"),
     ("webauthn", "integrations", "WebAuthn (passkeys)", None, None, None, "https://www.w3.org/TR/webauthn-2/"),
     ("totp", "integrations", "TOTP (RFC 6238)", None, None, None, "https://www.rfc-editor.org/rfc/rfc6238"),
     ("python", "server", "Python", None, "python", "PSF-2.0", "https://www.python.org"),

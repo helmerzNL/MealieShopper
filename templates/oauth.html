@@ -27,9 +27,10 @@
         <li>{{ tr("Je AH-lijstjes en bewaarde recepten bekijken", "See your AH lists and saved recipes") }}</li>
         <li>{{ tr("Je bestelmandje, AH-bestellingen en kassabonnen bekijken", "See your order basket, AH orders and receipts") }}</li>
         <li>{{ tr("Producten, je mandje en leveringen bij Picnic bekijken", "See products, your basket and deliveries at Picnic") }}</li>
+        <li>{{ tr("Producten en je mandje bij Jumbo bekijken", "See products and your basket at Jumbo") }}</li>
         <li>{{ tr("Een recept in Mealie importeren", "Import a recipe into Mealie") }}</li>
       </ul>
-      <p class="muted">{{ tr("De app kan niets verwijderen en je AH- of Picnic-mandje niet vullen. Je trekt de toegang altijd in onder Beheer > AI-apps.", "The app can't delete anything and can't fill your AH or Picnic basket. You can always revoke access under Settings > AI apps.") }}</p>
+      <p class="muted">{{ tr("De app kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen. Je trekt de toegang altijd in onder Beheer > AI-apps.", "The app can't delete anything and can't fill your AH, Picnic or Jumbo basket. You can always revoke access under Settings > AI apps.") }}</p>
       <form method="post" action="{{ base }}/oauth/authorize" class="oauth-actions">
         <input type="hidden" name="request" value="{{ signed }}">
         <button class="button button--secondary" type="submit" name="decision" value="deny">{{ tr("Weigeren", "Deny") }}</button>

@@ -36,7 +36,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. One button looks up the best AH products for every ingredient, works out how many packs you need and puts them in your AH basket. If the app is unsure, you check that line yourself first.
-- **Picnic too.** Link your Picnic account and you choose in the planner which supermarket the week menu goes to. The products go straight into your Picnic basket; you finish the order yourself in the Picnic app.
+- **Picnic and Jumbo too.** Link your Picnic or Jumbo account and you choose in the planner which supermarket the week menu goes to. The products go straight into your basket at that store; you finish the order yourself in the Picnic app or at Jumbo.
 - **Search and import recipes.** Search the Allerhande recipes and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **Orders and receipts.** Your order basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
@@ -222,6 +222,19 @@ Picnic has no official link. MealieShopper logs in like the Picnic app, with you
 
 Your password is not stored, only the session that Picnic returns, encrypted. Picnic may renew that session on every request; MealieShopper always keeps the newest. If it has expired, you link again. Unlike AH, the products go straight into your real Picnic basket; an order is never placed. Picnic only delivers to certain areas. With `Check link` you see whether the session still works. Under **Explore Picnic routes** you see which unofficial routes work and which fields they contain (no personal data, safe to share). Your AI assistant can look at Picnic products, your basket and your deliveries, but can't fill the basket. Lists, receipts and recipes don't exist for Picnic.
 
+### Jumbo
+
+Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your own browser (on a computer, administrator only, under **Settings > Jumbo**). It works just like Albert Heijn:
+
+1. Choose `Log in to Jumbo`; a new tab opens.
+2. In that tab, open the developer console (`F12`) **before** you log in.
+3. Log in with your Jumbo account. The page then seems to hang, but the console shows a red line with `jumbo://callbacks/login?code=...`.
+4. Paste that line in MealieShopper and choose `Link`. The code works only once and expires quickly; a message about an expired or used code means: log in again.
+
+Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless browser. Your password is not stored, only the refresh token that Jumbo returns, encrypted; Jumbo may replace it on every refresh and MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage. Once Jumbo is linked, it appears in the list in the planner. Like Picnic, the products go straight into your real basket and an order is never placed. Your AI assistant can look at Jumbo products and your basket, but can't fill the basket.
+
+**Jumbo may refuse a server.** Jumbo sometimes blocks server and datacenter addresses; that is why an earlier Jumbo link was removed in v1.2.0. Under **Explore Jumbo routes** (administrator only) MealieShopper first checks whether Jumbo lets your server in and then calls the unofficial routes (filling the basket only with an empty list). The report contains no names, prices or ids and is safe to share. If the explorer says Jumbo refuses your server, the link does not work from that location.
+
 ## Security
 
 <img src="docs/screenshots/en/login.png" alt="The login page with username and password" width="900">
@@ -342,6 +355,8 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **The passkey doesn't work.** A passkey needs a domain name and HTTPS (on `localhost` it works too). Open MealieShopper through that address and check `RP_ID` and `RP_ORIGINS`; the setup guide explains why it can't work on an IP address.
 
+**Jumbo: "Jumbo refuses the request (403)".** Jumbo blocks this address or server. Try again later; if it keeps happening, Jumbo does not work from this location. See **Explore Jumbo routes**.
+
 **Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Picnic and log in again.
 
 **AH: "code expired or used".** The code from the console works only once and expires quickly. Log in again and paste the new line right away.
@@ -371,7 +386,7 @@ python -m unittest discover -s tests          # all tests
 
 ## Integrations and components
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn or Picnic.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic or Jumbo.
 
 **Integrations**
 
@@ -380,6 +395,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes end up here. Through the API with a token. |
 | [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
+| [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |

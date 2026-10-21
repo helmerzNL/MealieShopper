@@ -51,20 +51,21 @@ class PurgeObsoleteSecretsTest(unittest.TestCase):
 
 
 class RemovedRoutesTest(unittest.TestCase):
-    def test_jumbo_and_ah_browser_routes_are_gone(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp}):
+    def test_the_old_jumbo_recipe_and_browser_routes_are_gone(self):
+        # De huidige Jumbo-koppeling (GraphQL, geen headless browser) staat onder /api/jumbo/ en is
+        # bedoeld; alleen wat met Chromium en de oude REST-koppeling verdween blijft weg.
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"MEALIESHOPER_DATA_DIR": tmp}):
             client = create_app().test_client()
             for method, path in (
-                ("get", "/api/jumbo/auth/status"),
-                ("post", "/api/jumbo/cart"),
                 ("get", "/api/jumbo/recipes/saved"),
+                ("get", "/api/jumbo/browser/status"),
                 ("get", "/api/ah/browser/status"),
                 ("post", "/api/ah/browser/auth"),
             ):
                 self.assertEqual(getattr(client, method)(path).status_code, 404, path)
             page = client.get("/").get_data(as_text=True)
-            self.assertNotIn("Jumbo", page)
             self.assertNotIn("ah-browser", page)
+            self.assertNotIn("Selenium", page)
 
 
 if __name__ == "__main__":

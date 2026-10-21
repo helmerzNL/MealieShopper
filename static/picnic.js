@@ -23,6 +23,7 @@ async function refreshPicnicStatus() {
   try {
     const data = await jsonFetch("/api/picnic/auth/status");
     picnicState.connected = Boolean(data.connected);
+    state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorPending) && !data.connected;
     renderPicnicStatus();
   } catch (error) {
@@ -65,6 +66,7 @@ async function loginToPicnic(event) {
     });
     $("#picnic-password").value = "";
     picnicState.connected = Boolean(data.connected);
+    state.linkedStores.picnic = picnicState.connected;
     picnicState.codePending = Boolean(data.twoFactorRequired);
     renderPicnicStatus();
     renderStoreChoice();
@@ -84,6 +86,7 @@ async function confirmPicnicCode(event) {
     await postJson("/api/picnic/auth/2fa/verify", { code: $("#picnic-code").value.trim() });
     $("#picnic-code").value = "";
     picnicState.connected = true;
+    state.linkedStores.picnic = true;
     picnicState.codePending = false;
     message("#picnic-code-message", "");
     renderPicnicStatus();
@@ -99,8 +102,8 @@ async function unlinkPicnic() {
   try {
     await postJson("/api/picnic/auth/logout");
     picnicState.connected = false;
+    state.linkedStores.picnic = false;
     picnicState.codePending = false;
-    state.store = "ah";
     renderPicnicStatus();
     renderStoreChoice();
   } catch (error) {
@@ -129,40 +132,6 @@ async function runPicnicExplore() {
 function renderPicnicExploreSummary() {
   const report = picnicState.report;
   if (report) $("#picnic-explore-summary").textContent = t("explore.summary", { ok: report.ok, total: report.probes.length });
-}
-
-// ---- Supermarkt kiezen in de planner: alleen zichtbaar als Picnic gekoppeld is
-function renderStoreChoice() {
-  const slot = $("#cart-store-slot");
-  if (!slot) return;
-  if (!picnicState.connected) {
-    state.store = "ah";
-    slot.innerHTML = "";
-  } else {
-    slot.innerHTML = `
-      <select id="cart-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-        <option value="ah"${state.store === "ah" ? " selected" : ""}>Albert Heijn</option>
-        <option value="picnic"${state.store === "picnic" ? " selected" : ""}>Picnic</option>
-      </select>`;
-    $("#cart-store").addEventListener("change", (event) => {
-      state.store = event.target.value === "picnic" ? "picnic" : "ah";
-      try {
-        localStorage.setItem("ms-store", state.store);
-      } catch {
-        // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
-      }
-      const button = $("#add-cart");
-      if (button) button.textContent = cartButtonLabel();
-    });
-  }
-  const button = $("#add-cart");
-  if (button) button.textContent = cartButtonLabel();
-}
-
-try {
-  if (localStorage.getItem("ms-store") === "picnic") state.store = "picnic";
-} catch {
-  // Geen opslag beschikbaar: AH blijft de standaard.
 }
 
 $("#picnic-form").addEventListener("submit", loginToPicnic);
