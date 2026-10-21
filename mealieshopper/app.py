@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-11")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-12")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -623,6 +623,16 @@ def create_app() -> Flask:
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.get("/api/picnic/deliveries/<delivery_id>")
+    def picnic_delivery(delivery_id: str):
+        # Alleen lezen: één levering met haar producten.
+        try:
+            return jsonify(picnic.get_delivery(delivery_id))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 

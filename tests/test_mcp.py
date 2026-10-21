@@ -505,7 +505,7 @@ class ProtocolTest(McpTestCase):
         tools = {t["name"]: t for t in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
         self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
-                             "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries",
+                             "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order"})
         for name, tool in tools.items():
@@ -602,6 +602,19 @@ class ToolsTest(McpTestCase):
         self.assertEqual((cookbook["source"], cookbook["total"], len(cookbook["recipes"])), ("cookbook", 5, 2))
         self.assertEqual([c.args for c in get.call_args_list], [("saved",), ("cookbook",)])
         self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "tags"})  # geen afbeeldingsadressen
+
+    def test_picnic_delivery_tool(self):
+        found = {"id": "d1", "status": "COMPLETED", "total": 15.0, "itemCount": 3,
+                 "items": [{"id": "s1", "title": "Melk", "unitSize": "1 l", "quantity": 2, "price": 2.58, "image": "https://x/y.png", "listPrice": None}]}
+        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
+                mock.patch.object(picnic, "get_delivery", return_value=found) as get:
+            data = self.data("get_picnic_delivery", {"id": "d1"})
+        self.assertEqual(get.call_args.args, ("d1",))
+        self.assertEqual((data["id"], data["itemCount"]), ("d1", 3))
+        self.assertEqual(data["items"], [{"title": "Melk", "size": "1 l", "quantity": 2, "price": 2.58}])
+        with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
+                mock.patch.object(picnic, "get_delivery", side_effect=ValueError("Ongeldige bestelling")):
+            self.assertTrue(self.call(self.token, "get_picnic_delivery", {"id": "x"})["isError"])
 
     def test_picnic_favorites_tool(self):
         products = [{"id": f"s{n}", "title": f"Product {n}", "unitSize": "1 l", "price": 1.5, "isBonus": n == 0,

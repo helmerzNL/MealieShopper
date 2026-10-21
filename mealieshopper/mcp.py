@@ -303,6 +303,16 @@ def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
     return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
 
 
+def tool_picnic_delivery(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    try:
+        found = picnic.get_delivery(args.get("id"))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    items = [{"title": i["title"], "size": i.get("unitSize"), "quantity": i["quantity"], "price": i.get("price")} for i in found["items"]]
+    return {**{k: v for k, v in found.items() if k != "items"}, "items": items}
+
+
 def tool_picnic_slots(args: dict[str, Any]) -> Any:
     _picnic_linked()
     limit = max(1, min(30, int(args.get("limit") or 10)))
@@ -501,6 +511,12 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": _schema({"current_only": {"type": "boolean", "description": "Alleen de lopende leveringen, standaard alle."}}),
         "annotations": {**READ_ONLY, "title": "Picnic-leveringen"},
         "handler": tool_picnic_deliveries,
+    },
+    "get_picnic_delivery": {
+        "description": "Eén Picnic-levering (id uit list_picnic_deliveries) met de producten die erin zaten: naam, inhoud, aantal en prijs. Live opgehaald, zonder adres.",
+        "inputSchema": _schema({"id": {"type": "string", "description": "Het id van de levering."}}, required=["id"]),
+        "annotations": {**READ_ONLY, "title": "Picnic-levering"},
+        "handler": tool_picnic_delivery,
     },
     "list_picnic_delivery_slots": {
         "description": "De eerstvolgende bezorgmomenten van Picnic die nog beschikbaar zijn: begin, einde, uiterste bestelmoment en minimale bestelwaarde. Live opgehaald; er wordt geen moment gekozen of gereserveerd.",

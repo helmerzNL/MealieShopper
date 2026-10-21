@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.7.0
+
+*English summary: Picnic orders. Under Stores > Picnic there is a new Orders tab with your upcoming and past Picnic deliveries (date, delivery window, status, total), fetched live. Open one for its products with quantity, size and price, and put them all back in your Picnic basket with one button (an order is never placed). The MCP tool get_picnic_delivery gives your AI assistant the same details. Note: this account has no deliveries yet (the explorer shows an empty list), so the shape of an order is built from the known Picnic API and unverified; the explorer now also reports the shape of the first delivery as soon as there is one.*
+
+### Nieuw
+
+- **Bestellingen van Picnic.** Onder **Winkels > Picnic** staat een tab *Bestellingen* met je aankomende en afgelopen bezorgingen: dag, bezorgvenster, status (*Gepland of onderweg*, *Geleverd*, *Geannuleerd*) en totaalbedrag, de nieuwste eerst. Ze worden live bij Picnic opgehaald; MealieShopper bewaart er niets van.
+- **De producten van een bestelling.** Open een bestelling voor de producten met aantal, inhoud en prijs. Met **Alles in mandje** zet je ze met hun aantallen opnieuw in je Picnic-mandje; er wordt nooit een bestelling geplaatst.
+- **AI-assistent.** `list_picnic_deliveries` (al aanwezig) geeft de bestellingen, en het nieuwe `get_picnic_delivery` geeft één bestelling met haar producten (alleen lezen, zonder adres).
+- API: `GET /api/picnic/deliveries/<id>` geeft één bestelling met haar producten; `GET /api/picnic/deliveries` is nu nieuwste eerst en geeft ook de bezorgtijd (`deliveredStart`, `deliveredEnd`).
+
+### Verkenner
+
+- Nieuw: het aantal leveringen in het overzicht, en, zodra er een levering is, de vorm van de eerste (`GET deliveries/<id>`), zonder waarden.
+
+### Goed om te weten
+
+- **Nog niet met echte gegevens geprobeerd.** Je Picnic-account heeft nog geen leveringen (het verkennerrapport toont een lege lijst), dus ik heb de vorm van een bestelling niet gezien. De lijst en het detail zijn gebouwd naar de bekende Picnic-API en lezen alles voorzichtig: ontbreekt er een veld, dan blijft dat veld leeg in plaats van dat er iets stukgaat. Heb je straks een eerste bezorging, draai dan de verkenner opnieuw en deel het rapport; het onderdeel *bestelling: GET deliveries/<id>* laat zien of de producten goed binnenkomen.
+- Tot die tijd staat er *Je hebt nog geen bestellingen bij Picnic.*
+- Recepten die je met een bestelling hebt besteld (*Opnieuw bestellen* bij de recepten) volgen pas als er bestellingen zijn om dat aan te zien.
+
 ## v2.6.2
 
 *English summary: Picnic favorites now show only your own favorites. The explorer report, with two products hearted in the Picnic app, showed how the app knows: the Favorites tab lists suggested products under a "Favorieten" heading, and the product page of a favorite carries `likedSellables: {["s…"]: true}` in the code of its heart button (false for the others). MealieShopper now takes the products under the "Favorieten" heading and keeps those whose product page says true. That is one request per product (at most 30), done lazily: the app checks a few at a time and shows the favorites it has found so far, and the server remembers each product's answer for 30 minutes (the Load button forgets it). If Picnic says nothing, the list stays empty with an explanation, as before.*

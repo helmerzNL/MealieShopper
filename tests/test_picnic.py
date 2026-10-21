@@ -468,6 +468,50 @@ class DeliverySlotsTest(TempDataDirTest):
         self.assertEqual(deliveries[0]["total"], 25.0)
         self.assertNotIn("address", json.dumps(deliveries))
 
+    def test_deliveries_come_newest_first(self):
+        picnic.save_auth_key("key")
+        data = [{"delivery_id": "old", "status": "COMPLETED", "slot": {"window_start": "2026-09-01T10:00:00+02:00"}, "orders": []},
+                {"delivery_id": "new", "status": "CURRENT", "slot": {"window_start": "2026-10-25T10:00:00+02:00"}, "orders": []},
+                {"delivery_id": "gone", "status": "COMPLETED", "delivery_time": {"start": "2026-08-01T10:00:00+02:00", "end": "x"}, "orders": []}]
+        with mock.patch.object(picnic.requests, "request", return_value=response(data)):
+            deliveries = picnic.get_deliveries()
+        self.assertEqual([d["id"] for d in deliveries], ["new", "old", "gone"])
+        self.assertEqual(deliveries[2]["deliveredStart"], "2026-08-01T10:00:00+02:00")
+
+    def delivery_detail(self):
+        line = lambda article_id, name, quantity, price: {  # noqa: E731
+            "type": "ORDER_LINE", "id": "l" + article_id, "price": price, "display_price": price,
+            "items": [{"type": "ORDER_ARTICLE", "id": article_id, "name": name, "unit_quantity": "1 l", "image_ids": ["img"],
+                       "decorators": [{"type": "QUANTITY", "quantity": quantity}]}]}
+        return {"delivery_id": "d1", "status": "COMPLETED", "slot": {"window_start": "a", "window_end": "b"},
+                "orders": [{"id": "o1", "checkout_total_price": 1000, "items": [line("s1", "Melk", 2, 258), line("s2", "Eieren", 1, 249)]},
+                           {"id": "o2", "checkout_total_price": 500, "items": [line("s3", "Kaas", 1, 599)]}]}
+
+    def test_a_delivery_lists_its_products(self):
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic.requests, "request", return_value=response(self.delivery_detail())) as call:
+            found = picnic.get_delivery("d1")
+        self.assertTrue(call.call_args.args[1].endswith("/deliveries/d1"))
+        self.assertEqual([(i["id"], i["title"], i["quantity"], i["price"]) for i in found["items"]],
+                         [("s1", "Melk", 2, 2.58), ("s2", "Eieren", 1, 2.49), ("s3", "Kaas", 1, 5.99)])
+        self.assertEqual((found["itemCount"], found["total"], found["status"]), (4, 15.0, "COMPLETED"))
+        self.assertNotIn("available", found["items"][0])
+
+    def test_a_delivery_with_odd_content_does_not_crash(self):
+        picnic.save_auth_key("key")
+        for odd in ({}, {"orders": None}, {"orders": ["x", {"items": "y"}]}):
+            with mock.patch.object(picnic.requests, "request", return_value=response(odd)):
+                self.assertEqual(picnic.get_delivery("d1")["items"], [])
+        with mock.patch.object(picnic.requests, "request", return_value=response([1])):
+            with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
+                picnic.get_delivery("d1")
+
+    def test_a_delivery_id_must_look_like_an_id(self):
+        picnic.save_auth_key("key")
+        for bad in ("", "../cart", "a/b", "x" * 81, None):
+            with self.assertRaises(ValueError):
+                picnic.get_delivery(bad)
+
 
 class ExploreTest(TempDataDirTest):
     def test_report_lists_more_routes_and_contains_no_values(self):
@@ -490,6 +534,30 @@ class ExploreTest(TempDataDirTest):
         self.assertFalse(next(p for p in report["probes"] if "lists" in p["name"])["ok"])
         for secret in ("Jan", "Hoofdstraat", "Geheime", "s1"):
             self.assertNotIn(secret, json.dumps(report), secret)
+
+    def test_report_shows_the_shape_of_the_first_delivery_without_values(self):
+        from mealieshopper import picnic_explore
+        summary = [{"delivery_id": "d-geheim-1", "status": "COMPLETED", "slot": {"window_start": "x"}, "orders": []}]
+        detail = {"delivery_id": "d-geheim-1", "status": "COMPLETED", "orders": [{"items": [{"type": "ORDER_LINE", "items": [{"name": "Geheime melk"}]}]}]}
+        asked = []
+
+        def fake(method, path, body=None, text=False):
+            asked.append((method, path))
+            if path == "/deliveries/summary":
+                return summary if body == [] else []
+            if path == "/deliveries/d-geheim-1":
+                return detail
+            return {}
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=fake):
+            report = picnic_explore.explore()
+        self.assertIn(("GET", "/deliveries/d-geheim-1"), asked)
+        probe = next(p for p in report["probes"] if p["name"].startswith("bestelling: GET deliveries"))
+        self.assertTrue(probe["ok"])
+        self.assertEqual(next(p for p in report["probes"] if "aantal leveringen" in p["name"])["info"], {"aantal": 1})
+        self.assertNotIn("Geheime", json.dumps(report))
+        self.assertNotIn("geheim-1", json.dumps(report))
 
 
 def recipe_tile(recipe_id, name, kind="selling_group_regular_tile"):
@@ -782,6 +850,28 @@ class FavoritesTest(TempDataDirTest):
             self.assertEqual(client.get("/api/picnic/favorites").get_json(), found)
         with mock.patch.object(picnic, "get_favorites", side_effect=RuntimeError("500: antwoord met geheim")):
             reply = client.get("/api/picnic/favorites")
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
+
+    def test_favorites_route_passes_the_budget_and_refresh(self):
+        client = create_app().test_client()
+        with mock.patch.object(picnic, "get_favorites", return_value={"products": [], "total": 0, "filtered": True, "pending": 0}) as get:
+            client.get("/api/picnic/favorites?budget=4&refresh=1")
+            client.get("/api/picnic/favorites?budget=999")
+            client.get("/api/picnic/favorites")
+        self.assertEqual([c.kwargs for c in get.call_args_list], [{"budget": 4, "refresh": True}, {"budget": 30, "refresh": False}, {"budget": None, "refresh": False}])
+
+    def test_delivery_route(self):
+        client = create_app().test_client()
+        found = {"id": "d1", "items": [{"id": "s1", "title": "Melk", "quantity": 2}], "itemCount": 2}
+        with mock.patch.object(picnic, "get_delivery", return_value=found) as get:
+            self.assertEqual(client.get("/api/picnic/deliveries/d1").get_json(), found)
+        self.assertEqual(get.call_args.args, ("d1",))
+        self.assertEqual(client.get("/api/picnic/deliveries/..%2Fcart").status_code, 404)
+        with mock.patch.object(picnic, "get_delivery", side_effect=ValueError("Ongeldige bestelling")):
+            reply = client.get("/api/picnic/deliveries/x")
+        self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Ongeldige bestelling"}))
+        with mock.patch.object(picnic, "get_delivery", side_effect=RuntimeError("500: geheim")):
+            reply = client.get("/api/picnic/deliveries/d1")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_the_explorer_reports_how_the_page_marks_favorites_without_leaking(self):
