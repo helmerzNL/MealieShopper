@@ -188,6 +188,8 @@ class PermissionsTest(UsersTestCase):
             ("post", "/api/picnic/auth"), ("post", "/api/picnic/auth/2fa/request"),
             ("post", "/api/picnic/auth/2fa/verify"), ("post", "/api/picnic/auth/logout"),
             ("post", "/api/picnic/explore"),
+            ("post", "/api/jumbo/auth"), ("post", "/api/jumbo/auth/logout"), ("get", "/api/jumbo/auth/start"),
+            ("post", "/api/jumbo/explore"),
         ):
             response = getattr(client, method)(path)
             self.assertEqual(response.status_code, 403, path)
@@ -195,11 +197,13 @@ class PermissionsTest(UsersTestCase):
         self.assertEqual(client.get("/api/mealie/status").status_code, 200)
         self.assertNotEqual(client.get("/api/ah/auth/status").status_code, 403)
         self.assertNotEqual(client.get("/api/picnic/auth/status").status_code, 403)
+        self.assertNotEqual(client.get("/api/jumbo/auth/status").status_code, 403)
 
     def test_the_administrator_still_can(self):
         self.assertNotEqual(self.admin.post("/api/mealie/auth", json={}).status_code, 403)
         self.assertNotEqual(self.admin.post("/api/ah/auth", json={}).status_code, 403)
         self.assertNotEqual(self.admin.post("/api/picnic/auth", json={}).status_code, 403)
+        self.assertNotEqual(self.admin.post("/api/jumbo/auth", json={}).status_code, 403)
 
     def test_basic_functions_stay_open_for_users(self):
         client = self.join()
@@ -219,6 +223,11 @@ class PermissionsTest(UsersTestCase):
         self.assertTrue(auth.admin_only("/api/picnic/auth"))
         self.assertTrue(auth.admin_only("/api/picnic/auth/2fa/verify"))
         self.assertFalse(auth.admin_only("/api/picnic/search"))
+        self.assertFalse(auth.admin_only("/api/jumbo/auth/status"))
+        self.assertTrue(auth.admin_only("/api/jumbo/auth"))
+        self.assertTrue(auth.admin_only("/api/jumbo/auth/start"))
+        self.assertTrue(auth.admin_only("/api/jumbo/explore"))
+        self.assertFalse(auth.admin_only("/api/jumbo/search"))
         self.assertTrue(auth.admin_only("/api/users"))
         self.assertTrue(auth.admin_only("/api/users/invites"))
         self.assertTrue(auth.admin_only("/api/mealie/auth/logout"))

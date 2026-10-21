@@ -19,7 +19,9 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
-  store: "ah", // de supermarkt voor het weekmenu: "ah" of "picnic" (zie picnic.js)
+  store: "ah", // de supermarkt voor het weekmenu: "ah", "picnic" of "jumbo"
+  preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
+  linkedStores: { picnic: false, jumbo: false }, // gezet door picnic.js en jumbo.js; AH is altijd een keuze
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -261,6 +263,7 @@ async function refreshAuthStatus() {
     refreshAhStatus();
     refreshMealieStatus();
     if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
+    if (typeof refreshJumboStatus === "function") refreshJumboStatus();
   }
   return state.auth;
 }
@@ -529,7 +532,7 @@ function renderMealPlan(entries) {
     `
     : "";
   $("#add-cart")?.addEventListener("click", addToCart);
-  if (typeof renderStoreChoice === "function") renderStoreChoice();
+  renderStoreChoice();
 }
 
 async function loadMealPlan() {
@@ -586,8 +589,49 @@ function cartSelection(row, candidate, quantity) {
   };
 }
 
+const STORES = {
+  ah: { name: "Albert Heijn", button: "plan.add_cart", ready: "cart.ready" },
+  picnic: { name: "Picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
+  jumbo: { name: "Jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
+};
+
 function cartButtonLabel() {
-  return state.store === "picnic" ? t("plan.add_cart_picnic") : t("plan.add_cart");
+  return t((STORES[state.store] || STORES.ah).button);
+}
+
+// Supermarkt kiezen in de planner: alleen zichtbaar zodra een tweede winkel gekoppeld is.
+function renderStoreChoice() {
+  const available = ["ah", ...Object.keys(state.linkedStores).filter((key) => state.linkedStores[key])];
+  state.store = available.includes(state.preferredStore) ? state.preferredStore : "ah";
+  const slot = $("#cart-store-slot");
+  if (slot) {
+    slot.innerHTML =
+      available.length < 2
+        ? ""
+        : `<select id="cart-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
+            ${available.map((key) => `<option value="${key}"${state.store === key ? " selected" : ""}>${STORES[key].name}</option>`).join("")}
+          </select>`;
+    $("#cart-store")?.addEventListener("change", (event) => {
+      state.store = event.target.value;
+      state.preferredStore = state.store;
+      try {
+        localStorage.setItem("ms-store", state.store);
+      } catch {
+        // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
+      }
+      const button = $("#add-cart");
+      if (button) button.textContent = cartButtonLabel();
+    });
+  }
+  const button = $("#add-cart");
+  if (button) button.textContent = cartButtonLabel();
+}
+
+try {
+  const remembered = localStorage.getItem("ms-store");
+  if (remembered && STORES[remembered]) state.preferredStore = remembered;
+} catch {
+  // Geen opslag beschikbaar: AH blijft de standaard.
 }
 
 function showCartResult(data, notFound) {
@@ -597,12 +641,12 @@ function showCartResult(data, notFound) {
       return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
     })
     .join("");
-  // Picnic meldt zelf ook welke producten het niet in het mandje kreeg.
-  const names = state.store === "picnic" ? [...notFound, ...(data.skippedItems || [])] : notFound;
+  // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen.
+  const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
     ? th("cart.missing", { count: names.length, names: names.join(", ") })
     : "";
-  const ready = state.store === "picnic" ? "cart.ready_picnic" : "cart.ready";
+  const ready = (STORES[state.store] || STORES.ah).ready;
   $("#cart-result").innerHTML = `
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}

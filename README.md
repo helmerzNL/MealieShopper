@@ -36,7 +36,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Eén knop zoekt voor elk ingrediënt de beste AH-producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je AH-mandje. Twijfelt de app, dan controleer je de regel eerst zelf.
-- **Ook voor Picnic.** Koppel je Picnic-account, dan kies je in de planner naar welke supermarkt het weekmenu gaat. De producten komen direct in je Picnic-mandje; je rondt de bestelling zelf af in de Picnic-app.
+- **Ook voor Picnic en Jumbo.** Koppel je Picnic- of Jumbo-account, dan kies je in de planner naar welke supermarkt het weekmenu gaat. De producten komen direct in je mandje van die winkel; je rondt de bestelling zelf af in de Picnic-app of bij Jumbo.
 - **Recepten zoeken en importeren.** Zoek in de recepten van Allerhande en zet ze met één klik in Mealie, of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Bestellingen en kassabonnen.** Je bestelmandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel, bewaard in een eigen kopie zodat je ze ook zonder verbinding met AH kunt bekijken en doorzoeken ("wanneer kocht ik voor het laatst koffie?"). Ook je AI-assistent kan ze bevragen.
@@ -222,6 +222,19 @@ Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-ap
 
 Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versleuteld. Picnic kan die sessie bij elk verzoek vernieuwen; MealieShopper bewaart steeds de nieuwste. Is ze verlopen, dan koppel je opnieuw. Anders dan bij AH gaan de producten direct in je echte Picnic-mandje; er wordt nooit een bestelling geplaatst. Picnic bezorgt alleen in bepaalde gebieden. Met `Koppeling controleren` zie je of de sessie nog werkt. Onder **Picnic-routes verkennen** zie je welke onofficiële routes werken en welke velden erin zitten (zonder persoonlijke gegevens, veilig te delen). Je AI-assistent kan Picnic-producten, je mandje en je leveringen bekijken, maar het mandje niet vullen. Lijstjes, kassabonnen en recepten zijn er voor Picnic niet.
 
+### Jumbo
+
+Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Jumbo**). Dat werkt net als bij Albert Heijn:
+
+1. Kies `Inloggen bij Jumbo`; er opent een nieuw tabblad.
+2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) **voordat** je inlogt.
+3. Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen, maar in de console staat een rode regel met `jumbo://callbacks/login?code=...`.
+4. Plak die regel in MealieShopper en kies `Koppelen`. De code werkt maar één keer en verloopt snel; een melding over een verlopen of gebruikte code betekent: opnieuw inloggen.
+
+Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen headless browser meer. Je wachtwoord wordt niet bewaard, alleen het refresh-token dat Jumbo teruggeeft, versleuteld; Jumbo kan dat bij elke vernieuwing vervangen en MealieShopper bewaart steeds de nieuwste. Draai daarom één instance en houd de data-map op persistente opslag. Zodra Jumbo gekoppeld is, verschijnt het in de keuzelijst in de planner. Net als bij Picnic gaan de producten direct in je echte mandje en wordt er nooit een bestelling geplaatst. Je AI-assistent kan Jumbo-producten en je mandje bekijken, maar het mandje niet vullen.
+
+**Jumbo kan een server weigeren.** Jumbo weert soms server- en datacenter-adressen; dat is waarom een eerdere Jumbo-koppeling in v1.2.0 is verwijderd. Onder **Jumbo-routes verkennen** (alleen de beheerder) controleert MealieShopper eerst of Jumbo jouw server toelaat en roept daarna de onofficiële routes aan (het mandje vullen alleen met een lege lijst). Het rapport bevat geen namen, prijzen of id's en is veilig te delen. Meldt de verkenner dat Jumbo je server weigert, dan werkt de koppeling vanaf die plek niet.
+
 ## Beveiliging
 
 <img src="docs/screenshots/nl/login.png" alt="De inlogpagina met gebruikersnaam en wachtwoord" width="900">
@@ -342,6 +355,8 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **De passkey werkt niet.** Een passkey vraagt een domeinnaam en HTTPS (op `localhost` werkt het ook). Open MealieShopper via dat adres en controleer `RP_ID` en `RP_ORIGINS`; de installatiehulp legt uit waarom het op een IP-adres niet kan.
 
+**Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.
+
 **Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
@@ -371,7 +386,7 @@ python -m unittest discover -s tests          # alle tests
 
 ## Integraties en componenten
 
-MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn of Picnic.
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic of Jumbo.
 
 **Integraties**
 
@@ -380,6 +395,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten komen hier terecht. Via de API met een token. |
 | [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
+| [Jumbo](https://www.jumbo.com) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Jumbo (Auth0 en GraphQL). Jumbo kan die zonder bericht wijzigen of een server weigeren; gebruik het voor persoonlijk gebruik. |
 | [Picnic](https://picnic.app) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Picnic. Picnic kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |

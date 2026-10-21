@@ -2,6 +2,29 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.7.0
+
+*English summary: MealieShopper can now fill a Jumbo basket too. Jumbo moved from REST to Auth0 and GraphQL since the removed v1.2.0 link, so linking now works like Albert Heijn: the administrator logs in in their own browser and pastes the jumbo://callbacks/login line from the console. No headless browser, no stored password. The planner's supermarket list now offers Albert Heijn, Picnic and Jumbo. Jumbo may refuse a server address, so the explorer under Settings > Jumbo first checks reachability. Not yet tried against a live Jumbo account.*
+
+### Nieuw in 1.7.0
+
+- **Jumbo naast Albert Heijn en Picnic.** De beheerder koppelt Jumbo onder **Beheer > Jumbo**: inloggen in je eigen browser en de regel `jumbo://callbacks/login?code=...` uit de console plakken, net als bij AH. Jouw browser lost de bot-controle van Jumbo op, dus er is **geen headless browser (Chromium/Selenium)** nodig. MealieShopper bewaart geen wachtwoord, alleen het refresh-token van Jumbo, versleuteld, en bewaart steeds de nieuwste als Jumbo het vervangt.
+- **Zoeken en mandje.** Per ingrediënt zoekt MealieShopper de beste Jumbo-producten (met aanbieding, pakmaat en een link naar het product), rekent het aantal verpakkingen uit en laat twijfelgevallen eerst controleren. De producten komen direct in je echte Jumbo-mandje; er wordt nooit een bestelling geplaatst. Mislukt één product, dan staan de andere er wel in en meldt de app welke ontbreken.
+- **De keuzelijst in de planner** biedt nu Albert Heijn, Picnic en Jumbo, voor zover gekoppeld. De controlelijst toont bij AH en Jumbo een link naar het product (`Bekijk product`).
+- **Twee nieuwe MCP-tools, alleen lezen:** `search_jumbo_products` en `get_jumbo_basket`. Het mandje vullen kan niet via MCP.
+- **Jumbo-routes verkennen** (alleen de beheerder): controleert eerst of Jumbo jouw server toelaat (`auth.jumbo.com` en `www.jumbo.com/api/graphql`) en roept daarna zoeken en het mandje aan; het mandje vullen alleen met een lege lijst. Zonder namen, prijzen of id's, dus veilig te delen.
+- Nieuwe routes onder `/api/jumbo/` (koppelen, zoeken, mandje); koppelen en verkennen zijn alleen voor de beheerder.
+
+### Goed om te weten
+
+- **Jumbo kan een server weigeren.** Een eerdere Jumbo-koppeling (v1.2.0) liep vast op de bot-bescherming van Jumbo voor server- en datacenter-adressen. Die routes zijn inmiddels anders (Auth0 en GraphQL in plaats van REST), maar of Jumbo jouw server toelaat is niet vooraf te weten: draai **Jumbo-routes verkennen**. Weigert Jumbo, dan werkt de koppeling vanaf die plek niet en komt er geen headless browser terug.
+- De Jumbo-API is **niet officieel** en zonder bericht te wijzigen. De aanroepen volgen de community-projecten `jumbo-mcp` en `jumbo-cli`. Deze versie is getest met nagebootste antwoorden en **nog niet met een echt Jumbo-account**. Vooral het mandje vullen (`addBasketLines`) is alleen elders met cookie-login gezien; gebruik de verkenner en meld wat afwijkt.
+- Nog niet voor Jumbo: boodschappenlijstje, kassabonnen, bestellingen, de installatiehulp en recepten.
+
+### Intern
+
+- De winkelmand-route die producten zoekt en in het mandje zet is gedeeld tussen Picnic en Jumbo (`store_cart` in `app.py`); `static/app.js` kent de winkels in één tabel (`STORES`). De tekst bij de productlink in de controlelijst is winkel-neutraal gemaakt.
+
 ## v1.6.0
 
 *English summary: MealieShopper can now fill a Picnic basket as well as an Albert Heijn one. The administrator links Picnic under Settings > Picnic (email, password and the code Picnic sends), and the planner then lets you choose the supermarket. Products go straight into the real Picnic basket; an order is never placed. Three read-only MCP tools show Picnic products, your basket and your deliveries. The Picnic API is unofficial and has not been tried against a live account yet: use the explorer under Settings > Picnic to check which routes work.*
