@@ -605,12 +605,24 @@ class FavoritesTest(TempDataDirTest):
         self.assertIsNone(find([{"id": "favorites", "label": "Favorieten", "reference": "a/b"}]))  # geen geldige paginanaam
 
     def test_products_come_from_the_page_of_the_tab(self):
+        pages = {"favorites-root": self_page(pml_tile(tile("s1", "Halfvolle melk", "1 l", 129), True), pml_tile(tile("s2", "Eieren", "10 stuks", 249), False))}
+        with self.serve(pages):
+            found = picnic.get_favorites()
+        self.assertEqual([(p["id"], p["title"], p["price"]) for p in found["products"]], [("s1", "Halfvolle melk", 1.29)])
+        self.assertEqual((found["total"], found["filtered"]), (2, True))
+
+    def test_a_page_without_markers_gives_no_favorites_instead_of_every_product(self):
         pages = {"favorites-root": search_page(tile("s1", "Halfvolle melk", "1 l", 129), tile("s2", "Eieren", "10 stuks", 249))}
         with self.serve(pages):
             found = picnic.get_favorites()
-        self.assertEqual([(p["id"], p["title"], p["price"]) for p in found["products"]], [("s1", "Halfvolle melk", 1.29), ("s2", "Eieren", 2.49)])
-        # Zegt de pagina niet welke producten favoriet zijn, dan komen alle producten terug, en dat wordt gemeld.
-        self.assertEqual((found["total"], found["filtered"]), (2, False))
+        self.assertEqual((found["products"], found["total"], found["filtered"]), ([], 2, False))
+
+    def test_the_purchases_page_is_tried_when_the_tab_marks_nothing(self):
+        pages = {"favorites-root": search_page(tile("s1", "Melk", "1 l"), tile("s2", "Eieren", "10 stuks")),
+                 "purchases-page-root": self_page(pml_tile(tile("s3", "Kaas", "400 g"), True), pml_tile(tile("s4", "Ham", "100 g"), False))}
+        with self.serve(pages):
+            found = picnic.get_favorites()
+        self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s3"], 2, True))
 
     def test_only_the_saved_products_of_the_page_are_returned(self):
         pages = {"favorites-root": self_page(pml_tile(tile("s1", "Melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False),
@@ -622,7 +634,7 @@ class FavoritesTest(TempDataDirTest):
     def test_the_pages_it_links_to_are_followed_when_the_tab_has_no_products(self):
         link = {"onPress": "open picnic://store/page;id=favorites-deep-dive-page-content,presentation-mode=X"}
         pages = {"favorites-root": {"body": {"children": [link]}},
-                 "favorites-deep-dive-page-content": {"child": {"children": [tile("s9", "Kaas", "400 g", 599)]}}}
+                 "favorites-deep-dive-page-content": {"child": {"children": [pml_tile(tile("s9", "Kaas", "400 g", 599), True)]}}}
         with self.serve(pages):
             self.assertEqual([p["id"] for p in picnic.get_favorites()["products"]], ["s9"])
 
@@ -677,6 +689,13 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual(report["vorm van saved"], "bool")
         self.assertNotIn("Geheime", json.dumps(report))
         self.assertEqual(picnic_explore.saved_report({})["vorm van saved"], "komt niet voor")
+
+    def test_favorite_values_report_flags_and_shapes_but_no_texts(self):
+        from mealieshopper import picnic_explore
+        page = {"a": {"isFavorite": True, "favoriteTitle": "Melk van Anna"}, "b": {"isFavorite": False, "saved": {"x": 1}}}
+        values = picnic_explore.favorite_values(page)
+        self.assertEqual(values["isFavorite"], ["false", "true"])
+        self.assertNotIn("Melk van Anna", json.dumps(values))
 
     def test_the_explorer_reports_the_tabs_and_the_page_it_chose(self):
         from mealieshopper import picnic_explore
