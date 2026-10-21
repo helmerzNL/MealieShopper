@@ -309,6 +309,16 @@ def tool_picnic_slots(args: dict[str, Any]) -> Any:
     return {"slots": picnic.get_delivery_slots(limit)}
 
 
+def tool_picnic_recipes(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    source = str(args.get("source") or "saved").strip().lower()
+    if source not in picnic.RECIPE_PAGES:
+        raise ToolError("Kies als bron saved (opgeslagen recepten) of cookbook (het kookboek)")
+    limit = max(1, min(100, int(args.get("limit") or 30)))
+    recipes = picnic.get_recipes(source)
+    return {"source": source, "total": len(recipes), "recipes": recipes[:limit]}
+
+
 def _private_host(hostname: str) -> bool:
     """Een adres op je eigen netwerk (Mealie zou het ophalen vanaf jouw server)."""
     host = hostname.strip("[]").rstrip(".").casefold()
@@ -486,6 +496,17 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Picnic-bezorgmomenten"},
         "handler": tool_picnic_slots,
     },
+    "list_picnic_recipes": {
+        "description": "Recepten van Picnic: je opgeslagen recepten (saved) of het kookboek (cookbook), met id en naam. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
+        "inputSchema": _schema(
+            {
+                "source": {"type": "string", "enum": ["saved", "cookbook"], "description": "saved = opgeslagen in de Picnic-app (standaard), cookbook = het kookboek."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal recepten, standaard 30."},
+            }
+        ),
+        "annotations": {**READ_ONLY, "title": "Picnic-recepten"},
+        "handler": tool_picnic_recipes,
+    },
     "search_jumbo_products": {
         "description": "Zoek producten in het assortiment van Jumbo: naam, inhoud, prijs, of er een aanbieding is en de link. Live opgehaald bij Jumbo.",
         "inputSchema": _schema(
@@ -642,7 +663,7 @@ def handle_message(message: Any) -> dict[str, Any] | None:
                 "instructions": (
                     "MealieShopper koppelt Mealie aan Albert Heijn, Picnic en Jumbo. Gebruik de tools om het weekmenu, "
                     "recepten, AH-lijstjes, AH-producten, het bestelmandje, bestellingen en kassabonnen te bekijken "
-                    "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje, -leveringen en -bezorgmomenten "
+                    "(die laatste drie komen uit een lokale kopie met een tijdstip), Picnic-producten, -mandje, -leveringen, -bezorgmomenten en -recepten "
                     "en Jumbo-producten en -mandje live te bekijken en om een recept in Mealie te importeren. "
                     "Het AH-mandje vullen kan niet via deze server, en het Picnic- en Jumbo-mandje ook niet."
                 ),

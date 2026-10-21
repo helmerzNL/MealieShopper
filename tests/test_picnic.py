@@ -491,6 +491,84 @@ class ExploreTest(TempDataDirTest):
             self.assertNotIn(secret, json.dumps(report), secret)
 
 
+def recipe_tile(recipe_id, name, kind="selling_group_regular_tile"):
+    """Een receptonderdeel zoals de verkenner het meldde: id en naam staan in de analysegegevens."""
+    return {"id": f"t-{recipe_id}", "type": "PML", "pml": {"component": {"type": "STACK"}, "images": {}},
+            "analytics": {"contexts": [
+                {"schema": "iglu:tech.picnic.snowplow.analytics/pml_", "data": {"type": "pml"}},
+                {"schema": "iglu:tech.picnic.snowplow.analytics/reci", "data": {
+                    "position": {"x": 0, "y": 1.5}, "recipe_id": recipe_id, "recipe_name": name,
+                    "template_id": "t", "type": kind}}]}}
+
+
+def recipe_page(*tiles):
+    return {"id": "page", "type": "STATE_BOUNDARY", "child": {"children": [{"children": list(tiles)}]}}
+
+
+class RecipesTest(TempDataDirTest):
+    def test_names_and_ids_come_out_of_the_page(self):
+        page = recipe_page(recipe_tile("r1", "Pasta pesto"), recipe_tile("r2", "  Tacos  "))
+        self.assertEqual(picnic.recipe_summaries(page), [{"id": "r1", "name": "Pasta pesto"}, {"id": "r2", "name": "Tacos"}])
+
+    def test_duplicates_and_nameless_tiles_are_dropped(self):
+        page = recipe_page(recipe_tile("r1", "Pasta"), recipe_tile("r1", "Pasta"), recipe_tile("r2", ""), recipe_tile("", "Zonder id"))
+        self.assertEqual(picnic.recipe_summaries(page), [{"id": "r1", "name": "Pasta"}])
+
+    def test_unexpected_pages_give_no_recipes(self):
+        for page in (None, {}, [], "tekst", {"analytics": {"contexts": "x"}}, {"analytics": {"contexts": [None, {"data": 5}]}}):
+            self.assertEqual(picnic.recipe_summaries(page), [])
+
+    def test_the_right_page_is_requested_per_source(self):
+        picnic.save_auth_key("key")
+        for source, page_id in (("saved", "saved-deep-dive-page-content"), ("cookbook", "cookbook-page-content"), (None, "saved-deep-dive-page-content")):
+            with mock.patch.object(picnic.requests, "request", return_value=response(recipe_page(recipe_tile("r1", "Pasta")))) as call:
+                self.assertEqual(picnic.get_recipes(source), [{"id": "r1", "name": "Pasta"}])
+            self.assertTrue(call.call_args.args[1].endswith(f"/pages/{page_id}"), source)
+            self.assertEqual(call.call_args.args[0], "GET")
+
+    def test_an_unknown_source_is_refused_before_any_request(self):
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+            with self.assertRaises(ValueError):
+                picnic.get_recipes("favorieten")
+
+    def test_a_page_that_is_not_json_is_reported(self):
+        picnic.save_auth_key("key")
+        reply = response(None)
+        reply.content, reply.text = b"RSC", "RSC"
+        reply.json.side_effect = ValueError("geen json")
+        with mock.patch.object(picnic.requests, "request", return_value=reply):
+            with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
+                picnic.get_recipes("saved")
+
+    def test_nothing_here_writes(self):
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic.requests, "request", return_value=response(recipe_page())) as call:
+            picnic.get_recipes("cookbook")
+        self.assertEqual({c.args[0] for c in call.call_args_list}, {"GET"})
+
+
+class RecipeRoutesTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        self.client = create_app().test_client()
+
+    def test_recipes_route(self):
+        recipes = [{"id": "r1", "name": "Pasta"}]
+        with mock.patch.object(picnic, "get_recipes", return_value=recipes) as get:
+            body = self.client.get("/api/picnic/recipes?source=cookbook").get_json()
+            default = self.client.get("/api/picnic/recipes").get_json()
+        self.assertEqual(body, {"source": "cookbook", "recipes": recipes})
+        self.assertEqual(default["source"], "saved")
+        self.assertEqual([c.args for c in get.call_args_list], [("cookbook",), ("saved",)])
+
+    def test_unknown_sources_are_400_and_failures_424(self):
+        self.assertEqual(self.client.get("/api/picnic/recipes?source=x").status_code, 400)
+        with mock.patch.object(picnic, "get_recipes", side_effect=RuntimeError("500: stuk")):
+            reply = self.client.get("/api/picnic/recipes")
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
+
+
 class RecipeExploreTest(TempDataDirTest):
     TILE = {"type": "TILE", "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
             "pml": {"component": {"text": "Geheime pasta van Jan"}}}
@@ -510,6 +588,24 @@ class RecipeExploreTest(TempDataDirTest):
                                            "b": "picnic://deeplink/saved?token=geheim"})
         self.assertEqual(links, ["/pages/recipe-details?portions&selling_group_id", "picnic://deeplink/saved?token"])
         self.assertEqual(picnic_explore.page_links("x /pages/item-9876543210"), ["/pages/item-<id>"])
+
+    def test_the_vocabulary_names_node_kinds_and_fields_but_no_content(self):
+        from mealieshopper import picnic_explore
+        tile = {"pml": {"component": {"type": "STACK", "children": [
+            {"type": "RICH_TEXT", "markdown": "Geheime pasta", "padding": {"top": 1}},
+            {"type": "IMAGE", "source": {"id": "abc"}}]}}}
+        vocabulary = picnic_explore.pml_vocabulary(tile)
+        self.assertEqual(sorted(vocabulary), ["IMAGE", "RICH_TEXT", "STACK"])
+        self.assertIn("markdown", vocabulary["RICH_TEXT"])
+        self.assertNotIn("Geheime", json.dumps(vocabulary))
+        self.assertEqual(picnic_explore.pml_vocabulary(None), {})
+
+    def test_analytics_fields_of_the_recipe_tiles_are_merged_without_values(self):
+        from mealieshopper import picnic_explore
+        fields = picnic_explore.analytics_fields(recipe_page(recipe_tile("r1", "Geheim recept"), recipe_tile("r2", "Ander")))
+        self.assertIn("recipe_name", json.dumps(fields))
+        self.assertNotIn("Geheim", json.dumps(fields))
+        self.assertEqual(picnic_explore.analytics_fields({}), "leeg")
 
     def test_the_report_finds_recipes_favorites_and_leaks_nothing(self):
         from mealieshopper import picnic_explore

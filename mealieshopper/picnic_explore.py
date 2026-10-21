@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import picnic
-from .ah_explore import _probe, shape
+from .ah_explore import _probe, _union, shape
 
 SEARCH_TERM = "melk"
 
@@ -28,6 +28,20 @@ RECIPE_PAGES = (
 # Waar de favorieten staan weet geen enkele library. Dit zijn gokken op basis van de naamgeving van de
 # andere pagina's; een 404 kost niets en de pagina's die wel bestaan verraden zich.
 FAVORITE_GUESSES = (
+    "main-page-root",
+    "home-page-root",
+    "my-picnic-page-root",
+    "favorite-products-page-root",
+    "favourite-products-page-root",
+    "product-favorites-page-root",
+    "liked-products-page-root",
+    "bought-before-page-root",
+    "purchase-history-page-root",
+    "frequently-bought-page-root",
+    "my-lists-page-root",
+    "lists-page-root",
+    "shopping-list-page-root",
+    "profile-deep-dive-page-content",
     "favorites-deep-dive-page-content",
     "favourites-deep-dive-page-content",
     "favorites-page-root",
@@ -58,9 +72,7 @@ def short_error(message: str) -> str:
     return f"{status.strip()} {code}" if isinstance(code, str) else status.strip()
 
 
-def _contexts(node: dict[str, Any]) -> list[dict[str, Any]]:
-    analytics = node.get("analytics") if isinstance(node.get("analytics"), dict) else {}
-    return [c.get("data") for c in analytics.get("contexts") or [] if isinstance(c, dict) and isinstance(c.get("data"), dict)]
+_contexts = picnic.analytics_data
 
 
 def recipe_tiles(page: Any) -> list[dict[str, Any]]:
@@ -83,13 +95,34 @@ def page_links(page: Any) -> list[str]:
     return sorted(found)[:40]
 
 
+def pml_vocabulary(tile: Any) -> dict[str, list[str]]:
+    """Welke soorten onderdelen er in een tegel zitten en welke velden die hebben, zonder inhoud.
+
+    Zo zien we waar de tekst (naam, ingrediënten) en de afbeelding van een tegel staan.
+    """
+    vocabulary: dict[str, set[str]] = {}
+    for node in picnic._walk(tile.get("pml") if isinstance(tile, dict) else None):
+        kind = node.get("type")
+        if isinstance(kind, str):
+            vocabulary.setdefault(kind, set()).update(k for k, v in node.items() if k != "type" and isinstance(v, (str, int, float, dict)))
+    return {kind: sorted(keys) for kind, keys in sorted(vocabulary.items())}
+
+
+def analytics_fields(page: Any) -> Any:
+    """De velden in de analysegegevens van alle receptonderdelen van een pagina, samengevoegd."""
+    shapes = [shape(data) for node in recipe_tiles(page) for data in _contexts(node)]
+    return _union(shapes) if shapes else "leeg"
+
+
 def _page_info(page: Any) -> dict[str, Any]:
     if isinstance(page, str):
         # Geen JSON: waarschijnlijk een React Server Components-antwoord. We melden alleen de grootte en de soorten.
         return {"formaat": "tekst (geen JSON)", "lengte": len(page), "noemt SELLING_GROUP": "SELLING_GROUP" in page,
                 "verwijzingen": page_links(page)}
     return {"formaat": "JSON", "bovenste velden": sorted(page) if isinstance(page, dict) else shape(page),
-            "receptonderdelen": len(recipe_tiles(page)), "verwijzingen": page_links(page)}
+            "receptonderdelen": len(recipe_tiles(page)),
+            "producttegels": sum(1 for node in picnic._walk(page) if node.get("type") == "SELLING_UNIT_TILE"),
+            "verwijzingen": page_links(page)}
 
 
 def explore() -> dict[str, Any]:
@@ -135,23 +168,37 @@ def explore() -> dict[str, Any]:
 
     # Recepten: eerst de pagina's, dan de vorm van één receptonderdeel en van een receptpagina.
     recipe_page: Any = None
+    pages: dict[str, Any] = {}
     for name, page_id in RECIPE_PAGES:
         report, result = _probe(name, lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
         probes.append(report)
+        pages[page_id] = result
         if result is not None and not isinstance(result, str):
             tile = next(iter(recipe_tiles(result)), None)
             if tile is not None and recipe_page is None:
                 recipe_page = (page_id, tile)
     if recipe_page:
         probes.append({"name": f"een receptonderdeel uit {recipe_page[0]} (ruwe vorm)", "ok": True, "shape": shape(recipe_page[1])})
-        recipe_id = next((str(v) for data in _contexts(recipe_page[1]) for k, v in data.items() if _RECIPE_KEY.search(k) and isinstance(v, str)), "")
+        recipe_id = next(
+            (data[key] for data in _contexts(recipe_page[1]) for key in ("recipe_id", "selling_group_id", "sellable_id") if isinstance(data.get(key), str)),
+            "",
+        )
         if recipe_id:
-            report, _ = _probe(
+            report, details = _probe(
                 "receptdetails: GET pages/selling-group-details-page",
                 lambda: picnic._authed("GET", f"/pages/selling-group-details-page?selling_group_id={quote(recipe_id, safe='')}", text=True),
                 _page_info,
             )
+            pages["details"] = details
             probes.append(report)
+
+    # Waar staan namen, ingrediënten en afbeeldingen? Alleen veldnamen en soorten onderdelen, geen inhoud.
+    for key, label in (("saved-deep-dive-page-content", "opgeslagen"), ("cookbook-page-content", "kookboek"), ("details", "receptdetails")):
+        page = pages.get(key)
+        if isinstance(page, dict) and recipe_tiles(page):
+            probes.append({"name": f"analysegegevens van de receptonderdelen ({label})", "ok": True, "shape": analytics_fields(page)})
+            probes.append({"name": f"onderdelen in een receptonderdeel ({label}): soort en velden", "ok": True,
+                           "shape": pml_vocabulary(recipe_tiles(page)[0])})
 
     # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
     for page_id in FAVORITE_GUESSES:
