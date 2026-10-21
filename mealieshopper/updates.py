@@ -6,6 +6,7 @@ GitHub niet bij elke paginaweergave wordt gevraagd. Uitzetten kan met `MEALIESHO
 """
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
@@ -25,6 +26,7 @@ FAILURE_TTL = 10 * 60  # na een mislukte poging wachten we even met een nieuwe
 MIN_FORCE_GAP = 30  # "nu controleren" mag GitHub niet vaker dan dit raken (anoniem: 60 aanvragen per uur)
 TIMEOUT = 8
 
+log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _cache: dict[str, Any] = {"at": 0.0, "ttl": 0.0, "result": None}
 
@@ -45,6 +47,21 @@ def is_newer(latest: str, current: str) -> bool:
         return False
     width = max(len(a), len(b))
     return a + (0,) * (width - len(a)) > b + (0,) * (width - len(b))
+
+
+def describe_error(exc: Exception) -> str:
+    """Een korte, leesbare oorzaak voor de beheerder, bijvoorbeeld 'HTTP 403 (rate limit)' of 'ConnectionError'."""
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        hint = " (rate limit)" if code in (403, 429) else ""
+        return f"HTTP {code}{hint}"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "SSLError (certificaat)"
+    if isinstance(exc, requests.Timeout):
+        return "Timeout"
+    if isinstance(exc, requests.ConnectionError):
+        return "ConnectionError (geen verbinding of DNS)"
+    return f"{type(exc).__name__}: {str(exc)[:80]}".rstrip(": ")
 
 
 def _fetch_latest() -> dict[str, str]:
@@ -71,7 +88,7 @@ def _fetch_latest() -> dict[str, str]:
     }
 
 
-def _payload(latest: dict[str, str] | None, error: bool, checked_at: float) -> dict[str, Any]:
+def _payload(latest: dict[str, str] | None, error: bool, checked_at: float, detail: str = "") -> dict[str, Any]:
     current = about.build_info()["version"]
     latest = latest or {"version": "", "url": "", "name": "", "publishedAt": ""}
     return {
@@ -84,6 +101,7 @@ def _payload(latest: dict[str, str] | None, error: bool, checked_at: float) -> d
         "publishedAt": latest["publishedAt"],
         "checkedAt": datetime.fromtimestamp(checked_at, timezone.utc).isoformat(timespec="seconds") if checked_at else "",
         "error": error,
+        "errorDetail": detail,
         "repo": REPO,
     }
 
@@ -101,10 +119,12 @@ def status(force: bool = False) -> dict[str, Any]:
         try:
             result = _payload(_fetch_latest(), False, now)
             ttl = SUCCESS_TTL
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as exc:
+            detail = describe_error(exc)
+            log.warning("Updatecheck mislukt (%s): %s", detail, exc)
             # Een eerder gelukt antwoord blijft bruikbaar; alleen de foutmelding erbij.
             previous = cached or _payload(None, True, 0)
-            result = {**previous, "error": True}
+            result = {**previous, "error": True, "errorDetail": detail}
             ttl = FAILURE_TTL
         _cache.update(at=now, ttl=ttl, result=result)
         return result

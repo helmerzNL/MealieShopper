@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.13.2
+
+*English summary: When the update check fails, the Updates tab and the server log now say why (for example "HTTP 403 (rate limit)", "Timeout" or "ConnectionError") instead of only "failed".*
+
+### Verbeterd in 1.13.2
+
+- **Updatecheck: de oorzaak van een fout.** Mislukt de updatecheck, dan staat er nu bij Beheer > Updates ook waarom (bijvoorbeeld `HTTP 403 (rate limit)`, `Timeout`, `ConnectionError` of `SSLError`), en de serverlog bevat de volledige melding. Zo zie je of de server GitHub (`api.github.com`) niet kan bereiken of dat GitHub het verzoek weigert.
+
 ## v1.13.1
 
 *English summary: Fixes the Updates tab showing raw text keys such as "update.title". The browser kept using the old cached text files because the asset version was not raised in 1.13.0; it is now. After updating, a hard refresh (Ctrl+Shift+R) may still be needed once.*

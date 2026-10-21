@@ -94,6 +94,24 @@ class StatusTest(unittest.TestCase):
         self.assertTrue(result["error"])
         self.assertFalse(result["available"])
 
+    def test_the_reason_is_reported_and_logged(self):
+        denied = mock.Mock(status_code=403)
+        denied.raise_for_status.side_effect = requests.HTTPError("403", response=denied)
+        cases = [
+            (denied, None, "HTTP 403 (rate limit)"),
+            (None, requests.ConnectionError("dns"), "ConnectionError"),
+            (None, requests.Timeout(), "Timeout"),
+            (None, requests.exceptions.SSLError("cert"), "SSLError"),
+        ]
+        for response, error, expected in cases:
+            updates.reset()
+            with mock.patch.object(updates.requests, "get", return_value=response, side_effect=error), \
+                    self.assertLogs("mealieshopper.updates", "WARNING") as logged:
+                result = updates.status()
+            self.assertTrue(result["error"])
+            self.assertIn(expected, result["errorDetail"])
+            self.assertIn(expected, logged.output[0])
+
     def test_a_failure_keeps_the_last_good_answer(self):
         with mock.patch.object(updates.requests, "get", return_value=release()):
             updates.status()
