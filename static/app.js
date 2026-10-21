@@ -524,7 +524,6 @@ function renderMealPlan(entries) {
         <div class="toolbar">
           <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
           <span id="cart-store-slot"></span>
-          <span id="cart-extra-slot"></span>
           <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
         </div>
         <ul>
@@ -629,13 +628,12 @@ function renderStoreChoice() {
       }
       const button = $("#add-cart");
       if (button) button.textContent = cartButtonLabel();
-      if (typeof renderPicnicBasketButton === "function") renderPicnicBasketButton();
     });
   }
   const button = $("#add-cart");
   if (button) button.textContent = cartButtonLabel();
-  if (typeof renderPicnicBasketButton === "function") renderPicnicBasketButton();
   renderItemsStore();
+  if (typeof renderBasketStoreChoice === "function") renderBasketStoreChoice();
 }
 
 // De winkel in de tab Winkels: AH, of Jumbo zodra die gekoppeld is. Jumbo heeft geen recepten.
@@ -709,9 +707,13 @@ function showCartResult(data, notFound) {
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
-  if (state.store === "picnic" && typeof showPicnicSlots === "function") {
-    showPicnicBasket();
-    showPicnicSlots();
+  // Picnic en Jumbo vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
+  if (state.store === "picnic" || state.store === "jumbo") {
+    $("#cart-result").insertAdjacentHTML(
+      "beforeend",
+      `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
+    );
+    $("#view-basket").addEventListener("click", () => openBasket(state.store));
   }
 }
 
@@ -1589,6 +1591,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     window.scrollTo({ top: 0 });
     if (tab.dataset.tab === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
     if (tab.dataset.tab === "about" && !state.aboutLoaded) loadAbout();
+    if (tab.dataset.tab === "basket") showBasket();
   });
 });
 

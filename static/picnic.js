@@ -1,7 +1,7 @@
 // Picnic: koppelen (met een code per sms of e-mail) en de keuze van de supermarkt in de planner.
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, setBusy, t, ...).
 
-const picnicState = { connected: false, codePending: false, report: null };
+const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -134,7 +134,7 @@ function renderPicnicExploreSummary() {
   if (report) $("#picnic-explore-summary").textContent = t("explore.summary", { ok: report.ok, total: report.probes.length });
 }
 
-// ---- Bezorgmomenten onder het gevulde mandje (alleen lezen: kiezen doe je in de Picnic-app)
+// ---- Bezorgmomenten onder het mandje (alleen lezen: kiezen doe je in de Picnic-app)
 function formatSlot(slot) {
   const start = new Date(slot.windowStart);
   const end = new Date(slot.windowEnd);
@@ -144,56 +144,32 @@ function formatSlot(slot) {
   return Number.isNaN(end.getTime()) ? `${day} ${time(start)}` : `${day} ${time(start)}\u2013${time(end)}`;
 }
 
-async function showPicnicSlots() {
-  let slots = [];
-  try {
-    slots = (await jsonFetch("/api/picnic/slots?limit=6")).slots || [];
-  } catch {
-    return; // De bezorgmomenten zijn een extraatje: het gevulde mandje blijft staan.
-  }
-  const target = $("#cart-result");
-  if (!slots.length || !target || state.store !== "picnic") return;
-  const items = slots
+function picnicSlotsHtml() {
+  if (!picnicState.slots.length) return "";
+  const items = picnicState.slots
     .map((slot) => {
       const minimum = slot.minimumOrder ? ` <span class="muted">(${escapeHtml(t("picnic.slot_minimum", { amount: formatPrice(slot.minimumOrder) }))})</span>` : "";
       return `<li>${escapeHtml(formatSlot(slot))}${minimum}</li>`;
     })
     .join("");
-  target.insertAdjacentHTML(
-    "beforeend",
-    `<div class="picnic-slots"><strong>${escapeHtml(t("picnic.slots_title"))}</strong><ul class="cart-lines">${items}</ul><p class="muted">${escapeHtml(t("picnic.slots_hint"))}</p></div>`
-  );
+  return `<div class="picnic-slots"><strong>${escapeHtml(t("picnic.slots_title"))}</strong><ul class="cart-lines">${items}</ul><p class="muted">${escapeHtml(t("picnic.slots_hint"))}</p></div>`;
 }
 
-// ---- Het Picnic-mandje bekijken en aanpassen (aantallen, product weg, mandje legen)
+// ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)
 // Alles gaat direct naar je echte Picnic-mandje. Er wordt nooit een bestelling geplaatst.
-function renderPicnicBasketButton() {
-  const slot = $("#cart-extra-slot");
-  if (!slot) return;
-  const box = $("#picnic-basket");
-  if (state.store !== "picnic") {
-    slot.innerHTML = "";
-    if (box) box.innerHTML = "";
-    return;
-  }
-  slot.innerHTML = `<button class="button button--secondary" id="picnic-basket-open" type="button">${escapeHtml(t("picnic.basket_open"))}</button>`;
-  $("#picnic-basket-open").addEventListener("click", showPicnicBasket);
-}
-
 async function showPicnicBasket() {
-  const box = $("#picnic-basket");
-  if (!box) return;
-  try {
-    renderPicnicBasket(await jsonFetch("/api/picnic/cart"));
-  } catch (error) {
-    box.innerHTML = `<div class="box picnic-basket"><div id="picnic-basket-message"></div></div>`;
-    message("#picnic-basket-message", error.message);
-  }
+  const [cart, slots] = await Promise.all([
+    jsonFetch("/api/picnic/cart"),
+    // De bezorgmomenten zijn een extraatje: het mandje blijft staan als ze niet te laden zijn.
+    jsonFetch("/api/picnic/slots?limit=6").then((data) => data.slots || [], () => []),
+  ]);
+  picnicState.slots = slots;
+  renderPicnicBasket(cart);
 }
 
 function renderPicnicBasket(cart, note = "") {
-  const box = $("#picnic-basket");
-  if (!box || state.store !== "picnic") return;
+  const box = $("#basket-content");
+  if (!box || basketState.store !== "picnic") return;
   const items = cart.items || [];
   const lines = items
     .map((item) => {
@@ -219,16 +195,12 @@ function renderPicnicBasket(cart, note = "") {
     cart.savings ? t("picnic.basket_savings", { amount: formatPrice(cart.savings) }) : "",
   ].filter(Boolean);
   box.innerHTML = `
-    <div class="box picnic-basket">
-      <div class="toolbar">
-        <h2>${escapeHtml(t("picnic.basket_title"))}</h2>
-        ${items.length ? `<button class="button button--secondary" id="picnic-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button>` : ""}
-      </div>
-      <div id="picnic-basket-message">${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}</div>
-      ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("picnic.basket_empty"))}</p>`}
-      ${totals.length ? `<p><strong>${escapeHtml(totals.join(" \u00b7 "))}</strong></p>` : ""}
-      <p class="muted">${escapeHtml(t("picnic.basket_hint"))}</p>
-    </div>`;
+    ${items.length ? `<div class="toolbar"><button class="button button--secondary" id="picnic-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button></div>` : ""}
+    ${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}
+    ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("picnic.basket_empty"))}</p>`}
+    ${totals.length ? `<p><strong>${escapeHtml(totals.join(" \u00b7 "))}</strong></p>` : ""}
+    <p class="muted">${escapeHtml(t("picnic.basket_hint"))}</p>
+    ${picnicSlotsHtml()}`;
   $("#picnic-basket-clear")?.addEventListener("click", () => clearPicnicBasket(items));
   box.querySelectorAll(".basket-line[data-id]").forEach((line) => {
     const id = line.dataset.id;
@@ -246,7 +218,7 @@ function renderPicnicBasket(cart, note = "") {
 }
 
 function setPicnicBasketBusy(busy) {
-  document.querySelectorAll("#picnic-basket button, #picnic-basket input").forEach((el) => {
+  document.querySelectorAll("#basket-content button, #basket-content input").forEach((el) => {
     el.disabled = busy;
   });
 }
@@ -262,7 +234,7 @@ async function setPicnicQuantity(productId, quantity) {
     renderPicnicBasket(cart);
   } catch (error) {
     setPicnicBasketBusy(false);
-    message("#picnic-basket-message", error.message);
+    message("#basket-message", error.message);
   }
 }
 
@@ -275,7 +247,7 @@ async function clearPicnicBasket(items) {
     renderPicnicBasket(data.cart || { items: [] }, t("picnic.basket_cleared", { count: data.removed }));
   } catch (error) {
     setPicnicBasketBusy(false);
-    message("#picnic-basket-message", error.message);
+    message("#basket-message", error.message);
   }
 }
 

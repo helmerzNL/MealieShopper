@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.12.0
+
+*English summary: There is a new Basket tab with a store list (Albert Heijn, Picnic, Jumbo, as far as linked). Picnic's basket moved here from the planner, with the quantity, remove and empty controls and the delivery slots; Jumbo's basket is shown read-only; the Albert Heijn order basket moved here from Stores > Orders (it still says "coming soon"). After filling a Picnic or Jumbo basket from the week menu, a "View basket" button takes you to the tab. The tab bar now has seven tabs, so two short Dutch labels got shorter ("Menu", "Import") to fit a phone.*
+
+### Nieuw in 1.12.0
+
+- **Tabblad Mandje.** Na het Weekmenu staat nu een eigen tabblad met een keuzelijst voor de winkels die gekoppeld zijn: **Albert Heijn**, **Picnic** en **Jumbo**. De keuze wordt onthouden in je browser. Met het vernieuw-icoon laad je het mandje opnieuw.
+- **Picnic:** het mandje dat je eerder in de planner opende staat hier, met aantallen aanpassen, product weghalen, mandje legen (na een bevestiging), wat je moet betalen en wat je lidmaatschap bespaart. De eerstvolgende bezorgmomenten staan eronder en blijven staan als je het mandje aanpast.
+- **Jumbo:** je echte Jumbo-mandje, alleen lezen (producten, aantallen, prijzen en totaal). Aanpassen en bestellen doe je bij Jumbo.
+- **Albert Heijn:** het bestelmandje is van **Winkels > Bestellingen** naar hier verhuisd. AH levert het nog niet, dus er staat nog dat het binnenkort komt; zodra dat kan, werkt het synchroniseren vanuit dit tabblad.
+- **Vanuit de planner:** na het vullen van een Picnic- of Jumbo-mandje staat er een knop **Mandje bekijken** die je naar het tabblad brengt, met die winkel gekozen. Het mandje en de bezorgmomenten staan niet meer onder het weekmenu.
+
+### Goed om te weten
+
+- De tabbalk heeft nu **zeven tabs**. Zodat ze op een telefoon van 360 px naast elkaar passen, zijn twee korte labels in de onderbalk korter geworden: *Weekmenu* is *Menu* en *Importeren* is *Import*. De lange namen in de bovenbalk op een groot scherm blijven hetzelfde.
+- Het Jumbo-mandje is bewust alleen-lezen: het aanpassen van aantallen bij Jumbo is nog niet uitgeprobeerd.
+
 ## v1.11.0
 
 *English summary: Your own Jumbo lists ("Mijn lijstjes") and Favourites are now in MealieShopper next to the shopping list, with the same cards, sync, search, adjustable quantities and "Add to basket" as the AH lists. Jumbo serves them through stored (persisted) queries that the website itself uses, so MealieShopper sends the same requests; if Jumbo renews those hashes with a new site version the explorer reports PersistedQueryNotFound and the two hashes in jumbo.py need refreshing. The old "Jumbo-lijstje" is now called "Boodschappenlijstje", and the planner choice "Jumbo (lijstje)" became "Jumbo (boodschappenlijstje)". Two read-only MCP changes: list_jumbo_lists, and get_jumbo_list takes an optional list name. Built from the real answers of jumbo.com but tried only with mocked responses so far.*

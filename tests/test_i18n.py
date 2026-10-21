@@ -22,6 +22,7 @@ SOURCES = {
     "orders.js": (STATIC / "orders.js").read_text(encoding="utf-8"),
     "picnic.js": (STATIC / "picnic.js").read_text(encoding="utf-8"),
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
+    "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
