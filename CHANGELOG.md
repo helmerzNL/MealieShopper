@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.15.1
+
+*English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture.*
+
+### Opgelost in 1.15.1
+
+- **De image start nu ook op een ARM-NAS.** Op een Synology (of een Raspberry Pi) stopte de container direct met `[FATAL tini] exec gunicorn failed: Exec format error`, omdat de image alleen voor `linux/amd64` werd gebouwd. De workflow `.github/workflows/docker.yml` bouwt en publiceert nu een image voor `linux/amd64` én `linux/arm64`, onder dezelfde tag (`latest`). Docker kiest zelf de juiste architectuur.
+
+### Goed om te weten
+
+- Draai je MealieShopper op een ARM-NAS? Haal de image opnieuw op (`docker compose pull && docker compose up -d`, of in Container Manager de image bijwerken) zodat je de arm64-versie krijgt.
+- De build duurt langer, omdat de arm64-versie op een amd64-server wordt nagebootst (QEMU). Er verandert niets aan de app zelf.
+
 ## v1.15.0
 
 *English summary: Two things for Picnic. The basket now adds up: a discounted line shows the price without discount struck through and what you pay, products that are not available right now are marked with a notice, and the plus button and quantity field stop at the maximum Picnic allows per product. And the route explorer now also checks Picnic's recipe pages (saved recipes, the cookbook, the recipes home and a recipe's details) and tries a list of likely pages for the favorites; that is the first step toward reading your Picnic recipes and favorites into MealieShopper, so nothing is imported yet. Errors in the explorer report now show only the status and error code.*
