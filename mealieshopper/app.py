@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-3")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261022-1")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -722,7 +722,7 @@ def create_app() -> Flask:
         if snapshot:
             return jsonify(snapshot)
         try:
-            return jsonify(jumbo_lists.live_view(jumbo_lists.fetch_live()))
+            return jsonify(jumbo_lists.live_view(jumbo_lists.fetch_live(list_id)))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -758,7 +758,7 @@ def create_app() -> Flask:
         Regels met een SKU gaan direct; een regel met alleen tekst zoeken we eerst op. Nooit een bestelling.
         """
         try:
-            snapshot = jumbo_lists.get_snapshot(list_id) or jumbo_lists.live_view(jumbo_lists.fetch_live())
+            snapshot = jumbo_lists.get_snapshot(list_id) or jumbo_lists.live_view(jumbo_lists.fetch_live(list_id))
             matched: list[dict[str, Any]] = []
             skipped: list[str] = []
             for item in snapshot.get("items") or []:

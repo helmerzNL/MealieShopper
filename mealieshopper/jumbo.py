@@ -15,6 +15,7 @@ Net als bij Picnic schrijft `add_to_cart` direct in het echte winkelmandje en pl
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import json
 import re
@@ -279,12 +280,36 @@ class JumboSchemaError(RuntimeError):
     """Jumbo kent een veld of type uit de query niet (meer)."""
 
 
-def _graphql(query: str, variables: dict[str, Any] | None, operation: str, client: str = BASKET_CLIENT) -> dict[str, Any]:
-    payload = {"operationName": operation, "query": query, "variables": variables or {}}
+class JumboPersistedQueryError(JumboSchemaError):
+    """Jumbo kent de hash van een opgeslagen query niet (meer): de website is waarschijnlijk vernieuwd."""
+
+
+def _graphql(
+    query: str | None,
+    variables: dict[str, Any] | None,
+    operation: str,
+    client: str = BASKET_CLIENT,
+    extensions: dict[str, Any] | None = None,
+    method: str = "POST",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"operationName": operation, "variables": variables or {}}
+    if query is not None:
+        payload["query"] = query
+    if extensions:
+        payload["extensions"] = extensions
     for attempt in (0, 1):
-        response = requests.post(
-            GRAPHQL_URL, json=payload, headers=_headers(get_access_token(force=attempt == 1), client), timeout=30
-        )
+        headers = _headers(get_access_token(force=attempt == 1), client)
+        if method == "GET":
+            # Zoals de website een opgeslagen query vraagt: alles in de querystring.
+            params = {"operationName": operation}
+            for key in ("variables", "extensions"):
+                if key in payload:
+                    params[key] = json.dumps(payload[key], separators=(",", ":"))
+            if "query" in payload:
+                params["query"] = payload["query"]
+            response = requests.get(GRAPHQL_URL, params=params, headers=headers, timeout=30)
+        else:
+            response = requests.post(GRAPHQL_URL, json=payload, headers=headers, timeout=30)
         if response.status_code == 403:
             raise _blocked("403")
         if response.status_code == 401 and attempt == 0:
@@ -307,6 +332,8 @@ def _graphql(query: str, variables: dict[str, Any] | None, operation: str, clien
                     )
                 )
             message = "; ".join(str(e.get("message") or e) for e in errors if isinstance(e, dict))[:400]
+            if "PersistedQueryNotFound" in json.dumps(errors) or "PERSISTED_QUERY_NOT_FOUND" in json.dumps(errors):
+                raise JumboPersistedQueryError("PersistedQueryNotFound")
             if _is_schema_error(errors):
                 raise JumboSchemaError(message)
             raise RuntimeError(f"GraphQL: {message}")
@@ -676,3 +703,141 @@ def get_product(sku: str) -> dict[str, Any] | None:
         raw = data.get("product")
         return _product(raw) if isinstance(raw, dict) else None
     raise RuntimeError(str(last))
+
+
+# --- eigen lijstjes en favorieten ("Mijn lijstjes") --------------------------------------------------
+# De website vraagt deze lijstjes met opgeslagen queries (Apollo persisted queries): alleen een hash en de
+# variabelen, geen querytekst. Dezelfde aanvraag sturen wij opnieuw. De hashes horen bij een versie van
+# jumbo.com; verandert Jumbo ze, dan meldt de verkenner `PersistedQueryNotFound`. Verversen: open op
+# jumbo.com Mijn lijstjes met het tabblad Netwerk (filter `graphql`), kopieer de `sha256Hash` van
+# `GetCustomerProductLists` en `GetProductList` uit de aanvraag en zet ze hieronder.
+PERSISTED_QUERIES = {
+    "GetCustomerProductLists": "6f99c573278cea7151eb4b422b698cb14e5c0e19632e647a582bfa81f7b5f86c",
+    "GetProductList": "2bbb5daa2373f8d00c5029298df31cef6529a89fe68babb7239654d668556e36",
+}
+# Welke clientnaam en welk transport de router voor deze queries wil is niet bekend; we proberen ze na
+# elkaar en onthouden wat werkte (de verkenner meldt het).
+LIST_CLIENTS = ("JUMBO_WEB-lists", "JUMBO_WEB-loyalty", "JUMBO_WEB-basket", "JUMBO_WEB-orders", "JUMBO_WEB")
+LIST_TRANSPORTS = ("POST", "GET")
+LIST_PAGE_SIZE = 25
+MAX_LIST_PAGES = 10
+_persisted_route: dict[str, tuple[str, str]] = {}
+_LIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any]:
+    extensions = {"persistedQuery": {"version": 1, "sha256Hash": PERSISTED_QUERIES[operation]}}
+    known = _persisted_route.get(operation)
+    ladder = [(method, client) for client in LIST_CLIENTS for method in LIST_TRANSPORTS]
+    attempts = ([known] if known else []) + [route for route in ladder if route != known]
+    last: Exception | None = None
+    not_found = False
+    for method, client in attempts:
+        try:
+            data = _graphql(None, variables, operation, client, extensions, method)
+        except JumboAuthError:
+            raise  # de koppeling zelf is stuk: een andere clientnaam helpt niet
+        except JumboPersistedQueryError as exc:
+            last, not_found = exc, True
+            continue
+        except RuntimeError as exc:
+            last = exc
+            continue
+        _persisted_route[operation] = (method, client)
+        return data
+    _persisted_route.pop(operation, None)
+    if not_found:
+        raise JumboPersistedQueryError("PersistedQueryNotFound")
+    raise RuntimeError(str(last))
+
+
+def get_product_lists() -> list[dict[str, Any]]:
+    """Je eigen lijstjes en Favorieten: `[{id, name, kind, itemCount, description}]`."""
+    data = _persisted_query(
+        "GetCustomerProductLists",
+        {"listItemPagination": {"offset": 0, "limit": 4}, "listPagination": {"offset": 0, "limit": LIST_PAGE_SIZE}},
+    )
+    lists: list[dict[str, Any]] = []
+    for kind, key in (("own", "customerLists"), ("favorites", "favouriteLists")):
+        for raw in (data.get(key) or {}).get("items") or []:
+            if not isinstance(raw, dict) or not raw.get("id") or not raw.get("title"):
+                continue
+            count = raw.get("productsCount")
+            lists.append(
+                {
+                    "id": str(raw["id"]),
+                    "name": str(raw["title"]),
+                    "kind": kind,
+                    "itemCount": count if isinstance(count, int) else 0,
+                    "description": raw.get("description") or None,
+                }
+            )
+    return lists
+
+
+def _product_list_item(raw: Any) -> dict[str, Any] | None:
+    product = raw.get("product") if isinstance(raw, dict) and isinstance(raw.get("product"), dict) else None
+    sku = str((raw or {}).get("sku") or (product or {}).get("sku") or "") if product else ""
+    title = str((product or {}).get("title") or "").strip()
+    if not sku or not title:
+        return None
+    price = product.get("price") if isinstance(product.get("price"), dict) else {}
+    promo = price.get("promoPrice")
+    cents = promo if isinstance(promo, (int, float)) else price.get("price")
+    link = product.get("link")
+    amount = (raw.get("quantity") or {}).get("amount") if isinstance(raw.get("quantity"), dict) else None
+    try:
+        quantity = min(99, max(1, int(round(float(amount)))))
+    except (TypeError, ValueError, OverflowError):
+        quantity = 1
+    return {
+        "id": str(raw["id"]) if raw.get("id") else None,
+        "sku": sku,
+        "term": title,
+        "quantity": quantity,
+        "product": {
+            "id": sku,
+            "title": title,
+            "brand": product.get("brand") or None,
+            "unitSize": product.get("subtitle") or None,
+            "price": _euros(cents),
+            "image": _image(product.get("image")),
+            "isBonus": bool(product.get("promotions")) or isinstance(promo, (int, float)),
+            "url": f"{SITE_URL}{link}" if isinstance(link, str) and link.startswith("/") else None,
+            "available": (product.get("availability") or {}).get("isAvailable") is not False,
+        },
+    }
+
+
+def get_product_list(list_id: str) -> dict[str, Any]:
+    """Alle producten van één lijstje (in pagina's van 25), in dezelfde vorm als een AH-lijstje."""
+    list_id = str(list_id or "").strip()
+    if not _LIST_ID_RE.match(list_id):
+        raise ValueError(tr("Onbekend lijstje", "Unknown list"))
+    reference = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    items: list[dict[str, Any]] = []
+    name = ""
+    offset = 0
+    for _ in range(MAX_LIST_PAGES):
+        data = _persisted_query(
+            "GetProductList",
+            {
+                "includeThumbnail": False,
+                "includeAuthor": True,
+                "includeDelistedItems": False,
+                "listId": list_id,
+                "listItemsPagination": {"offset": offset, "limit": LIST_PAGE_SIZE},
+                "referenceDate": reference,
+            },
+        )
+        value = data.get("productListV2")
+        if not isinstance(value, dict):
+            raise RuntimeError(tr("Jumbo gaf dit lijstje niet terug", "Jumbo did not return this list"))
+        name = str(value.get("title") or name)
+        raw_items = value.get("items") or []
+        items += [item for item in (_product_list_item(raw) for raw in raw_items) if item]
+        offset += len(raw_items)
+        total = value.get("productsCount")
+        if not raw_items or not isinstance(total, int) or offset >= total:
+            break
+    return {"id": list_id, "name": name, "items": items}

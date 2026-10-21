@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.11.0
+
+*English summary: Your own Jumbo lists ("Mijn lijstjes") and Favourites are now in MealieShopper next to the shopping list, with the same cards, sync, search, adjustable quantities and "Add to basket" as the AH lists. Jumbo serves them through stored (persisted) queries that the website itself uses, so MealieShopper sends the same requests; if Jumbo renews those hashes with a new site version the explorer reports PersistedQueryNotFound and the two hashes in jumbo.py need refreshing. The old "Jumbo-lijstje" is now called "Boodschappenlijstje", and the planner choice "Jumbo (lijstje)" became "Jumbo (boodschappenlijstje)". Two read-only MCP changes: list_jumbo_lists, and get_jumbo_list takes an optional list name. Built from the real answers of jumbo.com but tried only with mocked responses so far.*
+
+### Nieuw in 1.11.0
+
+- **Je eigen Jumbo-lijstjes en Favorieten.** Onder **Winkels > Lijstjes** (keuze *Jumbo*) staan nu alle lijstjes uit *Mijn lijstjes* van Jumbo, naast het boodschappenlijstje. Elk lijstje werkt als een AH-lijstje: synchroniseren naar een lokale kopie, zoeken, het aantal aanpassen (jouw aanpassing blijft bij een volgende synchronisatie staan en je kunt terugzetten naar Jumbo's aantal) en met `In mandje` alles in je Jumbo-mandje zetten. De producten hebben merk, pakmaat, prijs, aanbieding en een link naar het product. Lijstjes met meer dan 25 producten haalt MealieShopper in meerdere stappen op.
+- **Opgeslagen queries.** Jumbo's website vraagt deze lijstjes met *persisted queries*: alleen een hash en de variabelen, geen querytekst. MealieShopper stuurt dezelfde aanvraag (`GetCustomerProductLists` en `GetProductList`). Welk transport (POST of GET) en welke clientnaam Jumbo wil is niet bekend; MealieShopper probeert ze na elkaar en onthoudt wat werkt. Verandert Jumbo de hashes, dan geeft de app een foutmelding en toont **Jumbo-routes verkennen** `PersistedQueryNotFound`; zie `PERSISTED_QUERIES` in `mealieshopper/jumbo.py` en de README om ze te verversen.
+- **Het boodschappenlijstje** heet nu *Boodschappenlijstje* (voorheen *Jumbo-lijstje*), en de keuze in de planner *Jumbo (boodschappenlijstje)*, zodat het niet met je eigen lijstjes verward wordt. Het blijft het lijstje met losse regels waar de planner ingrediënten op zet.
+- **MCP, alleen lezen:** nieuw `list_jumbo_lists` (boodschappenlijstje, eigen lijstjes en Favorieten); `get_jumbo_list` neemt een optioneel `list` (id of deel van de naam, bijvoorbeeld "favorieten"), zonder opgave het boodschappenlijstje.
+- **Jumbo-routes verkennen** probeert nu ook beide opgeslagen queries: hoeveel eigen lijstjes en favorieten, de vorm van een lijstje en van een product, en met welk transport en welke clientnaam het werkte. Zonder titels, prijzen of id's.
+
+### Goed om te weten
+
+- De antwoordvormen komen uit de echte aanvragen van jumbo.com (dank aan wie ze uit de browser kopieerde); de code is tot nu toe alleen met nagebootste antwoorden in die vorm getest. Draai **Jumbo-routes verkennen** en synchroniseer één lijstje; meld wat afwijkt.
+- Je volgt andere lijstjes op Jumbo? Die toont MealieShopper niet (Jumbo geeft er alleen een aantal van).
+- Nog niet voor Jumbo: bonnen, bestellingen en de stap in de installatiehulp.
+
 ## v1.10.0
 
 *English summary: You can now manage your Picnic basket from MealieShopper: change the quantity of a product, remove a product, or empty the whole basket (with a confirmation). Changes go straight to your real Picnic basket; an order is never placed. These are not available through MCP. The basket editing routes follow the unofficial Picnic API and have not been tried against a live basket yet.*
