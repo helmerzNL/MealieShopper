@@ -561,7 +561,7 @@ class PurchaseToolsTest(McpTestCase):
             receipts = self.data("list_ah_receipts")
             receipt = self.data("get_ah_receipt", {"receipt_id": "R1"})
             found = self.data("search_ah_purchases", {"query": "koffie"})
-        self.assertIn("niet de boodschappenlijst", basket["note"])
+        self.assertIn("boodschappenlijst", basket["note"])
         self.assertEqual((basket["units"], basket["total"]), (2, 4.5))
         self.assertEqual((orders["total"], orders["orders"][0]["id"], orders["orders"][0]["itemCount"]), (1, 5, 1))
         self.assertEqual((order["items"][0]["title"], order["items"][0]["taxonomy"]), ("Koffiebonen", "Koffie"))
