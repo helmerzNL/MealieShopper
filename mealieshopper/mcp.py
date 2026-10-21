@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, mealie, picnic, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, mealie, picnic, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -234,6 +234,32 @@ def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     }
 
 
+def tool_jumbo_list(args: dict[str, Any]) -> Any:
+    """Het Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
+    _jumbo_linked()
+    snapshot = jumbo_lists.get_snapshot(jumbo_lists.LIST_ID)
+    source = "lokale kopie"
+    if not snapshot:
+        snapshot = jumbo_lists.live_view(jumbo_lists.fetch_live())
+        source = "live van Jumbo"
+    return {
+        "name": snapshot["name"],
+        "source": source,
+        "syncedAt": snapshot.get("syncedAt"),
+        "items": [
+            {
+                "item": (item.get("product") or {}).get("title") or item.get("term"),
+                "size": (item.get("product") or {}).get("unitSize"),
+                "price": (item.get("product") or {}).get("price") or None,
+                "quantity": item.get("quantity"),
+                "url": item.get("url"),
+            }
+            for item in snapshot["items"][:MAX_LIST_ITEMS]
+        ],
+        "total": snapshot["totalSize"],
+    }
+
+
 def tool_jumbo_basket(args: dict[str, Any]) -> Any:
     _jumbo_linked()
     return jumbo.get_cart()
@@ -420,6 +446,12 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "title": "Jumbo-producten zoeken"},
         "handler": tool_search_jumbo_products,
+    },
+    "get_jumbo_list": {
+        "description": "Het boodschappenlijstje bij Jumbo (de losse regels die op het lijstje staan, met pakmaat en prijs als de regel een product is). Uit de lokale kopie als die er is, anders live. Er wordt niets aan veranderd.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Jumbo-lijstje"},
+        "handler": tool_jumbo_list,
     },
     "get_jumbo_basket": {
         "description": "Het winkelmandje bij Jumbo: producten, aantallen en totaal. Live opgehaald; er wordt niets aan veranderd.",
