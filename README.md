@@ -36,6 +36,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Eén knop zoekt voor elk ingrediënt de beste AH-producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je AH-mandje. Twijfelt de app, dan controleer je de regel eerst zelf.
+- **Ook voor Picnic.** Koppel je Picnic-account, dan kies je in de planner naar welke supermarkt het weekmenu gaat. De producten komen direct in je Picnic-mandje; je rondt de bestelling zelf af in de Picnic-app.
 - **Recepten zoeken en importeren.** Zoek in de recepten van Allerhande en zet ze met één klik in Mealie, of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Bestellingen en kassabonnen.** Je bestelmandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel, bewaard in een eigen kopie zodat je ze ook zonder verbinding met AH kunt bekijken en doorzoeken ("wanneer kocht ik voor het laatst koffie?"). Ook je AI-assistent kan ze bevragen.
@@ -211,6 +212,16 @@ AH heeft geen officiële koppeling. MealieShopper logt in zoals de AH-app, in je
 
 Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. Onder **AH-routes verkennen** (alleen voor de beheerder) roep je de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en zie je welke werken en welke velden erin zitten. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen; zo komen we erachter hoe je verder terug komt dan de laatste 10 afgeleverde bestellingen. AH kan de token bij elke vernieuwing vervangen; MealieShopper bewaart steeds de nieuwste. Draai daarom één instance en houd de data-map op persistente opslag.
 
+### Picnic
+
+Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Picnic**):
+
+1. Vul je e-mailadres en wachtwoord in en kies `Inloggen bij Picnic`.
+2. Picnic vraagt meestal om een code. Die komt per sms (of per e-mail, via de knop eronder). Vul hem in en kies `Bevestigen`.
+3. Zodra er staat dat Picnic gekoppeld is, verschijnt in de planner een keuzelijst met **Albert Heijn** en **Picnic**.
+
+Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versleuteld. Picnic kan die sessie bij elk verzoek vernieuwen; MealieShopper bewaart steeds de nieuwste. Is ze verlopen, dan koppel je opnieuw. Anders dan bij AH gaan de producten direct in je echte Picnic-mandje; er wordt nooit een bestelling geplaatst. Picnic bezorgt alleen in bepaalde gebieden. Met `Koppeling controleren` zie je of de sessie nog werkt. Onder **Picnic-routes verkennen** zie je welke onofficiële routes werken en welke velden erin zitten (zonder persoonlijke gegevens, veilig te delen). Je AI-assistent kan Picnic-producten, je mandje en je leveringen bekijken, maar het mandje niet vullen. Lijstjes, kassabonnen en recepten zijn er voor Picnic niet.
+
 ## Beveiliging
 
 <img src="docs/screenshots/nl/login.png" alt="De inlogpagina met gebruikersnaam en wachtwoord" width="900">
@@ -303,6 +314,7 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `PASSKEY_AUTH_ENABLED` | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie via de omgeving; een koppeling uit de app gaat voor. |
 | `AH_REFRESH_TOKEN` | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |
+| `PICNIC_COUNTRY_CODE` | Land van je Picnic-account: `NL` (standaard), `DE` of `FR`. De koppeling zelf maak je in de app. |
 | `PORT` | Poort bij `python run.py` (standaard 8000). |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Overschrijven het versienummer en de commit die bij Over staan. |
 
@@ -329,6 +341,8 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
 **De passkey werkt niet.** Een passkey vraagt een domeinnaam en HTTPS (op `localhost` werkt het ook). Open MealieShopper via dat adres en controleer `RP_ID` en `RP_ORIGINS`; de installatiehulp legt uit waarom het op een IP-adres niet kan.
+
+**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
 
@@ -357,7 +371,7 @@ python -m unittest discover -s tests          # alle tests
 
 ## Integraties en componenten
 
-MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie of Albert Heijn.
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn of Picnic.
 
 **Integraties**
 
@@ -366,6 +380,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie of Alb
 | [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten komen hier terecht. Via de API met een token. |
 | [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
+| [Picnic](https://picnic.app) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Picnic. Picnic kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |
 | [MCP](https://modelcontextprotocol.io) en [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | De koppeling met AI-assistenten zoals Claude, ChatGPT en Copilot. |

@@ -19,6 +19,7 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
+  store: "ah", // de supermarkt voor het weekmenu: "ah" of "picnic" (zie picnic.js)
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -259,6 +260,7 @@ async function refreshAuthStatus() {
   if (state.auth?.authenticated || !state.auth?.enabled) {
     refreshAhStatus();
     refreshMealieStatus();
+    if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
   }
   return state.auth;
 }
@@ -517,7 +519,8 @@ function renderMealPlan(entries) {
       <div class="box ingredients">
         <div class="toolbar">
           <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
-          <button class="button" id="add-cart">${escapeHtml(t("plan.add_cart"))}</button>
+          <span id="cart-store-slot"></span>
+          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
         </div>
         <ul>
           ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
@@ -526,6 +529,7 @@ function renderMealPlan(entries) {
     `
     : "";
   $("#add-cart")?.addEventListener("click", addToCart);
+  if (typeof renderStoreChoice === "function") renderStoreChoice();
 }
 
 async function loadMealPlan() {
@@ -582,6 +586,10 @@ function cartSelection(row, candidate, quantity) {
   };
 }
 
+function cartButtonLabel() {
+  return state.store === "picnic" ? t("plan.add_cart_picnic") : t("plan.add_cart");
+}
+
 function showCartResult(data, notFound) {
   const lines = (data.items || [])
     .map((item) => {
@@ -589,17 +597,20 @@ function showCartResult(data, notFound) {
       return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
     })
     .join("");
-  const missing = notFound.length
-    ? th("cart.missing", { count: notFound.length, names: notFound.join(", ") })
+  // Picnic meldt zelf ook welke producten het niet in het mandje kreeg.
+  const names = state.store === "picnic" ? [...notFound, ...(data.skippedItems || [])] : notFound;
+  const missing = names.length
+    ? th("cart.missing", { count: names.length, names: names.join(", ") })
     : "";
+  const ready = state.store === "picnic" ? "cart.ready_picnic" : "cart.ready";
   $("#cart-result").innerHTML = `
-    <div class="message success">${th("cart.ready", { added: data.added }).replace("{missing}", missing)}</div>
+    <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
 }
 
 async function submitCart(selection, notFound) {
-  const data = await jsonFetch("/api/ah/cart", {
+  const data = await jsonFetch(`/api/${state.store}/cart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items: selection }),
@@ -642,7 +653,11 @@ function renderCartReview(rows) {
                     .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
                     .join("")}
                 </select>
-                <a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>
+                ${
+                  first.url
+                    ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
+                    : '<span class="review-link"></span>'
+                }
                 <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
               </div>`;
           })
@@ -663,12 +678,13 @@ function renderCartReview(rows) {
     el.querySelector(".review-product").addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
       el.querySelector(".review-qty").value = candidate.packs;
-      el.querySelector(".review-link").href = candidate.url;
+      const link = el.querySelector("a.review-link");
+      if (link && candidate.url) link.href = candidate.url;
       el.querySelector(".review-note").textContent = candidate.doubt || "";
       el.classList.toggle("is-doubt", Boolean(candidate.doubt));
     });
     el.querySelector(".review-include").addEventListener("change", updateConfirm);
-    el.querySelector(".review-link").addEventListener("click", (event) => {
+    el.querySelector("a.review-link")?.addEventListener("click", (event) => {
       event.preventDefault();
       openProductPopup(event.currentTarget.href);
     });
@@ -711,7 +727,7 @@ async function addToCart() {
   button.textContent = t("cart.searching");
   $("#cart-result").innerHTML = "";
   try {
-    const preview = await jsonFetch("/api/ah/cart/preview", {
+    const preview = await jsonFetch(`/api/${state.store}/cart/preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -743,7 +759,7 @@ async function addToCart() {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {
     button.disabled = false;
-    button.textContent = t("plan.add_cart");
+    button.textContent = cartButtonLabel();
   }
 }
 

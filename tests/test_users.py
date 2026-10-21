@@ -185,16 +185,21 @@ class PermissionsTest(UsersTestCase):
             ("post", "/api/mealie/auth"), ("post", "/api/mealie/auth/logout"), ("post", "/api/ah/auth"),
             ("post", "/api/ah/auth/verify"), ("get", "/api/ah/auth/start"), ("get", "/api/ah/auth/callback"),
             ("get", "/api/ah/auth/proxy"), ("post", "/api/ah/auth/proxy/anything"),
+            ("post", "/api/picnic/auth"), ("post", "/api/picnic/auth/2fa/request"),
+            ("post", "/api/picnic/auth/2fa/verify"), ("post", "/api/picnic/auth/logout"),
+            ("post", "/api/picnic/explore"),
         ):
             response = getattr(client, method)(path)
             self.assertEqual(response.status_code, 403, path)
             self.assertIn("beheerder", response.get_json()["error"], path)
         self.assertEqual(client.get("/api/mealie/status").status_code, 200)
         self.assertNotEqual(client.get("/api/ah/auth/status").status_code, 403)
+        self.assertNotEqual(client.get("/api/picnic/auth/status").status_code, 403)
 
     def test_the_administrator_still_can(self):
         self.assertNotEqual(self.admin.post("/api/mealie/auth", json={}).status_code, 403)
         self.assertNotEqual(self.admin.post("/api/ah/auth", json={}).status_code, 403)
+        self.assertNotEqual(self.admin.post("/api/picnic/auth", json={}).status_code, 403)
 
     def test_basic_functions_stay_open_for_users(self):
         client = self.join()
@@ -210,6 +215,10 @@ class PermissionsTest(UsersTestCase):
 
     def test_which_paths_are_for_the_administrator(self):
         self.assertFalse(auth.admin_only("/api/ah/auth/status"))
+        self.assertFalse(auth.admin_only("/api/picnic/auth/status"))
+        self.assertTrue(auth.admin_only("/api/picnic/auth"))
+        self.assertTrue(auth.admin_only("/api/picnic/auth/2fa/verify"))
+        self.assertFalse(auth.admin_only("/api/picnic/search"))
         self.assertTrue(auth.admin_only("/api/users"))
         self.assertTrue(auth.admin_only("/api/users/invites"))
         self.assertTrue(auth.admin_only("/api/mealie/auth/logout"))

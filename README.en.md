@@ -36,6 +36,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. One button looks up the best AH products for every ingredient, works out how many packs you need and puts them in your AH basket. If the app is unsure, you check that line yourself first.
+- **Picnic too.** Link your Picnic account and you choose in the planner which supermarket the week menu goes to. The products go straight into your Picnic basket; you finish the order yourself in the Picnic app.
 - **Search and import recipes.** Search the Allerhande recipes and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **Orders and receipts.** Your order basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
@@ -211,6 +212,16 @@ AH has no official link. MealieShopper logs in like the AH app, in your own brow
 
 With `Check link` you see whether the stored token still works. Under **Explore AH routes** (administrator only) you call the unofficial AH routes for the order basket, orders and receipts and see which ones work and which fields they contain. The report contains no names, addresses, prices or ids and is safe to share; that is how we find out how to reach further back than the latest 10 delivered orders. AH may replace the token on every refresh; MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage.
 
+### Picnic
+
+Picnic has no official link. MealieShopper logs in like the Picnic app, with your email address and password (administrator only, under **Settings > Picnic**):
+
+1. Enter your email address and password and choose `Log in to Picnic`.
+2. Picnic usually asks for a code. It arrives by SMS (or by email, with the button below). Enter it and choose `Confirm`.
+3. Once it says Picnic is linked, the planner shows a list with **Albert Heijn** and **Picnic**.
+
+Your password is not stored, only the session that Picnic returns, encrypted. Picnic may renew that session on every request; MealieShopper always keeps the newest. If it has expired, you link again. Unlike AH, the products go straight into your real Picnic basket; an order is never placed. Picnic only delivers to certain areas. With `Check link` you see whether the session still works. Under **Explore Picnic routes** you see which unofficial routes work and which fields they contain (no personal data, safe to share). Your AI assistant can look at Picnic products, your basket and your deliveries, but can't fill the basket. Lists, receipts and recipes don't exist for Picnic.
+
 ## Security
 
 <img src="docs/screenshots/en/login.png" alt="The login page with username and password" width="900">
@@ -303,6 +314,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
+| `PICNIC_COUNTRY_CODE` | Country of your Picnic account: `NL` (default), `DE` or `FR`. You make the link itself in the app. |
 | `PORT` | Port for `python run.py` (default 8000). |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Override the version number and commit shown under About. |
 
@@ -329,6 +341,8 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 ```
 
 **The passkey doesn't work.** A passkey needs a domain name and HTTPS (on `localhost` it works too). Open MealieShopper through that address and check `RP_ID` and `RP_ORIGINS`; the setup guide explains why it can't work on an IP address.
+
+**Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Picnic and log in again.
 
 **AH: "code expired or used".** The code from the console works only once and expires quickly. Log in again and paste the new line right away.
 
@@ -357,7 +371,7 @@ python -m unittest discover -s tests          # all tests
 
 ## Integrations and components
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie or Albert Heijn.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn or Picnic.
 
 **Integrations**
 
@@ -366,6 +380,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie or Albert 
 | [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes end up here. Through the API with a token. |
 | [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
+| [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
 | [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |

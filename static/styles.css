@@ -891,6 +891,17 @@ a.product-card__main:hover strong {
   width: 100%;
 }
 
+.store-select {
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  padding: 0 8px;
+}
+
 .review-link {
   color: var(--primary);
   font-size: 14px;

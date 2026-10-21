@@ -353,6 +353,7 @@
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
           <button class="subtab is-active" data-subtab="beheer-ah" data-admin-only data-i18n="settings.tab.ah">Albert Heijn</button>
+          <button class="subtab" data-subtab="beheer-picnic" data-admin-only data-i18n="settings.tab.picnic">Picnic</button>
           <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
           <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
@@ -392,6 +393,59 @@
             <p class="muted" id="explore-summary"></p>
             <pre class="ai-code" id="explore-output"></pre>
             <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+          </div>
+        </div>
+        </div>
+
+        <div id="beheer-picnic" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="picnic.title">Inloggen bij Picnic</h2>
+          <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+          <form class="auth-form" id="picnic-form" autocomplete="off">
+            <label class="field">
+              <span data-i18n="picnic.email">E-mailadres</span>
+              <input class="input" id="picnic-email" type="email" autocomplete="off" required>
+            </label>
+            <label class="field">
+              <span data-i18n="picnic.password">Wachtwoord</span>
+              <input class="input" id="picnic-password" type="password" autocomplete="off" required>
+            </label>
+            <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
+          </form>
+          <div id="picnic-message"></div>
+        </div>
+        <div class="box" id="picnic-code-box" hidden>
+          <h2 data-i18n="picnic.code_title">Bevestigingscode</h2>
+          <p class="muted" data-i18n="picnic.code_intro">Picnic vraagt om een code. Vraag hem aan, vul hem hieronder in en bevestig.</p>
+          <form class="auth-form" id="picnic-code-form" autocomplete="off">
+            <label class="field">
+              <span data-i18n="picnic.code_label">Code</span>
+              <input class="input" id="picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+            </label>
+            <button class="button" id="picnic-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
+          </form>
+          <div class="toolbar">
+            <button class="button button--secondary" id="picnic-send-sms" type="button" data-i18n="picnic.send_sms">Code per sms sturen</button>
+            <button class="button button--secondary" id="picnic-send-email" type="button" data-i18n="picnic.send_email">Code per e-mail sturen</button>
+          </div>
+          <div id="picnic-code-message"></div>
+        </div>
+        <div class="box">
+          <div id="picnic-status"></div>
+          <div class="toolbar">
+            <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+            <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
+          </div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="picnic.explore_title">Picnic-routes verkennen</h2>
+          <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje en leveringen aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+          <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+          <div id="picnic-explore-message"></div>
+          <div id="picnic-explore-report" hidden>
+            <p class="muted" id="picnic-explore-summary"></p>
+            <pre class="ai-code" id="picnic-explore-output"></pre>
+            <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
           </div>
         </div>
         </div>
@@ -510,7 +564,7 @@
         </div>
         <div class="box" id="ai-tools-box" hidden>
           <h2 data-i18n="ai.tools_title">Wat de assistent kan</h2>
-          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH-mandje niet vullen.</p>
+          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH- of Picnic-mandje niet vullen.</p>
           <p class="muted" id="ai-tools-owner-note" data-i18n="ai.tools_owner_note" hidden>Als beheerder zet je hier tools uit voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en niet meer te gebruiken; ze zien de wijziging bij de volgende verbinding.</p>
           <ul class="ai-tools" id="ai-tools"></ul>
         </div>
@@ -568,6 +622,7 @@
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='orders.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
 </html>
