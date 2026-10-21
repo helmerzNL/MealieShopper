@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.12.0
+
+*English summary: Under Settings the three store tabs (Albert Heijn, Picnic, Jumbo) are now merged into one "Stores" menu with a drop-down list. The menu button stays highlighted while one of its stores is open, closes when you pick a store, click elsewhere or press Escape, and works on phones too. The settings tab bar is shorter and tidier; nothing changes in what the pages do. Texts that point to the old tabs now say "Settings > Stores > Albert Heijn" (or Picnic, Jumbo).*
+
+### Nieuw in 2.12.0
+
+- **Winkels onder één menu bij Beheer.** De drie winkeltabs *Albert Heijn*, *Picnic* en *Jumbo* staan niet meer los naast elkaar, maar onder één knop **Winkels** met een uitklapmenu eronder. Kies een winkel in de lijst om de koppeling, de instellingen en de verkenner van die winkel te openen. De knop **Winkels** blijft gemarkeerd zolang een van de winkels open staat; het menu klapt dicht als je een winkel kiest, ergens anders klikt of op `Esc` drukt. Het werkt ook op een telefoon.
+- **Kortere tabbalk.** Onder Beheer staan nu *Winkels*, *Mealie*, *Beveiliging*, *AI-apps*, *Gebruikers* (alleen de beheerder, met inloggen aan), *Auditlog* en *Updates*. Een gewone gebruiker ziet het winkelmenu niet, net als de losse winkeltabs eerder.
+- **Verwijzingen bijgewerkt.** Meldingen, de onboarding, de README's en de voorbeeld-`.env`-bestanden zeggen nu *Beheer > Winkels > Albert Heijn* (of *Picnic*, *Jumbo*) in plaats van *Beheer > Albert Heijn*.
+
+### Goed om te weten
+
+- Alleen de indeling van het menu verandert: de koppelingen, de MCP-tools en de API werken zoals voorheen.
+- Pull requests: nog geen; deze versie volgt uit de vraag om de winkels onder Beheer samen te voegen in een menu met submenu.
+
 ## v2.11.0
 
 *English summary: New Settings > Audit log (administrator only). It records every request MealieShopper makes to Albert Heijn, Picnic and Jumbo (method, address, status, duration, request and answer) and every request an AI assistant makes over MCP (tool, input, result), including the steps where an assistant links up. A store request made while an MCP tool runs is linked to that tool call, so you can see exactly what an assistant's question caused. Filter by store or errors, search, open an entry for details, export (JSON or CSV) or copy entries, clear the log. Passwords, tokens, codes, cookies and e-mail addresses are replaced by "[verborgen]" before storing; headers are never stored; entries are deleted after 30 days. Four optional settings: MEALIESHOPPER_AUDIT_LOG, _BODIES, _BODY_CHARS and _RETENTION_DAYS.*
