@@ -2,17 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.15.1
+## v2.0.0
 
-*English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture.*
+*English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture. The image is now also tagged with its version (for example 2.0.0). This is a major version number because the published image changes, not because anything in the app breaks.*
 
-### Opgelost in 1.15.1
+### Opgelost in 2.0.0
 
 - **De image start nu ook op een ARM-NAS.** Op een Synology (of een Raspberry Pi) stopte de container direct met `[FATAL tini] exec gunicorn failed: Exec format error`, omdat de image alleen voor `linux/amd64` werd gebouwd. De workflow `.github/workflows/docker.yml` bouwt en publiceert nu een image voor `linux/amd64` én `linux/arm64`, onder dezelfde tag (`latest`). Docker kiest zelf de juiste architectuur.
+- **De image heeft nu ook een versietag.** Naast `latest` en de commit krijgt de image de tag uit `VERSION` (bijvoorbeeld `ghcr.io/helmerznl/mealieshopper:2.0.0`), zodat je een vaste versie kunt vastzetten.
 
 ### Goed om te weten
 
 - Draai je MealieShopper op een ARM-NAS? Haal de image opnieuw op (`docker compose pull && docker compose up -d`, of in Container Manager de image bijwerken) zodat je de arm64-versie krijgt.
+- Het nieuwe hoofdnummer (2.0.0) komt doordat de gepubliceerde image verandert; in de app zelf is niets wat breekt of wat je moet aanpassen.
 - De build duurt langer, omdat de arm64-versie op een amd64-server wordt nagebootst (QEMU). Er verandert niets aan de app zelf.
 
 ## v1.15.0
