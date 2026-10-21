@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.9.2
+
+*English summary: Fix: the Albert Heijn basket is now read correctly. AH nests the product in each shopping-list line (`productDetails.product`) and spells the ticked-off flag `strikedthrough`, so every line used to be skipped. The basket now shows the products with image, brand, size and price. Paging through past orders uses the confirmed row offset.*
+
+### Opgelost in 2.9.2
+
+- **Het AH-mandje bleef leeg.** Het rapport van **AH-routes verkennen** liet zien dat AH het product in elke regel van de boodschappenlijst onder `productDetails.product` zet en het vinkje `strikedthrough` noemt; de eerste versie zocht op een andere plek en sloeg daardoor elke regel over. Het mandje leest nu de regels goed en toont per product de afbeelding, het merk, de inhoud, de prijs, de bonus en het bedrag (aantal x prijs). Afgevinkte regels staan er nog steeds niet bij; een vrije tekstregel zonder product blijft staan.
+- **Afgelopen bestellingen:** de verkenner bevestigde dat `offset` rijen telt (bij jou 21 afgeronde bestellingen). Het bladeren is daarop vereenvoudigd en de controle in de verkenner is verwijderd.
+
 ## v2.9.1
 
 *English summary: Fix: the Albert Heijn basket in the Basket tab was empty because it showed the active web-shop order, while the weekly menu writes to your shopping list (what you see in the AH app). It now shows that shopping list and refreshes it when you open the tab.*
