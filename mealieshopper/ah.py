@@ -1033,21 +1033,25 @@ def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
 def get_shopping_list() -> dict[str, Any]:
     """Het AH-mandje zoals de app het toont: de boodschappenlijst waar `add_to_shopping_list` in schrijft.
 
-    De vorm van het antwoord is niet gedocumenteerd, dus het wordt ruim gelezen: een lijst of een object met `items`;
-    per regel de omschrijving of de productnaam, het aantal en het product-id. Afgevinkte regels (`strikeThrough`) laten we weg.
+    Het antwoord is `{items: [{quantity, strikedthrough, type, productDetails: {product: {...}}}]}`. Een vrije tekstregel heeft
+    geen product maar een `description`. Afgevinkte regels (`strikedthrough`) laten we weg. De lezing is ruim: ook een kale
+    lijst, `product` direct in de regel en de schrijfwijze `strikeThrough` worden begrepen.
     """
     data = _get_json("/mobile-services/shoppinglist/v2/items") or {}
     entries = data if isinstance(data, list) else data.get("items") or data.get("products") or []
     items = []
     for entry in entries:
-        if not isinstance(entry, dict) or entry.get("strikeThrough"):
+        if not isinstance(entry, dict) or entry.get("strikedthrough") or entry.get("strikeThrough"):
             continue
-        product = entry.get("product") if isinstance(entry.get("product"), dict) else {}
-        title = _text(entry.get("description") or product.get("title") or entry.get("searchTerm"))
+        details = entry.get("productDetails") if isinstance(entry.get("productDetails"), dict) else {}
+        product = details.get("product") if isinstance(details.get("product"), dict) else entry.get("product")
+        product = product if isinstance(product, dict) else {}
+        title = _text(product.get("title") or entry.get("description") or entry.get("searchTerm"))
         if not title:
             continue
-        item = _order_item({"quantity": entry.get("quantity") or 1, "product": {**product, "webshopId": entry.get("productId") or product.get("webshopId"), "title": title}})
-        items.append({**item, "quantity": _int(entry.get("quantity")) or 1})
+        quantity = _int(entry.get("quantity")) or 1
+        item = _order_item({"quantity": quantity, "product": {**product, "webshopId": product.get("webshopId") or entry.get("productId"), "title": title}})
+        items.append({**item, "quantity": quantity})
     return {"id": None, "state": "", "shoppingType": "", "total": None, "discount": None, "deliveryDate": "", "slotStart": "", "slotEnd": "", "items": items}
 
 

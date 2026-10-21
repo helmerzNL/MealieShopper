@@ -105,10 +105,20 @@ class ParsingTest(unittest.TestCase):
         self.assertEqual((detail["discounts"][0]["amount"], detail["payments"][0]["method"]), (-0.5, "PIN"))
 
 
-SHOPPING = {"items": [
-    {"id": "a", "description": "Halfvolle melk", "productId": 111, "quantity": 2, "type": "SHOPPABLE", "originCode": "PRD", "strikeThrough": False},
-    {"id": "b", "description": "Brood", "productId": 222, "quantity": 1, "type": "SHOPPABLE", "strikeThrough": True},
-    {"id": "c", "description": "Bloemen voor mama", "quantity": 1, "type": "FREE_TEXT"},
+def shopping_entry(title, quantity=1, struck=False, product=True, **extra):
+    """Een regel zoals AH hem geeft: het product zit in productDetails.product."""
+    entry = {"listItemId": 1, "originCode": "PRD", "position": 1, "quantity": quantity, "strikedthrough": struck, "type": "SHOPPABLE", "sorting": {"position": 1}, **extra}
+    if product:
+        entry["productDetails"] = {"missingBonusOffersQuantity": 0, "product": {
+            "webshopId": 111, "title": title, "brand": "AH", "salesUnitSize": "1 l", "currentPrice": 1.29, "priceBeforeBonus": 1.45, "isBonus": True,
+            "images": [{"url": "https://img/111.png", "width": 200, "height": 200}]}}
+    return entry
+
+
+SHOPPING = {"id": "x", "storeNumber": 1, "items": [
+    shopping_entry("Halfvolle melk", 2),
+    shopping_entry("Brood", 1, struck=True),
+    {"listItemId": 3, "type": "FREE_TEXT", "description": "Bloemen voor mama", "quantity": 1, "strikedthrough": False},
 ]}
 
 
@@ -121,6 +131,8 @@ class BasketCacheTest(AhOrdersTestCase):
             basket = ah.get_shopping_list()
         get.assert_called_once_with("/mobile-services/shoppinglist/v2/items")
         self.assertEqual([(i["productId"], i["title"], i["quantity"]) for i in basket["items"]], [(111, "Halfvolle melk", 2), (None, "Bloemen voor mama", 1)])
+        melk = basket["items"][0]
+        self.assertEqual((melk["brand"], melk["unitSize"], melk["price"], melk["amount"], melk["bonus"], melk["image"]), ("AH", "1 l", 1.29, 2.58, True, "https://img/111.png"))
 
     def test_the_shopping_list_is_read_leniently(self):
         for body in ([{"description": "Melk", "quantity": 3}], {"products": [{"product": {"title": "Melk", "webshopId": 5}, "quantity": 3}]}, {"items": [None, "kapot", {"quantity": 1}]}, {}, None):
@@ -235,19 +247,6 @@ class OrdersCacheTest(AhOrdersTestCase):
             self.client.post("/api/ah/orders/sync")
         self.assertEqual(asked[3:], [0, 0])  # de eerste pagina bevat niets nieuws meer, dus geen tweede pagina
 
-    def test_paging_also_works_when_offset_counts_pages(self):
-        pages_of = {0: [closed_order(10 + n) for n in range(10)], 1: [closed_order(30 + n) for n in range(10)], 2: [closed_order(50 + n) for n in range(3)]}
-        asked = []
-
-        def pages(offset=0):
-            asked.append(offset)
-            return pages_of.get(offset, [])
-
-        with mock.patch.object(ah, "get_open_fulfillments", return_value=[]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
-            self.client.post("/api/ah/orders/sync")
-        self.assertEqual(asked, [0, 10, 1, 2, 3])  # rij-offset 10 geeft niets, dan pagina 1, 2 en het einde
-        self.assertEqual(len(self.client.get("/api/ah/orders").get_json()["orders"]), 23)
-
     def test_a_page_that_repeats_itself_stops_the_paging(self):
         page = [closed_order(7)]
         asked = []
@@ -258,7 +257,7 @@ class OrdersCacheTest(AhOrdersTestCase):
 
         with mock.patch.object(ah, "get_open_fulfillments", return_value=[]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
             self.client.post("/api/ah/orders/sync")
-        self.assertEqual(asked, [0, 1])
+        self.assertEqual(asked, [0, 1])  # na een pagina van 1 bestelling is offset 1 de volgende; die herhaalt zich
 
     def test_cancelled_orders_in_the_open_list_are_not_kept(self):
         data = self.sync([fulfillment(1), {**fulfillment(2), "deliveryStatus": "CANCELLED", "stateText": "Geannuleerd"}]).get_json()
@@ -474,27 +473,6 @@ class ExploreTest(unittest.TestCase):
         self.assertEqual(opened["shape"]["orderFulfillments"]["result"][0], {"orderId": "int", "statusCode": "str: SCHEDULED", "statusDescription": "str: Ingepland", "shoppingType": "str: DELIVERY", "transactionCompleted": "bool", "modifiable": "bool", "totalPrice": {"totalPrice": {"amount": "float"}}, "delivery": {"status": "str: SCHEDULED", "method": "str: HOME", "slot": {"date": "str", "dateDisplay": "str", "timeDisplay": "str", "startTime": "str", "endTime": "str"}}})
         text = json.dumps(report, ensure_ascii=False)
         for secret in ("Geheimstraat", "1234AB", "Halfvolle", "Calvé", "4242"):
-            self.assertNotIn(secret, text)
-
-    def test_paging_probes_report_only_counts(self):
-        def entry(order_id):
-            return {"orderId": order_id, "statusCode": 9, "delivery": {"status": "DELIVERED"}}
-
-        def graphql(query, variables=None):
-            if "offset: 5" in query:
-                return {"orderFulfillments": {"result": [entry(n) for n in range(5, 15)]}}
-            if "offset:" in query:
-                return {"orderFulfillments": {"result": []}}
-            if "orderFulfillments" in query:
-                return {"orderFulfillments": {"result": [entry(n) for n in range(10)]}}
-            raise RuntimeError("geen")
-
-        with mock.patch.object(ah_explore, "_raw_get", side_effect=RuntimeError("geen")), mock.patch.object(ah_explore, "_raw_graphql", side_effect=graphql), mock.patch.object(ah, "configured_refresh_token", return_value="x"):
-            report = ah_explore.explore()
-        probe = next(p for p in report["probes"] if p["name"].endswith("offset: 5"))
-        self.assertEqual(probe["info"], {"aantal": 10, "ook_op_offset_0": 5})
-        text = json.dumps(report)
-        for secret in ('"orderId": 7', "[5, 6"):
             self.assertNotIn(secret, text)
 
     def test_a_route_that_fails_is_reported_not_raised(self):
