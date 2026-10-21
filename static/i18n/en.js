@@ -565,7 +565,7 @@ I18N.add("en", {
   "picnic.broken": "The Picnic link doesn't work: {error}",
   "picnic.unlink": "Unlink",
   "picnic.explore_title": "Explore Picnic routes",
-  "picnic.explore_intro": "Calls the unofficial Picnic routes for search, the cart and deliveries and shows which ones work and which fields they contain. Nothing is changed or stored. The report contains no names, addresses, prices or ids and is safe to share.",
+  "picnic.explore_intro": "Calls the unofficial Picnic routes for search, the cart, deliveries, recipes and favorites and shows which ones work and which fields they contain. Nothing is changed or stored. The report contains no names, addresses, prices or ids and is safe to share.",
   "picnic.explore_not_linked": "No Picnic account is linked; the routes that need a login will fail.",
   "picnic.slots_title": "Next delivery slots",
   "picnic.slot_minimum": "minimum {amount}",

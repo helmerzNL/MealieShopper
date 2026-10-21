@@ -72,9 +72,12 @@ def _not_linked() -> RuntimeError:
 
 
 def _call(
-    method: str, path: str, *, token: str | None = None, body: Any = None
+    method: str, path: str, *, token: str | None = None, body: Any = None, text: bool = False
 ) -> tuple[Any, str | None]:
-    """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug."""
+    """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug.
+
+    Met `text` komt een antwoord dat geen JSON is (sommige pagina's) als tekst terug in plaats van als None.
+    """
     headers = dict(HEADERS)
     if token:
         headers[AUTH_HEADER] = token
@@ -88,7 +91,7 @@ def _call(
         try:
             data = response.json()
         except ValueError:
-            data = None
+            data = response.text if text else None
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code") in AUTH_ERROR_CODES:
         # Bewust niet de tekst van Picnic zelf: de aanroeper kiest een eigen, begrijpelijke melding.
@@ -114,12 +117,12 @@ def save_auth_key(key: str) -> None:
     auth.set_secret(AUTH_KEY_SECRET, value)
 
 
-def _authed(method: str, path: str, *, body: Any = None) -> Any:
+def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> Any:
     token = configured_auth_key()
     if not token:
         raise _not_linked()
     try:
-        data, new_token = _call(method, path, token=token, body=body)
+        data, new_token = _call(method, path, token=token, body=body, text=text)
     except PicnicAuthError as exc:
         raise PicnicAuthError(
             tr(

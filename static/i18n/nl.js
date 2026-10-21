@@ -565,7 +565,7 @@ I18N.add("nl", {
   "picnic.broken": "De Picnic-koppeling werkt niet: {error}",
   "picnic.unlink": "Ontkoppelen",
   "picnic.explore_title": "Picnic-routes verkennen",
-  "picnic.explore_intro": "Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje en leveringen aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.",
+  "picnic.explore_intro": "Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.",
   "picnic.explore_not_linked": "Er is geen Picnic-account gekoppeld; de routes die een login nodig hebben falen.",
   "picnic.slots_title": "Eerstvolgende bezorgmomenten",
   "picnic.slot_minimum": "minimaal {amount}",

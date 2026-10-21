@@ -474,7 +474,7 @@ class ExploreTest(TempDataDirTest):
         page = search_page(tile("s1", "Geheime melk van Jan", "1 l", 129))
         replies = {"/user": {"firstname": "Jan", "address": {"street": "Hoofdstraat"}}}
 
-        def fake(method, path, body=None):
+        def fake(method, path, body=None, text=False):
             if path.startswith("/pages/search-page-results"):
                 return page
             if path == "/lists":
@@ -489,6 +489,62 @@ class ExploreTest(TempDataDirTest):
         self.assertFalse(next(p for p in report["probes"] if "lists" in p["name"])["ok"])
         for secret in ("Jan", "Hoofdstraat", "Geheime", "s1"):
             self.assertNotIn(secret, json.dumps(report), secret)
+
+
+class RecipeExploreTest(TempDataDirTest):
+    TILE = {"type": "TILE", "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
+            "pml": {"component": {"text": "Geheime pasta van Jan"}}}
+
+    def page(self):
+        return {"body": {"children": [self.TILE, {"type": "TEXT", "markdown": "Geheim"}], "link": "picnic://page?page_id=favorites-page-root&user=jan"}}
+
+    def test_recipe_tiles_are_found_by_their_analytics_context(self):
+        from mealieshopper import picnic_explore
+        self.assertEqual(picnic_explore.recipe_tiles(self.page()), [self.TILE])
+        self.assertEqual(picnic_explore.recipe_tiles({"body": []}), [])
+        self.assertEqual(picnic_explore.recipe_tiles("tekst"), [])
+
+    def test_links_are_reduced_to_page_names_and_parameter_names(self):
+        from mealieshopper import picnic_explore
+        links = picnic_explore.page_links({"a": "open /pages/recipe-details?selling_group_id=abc123def456&portions=4 nu",
+                                           "b": "picnic://deeplink/saved?token=geheim"})
+        self.assertEqual(links, ["/pages/recipe-details?portions&selling_group_id", "picnic://deeplink/saved?token"])
+        self.assertEqual(picnic_explore.page_links("x /pages/item-9876543210"), ["/pages/item-<id>"])
+
+    def test_the_report_finds_recipes_favorites_and_leaks_nothing(self):
+        from mealieshopper import picnic_explore
+        tile_page, calls = self.page(), []
+
+        def fake(method, path, body=None, text=False):
+            calls.append(path)
+            if path.startswith("/pages/search-page-results"):
+                return search_page(tile("s1", "Melk", "1 l"))
+            if path == "/pages/saved-deep-dive-page-content":
+                return tile_page
+            if path.startswith("/pages/selling-group-details-page"):
+                return "RSC-tekst met SELLING_GROUP en Geheime pasta"
+            if path == "/pages/favorites-deep-dive-page-content":
+                return {"body": {"children": []}}
+            if path.startswith("/pages/") or path in ("/lists", "/my_store"):
+                raise RuntimeError("404: {\"error\": \"geheim\"}")
+            return {}
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=fake):
+            report = picnic_explore.explore()
+        names = {probe["name"]: probe for probe in report["probes"]}
+        self.assertTrue(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["ok"])
+        self.assertEqual(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["info"]["receptonderdelen"], 1)
+        self.assertTrue(any("receptonderdeel" in name for name in names))
+        self.assertIn("/pages/selling-group-details-page?selling_group_id=abc123def456", calls)
+        details = names["receptdetails: GET pages/selling-group-details-page"]["info"]
+        self.assertEqual((details["formaat"], details["noemt SELLING_GROUP"]), ("tekst (geen JSON)", True))
+        self.assertTrue(names["favorieten? GET pages/favorites-deep-dive-page-content"]["ok"])
+        self.assertEqual(names["favorieten? GET pages/favorites-page-root"]["error"], "404")
+        self.assertEqual(picnic_explore.short_error('404: {"error": {"code": "NOT_FOUND", "message": "x"}}'), "404 NOT_FOUND")
+        self.assertEqual(picnic_explore.short_error("netwerkfout: Timeout"), "netwerkfout: Timeout")
+        for secret in ("Geheime", "geheim", "abc123def456", "jan"):
+            self.assertNotIn(secret, json.dumps(report, ensure_ascii=False), secret)
 
 
 class PicnicRoutesTest(TempDataDirTest):
