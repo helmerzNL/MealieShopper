@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-2")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261021-3")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -683,6 +683,100 @@ def create_app() -> Flask:
     @app.post("/api/jumbo/cart")
     def jumbo_cart():
         return store_cart(jumbo, jumbo_error, jumbo.JumboAuthError)
+
+    # Het Jumbo-lijstje: één lijstje, bewaard als lokale kopie en in dezelfde vorm als de AH-lijstjes.
+
+    @app.get("/api/jumbo/lists")
+    def jumbo_lists_overview():
+        # Altijd 200: de lokale kopie blijft zichtbaar ook als Jumbo niet bereikbaar is.
+        return jsonify(jumbo_lists.merged_lists())
+
+    @app.get("/api/jumbo/lists/search")
+    def jumbo_lists_search():
+        query = (request.args.get("q") or "").strip()
+        return jsonify({"query": query, "items": jumbo_lists.search_items(query)})
+
+    @app.get("/api/jumbo/lists/<list_id>")
+    def jumbo_list_detail(list_id: str):
+        snapshot = jumbo_lists.get_snapshot(list_id)
+        if snapshot:
+            return jsonify(snapshot)
+        try:
+            return jsonify(jumbo_lists.live_view(jumbo_lists.fetch_live()))
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.post("/api/jumbo/lists/<list_id>/sync")
+    def jumbo_list_sync(list_id: str):
+        try:
+            return jsonify(jumbo_lists.sync_list(list_id))
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.patch("/api/jumbo/lists/<list_id>/items/<int:position>")
+    def jumbo_list_item_quantity(list_id: str, position: int):
+        body = request.get_json(silent=True) or {}
+        try:
+            snapshot = jumbo_lists.set_quantity(list_id, position, body.get("quantity"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not snapshot:
+            return jsonify({"error": tr("Regel niet gevonden. Synchroniseer het lijstje eerst.", "Line not found. Sync the list first.")}), 404
+        return jsonify(snapshot)
+
+    @app.post("/api/jumbo/lists/<list_id>/reset")
+    def jumbo_list_reset(list_id: str):
+        snapshot = jumbo_lists.reset_quantities(list_id)
+        if not snapshot:
+            return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
+        return jsonify(snapshot)
+
+    @app.post("/api/jumbo/lists/<list_id>/cart")
+    def jumbo_list_to_cart(list_id: str):
+        """Zet het hele lijstje in het Jumbo-mandje, met de aantallen zoals ze nu staan.
+
+        Regels met een SKU gaan direct; een regel met alleen tekst zoeken we eerst op. Nooit een bestelling.
+        """
+        try:
+            snapshot = jumbo_lists.get_snapshot(list_id) or jumbo_lists.live_view(jumbo_lists.fetch_live())
+            matched: list[dict[str, Any]] = []
+            skipped: list[str] = []
+            for item in snapshot.get("items") or []:
+                if item.get("productId"):
+                    matched.append({"productId": item["productId"], "quantity": item["quantity"], "term": item.get("term")})
+                    continue
+                found = jumbo.search_product(item.get("term") or "")
+                if found:
+                    matched.append({"productId": found["id"], "quantity": item["quantity"], "term": item.get("term")})
+                else:
+                    skipped.append(item.get("term") or "")
+            if not matched:
+                return jsonify({"error": tr("Dit lijstje heeft geen producten.", "This list has no products.")}), 400
+            result = jumbo.add_to_cart(matched)
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+        failed = {entry["productId"] for entry in result["failed"]}
+        skipped += [entry["term"] or "" for entry in matched if entry["productId"] in failed]
+        done = [entry for entry in matched if entry["productId"] not in failed]
+        return jsonify({"added": len(done), "units": sum(entry["quantity"] for entry in done), "name": snapshot.get("name"), "skippedItems": skipped})
+
+    @app.post("/api/jumbo/list")
+    def jumbo_list_add():
+        """Zet ingrediënten op het Jumbo-lijstje in plaats van in het mandje. Wat er al staat slaan we over."""
+        body = request.get_json(silent=True) or {}
+        items = body.get("items") or []
+        if not items:
+            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+        lines = [
+            {"term": item.get("title") or item.get("query") or "", "sku": item.get("productId")}
+            for item in items
+            if isinstance(item, dict)
+        ]
+        try:
+            result = jumbo.add_to_shopping_list(lines)
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+        return jsonify({"added": len(result["added"]), "skipped": len(result["skipped"]), "skippedItems": result["skipped"]})
 
     @app.post("/api/jumbo/explore")
     def jumbo_explore_routes():

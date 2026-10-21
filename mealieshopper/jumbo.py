@@ -547,3 +547,132 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
                 except RuntimeError as exc:
                     failed.append({"productId": line["sku"], "error": str(exc)})
     return {"added": added, "failed": failed, "cart": basket_summary(basket) if basket else None}
+
+
+# --- boodschappenlijstje --------------------------------------------------------------------------
+# Jumbo heeft één lijstje met vrije tekst (`term`) en per regel een optionele SKU. Zoals bij het mandje
+# kennen we de namen van de foutvarianten niet zeker (`addBasketLines` bleek anders te heten dan gedacht),
+# dus elke query heeft een variant zonder foutfragment om op terug te vallen; een fout meldt de typenaam.
+
+LOYALTY_CLIENT = "JUMBO_WEB-loyalty"
+_ITEM_FIELDS = "id term sku completed"
+_LIST_ERROR = "    ... on ShoppingListError { reason errorMessage }\n"
+GET_LIST_QUERIES = tuple(
+    "query GetShoppingList {\n  shoppingList {\n    __typename\n"
+    f"    ... on ShoppingList {{ isActive items {{ {_ITEM_FIELDS} }} }}\n{error}  }}\n}}"
+    for error in (_LIST_ERROR, "")
+)
+EDIT_LIST_QUERIES = tuple(
+    "mutation EditShoppingListItems($input: EditShoppingListItemsInput!) {\n  editShoppingListItems(input: $input) {\n"
+    f"    __typename\n    ... on EditShoppingListItemsResult {{ items {{ {_ITEM_FIELDS} }} }}\n{error}  }}\n}}"
+    for error in (_LIST_ERROR, "")
+)
+TOGGLE_LIST_QUERIES = tuple(
+    "mutation toggleShoppingList($input: ToggleShoppingListInput!) {\n  toggleShoppingList(input: $input) {\n"
+    f"    __typename\n    ... on ShoppingListState {{ isActive }}\n{error}  }}\n}}"
+    for error in (_LIST_ERROR, "")
+)
+MAX_LIST_PRODUCTS = 30  # zoveel producten per synchronisatie ophalen voor titel en prijs
+
+_working_variant: dict[str, int] = {}
+
+
+def _graphql_variants(operation: str, queries: tuple[str, ...], variables: dict[str, Any] | None, client: str) -> dict[str, Any]:
+    """Probeer de varianten van een query na elkaar; onthoud welke werkte (Jumbo's schema is niet gedocumenteerd)."""
+    last: Exception | None = None
+    for step in range(_working_variant.get(operation, 0), len(queries)):
+        try:
+            data = _graphql(queries[step], variables, operation, client)
+        except JumboSchemaError as exc:
+            last = exc
+            continue
+        _working_variant[operation] = step
+        return data
+    raise RuntimeError(str(last))
+
+
+def _expect(data: dict[str, Any], field: str, typename: str, what: str) -> dict[str, Any]:
+    value = data.get(field) or {}
+    if value.get("__typename") != typename:
+        raise RuntimeError(
+            tr(
+                f"Jumbo gaf bij {what} een onverwacht antwoord ({value.get('__typename') or 'geen antwoord'}).",
+                f"Jumbo gave an unexpected answer to {what} ({value.get('__typename') or 'no answer'}).",
+            )
+        )
+    return value
+
+
+def _list_item(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict) or not str(raw.get("term") or raw.get("sku") or "").strip():
+        return None
+    return {
+        "id": str(raw["id"]) if raw.get("id") else None,
+        "term": str(raw.get("term") or "").strip(),
+        "sku": str(raw["sku"]) if raw.get("sku") else None,
+        "completed": bool(raw.get("completed")),
+    }
+
+
+def get_shopping_list() -> dict[str, Any]:
+    """Het Jumbo-lijstje: `{active, items:[{id, term, sku, completed}]}`."""
+    data = _graphql_variants("GetShoppingList", GET_LIST_QUERIES, None, LOYALTY_CLIENT)
+    value = _expect(data, "shoppingList", "ShoppingList", "het lijstje")
+    items = [item for item in (_list_item(raw) for raw in value.get("items") or []) if item]
+    return {"active": value.get("isActive") is not False, "items": items}
+
+
+def _ensure_list_active() -> None:
+    """Een lijstje dat in de app uit staat, zetten we aan voordat we er iets op zetten (zoals jumbo-mcp)."""
+    data = _graphql_variants("toggleShoppingList", TOGGLE_LIST_QUERIES, {"input": {"active": True}}, LOYALTY_CLIENT)
+    _expect(data, "toggleShoppingList", "ShoppingListState", "het aanzetten van het lijstje")
+
+
+def add_to_shopping_list(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Zet regels op het Jumbo-lijstje. `items`: `[{term, sku?}]`; wat er al op staat slaan we over.
+
+    Plaatst nooit een bestelling en haalt niets van het lijstje.
+    """
+    current = get_shopping_list()
+    on_list = {item["term"].casefold() for item in current["items"] if not item["completed"]}
+    lines: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    for item in items:
+        term = " ".join(str(item.get("term") or "").split())
+        if not term:
+            continue
+        if term.casefold() in on_list:
+            skipped.append(term)
+            continue
+        on_list.add(term.casefold())
+        line: dict[str, Any] = {"term": term, "completed": False}
+        if item.get("sku"):
+            line["sku"] = str(item["sku"])
+        lines.append(line)
+    if lines:
+        if not current["active"]:
+            _ensure_list_active()
+        data = _graphql_variants("EditShoppingListItems", EDIT_LIST_QUERIES, {"input": {"items": lines}}, LOYALTY_CLIENT)
+        _expect(data, "editShoppingListItems", "EditShoppingListItemsResult", "het toevoegen aan het lijstje")
+    return {"added": [line["term"] for line in lines], "skipped": skipped}
+
+
+PRODUCT_EXTRA_FIELDS = ("link subtitle image", "link subtitle", "link", "")
+
+
+def get_product(sku: str) -> dict[str, Any] | None:
+    """Titel, prijs en link van een product op SKU, in dezelfde vorm als `search_products`."""
+    last: Exception | None = None
+    for extra in PRODUCT_EXTRA_FIELDS:
+        query = (
+            "query ProductDetail($sku: String!) {\n  product(sku: $sku) {\n    title\n    sku\n"
+            f"    price {{ price promoPrice }}\n    {extra}\n  }}\n}}"
+        )
+        try:
+            data = _graphql(query, {"sku": str(sku)}, "ProductDetail")
+        except JumboSchemaError as exc:
+            last = exc
+            continue
+        raw = data.get("product")
+        return _product(raw) if isinstance(raw, dict) else None
+    raise RuntimeError(str(last))

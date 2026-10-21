@@ -61,21 +61,21 @@ Load your week menu from Mealie. The number of packs is calculated with the pack
 
 <img src="docs/screenshots/en/search.png" alt="Searching Allerhande recipes, with cards and an import button" width="900">
 
-### AH Items: your saved recipes
+### Stores: your saved AH recipes
 
 Your saved Allerhande recipes live in MealieShopper, at least two side by side on a phone. Search your recipes at the top.
 
 <img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with an import button" width="900">
 
-### AH Items: your lists
+### Stores: your lists
 
-Your favourite lists as cards. Sync them to MealieShopper, search by name or by product, and open a list in the same place. In an opened list you put the whole list in your basket with one press on **Add to AH basket**, and you change the quantity per product.
+Your favourite lists as cards. Sync them to MealieShopper, search by name or by product, and open a list in the same place. In an opened list you put the whole list in your basket with one press on **Add to basket**, and you change the quantity per product.
 
 <img src="docs/screenshots/en/lists.png" alt="AH lists as cards, with a search bar and a sync button per list" width="900">
 
-<img src="docs/screenshots/en/list.png" alt="An opened list with adjustable quantities, the Add to AH basket button and the reset and sync icons" width="900">
+<img src="docs/screenshots/en/list.png" alt="An opened list with adjustable quantities, the Add to basket button and the reset and sync icons" width="900">
 
-### AH Items: orders and receipts
+### Stores: AH orders and receipts
 
 Your **receipts** from the shop, shown the way they look on paper: quantity, description, price and amount, the bonus lines, the total and how you paid. Everything is kept in a local copy; the search field searches all your purchases and shows when and how often you bought something, and **which receipts** a product is on (search for "soda", for example); open such a receipt and the matching lines are highlighted. The order basket and your orders at AH are coming soon.
 
@@ -157,7 +157,7 @@ After the password you can turn on **two-step verification** with an authenticat
 
 ### Week menu to the AH basket
 
-`Load week menu` fetches the week from Mealie, with the pictures. `Add to Albert Heijn basket` looks up the best five products per ingredient and works out how many packs you need, using the pack size AH gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
+`Load week menu` fetches the week from Mealie, with the pictures. If Picnic or Jumbo is linked, you choose next to the button which store it goes to (for Jumbo also: the **basket** or the **list**). `Add to Albert Heijn basket` looks up the best five products per ingredient and works out how many packs you need, using the pack size AH gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
 
 If the app is unsure somewhere (unknown pack size, weight against pieces, or more than 10 packs), a check list appears. There you choose the product and the number of packs per line, tick what should go in and confirm. If there is no doubt anywhere, the basket is filled right away. Next to every product is a link to the product at AH, so you can check that it is right.
 
@@ -167,12 +167,14 @@ MealieShopper fetches the pictures from Mealie itself with your API token and ke
 
 Under `Find recipes` search Allerhande (up to the first 2,000 hits) and choose `Import`, or paste an Allerhande link or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
-### AH Items
+### Stores
+
+The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keeps. If Jumbo is linked, a list with **Albert Heijn** and **Jumbo** appears at the top; Jumbo has no recipes.
 
 - **AH Recipes**: your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
-- **AH Lists**: your favourite lists. With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `AH: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to AH basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
+- **Lists**: at AH your favourite lists, at Jumbo the single Jumbo list (see *Jumbo*). With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `On list: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
 
-- **Orders**: the sync icon fetches the order basket, the open and closed orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper keeps it as **delivered**. AH returns the latest 10 closed orders per request; cancelled orders are skipped. The **order basket** is empty as long as you have not started an order. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The order basket is the active order at AH and is something other than the shopping list that `Add to AH basket` writes to. MealieShopper does not keep the delivery address, only date and time slot.
+- **Orders**: the sync icon fetches the order basket, the open and closed orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper keeps it as **delivered**. AH returns the latest 10 closed orders per request; cancelled orders are skipped. The **order basket** is empty as long as you have not started an order. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The order basket is the active order at AH and is something other than the shopping list that `Add to basket` writes to at AH. MealieShopper does not keep the delivery address, only date and time slot.
 
 ### Installing as an app
 
@@ -231,7 +233,7 @@ Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your ow
 3. Log in with your Jumbo account. The page then seems to hang, but the console shows a red line with `jumbo://callbacks/login?code=...`.
 4. Paste that line in MealieShopper and choose `Link`. The code works only once and expires quickly; a message about an expired or used code means: log in again.
 
-Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless browser. Your password is not stored, only the refresh token that Jumbo returns, encrypted; Jumbo may replace it on every refresh and MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage. Once Jumbo is linked, it appears in the list in the planner. Like Picnic, the products go straight into your real basket and an order is never placed. Your AI assistant can look at Jumbo products and your basket, but can't fill the basket.
+Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless browser. Your password is not stored, only the refresh token that Jumbo returns, encrypted; Jumbo may replace it on every refresh and MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage. Once Jumbo is linked, it appears in the list in the planner. Like Picnic, the products go straight into your real basket and an order is never placed. The Jumbo **list** (the loose lines you put on your list in the Jumbo app) is under **Stores > Lists** after choosing *Jumbo*. It is a single list, with text and sometimes a product; Jumbo has no quantities on it, so quantities are local (default 1) and go along to the basket. MealieShopper skips ticked-off lines. With `Add to basket`, MealieShopper first looks up text-only lines in Jumbo's range. In the planner, *Jumbo (list)* puts the ingredients on that list instead of in the basket; what is already on it is skipped, and if the list is switched off in the Jumbo app, MealieShopper switches it on. Your AI assistant can look at Jumbo products, your basket and the list, but can't fill anything.
 
 **Jumbo may refuse a server.** Jumbo sometimes blocks server and datacenter addresses; that is why an earlier Jumbo link was removed in v1.2.0. Under **Explore Jumbo routes** (administrator only) MealieShopper first checks whether Jumbo lets your server in and then calls the unofficial routes (filling the basket only with an empty list). The report contains no names, prices or ids and is safe to share. If the explorer says Jumbo refuses your server, the link does not work from that location.
 

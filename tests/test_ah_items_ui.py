@@ -86,7 +86,8 @@ class OverviewStyleTest(unittest.TestCase):
 class OverviewScriptTest(unittest.TestCase):
     def test_lists_filter_by_name_and_by_product(self):
         self.assertIn("matchesWords(list.name, query)", JS)
-        self.assertIn("/api/ah/lists/search?q=", JS)
+        self.assertIn("/lists/search?q=${encodeURIComponent(query)}", JS)
+        self.assertIn("function itemsApi()", JS)  # het adres hangt af van de gekozen winkel (AH of Jumbo)
         self.assertIn("state.ahListHits = {};\n  ahListSearchSeq++;", JS, "oude treffers horen niet bij een nieuwe zoektekst")
 
     def test_list_opens_in_place_and_back_uses_history(self):

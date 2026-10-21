@@ -194,8 +194,8 @@
         </button>
         <button class="tab" data-tab="ah-items">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiBasket"><path d="M5.5,21C4.72,21 4.04,20.55 3.71,19.9V19.9L1.1,10.44L1,10A1,1 0 0,1 2,9H6.58L11.18,2.43C11.36,2.17 11.66,2 12,2C12.34,2 12.65,2.17 12.83,2.44L17.42,9H22A1,1 0 0,1 23,10L22.96,10.29L20.29,19.9C19.96,20.55 19.28,21 18.5,21H5.5M12,4.74L9,9H15L12,4.74M12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13Z"/></svg>
-          <span class="tab-text" data-i18n="nav.ah">AH Items</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">AH Items</span>
+          <span class="tab-text" data-i18n="nav.ah">Winkels</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">Winkels</span>
         </button>
         <button class="tab" data-tab="beheer">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCog"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
@@ -257,9 +257,10 @@
       </section>
 
       <section id="ah-items" class="panel">
-        <nav class="subtabs" aria-label="AH Items" data-i18n-attr="aria-label:ah.nav">
+        <div class="toolbar" id="items-store-slot"></div>
+        <nav class="subtabs" aria-label="Winkels" data-i18n-attr="aria-label:ah.nav">
           <button class="subtab is-active" data-subtab="ah-items-recepten" data-i18n="ah.tab.recipes">AH Recepten</button>
-          <button class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists">AH Lijstjes</button>
+          <button class="subtab" data-subtab="ah-items-lijstjes" data-i18n="ah.tab.lists">Lijstjes</button>
           <button class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders">Bestellingen</button>
         </nav>
 
@@ -283,7 +284,7 @@
         <div id="ah-items-lijstjes" class="subpanel">
         <div class="box box--wide" id="ah-lists-view">
           <div class="toolbar">
-            <h2 data-i18n="ah.lists.title">Favoriete AH lijstjes</h2>
+            <h2 data-i18n="ah.lists.title">Lijstjes</h2>
             <button class="icon-button" id="sync-all-ah-lists" type="button" aria-label="Alles synchroniseren" title="Alles synchroniseren" data-i18n-attr="aria-label:ah.lists.sync_all;title:ah.lists.sync_all"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             <button class="button button--secondary" id="load-ah-lists" data-i18n="common.load">Laden</button>
           </div>
@@ -292,7 +293,7 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-list-filter" type="search" placeholder="Zoek in je lijstjes" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:ah.lists.search_ph">
           </label>
-          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de AH-koppeling niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
+          <p class="muted" data-i18n="ah.lists.intro">Synchroniseer een lijstje om er een kopie van in MealieShopper te bewaren. Die kopie blijft zichtbaar als de koppeling met de winkel niet werkt. Zoeken kijkt naar de naam van het lijstje en naar de producten in gesynchroniseerde lijstjes.</p>
           <div id="ah-lists-warning"></div>
           <div id="ah-lists" class="list-grid"></div>
         </div>
@@ -301,7 +302,7 @@
             <button class="icon-button" id="ah-list-back" type="button" aria-label="Terug naar de lijstjes" data-i18n-attr="aria-label:ah.lists.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <h2 id="ah-list-title" tabindex="-1"></h2>
             <div class="list-header__actions">
-              <button class="button list-cart" id="ah-list-to-cart" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11,9H13V6H16V4H13V1H11V4H8V6H11M7,18A2,2 0 0,0 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20A2,2 0 0,0 7,18M17,18A2,2 0 0,0 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20A2,2 0 0,0 17,18M7.17,14.75L7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.59 17.3,11.97L21.16,4.96L19.42,4H19.41L18.31,6L15.55,11H8.53L8.4,10.73L6.16,6L5.21,4L4.27,2H1V4H3L6.6,11.59L5.25,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42C7.29,15 7.17,14.89 7.17,14.75Z"/></svg><span data-i18n="list.to_cart">In AH-mandje</span></button>
+              <button class="button list-cart" id="ah-list-to-cart" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11,9H13V6H16V4H13V1H11V4H8V6H11M7,18A2,2 0 0,0 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20A2,2 0 0,0 7,18M17,18A2,2 0 0,0 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20A2,2 0 0,0 17,18M7.17,14.75L7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.59 17.3,11.97L21.16,4.96L19.42,4H19.41L18.31,6L15.55,11H8.53L8.4,10.73L6.16,6L5.21,4L4.27,2H1V4H3L6.6,11.59L5.25,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42C7.29,15 7.17,14.89 7.17,14.75Z"/></svg><span data-i18n="list.to_cart">In mandje</span></button>
               <button class="icon-button" id="reset-ah-list" type="button" disabled aria-label="Aantallen terugzetten" title="Aantallen terugzetten" data-i18n-attr="aria-label:list.reset;title:list.reset"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13,3A9,9 0 0,0 4,12H1L4.89,15.89L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3M12,8V13L16.28,15.54L17,14.33L13.5,12.25V8H12Z"/></svg></button>
               <button class="icon-button" id="sync-open-ah-list" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
             </div>
