@@ -2,13 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.4.1
+## v2.4.2
 
 *English summary: Fixes "The update check failed (HTTP 403 (rate limit))". The check no longer uses api.github.com, where anonymous requests are limited to 60 per hour per IP address (easily used up on a shared address), but the public releases page, which GitHub redirects to the latest release tag. Nothing else changes.*
 
-### Opgelost in 2.4.1
+### Opgelost in 2.4.2
 
 - **Updatecheck: `HTTP 403 (rate limit)`.** GitHub beperkt anonieme aanvragen naar `api.github.com` tot 60 per uur per IP-adres; op een gedeeld adres was die limiet al op, en dan faalde de updatecheck. De check kijkt nu op `github.com/helmerzNL/MealieShopper/releases/latest`, dat GitHub doorverwijst naar de nieuwste release-tag. Die pagina valt niet onder de API-limiet. Er verandert verder niets: nog steeds hooguit om de zes uur, zonder informatie over jou of de installatie.
+
+## v2.4.1
+
+*English summary: Fixes the Picnic favorites showing all products instead of only your favorites. The Favorites tab of the Picnic app lists far more products than the ones you saved (197 in the explorer report), and the page marks yours with a `saved` field. MealieShopper now keeps only the products Picnic marks as saved, and when the page does not say which are favorites it shows all of them with a notice instead of silently pretending. The explorer reports how that field looks. The MCP tool list_picnic_favorites says whether it filtered.*
+
+### Opgelost in 2.4.1
+
+- **Favorieten van Picnic toonden alle producten.** De Favorieten-tab van de Picnic-app wijst naar een pagina met veel meer producten dan je eigen favorieten (197 in het verkennerrapport). MealieShopper nam ze allemaal mee. Op die pagina staat een veld `saved` dat markeert welke producten je hebt opgeslagen; nu blijven alleen die over. Dat kan een waar/onwaar-vlag bij elk product zijn of een lijst met id's van opgeslagen producten.
+- **Geen stil gokken.** Zegt de pagina niet welke producten favoriet zijn, dan staan alle producten van de pagina in de lijst, met de melding *Picnic geeft niet aan welke producten je als favoriet hebt opgeslagen, dus dit zijn alle … producten van de pagina*. Zijn er markeringen maar is er geen enkele favoriet, dan is de lijst leeg. Het antwoord van `GET /api/picnic/favorites` bevat nu ook `total` en `filtered`; `list_picnic_favorites` (MCP) meldt met `onlyFavorites` of er is gefilterd.
+- **De verkenner meldt hoe de markering eruitziet:** de vorm van `saved`, hoe vaak het veld voorkomt en hoeveel producten we als favoriet, niet favoriet of onbekend zien. Zo is te zien of het filteren klopt.
+
+### Goed om te weten
+
+- **De markering is afgeleid uit alleen een veldnaam** (`saved`, uit het vorige rapport); de waarden heb ik niet gezien. Staat er na het bijwerken nog steeds een lijst met alle producten, of een lege lijst terwijl je wel favorieten hebt, deel dan het verkennerrapport: het nieuwe onderdeel *de markering `saved`* laat zien hoe Picnic het opslaat.
+- De Favorieten-tab van jouw app wijst naar `purchases_page_no_products_root`. Het kan zijn dat Picnic voor accounts zonder afgeronde bestellingen een andere pagina toont dan voor accounts met bestellingen.
 
 ## v2.4.0
 

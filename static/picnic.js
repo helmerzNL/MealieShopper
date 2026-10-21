@@ -3,7 +3,7 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
-const picnicFavorites = { products: [], query: "", loaded: false };
+const picnicFavorites = { products: [], total: 0, filtered: true, query: "", loaded: false };
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -302,7 +302,12 @@ function renderPicnicFavorites() {
   const shown = query ? all.filter((product) => matchesWords(product.title, query)) : all;
   $("#picnic-favorites").innerHTML = shown.map(renderPicnicFavoriteCard).join("");
   $("#picnic-favorite-filter").disabled = !all.length;
-  $("#picnic-favorites-status").textContent = all.length ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) }) : "";
+  // Weet Picnic niet welke producten je als favoriet hebt opgeslagen, dan zijn het alle producten van de pagina: zeg dat.
+  $("#picnic-favorites-status").textContent = !all.length
+    ? ""
+    : picnicFavorites.filtered
+      ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) })
+      : t("picnic.favorites.unfiltered", { count: I18N.formatNumber(all.length) });
   if (!picnicFavorites.loaded) return;
   message("#picnic-favorites-message", !all.length ? t("picnic.favorites.none") : shown.length ? "" : t("picnic.favorites.none_match", { query }), "success");
 }
@@ -312,7 +317,10 @@ async function loadPicnicFavorites() {
   setBusy(button, true);
   message("#picnic-favorites-message", "");
   try {
-    picnicFavorites.products = (await jsonFetch("/api/picnic/favorites")).products || [];
+    const data = await jsonFetch("/api/picnic/favorites");
+    picnicFavorites.products = data.products || [];
+    picnicFavorites.total = data.total ?? picnicFavorites.products.length;
+    picnicFavorites.filtered = data.filtered !== false;
     picnicFavorites.loaded = true;
     renderPicnicFavorites();
   } catch (error) {

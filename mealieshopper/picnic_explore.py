@@ -115,6 +115,19 @@ def favorite_hits(page: Any) -> list[str]:
     return sorted(hits)[:40]
 
 
+def saved_report(page: dict[str, Any]) -> dict[str, Any]:
+    """Hoe de pagina markeert welke producten favoriet zijn: de vorm van het veld `saved` en wat we ervan maken."""
+    values = [node["saved"] for node in picnic._walk(page) if "saved" in node]
+    products = picnic.mark_favorites(picnic.products_from_page(page), page)
+    marks = Counter({True: "favoriet", False: "niet favoriet", None: "onbekend"}[p["favorite"]] for p in products)
+    return {
+        "vorm van saved": _union([shape(value) for value in values]) if values else "komt niet voor",
+        "aantal keer saved": len(values),
+        "producten": dict(marks),
+        "alleen favorieten": picnic.only_favorites(products)[1],
+    }
+
+
 def type_census(page: Any) -> dict[str, int]:
     """Hoe vaak elke soort onderdeel (`type`) op een pagina voorkomt. Zo zien we of een pagina leeg is of anders is opgebouwd."""
     counts = Counter(node["type"] for node in picnic._walk(page) if isinstance(node.get("type"), str) and len(node["type"]) <= 40)
@@ -249,8 +262,10 @@ def explore() -> dict[str, Any]:
     probes.append(report)
     reference = picnic.favorites_reference(tabs or [])
     if reference:
-        report, _ = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
+        report, favorites_page = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
         probes.append(report)
+        if isinstance(favorites_page, dict):
+            probes.append({"name": "favorieten: de markering `saved` (vorm, aantallen per product)", "ok": True, "info": saved_report(favorites_page)})
 
     # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
     for page_id in FAVORITE_GUESSES:
