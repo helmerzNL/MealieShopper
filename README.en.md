@@ -39,6 +39,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **Picnic and Jumbo too.** Link your Picnic or Jumbo account and you choose in the planner which supermarket the week menu goes to. The products go straight into your basket at that store; you finish the order yourself in the Picnic app or at Jumbo.
 - **Search and import recipes.** Search the Allerhande recipes and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
+- **One Basket tab.** Your real basket at Albert Heijn (the order basket), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your order basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
@@ -222,7 +223,7 @@ Picnic has no official link. MealieShopper logs in like the Picnic app, with you
 2. Picnic usually asks for a code. It arrives by SMS (or by email, with the button below). Enter it and choose `Confirm`.
 3. Once it says Picnic is linked, the planner shows a list with **Albert Heijn** and **Picnic**.
 
-Your password is not stored, only the session that Picnic returns, encrypted. Picnic may renew that session on every request; MealieShopper always keeps the newest. If it has expired, you link again. Unlike AH, the products go straight into your real Picnic basket; an order is never placed. Picnic only delivers to certain areas. With `Check link` you see whether the session still works. Under **Explore Picnic routes** you see which unofficial routes work and which fields they contain (no personal data, safe to share). After filling the basket, the planner shows the next available delivery slots; you pick one yourself in the Picnic app. With **View Picnic basket** you change quantities, remove products or empty the basket (after a confirmation); that goes straight to your real basket. Your AI assistant can look at Picnic products, your basket, your deliveries and the delivery slots, but can't fill the basket. Lists, receipts and recipes don't exist for Picnic.
+Your password is not stored, only the session that Picnic returns, encrypted. Picnic may renew that session on every request; MealieShopper always keeps the newest. If it has expired, you link again. Unlike AH, the products go straight into your real Picnic basket; an order is never placed. Picnic only delivers to certain areas. With `Check link` you see whether the session still works. Under **Explore Picnic routes** you see which unofficial routes work and which fields they contain (no personal data, safe to share). Under the **Basket** tab you choose Picnic and change quantities, remove products or empty the basket (after a confirmation); that goes straight to your real basket. Below it are the next available delivery slots; you pick one yourself in the Picnic app. Your AI assistant can look at Picnic products, your basket, your deliveries and the delivery slots, but can't fill the basket. Lists, receipts and recipes don't exist for Picnic.
 
 ### Jumbo
 
@@ -326,6 +327,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address (for the preview image, invitation links and the AI connection). Optional: the app detects it itself, and an address the administrator enters under Settings, AI apps takes precedence. |
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
 | `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Settings, AI apps takes precedence. |
+| `MEALIESHOPPER_UPDATE_CHECK` | Set to `false` to turn the update check off (Settings, Updates). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
@@ -344,6 +346,8 @@ docker compose pull && docker compose up -d
 ```
 
 With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
+
+**Update check.** Under **Settings, Updates** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 ## Troubleshooting
 

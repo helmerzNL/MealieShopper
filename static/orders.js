@@ -83,6 +83,37 @@ function renderBasket() {
   target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map(purchaseItem).join("")}</div>`;
 }
 
+// Het bestelmandje staat in het tabblad Mandje (basket.js), uit de lokale kopie. AH levert het nog niet:
+// zie ORDERS_COMING_SOON hierboven.
+async function showAhBasket() {
+  $("#basket-content").innerHTML = `
+    <p class="muted" id="ah-basket-note"></p>
+    ${ORDERS_COMING_SOON ? "" : `<p><button class="button button--secondary" id="ah-basket-sync" type="button">${escapeHtml(t("common.sync"))}</button></p>`}
+    <div id="ah-basket"></div>`;
+  if (ORDERS_COMING_SOON) {
+    $("#ah-basket-note").textContent = t("basket.ah_soon");
+    return;
+  }
+  $("#ah-basket-sync").addEventListener("click", syncAhBasket);
+  ordersState.basket = await jsonFetch("/api/ah/basket");
+  renderBasket();
+}
+
+async function syncAhBasket() {
+  const button = $("#ah-basket-sync");
+  setBusy(button, true);
+  message("#basket-message", "");
+  try {
+    await jsonFetch("/api/ah/basket/sync", { method: "POST" });
+    ordersState.basket = await jsonFetch("/api/ah/basket");
+    renderBasket();
+  } catch (error) {
+    message("#basket-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 function renderOrderList() {
   const target = $("#ah-order-list");
   if (!ordersState.orders.length) {
@@ -148,14 +179,10 @@ function renderOrders() {
   const soon = ordersSoon();
   $("#ah-orders-intro").hidden = jumbo;
   $("#jumbo-orders-intro").hidden = !jumbo;
-  $("#ah-basket-block").hidden = jumbo; // Jumbo's mandje staat bij het plannen; hier alleen bestellingen
   $("#ah-receipts-block").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
   $("#ah-orders-section").hidden = soon;
   $("#ah-orders-soon").hidden = !soon;
-  if (!soon) {
-    if (!jumbo) renderBasket();
-    renderOrderList();
-  }
+  if (!soon) renderOrderList();
   if (!jumbo) renderReceiptList();
   if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
 }
@@ -174,8 +201,8 @@ async function loadOrders() {
     const receipts = await jsonFetch("/api/ah/receipts");
     Object.assign(ordersState, { receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
     if (!ORDERS_COMING_SOON) {
-      const [basket, orders] = await Promise.all([jsonFetch("/api/ah/basket"), jsonFetch("/api/ah/orders")]);
-      Object.assign(ordersState, { basket, orders: orders.orders, ordersSyncedAt: orders.syncedAt });
+      const orders = await jsonFetch("/api/ah/orders");
+      Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt });
     }
     if (store !== state.itemsStore) return;
     renderOrders();

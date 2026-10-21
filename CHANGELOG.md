@@ -2,11 +2,11 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.12.0
+## v1.14.0
 
 *English summary: Your completed Jumbo orders are now in MealieShopper under Stores > Orders (choose Jumbo): date, delivery time, total and the products, kept as a local copy, with a search over everything you bought and two read-only MCP tools (list_jumbo_orders, get_jumbo_order). The order list comes from jumbo.com's own stored request (OnlineOrdersAndStoreReceipts); the products of one order are requested with ordinary queries built from the field names of the website's answer, because the stored request for the order detail is not known yet. If Jumbo refuses those, the list still syncs and the sync reports why, and the explorer shows which variant worked. Your delivery address, customer number and reservation number are never stored. Store receipts and running orders are not shown for Jumbo yet. Built from the real answers of jumbo.com but tried only with mocked responses so far.*
 
-### Nieuw in 1.12.0
+### Nieuw in 1.14.0
 
 - **Je Jumbo-bestellingen.** Onder **Winkels > Bestellingen** (keuze *Jumbo*) staan je afgeronde bestellingen met datum, bezorgtijd, totaal en producten (naam, merk, pakmaat, aantal, bedrag, aanbieding en categorie). Synchroniseren haalt de lijst op (nieuwste eerst, per 10) en daarna de producten van maximaal 25 bestellingen die ze nog missen; herhaal het tot niets meer ontbreekt. Een afgeronde bestelling blijft bewaard, ook als Jumbo hem later niet meer toont; geannuleerde bestellingen bewaart MealieShopper niet. Producten die Jumbo niet meer kent (`__MISSING_PRODUCT__`) staan met merk en artikelnummer.
 - **Zoeken in alles wat je kocht.** Het zoekveld bovenaan Bestellingen zoekt in de producten van je Jumbo-bestellingen (naam en merk) en toont per product wanneer en hoe vaak je het kocht.
@@ -19,6 +19,46 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Producten van een bestelling: nog niet bevestigd.** De opgeslagen aanvraag van de lijst is bekend, die van één bestelling nog niet. MealieShopper probeert daarom gewone aanvragen (`order(orderId: …)` en varianten) met de veldnamen uit het antwoord van de website. Weigert Jumbo die, dan staat de lijst er wel en meldt de synchronisatie de reden; de verkenner laat zien wat er gebeurt. Het herstel is dan een nieuwe constante in `mealieshopper/jumbo.py` met de `operationName`, hash en variabelen van de aanvraag uit het tabblad Netwerk.
 - **Niet gedaan:** winkelbonnen (je account heeft er geen; de synchronisatie meldt wel hoeveel Jumbo er kent) en lopende bestellingen. Alles is getest met nagebootste antwoorden in de vorm van de echte; probeer het synchroniseren op je eigen server en draai de verkenner.
+
+## v1.13.1
+
+*English summary: Fixes the Updates tab showing raw text keys such as "update.title". The browser kept using the old cached text files because the asset version was not raised in 1.13.0; it is now. After updating, a hard refresh (Ctrl+Shift+R) may still be needed once.*
+
+### Opgelost in 1.13.1
+
+- **Teksten bij Beheer > Updates.** In 1.13.0 stonden er sleutelnamen zoals `update.title` in plaats van de teksten, omdat de browser nog de oude, bewaarde tekstbestanden gebruikte. Het versienummer van de scripts en teksten (`ASSET_VERSION`) is verhoogd, zodat de nieuwe bestanden worden opgehaald. Zie bij een hardnekkige cache één keer een harde refresh (`Ctrl`+`Shift`+`R`) of open de app opnieuw.
+
+## v1.13.0
+
+*English summary: Settings has a new Updates tab with an update check. MealieShopper looks at GitHub for the latest release and compares it with the running version. When a newer version exists, the administrator gets a notice under the tab bar (with "View" and "Later"), a dot on the Settings tab and on Updates, and the Updates tab links to the release notes and says how to update. The answer is kept for six hours (or ask again with "Check now"), nothing about you or the installation is sent, and `MEALIESHOPPER_UPDATE_CHECK=false` turns it off.*
+
+### Nieuw in 1.13.0
+
+- **Updatecheck.** Bij **Beheer > Updates** staat welke versie er draait en wat de nieuwste release op GitHub is, met een knop **Nu controleren**, een link naar de release-notes en uitleg hoe je bijwerkt (nieuwste image ophalen en de container herstarten).
+- **Melding bij een nieuwe versie.** Is er een nieuwere release, dan krijgt de beheerder onder de tabbalk een melding met **Bekijken** (brengt je naar Beheer > Updates) en **Later** (verbergt de melding voor die versie; bij de volgende versie komt hij terug). Het bolletje bij **Beheer** en **Updates** blijft staan tot je bijwerkt. Gewone gebruikers zien niets.
+- **Rustig voor GitHub en voor je privacy.** De app vraagt alleen de laatste gepubliceerde release op, hooguit om de zes uur en met een rem op **Nu controleren**. Er gaat geen informatie over jou of de installatie mee. Is GitHub niet bereikbaar, dan staat er een melding en blijft een eerder gevonden update zichtbaar.
+
+### Goed om te weten
+
+- Uitzetten kan met de omgevingsvariabele `MEALIESHOPPER_UPDATE_CHECK=false` (zie de README); het tabblad zegt dan dat de check uit staat.
+- Alleen de beheerder ziet en gebruikt de updatecheck (`/api/update`).
+
+## v1.12.0
+
+*English summary: There is a new Basket tab with a store list (Albert Heijn, Picnic, Jumbo, as far as linked). Picnic's basket moved here from the planner, with the quantity, remove and empty controls and the delivery slots; Jumbo's basket is shown read-only; the Albert Heijn order basket moved here from Stores > Orders (it still says "coming soon"). After filling a Picnic or Jumbo basket from the week menu, a "View basket" button takes you to the tab. The tab bar now has seven tabs, so two short Dutch labels got shorter ("Menu", "Import") to fit a phone.*
+
+### Nieuw in 1.12.0
+
+- **Tabblad Mandje.** Na het Weekmenu staat nu een eigen tabblad met een keuzelijst voor de winkels die gekoppeld zijn: **Albert Heijn**, **Picnic** en **Jumbo**. De keuze wordt onthouden in je browser. Met het vernieuw-icoon laad je het mandje opnieuw.
+- **Picnic:** het mandje dat je eerder in de planner opende staat hier, met aantallen aanpassen, product weghalen, mandje legen (na een bevestiging), wat je moet betalen en wat je lidmaatschap bespaart. De eerstvolgende bezorgmomenten staan eronder en blijven staan als je het mandje aanpast.
+- **Jumbo:** je echte Jumbo-mandje, alleen lezen (producten, aantallen, prijzen en totaal). Aanpassen en bestellen doe je bij Jumbo.
+- **Albert Heijn:** het bestelmandje is van **Winkels > Bestellingen** naar hier verhuisd. AH levert het nog niet, dus er staat nog dat het binnenkort komt; zodra dat kan, werkt het synchroniseren vanuit dit tabblad.
+- **Vanuit de planner:** na het vullen van een Picnic- of Jumbo-mandje staat er een knop **Mandje bekijken** die je naar het tabblad brengt, met die winkel gekozen. Het mandje en de bezorgmomenten staan niet meer onder het weekmenu.
+
+### Goed om te weten
+
+- De tabbalk heeft nu **zeven tabs**. Zodat ze op een telefoon van 360 px naast elkaar passen, zijn twee korte labels in de onderbalk korter geworden: *Weekmenu* is *Menu* en *Importeren* is *Import*. De lange namen in de bovenbalk op een groot scherm blijven hetzelfde.
+- Het Jumbo-mandje is bewust alleen-lezen: het aanpassen van aantallen bij Jumbo is nog niet uitgeprobeerd.
 
 ## v1.11.0
 
