@@ -17,7 +17,7 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
-  store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" (mandje) of "jumbo-list" (lijstje)
+  store: "ah", // de keuze voor het weekmenu: "ah", "picnic" of "jumbo"
   itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
   linkedStores: { picnic: false, jumbo: false }, // gezet door picnic.js en jumbo.js; AH is altijd een keuze
@@ -594,8 +594,6 @@ const STORES = {
   ah: { name: "Albert Heijn", api: "ah", linked: "ah", button: "plan.add_cart", ready: "cart.ready" },
   picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
   jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
-  // Hetzelfde Jumbo-account, maar de ingrediënten gaan op het boodschappenlijstje in plaats van in het mandje.
-  "jumbo-list": { name: "Jumbo (boodschappenlijstje)", api: "jumbo", linked: "jumbo", cart: "list", button: "plan.add_cart_jumbo_list", ready: "cart.ready_jumbo_list" },
 };
 
 function currentStore() {
@@ -724,7 +722,7 @@ function showCartResult(data, notFound) {
   // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
   const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
-    ? th(state.store === "jumbo-list" ? "cart.on_list" : "cart.missing", { count: names.length, names: names.join(", ") })
+    ? th("cart.missing", { count: names.length, names: names.join(", ") })
     : "";
   const ready = currentStore().ready;
   $("#cart-result").innerHTML = `
@@ -742,7 +740,7 @@ function showCartResult(data, notFound) {
 }
 
 async function submitCart(selection, notFound) {
-  const data = await jsonFetch(`/api/${currentStore().api}/${currentStore().cart || "cart"}`, {
+  const data = await jsonFetch(`/api/${currentStore().api}/cart`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items: selection }),
