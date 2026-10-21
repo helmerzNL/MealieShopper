@@ -1643,7 +1643,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
-    if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites();
+    if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof focusJumboRecipeSearch === "function") focusJumboRecipeSearch();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;

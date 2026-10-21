@@ -170,6 +170,32 @@ class PageTest(unittest.TestCase):
             self.assertIn("aria-pressed=", button)
             self.assertIn("lang=", button)
 
+    def test_theme_toggle_sits_next_to_every_language_switch(self):
+        self.assertEqual(HTML.count('class="switches"'), 4)
+        self.assertEqual(HTML.count("data-theme-toggle"), 4)
+        for button in re.findall(r"<button[^>]*data-theme-toggle[^>]*>", HTML):
+            self.assertIn("aria-label=", button)
+            self.assertIn("aria-pressed=", button)
+            self.assertIn("theme.dark", button)
+        self.assertEqual(sorted({k for k in NL if k.startswith("theme.")}), ["theme.dark"])
+        self.assertIn("theme.dark", EN)
+
+    def test_theme_is_set_in_the_head_before_the_styles_and_the_script_loads_after_the_dictionaries(self):
+        self.assertLess(HTML.index('setAttribute("data-theme"'), HTML.index("styles.css"))
+        self.assertLess(HTML.index("i18n/en.js"), HTML.index("filename='theme.js'"))
+        self.assertIn('setAttribute("data-theme"', (ROOT / "templates" / "oauth.html").read_text(encoding="utf-8"))
+        engine = (STATIC / "theme.js").read_text(encoding="utf-8")
+        for needle in ('"ms-theme"', "prefers-color-scheme: dark", 'meta[name="theme-color"]', "aria-pressed"):
+            self.assertIn(needle, engine)
+
+    def test_dark_theme_overrides_every_token_that_is_a_colour(self):
+        css = (STATIC / "styles.css").read_text(encoding="utf-8")
+        light = re.search(r":root\s*{(.*?)\n}", css, re.S).group(1)
+        dark = re.search(r':root\[data-theme="dark"\]\s*{(.*?)\n}', css, re.S).group(1)
+        names = lambda block: set(re.findall(r"(--[\w-]+):", block))
+        unchanged = {"--lemon", "--radius-card", "--radius-control", "--control-height", "--font-body", "--font-heading"}
+        self.assertEqual(sorted(names(light) - names(dark) - unchanged), [])
+
     def test_engine_keeps_the_language_and_tells_the_server(self):
         engine = (STATIC / "i18n.js").read_text(encoding="utf-8")
         for needle in ('"ms-lang"', 'ms_lang', "SameSite=Lax", "document.documentElement.lang", "ms:languagechange",

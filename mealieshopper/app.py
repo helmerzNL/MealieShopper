@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-9")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-11")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -648,9 +648,15 @@ def create_app() -> Flask:
 
     @app.get("/api/picnic/favorites")
     def picnic_favorites():
-        # Alleen lezen: de favoriete producten uit de Favorieten-tab van de Picnic-app.
+        # Alleen lezen: de favoriete producten uit de Favorieten-tab van de Picnic-app. De producten worden lui
+        # gecontroleerd: met `budget` hooguit zoveel nieuwe per aanroep (`pending` zegt hoeveel er nog komen),
+        # met `refresh=1` vergeet de server eerst wat hij wist.
+        budget = request.args.get("budget", type=int)
         try:
-            return jsonify(picnic.get_favorites())
+            return jsonify(picnic.get_favorites(
+                budget=max(1, min(budget, 30)) if budget else None,
+                refresh=request.args.get("refresh") == "1",
+            ))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 

@@ -2,6 +2,84 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.7.0
+
+*English summary: Jumbo recipes are in MealieShopper. Under Stores > Recipes (choose Jumbo) you search all recipes of jumbo.com, open one to see the ingredients, method, tip and nutrition values, and import it into Mealie as a schema.org recipe (with the jumbo.com link as its source). Pasting a jumbo.com recipe link into the importer also goes through the Jumbo API when Jumbo is linked. Two read-only MCP tools (search_jumbo_recipes, get_jumbo_recipe) and explorer probes were added. Your own recipe lists (Favourites and custom lists) are not shown yet: Jumbo's request that returns the recipes of one list is still needed. Built from the real answers of jumbo.com (getRecipe, getRecipesListers, getRecipeLists) but tried only with mocked responses so far.*
+
+### Nieuw in 2.7.0
+
+- **Recepten van Jumbo.** Onder **Winkels > Recepten** (keuze *Jumbo*) zoek je in alle recepten van jumbo.com, per 24 met `Meer recepten`. `Bekijken` toont de ingrediënten (met de hoeveelheden van het recept), de bereiding, de tip, de voedingswaarden en een link naar het recept op jumbo.com.
+- **Importeren in Mealie.** `Importeer` zet het recept in Mealie als schema.org-recept met de link naar jumbo.com als bron, dus Mealie hoeft de Jumbo-pagina niet op te halen (jumbo.com weert servers). Een receptlink van jumbo.com (`jumbo.com/recepten/...`) in de importfunctie gaat, als Jumbo gekoppeld is, ook via de Jumbo-API. Receptnummers met een streepje (`1416890-7`, van Smulweb) werken ook.
+- **MCP.** `search_jumbo_recipes` en `get_jumbo_recipe` (alleen lezen).
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook het zoeken, je receptenlijsten, één recept en recepten op id (alleen vormen en aantallen, geen titels).
+
+### Goed om te weten
+
+- **Je receptenlijsten ontbreken nog.** Het overzicht van de site (`getRecipeLists`) kent je lijsten (Favorieten en eigen lijstjes) met hun aantallen, maar toont per lijst alleen titel en plaatje. De recepten van één lijst komen uit een andere aanvraag, waarvan de opgeslagen aanvraag (`operationName`, hash en variabelen) nog nodig is. Bladeren per categorie volgt ook daarna.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
+## v2.6.2
+
+*English summary: Picnic favorites now show only your own favorites. The explorer report, with two products hearted in the Picnic app, showed how the app knows: the Favorites tab lists suggested products under a "Favorieten" heading, and the product page of a favorite carries `likedSellables: {["s…"]: true}` in the code of its heart button (false for the others). MealieShopper now takes the products under the "Favorieten" heading and keeps those whose product page says true. That is one request per product (at most 30), done lazily: the app checks a few at a time and shows the favorites it has found so far, and the server remembers each product's answer for 30 minutes (the Load button forgets it). If Picnic says nothing, the list stays empty with an explanation, as before.*
+
+### Nieuw
+
+- **Favorieten van Picnic: alleen je eigen favorieten.** Het verkennerrapport met twee favoriete producten liet zien hoe de app het weet: de tab *Favorieten* toont voorgestelde producten onder de kop *Favorieten* en een aantal gangpaden, en op de productpagina van een favoriet zet Picnic in de code van de hartjesknop `likedSellables: {["s…"]: true}` (bij de andere producten `false`). In het rapport waren dat precies de eerste twee producten. MealieShopper neemt nu de producten onder de kop *Favorieten* (17 in het rapport) en houdt over wat zijn productpagina als favoriet markeert.
+- Dat kost één verzoek per product (hooguit 30), maar **lui en met geheugen**: de app controleert er een paar tegelijk en toont onderweg de favorieten die al gevonden zijn (*Nog 12 producten controleren…*). De server onthoudt per product 30 minuten wat hij wist, en de pagina van de tab twee minuten, dus de volgende keer gaat het direct. De knop *Laden* vergeet dat geheugen en controleert alles opnieuw; zet je in de Picnic-app een hartje, gebruik dan die knop. Een product dat niet laadt wordt overgeslagen en pas na twee minuten opnieuw geprobeerd; is de koppeling verlopen, dan zie je die melding.
+- Zegt Picnic niets over favorieten, dan blijft de lijst leeg met de uitleg uit 2.4.3, in plaats van alle producten van de pagina. Zijn er geen favorieten, dan staat er *Je Picnic-favorieten zijn leeg.*
+- `list_picnic_favorites` (MCP) gebruikt dezelfde lijst.
+
+### Goed om te weten
+
+- **Alleen wat onder de kop *Favorieten* staat wordt gecontroleerd.** Heb je meer favorieten dan Picnic daar toont (in het rapport 17 plekken), dan missen er mogelijk een paar.
+- Zoeken in de favorieten werkt zoals eerder; de knop *In mandje* zet het product in je Picnic-mandje.
+- *Opnieuw bestellen* bij de recepten is nog leeg: je account heeft nog niets laten bezorgen.
+
+## v2.6.1
+
+*English summary: The explorer report found how the Picnic app changes a favorite: `POST pages/task/toggle-sellable-favorite` with `{"payload": {"sellable_id": "s…", "status": "UNLIKE"}}`, after which the app reloads the "zero order" page of the Favorites tab. So that page does change with your favorites. Reading them is still open: the product page's heart starts from a state the app fills itself. The explorer now reports the outline of the Favorites page (headings and runs of product tiles), the pages it loads lazily, and the true/false values the server puts in the heart code of a handful of product pages, to see which one marks your favorites. No behaviour change in the app.*
+
+### Verkenner
+
+- Uit het rapport: een favoriet weghalen gaat met **`POST pages/task/toggle-sellable-favorite`** met `{"payload": {"sellable_id": "s…", "status": "UNLIKE"}}` (waarschijnlijk `LIKE` om er een toe te voegen). Daarna laadt de app de pagina `purchase-page-…-zero-order-targeted` opnieuw: die pagina verandert dus mee met je favorieten.
+- `/bootstrap` heeft naast de tabs geen favorieten (alleen instellingen), en alle gegokte routes geven 404.
+- Nieuw: de opbouw van de pagina van de tab Favorieten in leesvolgorde: koppen en groepen producttegels (`kop: …`, `tegels: 12`). Zo zien we of de favorieten een eigen kopje hebben en hoeveel producten eronder staan. Alleen korte teksten van onderdelen zonder producten komen erin, nooit productnamen.
+- Nieuw: de pagina's die de Favorieten-pagina zelf later laadt (`pageConfig`), met hun opbouw en de markering `saved`.
+- Nieuw: de waar/onwaar-waarden die de server in de hartjescode van de productpagina's van acht producten zet. Verschillen die per product, dan is dat de markering van je favorieten.
+
+### Goed om te weten
+
+- De app zelf verandert niet; de Favorieten-tab toont nog de uitleg uit 2.4.3.
+- De verkenner roept `toggle-sellable-favorite` niet aan: alleen lezen.
+
+## v2.6.0
+
+*English summary: There is now a dark/light mode button next to the language flags (top right, on the login page and in the setup guide). The choice is kept in your browser; without a choice MealieShopper follows your device setting, also when that changes. The AI consent page follows the device setting too.*
+
+### Nieuw in 2.6.0
+
+- **Donkere en lichte modus.** Naast de vlaggetjes staat een knop (een maan in het lichte thema, een zon in het donkere) waarmee je wisselt. Hij staat overal waar de vlaggen staan: bovenaan de app, op de inlogpagina, bij een uitnodiging en in de installatiehulp. De keuze blijft in je browser bewaard (`ms-theme`); zonder keuze volgt MealieShopper de instelling van je apparaat, ook als die tijdens het gebruik wisselt. Het thema wordt al in de kop van de pagina gezet, zodat een donker scherm niet eerst licht oplicht. De themakleur van de browser (`theme-color`) wisselt mee.
+- **Donker thema in de huisstijl:** basilicumgroen blijft het accent (lichter op donker, met donkere tekst op groene knoppen), meldingen houden hun kleuren en de onderste menubalk in de geinstalleerde app krijgt een donkere variant. De kassabon en de QR-code blijven licht, zoals op papier.
+- **Toestemmingsscherm voor AI-apps** (OAuth) volgt de instelling van je apparaat.
+
+## v2.5.2
+
+*English summary: The last explorer report shows where the favorites are NOT: the Favorites tab of an account without deliveries is a "zero order" page of suggested products (`purchase-page-…-zero-order-targeted`), and the heart on a product reads `getGlobalState("sellable-favorites").likedSellables`, a state the app fills itself, not something in the page. The explorer now reports the full code of the heart button, the pages that load lazily, the fields of `/bootstrap` next to the tabs, the "remove favorite" dialog with the right parameters and a handful of guessed favorites routes, to find what fills that state. No behaviour change in the app.*
+
+### Verkenner
+
+- Uit het rapport: de tab *Favorieten* van een account zonder leveringen toont een pagina met voorgestelde producten (`purchase-page-…-zero-order-targeted`); daar staat niets over jouw favorieten op. Het hartje bij een product leest `getGlobalState("sellable-favorites").likedSellables`: een toestand die de app zelf vult. De pagina's bevatten dus geen favorieten; de app haalt ze ergens anders.
+- Nieuw: de volledige code van de hartjesknop op de productpagina (met getallen en id's vervangen door `<id>`), zodat te zien is of er een route of actie achter zit.
+- Nieuw: welke pagina's er later nog worden geladen (`pageConfig`: pagina en namen van de parameters).
+- Nieuw: de velden van `/bootstrap` naast de tabs (alleen de vorm), in de hoop dat de toestand `sellable-favorites` daar zit.
+- Nieuw: de bevestiging bij een favoriet weghalen met parameters als zoekopdracht (de vorige keer was het een 404 omdat de parameters in de verkeerde vorm stonden), en een paar gokken voor favorietenroutes (`/favorites`, `/sellable-favorites`, …).
+- *Opnieuw bestellen* is leeg omdat het account nog niets heeft laten bezorgen (`purchases-meals-plan-item-empty`).
+
+### Goed om te weten
+
+- De app zelf verandert niet. Zonder de bron van `sellable-favorites` blijft de lijst op de Favorieten-tab leeg met een uitleg.
+- De code van de hartjesknop is Picnics eigen code en kan in uitzonderlijke gevallen de naam van een product bevatten (een melding als *toegevoegd aan favorieten*); persoonlijke gegevens staan er niet in.
+
 ## v2.5.1
 
 *English summary: The explorer report shows this account has 0 completed deliveries, so the Favorites tab points to the "no purchases" page, whose `saved` field is empty and the page `purchases-page-root` only has two products; none of them says which products you favorited. The explorer now reports how those pages (and the product page and the "remove favorite" dialog) fetch their data: addresses, requests, waiting components and state, with numbers and ids redacted, so the real favorites source can be found. No behaviour change in the app.*
