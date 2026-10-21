@@ -2,13 +2,49 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.14.7
+## v2.0.1
 
 *English summary: The products of a Jumbo order should now come in. Jumbo's own error message from 1.14.6 showed that the order query expects the order number as a Float (`Variable "$orderId" of type "String!" used in position expecting type "Float!"`), so MealieShopper now asks for it that way first (a plain number). The other variants stay as a fallback. Tried only with mocked responses so far: sync again under Stores > Orders > Jumbo.*
 
-### Opgelost in 1.14.7
+### Opgelost in 2.0.1
 
 - **Producten van Jumbo-bestellingen.** De foutmelding uit 1.14.6 liet zien dat Jumbo bij `order(orderId: …)` een `Float!` verwacht (*Variable "$orderId" of type "String!" used in position expecting type "Float!"*). Dat type en de naam `orderId` bleken dus goed, alleen het type niet. MealieShopper vraagt de bestelling nu eerst met een `Float!` (het nummer als gewoon getal); de andere varianten blijven als terugval. Synchroniseer opnieuw onder **Winkels > Bestellingen > Jumbo**; per keer komen de producten van de 25 nieuwste bestellingen die ze nog missen binnen.
+
+## v2.0.0
+
+*English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture. The image is now also tagged with its version (for example 2.0.0). This is a major version number because the published image changes, not because anything in the app breaks.*
+
+### Opgelost in 2.0.0
+
+- **De image start nu ook op een ARM-NAS.** Op een Synology (of een Raspberry Pi) stopte de container direct met `[FATAL tini] exec gunicorn failed: Exec format error`, omdat de image alleen voor `linux/amd64` werd gebouwd. De workflow `.github/workflows/docker.yml` bouwt en publiceert nu een image voor `linux/amd64` én `linux/arm64`, onder dezelfde tag (`latest`). Docker kiest zelf de juiste architectuur.
+- **De image heeft nu ook een versietag.** Naast `latest` en de commit krijgt de image de tag uit `VERSION` (bijvoorbeeld `ghcr.io/helmerznl/mealieshopper:2.0.0`), zodat je een vaste versie kunt vastzetten.
+
+### Goed om te weten
+
+- Draai je MealieShopper op een ARM-NAS? Haal de image opnieuw op (`docker compose pull && docker compose up -d`, of in Container Manager de image bijwerken) zodat je de arm64-versie krijgt.
+- Het nieuwe hoofdnummer (2.0.0) komt doordat de gepubliceerde image verandert; in de app zelf is niets wat breekt of wat je moet aanpassen.
+- De build duurt langer, omdat de arm64-versie op een amd64-server wordt nagebootst (QEMU). Er verandert niets aan de app zelf.
+
+## v1.15.0
+
+*English summary: Two things for Picnic. The basket now adds up: a discounted line shows the price without discount struck through and what you pay, products that are not available right now are marked with a notice, and the plus button and quantity field stop at the maximum Picnic allows per product. And the route explorer now also checks Picnic's recipe pages (saved recipes, the cookbook, the recipes home and a recipe's details) and tries a list of likely pages for the favorites; that is the first step toward reading your Picnic recipes and favorites into MealieShopper, so nothing is imported yet. Errors in the explorer report now show only the status and error code.*
+
+### Nieuw in 1.15.0
+
+- **Picnic-routes verkennen kijkt naar recepten.** De verkenner roept de receptpagina's van Picnic aan (opgeslagen recepten, kookboek, receptenstartpagina en de details van één recept, zoals de community-libraries `picnic-api` en `mcp-de-picnic` ze kennen) en meldt hoeveel receptonderdelen erop staan, welke velden zo'n onderdeel heeft en naar welke pagina's de pagina verwijst, zonder namen of id's. Is een antwoord geen JSON, dan meldt het rapport dat en de grootte.
+- **Zoeken naar de favorieten.** Picnic heeft een favorietenpagina, maar geen library noemt hem. De verkenner probeert een lijst waarschijnlijke paginanamen; een pagina die bestaat wordt met zijn vorm en verwijzingen gemeld, de rest geeft een 404.
+- Nog **niets wordt ingelezen**: eerst moet de vorm van die pagina's bekend zijn. Draai de verkenner (Beheer > Picnic) en deel het rapport; daarmee bouwen we het inlezen van je recepten en favorieten.
+
+### Opgelost in 1.15.0
+
+- **Regelprijzen in het Picnic-mandje tellen op tot het totaal.** Bij een aanbieding of lidmaatschapskorting stond de prijs zonder korting, waardoor de regels meer opleverden dan je totaal (bij het testmandje €35,90 tegen €35,03). Nu staat bij zo'n regel de prijs zonder korting doorgestreept en daarachter wat je betaalt. Dit geldt ook voor `get_picnic_basket` (veld `price`, en `listPrice` als er korting is).
+- **Waarschuwing bij niet-beschikbare producten.** Picnic meldt per product of het nu leverbaar is. Een product dat dat niet is, krijgt *Niet beschikbaar* achter de naam, en boven het mandje staat dat zulke producten niet worden bezorgd. Ook in `get_picnic_basket` (veld `available`).
+- **Maximum per product.** De plus-knop en het aantalveld stoppen bij het maximum dat Picnic per bestelling toestaat en melden het als je er overheen typt. Zet je het via `PUT /api/picnic/cart/items/<product>` toch hoger, dan weigert MealieShopper dat voordat er iets verandert. Veld `maxCount`.
+
+### Goed om te weten
+
+- De kortingsprijs is afgeleid uit de vorm van een echt gevuld mandje: Picnic geeft twee bedragen per regel en het lagere is wat je betaalt. Controleer na het bijwerken dat de regels optellen tot het totaal. Waarom een product niet beschikbaar is, meldt Picnic niet in het mandje.
+- In het verkennerrapport staat bij een mislukte route nu alleen de statuscode en de foutcode (bijvoorbeeld `404 NOT_FOUND`), niet meer de tekst van Picnic zelf. Bij alle verkenners tonen de velden `type`, `schema`, `component` en `actionType` hun waarde: dat zijn vaste namen van onderdelen, geen persoonlijke gegevens.
 
 ## v1.14.6
 

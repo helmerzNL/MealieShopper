@@ -20,6 +20,8 @@ from . import ah
 # Velden met een vaste, niet-persoonlijke vocabulaire: hier tonen we de waarde, bij de rest alleen het type.
 VOCABULARY_KEYS = {
     "state", "orderState", "statusCode", "statusDescription", "shoppingType", "deliveryType", "method", "status",
+    # Pagina's van Picnic: soorten onderdelen en analysegegevens, geen persoonlijke tekst.
+    "type", "schema", "component", "actionType",
 }
 MAX_DEPTH = 7
 # Statussen waarmee we vragen naar niet-open bestellingen. Een onbekende waarde geeft een fout van AH,

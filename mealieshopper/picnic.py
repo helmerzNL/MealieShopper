@@ -72,9 +72,12 @@ def _not_linked() -> RuntimeError:
 
 
 def _call(
-    method: str, path: str, *, token: str | None = None, body: Any = None
+    method: str, path: str, *, token: str | None = None, body: Any = None, text: bool = False
 ) -> tuple[Any, str | None]:
-    """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug."""
+    """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug.
+
+    Met `text` komt een antwoord dat geen JSON is (sommige pagina's) als tekst terug in plaats van als None.
+    """
     headers = dict(HEADERS)
     if token:
         headers[AUTH_HEADER] = token
@@ -88,7 +91,7 @@ def _call(
         try:
             data = response.json()
         except ValueError:
-            data = None
+            data = response.text if text else None
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code") in AUTH_ERROR_CODES:
         # Bewust niet de tekst van Picnic zelf: de aanroeper kiest een eigen, begrijpelijke melding.
@@ -114,12 +117,12 @@ def save_auth_key(key: str) -> None:
     auth.set_secret(AUTH_KEY_SECRET, value)
 
 
-def _authed(method: str, path: str, *, body: Any = None) -> Any:
+def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> Any:
     token = configured_auth_key()
     if not token:
         raise _not_linked()
     try:
-        data, new_token = _call(method, path, token=token, body=body)
+        data, new_token = _call(method, path, token=token, body=body, text=text)
     except PicnicAuthError as exc:
         raise PicnicAuthError(
             tr(
@@ -344,22 +347,56 @@ def _line_quantity(line: dict[str, Any]) -> int:
     return 1
 
 
+def _cents(value: Any) -> int | float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _line_prices(line: dict[str, Any]) -> tuple[float | None, float | None]:
+    """(prijs die je betaalt, prijs vóór korting of None) van een regel in het mandje.
+
+    Picnic geeft twee bedragen per regel: `display_price` en `price`. Bij een aanbieding of
+    lidmaatschapskorting verschilt het ene van het andere; het lagere is wat je betaalt, het hogere de
+    prijs zonder korting. Zo blijven de regels optellen tot het totaal, welk veld Picnic ook gebruikt.
+    """
+    amounts = [c for c in (_cents(line.get("display_price")), _cents(line.get("price"))) if c is not None]
+    if not amounts:
+        return None, None
+    paid, listed = min(amounts), max(amounts)
+    return _euros(paid), _euros(listed) if listed > paid else None
+
+
+def _availability(cart: dict[str, Any]) -> dict[str, bool]:
+    """Product-id -> is het nu leverbaar, uit de analysegegevens die Picnic bij het mandje meegeeft."""
+    context = cart.get("analytics_context_data") if isinstance(cart.get("analytics_context_data"), dict) else {}
+    return {
+        str(entry["product_id"]): bool(entry.get("is_available"))
+        for entry in context.get("items_list") or []
+        if isinstance(entry, dict) and entry.get("product_id") and "is_available" in entry
+    }
+
+
 def cart_summary(cart: Any) -> dict[str, Any]:
     """Het Picnic-mandje in een compacte vorm."""
     cart = cart if isinstance(cart, dict) else {}
+    available = _availability(cart)
     items = []
     for line in cart.get("items") or []:
         if not isinstance(line, dict):
             continue
         article = next((a for a in line.get("items") or [] if isinstance(a, dict)), {})
         image_ids = article.get("image_ids") or []
+        paid, listed = _line_prices(line)
+        max_count = article.get("max_count")
         items.append(
             {
                 "id": article.get("id"),
                 "title": article.get("name"),
                 "quantity": _line_quantity(line),
                 "unitSize": article.get("unit_quantity"),
-                "price": _euros(line.get("display_price", line.get("price"))),
+                "price": paid,
+                "listPrice": listed,
+                "available": available.get(str(article.get("id"))),
+                "maxCount": max_count if isinstance(max_count, int) and max_count > 0 else None,
                 "image": image_url(image_ids[0]) if image_ids else None,
             }
         )
@@ -462,6 +499,14 @@ def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
             tr(f"Het aantal moet tussen 0 en {MAX_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_QUANTITY}")
         )
     cart = get_cart()
+    limit = next((item["maxCount"] for item in cart["items"] if item["id"] == product_id), None)
+    if limit and target > limit:
+        raise ValueError(
+            tr(
+                f"Picnic laat maximaal {limit} van dit product per bestelling toe",
+                f"Picnic allows at most {limit} of this product per order",
+            )
+        )
     current = _quantity_in(cart, product_id)
     if target > current:
         return _authed_summary("/cart/add_product", product_id, target - current)

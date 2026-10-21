@@ -249,6 +249,58 @@ def paths_and_bodies(call):
     return [(c.args[1].rsplit("/api/15", 1)[1], c.kwargs.get("json")) for c in call.call_args_list]
 
 
+class RealCartShapeTest(unittest.TestCase):
+    """De vorm van een gevuld mandje, zoals de verkenner hem meldde (veldnamen, geen echte waarden)."""
+
+    def line(self, pid, display_price, price, quantity=1, max_count=10):
+        return {"id": f"l{pid}", "display_price": display_price, "price": price, "type": "ORDER_LINE",
+                "decorators": [{"type": "PRICE", "display_price": display_price, "text": "x"}],
+                "items": [{"id": pid, "name": pid.upper(), "price": 100, "unit_quantity": "1 st", "max_count": max_count,
+                           "image_ids": ["i"], "decorators": [{"type": "QUANTITY", "quantity": quantity}]}]}
+
+    def cart(self):
+        return {"total_count": 3, "total_price": 480, "checkout_total_price": 480, "membership_savings": 70,
+                "analytics_context_data": {"items_list": [
+                    {"product_id": "s1", "is_available": True, "is_in_recipe": False, "quantity": 2},
+                    {"product_id": "s2", "is_available": False, "is_in_recipe": False, "quantity": 1}]},
+                "items": [self.line("s1", 300, 300, quantity=2, max_count=8), self.line("s2", 250, 180)]}
+
+    def test_the_paid_price_is_the_lower_one_and_the_other_is_the_list_price(self):
+        first, second = picnic.cart_summary(self.cart())["items"]
+        self.assertEqual((first["price"], first["listPrice"]), (3.0, None))
+        self.assertEqual((second["price"], second["listPrice"]), (1.8, 2.5))
+
+    def test_it_does_not_matter_which_field_holds_the_discount(self):
+        cart = self.cart()
+        cart["items"][1]["display_price"], cart["items"][1]["price"] = 180, 250
+        second = picnic.cart_summary(cart)["items"][1]
+        self.assertEqual((second["price"], second["listPrice"]), (1.8, 2.5))
+
+    def test_lines_add_up_to_the_total(self):
+        summary = picnic.cart_summary(self.cart())
+        self.assertAlmostEqual(sum(i["price"] for i in summary["items"]), summary["totalPrice"], places=2)
+
+    def test_availability_and_max_count_are_read(self):
+        first, second = picnic.cart_summary(self.cart())["items"]
+        self.assertEqual((first["available"], second["available"]), (True, False))
+        self.assertEqual((first["maxCount"], second["maxCount"]), (8, 10))
+
+    def test_unknown_availability_is_none_not_unavailable(self):
+        cart = self.cart()
+        del cart["analytics_context_data"]
+        self.assertEqual([i["available"] for i in picnic.cart_summary(cart)["items"]], [None, None])
+
+    def test_odd_values_do_not_crash(self):
+        cart = self.cart()
+        cart["items"][0]["price"] = "x"
+        cart["items"][1]["display_price"] = None
+        cart["items"][1]["price"] = None
+        cart["items"][0]["items"][0]["max_count"] = "veel"
+        cart["analytics_context_data"] = {"items_list": [None, {"product_id": "s1"}, "x"]}
+        items = picnic.cart_summary(cart)["items"]
+        self.assertEqual((items[0]["price"], items[1]["price"], items[0]["maxCount"]), (3.0, None, None))
+
+
 class CartEditingTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
@@ -273,6 +325,15 @@ class CartEditingTest(TempDataDirTest):
             cart = picnic.set_quantity("s1", 0)
         self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
         self.assertEqual(cart["items"], [])
+
+    def test_more_than_picnic_allows_is_refused_before_anything_is_added(self):
+        cart = cart_with(s1=2)
+        cart["items"][0]["items"][0]["max_count"] = 5
+        with mock.patch.object(picnic.requests, "request", return_value=response(cart)) as call:
+            with self.assertRaisesRegex(ValueError, "maximaal 5"):
+                picnic.set_quantity("s1", 6)
+            self.assertEqual(picnic.set_quantity("s1", 5)["items"][0]["id"], "s1")
+        self.assertNotIn("/cart/add_product", [p for p, _ in paths_and_bodies(call)][:1])
 
     def test_an_unchanged_quantity_changes_nothing(self):
         with mock.patch.object(picnic.requests, "request", return_value=response(cart_with(s1=2))) as call:
@@ -413,7 +474,7 @@ class ExploreTest(TempDataDirTest):
         page = search_page(tile("s1", "Geheime melk van Jan", "1 l", 129))
         replies = {"/user": {"firstname": "Jan", "address": {"street": "Hoofdstraat"}}}
 
-        def fake(method, path, body=None):
+        def fake(method, path, body=None, text=False):
             if path.startswith("/pages/search-page-results"):
                 return page
             if path == "/lists":
@@ -428,6 +489,62 @@ class ExploreTest(TempDataDirTest):
         self.assertFalse(next(p for p in report["probes"] if "lists" in p["name"])["ok"])
         for secret in ("Jan", "Hoofdstraat", "Geheime", "s1"):
             self.assertNotIn(secret, json.dumps(report), secret)
+
+
+class RecipeExploreTest(TempDataDirTest):
+    TILE = {"type": "TILE", "analytics": {"contexts": [{"schema": "iglu:x/recipe/1", "data": {"selling_group_id": "abc123def456", "rank": 1}}]},
+            "pml": {"component": {"text": "Geheime pasta van Jan"}}}
+
+    def page(self):
+        return {"body": {"children": [self.TILE, {"type": "TEXT", "markdown": "Geheim"}], "link": "picnic://page?page_id=favorites-page-root&user=jan"}}
+
+    def test_recipe_tiles_are_found_by_their_analytics_context(self):
+        from mealieshopper import picnic_explore
+        self.assertEqual(picnic_explore.recipe_tiles(self.page()), [self.TILE])
+        self.assertEqual(picnic_explore.recipe_tiles({"body": []}), [])
+        self.assertEqual(picnic_explore.recipe_tiles("tekst"), [])
+
+    def test_links_are_reduced_to_page_names_and_parameter_names(self):
+        from mealieshopper import picnic_explore
+        links = picnic_explore.page_links({"a": "open /pages/recipe-details?selling_group_id=abc123def456&portions=4 nu",
+                                           "b": "picnic://deeplink/saved?token=geheim"})
+        self.assertEqual(links, ["/pages/recipe-details?portions&selling_group_id", "picnic://deeplink/saved?token"])
+        self.assertEqual(picnic_explore.page_links("x /pages/item-9876543210"), ["/pages/item-<id>"])
+
+    def test_the_report_finds_recipes_favorites_and_leaks_nothing(self):
+        from mealieshopper import picnic_explore
+        tile_page, calls = self.page(), []
+
+        def fake(method, path, body=None, text=False):
+            calls.append(path)
+            if path.startswith("/pages/search-page-results"):
+                return search_page(tile("s1", "Melk", "1 l"))
+            if path == "/pages/saved-deep-dive-page-content":
+                return tile_page
+            if path.startswith("/pages/selling-group-details-page"):
+                return "RSC-tekst met SELLING_GROUP en Geheime pasta"
+            if path == "/pages/favorites-deep-dive-page-content":
+                return {"body": {"children": []}}
+            if path.startswith("/pages/") or path in ("/lists", "/my_store"):
+                raise RuntimeError("404: {\"error\": \"geheim\"}")
+            return {}
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=fake):
+            report = picnic_explore.explore()
+        names = {probe["name"]: probe for probe in report["probes"]}
+        self.assertTrue(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["ok"])
+        self.assertEqual(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["info"]["receptonderdelen"], 1)
+        self.assertTrue(any("receptonderdeel" in name for name in names))
+        self.assertIn("/pages/selling-group-details-page?selling_group_id=abc123def456", calls)
+        details = names["receptdetails: GET pages/selling-group-details-page"]["info"]
+        self.assertEqual((details["formaat"], details["noemt SELLING_GROUP"]), ("tekst (geen JSON)", True))
+        self.assertTrue(names["favorieten? GET pages/favorites-deep-dive-page-content"]["ok"])
+        self.assertEqual(names["favorieten? GET pages/favorites-page-root"]["error"], "404")
+        self.assertEqual(picnic_explore.short_error('404: {"error": {"code": "NOT_FOUND", "message": "x"}}'), "404 NOT_FOUND")
+        self.assertEqual(picnic_explore.short_error("netwerkfout: Timeout"), "netwerkfout: Timeout")
+        for secret in ("Geheime", "geheim", "abc123def456", "jan"):
+            self.assertNotIn(secret, json.dumps(report, ensure_ascii=False), secret)
 
 
 class PicnicRoutesTest(TempDataDirTest):

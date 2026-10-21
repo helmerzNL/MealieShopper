@@ -174,16 +174,20 @@ function renderPicnicBasket(cart, note = "") {
   const lines = items
     .map((item) => {
       const size = item.unitSize ? ` <small class="muted">${escapeHtml(item.unitSize)}</small>` : "";
-      const price = item.price ? `<span class="basket-price">${escapeHtml(formatPrice(item.price))}</span>` : '<span class="basket-price"></span>';
-      const title = escapeHtml(item.title || "-");
+      // Bij een aanbieding of korting: de prijs zonder korting doorgestreept, dan wat je betaalt.
+      const listed = item.listPrice ? `<s class="muted">${escapeHtml(formatPrice(item.listPrice))}</s> ` : "";
+      const price = item.price ? `<span class="basket-price">${listed}${escapeHtml(formatPrice(item.price))}</span>` : '<span class="basket-price"></span>';
+      const unavailable = item.available === false ? ` <small class="basket-unavailable">${escapeHtml(t("picnic.basket_unavailable"))}</small>` : "";
+      const title = escapeHtml(item.title || "-") + unavailable;
+      const maxAllowed = Math.min(99, item.maxCount || 99);
       if (!item.id) return `<li class="basket-line"><span class="basket-title">${title}${size}</span><span class="basket-qty">${escapeHtml(item.quantity)}\u00d7</span>${price}<span></span></li>`;
       return `
-        <li class="basket-line" data-id="${escapeHtml(item.id)}">
+        <li class="basket-line${item.available === false ? " is-unavailable" : ""}" data-id="${escapeHtml(item.id)}">
           <span class="basket-title">${title}${size}</span>
           <span class="basket-qty">
             <button class="icon-button" type="button" data-act="less" aria-label="${escapeHtml(t("picnic.basket_less"))}">\u2212</button>
-            <input class="review-qty" type="number" min="0" max="99" value="${escapeHtml(item.quantity)}" data-act="set" aria-label="${escapeHtml(t("picnic.basket_qty"))}">
-            <button class="icon-button" type="button" data-act="more" aria-label="${escapeHtml(t("picnic.basket_more"))}">+</button>
+            <input class="review-qty" type="number" min="0" max="${maxAllowed}" value="${escapeHtml(item.quantity)}" data-act="set" data-max="${maxAllowed}" aria-label="${escapeHtml(t("picnic.basket_qty"))}">
+            <button class="icon-button" type="button" data-act="more" aria-label="${escapeHtml(t("picnic.basket_more"))}"${item.quantity >= maxAllowed ? " disabled" : ""}>+</button>
           </span>
           ${price}
           <button class="icon-button" type="button" data-act="remove" aria-label="${escapeHtml(t("picnic.basket_remove"))}" title="${escapeHtml(t("picnic.basket_remove"))}">\u00d7</button>
@@ -194,9 +198,11 @@ function renderPicnicBasket(cart, note = "") {
     cart.checkoutTotal ? t("picnic.basket_checkout", { amount: formatPrice(cart.checkoutTotal) }) : cart.totalPrice ? t("picnic.basket_total", { amount: formatPrice(cart.totalPrice) }) : "",
     cart.savings ? t("picnic.basket_savings", { amount: formatPrice(cart.savings) }) : "",
   ].filter(Boolean);
+  const unavailableCount = items.filter((item) => item.available === false).length;
   box.innerHTML = `
     ${items.length ? `<div class="toolbar"><button class="button button--secondary" id="picnic-basket-clear" type="button">${escapeHtml(t("picnic.basket_clear"))}</button></div>` : ""}
     ${note ? `<div class="message success">${escapeHtml(note)}</div>` : ""}
+    ${unavailableCount ? `<div class="message error">${escapeHtml(t("picnic.basket_unavailable_note", { count: unavailableCount }))}</div>` : ""}
     ${items.length ? `<ul class="basket-lines">${lines}</ul>` : `<p class="muted">${escapeHtml(t("picnic.basket_empty"))}</p>`}
     ${totals.length ? `<p><strong>${escapeHtml(totals.join(" \u00b7 "))}</strong></p>` : ""}
     <p class="muted">${escapeHtml(t("picnic.basket_hint"))}</p>
@@ -206,13 +212,17 @@ function renderPicnicBasket(cart, note = "") {
     const id = line.dataset.id;
     const input = line.querySelector('[data-act="set"]');
     const current = Number(input.value);
+    const maxAllowed = Number(input.dataset.max) || 99;
     line.querySelector('[data-act="less"]').addEventListener("click", () => setPicnicQuantity(id, Math.max(0, current - 1)));
-    line.querySelector('[data-act="more"]').addEventListener("click", () => setPicnicQuantity(id, Math.min(99, current + 1)));
+    line.querySelector('[data-act="more"]').addEventListener("click", () => setPicnicQuantity(id, Math.min(maxAllowed, current + 1)));
     line.querySelector('[data-act="remove"]').addEventListener("click", () => setPicnicQuantity(id, 0));
     input.addEventListener("change", () => {
       const value = Number(input.value);
-      if (Number.isInteger(value) && value >= 0 && value <= 99) setPicnicQuantity(id, value);
-      else input.value = current;
+      if (Number.isInteger(value) && value >= 0 && value <= maxAllowed) setPicnicQuantity(id, value);
+      else {
+        input.value = current;
+        if (Number.isInteger(value) && value > maxAllowed) message("#basket-message", t("picnic.basket_max", { max: maxAllowed }));
+      }
     });
   });
 }
