@@ -207,9 +207,10 @@ class ListTest(TempDataDirTest):
         self.assertEqual([c.args[1]["page"] for c in query.call_args_list], [1, 1])  # een slechte pagina wordt de eerste
 
     def test_an_own_list_is_asked_by_id_and_read_wherever_the_cards_sit(self):
-        own = {"recipeListV2": {"id": "639d928592257300137bcad7", "title": "Kerst", "totalRecipes": 2, "items": {
-            "paginationInfo": {"pageSize": 24, "currentPage": 1, "totalPages": 1, "totalSize": 2, "hasNextPage": False},
-            "recipeListItems": [{"recipe": card("700001", "Een")}, {"recipe": card("700002", "Twee")}]}}}
+        own = {"recipeList": {"id": "639d928592257300137bcad7", "title": "Kerst", "description": "", "type": "CATEGORY", "totalRecipes": 2, "__typename": "RecipeListV2", "items": {
+            "paginationInfo": {"pageSize": 24, "currentPage": 1, "totalPages": 1, "totalSize": 2, "hasPreviousPage": False, "hasNextPage": False, "__typename": "PagePaginationInfo"},
+            "recipeListItems": [{"recipe": dict(card("700001", "Een"), labels=[{"label": "kerst", "relativeUrl": "/recepten/kerst"}]), "__typename": "RecipeListItem"},
+                                {"recipe": card("700002", "Twee"), "__typename": "RecipeListItem"}]}}}
         with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
             found = jumbo_recipes.get_list_recipes("639d928592257300137bcad7", "3")
         self.assertEqual(query.call_args.args, ("getRecipeListById", {"listId": "639d928592257300137bcad7", "itemsInput": {"page": 3, "size": 24}}))
