@@ -675,6 +675,7 @@ function switchItemsStore(store) {
   closeAhList(false);
   renderAhLists();
   renderItemsStore();
+  if (typeof resetOrders === "function") resetOrders();
   // Jumbo heeft geen recepten: ga naar de lijstjes. Bij AH blijft de tab waar hij was.
   const active = document.querySelector("#ah-items .subtab.is-active");
   if (state.itemsStore === "jumbo" && active?.dataset.subtab === "ah-items-recepten") {

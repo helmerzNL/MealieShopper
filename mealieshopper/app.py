@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261022-4")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-3")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -806,6 +806,30 @@ def create_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
         return jsonify({"added": len(result["added"]), "skipped": len(result["skipped"]), "skippedItems": result["skipped"]})
+
+    # Bestellingen: lezen uit de lokale kopie, synchroniseren bij Jumbo. De ids zijn tekst (Jumbo-ordernummers).
+
+    @app.get("/api/jumbo/orders")
+    def jumbo_orders_list():
+        return jsonify(jumbo_orders.list_orders())
+
+    @app.get("/api/jumbo/orders/<order_id>")
+    def jumbo_order_detail(order_id: str):
+        order = jumbo_orders.get_order(order_id)
+        if not order:
+            return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
+        return jsonify(order)
+
+    @app.post("/api/jumbo/orders/sync")
+    def jumbo_orders_sync():
+        try:
+            return jsonify(jumbo_orders.sync_orders())
+        except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/purchases/search")
+    def jumbo_purchases_search():
+        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or ""))
 
     @app.post("/api/jumbo/explore")
     def jumbo_explore_routes():

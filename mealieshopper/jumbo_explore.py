@@ -164,6 +164,34 @@ def explore() -> dict[str, Any]:
         report = {"name": "een lijstje: opgeslagen query GetProductList", "ok": False, "error": "overgeslagen: geen lijstje"}
     probes.append(report)
 
+    report, orders = _probe(
+        "mijn bestellingen: opgeslagen query OnlineOrdersAndStoreReceipts",
+        jumbo.get_orders,
+        lambda found: {
+            "bestellingen": len(found["orders"]),
+            "winkelbonnen volgens Jumbo": found["storeReceipts"],
+            "statussen": sorted({str(order["state"]) for order in found["orders"]}),
+            "eerste bestelling": shape(found["orders"][0] if found["orders"] else None),
+            "werkt via": _route("OnlineOrdersAndStoreReceipts"),
+        },
+    )
+    probes.append(report)
+
+    first_order = next(iter((orders or {}).get("orders") or []), None)
+    if first_order:
+        report, _ = _probe(
+            "een bestelling met producten: GetOrder",
+            lambda: jumbo.get_order(first_order["id"]),
+            lambda found: {
+                "producten": len(found["items"]),
+                "eerste product": shape(found["items"][0] if found["items"] else None),
+                "werkende variant": "{} ({})".format(*jumbo.ORDER_DETAIL_ARGUMENTS[jumbo._working_order_detail[0]]) if jumbo._working_order_detail else "?",
+            },
+        )
+    else:
+        report = {"name": "een bestelling met producten: GetOrder", "ok": False, "error": "overgeslagen: geen bestelling"}
+    probes.append(report)
+
     report, _ = _probe(
         "typen van het antwoord op addBasketLines (introspectie)",
         _possible_result_types,

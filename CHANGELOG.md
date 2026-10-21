@@ -2,34 +2,68 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.14.0
+## v1.15.0
 
-*English summary: The Picnic route explorer now also checks Picnic's recipe pages (saved recipes, the cookbook, the recipes home and a recipe's details) and tries a list of likely pages for the favorites. This is the first step toward reading your Picnic recipes and favorites into MealieShopper: nothing is imported yet, because the shape of those pages has to be seen first. Errors in the report now show only the status and error code.*
+*English summary: Two things for Picnic. The basket now adds up: a discounted line shows the price without discount struck through and what you pay, products that are not available right now are marked with a notice, and the plus button and quantity field stop at the maximum Picnic allows per product. And the route explorer now also checks Picnic's recipe pages (saved recipes, the cookbook, the recipes home and a recipe's details) and tries a list of likely pages for the favorites; that is the first step toward reading your Picnic recipes and favorites into MealieShopper, so nothing is imported yet. Errors in the explorer report now show only the status and error code.*
 
-### Nieuw in 1.14.0
+### Nieuw in 1.15.0
 
 - **Picnic-routes verkennen kijkt naar recepten.** De verkenner roept de receptpagina's van Picnic aan (opgeslagen recepten, kookboek, receptenstartpagina en de details van één recept, zoals de community-libraries `picnic-api` en `mcp-de-picnic` ze kennen) en meldt hoeveel receptonderdelen erop staan, welke velden zo'n onderdeel heeft en naar welke pagina's de pagina verwijst, zonder namen of id's. Is een antwoord geen JSON, dan meldt het rapport dat en de grootte.
 - **Zoeken naar de favorieten.** Picnic heeft een favorietenpagina, maar geen library noemt hem. De verkenner probeert een lijst waarschijnlijke paginanamen; een pagina die bestaat wordt met zijn vorm en verwijzingen gemeld, de rest geeft een 404.
 - Nog **niets wordt ingelezen**: eerst moet de vorm van die pagina's bekend zijn. Draai de verkenner (Beheer > Picnic) en deel het rapport; daarmee bouwen we het inlezen van je recepten en favorieten.
 
+### Opgelost in 1.15.0
+
+- **Regelprijzen in het Picnic-mandje tellen op tot het totaal.** Bij een aanbieding of lidmaatschapskorting stond de prijs zonder korting, waardoor de regels meer opleverden dan je totaal (bij het testmandje €35,90 tegen €35,03). Nu staat bij zo'n regel de prijs zonder korting doorgestreept en daarachter wat je betaalt. Dit geldt ook voor `get_picnic_basket` (veld `price`, en `listPrice` als er korting is).
+- **Waarschuwing bij niet-beschikbare producten.** Picnic meldt per product of het nu leverbaar is. Een product dat dat niet is, krijgt *Niet beschikbaar* achter de naam, en boven het mandje staat dat zulke producten niet worden bezorgd. Ook in `get_picnic_basket` (veld `available`).
+- **Maximum per product.** De plus-knop en het aantalveld stoppen bij het maximum dat Picnic per bestelling toestaat en melden het als je er overheen typt. Zet je het via `PUT /api/picnic/cart/items/<product>` toch hoger, dan weigert MealieShopper dat voordat er iets verandert. Veld `maxCount`.
+
 ### Goed om te weten
 
-- In het rapport staat bij een mislukte route nu alleen de statuscode en de foutcode (bijvoorbeeld `404 NOT_FOUND`), niet meer de tekst van Picnic zelf. Bij alle verkenners tonen de velden `type`, `schema`, `component` en `actionType` hun waarde: dat zijn vaste namen van onderdelen, geen persoonlijke gegevens.
+- De kortingsprijs is afgeleid uit de vorm van een echt gevuld mandje: Picnic geeft twee bedragen per regel en het lagere is wat je betaalt. Controleer na het bijwerken dat de regels optellen tot het totaal. Waarom een product niet beschikbaar is, meldt Picnic niet in het mandje.
+- In het verkennerrapport staat bij een mislukte route nu alleen de statuscode en de foutcode (bijvoorbeeld `404 NOT_FOUND`), niet meer de tekst van Picnic zelf. Bij alle verkenners tonen de velden `type`, `schema`, `component` en `actionType` hun waarde: dat zijn vaste namen van onderdelen, geen persoonlijke gegevens.
+
+## v1.14.6
+
+*English summary: When Jumbo refuses the requests for the products of an order, the sync message now says what Jumbo answered (with order numbers and ids removed) instead of only "RuntimeError", and the explorer shows the same. This is a diagnostic step: the products of an order still need Jumbo's own stored request (operationName, hash, variables) from the browser's Network tab.*
+
+### Verbeterd in 1.14.6
+
+- **Duidelijke reden als de producten van Jumbo-bestellingen niet binnenkomen.** De melding na het synchroniseren zei alleen `RuntimeError`. Nu staat erin wat Jumbo antwoordde op de acht varianten van de aanvraag (bijvoorbeeld de HTTP-status en de foutmelding), met bestelnummers en id's weggehaald. **Jumbo-routes verkennen** toont dezelfde tekst bij de proef *een bestelling met producten*. De lijst met bestellingen werkt al; de producten wachten tot de opgeslagen aanvraag van de bestelpagina bekend is (`operationName`, hash en variabelen uit het tabblad Netwerk).
+
+## v1.14.5
+
+*English summary: When the update check fails, the Updates tab and the server log now say why (for example "HTTP 403 (rate limit)", "Timeout" or "ConnectionError") instead of only "failed".*
+
+### Verbeterd in 1.14.5
+
+- **Updatecheck: de oorzaak van een fout.** Mislukt de updatecheck, dan staat er nu bij Beheer > Updates ook waarom (bijvoorbeeld `HTTP 403 (rate limit)`, `Timeout`, `ConnectionError` of `SSLError`), en de serverlog bevat de volledige melding. Zo zie je of de server GitHub (`api.github.com`) niet kan bereiken of dat GitHub het verzoek weigert.
+
+## v1.14.0
+
+*English summary: Your completed Jumbo orders are now in MealieShopper under Stores > Orders (choose Jumbo): date, delivery time, total and the products, kept as a local copy, with a search over everything you bought and two read-only MCP tools (list_jumbo_orders, get_jumbo_order). The order list comes from jumbo.com's own stored request (OnlineOrdersAndStoreReceipts); the products of one order are requested with ordinary queries built from the field names of the website's answer, because the stored request for the order detail is not known yet. If Jumbo refuses those, the list still syncs and the sync reports why, and the explorer shows which variant worked. Your delivery address, customer number and reservation number are never stored. Store receipts and running orders are not shown for Jumbo yet. Built from the real answers of jumbo.com but tried only with mocked responses so far.*
+
+### Nieuw in 1.14.0
+
+- **Je Jumbo-bestellingen.** Onder **Winkels > Bestellingen** (keuze *Jumbo*) staan je afgeronde bestellingen met datum, bezorgtijd, totaal en producten (naam, merk, pakmaat, aantal, bedrag, aanbieding en categorie). Synchroniseren haalt de lijst op (nieuwste eerst, per 10) en daarna de producten van maximaal 25 bestellingen die ze nog missen; herhaal het tot niets meer ontbreekt. Een afgeronde bestelling blijft bewaard, ook als Jumbo hem later niet meer toont; geannuleerde bestellingen bewaart MealieShopper niet. Producten die Jumbo niet meer kent (`__MISSING_PRODUCT__`) staan met merk en artikelnummer.
+- **Zoeken in alles wat je kocht.** Het zoekveld bovenaan Bestellingen zoekt in de producten van je Jumbo-bestellingen (naam en merk) en toont per product wanneer en hoe vaak je het kocht.
+- **Privacy.** Het afleveradres, het winkeladres, je klantnummer en het reserveringsnummer worden niet bewaard en komen niet in het verkennerrapport.
+- **MCP.** `list_jumbo_orders` en `get_jumbo_order` (alleen lezen, uit de lokale kopie).
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de bestellingenlijst (aantallen, statussen, vorm van één bestelling, via welk transport) en de bestelling met producten (aantal regels, vorm, en welke variant van de aanvraag werkt).
+- **Bestellingen per winkel.** `orders.js` werkt nu per winkel (de keuze bovenaan Winkels): bij Jumbo ontbreken het bestelmandje en de kassabonnen, bij AH verandert er niets (het bestelmandje en de bestellingen van AH blijven "binnenkort").
+
+### Goed om te weten
+
+- **Producten van een bestelling: nog niet bevestigd.** De opgeslagen aanvraag van de lijst is bekend, die van één bestelling nog niet. MealieShopper probeert daarom gewone aanvragen (`order(orderId: …)` en varianten) met de veldnamen uit het antwoord van de website. Weigert Jumbo die, dan staat de lijst er wel en meldt de synchronisatie de reden; de verkenner laat zien wat er gebeurt. Het herstel is dan een nieuwe constante in `mealieshopper/jumbo.py` met de `operationName`, hash en variabelen van de aanvraag uit het tabblad Netwerk.
+- **Niet gedaan:** winkelbonnen (je account heeft er geen; de synchronisatie meldt wel hoeveel Jumbo er kent) en lopende bestellingen. Alles is getest met nagebootste antwoorden in de vorm van de echte; probeer het synchroniseren op je eigen server en draai de verkenner.
 
 ## v1.13.1
 
-*English summary: Picnic basket fixes, based on a real filled basket. The lines now add up to the total: a line with a discount shows the price without discount struck through and what you pay. Products that are not available right now are marked and a notice says they will not be delivered. The plus button and the quantity field stop at the maximum Picnic allows per product.*
+*English summary: Fixes the Updates tab showing raw text keys such as "update.title". The browser kept using the old cached text files because the asset version was not raised in 1.13.0; it is now. After updating, a hard refresh (Ctrl+Shift+R) may still be needed once.*
 
 ### Opgelost in 1.13.1
 
-- **Regelprijzen tellen op tot het totaal.** In het Picnic-mandje stond bij een aanbieding of lidmaatschapskorting de prijs zonder korting, waardoor de regels meer opleverden dan je totaal (bij het testmandje €35,90 tegen €35,03). Nu staat bij zo'n regel de prijs zonder korting doorgestreept en daarachter wat je betaalt. Dit geldt ook voor `get_picnic_basket` (veld `price`, en `listPrice` als er korting is).
-- **Waarschuwing bij niet-beschikbare producten.** Picnic meldt per product of het nu leverbaar is. Een product dat dat niet is, krijgt *Niet beschikbaar* achter de naam, en boven het mandje staat dat zulke producten niet worden bezorgd. Ook in `get_picnic_basket` (veld `available`).
-- **Maximum per product.** Elk product heeft een maximum per bestelling. De plus-knop en het aantalveld stoppen daar, en melden het als je er overheen typt. Zet je het via de route `PUT /api/picnic/cart/items/<product>` toch hoger, dan weigert MealieShopper dat voordat er iets in het mandje verandert. Veld `maxCount`.
-
-### Goed om te weten
-
-- De kortingsprijs is afgeleid uit de vorm van een echt gevuld mandje: Picnic geeft twee bedragen per regel en het lagere is wat je betaalt. Controleer na het bijwerken met je mandje dat de regels optellen tot het totaal.
-- Waarom een product niet beschikbaar is (uitverkocht, andere bezorgdag) meldt Picnic niet in het mandje.
+- **Teksten bij Beheer > Updates.** In 1.13.0 stonden er sleutelnamen zoals `update.title` in plaats van de teksten, omdat de browser nog de oude, bewaarde tekstbestanden gebruikte. Het versienummer van de scripts en teksten (`ASSET_VERSION`) is verhoogd, zodat de nieuwe bestanden worden opgehaald. Zie bij een hardnekkige cache één keer een harde refresh (`Ctrl`+`Shift`+`R`) of open de app opnieuw.
 
 ## v1.13.0
 

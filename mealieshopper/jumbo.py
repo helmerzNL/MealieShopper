@@ -710,10 +710,12 @@ def get_product(sku: str) -> dict[str, Any] | None:
 # variabelen, geen querytekst. Dezelfde aanvraag sturen wij opnieuw. De hashes horen bij een versie van
 # jumbo.com; verandert Jumbo ze, dan meldt de verkenner `PersistedQueryNotFound`. Verversen: open op
 # jumbo.com Mijn lijstjes met het tabblad Netwerk (filter `graphql`), kopieer de `sha256Hash` van
-# `GetCustomerProductLists` en `GetProductList` uit de aanvraag en zet ze hieronder.
+# `GetCustomerProductLists` en `GetProductList` uit de aanvraag en zet ze hieronder. Zo ook voor de
+# bestellingen (Mijn bestellingen): `OnlineOrdersAndStoreReceipts`.
 PERSISTED_QUERIES = {
     "GetCustomerProductLists": "6f99c573278cea7151eb4b422b698cb14e5c0e19632e647a582bfa81f7b5f86c",
     "GetProductList": "2bbb5daa2373f8d00c5029298df31cef6529a89fe68babb7239654d668556e36",
+    "OnlineOrdersAndStoreReceipts": "89b3f60a39a37eeed32055fd531a32925e504c566d190e0ca06b8efecd0bccdf",
 }
 # Welke clientnaam en welk transport de router voor deze queries wil is niet bekend; we proberen ze na
 # elkaar en onthouden wat werkte (de verkenner meldt het).
@@ -841,3 +843,183 @@ def get_product_list(list_id: str) -> dict[str, Any]:
         if not raw_items or not isinstance(total, int) or offset >= total:
             break
     return {"id": list_id, "name": name, "items": items}
+
+
+# --- bestellingen ("Mijn bestellingen") -----------------------------------------------------------------
+# De lijst met bestellingen (en winkelbonnen) vraagt de website met de opgeslagen query
+# `OnlineOrdersAndStoreReceipts`. Voor de producten van één bestelling kennen we de opgeslagen query nog
+# niet; daarvoor probeert `get_order` gewone queries met de veldnamen uit het antwoord van de website.
+ORDER_PAGE_SIZE = 10
+MAX_ORDER_PAGES = 30
+ORDER_DETAIL_ARGUMENTS = tuple((name, kind) for kind in ("String!", "ID!", "Long!", "Int!") for name in ("orderId", "id"))
+_ORDER_DETAIL_FIELDS = """
+    orderId
+    deliveryDate
+    fulfilmentType
+    paymentMethod
+    fulfilmentData { startTime endTime }
+    progress { status }
+    items {
+      sku
+      quantity
+      pickedQuantity
+      linePriceExDiscount { amount }
+      linePriceIncDiscount { amount }
+      promotions { description }
+      details { title subtitle brand image category }
+    }
+    calculatedTotals { totalToPay { amount } }
+"""
+_working_order_detail: list[int] = []
+_ORDER_ID_RE = re.compile(r"^[0-9]{1,20}$")
+_CANCELLED_STATES = {"CANCELLED", "CANCELED"}
+
+
+def _amount(raw: Any) -> float | None:
+    """Bedragen als `{amount: "113.86"}` (euro, als tekst) naar een getal."""
+    value = raw.get("amount") if isinstance(raw, dict) else raw
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _order_header(raw: Any) -> dict[str, Any] | None:
+    """Een bestelling uit de lijst. Adres, klant- en reserveringsnummer bewaren we bewust niet."""
+    if not isinstance(raw, dict) or not str(raw.get("orderId") or "").strip():
+        return None
+    status = str(raw.get("status") or "")
+    return {
+        "id": str(raw["orderId"]).strip(),
+        "state": status or None,
+        "shoppingType": raw.get("fulfilmentType") or None,
+        "total": _amount(raw.get("totalToPay")),
+        "deliveryDate": raw.get("deliveryDate") or raw.get("creationTime") or None,
+        "cancelled": status.upper() in _CANCELLED_STATES,
+    }
+
+
+def get_orders() -> dict[str, Any]:
+    """Alle afgeronde bestellingen (nieuwste eerst, per 10) en het aantal winkelbonnen dat Jumbo kent.
+
+    `{orders: [{id, state, shoppingType, total, deliveryDate, cancelled}], storeReceipts: int}`.
+    """
+    orders: list[dict[str, Any]] = []
+    receipts = 0
+    for page in range(MAX_ORDER_PAGES):
+        data = _persisted_query(
+            "OnlineOrdersAndStoreReceipts",
+            {
+                "ordersInput": {
+                    "offset": page * ORDER_PAGE_SIZE,
+                    "limit": ORDER_PAGE_SIZE,
+                    "direction": "DESC",
+                    "sortBy": "DELIVERY_DATE",
+                    "statusCategory": "CLOSED",
+                },
+                "page": page,
+                "pageSize": ORDER_PAGE_SIZE,
+            },
+        )
+        online = data.get("onlineOrders")
+        if not isinstance(online, dict):
+            raise RuntimeError(tr("Jumbo gaf de bestellingen niet terug", "Jumbo did not return the orders"))
+        batch = online.get("orders") or []
+        orders += [order for order in (_order_header(raw) for raw in batch) if order]
+        stored = data.get("storeReceipts")
+        if isinstance(stored, dict) and isinstance(stored.get("totalResults"), int):
+            receipts = stored["totalResults"]
+        total_pages = online.get("totalPages")
+        if not batch or online.get("hasNext") is False or (isinstance(total_pages, int) and page + 1 >= total_pages):
+            break
+    return {"orders": orders, "storeReceipts": receipts}
+
+
+def _order_line(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict) or not raw.get("sku"):
+        return None
+    sku = str(raw["sku"])
+    details = raw.get("details") if isinstance(raw.get("details"), dict) else {}
+    brand = details.get("brand") or None
+    title = str(details.get("title") or "").strip()
+    if not title or title == "__MISSING_PRODUCT__":  # Jumbo kent dit product niet meer: merk en SKU zijn het enige wat we weten
+        title = f"{brand} ({sku})" if brand else sku
+    picked = raw.get("pickedQuantity")
+    quantity = picked if isinstance(picked, (int, float)) else raw.get("quantity")
+    try:
+        quantity = max(0, int(round(float(quantity))))
+    except (TypeError, ValueError, OverflowError):
+        quantity = 1
+    paid = _amount(raw.get("linePriceIncDiscount"))
+    before = _amount(raw.get("linePriceExDiscount"))
+    bonus = bool(raw.get("promotions")) or (paid is not None and before is not None and paid < before)
+    return {
+        "productId": sku,
+        "title": title,
+        "brand": brand,
+        "unitSize": details.get("subtitle") or None,
+        "quantity": quantity,
+        "amount": paid,
+        "price": round(paid / quantity, 2) if paid is not None and quantity else None,
+        "priceBeforeBonus": round(before / quantity, 2) if bonus and before is not None and quantity else None,
+        "bonus": bonus,
+        "taxonomy": details.get("category") or None,
+        "image": _image(details.get("image")),
+    }
+
+
+def parse_order(raw: Any) -> dict[str, Any]:
+    """Eén bestelling met zijn producten. Afleveradres en winkeladres worden niet meegenomen."""
+    if not isinstance(raw, dict):
+        raise RuntimeError(tr("Jumbo gaf deze bestelling niet terug", "Jumbo did not return this order"))
+    slot = raw.get("fulfilmentData") if isinstance(raw.get("fulfilmentData"), dict) else {}
+    progress = raw.get("progress") if isinstance(raw.get("progress"), dict) else {}
+    totals = raw.get("calculatedTotals") if isinstance(raw.get("calculatedTotals"), dict) else {}
+    return {
+        "id": str(raw.get("orderId") or ""),
+        "state": progress.get("status") or None,
+        "shoppingType": raw.get("fulfilmentType") or None,
+        "method": raw.get("paymentMethod") or None,
+        "total": _amount(totals.get("totalToPay")),
+        "deliveryDate": raw.get("deliveryDate") or None,
+        "slotStart": slot.get("startTime") or None,
+        "slotEnd": slot.get("endTime") or None,
+        "items": [line for line in (_order_line(item) for item in raw.get("items") or []) if line],
+    }
+
+
+class JumboOrderDetailError(JumboSchemaError):
+    """Jumbo weigerde elke variant van de aanvraag voor de producten van een bestelling."""
+
+
+def _scrub(text: str, limit: int = 160) -> str:
+    """Een foutmelding van Jumbo voor in een melding: korter, zonder lange cijferreeksen of id's (bestelnummers, klant-id)."""
+    text = re.sub(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", "<id>", " ".join(str(text).split()))
+    return re.sub(r"\d{6,}", "<nr>", text)[:limit]
+
+
+def get_order(order_id: str) -> dict[str, Any]:
+    """De producten van één bestelling (gewone query; de werkende variant onthouden we)."""
+    order_id = str(order_id or "").strip()
+    if not _ORDER_ID_RE.match(order_id):
+        raise ValueError(tr("Onbekende bestelling", "Unknown order"))
+    causes: list[str] = []
+    start = _working_order_detail[0] if _working_order_detail else 0
+    for step in list(range(start, len(ORDER_DETAIL_ARGUMENTS))) + list(range(start)):
+        name, kind = ORDER_DETAIL_ARGUMENTS[step]
+        query = f"query GetOrder($orderId: {kind}) {{\n  order({name}: $orderId) {{{_ORDER_DETAIL_FIELDS}  }}\n}}"
+        value: Any = int(order_id) if kind in ("Long!", "Int!") else order_id
+        try:
+            data = _graphql(query, {"orderId": value}, "GetOrder", "JUMBO_WEB-orders")
+        except JumboAuthError:
+            raise
+        except RuntimeError as exc:  # onbekend veld of type: de volgende variant proberen
+            cause = _scrub(str(exc))
+            if cause not in causes:
+                causes.append(cause)
+            continue
+        _working_order_detail[:] = [step]
+        order = parse_order(data.get("order"))
+        order["id"] = order["id"] or order_id
+        return order
+    raise JumboOrderDetailError(f"{len(ORDER_DETAIL_ARGUMENTS)} varianten geweigerd: " + " | ".join(causes[:3]))
