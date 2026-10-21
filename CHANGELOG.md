@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.2.0
+
+*English summary: Your Picnic recipes are now in the app. Under Stores there is a new Picnic recipes tab with the lists Saved (Cook > Saved), Order again and the Cookbook, as cards like the AH recipes. Opening a recipe shows the ingredients and the preparation, and an Import button puts the recipe in Mealie. The cookbook names are read from the tiles (the explorer showed they have no name in their data), and the route explorer now measures what is on the pages that were empty and looks for the favorites page through field names and ids, without any texts. The favorite products are not found yet.*
+
+### Nieuw in 2.2.0
+
+- **Picnic-recepten in de app.** Onder **Winkels** staat een tabblad **Picnic-recepten** zodra Picnic gekoppeld is. Kies de lijst: **Bewaard** (Koken > Bewaard in de Picnic-app), **Opnieuw bestellen** (recepten die je bestelde) of het **Kookboek**. De recepten staan als kaarten, net als de AH-recepten, met afbeelding, kooktijd en labels, en je kunt zoeken op naam.
+- **Een recept openen** toont de ingrediënten (met de hoeveelheid die het recept nodig heeft, bijvoorbeeld *150 g Rode uien*) en de bereidingsstappen, gelezen uit de receptpagina van Picnic. Nieuwe route: `GET /api/picnic/recipes/<id>`.
+- **Importeren in Mealie.** Elke kaart en elk geopend recept heeft een knop **Importeer**. MealieShopper stuurt het recept als schema.org Recipe naar Mealie (net als bij de AH-recepten), met naam, afbeelding, porties, tijd, ingrediënten en stappen; Picnic-recepten hebben geen webpagina, dus als bron staat de site van Picnic. Nieuwe route: `POST /api/picnic/recipes/<id>/import`. Is Mealie niet gekoppeld, dan staat er wat je moet doen.
+- **Kookboek en Opnieuw bestellen lezen.** De tegels van het kookboek hebben geen naam in hun gegevens (de verkenner liet het zien); de naam wordt nu uit de tekst van de tegel gelezen. `list_picnic_recipes` (MCP) kent nu ook de bron `ordered` en meldt kooktijd en labels.
+- **De verkenner zoekt de favorieten.** Hij telt wat er op de lege pagina's staat (soorten onderdelen), zoekt op de zoek-, product- en receptpagina's naar veldnamen en ids rond *favoriet* (alleen namen, nooit teksten van producten of recepten) en probeert nog zeven paginanamen.
+
+### Goed om te weten
+
+- **Nog niet tegen een echt account geprobeerd.** De receptpagina's worden gelezen zoals de community-library `picnic-api` dat doet en getest met nagebootste pagina's in de vorm uit jouw verkennerrapport. Staan er namen of ingrediënten verkeerd, deel dan het verkennerrapport; de ingrediënten en stappen staan op vaste plekken in de pagina die nog niet met een echt recept zijn bevestigd. De afbeelding van een recept staat in het formaat *medium* (kaart) of *large* (recept).
+- **Opnieuw bestellen** gaf in het vorige rapport een pagina zonder receptonderdelen; of dat aan de pagina of aan je account ligt, laat de nieuwe telling in het rapport zien.
+- **De favoriete producten** (de tab Favorieten in de Picnic-app) staan er nog niet in: de pagina is nog niet gevonden.
+
 ## v2.1.1
 
 *English summary: The products of a Jumbo order should now come in. Jumbo's own error message from 1.14.6 showed that the order query expects the order number as a Float (`Variable "$orderId" of type "String!" used in position expecting type "Float!"`), so MealieShopper now asks for it that way first (a plain number). The other variants stay as a fallback. Tried only with mocked responses so far: sync again under Stores > Orders > Jumbo.*
