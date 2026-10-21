@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.14.0
+
+*English summary: Your completed Jumbo orders are now in MealieShopper under Stores > Orders (choose Jumbo): date, delivery time, total and the products, kept as a local copy, with a search over everything you bought and two read-only MCP tools (list_jumbo_orders, get_jumbo_order). The order list comes from jumbo.com's own stored request (OnlineOrdersAndStoreReceipts); the products of one order are requested with ordinary queries built from the field names of the website's answer, because the stored request for the order detail is not known yet. If Jumbo refuses those, the list still syncs and the sync reports why, and the explorer shows which variant worked. Your delivery address, customer number and reservation number are never stored. Store receipts and running orders are not shown for Jumbo yet. Built from the real answers of jumbo.com but tried only with mocked responses so far.*
+
+### Nieuw in 1.14.0
+
+- **Je Jumbo-bestellingen.** Onder **Winkels > Bestellingen** (keuze *Jumbo*) staan je afgeronde bestellingen met datum, bezorgtijd, totaal en producten (naam, merk, pakmaat, aantal, bedrag, aanbieding en categorie). Synchroniseren haalt de lijst op (nieuwste eerst, per 10) en daarna de producten van maximaal 25 bestellingen die ze nog missen; herhaal het tot niets meer ontbreekt. Een afgeronde bestelling blijft bewaard, ook als Jumbo hem later niet meer toont; geannuleerde bestellingen bewaart MealieShopper niet. Producten die Jumbo niet meer kent (`__MISSING_PRODUCT__`) staan met merk en artikelnummer.
+- **Zoeken in alles wat je kocht.** Het zoekveld bovenaan Bestellingen zoekt in de producten van je Jumbo-bestellingen (naam en merk) en toont per product wanneer en hoe vaak je het kocht.
+- **Privacy.** Het afleveradres, het winkeladres, je klantnummer en het reserveringsnummer worden niet bewaard en komen niet in het verkennerrapport.
+- **MCP.** `list_jumbo_orders` en `get_jumbo_order` (alleen lezen, uit de lokale kopie).
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook de bestellingenlijst (aantallen, statussen, vorm van één bestelling, via welk transport) en de bestelling met producten (aantal regels, vorm, en welke variant van de aanvraag werkt).
+- **Bestellingen per winkel.** `orders.js` werkt nu per winkel (de keuze bovenaan Winkels): bij Jumbo ontbreken het bestelmandje en de kassabonnen, bij AH verandert er niets (het bestelmandje en de bestellingen van AH blijven "binnenkort").
+
+### Goed om te weten
+
+- **Producten van een bestelling: nog niet bevestigd.** De opgeslagen aanvraag van de lijst is bekend, die van één bestelling nog niet. MealieShopper probeert daarom gewone aanvragen (`order(orderId: …)` en varianten) met de veldnamen uit het antwoord van de website. Weigert Jumbo die, dan staat de lijst er wel en meldt de synchronisatie de reden; de verkenner laat zien wat er gebeurt. Het herstel is dan een nieuwe constante in `mealieshopper/jumbo.py` met de `operationName`, hash en variabelen van de aanvraag uit het tabblad Netwerk.
+- **Niet gedaan:** winkelbonnen (je account heeft er geen; de synchronisatie meldt wel hoeveel Jumbo er kent) en lopende bestellingen. Alles is getest met nagebootste antwoorden in de vorm van de echte; probeer het synchroniseren op je eigen server en draai de verkenner.
+
 ## v1.13.1
 
 *English summary: Fixes the Updates tab showing raw text keys such as "update.title". The browser kept using the old cached text files because the asset version was not raised in 1.13.0; it is now. After updating, a hard refresh (Ctrl+Shift+R) may still be needed once.*
