@@ -155,6 +155,7 @@ class AccessTokenTest(TempDataDirTest):
         with mock.patch.object(jumbo.requests, "post", return_value=bad):
             result = jumbo.status(verify=True)
         self.assertEqual((result["connected"], result["verified"]), (True, False))
+        self.assertEqual(result["error"], "JumboAuthError")
         self.assertNotIn("secret-token", json.dumps(result))
 
     def test_status_without_link(self):
@@ -392,7 +393,13 @@ class JumboRoutesTest(TempDataDirTest):
         with mock.patch.object(jumbo, "link_account", side_effect=jumbo.JumboAuthError("verlopen")):
             self.assertEqual(self.client.post("/api/jumbo/auth", json={}).status_code, 400)
         with mock.patch.object(jumbo, "get_cart", side_effect=RuntimeError("500: stuk")):
-            self.assertEqual(self.client.get("/api/jumbo/cart").status_code, 424)
+            response = self.client.get("/api/jumbo/cart")
+        self.assertEqual(response.status_code, 424)
+        self.assertEqual(response.get_json()["error"], "Jumbo fout")
+
+    def test_explorer_reports_error_type_without_exception_details(self):
+        report, _ = jumbo_explore._probe("test", mock.Mock(side_effect=RuntimeError("private response body")))
+        self.assertEqual(report["error"], "RuntimeError")
 
     def test_preview_uses_jumbo_candidates(self):
         products = [{"id": "1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": None, "url": "https://www.jumbo.com/p/1"}]

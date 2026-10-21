@@ -227,9 +227,53 @@ class CartTest(TempDataDirTest):
         self.assertEqual([(i["id"], i["quantity"], i["price"]) for i in summary["items"]],
                          [("s1", 2, 3.0), ("s2", 1, 1.5)])
 
+    def test_cart_summary_has_checkout_total_and_savings(self):
+        summary = picnic.cart_summary({**self.CART, "checkout_total_price": 695, "membership_savings": 120})
+        self.assertEqual((summary["checkoutTotal"], summary["savings"]), (6.95, 1.2))
+        self.assertIsNone(picnic.cart_summary(self.CART)["checkoutTotal"])
+
     def test_odd_carts_do_not_crash(self):
         for cart in (None, {}, {"items": [None, {"items": None}]}):
             self.assertIn("items", picnic.cart_summary(cart))
+
+
+class DeliverySlotsTest(TempDataDirTest):
+    CART = {
+        "selected_slot": {"slot_id": "s2", "state": "IMPLICIT"},
+        "delivery_slots": [
+            {"slot_id": "s2", "window_start": "2026-10-23T17:00:00", "window_end": "2026-10-23T18:00:00",
+             "cut_off_time": "2026-10-22T23:00:00", "is_available": True, "reserved": False,
+             "selected": False, "minimum_order_value": 3500, "hub_id": "h", "fc_id": "f"},
+            {"slot_id": "s1", "window_start": "2026-10-22T17:00:00", "window_end": "2026-10-22T18:00:00",
+             "is_available": False, "reserved": False, "selected": False, "minimum_order_value": 0},
+            {"slot_id": "s3", "window_start": "2026-10-24T09:00:00", "window_end": "2026-10-24T10:00:00",
+             "is_available": True, "reserved": True, "selected": True, "minimum_order_value": 3500},
+            {"slot_id": None, "window_start": "x"},
+            None,
+        ],
+    }
+
+    def test_slots_are_sorted_and_mapped(self):
+        slots = picnic.slots_from_cart(self.CART)
+        self.assertEqual([s["id"] for s in slots], ["s1", "s2", "s3"])
+        self.assertEqual(slots[1]["minimumOrder"], 35.0)
+        self.assertEqual(slots[1]["cutOff"], "2026-10-22T23:00:00")
+        self.assertTrue(slots[1]["selected"])  # gekozen via selected_slot
+        self.assertTrue(slots[2]["selected"] and slots[2]["reserved"])
+        self.assertNotIn("h", json.dumps(slots))  # hub- en magazijn-id's blijven eruit
+
+    def test_odd_carts_give_no_slots(self):
+        for cart in (None, {}, {"delivery_slots": None}, {"delivery_slots": "x"}, []):
+            self.assertEqual(picnic.slots_from_cart(cart), [])
+
+    def test_only_available_slots_are_listed_by_default(self):
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic.requests, "request", return_value=response(self.CART)) as call:
+            slots = picnic.get_delivery_slots(limit=1)
+        self.assertEqual(call.call_args.args[:2], ("GET", picnic.base_url() + "/cart"))
+        self.assertEqual([s["id"] for s in slots], ["s2"])
+        with mock.patch.object(picnic.requests, "request", return_value=response(self.CART)):
+            self.assertEqual(len(picnic.get_delivery_slots(limit=10, available_only=False)), 3)
 
     def test_add_to_cart_clamps_quantities_and_never_orders(self):
         picnic.save_auth_key("key")
@@ -267,6 +311,29 @@ class CartTest(TempDataDirTest):
         self.assertEqual(deliveries[0]["id"], "d1")
         self.assertEqual(deliveries[0]["total"], 25.0)
         self.assertNotIn("address", json.dumps(deliveries))
+
+
+class ExploreTest(TempDataDirTest):
+    def test_report_lists_more_routes_and_contains_no_values(self):
+        from mealieshopper import picnic_explore
+        page = search_page(tile("s1", "Geheime melk van Jan", "1 l", 129))
+        replies = {"/user": {"firstname": "Jan", "address": {"street": "Hoofdstraat"}}}
+
+        def fake(method, path, body=None):
+            if path.startswith("/pages/search-page-results"):
+                return page
+            if path == "/lists":
+                raise RuntimeError("404: niet gevonden")
+            return replies.get(path, {})
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=fake):
+            report = picnic_explore.explore()
+        names = [probe["name"] for probe in report["probes"]]
+        self.assertTrue(any("product-details-page-root" in name for name in names))
+        self.assertFalse(next(p for p in report["probes"] if "lists" in p["name"])["ok"])
+        for secret in ("Jan", "Hoofdstraat", "Geheime", "s1"):
+            self.assertNotIn(secret, json.dumps(report), secret)
 
 
 class PicnicRoutesTest(TempDataDirTest):
@@ -329,6 +396,15 @@ class PicnicRoutesTest(TempDataDirTest):
     def test_empty_requests_are_400(self):
         for path in ("/api/picnic/cart", "/api/picnic/cart/preview"):
             self.assertEqual(self.client.post(path, json={"items": []}).status_code, 400, path)
+
+    def test_slots_route(self):
+        slots = [{"id": "s1", "available": True}]
+        with mock.patch.object(picnic, "get_delivery_slots", return_value=slots) as get:
+            body = self.client.get("/api/picnic/slots?limit=3").get_json()
+        self.assertEqual(body, {"slots": slots})
+        get.assert_called_once_with(3)
+        with mock.patch.object(picnic, "get_delivery_slots", side_effect=RuntimeError("500: stuk")):
+            self.assertEqual(self.client.get("/api/picnic/slots").status_code, 424)
 
     def test_user_errors_are_400_and_picnic_errors_are_424(self):
         with mock.patch.object(picnic, "login", side_effect=picnic.PicnicAuthError("fout wachtwoord")):

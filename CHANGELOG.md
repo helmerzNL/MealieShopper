@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.8.0
+
+*English summary: Picnic now shows the next available delivery slots under the filled basket and through a new read-only MCP tool, `list_picnic_delivery_slots`. The basket also reports what you actually pay and what your membership saves. The Picnic route explorer checks more routes (account, lists, store, suggestions, product page) so the next steps can be built on real answers. Choosing a slot and placing an order remain in the Picnic app.*
+
+### Nieuw in 1.8.0
+
+- **Bezorgmomenten van Picnic.** Na het vullen van je Picnic-mandje laat de planner de eerstvolgende beschikbare bezorgmomenten zien, met de minimale bestelwaarde. Picnic levert die in het mandje-antwoord mee; ze zijn dus live en er wordt niets gekozen of gereserveerd. Het bezorgmoment kies je zelf in de Picnic-app. Nieuwe route: `GET /api/picnic/slots`.
+- **Nieuwe MCP-tool, alleen lezen:** `list_picnic_delivery_slots` (beschikbare bezorgmomenten met begin, einde, uiterste bestelmoment en minimale bestelwaarde). Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
+- **Mandje met echt totaal.** `get_picnic_basket` en `GET /api/picnic/cart` melden nu ook wat je werkelijk betaalt (`checkoutTotal`, met bezorgkosten en statiegeld) en wat je lidmaatschap bespaart (`savings`).
+- **Picnic-routes verkennen kijkt verder.** Naast zoeken, mandje en leveringen worden nu ook account, lijstjes, winkel, suggesties en de productpagina aangeroepen. Alleen lezen en zonder persoonlijke gegevens in het rapport. Zo zien we welke uitbreidingen (lijstjes, productinfo) mogelijk zijn.
+
+### Goed om te weten
+
+- Het zoeken, het mandje en de leveringsroutes zijn bevestigd met een echt Picnic-account: de verkenner gaf voor alle vijf routes een antwoord. De vorm van de bezorgmomenten is daaruit afgeleid. De vorm van een levering en van een gevuld mandje is nog niet gezien (het account had geen leveringen en een leeg mandje); meld wat afwijkt.
+- Een bezorgmoment kiezen of een bestelling plaatsen kan niet vanuit MealieShopper, en dat blijft zo.
+
 ## v1.7.1
 
 *English summary: Fixes adding products to the Jumbo basket. The explorer, run on a real server, showed that Jumbo's addBasketLines answer cannot be a BasketError, so every add would have failed validation. The query no longer names that type and an error now reports the type Jumbo answered with. The explorer also shows the type name and tries to list the possible answers. The same run confirmed that Jumbo accepts the server, the token refresh, search and reading the basket work.*

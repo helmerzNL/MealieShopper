@@ -10,14 +10,22 @@ id's worden vervangen door hun type. Zo kun je het rapport veilig delen.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
 from . import jumbo
-from .ah_explore import _probe, shape
+from .ah_explore import shape
 
 EXAMPLE_TERM = "melk"
+
+
+def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+    try:
+        result = call()
+    except Exception as exc:  # noqa: BLE001 - het fouttype is genoeg om de route te onderzoeken
+        return {"name": name, "ok": False, "error": type(exc).__name__}, None
+    return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
 
 
 def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -67,7 +75,11 @@ def explore() -> dict[str, Any]:
         probes.append(report)
 
     linked = bool(jumbo.configured_refresh_token())
-    report, _ = _probe("toegangstoken vernieuwen (auth.jumbo.com/oauth/token)", lambda: jumbo.get_access_token(force=True), lambda _: "ok")
+    report, _ = _probe(
+        "toegangstoken vernieuwen (auth.jumbo.com/oauth/token)",
+        lambda: jumbo.get_access_token(force=True),
+        lambda _: "ok",
+    )
     probes.append(report)
 
     report, _ = _probe(
@@ -84,10 +96,18 @@ def explore() -> dict[str, Any]:
     report, _ = _probe("mandje: GraphQL activeBasket", jumbo.get_cart)
     probes.append(report)
 
-    report, _ = _probe("mandje vullen: addBasketLines met een lege lijst (voegt niets toe)", _empty_add_probe, lambda data: data)
+    report, _ = _probe(
+        "mandje vullen: addBasketLines met een lege lijst (voegt niets toe)",
+        _empty_add_probe,
+        lambda data: data,
+    )
     probes.append(report)
 
-    report, _ = _probe("typen van het antwoord op addBasketLines (introspectie)", _possible_result_types, lambda names: names or ["leeg"])
+    report, _ = _probe(
+        "typen van het antwoord op addBasketLines (introspectie)",
+        _possible_result_types,
+        lambda names: names or ["leeg"],
+    )
     probes.append(report)
 
     return {

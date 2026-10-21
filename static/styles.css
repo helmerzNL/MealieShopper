@@ -836,6 +836,10 @@ a.product-card__main:hover strong {
   columns: 2 260px;
 }
 
+.picnic-slots {
+  margin-top: 14px;
+}
+
 .review-list {
   display: grid;
   gap: 8px;

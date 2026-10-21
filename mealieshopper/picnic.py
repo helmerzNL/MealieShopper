@@ -359,11 +359,46 @@ def cart_summary(cart: Any) -> dict[str, Any]:
         "items": items,
         "totalCount": cart.get("total_count"),
         "totalPrice": _euros(cart.get("total_price")),
+        # Wat je echt betaalt (met bezorgkosten en statiegeld) en wat het lidmaatschap bespaart.
+        "checkoutTotal": _euros(cart.get("checkout_total_price")),
+        "savings": _euros(cart.get("membership_savings")),
     }
 
 
 def get_cart() -> dict[str, Any]:
     return cart_summary(_authed("GET", "/cart"))
+
+
+def slots_from_cart(cart: Any) -> list[dict[str, Any]]:
+    """De bezorgmomenten uit het mandje (Picnic zet ze in `delivery_slots`), op tijd gesorteerd."""
+    cart = cart if isinstance(cart, dict) else {}
+    chosen = cart.get("selected_slot") if isinstance(cart.get("selected_slot"), dict) else {}
+    slots = []
+    for slot in cart.get("delivery_slots") or []:
+        if not isinstance(slot, dict) or not slot.get("slot_id") or not slot.get("window_start"):
+            continue
+        slots.append(
+            {
+                "id": str(slot["slot_id"]),
+                "windowStart": slot.get("window_start"),
+                "windowEnd": slot.get("window_end"),
+                "cutOff": slot.get("cut_off_time"),
+                "available": bool(slot.get("is_available")),
+                "reserved": bool(slot.get("reserved")),
+                "selected": bool(slot.get("selected")) or slot.get("slot_id") == chosen.get("slot_id"),
+                "minimumOrder": _euros(slot.get("minimum_order_value")),
+            }
+        )
+    slots.sort(key=lambda slot: str(slot["windowStart"]))
+    return slots
+
+
+def get_delivery_slots(limit: int = 12, available_only: bool = True) -> list[dict[str, Any]]:
+    """De eerstvolgende bezorgmomenten. Alleen lezen: een moment kiezen doe je in de Picnic-app."""
+    slots = slots_from_cart(_authed("GET", "/cart"))
+    if available_only:
+        slots = [slot for slot in slots if slot["available"]]
+    return slots[: max(1, limit)]
 
 
 def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:

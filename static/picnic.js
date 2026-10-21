@@ -134,6 +134,71 @@ function renderPicnicExploreSummary() {
   if (report) $("#picnic-explore-summary").textContent = t("explore.summary", { ok: report.ok, total: report.probes.length });
 }
 
+// ---- Bezorgmomenten onder het gevulde mandje (alleen lezen: kiezen doe je in de Picnic-app)
+function formatSlot(slot) {
+  const start = new Date(slot.windowStart);
+  const end = new Date(slot.windowEnd);
+  if (Number.isNaN(start.getTime())) return "";
+  const day = start.toLocaleDateString(I18N.locale(), { weekday: "short", day: "numeric", month: "short" });
+  const time = (date) => date.toLocaleTimeString(I18N.locale(), { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(end.getTime()) ? `${day} ${time(start)}` : `${day} ${time(start)}\u2013${time(end)}`;
+}
+
+async function showPicnicSlots() {
+  let slots = [];
+  try {
+    slots = (await jsonFetch("/api/picnic/slots?limit=6")).slots || [];
+  } catch {
+    return; // De bezorgmomenten zijn een extraatje: het gevulde mandje blijft staan.
+  }
+  const target = $("#cart-result");
+  if (!slots.length || !target || state.store !== "picnic") return;
+  const items = slots
+    .map((slot) => {
+      const minimum = slot.minimumOrder ? ` <span class="muted">(${escapeHtml(t("picnic.slot_minimum", { amount: formatPrice(slot.minimumOrder) }))})</span>` : "";
+      return `<li>${escapeHtml(formatSlot(slot))}${minimum}</li>`;
+    })
+    .join("");
+  target.insertAdjacentHTML(
+    "beforeend",
+    `<div class="picnic-slots"><strong>${escapeHtml(t("picnic.slots_title"))}</strong><ul class="cart-lines">${items}</ul><p class="muted">${escapeHtml(t("picnic.slots_hint"))}</p></div>`
+  );
+}
+
+// ---- Supermarkt kiezen in de planner: alleen zichtbaar als Picnic gekoppeld is
+function renderStoreChoice() {
+  const slot = $("#cart-store-slot");
+  if (!slot) return;
+  if (!picnicState.connected) {
+    state.store = "ah";
+    slot.innerHTML = "";
+  } else {
+    slot.innerHTML = `
+      <select id="cart-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
+        <option value="ah"${state.store === "ah" ? " selected" : ""}>Albert Heijn</option>
+        <option value="picnic"${state.store === "picnic" ? " selected" : ""}>Picnic</option>
+      </select>`;
+    $("#cart-store").addEventListener("change", (event) => {
+      state.store = event.target.value === "picnic" ? "picnic" : "ah";
+      try {
+        localStorage.setItem("ms-store", state.store);
+      } catch {
+        // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
+      }
+      const button = $("#add-cart");
+      if (button) button.textContent = cartButtonLabel();
+    });
+  }
+  const button = $("#add-cart");
+  if (button) button.textContent = cartButtonLabel();
+}
+
+try {
+  if (localStorage.getItem("ms-store") === "picnic") state.store = "picnic";
+} catch {
+  // Geen opslag beschikbaar: AH blijft de standaard.
+}
+
 $("#picnic-form").addEventListener("submit", loginToPicnic);
 $("#picnic-code-form").addEventListener("submit", confirmPicnicCode);
 $("#picnic-send-sms").addEventListener("click", () => requestPicnicCode("SMS"));

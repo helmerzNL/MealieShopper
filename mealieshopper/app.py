@@ -487,9 +487,9 @@ def create_app() -> Flask:
     def store_error(label: str, exc: Exception, *user_errors: type) -> Any:
         """Fouten van de gebruiker (400) apart van fouten van de winkel zelf (424)."""
         if isinstance(exc, (ValueError, *user_errors)):
-            return jsonify({"error": str(exc)}), 400
+            return jsonify({"error": f"{label} aanvraag ongeldig"}), 400
         app.logger.exception("%s error", label)
-        return jsonify({"error": str(exc) or f"{label} fout"}), 424
+        return jsonify({"error": f"{label} fout"}), 424
 
     def store_cart(store: Any, error: Any, auth_error: type) -> Any:
         """Zoek (indien nodig) de producten en zet ze in het mandje van de winkel; nooit een bestelling."""
@@ -608,6 +608,15 @@ def create_app() -> Flask:
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+        except Exception as exc:  # noqa: BLE001
+            return picnic_error(exc)
+
+    @app.get("/api/picnic/slots")
+    def picnic_slots():
+        # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.
+        try:
+            limit = max(1, min(30, int(request.args.get("limit") or 8)))
+            return jsonify({"slots": picnic.get_delivery_slots(limit)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 

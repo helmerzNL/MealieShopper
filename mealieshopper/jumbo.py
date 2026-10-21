@@ -246,7 +246,7 @@ def status(verify: bool = False) -> dict[str, Any]:
             result["verified"] = True
         except Exception as exc:  # noqa: BLE001 - de reden tonen we aan de beheerder
             result["verified"] = False
-            result["error"] = str(exc)
+            result["error"] = type(exc).__name__
     return result
 
 
