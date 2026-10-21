@@ -312,9 +312,11 @@ def tool_picnic_slots(args: dict[str, Any]) -> Any:
 def tool_picnic_favorites(args: dict[str, Any]) -> Any:
     _picnic_linked()
     limit = max(1, min(100, int(args.get("limit") or 50)))
-    products = picnic.get_favorites()
+    found = picnic.get_favorites()
+    products = found["products"]
     brief = [{"title": p["title"], "size": p.get("unitSize"), "price": p.get("price"), "promotion": p.get("isBonus")} for p in products[:limit]]
-    return {"total": len(products), "products": brief}
+    # Weet Picnic niet welke producten favoriet zijn, dan zijn het alle producten van de pagina; dat melden we.
+    return {"total": len(products), "onlyFavorites": found["filtered"], "products": brief}
 
 
 def tool_picnic_recipes(args: dict[str, Any]) -> Any:
@@ -507,7 +509,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_picnic_slots,
     },
     "list_picnic_favorites": {
-        "description": "Je favoriete producten bij Picnic (de tab Favorieten in de Picnic-app): naam, inhoud, prijs en of er een aanbieding is. Live opgehaald; er wordt niets aan je mandje toegevoegd.",
+        "description": "Je favoriete producten bij Picnic (de tab Favorieten in de Picnic-app, alleen de producten die je zelf als favoriet hebt opgeslagen): naam, inhoud, prijs en of er een aanbieding is. Live opgehaald; er wordt niets aan je mandje toegevoegd.",
         "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal producten, standaard 50."}}),
         "annotations": {**READ_ONLY, "title": "Picnic-favorieten"},
         "handler": tool_picnic_favorites,

@@ -607,9 +607,9 @@ class ToolsTest(McpTestCase):
         products = [{"id": f"s{n}", "title": f"Product {n}", "unitSize": "1 l", "price": 1.5, "isBonus": n == 0,
                      "image": "https://x/y.png", "maxCount": 5} for n in range(4)]
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic, "get_favorites", return_value=products):
+                mock.patch.object(picnic, "get_favorites", return_value={"products": products, "total": 40, "filtered": True}):
             data = self.data("list_picnic_favorites", {"limit": 2})
-            self.assertEqual((data["total"], len(data["products"])), (4, 2))
+            self.assertEqual((data["total"], len(data["products"]), data["onlyFavorites"]), (4, 2, True))
             self.assertEqual(set(data["products"][0]), {"title", "size", "price", "promotion"})
         with mock.patch.object(picnic, "configured_auth_key", return_value=""):
             self.assertTrue(self.call(self.token, "list_picnic_favorites")["isError"])

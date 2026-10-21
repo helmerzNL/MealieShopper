@@ -355,11 +355,57 @@ def _page(reference: str) -> Any:
     return _authed("GET", f"/pages/{reference}", text=True)
 
 
-def get_favorites() -> list[dict[str, Any]]:
-    """De favoriete producten: de producten op de pagina van de Favorieten-tab van de app.
+def saved_markers(page: Any) -> tuple[set[str], dict[str, bool]]:
+    """Wat een pagina zegt over opgeslagen producten (favorieten): (id's uit een lijst `saved`, vlag per product).
 
-    Staan er op die pagina zelf geen producten, dan volgen we de pagina's waar hij naar verwijst (de inhoud
-    van een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
+    De pagina van de Favorieten-tab bevat meer producten dan alleen je favorieten; het veld `saved` markeert welke
+    echt zijn opgeslagen. Dat kan een lijst met product-id's zijn, of een waar/onwaar-vlag bij elk product.
+    """
+    ids: set[str] = set()
+    for node in _walk(page):
+        saved = node.get("saved")
+        if isinstance(saved, list):
+            ids |= {str(item) for item in saved if isinstance(item, (str, int)) and not isinstance(item, bool)}
+        elif isinstance(saved, dict):
+            ids |= {str(key) for key, value in saved.items() if value}
+    flags: dict[str, bool] = {}
+    for node in _walk(page):
+        if node.get("type") != "PML":
+            continue
+        units = [d for d in _walk(node) if d.get("type") == "SELLING_UNIT_TILE" and isinstance(d.get("sellingUnit"), dict)]
+        if len(units) != 1:
+            continue  # een onderdeel met meer producten zegt niets over één van hen
+        flag = next((d["saved"] for d in _walk(node) if isinstance(d.get("saved"), bool)), None)
+        if flag is not None:
+            flags[str(units[0]["sellingUnit"].get("id"))] = flag
+    return ids, flags
+
+
+def mark_favorites(products: list[dict[str, Any]], page: Any) -> list[dict[str, Any]]:
+    """Zet bij elk product `favorite`: True, False, of None als de pagina daar niets over zegt."""
+    ids, flags = saved_markers(page)
+    for product in products:
+        if flags.get(product["id"]) is True or product["id"] in ids:
+            product["favorite"] = True
+        else:
+            product["favorite"] = False if (product["id"] in flags or ids) else None
+    return products
+
+
+def only_favorites(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """(de favorieten, of er echt gefilterd is). Weet de pagina niet welke producten favoriet zijn, dan komen alle producten terug."""
+    if any(p.get("favorite") is not None for p in products):
+        return [p for p in products if p.get("favorite")], True
+    return products, False
+
+
+def get_favorites() -> dict[str, Any]:
+    """De favoriete producten uit de Favorieten-tab van de app.
+
+    Die tab laat ook andere producten zien; we nemen alleen die Picnic als opgeslagen markeert (zie
+    `saved_markers`). Staan er op de pagina zelf geen producten, dan volgen we de pagina's waar hij naar
+    verwijst (de inhoud van een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
+    Geeft de producten, hoeveel de pagina er in totaal toont en of er op favoriet is gefilterd.
     """
     reference = favorites_reference(bootstrap_tabs())
     if not reference:
@@ -372,7 +418,7 @@ def get_favorites() -> list[dict[str, Any]]:
     page = _page(reference)
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf de favorieten in een onbekend formaat", "Picnic returned the favorites in an unknown format"))
-    products = products_from_page(page)
+    products = mark_favorites(products_from_page(page), page)
     followed: list[str] = []
     for linked in dict.fromkeys(_LINKED_PAGE.findall(json.dumps(page))):
         if products or len(followed) >= MAX_LINKED_PAGES:
@@ -382,8 +428,9 @@ def get_favorites() -> list[dict[str, Any]]:
         followed.append(linked)
         sub_page = _page(linked)
         if isinstance(sub_page, dict):
-            products = products_from_page(sub_page)
-    return products
+            products = mark_favorites(products_from_page(sub_page), sub_page)
+    favorites, filtered = only_favorites(products)
+    return {"products": favorites, "total": len(products), "filtered": filtered}
 
 
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
