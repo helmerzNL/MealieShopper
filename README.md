@@ -61,21 +61,21 @@ Laad je weekmenu uit Mealie. Het aantal verpakkingen wordt uitgerekend met de ve
 
 <img src="docs/screenshots/nl/search.png" alt="Recepten zoeken bij Allerhande, met kaarten en een knop om te importeren" width="900">
 
-### AH Items: je bewaarde recepten
+### Winkels: je bewaarde AH-recepten
 
 Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens twee naast elkaar. Bovenaan zoek je in je recepten.
 
 <img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met een zoekbalk en kaarten met een importknop" width="900">
 
-### AH Items: je lijstjes
+### Winkels: je lijstjes
 
-Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op naam of op een product, en open een lijstje op dezelfde plek. In een geopend lijstje zet je het hele lijstje met één druk op **In AH-mandje** in je winkelmandje, en pas je per product het aantal aan.
+Je favoriete lijstjes als kaarten. Synchroniseer ze naar MealieShopper, zoek op naam of op een product, en open een lijstje op dezelfde plek. In een geopend lijstje zet je het hele lijstje met één druk op **In mandje** in je winkelmandje, en pas je per product het aantal aan.
 
 <img src="docs/screenshots/nl/lists.png" alt="AH lijstjes als kaarten, met een zoekbalk en een synchroniseerknop per lijstje" width="900">
 
 <img src="docs/screenshots/nl/list.png" alt="Een geopend lijstje met aanpasbare aantallen, de knop In AH-mandje en de iconen voor terugzetten en synchroniseren" width="900">
 
-### AH Items: bestellingen en kassabonnen
+### Winkels: AH-bestellingen en kassabonnen
 
 Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijving, prijs en bedrag, de bonusregels, het totaal en hoe je betaalde. Alles staat in een lokale kopie; het zoekveld doorzoekt al je aankopen en laat zien wanneer en hoe vaak je iets kocht, en **op welke kassabonnen** een product staat (zoek bijvoorbeeld op "frisdrank"); open je zo'n bon, dan zijn de passende regels geel gemarkeerd. Het bestelmandje en je bestellingen bij AH komen binnenkort.
 
@@ -157,7 +157,7 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 ### Weekmenu naar het AH-mandje
 
-`Weekmenu laden` haalt de week uit Mealie, met de plaatjes. `Voeg toe aan Albert Heijn mandje` zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
+`Weekmenu laden` haalt de week uit Mealie, met de plaatjes. Is Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke winkel het gaat (bij Jumbo ook: het **mandje** of het **lijstje**). `Voeg toe aan Albert Heijn mandje` zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
 
 Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan gaat het mandje meteen vol. Naast elk product staat een link naar het product bij AH, zodat je kunt controleren of het klopt.
 
@@ -167,12 +167,14 @@ De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart z
 
 Zoek bij `Recepten zoeken` in Allerhande (tot de eerste 2.000 treffers) en kies `Importeer`, of plak bij `URL importeren` een Allerhande-link of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
 
-### AH Items
+### Winkels
+
+Het tabblad **Winkels** (voorheen *AH Items*) laat per winkel zien wat MealieShopper bewaart. Is Jumbo gekoppeld, dan staat bovenaan een keuzelijst met **Albert Heijn** en **Jumbo**; bij Jumbo ontbreken de recepten.
 
 - **AH Recepten**: je bewaarde Allerhande-recepten. `Ophalen bij AH` (daarna `Vernieuwen`) haalt ze allemaal op en bewaart ze in MealieShopper. Het tabblad toont daarna de lokale kopie en roept AH niet meer aan, tot je zelf vernieuwt; mislukt een vernieuwing, dan blijft de vorige kopie staan. Zoek bovenaan in je recepten.
-- **AH Lijstjes**: je favoriete lijstjes. Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Synchroniseren voegt nieuwe items toe en haalt weg wat bij AH is verdwenen, maar laat een aantal dat je hebt aangepast met rust (de melding zegt hoeveel aangepaste aantallen zijn behouden). Het oorspronkelijke aantal van AH staat er als `AH: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH, nadat je een waarschuwing hebt bevestigd. `In AH-mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
+- **Lijstjes**: bij AH je favoriete lijstjes, bij Jumbo het ene Jumbo-lijstje (zie *Jumbo*). Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Synchroniseren voegt nieuwe items toe en haalt weg wat bij AH is verdwenen, maar laat een aantal dat je hebt aangepast met rust (de melding zegt hoeveel aangepaste aantallen zijn behouden). Het oorspronkelijke aantal staat er als `Op lijstje: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH, nadat je een waarschuwing hebt bevestigd. `In mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
 
-- **Bestellingen**: het synchroniseer-icoon haalt in één keer het bestelmandje, de open en afgeronde bestellingen en de kassabonnen op, en bewaart ze. Elke volgende synchronisatie haalt alleen op wat nieuw is. Een open bestelling wordt bijgewerkt zolang hij open is; is hij geleverd, dan bewaart MealieShopper hem als **afgeleverd**. AH geeft per keer de laatste 10 afgeronde bestellingen; geannuleerde bestellingen slaat MealieShopper over. Het **bestelmandje** is leeg zolang je geen bestelling bent begonnen. Een afgeleverde bestelling verandert niet meer en blijft altijd bewaard, ook als AH hem later niet meer toont. Kassabonnen komen er in porties van 40 bij (staat er "nog op te halen", synchroniseer dan opnieuw). Het bestelmandje is de actieve bestelling bij AH en is iets anders dan de boodschappenlijst waar `In AH-mandje` naartoe schrijft. Het afleveradres bewaart MealieShopper niet, alleen datum en tijdvak.
+- **Bestellingen**: het synchroniseer-icoon haalt in één keer het bestelmandje, de open en afgeronde bestellingen en de kassabonnen op, en bewaart ze. Elke volgende synchronisatie haalt alleen op wat nieuw is. Een open bestelling wordt bijgewerkt zolang hij open is; is hij geleverd, dan bewaart MealieShopper hem als **afgeleverd**. AH geeft per keer de laatste 10 afgeronde bestellingen; geannuleerde bestellingen slaat MealieShopper over. Het **bestelmandje** is leeg zolang je geen bestelling bent begonnen. Een afgeleverde bestelling verandert niet meer en blijft altijd bewaard, ook als AH hem later niet meer toont. Kassabonnen komen er in porties van 40 bij (staat er "nog op te halen", synchroniseer dan opnieuw). Het bestelmandje is de actieve bestelling bij AH en is iets anders dan de boodschappenlijst waar `In mandje` bij AH naartoe schrijft. Het afleveradres bewaart MealieShopper niet, alleen datum en tijdvak.
 
 ### Installeren als app
 
@@ -231,7 +233,7 @@ Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app,
 3. Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen, maar in de console staat een rode regel met `jumbo://callbacks/login?code=...`.
 4. Plak die regel in MealieShopper en kies `Koppelen`. De code werkt maar één keer en verloopt snel; een melding over een verlopen of gebruikte code betekent: opnieuw inloggen.
 
-Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen headless browser meer. Je wachtwoord wordt niet bewaard, alleen het refresh-token dat Jumbo teruggeeft, versleuteld; Jumbo kan dat bij elke vernieuwing vervangen en MealieShopper bewaart steeds de nieuwste. Draai daarom één instance en houd de data-map op persistente opslag. Zodra Jumbo gekoppeld is, verschijnt het in de keuzelijst in de planner. Net als bij Picnic gaan de producten direct in je echte mandje en wordt er nooit een bestelling geplaatst. Je AI-assistent kan Jumbo-producten en je mandje bekijken, maar het mandje niet vullen.
+Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen headless browser meer. Je wachtwoord wordt niet bewaard, alleen het refresh-token dat Jumbo teruggeeft, versleuteld; Jumbo kan dat bij elke vernieuwing vervangen en MealieShopper bewaart steeds de nieuwste. Draai daarom één instance en houd de data-map op persistente opslag. Zodra Jumbo gekoppeld is, verschijnt het in de keuzelijst in de planner. Net als bij Picnic gaan de producten direct in je echte mandje en wordt er nooit een bestelling geplaatst. Het Jumbo-**lijstje** (de losse regels die je in de Jumbo-app op je lijstje zet) zie je onder **Winkels > Lijstjes** na de keuze *Jumbo*. Het is één lijstje, met tekst en soms een product; Jumbo kent er geen aantallen bij, dus de aantallen zijn lokaal (standaard 1) en gaan mee naar het mandje. Afgevinkte regels slaat MealieShopper over. Met `In mandje` zoekt MealieShopper regels met alleen tekst eerst op in het assortiment van Jumbo. In de planner zet *Jumbo (lijstje)* de ingrediënten op dat lijstje in plaats van in het mandje; wat er al op staat slaat MealieShopper over, en staat het lijstje in de Jumbo-app uit, dan zet MealieShopper het aan. Je AI-assistent kan Jumbo-producten, je mandje en het lijstje bekijken, maar niets vullen.
 
 **Jumbo kan een server weigeren.** Jumbo weert soms server- en datacenter-adressen; dat is waarom een eerdere Jumbo-koppeling in v1.2.0 is verwijderd. Onder **Jumbo-routes verkennen** (alleen de beheerder) controleert MealieShopper eerst of Jumbo jouw server toelaat en roept daarna de onofficiële routes aan (het mandje vullen alleen met een lege lijst). Het rapport bevat geen namen, prijzen of id's en is veilig te delen. Meldt de verkenner dat Jumbo je server weigert, dan werkt de koppeling vanaf die plek niet.
 

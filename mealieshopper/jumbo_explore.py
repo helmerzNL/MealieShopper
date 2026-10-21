@@ -23,6 +23,10 @@ EXAMPLE_TERM = "melk"
 def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
     try:
         result = call()
+    except jumbo.JumboSchemaError as exc:
+        # Jumbo's eigen validatiemelding noemt alleen velden en typen uit onze query ("Cannot query field ..."):
+        # dat is precies wat nodig is om een query te herstellen en bevat geen persoonsgegevens.
+        return {"name": name, "ok": False, "error": type(exc).__name__, "schema": str(exc)[:300]}, None
     except Exception as exc:  # noqa: BLE001 - het fouttype is genoeg om de route te onderzoeken
         return {"name": name, "ok": False, "error": type(exc).__name__}, None
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
@@ -50,6 +54,14 @@ def _empty_add_probe() -> dict[str, Any]:
         jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
     return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
+
+
+def _empty_list_edit_probe() -> dict[str, Any]:
+    """Schrijfpad van het lijstje met een lege lijst: er wordt niets toegevoegd, we zien alleen de typenaam."""
+    data = jumbo._graphql_variants(
+        "EditShoppingListItems", jumbo.EDIT_LIST_QUERIES, {"input": {"items": []}}, jumbo.LOYALTY_CLIENT
+    )
+    return {"typename": (data.get("editShoppingListItems") or {}).get("__typename")}
 
 
 def _possible_result_types() -> list[str]:
@@ -101,6 +113,21 @@ def explore() -> dict[str, Any]:
         _empty_add_probe,
         lambda data: data,
     )
+    probes.append(report)
+
+    report, live_list = _probe("lijstje: GraphQL shoppingList", jumbo.get_shopping_list)
+    probes.append(report)
+
+    report, _ = _probe(
+        "lijstje: editShoppingListItems met een lege lijst (voegt niets toe)", _empty_list_edit_probe, lambda data: data
+    )
+    probes.append(report)
+
+    sku = next((item["sku"] for item in (live_list or {}).get("items", []) if item.get("sku")), None)
+    if sku:
+        report, _ = _probe("productgegevens van een regel van het lijstje: ProductDetail", lambda: jumbo.get_product(sku))
+    else:
+        report = {"name": "productgegevens van een regel van het lijstje: ProductDetail", "ok": False, "error": "overgeslagen: geen regel met SKU"}
     probes.append(report)
 
     report, _ = _probe(

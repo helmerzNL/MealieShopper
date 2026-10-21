@@ -2,6 +2,29 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.9.0
+
+*English summary: The Jumbo shopping list is now in MealieShopper. The tab "AH Items" is renamed "Stores" and, once Jumbo is linked, has a store choice at the top: the Jumbo list shows up under Lists with the same cards, quantities and "Add to basket" as the AH lists. The planner gets a fourth choice, "Jumbo (list)", which puts the ingredients on the Jumbo list instead of in the basket. A new read-only MCP tool, get_jumbo_list, shows the list. Also fixes a stale script that hid Jumbo from the planner's store list. Not yet tried against a live Jumbo list: the explorer under Settings > Jumbo now checks the list routes too.*
+
+### Nieuw in 1.9.0
+
+- **Het Jumbo-lijstje.** Onder **Winkels > Lijstjes** zie je, na de keuze *Jumbo*, het ene lijstje van Jumbo met dezelfde kaart, synchroniseer-knop, zoekveld en aanpasbare aantallen als de AH-lijstjes. Het lijstje bestaat uit tekst en soms een product; voor regels met een product haalt MealieShopper titel, pakmaat en prijs erbij. Jumbo kent geen aantallen op het lijstje, dus die zijn lokaal (standaard 1). Afgevinkte regels slaat MealieShopper over.
+- **`In mandje`** zet het hele lijstje in het Jumbo-mandje: regels met een product gaan direct, regels met alleen tekst zoekt MealieShopper eerst op in het assortiment van Jumbo. Wat niet te vinden of toe te voegen is, meldt de app.
+- **Ingrediënten op het Jumbo-lijstje.** In de planner staat nu naast *Jumbo* ook *Jumbo (lijstje)*: de ingrediënten gaan dan op het boodschappenlijstje in plaats van in het mandje. Wat er al op staat slaat MealieShopper over; staat het lijstje in de Jumbo-app uit, dan zet MealieShopper het aan.
+- **Het tabblad heet nu Winkels** (voorheen *AH Items*). Is Jumbo gekoppeld, dan staat bovenaan een keuzelijst met Albert Heijn en Jumbo; bij Jumbo ontbreken de recepten. De teksten in de lijsten zijn winkel-neutraal gemaakt ("In mandje", "Op lijstje: 2" in plaats van "AH: 2").
+- **Nieuwe MCP-tool, alleen lezen:** `get_jumbo_list`. Een regel die geen product is, staat erin met alleen zijn tekst. Het lijstje vullen kan niet via MCP.
+- **Jumbo-routes verkennen** controleert nu ook het lijstje: de vorm van `shoppingList`, het schrijfpad `editShoppingListItems` (alleen met een lege lijst, dus er wordt niets toegevoegd) en de productgegevens van een regel. Bij een schemafout van Jumbo (een veld of type dat niet bestaat) toont het rapport nu de validatiemelding van Jumbo zelf (alleen veld- en typenamen uit onze eigen query, geen persoonsgegevens); andere fouten blijven alleen hun type tonen.
+- Nieuwe routes onder `/api/jumbo/lists` en `/api/jumbo/list`.
+
+### Opgelost in 1.9.0
+
+- **Jumbo ontbrak in de keuzelijst van de planner.** Een verouderd tweede `renderStoreChoice` in `static/picnic.js` (teruggekomen bij het samenvoegen van de Picnic-bezorgmomenten) overschreef de versie die AH, Picnic en Jumbo kent. Het duplicaat is weg en een test bewaakt dat een scriptfunctie maar één keer bestaat.
+
+### Goed om te weten
+
+- De vorm van het Jumbo-lijstje komt uit het community-project `jumbo-mcp`. Of Jumbo precies deze velden en typenamen kent is nog **niet met een echt lijstje bevestigd**; elke query valt terug op een variant zonder foutfragment (zoals bij het mandje bleek nodig). Draai **Jumbo-routes verkennen**, zet één regel op het lijstje en meld wat afwijkt. Het schrijven naar het lijstje is een echte wijziging in je Jumbo-account; er wordt niets besteld.
+- Nog niet voor Jumbo: bonnen, bestellingen en de stap in de installatiehulp (volgen in aparte versies).
+
 ## v1.8.0
 
 *English summary: Picnic now shows the next available delivery slots under the filled basket and through a new read-only MCP tool, `list_picnic_delivery_slots`. The basket also reports what you actually pay and what your membership saves. The Picnic route explorer checks more routes (account, lists, store, suggestions, product page) so the next steps can be built on real answers. Choosing a slot and placing an order remain in the Picnic app.*

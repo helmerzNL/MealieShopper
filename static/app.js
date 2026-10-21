@@ -19,7 +19,8 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
-  store: "ah", // de supermarkt voor het weekmenu: "ah", "picnic" of "jumbo"
+  store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" (mandje) of "jumbo-list" (lijstje)
+  itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
   linkedStores: { picnic: false, jumbo: false }, // gezet door picnic.js en jumbo.js; AH is altijd een keuze
 };
@@ -590,18 +591,24 @@ function cartSelection(row, candidate, quantity) {
 }
 
 const STORES = {
-  ah: { name: "Albert Heijn", button: "plan.add_cart", ready: "cart.ready" },
-  picnic: { name: "Picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
-  jumbo: { name: "Jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
+  ah: { name: "Albert Heijn", api: "ah", linked: "ah", button: "plan.add_cart", ready: "cart.ready" },
+  picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
+  jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
+  // Hetzelfde Jumbo-account, maar de ingrediënten gaan op het boodschappenlijstje in plaats van in het mandje.
+  "jumbo-list": { name: "Jumbo (lijstje)", api: "jumbo", linked: "jumbo", cart: "list", button: "plan.add_cart_jumbo_list", ready: "cart.ready_jumbo_list" },
 };
 
+function currentStore() {
+  return STORES[state.store] || STORES.ah;
+}
+
 function cartButtonLabel() {
-  return t((STORES[state.store] || STORES.ah).button);
+  return t(currentStore().button);
 }
 
 // Supermarkt kiezen in de planner: alleen zichtbaar zodra een tweede winkel gekoppeld is.
 function renderStoreChoice() {
-  const available = ["ah", ...Object.keys(state.linkedStores).filter((key) => state.linkedStores[key])];
+  const available = Object.keys(STORES).filter((key) => key === "ah" || state.linkedStores[STORES[key].linked]);
   state.store = available.includes(state.preferredStore) ? state.preferredStore : "ah";
   const slot = $("#cart-store-slot");
   if (slot) {
@@ -625,6 +632,54 @@ function renderStoreChoice() {
   }
   const button = $("#add-cart");
   if (button) button.textContent = cartButtonLabel();
+  renderItemsStore();
+}
+
+// De winkel in de tab Winkels: AH, of Jumbo zodra die gekoppeld is. Jumbo heeft geen recepten.
+function itemsApi() {
+  return `/api/${state.itemsStore}`;
+}
+
+function itemsStoreName() {
+  return STORES[state.itemsStore].name;
+}
+
+function renderItemsStore() {
+  if (!state.linkedStores.jumbo) state.itemsStore = "ah";
+  const slot = $("#items-store-slot");
+  if (slot) {
+    slot.innerHTML = state.linkedStores.jumbo
+      ? `<select id="items-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
+          <option value="ah"${state.itemsStore === "ah" ? " selected" : ""}>${STORES.ah.name}</option>
+          <option value="jumbo"${state.itemsStore === "jumbo" ? " selected" : ""}>${STORES.jumbo.name}</option>
+        </select>`
+      : "";
+    $("#items-store")?.addEventListener("change", (event) => switchItemsStore(event.target.value));
+  }
+  document.querySelectorAll('[data-subtab="ah-items-recepten"]').forEach((button) => {
+    button.hidden = state.itemsStore !== "ah";
+  });
+}
+
+function switchItemsStore(store) {
+  state.itemsStore = store === "jumbo" ? "jumbo" : "ah";
+  // Een andere winkel heeft andere lijstjes: begin met een schone lijst en laad opnieuw.
+  state.ahListsLoaded = false;
+  state.ahLists = [];
+  state.ahListHits = {};
+  state.ahListQuery = "";
+  $("#ah-list-filter").value = "";
+  closeAhList(false);
+  renderAhLists();
+  renderItemsStore();
+  // Jumbo heeft geen recepten: ga naar de lijstjes. Bij AH blijft de tab waar hij was.
+  const active = document.querySelector("#ah-items .subtab.is-active");
+  if (state.itemsStore === "jumbo" && active?.dataset.subtab === "ah-items-recepten") {
+    document.querySelector('[data-subtab="ah-items-lijstjes"]').click();
+  } else if (document.querySelector("#ah-items-lijstjes.is-active")) {
+    state.ahListsLoaded = true;
+    loadAhFavoriteLists();
+  }
 }
 
 try {
@@ -641,12 +696,12 @@ function showCartResult(data, notFound) {
       return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
     })
     .join("");
-  // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen.
+  // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
   const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
-    ? th("cart.missing", { count: names.length, names: names.join(", ") })
+    ? th(state.store === "jumbo-list" ? "cart.on_list" : "cart.missing", { count: names.length, names: names.join(", ") })
     : "";
-  const ready = (STORES[state.store] || STORES.ah).ready;
+  const ready = currentStore().ready;
   $("#cart-result").innerHTML = `
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
@@ -655,7 +710,7 @@ function showCartResult(data, notFound) {
 }
 
 async function submitCart(selection, notFound) {
-  const data = await jsonFetch(`/api/${state.store}/cart`, {
+  const data = await jsonFetch(`/api/${currentStore().api}/${currentStore().cart || "cart"}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items: selection }),
@@ -772,7 +827,7 @@ async function addToCart() {
   button.textContent = t("cart.searching");
   $("#cart-result").innerHTML = "";
   try {
-    const preview = await jsonFetch(`/api/${state.store}/cart/preview`, {
+    const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1011,7 +1066,7 @@ function ahListStatus(list) {
   const when = formatSyncTime(list.syncedAt);
   const stale =
     list.source === "both" && list.syncedCount !== null && list.syncedCount !== list.itemCount
-      ? ` · ${t("list.changed_at_ah")}`
+      ? ` · ${t("list.changed_at_store", { store: itemsStoreName() })}`
       : "";
   const gone = list.source === "local" ? ` · ${t("list.local_only")}` : "";
   return `${count} · ${when ? t("list.synced_on", { when }) : t("list.synced")}${stale}${gone}`;
@@ -1030,7 +1085,7 @@ function ahListCardLines(list) {
     date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString(I18N.locale(), { day: "numeric", month: "short" }) : "";
   lines.push(day ? t("list.card.synced_day", { day }) : t("list.card.synced"));
   if (list.source === "local") lines.push(t("list.card.local_only"));
-  else if (list.syncedCount !== null && list.syncedCount !== list.itemCount) lines.push(t("list.card.changed"));
+  else if (list.syncedCount !== null && list.syncedCount !== list.itemCount) lines.push(t("list.card.changed", { store: itemsStoreName() }));
   return lines;
 }
 
@@ -1083,7 +1138,7 @@ async function searchAhListContents() {
     return;
   }
   try {
-    const data = await jsonFetch(`/api/ah/lists/search?q=${encodeURIComponent(query)}`);
+    const data = await jsonFetch(`${itemsApi()}/lists/search?q=${encodeURIComponent(query)}`);
     if (seq !== ahListSearchSeq) return; // een nieuwere toetsaanslag is al onderweg
     state.ahListHits = data.items || {};
   } catch {
@@ -1108,7 +1163,7 @@ async function loadAhFavoriteLists() {
   button.disabled = true;
   button.textContent = t("saved.loading");
   try {
-    const data = await jsonFetch("/api/ah/lists");
+    const data = await jsonFetch(`${itemsApi()}/lists`);
     state.ahLists = data.lists || [];
     renderAhLists();
     if (state.ahListQuery.trim()) searchAhListContents();
@@ -1116,8 +1171,8 @@ async function loadAhFavoriteLists() {
     const hasLocal = state.ahLists.some((list) => list.synced);
     message(
       "#ah-lists-warning",
-      data.ahError
-        ? t("list.ah_down", { copies: hasLocal ? t("list.ah_down_copies") : "", error: data.ahError })
+      data.storeError || data.ahError
+        ? t("list.store_down", { store: itemsStoreName(), copies: hasLocal ? t("list.store_down_copies") : "", error: data.storeError || data.ahError })
         : ""
     );
   } catch (error) {
@@ -1141,7 +1196,7 @@ function setBusy(button, busy, busyText) {
 async function syncAhList(listId, button) {
   setBusy(button, true, t("list.syncing"));
   try {
-    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/sync`, { method: "POST" });
+    const data = await jsonFetch(`${itemsApi()}/lists/${encodeURIComponent(listId)}/sync`, { method: "POST" });
     return { ok: true, data };
   } catch (error) {
     return { ok: false, error: error.message };
@@ -1180,12 +1235,12 @@ async function syncAllAhLists() {
   const button = $("#sync-all-ah-lists");
   setBusy(button, true);
   try {
-    const data = await jsonFetch("/api/ah/lists");
+    const data = await jsonFetch(`${itemsApi()}/lists`);
     const lists = (data.lists || []).filter((list) => list.source !== "local");
     if (!lists.length) {
       message(
         "#ah-lists-warning",
-        data.ahError ? t("list.ah_down_short", { error: data.ahError }) : t("list.none_to_sync")
+        data.storeError || data.ahError ? t("list.store_down_short", { store: itemsStoreName(), error: data.storeError || data.ahError }) : t("list.none_to_sync")
       );
       return;
     }
@@ -1244,7 +1299,7 @@ async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
   message("#ah-list-items-message", "");
   $("#ah-list-items").innerHTML = `<div class="message success">${escapeHtml(t("list.loading"))}</div>`;
   try {
-    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}`);
+    const data = await jsonFetch(`${itemsApi()}/lists/${encodeURIComponent(listId)}`);
     if (state.ahOpenListId !== listId) return; // inmiddels teruggegaan of een ander lijstje geopend
     const items = data.items || [];
     state.ahOpenList = data;
@@ -1280,14 +1335,14 @@ function updateAhListControls() {
   $("#ah-list-meta").textContent =
     (synced
       ? t("list.products_local", { count: I18N.formatNumber(items.length), when: formatSyncTime(state.ahOpenList.syncedAt) })
-      : t("list.products_live", { count: I18N.formatNumber(items.length) })) +
+      : t("list.products_live", { count: I18N.formatNumber(items.length), store: itemsStoreName() })) +
     (edited ? t("list.products_edited", { count: I18N.formatNumber(edited) }) : "");
   for (const item of items) {
     const card = $(`#ah-list-items [data-position="${item.position}"]`);
     if (!card) continue;
     card.classList.toggle("is-edited", Boolean(item.edited));
     const note = card.querySelector(".qty__note");
-    if (note) note.textContent = item.edited ? t("list.qty_ah", { count: item.defaultQuantity }) : "";
+    if (note) note.textContent = item.edited ? t("list.qty_default", { count: item.defaultQuantity }) : "";
   }
 }
 
@@ -1295,7 +1350,7 @@ function renderQuantityControl(item, title) {
   const label = (key) => escapeHtml(t(key, { title }));
   return `
     <div class="qty">
-      <span class="qty__note">${item.edited ? escapeHtml(t("list.qty_ah", { count: item.defaultQuantity })) : ""}</span>
+      <span class="qty__note">${item.edited ? escapeHtml(t("list.qty_default", { count: item.defaultQuantity })) : ""}</span>
       <button type="button" class="qty__step" data-qty-step="-1" aria-label="${label("list.qty_minus")}">${mdiIcon(MDI_MINUS)}</button>
       <input class="qty__input" type="number" inputmode="numeric" min="1" max="99" step="1" value="${escapeHtml(item.quantity)}" aria-label="${label("list.qty_input")}">
       <button type="button" class="qty__step" data-qty-step="1" aria-label="${label("list.qty_plus")}">${mdiIcon(MDI_PLUS)}</button>
@@ -1344,7 +1399,7 @@ function saveQuantity(position) {
   if (!pending) return Promise.resolve();
   clearTimeout(pending.timer);
   pendingQuantities.delete(position);
-  const save = jsonFetch(`/api/ah/lists/${encodeURIComponent(pending.listId)}/items/${position}`, {
+  const save = jsonFetch(`${itemsApi()}/lists/${encodeURIComponent(pending.listId)}/items/${position}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ quantity: pending.value }),
@@ -1392,7 +1447,7 @@ async function resetOpenAhList() {
   message("#ah-list-items-message", "");
   try {
     await flushQuantities();
-    await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/reset`, { method: "POST" });
+    await jsonFetch(`${itemsApi()}/lists/${encodeURIComponent(listId)}/reset`, { method: "POST" });
     if (state.ahOpenListId !== listId) return;
     await loadAhFavoriteListItems(listId, { keepScroll: true });
     message("#ah-list-items-message", t("list.reset_done"), "success");
@@ -1413,10 +1468,10 @@ async function addOpenAhListToCart() {
   message("#ah-list-items-message", "");
   try {
     await flushQuantities();
-    const data = await jsonFetch(`/api/ah/lists/${encodeURIComponent(listId)}/cart`, { method: "POST" });
+    const data = await jsonFetch(`${itemsApi()}/lists/${encodeURIComponent(listId)}/cart`, { method: "POST" });
     message(
       "#ah-list-items-message",
-      t("list.cart_done", { name: data.name || t("list.default_title"), count: data.added, units: data.units }),
+      t("list.cart_done", { name: data.name || t("list.default_title"), count: data.added, units: data.units, store: itemsStoreName() }),
       "success"
     );
   } catch (error) {

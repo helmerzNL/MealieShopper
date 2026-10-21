@@ -60,9 +60,9 @@ class TabbarMarkupTest(unittest.TestCase):
         self.assertEqual(self.nav.count('class="tab-icon"'), 6)
         self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Weekmenu", "Zoeken", "Importeren", "AH Items", "Beheer", "Over"])
+        self.assertEqual(short, ["Weekmenu", "Zoeken", "Importeren", "Winkels", "Beheer", "Over"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "AH Items", "Beheer", "Over"])
+        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "Winkels", "Beheer", "Over"])
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)

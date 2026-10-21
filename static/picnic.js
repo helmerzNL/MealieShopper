@@ -165,40 +165,6 @@ async function showPicnicSlots() {
   );
 }
 
-// ---- Supermarkt kiezen in de planner: alleen zichtbaar als Picnic gekoppeld is
-function renderStoreChoice() {
-  const slot = $("#cart-store-slot");
-  if (!slot) return;
-  if (!picnicState.connected) {
-    state.store = "ah";
-    slot.innerHTML = "";
-  } else {
-    slot.innerHTML = `
-      <select id="cart-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-        <option value="ah"${state.store === "ah" ? " selected" : ""}>Albert Heijn</option>
-        <option value="picnic"${state.store === "picnic" ? " selected" : ""}>Picnic</option>
-      </select>`;
-    $("#cart-store").addEventListener("change", (event) => {
-      state.store = event.target.value === "picnic" ? "picnic" : "ah";
-      try {
-        localStorage.setItem("ms-store", state.store);
-      } catch {
-        // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
-      }
-      const button = $("#add-cart");
-      if (button) button.textContent = cartButtonLabel();
-    });
-  }
-  const button = $("#add-cart");
-  if (button) button.textContent = cartButtonLabel();
-}
-
-try {
-  if (localStorage.getItem("ms-store") === "picnic") state.store = "picnic";
-} catch {
-  // Geen opslag beschikbaar: AH blijft de standaard.
-}
-
 $("#picnic-form").addEventListener("submit", loginToPicnic);
 $("#picnic-code-form").addEventListener("submit", confirmPicnicCode);
 $("#picnic-send-sms").addEventListener("click", () => requestPicnicCode("SMS"));
