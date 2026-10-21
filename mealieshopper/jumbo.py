@@ -716,10 +716,15 @@ PERSISTED_QUERIES = {
     "GetCustomerProductLists": "6f99c573278cea7151eb4b422b698cb14e5c0e19632e647a582bfa81f7b5f86c",
     "GetProductList": "2bbb5daa2373f8d00c5029298df31cef6529a89fe68babb7239654d668556e36",
     "OnlineOrdersAndStoreReceipts": "89b3f60a39a37eeed32055fd531a32925e504c566d190e0ca06b8efecd0bccdf",
+    # Recepten (jumbo.com/recepten): je favoriete recepten, zoeken, één recept en recepten op id.
+    "getRecipeLists": "855078174946522c415ad4e83706f30a5d48c8458885956dcd0db7a2e666ef56",
+    "getRecipesListers": "00435d1bce6b5ea2104effb39acc45785a7af43880729d098bd7da99c596021e",
+    "getRecipe": "6726ea8758d025225b93db5f464f3e292d18982b1f43d4b6eeec09c081485b41",
+    "getRecipesByIds": "daae32449ff23a883e7eded6efdf1d47f29a172af8e538ec2ab05710f9d06da2",
 }
 # Welke clientnaam en welk transport de router voor deze queries wil is niet bekend; we proberen ze na
 # elkaar en onthouden wat werkte (de verkenner meldt het).
-LIST_CLIENTS = ("JUMBO_WEB-lists", "JUMBO_WEB-loyalty", "JUMBO_WEB-basket", "JUMBO_WEB-orders", "JUMBO_WEB")
+LIST_CLIENTS = ("JUMBO_WEB-lists", "JUMBO_WEB-loyalty", "JUMBO_WEB-basket", "JUMBO_WEB-orders", "JUMBO_WEB", "JUMBO_WEB-recipes")
 LIST_TRANSPORTS = ("POST", "GET")
 LIST_PAGE_SIZE = 25
 MAX_LIST_PAGES = 10

@@ -14,10 +14,11 @@ from typing import Any, Callable
 
 import requests
 
-from . import jumbo
+from . import jumbo, jumbo_recipes
 from .ah_explore import shape
 
 EXAMPLE_TERM = "melk"
+EXAMPLE_RECIPE = "pasta"
 
 
 def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
@@ -190,6 +191,53 @@ def explore() -> dict[str, Any]:
         )
     else:
         report = {"name": "een bestelling met producten: GetOrder", "ok": False, "error": "overgeslagen: geen bestelling"}
+    probes.append(report)
+
+    report, found = _probe(
+        "recepten zoeken: opgeslagen query getRecipesListers",
+        lambda: jumbo_recipes.search(EXAMPLE_RECIPE),
+        lambda found: {
+            "recepten op de pagina": len(found["recipes"]),
+            "recepten in totaal": found["total"],
+            "eerste recept": shape(found["recipes"][0] if found["recipes"] else None),
+            "werkt via": _route("getRecipesListers"),
+        },
+    )
+    probes.append(report)
+
+    report, _ = _probe(
+        "receptenlijsten: opgeslagen query getRecipeLists",
+        jumbo_recipes.get_lists,
+        lambda lists: {
+            "lijsten": len(lists),
+            "favorieten": sum(1 for item in lists if item["kind"] == "favorites"),
+            "eerste lijst": shape(lists[0] if lists else None),
+            "werkt via": _route("getRecipeLists"),
+        },
+    )
+    probes.append(report)
+
+    first_recipe = next(iter((found or {}).get("recipes") or []), None)
+    if first_recipe:
+        report, _ = _probe(
+            "een recept: opgeslagen query getRecipe",
+            lambda: jumbo_recipes.get_recipe(first_recipe["id"]),
+            lambda recipe: {
+                "ingrediënten": len(recipe["ingredients"]),
+                "stappen": len(recipe["steps"]),
+                "eerste ingrediënt": shape(recipe["ingredients"][0] if recipe["ingredients"] else None),
+                "werkt via": _route("getRecipe"),
+            },
+        )
+        probes.append(report)
+        # Recepten op id (de categoriepagina's): alleen de vorm van het antwoord, om die later te kunnen tonen.
+        report, _ = _probe(
+            "recepten op id: opgeslagen query getRecipesByIds",
+            lambda: jumbo_recipes.get_by_ids([r["id"] for r in found["recipes"][:3]]),
+            lambda recipes: {"recepten gevonden": len(recipes), "eerste recept": shape(recipes[0] if recipes else None), "werkt via": _route("getRecipesByIds")},
+        )
+    else:
+        report = {"name": "een recept: opgeslagen query getRecipe", "ok": False, "error": "overgeslagen: geen recept gevonden"}
     probes.append(report)
 
     report, _ = _probe(
