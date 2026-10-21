@@ -234,13 +234,45 @@ def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_jumbo_list(args: dict[str, Any]) -> Any:
-    """Het Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
+def _resolve_jumbo_list(wanted: Any) -> str:
+    """Een lijstje op id of (deel van de) naam; zonder opgave het boodschappenlijstje."""
+    text = _text(wanted, 120)
+    if not text:
+        return jumbo_lists.LIST_ID
+    lists = jumbo_lists.merged_lists()["lists"]
+    exact = [item for item in lists if item["id"] == text or item["id"].upper() == text.upper()]
+    if exact:
+        return exact[0]["id"]
+    words = ah_lists._fold(text).split()
+    found = [item for item in lists if all(word in ah_lists._fold(item["name"]) for word in words)]
+    if len(found) == 1:
+        return found[0]["id"]
+    names = ", ".join(f"'{item['name']}'" for item in (found or lists))
+    raise ToolError(f"Welk lijstje bedoel je? Kies uit: {names}" if found else f"Geen lijstje met die naam. Kies uit: {names}")
+
+
+def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
+    """Alle Jumbo-lijstjes: het boodschappenlijstje, je eigen lijstjes en Favorieten. Alleen lezen."""
     _jumbo_linked()
-    snapshot = jumbo_lists.get_snapshot(jumbo_lists.LIST_ID)
+    overview = jumbo_lists.merged_lists()
+    return {
+        "lists": [
+            {"id": item["id"], "name": item["name"], "kind": item["kind"], "items": item["itemCount"],
+             "synced": item["synced"], "syncedAt": item["syncedAt"]}
+            for item in overview["lists"]
+        ],
+        "error": overview["storeError"],
+    }
+
+
+def tool_jumbo_list(args: dict[str, Any]) -> Any:
+    """Een Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
+    _jumbo_linked()
+    list_id = _resolve_jumbo_list(args.get("list"))
+    snapshot = jumbo_lists.get_snapshot(list_id)
     source = "lokale kopie"
     if not snapshot:
-        snapshot = jumbo_lists.live_view(jumbo_lists.fetch_live())
+        snapshot = jumbo_lists.live_view(jumbo_lists.fetch_live(list_id))
         source = "live van Jumbo"
     return {
         "name": snapshot["name"],
@@ -249,6 +281,7 @@ def tool_jumbo_list(args: dict[str, Any]) -> Any:
         "items": [
             {
                 "item": (item.get("product") or {}).get("title") or item.get("term"),
+                "brand": (item.get("product") or {}).get("brand"),
                 "size": (item.get("product") or {}).get("unitSize"),
                 "price": (item.get("product") or {}).get("price") or None,
                 "quantity": item.get("quantity"),
@@ -447,9 +480,15 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Jumbo-producten zoeken"},
         "handler": tool_search_jumbo_products,
     },
-    "get_jumbo_list": {
-        "description": "Het boodschappenlijstje bij Jumbo (de losse regels die op het lijstje staan, met pakmaat en prijs als de regel een product is). Uit de lokale kopie als die er is, anders live. Er wordt niets aan veranderd.",
+    "list_jumbo_lists": {
+        "description": "De lijstjes bij Jumbo: het boodschappenlijstje, je eigen lijstjes en Favorieten (naam, soort, aantal producten, of er een lokale kopie van is). Gebruik de naam of het id met get_jumbo_list.",
         "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Jumbo-lijstjes"},
+        "handler": tool_list_jumbo_lists,
+    },
+    "get_jumbo_list": {
+        "description": "De producten van een Jumbo-lijstje (naam, merk, pakmaat, prijs, aantal en link). Zonder opgave het boodschappenlijstje (losse regels). Uit de lokale kopie als die er is, anders live. Er wordt niets aan veranderd.",
+        "inputSchema": _schema({"list": {"type": "string", "description": "Id of (deel van) de naam van het lijstje, bijvoorbeeld 'Favorieten'. Standaard het boodschappenlijstje."}}),
         "annotations": {**READ_ONLY, "title": "Jumbo-lijstje"},
         "handler": tool_jumbo_list,
     },

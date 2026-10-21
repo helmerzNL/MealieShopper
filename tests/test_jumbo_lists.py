@@ -174,10 +174,12 @@ class LocalCopyTest(TempDataDirTest):
         self.assertEqual([(i["term"], bool(i["product"])) for i in live["items"]], [("melk", True), ("brood", False)])
 
     def test_merged_lists_when_jumbo_is_up_down_or_never_synced(self):
-        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}, {"term": "b", "completed": True}]}):
+        with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}, {"term": "b", "completed": True}]}), \
+                mock.patch.object(jumbo, "get_product_lists", return_value=[]):
             up = jumbo_lists.merged_lists()
         self.assertEqual((up["lists"][0]["itemCount"], up["lists"][0]["synced"], up["lists"][0]["source"]), (1, False, "jumbo"))
-        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("geheime details")):
+        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("geheime details")), \
+                mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("geheime details")):
             self.assertEqual(jumbo_lists.merged_lists(), {"lists": [], "storeError": "Jumbo fout"})
             jumbo_lists.save_snapshot(self.LIVE)
             down = jumbo_lists.merged_lists()
@@ -195,7 +197,8 @@ class ListRoutesTest(TempDataDirTest):
         self.client = create_app().test_client()
 
     def test_overview_is_always_200(self):
-        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")):
+        with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")), \
+                mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("x")):
             response = self.client.get("/api/jumbo/lists")
         self.assertEqual((response.status_code, response.get_json()["lists"]), (200, []))
 

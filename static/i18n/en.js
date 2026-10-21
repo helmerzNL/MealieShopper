@@ -612,7 +612,7 @@ I18N.add("en", {
   "plan.add_cart_jumbo": "Add to Jumbo basket",
   "cart.ready_jumbo": "Your groceries are ready: {added} products in your Jumbo basket. Check the basket at Jumbo before you order.{missing}",
   "about.desc.jumbo": "Products and the basket, through the unofficial Jumbo app API.",
-  "plan.add_cart_jumbo_list": "Put on Jumbo list",
-  "cart.ready_jumbo_list": "Your groceries are on your Jumbo list: {added} lines.{missing}",
+  "plan.add_cart_jumbo_list": "Put on Jumbo shopping list",
+  "cart.ready_jumbo_list": "Your groceries are on your Jumbo shopping list: {added} lines.{missing}",
   "cart.on_list": " {count} was already on the list: {names}.",
 });

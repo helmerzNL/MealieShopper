@@ -56,6 +56,12 @@ def _empty_add_probe() -> dict[str, Any]:
     return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
 
 
+def _route(operation: str) -> str:
+    """Met welk transport en welke clientnaam Jumbo de opgeslagen query beantwoordde (geen persoonsgegevens)."""
+    method, client = jumbo._persisted_route.get(operation, ("?", "?"))
+    return f"{method} met {client}"
+
+
 def _empty_list_edit_probe() -> dict[str, Any]:
     """Schrijfpad van het lijstje met een lege lijst: er wordt niets toegevoegd, we zien alleen de typenaam."""
     data = jumbo._graphql_variants(
@@ -128,6 +134,34 @@ def explore() -> dict[str, Any]:
         report, _ = _probe("productgegevens van een regel van het lijstje: ProductDetail", lambda: jumbo.get_product(sku))
     else:
         report = {"name": "productgegevens van een regel van het lijstje: ProductDetail", "ok": False, "error": "overgeslagen: geen regel met SKU"}
+    probes.append(report)
+
+    report, lists = _probe(
+        "mijn lijstjes: opgeslagen query GetCustomerProductLists",
+        jumbo.get_product_lists,
+        lambda found: {
+            "eigen lijstjes": sum(1 for item in found if item["kind"] == "own"),
+            "favorieten": sum(1 for item in found if item["kind"] == "favorites"),
+            "eerste lijstje": shape(found[0] if found else None),
+            "werkt via": _route("GetCustomerProductLists"),
+        },
+    )
+    probes.append(report)
+
+    first = next(iter(lists or []), None)
+    if first:
+        report, _ = _probe(
+            "een lijstje: opgeslagen query GetProductList",
+            lambda: jumbo.get_product_list(first["id"]),
+            lambda found: {
+                "producten": len(found["items"]),
+                "aantal volgens Jumbo": first["itemCount"],
+                "eerste product": shape(found["items"][0] if found["items"] else None),
+                "werkt via": _route("GetProductList"),
+            },
+        )
+    else:
+        report = {"name": "een lijstje: opgeslagen query GetProductList", "ok": False, "error": "overgeslagen: geen lijstje"}
     probes.append(report)
 
     report, _ = _probe(

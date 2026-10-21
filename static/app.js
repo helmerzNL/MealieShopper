@@ -596,7 +596,7 @@ const STORES = {
   picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
   jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
   // Hetzelfde Jumbo-account, maar de ingrediënten gaan op het boodschappenlijstje in plaats van in het mandje.
-  "jumbo-list": { name: "Jumbo (lijstje)", api: "jumbo", linked: "jumbo", cart: "list", button: "plan.add_cart_jumbo_list", ready: "cart.ready_jumbo_list" },
+  "jumbo-list": { name: "Jumbo (boodschappenlijstje)", api: "jumbo", linked: "jumbo", cart: "list", button: "plan.add_cart_jumbo_list", ready: "cart.ready_jumbo_list" },
 };
 
 function currentStore() {
