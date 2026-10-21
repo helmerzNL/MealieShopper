@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.4.3
+
+*English summary: Picnic favorites no longer fall back to listing every product on the page. The explorer report showed that the Favorites tab of this account points to the "no purchases" page (`purchases_page_no_products_root`): 183 products and a `saved` field that is empty, so there is nothing that says which products are yours. Without a marker MealieShopper now shows no products and says why, and it also tries the `purchases-page-root` page. The explorer gets probes for the purchases pages, the product page's favorite fields and the account's delivery count and purchases consent, so the real source of your favorites can be found next.*
+
+### Opgelost in 2.4.3
+
+- **Favorieten van Picnic toonden nog steeds alle producten.** Het verkennerrapport laat zien waarom: de tab *Favorieten* van dit account wijst naar `purchases_page_no_products_root`, de pagina voor een account zonder aankopen. Daarop staan 183 producten en één leeg veld `saved`; er is dus niets wat zegt welke producten van jou zijn. Zonder markering toont MealieShopper nu **geen producten** maar de melding *Picnic geeft in de app-gegevens niet door welke producten je als favoriet hebt opgeslagen…*, in plaats van de hele pagina als favorieten te presenteren. `list_picnic_favorites` (MCP) geeft dan een lege lijst met `onlyFavorites: false`.
+- **Ook de pagina `purchases-page-root` wordt geprobeerd** als de pagina van de tab niets markeert. Markeert die wel producten, dan komen alleen die in de lijst.
+
+### Verkenner
+
+- Nieuw: de pagina's `purchases-page-root` (met en zonder parameters) en `purchases_page_no_consent_root`, met per pagina de markering `saved`.
+- Nieuw: welke velden over favorieten er op de productpagina's van de eerste drie producten staan, met hun waarde (alleen waar/onwaar/getal, geen teksten).
+- Nieuw: het aantal afgeronde leveringen en de toestemming voor aankopen van je account (alleen een getal en waar/onwaar), plus de namen van functies met `favoriet`, `purchase` of `saved` erin. Daaruit blijkt of Picnic je favorieten voor dit account op een andere plek bewaart.
+
+### Goed om te weten
+
+- **Je favorieten staan er nog niet.** Dit is een tussenstap: eerst niet meer iets verkeerds tonen. Deel na het bijwerken het verkennerrapport; de nieuwe onderdelen *favorieten: …* laten zien waar Picnic je echte favorieten bewaart.
+
 ## v2.4.2
 
 *English summary: Fixes "The update check failed (HTTP 403 (rate limit))". The check no longer uses api.github.com, where anonymous requests are limited to 60 per hour per IP address (easily used up on a shared address), but the public releases page, which GitHub redirects to the latest release tag. Nothing else changes.*

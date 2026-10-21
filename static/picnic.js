@@ -302,14 +302,11 @@ function renderPicnicFavorites() {
   const shown = query ? all.filter((product) => matchesWords(product.title, query)) : all;
   $("#picnic-favorites").innerHTML = shown.map(renderPicnicFavoriteCard).join("");
   $("#picnic-favorite-filter").disabled = !all.length;
-  // Weet Picnic niet welke producten je als favoriet hebt opgeslagen, dan zijn het alle producten van de pagina: zeg dat.
-  $("#picnic-favorites-status").textContent = !all.length
-    ? ""
-    : picnicFavorites.filtered
-      ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) })
-      : t("picnic.favorites.unfiltered", { count: I18N.formatNumber(all.length) });
+  $("#picnic-favorites-status").textContent = all.length ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) }) : "";
   if (!picnicFavorites.loaded) return;
-  message("#picnic-favorites-message", !all.length ? t("picnic.favorites.none") : shown.length ? "" : t("picnic.favorites.none_match", { query }), "success");
+  // Markeert Picnic niet welke producten je favoriet zijn, dan tonen we er geen: de producten van de pagina zijn niet de jouwe.
+  const empty = picnicFavorites.filtered ? t("picnic.favorites.none") : t("picnic.favorites.unknown", { count: I18N.formatNumber(picnicFavorites.total) });
+  message("#picnic-favorites-message", !all.length ? empty : shown.length ? "" : t("picnic.favorites.none_match", { query }), "success");
 }
 
 async function loadPicnicFavorites() {

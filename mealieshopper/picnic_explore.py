@@ -27,6 +27,12 @@ RECIPE_PAGES = (
     ("recepten-startpagina: GET pages/meals-page-root", "meals-page-root"),
     ("opnieuw bestellen: GET pages/meals-purchase-page-root", "meals-purchase-page-root"),
 )
+# Pagina's die de productpagina noemt rond aankopen en favorieten; welke de app gebruikt hangt van het account af.
+PURCHASE_PAGES = (
+    "purchases-page-root",
+    "purchases-page-root,aisle_to_focus=DAIRY&is_refresh_needed=true",
+    "purchases_page_no_consent_root",
+)
 # Waar de favorieten staan weet geen enkele library. Dit zijn gokken op basis van de naamgeving van de
 # andere pagina's; een 404 kost niets en de pagina's die wel bestaan verraden zich.
 FAVORITE_GUESSES = (
@@ -113,6 +119,20 @@ def favorite_hits(page: Any) -> list[str]:
             if key in _NAME_FIELDS and isinstance(value, str) and len(value) <= 80 and " " not in value and _FAVORITE_WORD.search(value):
                 hits.add(f"{key}: " + re.sub(r"[0-9a-f]{8,}|\d{3,}", "<id>", value))
     return sorted(hits)[:40]
+
+
+def favorite_values(page: Any) -> dict[str, Any]:
+    """Velden op een pagina die over favorieten gaan, met hun waarde (alleen waar/onwaar/getal) of hun vorm.
+
+    Zo zien we of een productpagina zegt of dit product een favoriet is. Teksten komen er niet in.
+    """
+    found: dict[str, set[str]] = {}
+    for node in picnic._walk(page):
+        for key, value in node.items():
+            if _FAVORITE_WORD.search(key):
+                shown = str(value).lower() if isinstance(value, (bool, int)) or value is None else json.dumps(shape(value))
+                found.setdefault(key, set()).add(shown)
+    return {key: sorted(values)[:6] for key, values in sorted(found.items())}
 
 
 def saved_report(page: dict[str, Any]) -> dict[str, Any]:
@@ -215,6 +235,21 @@ def explore() -> dict[str, Any]:
         if path.startswith("/pages/") and result is not None:
             probes.append({"name": f"{name}: namen en verwijzingen rond favorieten", "ok": True,
                            "info": {"favoriet-namen": favorite_hits(result), "verwijzingen": page_links(result)}})
+    report, _ = _probe(
+        "account: leveringen en toestemming voor aankopen (alleen aantallen en waar/onwaar)",
+        lambda: picnic._authed("GET", "/user"),
+        lambda user: {
+            "completed_deliveries": user.get("completed_deliveries"),
+            "total_deliveries": user.get("total_deliveries"),
+            "PURCHASES_CATEGORY_CONSENT": (user.get("consent_decisions") or {}).get("PURCHASES_CATEGORY_CONSENT"),
+            "check_general_consent": user.get("check_general_consent"),
+            "functies over favorieten of aankopen": sorted(
+                {t["name"] for t in user.get("feature_toggles") or [] if isinstance(t, dict) and isinstance(t.get("name"), str)
+                 and re.search(r"favou?rit|purchase|saved|heart", t["name"], re.I)}
+            )[:30],
+        },
+    )
+    probes.append(report)
     if page is not None:
         probes.append({"name": "zoekpagina: namen en verwijzingen rond favorieten", "ok": True,
                        "info": {"favoriet-namen": favorite_hits(page), "verwijzingen": page_links(page)}})
@@ -266,6 +301,19 @@ def explore() -> dict[str, Any]:
         probes.append(report)
         if isinstance(favorites_page, dict):
             probes.append({"name": "favorieten: de markering `saved` (vorm, aantallen per product)", "ok": True, "info": saved_report(favorites_page)})
+
+        # Op de pagina van de tab staan misschien niet je favorieten (zonder boodschappen is het een lijst met
+        # populaire producten). Kijk welke pagina's de app daarnaast kent, en of een productpagina zegt of het een favoriet is.
+        for page_id in PURCHASE_PAGES:
+            report, purchases = _probe(f"favorieten: GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+            probes.append(report)
+            if isinstance(purchases, dict):
+                probes.append({"name": f"favorieten: de markering `saved` op {page_id}", "ok": True, "info": saved_report(purchases)})
+        for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
+            report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
+                                    lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
+                                    lambda data: {"waarden": favorite_values(data)})
+            probes.append(report)
 
     # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
     for page_id in FAVORITE_GUESSES:

@@ -319,6 +319,9 @@ _FAVORITE_TAB = re.compile(r"favou?rit|favoriet", re.I)
 _PAGE_REFERENCE = re.compile(r"^[A-Za-z0-9_.:;,=&?%-]{1,200}$")
 _LINKED_PAGE = re.compile(r"picnic://store/page;id=([A-Za-z0-9_.-]+)")
 MAX_LINKED_PAGES = 4
+# Zonder boodschappen wijst de tab naar een pagina met populaire producten; de echte favorieten staan dan misschien op
+# deze pagina die de app zelf noemt. We proberen hem als de pagina van de tab niets markeert.
+FAVORITE_FALLBACKS = ("purchases-page-root",)
 
 
 def bootstrap_tabs() -> list[dict[str, Any]]:
@@ -399,22 +402,12 @@ def only_favorites(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return products, False
 
 
-def get_favorites() -> dict[str, Any]:
-    """De favoriete producten uit de Favorieten-tab van de app.
+def _page_products(reference: str) -> list[dict[str, Any]]:
+    """De producten van een pagina, elk met de markering `favorite` (zie `mark_favorites`).
 
-    Die tab laat ook andere producten zien; we nemen alleen die Picnic als opgeslagen markeert (zie
-    `saved_markers`). Staan er op de pagina zelf geen producten, dan volgen we de pagina's waar hij naar
-    verwijst (de inhoud van een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
-    Geeft de producten, hoeveel de pagina er in totaal toont en of er op favoriet is gefilterd.
+    Staan er op de pagina zelf geen producten, dan volgen we de pagina's waar hij naar verwijst (de inhoud van
+    een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
     """
-    reference = favorites_reference(bootstrap_tabs())
-    if not reference:
-        raise RuntimeError(
-            tr(
-                "Picnic heeft geen Favorieten-tab in de app gevonden",
-                "Picnic has no Favorites tab in the app",
-            )
-        )
     page = _page(reference)
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf de favorieten in een onbekend formaat", "Picnic returned the favorites in an unknown format"))
@@ -429,8 +422,38 @@ def get_favorites() -> dict[str, Any]:
         sub_page = _page(linked)
         if isinstance(sub_page, dict):
             products = mark_favorites(products_from_page(sub_page), sub_page)
-    favorites, filtered = only_favorites(products)
-    return {"products": favorites, "total": len(products), "filtered": filtered}
+    return products
+
+
+def get_favorites() -> dict[str, Any]:
+    """De favoriete producten van de gebruiker, uit de Favorieten-tab van de app.
+
+    Die tab laat ook andere producten zien (bij een account zonder boodschappen is het een lijst met 'populaire'
+    producten); we nemen alleen die Picnic als opgeslagen markeert (zie `saved_markers`). Staat er op geen enkele
+    pagina een markering, dan geven we geen producten terug: alle producten van de pagina zijn niet 'je favorieten'.
+    Geeft de favorieten, hoeveel producten de pagina in totaal toonde en of er een markering was (`filtered`).
+    """
+    reference = favorites_reference(bootstrap_tabs())
+    if not reference:
+        raise RuntimeError(
+            tr(
+                "Picnic heeft geen Favorieten-tab in de app gevonden",
+                "Picnic has no Favorites tab in the app",
+            )
+        )
+    total = 0
+    for candidate in dict.fromkeys([reference, *FAVORITE_FALLBACKS]):
+        try:
+            products = _page_products(candidate)
+        except Exception:  # noqa: BLE001 - alleen de pagina van de tab zelf moet er zijn
+            if candidate == reference:
+                raise
+            continue
+        total = total or len(products)
+        favorites, filtered = only_favorites(products)
+        if filtered:
+            return {"products": favorites, "total": len(products), "filtered": True}
+    return {"products": [], "total": total, "filtered": False}
 
 
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:

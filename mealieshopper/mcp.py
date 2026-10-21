@@ -315,7 +315,7 @@ def tool_picnic_favorites(args: dict[str, Any]) -> Any:
     found = picnic.get_favorites()
     products = found["products"]
     brief = [{"title": p["title"], "size": p.get("unitSize"), "price": p.get("price"), "promotion": p.get("isBonus")} for p in products[:limit]]
-    # Weet Picnic niet welke producten favoriet zijn, dan zijn het alle producten van de pagina; dat melden we.
+    # Markeert Picnic niet welke producten favoriet zijn, dan geven we er geen terug en zeggen we dat (onlyFavorites false).
     return {"total": len(products), "onlyFavorites": found["filtered"], "products": brief}
 
 
