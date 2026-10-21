@@ -3,7 +3,7 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
-const picnicFavorites = { products: [], total: 0, filtered: true, query: "", loaded: false };
+const picnicFavorites = { products: [], total: 0, filtered: true, pending: 0, run: 0, query: "", loaded: false };
 
 function postJson(url, body = {}) {
   return jsonFetch(url, {
@@ -302,30 +302,48 @@ function renderPicnicFavorites() {
   const shown = query ? all.filter((product) => matchesWords(product.title, query)) : all;
   $("#picnic-favorites").innerHTML = shown.map(renderPicnicFavoriteCard).join("");
   $("#picnic-favorite-filter").disabled = !all.length;
-  $("#picnic-favorites-status").textContent = all.length ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) }) : "";
+  const counted = all.length ? t("picnic.favorites.count", { count: I18N.formatNumber(all.length) }) : "";
+  const checking = picnicFavorites.pending ? t("picnic.favorites.checking", { count: I18N.formatNumber(picnicFavorites.pending) }) : "";
+  $("#picnic-favorites-status").textContent = [counted, checking].filter(Boolean).join(" ");
   if (!picnicFavorites.loaded) return;
+  if (picnicFavorites.pending && !all.length) return; // we zijn nog aan het controleren: zeg nog niet dat er niets is
   // Markeert Picnic niet welke producten je favoriet zijn, dan tonen we er geen: de producten van de pagina zijn niet de jouwe.
   const empty = picnicFavorites.filtered ? t("picnic.favorites.none") : t("picnic.favorites.unknown", { count: I18N.formatNumber(picnicFavorites.total) });
   message("#picnic-favorites-message", !all.length ? empty : shown.length ? "" : t("picnic.favorites.none_match", { query }), "success");
 }
 
-async function loadPicnicFavorites() {
+// De producten van de Favorieten-tab worden lui gecontroleerd: de server doet een paar per aanroep en onthoudt wat hij weet.
+// We vragen door tot er niets meer te controleren valt en tonen onderweg wat er al is.
+const PICNIC_FAVORITES_STEP = 4;
+
+async function loadPicnicFavorites({ refresh = true } = {}) {
   const button = $("#load-picnic-favorites");
+  const run = ++picnicFavorites.run;
   setBusy(button, true);
   message("#picnic-favorites-message", "");
   try {
-    const data = await jsonFetch("/api/picnic/favorites");
-    picnicFavorites.products = data.products || [];
-    picnicFavorites.total = data.total ?? picnicFavorites.products.length;
-    picnicFavorites.filtered = data.filtered !== false;
-    picnicFavorites.loaded = true;
-    renderPicnicFavorites();
+    let first = true;
+    for (;;) {
+      const query = `budget=${PICNIC_FAVORITES_STEP}${refresh && first ? "&refresh=1" : ""}`;
+      const data = await jsonFetch(`/api/picnic/favorites?${query}`);
+      first = false;
+      if (run !== picnicFavorites.run) return; // een nieuwere aanvraag heeft het overgenomen
+      picnicFavorites.products = data.products || [];
+      picnicFavorites.total = data.total ?? picnicFavorites.products.length;
+      picnicFavorites.filtered = data.filtered !== false;
+      picnicFavorites.pending = data.pending || 0;
+      picnicFavorites.loaded = true;
+      renderPicnicFavorites();
+      if (!picnicFavorites.pending) break;
+    }
   } catch (error) {
+    if (run !== picnicFavorites.run) return;
     picnicFavorites.products = [];
+    picnicFavorites.pending = 0;
     renderPicnicFavorites();
     message("#picnic-favorites-message", error.message);
   } finally {
-    setBusy(button, false);
+    if (run === picnicFavorites.run) setBusy(button, false);
   }
 }
 
@@ -344,7 +362,7 @@ async function addPicnicFavorite(productId, button, target) {
   }
 }
 
-$("#load-picnic-favorites").addEventListener("click", loadPicnicFavorites);
+$("#load-picnic-favorites").addEventListener("click", () => loadPicnicFavorites());
 $("#picnic-favorite-filter").addEventListener("input", (event) => {
   picnicFavorites.query = event.target.value;
   renderPicnicFavorites();

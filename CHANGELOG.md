@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.6.2
+
+*English summary: Picnic favorites now show only your own favorites. The explorer report, with two products hearted in the Picnic app, showed how the app knows: the Favorites tab lists suggested products under a "Favorieten" heading, and the product page of a favorite carries `likedSellables: {["s…"]: true}` in the code of its heart button (false for the others). MealieShopper now takes the products under the "Favorieten" heading and keeps those whose product page says true. That is one request per product (at most 30), done lazily: the app checks a few at a time and shows the favorites it has found so far, and the server remembers each product's answer for 30 minutes (the Load button forgets it). If Picnic says nothing, the list stays empty with an explanation, as before.*
+
+### Nieuw
+
+- **Favorieten van Picnic: alleen je eigen favorieten.** Het verkennerrapport met twee favoriete producten liet zien hoe de app het weet: de tab *Favorieten* toont voorgestelde producten onder de kop *Favorieten* en een aantal gangpaden, en op de productpagina van een favoriet zet Picnic in de code van de hartjesknop `likedSellables: {["s…"]: true}` (bij de andere producten `false`). In het rapport waren dat precies de eerste twee producten. MealieShopper neemt nu de producten onder de kop *Favorieten* (17 in het rapport) en houdt over wat zijn productpagina als favoriet markeert.
+- Dat kost één verzoek per product (hooguit 30), maar **lui en met geheugen**: de app controleert er een paar tegelijk en toont onderweg de favorieten die al gevonden zijn (*Nog 12 producten controleren…*). De server onthoudt per product 30 minuten wat hij wist, en de pagina van de tab twee minuten, dus de volgende keer gaat het direct. De knop *Laden* vergeet dat geheugen en controleert alles opnieuw; zet je in de Picnic-app een hartje, gebruik dan die knop. Een product dat niet laadt wordt overgeslagen en pas na twee minuten opnieuw geprobeerd; is de koppeling verlopen, dan zie je die melding.
+- Zegt Picnic niets over favorieten, dan blijft de lijst leeg met de uitleg uit 2.4.3, in plaats van alle producten van de pagina. Zijn er geen favorieten, dan staat er *Je Picnic-favorieten zijn leeg.*
+- `list_picnic_favorites` (MCP) gebruikt dezelfde lijst.
+
+### Goed om te weten
+
+- **Alleen wat onder de kop *Favorieten* staat wordt gecontroleerd.** Heb je meer favorieten dan Picnic daar toont (in het rapport 17 plekken), dan missen er mogelijk een paar.
+- Zoeken in de favorieten werkt zoals eerder; de knop *In mandje* zet het product in je Picnic-mandje.
+- *Opnieuw bestellen* bij de recepten is nog leeg: je account heeft nog niets laten bezorgen.
+
 ## v2.6.1
 
 *English summary: The explorer report found how the Picnic app changes a favorite: `POST pages/task/toggle-sellable-favorite` with `{"payload": {"sellable_id": "s…", "status": "UNLIKE"}}`, after which the app reloads the "zero order" page of the Favorites tab. So that page does change with your favorites. Reading them is still open: the product page's heart starts from a state the app fills itself. The explorer now reports the outline of the Favorites page (headings and runs of product tiles), the pages it loads lazily, and the true/false values the server puts in the heart code of a handful of product pages, to see which one marks your favorites. No behaviour change in the app.*
