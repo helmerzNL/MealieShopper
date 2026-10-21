@@ -18,6 +18,8 @@ Alleen de beheerder kan de log lezen of wissen.
 from __future__ import annotations
 
 import contextvars
+import csv
+import io
 import json
 import logging
 import re
@@ -31,7 +33,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
-from flask import Flask, has_request_context, jsonify, request
+from flask import Flask, Response, has_request_context, jsonify, request
 
 from . import auth
 from .i18n import tr
@@ -47,6 +49,8 @@ PRUNE_EVERY = 200  # opruimen na zoveel nieuwe regels
 MAX_PARSE_BYTES = 1_000_000  # grotere antwoorden knippen we in zonder ze te ontleden
 PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
+MAX_EXPORT = 5000  # zoveel regels (de nieuwste) in één export
+CSV_COLUMNS = ("id", "ts", "kind", "service", "action", "method", "url", "status", "ok", "durationMs", "actor", "corr", "error", "request", "response")
 
 # Welke host bij welke dienst hoort.
 SERVICE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -579,22 +583,7 @@ def list_entries(
     *, service: str = "", kind: str = "", only_errors: bool = False, query: str = "", limit: int = PAGE_SIZE, before: int | None = None
 ) -> dict[str, Any]:
     limit = max(1, min(MAX_PAGE_SIZE, limit))
-    where, params = [], []
-    if service in SERVICES or service == "audit":
-        where.append("service = ?")
-        params.append(service)
-    if kind in ("outbound", "mcp", "oauth", "audit"):
-        where.append("kind = ?")
-        params.append(kind)
-    if only_errors:
-        where.append("ok = 0")
-    if query:
-        like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        where.append("(action LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\' OR error LIKE ? ESCAPE '\\' OR actor LIKE ? ESCAPE '\\')")
-        params += [like] * 4
-    if before:
-        where.append("id < ?")
-        params.append(before)
+    where, params = _filters(service, kind, only_errors, query, before)
     sql = "SELECT * FROM audit_log" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
     with closing(_connect()) as conn:
         rows = conn.execute(sql, (*params, limit + 1)).fetchall()
@@ -613,6 +602,52 @@ def list_entries(
         "last24h": {row["service"]: {"total": row["total"], "errors": row["errors"] or 0} for row in counts},
         "settings": settings_payload(),
     }
+
+
+def _filters(service: str, kind: str, only_errors: bool, query: str, before: int | None) -> tuple[list[str], list[Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    if service in SERVICES or service == "audit":
+        where.append("service = ?")
+        params.append(service)
+    if kind in ("outbound", "mcp", "oauth", "audit"):
+        where.append("kind = ?")
+        params.append(kind)
+    if only_errors:
+        where.append("ok = 0")
+    if query:
+        like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        where.append("(action LIKE ? ESCAPE '\\' OR url LIKE ? ESCAPE '\\' OR error LIKE ? ESCAPE '\\' OR actor LIKE ? ESCAPE '\\')")
+        params += [like] * 4
+    if before:
+        where.append("id < ?")
+        params.append(before)
+    return where, params
+
+
+def export_entries(*, service: str = "", kind: str = "", only_errors: bool = False, query: str = "") -> list[dict[str, Any]]:
+    """De nieuwste regels die bij de filters passen, oudste eerst, mét verzoek en antwoord."""
+    where, params = _filters(service, kind, only_errors, query, None)
+    sql = "SELECT * FROM audit_log" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
+    with closing(_connect()) as conn:
+        rows = conn.execute(sql, (*params, MAX_EXPORT)).fetchall()
+    return [_row(row, full=True) for row in reversed(rows)]
+
+
+def _csv_cell(value: Any) -> Any:
+    # Een cel die met = + - @ begint, zou in een spreadsheet als formule draaien.
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def entries_csv(entries: list[dict[str, Any]]) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(CSV_COLUMNS)
+    for entry in entries:
+        writer.writerow([_csv_cell(entry.get(column)) for column in CSV_COLUMNS])
+    return out.getvalue()
 
 
 def get_entry(entry_id: int) -> dict[str, Any] | None:
@@ -660,6 +695,23 @@ def register_routes(app: Flask) -> None:
                 before=before,
             )
         )
+
+    @app.get("/api/audit/export")
+    def audit_export():
+        entries = export_entries(
+            service=request.args.get("service", ""),
+            kind=request.args.get("kind", ""),
+            only_errors=request.args.get("status") == "error",
+            query=request.args.get("q", "").strip()[:100],
+        )
+        user = auth.current_user()
+        record(kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)})
+        stamp = auth.utcnow().strftime("%Y%m%d-%H%M%S")
+        if request.args.get("format") == "csv":
+            body, mimetype, name = "\ufeff" + entries_csv(entries), "text/csv", f"mealieshopper-audit-{stamp}.csv"  # BOM: Excel leest anders de accenten verkeerd
+        else:
+            body, mimetype, name = json.dumps({"exportedAt": _now(), "entries": entries}, ensure_ascii=False, indent=1), "application/json", f"mealieshopper-audit-{stamp}.json"
+        return Response(body, mimetype=mimetype, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/api/audit/<int:entry_id>")
     def audit_entry(entry_id: int):

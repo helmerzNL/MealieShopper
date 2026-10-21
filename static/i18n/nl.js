@@ -784,4 +784,11 @@ I18N.add("nl", {
   "audit.detail.cause": "Veroorzaakt door MCP-verzoek",
   "audit.detail.failed": "Dit detail kon niet worden geladen: {detail}",
   "audit.ms": "{ms} ms",
+  "audit.export_json": "Exporteren (JSON)",
+  "audit.export_csv": "Exporteren (CSV)",
+  "audit.copy_list": "Lijst kopiëren",
+  "audit.copy": "Kopiëren",
+  "audit.copied": "Gekopieerd.",
+  "audit.copied_count": "{count} regels gekopieerd.",
+  "audit.copy_failed": "Kopiëren lukte niet. Gebruik Exporteren.",
 });

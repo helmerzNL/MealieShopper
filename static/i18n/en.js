@@ -784,4 +784,11 @@ I18N.add("en", {
   "audit.detail.cause": "Caused by MCP request",
   "audit.detail.failed": "This detail could not be loaded: {detail}",
   "audit.ms": "{ms} ms",
+  "audit.export_json": "Export (JSON)",
+  "audit.export_csv": "Export (CSV)",
+  "audit.copy_list": "Copy list",
+  "audit.copy": "Copy",
+  "audit.copied": "Copied.",
+  "audit.copied_count": "{count} entries copied.",
+  "audit.copy_failed": "Copying failed. Use Export instead.",
 });

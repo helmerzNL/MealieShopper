@@ -4,7 +4,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.10.0
 
-*English summary: New Settings > Audit log (administrator only). It records every request MealieShopper makes to Albert Heijn, Picnic and Jumbo (method, address, status, duration, request and answer) and every request an AI assistant makes over MCP (tool, input, result), including the steps where an assistant links up. A store request made while an MCP tool runs is linked to that tool call, so you can see exactly what an assistant's question caused. Filter by store or errors, search, open an entry for details, clear the log. Passwords, tokens, codes, cookies and e-mail addresses are replaced by "[verborgen]" before storing; headers are never stored; entries are deleted after 30 days. Four optional settings: MEALIESHOPPER_AUDIT_LOG, _BODIES, _BODY_CHARS and _RETENTION_DAYS.*
+*English summary: New Settings > Audit log (administrator only). It records every request MealieShopper makes to Albert Heijn, Picnic and Jumbo (method, address, status, duration, request and answer) and every request an AI assistant makes over MCP (tool, input, result), including the steps where an assistant links up. A store request made while an MCP tool runs is linked to that tool call, so you can see exactly what an assistant's question caused. Filter by store or errors, search, open an entry for details, export (JSON or CSV) or copy entries, clear the log. Passwords, tokens, codes, cookies and e-mail addresses are replaced by "[verborgen]" before storing; headers are never stored; entries are deleted after 30 days. Four optional settings: MEALIESHOPPER_AUDIT_LOG, _BODIES, _BODY_CHARS and _RETENTION_DAYS.*
 
 ### Nieuw in 2.10.0
 
@@ -12,8 +12,9 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **MCP-verzoeken van AI-assistenten.** Elk `initialize`, `tools/list` en `tools/call` komt in de log, met de app (bijvoorbeeld *Claude*) en gebruiker erachter, de ingevoerde argumenten en het resultaat. Ook geweigerde verzoeken (geen of ongeldig token, te groot, onbekend protocol) en de OAuth-stappen waarmee een assistent koppelt staan erin; van die stappen bewaren we nooit de tokens.
 - **Wat veroorzaakte wat.** Een winkelverzoek dat tijdens een MCP-tool loopt, krijgt hetzelfde correlatie-id als die tool. Bij een MCP-verzoek zie je welke winkelverzoeken eruit volgden (of dat het antwoord uit de lokale kopie kwam), en bij een winkelverzoek door welk MCP-verzoek het kwam.
 - **Filteren en zoeken.** Per winkel (Albert Heijn, Picnic, Jumbo, AI-assistenten), alleen fouten, zoeken op actie, adres of fout, en `Meer laden` voor oudere regels. Bovenaan staat per dienst het aantal verzoeken en fouten van de laatste 24 uur. Met `Log wissen` wis je alles; dat blijft zelf als regel in de log staan.
+- **Exporteren en kopiëren.** `Exporteren (JSON)` en `Exporteren (CSV)` downloaden de log met de gekozen filters (hooguit de nieuwste 5000 regels, met verzoek en antwoord); `Lijst kopiëren` zet die regels als JSON op het klembord en `Kopiëren` bij een geopende regel doet dat voor die ene regel. Een export komt zelf als regel in de log. In de CSV krijgt een cel die met `=`, `+`, `-` of `@` begint een voorvoegsel, zodat een spreadsheet er geen formule van maakt.
 - **Instellingen.** `MEALIESHOPPER_AUDIT_LOG` (uit met `false`), `MEALIESHOPPER_AUDIT_BODIES` (alleen wie, wat en uitkomst bewaren), `MEALIESHOPPER_AUDIT_BODY_CHARS` (standaard 4000) en `MEALIESHOPPER_AUDIT_RETENTION_DAYS` (standaard 30, `0` wist nooit). Zie de README.
-- API: `GET /api/audit` (met `service`, `status=error`, `q`, `limit`, `before`), `GET /api/audit/<id>` en `DELETE /api/audit`, alleen voor de beheerder.
+- API: `GET /api/audit` (met `service`, `status=error`, `q`, `limit`, `before`), `GET /api/audit/<id>`, `GET /api/audit/export?format=json|csv` en `DELETE /api/audit`, alleen voor de beheerder.
 
 ### Goed om te weten
 

@@ -18,8 +18,8 @@ const AUDIT_KIND_KEYS = {
 };
 const AUDIT_SERVICES = Object.keys(AUDIT_SERVICE_KEYS);
 
-function auditQuery(before) {
-  const params = new URLSearchParams({ limit: "50" });
+function auditQuery(before, extra = { limit: "50" }) {
+  const params = new URLSearchParams(extra);
   const service = $("#audit-service").value;
   const status = $("#audit-status").value;
   const query = $("#audit-search").value.trim();
@@ -117,6 +117,42 @@ function auditRelatedHtml(entry) {
   return `<h4>${escapeHtml(t("audit.detail.cause"))}</h4><ul class="audit-related">${rows}</ul>`;
 }
 
+// Kopiëren kan alleen in een veilige context (https of localhost); anders vallen we terug op een tijdelijk tekstvak.
+async function auditCopyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    const box = document.createElement("textarea");
+    box.value = text;
+    box.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(box);
+    box.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch (failure) {
+      copied = false;
+    }
+    box.remove();
+    return copied;
+  }
+}
+
+function auditExport(format) {
+  window.location.href = `/api/audit/export?${auditQuery(null, { format })}`;
+}
+
+async function auditCopyList() {
+  try {
+    const data = await jsonFetch(`/api/audit/export?${auditQuery(null, { format: "json" })}`);
+    const ok = await auditCopyText(JSON.stringify(data.entries, null, 2));
+    message("#audit-message", ok ? t("audit.copied_count", { count: data.entries.length }) : t("audit.copy_failed"), ok ? "success" : "error");
+  } catch (error) {
+    message("#audit-message", error.message);
+  }
+}
+
 function auditDetailHtml(entry) {
   const facts = [];
   if (entry.url) facts.push(`<dt>${escapeHtml(t("audit.detail.address"))}</dt><dd><code>${escapeHtml(`${entry.method} ${entry.url}`.trim())}</code></dd>`);
@@ -128,7 +164,8 @@ function auditDetailHtml(entry) {
   if (entry.detail?.loginProxy) facts.push(`<dt></dt><dd class="muted">${escapeHtml(t("audit.detail.loginproxy"))}</dd>`);
   const error = entry.error ? `<h4>${escapeHtml(t("audit.detail.error"))}</h4><pre class="audit-body audit-body--error">${escapeHtml(entry.error)}</pre>` : "";
   const bodies = entry.kind === "oauth" || entry.kind === "audit" ? "" : auditBlock("audit.detail.request", entry.request) + auditBlock("audit.detail.response", entry.response);
-  return `<dl class="audit-facts">${facts.join("")}</dl>${error}${auditRelatedHtml(entry)}${bodies}`;
+  const copy = `<button class="button button--secondary audit-copy" type="button" data-audit-copy="${entry.id}">${escapeHtml(t("audit.copy"))}</button>`;
+  return `<dl class="audit-facts">${facts.join("")}</dl>${error}${auditRelatedHtml(entry)}${bodies}<div class="security-actions">${copy}</div>`;
 }
 
 function renderAuditSummary() {
@@ -226,7 +263,19 @@ async function clearAudit() {
   }
 }
 
+$("#audit-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-audit-copy]");
+  if (!button) return;
+  const entry = auditState.details[button.dataset.auditCopy];
+  if (!entry) return;
+  const ok = await auditCopyText(JSON.stringify(entry, null, 2));
+  button.textContent = t(ok ? "audit.copied" : "audit.copy_failed");
+});
+
 let auditSearchTimer = null;
+$("#audit-export-json").addEventListener("click", () => auditExport("json"));
+$("#audit-export-csv").addEventListener("click", () => auditExport("csv"));
+$("#audit-copy-list").addEventListener("click", auditCopyList);
 $("#audit-refresh").addEventListener("click", () => {
   auditState.details = {};
   loadAudit();

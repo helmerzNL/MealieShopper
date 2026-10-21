@@ -344,6 +344,43 @@ class ApiTest(AuditTestCase):
         self.assertTrue(auth.admin_only("/api/audit/12"))
 
 
+class ExportTest(AuditTestCase):
+    def setUp(self):
+        super().setUp()
+        self.send("GET", "https://api.ah.nl/a", body=json.dumps({"naam": "café"}))
+        self.send("POST", "https://www.jumbo.com/api/graphql", status=500, body=b"=HYPERLINK(1)", json={"operationName": "=Boom", "token": "GEHEIM"})
+
+    def test_json_export_has_bodies_and_respects_filters(self):
+        response = self.client.get("/api/audit/export?format=json&status=error")
+        self.assertIn("attachment; filename=\"mealieshopper-audit-", response.headers["Content-Disposition"])
+        self.assertTrue(response.headers["Content-Disposition"].endswith('.json"'))
+        data = response.get_json()
+        (entry,) = data["entries"]
+        self.assertEqual(entry["service"], "jumbo")
+        self.assertIn("request", entry)
+        self.assertNotIn("GEHEIM", json.dumps(data))
+        everything = self.client.get("/api/audit/export").get_json()["entries"]
+        self.assertEqual([e["service"] for e in everything], ["ah", "jumbo", "audit"], "oudste eerst; de eerste export staat er al in")
+
+    def test_csv_export_is_readable_and_formula_safe(self):
+        import csv, io
+
+        response = self.client.get("/api/audit/export?format=csv")
+        self.assertEqual(response.mimetype, "text/csv")
+        text = response.get_data(as_text=True)
+        self.assertTrue(text.startswith("\ufeff"))
+        rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"))))
+        self.assertEqual([r["service"] for r in rows], ["ah", "jumbo"])
+        self.assertIn("café", rows[0]["response"])
+        self.assertEqual(rows[1]["response"], "'=HYPERLINK(1)")
+        self.assertEqual(rows[1]["action"], "GraphQL =Boom", "alleen een cel die ermee begint wordt beschermd")
+
+    def test_an_export_leaves_a_trace(self):
+        self.client.get("/api/audit/export")
+        newest = self.client.get("/api/audit").get_json()["entries"][0]
+        self.assertEqual((newest["kind"], newest["action"], newest["detail"]["entries"]), ("audit", "log exported", 2))
+
+
 class RetentionTest(AuditTestCase):
     def test_old_entries_and_excess_rows_are_pruned(self):
         old = (auth.utcnow() - audit.timedelta(days=45)).isoformat()
