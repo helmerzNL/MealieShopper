@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, mealie, picnic, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, mealie, picnic, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -361,6 +361,21 @@ def tool_get_order(args: dict[str, Any]) -> Any:
     return order
 
 
+def tool_list_jumbo_orders(args: dict[str, Any]) -> Any:
+    data = jumbo_orders.list_orders()
+    limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
+    orders = data["orders"]
+    return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
+
+
+def tool_get_jumbo_order(args: dict[str, Any]) -> Any:
+    order_id = _text(args.get("order_id"), 30)
+    order = jumbo_orders.get_order(order_id) if order_id else None
+    if not order:
+        raise ToolError("Deze bestelling staat niet in de lokale kopie (zie list_jumbo_orders)")
+    return order
+
+
 def tool_list_receipts(args: dict[str, Any]) -> Any:
     data = ah_orders.list_receipts()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
@@ -491,6 +506,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         "inputSchema": _schema({"list": {"type": "string", "description": "Id of (deel van) de naam van het lijstje, bijvoorbeeld 'Favorieten'. Standaard het boodschappenlijstje."}}),
         "annotations": {**READ_ONLY, "title": "Jumbo-lijstje"},
         "handler": tool_jumbo_list,
+    },
+    "list_jumbo_orders": {
+        "description": "Jumbo-bestellingen uit de lokale kopie, nieuwste eerst, met datum, bezorgwijze, status en totaal (zonder adres). Gebruik het nummer met get_jumbo_order.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Jumbo-bestellingen"},
+        "handler": tool_list_jumbo_orders,
+    },
+    "get_jumbo_order": {
+        "description": "De producten van één Jumbo-bestelling (naam, merk, aantal, bedrag, aanbieding, categorie), uit de lokale kopie.",
+        "inputSchema": _schema({"order_id": {"type": "string", "description": "Het nummer uit list_jumbo_orders."}}, ["order_id"]),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Jumbo-bestelling bekijken"},
+        "handler": tool_get_jumbo_order,
     },
     "get_jumbo_basket": {
         "description": "Het winkelmandje bij Jumbo: producten, aantallen en totaal. Live opgehaald; er wordt niets aan veranderd.",

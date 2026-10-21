@@ -2,7 +2,21 @@
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, t, tn, escapeHtml, formatPrice, ...).
 
 // Bestelmandje en bestellingen wachten tot AH ze weer levert; de code staat klaar. Op false worden ze weer getoond en gesynchroniseerd.
+// Geldt alleen voor AH: Jumbo-bestellingen werken wel.
 const ORDERS_COMING_SOON = true;
+
+// De winkel komt uit de keuze in de tab Winkels (state.itemsStore in app.js): "ah" of "jumbo".
+function ordersApi() {
+  return `/api/${state.itemsStore}`;
+}
+
+function ordersAreJumbo() {
+  return state.itemsStore === "jumbo";
+}
+
+function ordersSoon() {
+  return !ordersAreJumbo() && ORDERS_COMING_SOON;
+}
 
 const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false };
 
@@ -13,7 +27,15 @@ function dayLabel(value) {
 }
 
 function slotLabel(start, end) {
-  const clock = (value) => (/(\d{2}:\d{2})/.exec(String(value || "")) || [])[1] || "";
+  const clock = (value) => {
+    const text = String(value || "");
+    // Met tijdzone (Jumbo: ...Z): omrekenen naar de lokale tijd; zonder tijdzone staat de tijd er al zoals AH hem geeft.
+    if (/(Z|[+-]\d{2}:?\d{2})$/.test(text) && text.length > 10) {
+      const date = new Date(text);
+      if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString(I18N.locale(), { hour: "2-digit", minute: "2-digit" });
+    }
+    return (/(\d{2}:\d{2})/.exec(text) || [])[1] || "";
+  };
   const from = clock(start);
   const to = clock(end);
   return from && to ? `${from}-${to}` : from || to;
@@ -64,7 +86,8 @@ function renderBasket() {
 function renderOrderList() {
   const target = $("#ah-order-list");
   if (!ordersState.orders.length) {
-    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.ordersSyncedAt ? t("orders.none") : t("orders.never_synced"))}</p>`;
+    const none = ordersAreJumbo() ? t("orders.none_jumbo") : t("orders.none");
+    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.ordersSyncedAt ? none : t("orders.never_synced"))}</p>`;
     return;
   }
   target.innerHTML = ordersState.orders
@@ -121,25 +144,40 @@ function renderReceiptList() {
 }
 
 function renderOrders() {
-  $("#ah-orders-section").hidden = ORDERS_COMING_SOON;
-  $("#ah-orders-soon").hidden = !ORDERS_COMING_SOON;
-  if (!ORDERS_COMING_SOON) {
-    renderBasket();
+  const jumbo = ordersAreJumbo();
+  const soon = ordersSoon();
+  $("#ah-orders-intro").hidden = jumbo;
+  $("#jumbo-orders-intro").hidden = !jumbo;
+  $("#ah-basket-block").hidden = jumbo; // Jumbo's mandje staat bij het plannen; hier alleen bestellingen
+  $("#ah-receipts-block").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
+  $("#ah-orders-section").hidden = soon;
+  $("#ah-orders-soon").hidden = !soon;
+  if (!soon) {
+    if (!jumbo) renderBasket();
     renderOrderList();
   }
-  renderReceiptList();
+  if (!jumbo) renderReceiptList();
   if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
 }
 
 async function loadOrders() {
   message("#ah-orders-message", "");
+  const store = state.itemsStore;
   try {
+    if (ordersAreJumbo()) {
+      const orders = await jsonFetch("/api/jumbo/orders");
+      if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
+      Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt, loaded: true });
+      renderOrders();
+      return;
+    }
     const receipts = await jsonFetch("/api/ah/receipts");
     Object.assign(ordersState, { receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
     if (!ORDERS_COMING_SOON) {
       const [basket, orders] = await Promise.all([jsonFetch("/api/ah/basket"), jsonFetch("/api/ah/orders")]);
       Object.assign(ordersState, { basket, orders: orders.orders, ordersSyncedAt: orders.syncedAt });
     }
+    if (store !== state.itemsStore) return;
     renderOrders();
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
@@ -160,7 +198,15 @@ async function syncOrders() {
       failed.push(t("orders.sync_failed", { what, error: error.message }));
     }
   };
-  if (!ORDERS_COMING_SOON) {
+  if (ordersAreJumbo()) {
+    await run(t("orders.part.orders"), "/api/jumbo/orders/sync", (data) => {
+      done.push(tn("orders.sync_jumbo", data.orders));
+      if (data.new) done.push(tn("orders.sync_jumbo_new", data.new));
+      if (data.remaining && !data.detailError) done.push(tn("orders.sync_order_items", data.remaining));
+      if (data.storeReceipts) done.push(tn("orders.jumbo_receipts", data.storeReceipts));
+      if (data.detailError) failed.push(t("orders.jumbo_detail_error", { error: data.detailError }));
+    });
+  } else if (!ORDERS_COMING_SOON) {
     await run(t("orders.part.basket"), "/api/ah/basket/sync", () => done.push(t("orders.sync_basket")));
     await run(t("orders.part.orders"), "/api/ah/orders/sync", (data) => {
       done.push(tn("orders.sync_orders", data.open));
@@ -168,10 +214,12 @@ async function syncOrders() {
       if (data.remaining) done.push(tn("orders.sync_order_items", data.remaining));
     });
   }
-  await run(t("orders.part.receipts"), "/api/ah/receipts/sync", (data) => {
-    done.push(tn("orders.sync_receipts", data.new));
-    if (data.remaining) done.push(tn("orders.sync_remaining", data.remaining));
-  });
+  if (!ordersAreJumbo()) {
+    await run(t("orders.part.receipts"), "/api/ah/receipts/sync", (data) => {
+      done.push(tn("orders.sync_receipts", data.new));
+      if (data.remaining) done.push(tn("orders.sync_remaining", data.remaining));
+    });
+  }
   await loadOrders();
   const text = [done.length ? `${done.join(", ")}.` : "", ...failed].filter(Boolean).join(" ");
   message("#ah-orders-message", text, failed.length ? "error" : "success");
@@ -202,7 +250,7 @@ function renderPurchaseResults(data) {
         <small>${escapeHtml([t("orders.last_bought", { date: dayLabel(product.lastDate) }), tn("orders.times", product.times), t("orders.quantity", { count: I18N.formatNumber(product.totalQuantity) })].join(" · "))}</small></div></div>`
     )
     .join("");
-  const orderHits = ORDERS_COMING_SOON ? [] : data.occurrences.filter((entry) => entry.source === "bestelling");
+  const orderHits = ordersSoon() ? [] : data.occurrences.filter((entry) => entry.source === "bestelling");
   const occurrences = orderHits
     .map(
       (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>
@@ -239,7 +287,10 @@ async function searchPurchases() {
   }
   try {
     const q = encodeURIComponent(query);
-    const [data, receiptHits] = await Promise.all([jsonFetch(`/api/ah/purchases/search?q=${q}`), jsonFetch(`/api/ah/receipts/search?q=${q}`)]);
+    const [data, receiptHits] = await Promise.all([
+      jsonFetch(`${ordersApi()}/purchases/search?q=${q}`),
+      ordersAreJumbo() ? { receipts: [], total: 0, unsearched: 0 } : jsonFetch("/api/ah/receipts/search?q=" + q),
+    ]);
     if (seq !== purchaseSeq) return;
     ordersState.hits = { ...data, receiptHits };
     renderPurchaseResults(ordersState.hits);
@@ -299,7 +350,7 @@ async function openPurchase(kind, id) {
   $("#ah-order-items").innerHTML = "";
   try {
     if (kind === "order") {
-      const order = await jsonFetch(`/api/ah/orders/${encodeURIComponent(id)}`);
+      const order = await jsonFetch(`${ordersApi()}/orders/${encodeURIComponent(id)}`);
       $("#ah-order-title").textContent = dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id });
       $("#ah-order-meta").textContent = [
         t("orders.order_title", { id: order.id }),
@@ -370,6 +421,18 @@ $("#explore-copy").addEventListener("click", async (event) => {
   event.currentTarget.textContent = t("users.copied");
   setTimeout(() => (event.currentTarget.textContent = t("users.copy")), 2000);
 });
+
+// Bij een andere winkel in de tab Winkels: schone lijst, en opnieuw laden als dit tabblad openstaat.
+function resetOrders() {
+  Object.assign(ordersState, { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
+  purchaseSeq++;
+  $("#ah-purchase-filter").value = "";
+  $("#ah-purchase-results").hidden = true;
+  $("#ah-orders-main").hidden = false;
+  showPurchaseOverview();
+  message("#ah-orders-message", "");
+  if (document.querySelector("#ah-items-bestellingen.is-active")) loadOrders();
+}
 
 window.addEventListener("ms:languagechange", () => {
   if (ordersState.loaded) renderOrders();
