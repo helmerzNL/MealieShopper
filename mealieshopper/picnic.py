@@ -311,6 +311,34 @@ def products_from_page(page: Any) -> list[dict[str, Any]]:
     return products
 
 
+def page_events(page: Any):
+    """De inhoud van een pagina in leesvolgorde: ("heading", [teksten]) voor onderdelen zonder producten, ("tile", eenheid) voor producten.
+
+    Zo zie je onder welke kop een product staat, zoals de app het toont.
+    """
+    def has_tile(node: Any) -> bool:
+        return any(n.get("type") == "SELLING_UNIT_TILE" for n in _walk(node))
+
+    def visit(node: Any):
+        if isinstance(node, list):
+            for item in node:
+                yield from visit(item)
+        elif isinstance(node, dict):
+            if node.get("type") == "SELLING_UNIT_TILE":
+                if isinstance(node.get("sellingUnit"), dict):
+                    yield "tile", node["sellingUnit"]
+            elif node.get("type") == "PML" and not has_tile(node):
+                heads = [n["markdown"].strip() for n in _walk(node) if n.get("type") == "RICH_TEXT" and isinstance(n.get("markdown"), str)]
+                heads = [h for h in heads if 0 < len(h) <= 80]
+                if heads:
+                    yield "heading", heads
+            else:
+                for value in node.values():
+                    yield from visit(value)
+
+    yield from visit(page)
+
+
 # --- favorieten ---------------------------------------------------------------------------------
 # Waar de favorieten staan weet geen enkele library. Picnic zegt het zelf: `/bootstrap` bevat de tabbalk van
 # de app, met per tab de pagina waar hij naartoe gaat. We zoeken de tab die over favorieten gaat.
@@ -352,6 +380,73 @@ def favorites_reference(tabs: list[dict[str, Any]]) -> str | None:
         if tab.get("reference") and _FAVORITE_TAB.search(words) and _PAGE_REFERENCE.match(tab["reference"]):
             return tab["reference"]
     return None
+
+
+# De hartjesknop op een productpagina krijgt van de server in de code mee of het product favoriet is:
+# `likedSellables: {["s123"]: true}` (en `=== undefined ? true`). Dat is hoe de app het zelf weet.
+_LIKE_INITIAL = re.compile(r'likedSellables:\s*\{\s*\[\s*"s\d+"\s*\]:\s*(true|false)')
+_LIKE_DEFAULT = re.compile(r"===\s*undefined\s*\?\s*(true|false)")
+_FAVORITE_HEADING = re.compile(r"favou?riet|favorit", re.I)
+MAX_FAVORITE_CHECKS = 30
+FAVORITE_CHECK_SECONDS = 25
+
+
+def product_favorite_flag(product_id: Any) -> bool | None:
+    """Is dit product een favoriet? Gelezen uit de hartjescode van zijn productpagina; None als die niets zegt."""
+    page = _authed("GET", f"/pages/product-details-page-root?id={quote(_product_id(product_id), safe='')}")
+    initial: list[str] = []
+    default: list[str] = []
+    for node in _walk(page):
+        code = node.get("expression")
+        if isinstance(code, str):
+            initial += _LIKE_INITIAL.findall(code)
+            default += _LIKE_DEFAULT.findall(code)
+    found = initial or default
+    return "true" in found if found else None
+
+
+def favorites_section(page: Any, products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De producten onder de kop *Favorieten* van de pagina; staat die kop er niet, dan de eerste producten van de pagina."""
+    by_id = {p["id"]: p for p in products}
+    section: list[dict[str, Any]] = []
+    inside = False
+    for kind, value in page_events(page):
+        if kind == "heading":
+            if any(_FAVORITE_HEADING.search(text) for text in value):
+                inside = True
+            elif inside and section:
+                break
+        elif inside:
+            product = by_id.get(str(value.get("id")))
+            if product and product not in section:
+                section.append(product)
+    return section or products
+
+
+def favorites_from_product_pages(page: Any, products: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    """De favorieten onder de kop *Favorieten*, bepaald met de hartjescode van elke productpagina.
+
+    Geeft None als geen enkele productpagina iets zegt over favorieten. Een product dat niet laadt slaan we over;
+    een verlopen koppeling meldt de fout wel.
+    """
+    started = time.monotonic()
+    known = False
+    favorites: list[dict[str, Any]] = []
+    for product in favorites_section(page, products)[:MAX_FAVORITE_CHECKS]:
+        if time.monotonic() - started > FAVORITE_CHECK_SECONDS:
+            break
+        try:
+            flag = product_favorite_flag(product["id"])
+        except PicnicAuthError:
+            raise
+        except Exception:  # noqa: BLE001 - één product dat niet laadt mag de lijst niet breken
+            continue
+        if flag is None:
+            continue
+        known = True
+        if flag:
+            favorites.append({**product, "favorite": True})
+    return favorites if known else None
 
 
 def _page(reference: str) -> Any:
@@ -402,8 +497,8 @@ def only_favorites(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return products, False
 
 
-def _page_products(reference: str) -> list[dict[str, Any]]:
-    """De producten van een pagina, elk met de markering `favorite` (zie `mark_favorites`).
+def _page_products(reference: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """De pagina en zijn producten, elk met de markering `favorite` (zie `mark_favorites`).
 
     Staan er op de pagina zelf geen producten, dan volgen we de pagina's waar hij naar verwijst (de inhoud van
     een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
@@ -421,17 +516,19 @@ def _page_products(reference: str) -> list[dict[str, Any]]:
         followed.append(linked)
         sub_page = _page(linked)
         if isinstance(sub_page, dict):
-            products = mark_favorites(products_from_page(sub_page), sub_page)
-    return products
+            page, products = sub_page, mark_favorites(products_from_page(sub_page), sub_page)
+    return page, products
 
 
 def get_favorites() -> dict[str, Any]:
     """De favoriete producten van de gebruiker, uit de Favorieten-tab van de app.
 
-    Die tab laat ook andere producten zien (bij een account zonder boodschappen is het een lijst met 'populaire'
-    producten); we nemen alleen die Picnic als opgeslagen markeert (zie `saved_markers`). Staat er op geen enkele
-    pagina een markering, dan geven we geen producten terug: alle producten van de pagina zijn niet 'je favorieten'.
-    Geeft de favorieten, hoeveel producten de pagina in totaal toonde en of er een markering was (`filtered`).
+    Die tab laat ook andere producten zien (bij een account zonder boodschappen is het een lijst met voorgestelde
+    producten onder de kop *Favorieten* en een aantal gangpaden). Markeert de pagina zelf welke producten
+    opgeslagen zijn (`saved_markers`), dan gebruiken we dat. Anders kijken we bij de producten onder de kop
+    *Favorieten* naar de hartjescode van hun productpagina: daar zet Picnic of het product favoriet is.
+    Weten we het dan nog niet, dan geven we geen producten terug: alle producten van de pagina zijn niet 'je favorieten'.
+    Geeft de favorieten, hoeveel producten de pagina in totaal toonde en of we het konden vaststellen (`filtered`).
     """
     reference = favorites_reference(bootstrap_tabs())
     if not reference:
@@ -444,7 +541,7 @@ def get_favorites() -> dict[str, Any]:
     total = 0
     for candidate in dict.fromkeys([reference, *FAVORITE_FALLBACKS]):
         try:
-            products = _page_products(candidate)
+            page, products = _page_products(candidate)
         except Exception:  # noqa: BLE001 - alleen de pagina van de tab zelf moet er zijn
             if candidate == reference:
                 raise
@@ -453,6 +550,9 @@ def get_favorites() -> dict[str, Any]:
         favorites, filtered = only_favorites(products)
         if filtered:
             return {"products": favorites, "total": len(products), "filtered": True}
+        checked = favorites_from_product_pages(page, products)
+        if checked is not None:
+            return {"products": checked, "total": len(products), "filtered": True}
     return {"products": [], "total": total, "filtered": False}
 
 
