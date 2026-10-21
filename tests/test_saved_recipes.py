@@ -17,7 +17,7 @@ class SavedRecipesEntryPointTest(unittest.TestCase):
                 mock.patch.object(ah, "_get_saved_recipes_api", side_effect=AssertionError("niet aanroepen")):
             with self.assertRaises(RuntimeError) as ctx:
                 ah.get_saved_recipes()
-        self.assertIn("Beheer > Albert Heijn", str(ctx.exception))
+        self.assertIn("Beheer > Winkels > Albert Heijn", str(ctx.exception))
 
     def test_linked_uses_the_api_and_passes_paging(self):
         with mock.patch.object(ah, "configured_refresh_token", return_value="tok"), \

@@ -225,7 +225,7 @@ Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. Onder **AH-
 
 ### Picnic
 
-Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Picnic**):
+Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Winkels > Picnic**):
 
 1. Vul je e-mailadres en wachtwoord in en kies `Inloggen bij Picnic`.
 2. Picnic vraagt meestal om een code. Die komt per sms (of per e-mail, via de knop eronder). Vul hem in en kies `Bevestigen`.
@@ -235,7 +235,7 @@ Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versle
 
 ### Jumbo
 
-Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Jumbo**). Dat werkt net als bij Albert Heijn:
+Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Winkels > Jumbo**). Dat werkt net als bij Albert Heijn:
 
 1. Kies `Inloggen bij Jumbo`; er opent een nieuw tabblad.
 2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) **voordat** je inlogt.
@@ -377,7 +377,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.
 
-**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Picnic en log opnieuw in.
+**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Winkels > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
 

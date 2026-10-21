@@ -102,7 +102,7 @@ class TabbarMarkupTest(unittest.TestCase):
 
     def test_app_js_keeps_aria_current_in_sync_and_scrolls_to_top(self):
         js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        handler = js[js.index('document.querySelectorAll(".tab").forEach'):js.index('document.querySelectorAll(".subtab")')]
+        handler = js[js.index('document.querySelectorAll(".tab").forEach'):js.index('document.querySelectorAll(".subtab[data-subtab]')]
         self.assertIn('removeAttribute("aria-current")', handler)
         self.assertIn('setAttribute("aria-current", "page")', handler)
         self.assertIn("window.scrollTo({ top: 0 })", handler)

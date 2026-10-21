@@ -1600,14 +1600,37 @@ $("#brand-home").addEventListener("click", (event) => {
   document.querySelector('.tab[data-tab="planner"]').click();
 });
 
-document.querySelectorAll(".subtab").forEach((subtab) => {
+// Onder Beheer staan de winkels in één uitklapmenu: de knop is actief zolang een van de winkels open is.
+const storesToggle = $("#beheer-stores-toggle");
+const storesList = $("#beheer-stores-list");
+
+function setStoresMenu(open) {
+  storesList.hidden = !open;
+  storesToggle.setAttribute("aria-expanded", String(open));
+}
+
+storesToggle.addEventListener("click", () => setStoresMenu(storesList.hidden));
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#beheer-stores-menu")) setStoresMenu(false);
+});
+$("#beheer-stores-menu").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || storesList.hidden) return;
+  setStoresMenu(false);
+  storesToggle.focus();
+});
+
+document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item").forEach((subtab) => {
   subtab.addEventListener("click", () => {
     const panel = subtab.closest(".panel");
     if (!panel) return;
     panel
-      .querySelectorAll(".subtab, .subpanel")
+      .querySelectorAll(".subtab, .subtab-menu__item, .subpanel")
       .forEach((item) => item.classList.remove("is-active"));
     subtab.classList.add("is-active");
+    if (subtab.classList.contains("subtab-menu__item")) {
+      storesToggle.classList.add("is-active");
+      setStoresMenu(false);
+    }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();

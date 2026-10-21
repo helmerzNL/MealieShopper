@@ -14,8 +14,8 @@ function applyRole() {
   document.querySelectorAll("[data-regular-only]").forEach((element) => {
     element.hidden = !(signedIn && !owner);
   });
-  const active = document.querySelector("#beheer .subtab.is-active");
-  if (active && active.hidden) document.querySelector('[data-subtab="beheer-security"]')?.click();
+  const active = document.querySelector("#beheer [data-subtab].is-active");
+  if (active && active.closest("[hidden]:not(.subtab-menu__list)")) document.querySelector('[data-subtab="beheer-security"]')?.click();
   document.documentElement.classList.toggle("is-regular-user", signedIn && !owner);
   const nameInput = $("#pw-username");
   if (nameInput) nameInput.readOnly = signedIn && !owner; // alleen de beheerder kan de naam wijzigen

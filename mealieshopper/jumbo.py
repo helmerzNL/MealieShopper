@@ -66,7 +66,7 @@ _access_cache: dict[str, Any] = {"token": "", "expires_at": 0.0}
 def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
-            "Jumbo account niet gekoppeld. De beheerder koppelt het bij Beheer > Jumbo.",
+            "Jumbo account niet gekoppeld. De beheerder koppelt het bij Beheer > Winkels > Jumbo.",
             "Jumbo account not linked. The admin links it under Admin > Jumbo.",
         )
     )
@@ -327,7 +327,7 @@ def _graphql(
             if _looks_like_auth_failure(errors):
                 raise JumboAuthError(
                     tr(
-                        "Jumbo-koppeling verlopen of geweigerd. Koppel opnieuw bij Beheer > Jumbo.",
+                        "Jumbo-koppeling verlopen of geweigerd. Koppel opnieuw bij Beheer > Winkels > Jumbo.",
                         "Jumbo link expired or refused. Link again under Admin > Jumbo.",
                     )
                 )
