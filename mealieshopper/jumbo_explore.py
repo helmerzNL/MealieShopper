@@ -205,7 +205,7 @@ def explore() -> dict[str, Any]:
     )
     probes.append(report)
 
-    report, _ = _probe(
+    report, lists_found = _probe(
         "receptenlijsten: opgeslagen query getRecipeLists",
         jumbo_recipes.get_lists,
         lambda lists: {
@@ -215,6 +215,24 @@ def explore() -> dict[str, Any]:
             "werkt via": _route("getRecipeLists"),
         },
     )
+    probes.append(report)
+
+    first_own = next((item for item in (lists_found or []) if item["kind"] == "own"), None)
+    if first_own:
+        report, _ = _probe(
+            "een eigen receptenlijst: opgeslagen query getRecipeListById",
+            lambda: jumbo_recipes.get_list_recipes(first_own["id"]),
+            lambda found: {
+                "recepten op de pagina": len(found["recipes"]),
+                "recepten in totaal": found["total"],
+                "aantal volgens het overzicht": first_own["count"],
+                "volgende pagina": found["hasNext"],
+                "eerste recept": shape(found["recipes"][0] if found["recipes"] else None),
+                "werkt via": _route("getRecipeListById"),
+            },
+        )
+    else:
+        report = {"name": "een eigen receptenlijst: opgeslagen query getRecipeListById", "ok": False, "error": "overgeslagen: geen eigen lijstje"}
     probes.append(report)
 
     report, _ = _probe(

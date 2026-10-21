@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-15")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-16")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -928,6 +928,22 @@ def create_app() -> Flask:
         # Alleen lezen: je favoriete recepten bij Jumbo, per pagina (`page` begint bij 1).
         try:
             return jsonify({**jumbo_recipes.get_favorites(request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/recipe-lists")
+    def jumbo_recipe_lists():
+        # Alleen lezen: je receptenlijsten bij Jumbo (Favorieten eerst, dan je eigen lijstjes) met aantallen.
+        try:
+            return jsonify({"lists": jumbo_recipes.get_lists()})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/recipe-lists/<list_id>")
+    def jumbo_recipe_list_recipes(list_id: str):
+        # Alleen lezen: de recepten van een eigen lijstje, per pagina (`page` begint bij 1).
+        try:
+            return jsonify({**jumbo_recipes.get_list_recipes(list_id, request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
