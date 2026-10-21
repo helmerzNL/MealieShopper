@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.13.0
+
+*English summary: The setup guide on the first start now also links Jumbo and Picnic. It has six steps instead of four: Security, Mealie, Albert Heijn, Jumbo, Picnic, Done. The Jumbo step works like Albert Heijn (log in on jumbo.com, paste the line from the browser console); the Picnic step takes your email address and password and, when Picnic asks for it, the code you get by text message or email, all in the same step. Both steps can be skipped, and the final overview lists them with a button to go back. An existing installation with login switched off that only has Jumbo or Picnic linked no longer gets the setup guide either.*
+
+### Nieuw in 2.13.0
+
+- **Jumbo en Picnic in de installatiehulp.** De installatiehulp op de eerste start heeft nu zes stappen: *Beveiliging*, *Mealie*, *Albert Heijn*, *Jumbo*, *Picnic* en *Klaar*. Je hoeft niet meer naar Beheer om je supermarkten te koppelen.
+- **Jumbo koppelen.** Werkt net als Albert Heijn: de uitleg voor de inlog via de browserconsole, de knop **Inloggen bij Jumbo** en het plakveld staan in de stap zelf. Dit kan alleen op een computer; gebruik je Jumbo niet of zit je op een telefoon, dan sla je de stap over.
+- **Picnic koppelen.** Vul je e-mailadres en wachtwoord in. Vraagt Picnic om een code, dan verschijnt in dezelfde stap een veld voor de code en wordt hij meteen per sms verstuurd; met de knoppen eronder vraag je hem opnieuw aan, of per e-mail. Is de login halverwege afgebroken (bijvoorbeeld door te verversen), dan staat het codeveld er na het openen van de stap weer. Je wachtwoord wordt niet bewaard.
+- **Overzicht.** De laatste stap toont ook Jumbo en Picnic, met een knop om alsnog te koppelen als er een ontbreekt. Na afloop is de winkelkeuze in de planner meteen bijgewerkt.
+- **Welkomsttekst en README.** De welkomsttekst en de waarschuwing bij *Zonder beveiliging verder* noemen nu alle supermarkten, en de sectie *Eerste start* van de README beschrijft de zes stappen.
+
+### Goed om te weten
+
+- Beide stappen zijn optioneel en gebruiken dezelfde koppelingen als **Beheer > Winkels**; wat je in de installatiehulp koppelt, kun je daar later gewoon wijzigen of ontkoppelen.
+- Een bestaande installatie met inloggen uit die al aan Jumbo of Picnic gekoppeld is (en dus niet aan Mealie of Albert Heijn), krijgt de installatiehulp niet meer te zien.
+
 ## v2.12.0
 
 *English summary: Under Settings the three store tabs (Albert Heijn, Picnic, Jumbo) are now merged into one "Stores" menu with a drop-down list. The menu button stays highlighted while one of its stores is open, closes when you pick a store, click elsewhere or press Escape, and works on phones too. The settings tab bar is shorter and tidier; nothing changes in what the pages do. Texts that point to the old tabs now say "Settings > Stores > Albert Heijn" (or Picnic, Jumbo).*

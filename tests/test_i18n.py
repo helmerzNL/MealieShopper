@@ -98,7 +98,7 @@ class UsageTest(unittest.TestCase):
             self.assertTrue(key in NL or key + ".one" in NL, f"{key} staat niet in het woordenboek")
 
     def test_dynamic_key_families_are_complete(self):
-        for step in ("auth", "mealie", "ah", "done"):
+        for step in ("auth", "mealie", "ah", "jumbo", "picnic", "done"):
             self.assertIn(f"ob.step.{step}", NL)
             self.assertIn(f"ob.title.{step}", NL)
         for meal in ("breakfast", "lunch", "dinner", "side"):

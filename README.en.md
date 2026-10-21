@@ -131,7 +131,7 @@ The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.loca
 
 ## First start
 
-On a new installation MealieShopper opens a four-step setup guide. An existing installation (with a passkey or password) does not see it.
+On a new installation MealieShopper opens a six-step setup guide. An existing installation (with a passkey or password) does not see it.
 
 **1. Security.** The app looks at how you open it.
 
@@ -154,9 +154,13 @@ After the password you can turn on **two-step verification** with an authenticat
 
 <img src="docs/screenshots/en/ob-ah.png" alt="Setup guide, step 3: linking Albert Heijn" width="900">
 
-**4. Done.** An overview of what is set up. If a link is missing, a button takes you back to that step.
+**4. Link Jumbo.** Works just like Albert Heijn: instructions for logging in through the browser console, with the login button and the paste field right in the step. This only works on a computer; if you don't use Jumbo, skip the step.
 
-<img src="docs/screenshots/en/ob-done.png" alt="Setup guide, step 4: overview" width="900">
+**5. Link Picnic.** Enter your Picnic email address and password. If Picnic asks for a code, a field for it appears in the same step; the code arrives by text message (or by email, with the button below it). Your password is not stored. You can skip this step too.
+
+**6. Done.** An overview of what is set up. If a link is missing, a button takes you back to that step.
+
+<img src="docs/screenshots/en/ob-done.png" alt="Setup guide, last step: overview" width="900">
 
 ## Usage
 

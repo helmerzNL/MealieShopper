@@ -131,7 +131,7 @@ De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.loca
 
 ## Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van vier stappen. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
 
 **1. Beveiliging.** De app kijkt hoe je hem opent.
 
@@ -154,9 +154,13 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 <img src="docs/screenshots/nl/ob-ah.png" alt="Installatiehulp, stap 3: Albert Heijn koppelen" width="900">
 
-**4. Klaar.** Een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je terug naar die stap.
+**4. Jumbo koppelen.** Werkt net als bij Albert Heijn: uitleg voor de inlog via de browserconsole, met de inlogknop en het plakveld meteen in de stap. Dit kan alleen op een computer; gebruik je Jumbo niet, dan sla je de stap over.
 
-<img src="docs/screenshots/nl/ob-done.png" alt="Installatiehulp, stap 4: overzicht" width="900">
+**5. Picnic koppelen.** Vul je e-mailadres en wachtwoord van Picnic in. Vraagt Picnic om een code, dan verschijnt er in dezelfde stap een veld voor; de code komt per sms (of per e-mail, via de knop eronder). Je wachtwoord wordt niet bewaard. Ook deze stap kun je overslaan.
+
+**6. Klaar.** Een overzicht van wat er staat. Ontbreekt er een koppeling, dan brengt een knop je terug naar die stap.
+
+<img src="docs/screenshots/nl/ob-done.png" alt="Installatiehulp, laatste stap: overzicht" width="900">
 
 ## Gebruik
 

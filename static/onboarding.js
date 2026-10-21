@@ -1,7 +1,7 @@
 // Installatiehulp voor de eerste start, en het beheer van wachtwoord en tweestapsverificatie (MFA).
 // Wordt na app.js geladen en gebruikt de hulpfuncties daarvan ($, message, jsonFetch, escapeHtml, state).
 
-const OB_STEPS = [{ id: "auth" }, { id: "mealie" }, { id: "ah" }, { id: "done" }];
+const OB_STEPS = [{ id: "auth" }, { id: "mealie" }, { id: "ah" }, { id: "jumbo" }, { id: "picnic" }, { id: "done" }];
 
 const ob = { step: null, sub: "choose", rendered: "", started: false, mfaBusy: false };
 
@@ -84,7 +84,7 @@ function renderObStep(force = false) {
   $("#ob-title").textContent = t(`ob.title.${OB_STEPS[index].id}`);
   $("#ob-progress").innerHTML = obProgressHtml();
   const body = $("#ob-body");
-  const renderers = { auth: renderObAuth, mealie: renderObMealie, ah: renderObAh, done: renderObDone };
+  const renderers = { auth: renderObAuth, mealie: renderObMealie, ah: renderObAh, jumbo: renderObJumbo, picnic: renderObPicnic, done: renderObDone };
   renderers[ob.step](body);
   $("#onboarding").scrollTo?.({ top: 0 });
   $("#ob-title").focus({ preventScroll: true });
@@ -214,7 +214,7 @@ function obAuthOpen(body) {
     </form>`;
 }
 
-// ------------------------------------------------------------------ stap 2 t/m 4
+// ------------------------------------------------------------------ stap 2 t/m 6
 
 function obNavigation({ back, next }) {
   return `<div class="ob-actions">${back ? obBackButton(`go-${back}`) : "<span></span>"}<button class="button" type="button" data-ob-action="go-${next}">${escapeHtml(t("ob.next"))}</button></div>`;
@@ -268,10 +268,72 @@ function renderObAh(body) {
     </div>
     <div class="ob-actions">
       ${obBackButton("go-mealie")}
-      <button class="button button--secondary" type="button" id="ob-ah-skip" data-ob-action="go-done">${escapeHtml(t("ob.skip"))}</button>
-      <button class="button" type="button" id="ob-ah-next" data-ob-action="go-done" hidden>${escapeHtml(t("ob.ah.next_done"))}</button>
+      <button class="button button--secondary" type="button" id="ob-ah-skip" data-ob-action="go-jumbo">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-ah-next" data-ob-action="go-jumbo" hidden>${escapeHtml(t("ob.ah.next_jumbo"))}</button>
     </div>`;
   loadObIntegrationStatus("ah");
+}
+
+function renderObJumbo(body) {
+  body.innerHTML = `
+    <p>${escapeHtml(t("ob.jumbo.intro"))}</p>
+    <div id="ob-jumbo-status"></div>
+    <div id="ob-jumbo-form-area">
+      <h3 class="ob-subtitle">${escapeHtml(t("ob.jumbo.how"))}</h3>
+      <div class="message warning ob-note">${th("ob.jumbo.computer")}</div>
+      <ol class="steps">
+        <li>${th("jumbo.step1")}</li>
+        <li>${th("jumbo.step2")}</li>
+        <li>${th("jumbo.step3")}</li>
+        <li>${th("jumbo.step4")}</li>
+        <li>${th("jumbo.step5")}</li>
+      </ol>
+      <p><a class="button button--secondary" href="/api/jumbo/auth/start" target="_blank" rel="noopener">${escapeHtml(t("jumbo.login"))}</a></p>
+      <form class="auth-form" id="ob-jumbo-form" data-ob-form="jumbo" autocomplete="off">
+        <label class="field"><span>${escapeHtml(t("ob.ah.paste_label"))}</span><textarea class="textarea" id="ob-jumbo-token" rows="3" placeholder="jumbo://callbacks/login?code=..." spellcheck="false" required></textarea></label>
+        <button class="button" type="submit">${escapeHtml(t("common.link"))}</button>
+      </form>
+      <p class="muted">${escapeHtml(t("ob.jumbo.skip_note"))}</p>
+    </div>
+    <div class="ob-actions">
+      ${obBackButton("go-ah")}
+      <button class="button button--secondary" type="button" id="ob-jumbo-skip" data-ob-action="go-picnic">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-jumbo-next" data-ob-action="go-picnic" hidden>${escapeHtml(t("ob.jumbo.next_picnic"))}</button>
+    </div>`;
+  loadObIntegrationStatus("jumbo");
+}
+
+function renderObPicnic(body) {
+  body.innerHTML = `
+    <p>${escapeHtml(t("ob.picnic.intro"))}</p>
+    <div id="ob-picnic-status"></div>
+    <div id="ob-picnic-form-area">
+      <form class="auth-form" id="ob-picnic-form" data-ob-form="picnic" autocomplete="off">
+        <label class="field"><span>${escapeHtml(t("picnic.email"))}</span><input class="input" id="ob-picnic-email" type="email" autocomplete="off" required></label>
+        <label class="field"><span>${escapeHtml(t("picnic.password"))}</span><input class="input" id="ob-picnic-password" type="password" autocomplete="off" required></label>
+        <button class="button" id="ob-picnic-login" type="submit">${escapeHtml(t("picnic.login"))}</button>
+      </form>
+      <div id="ob-picnic-code-area" hidden>
+        <h3 class="ob-subtitle">${escapeHtml(t("picnic.code_title"))}</h3>
+        <p>${escapeHtml(t("picnic.code_intro"))}</p>
+        <form class="auth-form" id="ob-picnic-code-form" data-ob-form="picnic-code" autocomplete="off">
+          <label class="field"><span>${escapeHtml(t("picnic.code_label"))}</span><input class="input" id="ob-picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required></label>
+          <button class="button" type="submit">${escapeHtml(t("picnic.confirm"))}</button>
+        </form>
+        <div class="ob-actions ob-actions--wrap">
+          <button class="button button--secondary" type="button" data-ob-action="picnic-sms">${escapeHtml(t("picnic.send_sms"))}</button>
+          <button class="button button--secondary" type="button" data-ob-action="picnic-email">${escapeHtml(t("picnic.send_email"))}</button>
+        </div>
+        <div id="ob-picnic-code-message"></div>
+      </div>
+      <p class="muted">${th("ob.picnic.note")}</p>
+    </div>
+    <div class="ob-actions">
+      ${obBackButton("go-jumbo")}
+      <button class="button button--secondary" type="button" id="ob-picnic-skip" data-ob-action="go-done">${escapeHtml(t("ob.skip"))}</button>
+      <button class="button" type="button" id="ob-picnic-next" data-ob-action="go-done" hidden>${escapeHtml(t("ob.picnic.next_done"))}</button>
+    </div>`;
+  loadObIntegrationStatus("picnic");
 }
 
 // Gekoppeld: toon dat, verberg het formulier en maak "volgende" de hoofdknop.
@@ -291,6 +353,17 @@ async function loadObIntegrationStatus(which) {
       const data = await jsonFetch("/api/mealie/status");
       if (data.configured) obIntegrationDone("mealie", t("ob.mealie.linked", { url: data.url }));
       else message(target, t("ob.mealie.not_linked"), "warning");
+    } else if (which === "jumbo") {
+      const data = await jsonFetch("/api/jumbo/auth/status");
+      if (data.connected) obIntegrationDone("jumbo", t("ob.jumbo.linked"));
+      else message(target, t("ob.jumbo.not_linked"), "warning");
+    } else if (which === "picnic") {
+      const data = await jsonFetch("/api/picnic/auth/status");
+      if (data.connected) obIntegrationDone("picnic", t("ob.picnic.linked"));
+      else {
+        message(target, t("ob.picnic.not_linked"), "warning");
+        if (data.twoFactorPending) obPicnicShowCode(); // de login is half af (bijvoorbeeld na verversen): alleen de code ontbreekt
+      }
     } else {
       const data = await jsonFetch("/api/ah/auth/status");
       if (data.connected) obIntegrationDone("ah", t("ob.ah.linked"));
@@ -318,18 +391,24 @@ async function renderObDone(body) {
     <p>${escapeHtml(t("ob.done.intro"))}</p>
     <ul class="ob-checklist" id="ob-checklist"></ul>
     <div class="ob-actions ob-actions--wrap" id="ob-done-actions"></div>`;
-  const [mealie, ah] = await Promise.all([
+  const [mealie, ah, jumbo, picnic] = await Promise.all([
     jsonFetch("/api/mealie/status").catch(() => ({})),
     jsonFetch("/api/ah/auth/status").catch(() => ({})),
+    jsonFetch("/api/jumbo/auth/status").catch(() => ({})),
+    jsonFetch("/api/picnic/auth/status").catch(() => ({})),
   ]);
   const item = (ok, text) => `<li class="${ok ? "is-ok" : "is-todo"}"><span class="ob-check" aria-hidden="true">${ok ? "&#10003;" : "&#9675;"}</span><span>${escapeHtml(text)}</span></li>`;
   $("#ob-checklist").innerHTML =
     item(true, t("ob.done.security", { mode: authModeLabel() })) +
     item(Boolean(mealie.configured), mealie.configured ? t("ob.done.mealie_ok", { url: mealie.url || "" }) : t("ob.done.mealie_todo")) +
-    item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo"));
+    item(Boolean(ah.connected), ah.connected ? t("ob.done.ah_ok") : t("ob.done.ah_todo")) +
+    item(Boolean(jumbo.connected), jumbo.connected ? t("ob.done.jumbo_ok") : t("ob.done.jumbo_todo")) +
+    item(Boolean(picnic.connected), picnic.connected ? t("ob.done.picnic_ok") : t("ob.done.picnic_todo"));
   const actions = [];
   if (!mealie.configured) actions.push(`<button class="button" type="button" data-ob-action="go-mealie">${escapeHtml(t("ob.done.link_mealie"))}</button>`);
   if (!ah.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-ah">${escapeHtml(t("ob.done.link_ah"))}</button>`);
+  if (!jumbo.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-jumbo">${escapeHtml(t("ob.done.link_jumbo"))}</button>`);
+  if (!picnic.connected) actions.push(`<button class="button button--secondary" type="button" data-ob-action="go-picnic">${escapeHtml(t("ob.done.link_picnic"))}</button>`);
   actions.push(
     `<button class="button${actions.length ? " button--secondary" : ""}" type="button" data-ob-action="finish">${escapeHtml(t("ob.done.open"))}</button>`
   );
@@ -350,6 +429,8 @@ async function finishOnboarding() {
   window.scrollTo({ top: 0 });
   refreshMealieStatus(); // de melding op het weekmenu en de status onder Beheer volgen wat er gekoppeld is
   refreshAhStatus();
+  if (typeof refreshJumboStatus === "function") refreshJumboStatus(); // ook de winkelkeuze in de planner
+  if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
 }
 
 // ---------------------------------------------------------------- acties en formulieren
@@ -391,6 +472,51 @@ async function obSubmitAh() {
   obIntegrationDone("ah", t("ah.saved"));
 }
 
+async function obSubmitJumbo() {
+  await postJson("/api/jumbo/auth", { code: $("#ob-jumbo-token").value.trim() });
+  $("#ob-jumbo-token").value = "";
+  obIntegrationDone("jumbo", t("jumbo.saved"));
+}
+
+function obPicnicShowCode() {
+  const area = $("#ob-picnic-code-area");
+  if (!area) return;
+  area.hidden = false;
+  $("#ob-picnic-code").focus({ preventScroll: true });
+}
+
+async function obPicnicRequestCode(channel) {
+  message("#ob-picnic-code-message", "");
+  try {
+    await postJson("/api/picnic/auth/2fa/request", { channel });
+    message("#ob-picnic-code-message", t("picnic.code_sent"), "success");
+  } catch (error) {
+    message("#ob-picnic-code-message", error.message);
+  }
+}
+
+async function obSubmitPicnic() {
+  const data = await postJson("/api/picnic/auth", {
+    email: $("#ob-picnic-email").value.trim(),
+    password: $("#ob-picnic-password").value,
+  });
+  $("#ob-picnic-password").value = "";
+  if (data.twoFactorRequired) {
+    // Picnic wil een code: de gebruiker kan opnieuw proberen met een ander wachtwoord, dus de knop blijft bruikbaar.
+    $("#ob-picnic-login").disabled = false;
+    obPicnicShowCode();
+    await obPicnicRequestCode("SMS");
+    return;
+  }
+  obIntegrationDone("picnic", t("picnic.linked"));
+}
+
+async function obSubmitPicnicCode() {
+  await postJson("/api/picnic/auth/2fa/verify", { code: $("#ob-picnic-code").value.trim() });
+  $("#ob-picnic-code").value = "";
+  obIntegrationDone("picnic", t("picnic.linked"));
+}
+
 async function obSubmitOpen() {
   await postJson("/api/auth/open", { confirm: true });
   await refreshAuthStatus();
@@ -406,6 +532,10 @@ const OB_ACTIONS = {
   "skip-mfa": () => obGo("mealie"),
   "go-mealie": () => obGo("mealie"),
   "go-ah": () => obGo("ah"),
+  "go-jumbo": () => obGo("jumbo"),
+  "go-picnic": () => obGo("picnic"),
+  "picnic-sms": () => obPicnicRequestCode("SMS"),
+  "picnic-email": () => obPicnicRequestCode("EMAIL"),
   "go-done": () => obGo("done"),
   finish: () => finishOnboarding(),
 };
@@ -427,7 +557,16 @@ $("#ob-body").addEventListener("submit", async (event) => {
   if (!form) return;
   event.preventDefault();
   const submit = form.querySelector('[type="submit"]');
-  const handlers = { passkey: obSubmitPasskey, password: obSubmitPassword, open: obSubmitOpen, mealie: obSubmitMealie, ah: obSubmitAh };
+  const handlers = {
+    passkey: obSubmitPasskey,
+    password: obSubmitPassword,
+    open: obSubmitOpen,
+    mealie: obSubmitMealie,
+    ah: obSubmitAh,
+    jumbo: obSubmitJumbo,
+    picnic: obSubmitPicnic,
+    "picnic-code": obSubmitPicnicCode,
+  };
   if (submit) submit.disabled = true;
   message("#ob-message", "");
   try {

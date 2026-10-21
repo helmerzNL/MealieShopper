@@ -66,10 +66,10 @@ NL = dictionary("nl")
 
 
 class ScriptTest(unittest.TestCase):
-    def test_four_steps_in_the_asked_order(self):
+    def test_six_steps_in_the_asked_order(self):
         ids = re.findall(r'\{ id: "(\w+)" \}', OB_JS)
-        self.assertEqual(ids, ["auth", "mealie", "ah", "done"])
-        self.assertEqual([NL[f"ob.step.{i}"] for i in ids], ["Beveiliging", "Mealie", "Albert Heijn", "Klaar"])
+        self.assertEqual(ids, ["auth", "mealie", "ah", "jumbo", "picnic", "done"])
+        self.assertEqual([NL[f"ob.step.{i}"] for i in ids], ["Beveiliging", "Mealie", "Albert Heijn", "Jumbo", "Picnic", "Klaar"])
 
     def test_security_step_follows_the_domain_rule(self):
         for needle in ("status.passkeyAvailable", "go-passkey", "go-password", "go-open", "passkeyUnavailableReason"):
@@ -104,6 +104,27 @@ class ScriptTest(unittest.TestCase):
             self.assertIn(needle, OB_JS, needle)
         self.assertNotIn("finish-mealie", OB_JS)
         self.assertNotIn("openBeheer", OB_JS)
+
+    def test_jumbo_and_picnic_are_linked_inside_the_wizard_and_can_be_skipped(self):
+        for needle in ('data-ob-form="jumbo"', '"/api/jumbo/auth"', '"/api/jumbo/auth/status"', 'href="/api/jumbo/auth/start"',
+                       'id="ob-jumbo-next"', 'id="ob-jumbo-skip"',
+                       'data-ob-form="picnic"', 'data-ob-form="picnic-code"', '"/api/picnic/auth"', '"/api/picnic/auth/status"',
+                       '"/api/picnic/auth/2fa/request"', '"/api/picnic/auth/2fa/verify"', "twoFactorRequired", "twoFactorPending",
+                       'id="ob-picnic-next"', 'id="ob-picnic-skip"', "refreshJumboStatus", "refreshPicnicStatus"):
+            self.assertIn(needle, OB_JS, needle)
+        # De volgorde van de knoppen: AH > Jumbo > Picnic > klaar, en de samenvatting kan naar elke stap terug.
+        for target, action in (("ah", "go-jumbo"), ("jumbo", "go-picnic"), ("picnic", "go-done")):
+            self.assertIn(f'id="ob-{target}-next" data-ob-action="{action}"', OB_JS, target)
+        for action in ("go-jumbo", "go-picnic"):
+            self.assertIn(f'data-ob-action="{action}">${{escapeHtml(t("ob.done.link_', OB_JS, action)
+
+    def test_explanations_for_jumbo_and_picnic(self):
+        jumbo = " ".join(NL[k] for k in NL if k.startswith(("ob.jumbo.", "jumbo.step")))
+        picnic = " ".join(NL[k] for k in NL if k.startswith("ob.picnic."))
+        for needle in ("jumbo://callbacks/login?code=", "ontwikkelaarsconsole", "computer"):
+            self.assertIn(needle, jumbo, needle)
+        for needle in ("e-mailadres", "wachtwoord", "sms"):
+            self.assertIn(needle, picnic, needle)
 
     def test_opt_out_needs_an_explicit_confirmation(self):
         self.assertIn("ob-open-confirm", OB_JS)
