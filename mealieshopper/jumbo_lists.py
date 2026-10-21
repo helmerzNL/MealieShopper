@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, jumbo
+from . import audit, auth, jumbo
 from .ah_lists import _fold
 from .packs import MAX_CART_QUANTITY
 
@@ -136,7 +136,7 @@ def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
             return None
 
     with ThreadPoolExecutor(max_workers=6) as executor:
-        details = list(executor.map(detail, items[: jumbo.MAX_LIST_PRODUCTS])) + [None] * max(0, len(items) - jumbo.MAX_LIST_PRODUCTS)
+        details = list(executor.map(audit.propagate(detail), items[: jumbo.MAX_LIST_PRODUCTS])) + [None] * max(0, len(items) - jumbo.MAX_LIST_PRODUCTS)
     return {
         "id": LIST_ID,
         "name": LIST_NAME,

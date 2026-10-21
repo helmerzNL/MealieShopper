@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from flask import Flask, Response, jsonify, make_response, redirect, render_template, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-from . import auth, mcp, oauth, server_settings
+from . import audit, auth, mcp, oauth, server_settings
 from .i18n import current_lang, tr
 
 CORS_PATHS = ("/mcp", "/oauth/register", "/oauth/token", "/oauth/revoke", "/.well-known/")
@@ -222,21 +222,30 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             return _json({"error": "Method not allowed"}, 405, Allow="POST")  # geen streams en geen sessies
         header = request.headers.get("Authorization", "")
         token = header[7:].strip() if header[:7].lower() == "bearer " else ""
-        if not token or not oauth.verify_access_token(token, mcp_url()):
+        identity = oauth.verify_access_token(token, mcp_url()) if token else None
+        if not identity:
+            audit.mcp_rejected(401, "unauthorized", header_present=bool(token))
             return unauthorized(bool(token))
         version = request.headers.get("Mcp-Protocol-Version")
         if version and version not in mcp.SUPPORTED_PROTOCOLS:
+            audit.mcp_rejected(400, f"unsupported protocol {version}")
             return _json({"error": f"Unsupported MCP protocol version: {version}"}, 400)
         if (request.content_length or 0) > MAX_BODY:
+            audit.mcp_rejected(413, "request too large")
             return _json({"error": "Request too large"}, 413)
         try:
             message = json.loads(request.get_data(as_text=True))
         except ValueError:
+            audit.mcp_rejected(400, "parse error")
             return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
+
+        def handle(item: Any) -> dict[str, Any] | None:
+            return audit.mcp_message(item, mcp.handle_message, identity)
+
         if isinstance(message, list):
-            replies = [reply for reply in map(mcp.handle_message, message) if reply is not None]
+            replies = [reply for reply in map(handle, message) if reply is not None]
             return _json(replies) if replies else Response(status=202)
-        reply = mcp.handle_message(message)
+        reply = handle(message)
         return _json(reply) if reply is not None else Response(status=202)
 
     # --- beheer in de app (achter de gewone inlog) ---------------------------------------------------

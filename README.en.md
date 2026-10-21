@@ -336,12 +336,18 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
 | `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Settings, AI apps takes precedence. |
 | `MEALIESHOPPER_UPDATE_CHECK` | Set to `false` to turn the update check off (Settings, Updates). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
+| `MEALIESHOPPER_AUDIT_LOG` | Set to `false` to turn the audit log off (Settings, Audit log). On by default. |
+| `MEALIESHOPPER_AUDIT_BODIES` | Set to `false` and the audit log stores only who, what, when and the outcome, not the requests and answers themselves. On by default. |
+| `MEALIESHOPPER_AUDIT_BODY_CHARS` | How many characters of each request and answer the audit log stores (default 4000; longer texts are cut). |
+| `MEALIESHOPPER_AUDIT_RETENTION_DAYS` | After how many days the audit log deletes entries (default 30; `0` never deletes on its own). |
 | `PASSKEY_AUTH_ENABLED` | With `false` login is turned off completely (emergency only). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie through the environment; a link made in the app takes precedence. |
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
 | `PICNIC_COUNTRY_CODE` | Country of your Picnic account: `NL` (default), `DE` or `FR`. You make the link itself in the app. |
 | `PORT` | Port for `python run.py` (default 8000). |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Override the version number and commit shown under About. |
+
+**Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
 
 ## Data and backups
 

@@ -1612,6 +1612,7 @@ document.querySelectorAll(".subtab").forEach((subtab) => {
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
+    if (subtab.dataset.subtab === "beheer-audit" && typeof loadAudit === "function") loadAudit();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });

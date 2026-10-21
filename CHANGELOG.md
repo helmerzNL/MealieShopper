@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.10.0
+
+*English summary: New Settings > Audit log (administrator only). It records every request MealieShopper makes to Albert Heijn, Picnic and Jumbo (method, address, status, duration, request and answer) and every request an AI assistant makes over MCP (tool, input, result), including the steps where an assistant links up. A store request made while an MCP tool runs is linked to that tool call, so you can see exactly what an assistant's question caused. Filter by store or errors, search, open an entry for details, clear the log. Passwords, tokens, codes, cookies and e-mail addresses are replaced by "[verborgen]" before storing; headers are never stored; entries are deleted after 30 days. Four optional settings: MEALIESHOPPER_AUDIT_LOG, _BODIES, _BODY_CHARS and _RETENTION_DAYS.*
+
+### Nieuw in 2.10.0
+
+- **Auditlog.** Onder **Beheer > Auditlog** (alleen de beheerder) staat het verkeer met Albert Heijn, Picnic en Jumbo: elk verzoek met tijd, methode en adres, uitkomst, duur, het verzoek en het antwoord. Een GraphQL-verzoek aan Jumbo of AH heet naar zijn operatie (bijvoorbeeld *GraphQL FavoriteRecipes*). Fouten en netwerkstoringen staan er ook in, en een doorverwijzing telt als één verzoek.
+- **MCP-verzoeken van AI-assistenten.** Elk `initialize`, `tools/list` en `tools/call` komt in de log, met de app (bijvoorbeeld *Claude*) en gebruiker erachter, de ingevoerde argumenten en het resultaat. Ook geweigerde verzoeken (geen of ongeldig token, te groot, onbekend protocol) en de OAuth-stappen waarmee een assistent koppelt staan erin; van die stappen bewaren we nooit de tokens.
+- **Wat veroorzaakte wat.** Een winkelverzoek dat tijdens een MCP-tool loopt, krijgt hetzelfde correlatie-id als die tool. Bij een MCP-verzoek zie je welke winkelverzoeken eruit volgden (of dat het antwoord uit de lokale kopie kwam), en bij een winkelverzoek door welk MCP-verzoek het kwam.
+- **Filteren en zoeken.** Per winkel (Albert Heijn, Picnic, Jumbo, AI-assistenten), alleen fouten, zoeken op actie, adres of fout, en `Meer laden` voor oudere regels. Bovenaan staat per dienst het aantal verzoeken en fouten van de laatste 24 uur. Met `Log wissen` wis je alles; dat blijft zelf als regel in de log staan.
+- **Instellingen.** `MEALIESHOPPER_AUDIT_LOG` (uit met `false`), `MEALIESHOPPER_AUDIT_BODIES` (alleen wie, wat en uitkomst bewaren), `MEALIESHOPPER_AUDIT_BODY_CHARS` (standaard 4000) en `MEALIESHOPPER_AUDIT_RETENTION_DAYS` (standaard 30, `0` wist nooit). Zie de README.
+- API: `GET /api/audit` (met `service`, `status=error`, `q`, `limit`, `before`), `GET /api/audit/<id>` en `DELETE /api/audit`, alleen voor de beheerder.
+
+### Goed om te weten
+
+- **Geheimen worden niet bewaard.** Wachtwoorden, tokens, codes, cookies, sessies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`, in het adres, het verzoek en het antwoord. Headers bewaren we niet.
+- **Antwoorden kunnen persoonlijke gegevens bevatten**, zoals je bestellingen. Alleen de beheerder ziet de log, en na 30 dagen worden regels gewist. Wil je dat niet, zet dan `MEALIESHOPPER_AUDIT_BODIES=false`.
+- Verkeer met Mealie en GitHub (de updatecheck) staat bewust niet in de log. Van de AH-loginproxy bewaren we alleen de pagina's, geen stijlen, scripts of inhoud.
+- De log legt alleen vast: er verandert niets aan wat de koppelingen of de MCP-tools doen.
+
 ## v2.9.0
 
 *English summary: Your favourite Jumbo recipes are now under Stores > Recipes (choose Jumbo): 24 per page with "More recipes", "View" (ingredients, method, tip, nutrition) and "Import" into Mealie. They come from jumbo.com's own stored request (FavoriteRecipes). A read-only MCP tool (list_jumbo_favorite_recipes) and an explorer probe were added. Your own recipe lists (such as "Kerst") are not shown yet. The recipe view is now shared between Find recipes and the favourites. Built from the real answer of jumbo.com but tried only with mocked responses so far.*

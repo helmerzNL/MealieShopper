@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, server_settings, updates, users
+from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,8 +21,10 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-15")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-16")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+    audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
+    audit.register_routes(app)
     auth.register_routes(app)
     auth_password.register_routes(app)
     onboarding.register_routes(app)
@@ -392,7 +394,7 @@ def create_app() -> Flask:
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:
-            resolved = list(executor.map(resolve, items))
+            resolved = list(executor.map(audit.propagate(resolve), items))
         return jsonify({"items": resolved})
 
     @app.post("/api/ah/cart/preview")
@@ -1068,15 +1070,16 @@ def create_app() -> Flask:
             headers["Origin"] = ah.AH_LOGIN_BASE
 
         try:
-            upstream = requests.request(
-                request.method,
-                target_url,
-                params=request.args,
-                data=request.get_data(),
-                headers=headers,
-                allow_redirects=False,
-                timeout=30,
-            )
+            with audit.login_proxy():
+                upstream = requests.request(
+                    request.method,
+                    target_url,
+                    params=request.args,
+                    data=request.get_data(),
+                    headers=headers,
+                    allow_redirects=False,
+                    timeout=30,
+                )
         except requests.RequestException as exc:
             app.logger.exception("AH login proxy error")
             return f"AH login proxy error: {exc}", 502
