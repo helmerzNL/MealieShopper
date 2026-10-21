@@ -336,12 +336,18 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | Alleen voor passkeys, met een domeinnaam en HTTPS. |
 | `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Beheer, AI-apps gaat voor. |
 | `MEALIESHOPPER_UPDATE_CHECK` | Met `false` zet je de updatecheck uit (Beheer, Updates). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
+| `MEALIESHOPPER_AUDIT_LOG` | Met `false` zet je de auditlog uit (Beheer, Auditlog). Standaard aan. |
+| `MEALIESHOPPER_AUDIT_BODIES` | Met `false` bewaart de auditlog alleen wie, wat, wanneer en de uitkomst, niet de verzoeken en antwoorden zelf. Standaard aan. |
+| `MEALIESHOPPER_AUDIT_BODY_CHARS` | Hoeveel tekens van elk verzoek en antwoord de auditlog bewaart (standaard 4000; langere teksten worden ingekort). |
+| `MEALIESHOPPER_AUDIT_RETENTION_DAYS` | Na hoeveel dagen de auditlog regels wist (standaard 30; `0` wist nooit vanzelf). |
 | `PASSKEY_AUTH_ENABLED` | Met `false` staat inloggen helemaal uit (alleen als noodgreep). |
 | `MEALIE_URL`, `MEALIE_API_TOKEN` | Mealie via de omgeving; een koppeling uit de app gaat voor. |
 | `AH_REFRESH_TOKEN` | Startwaarde voor de AH-koppeling; normaal koppel je in de app. |
 | `PICNIC_COUNTRY_CODE` | Land van je Picnic-account: `NL` (standaard), `DE` of `FR`. De koppeling zelf maak je in de app. |
 | `PORT` | Poort bij `python run.py` (standaard 8000). |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Overschrijven het versienummer en de commit die bij Over staan. |
+
+**Auditlog.** Onder **Beheer, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel, alleen fouten tonen en zoeken. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
 
 ## Data en back-ups
 
