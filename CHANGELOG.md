@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.4.4
+
+*English summary: The explorer report shows this account has 0 completed deliveries, so the Favorites tab points to the "no purchases" page, whose `saved` field is empty and the page `purchases-page-root` only has two products; none of them says which products you favorited. The explorer now reports how those pages (and the product page and the "remove favorite" dialog) fetch their data: addresses, requests, waiting components and state, with numbers and ids redacted, so the real favorites source can be found. No behaviour change in the app.*
+
+### Verkenner
+
+- Uit het rapport: dit account heeft **0 afgeronde leveringen**. Daarom wijst de tab *Favorieten* naar de pagina voor een account zonder aankopen, en bevatten de pagina's `purchases-page-root` (2 producten, de rest laadt later) en `purchases_page_no_consent_root` geen markering van favorieten. Het account heeft wel de functies `MANUAL_FAVORITES` en `PPP_PURCHASES_TAB`.
+- Nieuw: per pagina (`purchases_page_no_products_root`, `purchases-page-root`, `purchased-deep-dive-page-content`, `meals-purchase-page-root`, de bevestiging bij een favoriet weghalen en een productpagina) hoe die pagina haar gegevens ophaalt: adressen en verzoeken, wachtonderdelen (`SUSPENSE`), de toestand (`state`) en stukjes code over favorieten of opslaan. Getallen en id's zijn vervangen door `<id>`; er komen geen producten of teksten in.
+- *Opnieuw bestellen* is leeg omdat het account nog niets heeft laten bezorgen; dat is waarschijnlijk geen fout.
+
+### Goed om te weten
+
+- De app zelf verandert niet; dit is weer een verkenstap om te zien waar Picnic de handmatige favorieten vandaan haalt.
+
 ## v2.4.3
 
 *English summary: Picnic favorites no longer fall back to listing every product on the page. The explorer report showed that the Favorites tab of this account points to the "no purchases" page (`purchases_page_no_products_root`): 183 products and a `saved` field that is empty, so there is nothing that says which products are yours. Without a marker MealieShopper now shows no products and says why, and it also tries the `purchases-page-root` page. The explorer gets probes for the purchases pages, the product page's favorite fields and the account's delivery count and purchases consent, so the real source of your favorites can be found next.*
