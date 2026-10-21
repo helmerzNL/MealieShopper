@@ -24,7 +24,7 @@ import requests
 
 from . import auth
 from .i18n import tr
-from .packs import assess_packs, normalize_quantity
+from .packs import MAX_CART_QUANTITY as MAX_QUANTITY, assess_packs, normalize_quantity
 
 API_VERSION = "15"
 BASE_URL = "https://storefront-prod.{country}.picnicinternational.com/api/{version}"
@@ -91,7 +91,8 @@ def _call(
             data = None
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code") in AUTH_ERROR_CODES:
-        raise PicnicAuthError(error.get("message") or error["code"])
+        # Bewust niet de tekst van Picnic zelf: de aanroeper kiest een eigen, begrijpelijke melding.
+        raise PicnicAuthError(tr("Picnic weigerde de sessie", "Picnic refused the session"))
     if not response.ok:
         raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
     return data, new_token
@@ -203,7 +204,12 @@ def _two_factor(path: str, body: dict[str, Any], *, token: str | None = None) ->
     data, new_token = _call("POST", path, token=token, body=body)
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code"):
-        raise Picnic2FAError(error.get("message") or error["code"])
+        raise Picnic2FAError(
+            tr(
+                "Picnic weigerde de code: controleer hem of vraag een nieuwe aan",
+                "Picnic refused the code: check it or request a new one",
+            )
+        )
     return new_token
 
 
@@ -230,7 +236,9 @@ def status(verify: bool = False) -> dict[str, Any]:
             result["verified"] = True
         except Exception as exc:  # noqa: BLE001 - de reden tonen we aan de beheerder
             result["verified"] = False
-            result["error"] = str(exc)
+            # Onze eigen tekst bij een verlopen koppeling; bij andere fouten alleen het type, want het
+            # bericht kan een stuk van Picnics antwoord bevatten.
+            result["error"] = str(exc) if isinstance(exc, PicnicAuthError) else type(exc).__name__
     return result
 
 
@@ -423,6 +431,67 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - de fout hoort bij dit product
             failed.append({"productId": product_id, "error": str(exc)})
     return {"added": added, "failed": failed, "cart": cart_summary(cart) if cart else None}
+
+
+def _product_id(value: Any) -> str:
+    product_id = str(value or "").strip()
+    if not product_id:
+        raise ValueError(tr("Geen product opgegeven", "No product given"))
+    return product_id
+
+
+def _quantity_in(cart: dict[str, Any], product_id: str) -> int:
+    return next((item["quantity"] for item in cart["items"] if item["id"] == product_id), 0)
+
+
+def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
+    """Zet een product op een exact aantal (0 haalt het helemaal weg).
+
+    Picnic kent alleen toevoegen en verwijderen, dus we kijken eerst hoeveel er nu in het mandje zit
+    en voegen het verschil toe of halen het weg.
+    """
+    product_id = _product_id(product_id)
+    if isinstance(quantity, bool) or (isinstance(quantity, float) and not quantity.is_integer()):
+        raise ValueError(tr("Het aantal moet een heel getal zijn", "The quantity must be a whole number"))
+    try:
+        target = int(quantity)
+    except (TypeError, ValueError):
+        raise ValueError(tr("Het aantal moet een heel getal zijn", "The quantity must be a whole number")) from None
+    if not 0 <= target <= MAX_QUANTITY:
+        raise ValueError(
+            tr(f"Het aantal moet tussen 0 en {MAX_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_QUANTITY}")
+        )
+    cart = get_cart()
+    current = _quantity_in(cart, product_id)
+    if target > current:
+        return _authed_summary("/cart/add_product", product_id, target - current)
+    if target < current:
+        return _authed_summary("/cart/remove_product", product_id, current - target)
+    return cart
+
+
+def _authed_summary(path: str, product_id: str, count: int) -> dict[str, Any]:
+    return cart_summary(_authed("POST", path, body={"product_id": product_id, "count": count}))
+
+
+def clear_cart() -> dict[str, Any]:
+    """Maak het Picnic-mandje leeg. Plaatst nooit een bestelling.
+
+    Eerst Picnics eigen route; weigert die, dan halen we elk product met zijn eigen aantal weg.
+    """
+    before = get_cart()
+    if not before["items"]:
+        return {"removed": 0, "cart": before}
+    try:
+        cart = cart_summary(_authed("POST", "/cart/clear"))
+    except PicnicAuthError:
+        raise
+    except Exception:  # noqa: BLE001 - de route kan bij Picnic anders heten; val terug op per product
+        cart = before
+        for item in before["items"]:
+            if item["id"]:
+                cart = _authed_summary("/cart/remove_product", str(item["id"]), item["quantity"])
+    return {"removed": sum(item["quantity"] for item in before["items"]), "cart": cart}
 
 
 def _delivery_summary(delivery: dict[str, Any]) -> dict[str, Any]:
