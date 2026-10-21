@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v1.13.1
+
+*English summary: Fixes the Updates tab showing raw text keys such as "update.title". The browser kept using the old cached text files because the asset version was not raised in 1.13.0; it is now. After updating, a hard refresh (Ctrl+Shift+R) may still be needed once.*
+
+### Opgelost in 1.13.1
+
+- **Teksten bij Beheer > Updates.** In 1.13.0 stonden er sleutelnamen zoals `update.title` in plaats van de teksten, omdat de browser nog de oude, bewaarde tekstbestanden gebruikte. Het versienummer van de scripts en teksten (`ASSET_VERSION`) is verhoogd, zodat de nieuwe bestanden worden opgehaald. Zie bij een hardnekkige cache één keer een harde refresh (`Ctrl`+`Shift`+`R`) of open de app opnieuw.
+
 ## v1.13.0
 
 *English summary: Settings has a new Updates tab with an update check. MealieShopper looks at GitHub for the latest release and compares it with the running version. When a newer version exists, the administrator gets a notice under the tab bar (with "View" and "Later"), a dot on the Settings tab and on Updates, and the Updates tab links to the release notes and says how to update. The answer is kept for six hours (or ask again with "Check now"), nothing about you or the installation is sent, and `MEALIESHOPPER_UPDATE_CHECK=false` turns it off.*
