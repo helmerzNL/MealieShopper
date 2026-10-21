@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, auth, auth_password, mealie, onboarding  # noqa: E402
+from mealieshopper import ah, auth, auth_password, jumbo, mealie, onboarding, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -125,6 +125,13 @@ class LifecycleTest(OnboardingTestCase):
             status = self.status()
         self.assertFalse(status["needed"])
         self.assertEqual(status["authMode"], "off")
+
+    def test_existing_install_with_login_off_and_only_jumbo_or_picnic_linked_is_left_alone(self):
+        for target, name in ((jumbo, "configured_refresh_token"), (picnic, "configured_auth_key")):
+            with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), \
+                    mock.patch.object(target, name, return_value="geheim"):
+                status = self.status()
+            self.assertFalse(status["needed"], name)
 
     def test_new_install_with_login_off_still_gets_the_explanation(self):
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):

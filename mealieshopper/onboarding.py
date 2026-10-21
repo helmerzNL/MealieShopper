@@ -2,7 +2,7 @@
 
 Een installatie is "nieuw" zolang er geen manier is om in te loggen (passkey of wachtwoord),
 er niet bewust voor "zonder beveiliging" is gekozen en de onboarding niet is afgerond. Daarna
-leidt de app de gebruiker langs de beveiliging en de uitleg voor Mealie en Albert Heijn.
+leidt de app de gebruiker langs de beveiliging en de uitleg voor Mealie, Albert Heijn, Jumbo en Picnic.
 
 De status wordt uit de aanwezige gegevens afgeleid; alleen "bezig" en "klaar" staan als vlag
 in de database. Zo blijft een bestaande installatie (met passkey of wachtwoord) buiten beeld.
@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
-from . import ah, auth, mealie
+from . import ah, auth, jumbo, mealie, picnic
 from .i18n import tr
 
 SETTING_ACTIVE = "ONBOARDING_ACTIVE"
@@ -76,7 +76,12 @@ def environment() -> dict[str, Any]:
 
 def _integrations_configured() -> bool:
     try:
-        return bool(mealie.mealie_url() and mealie.mealie_token()) or bool(ah.configured_refresh_token())
+        return (
+            bool(mealie.mealie_url() and mealie.mealie_token())
+            or bool(ah.configured_refresh_token())
+            or bool(jumbo.configured_refresh_token())
+            or bool(picnic.configured_auth_key())
+        )
     except Exception:  # noqa: BLE001 - een onleesbare database telt niet als "al ingesteld"
         return False
 
