@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.1.0
+
+*English summary: MealieShopper can now read your Picnic recipes: the ones you saved in the Picnic app and the cookbook, with name and id. For now they are available through a new read-only MCP tool, `list_picnic_recipes`, and the route `GET /api/picnic/recipes`; nothing is imported into Mealie and the app has no recipe screen for them yet, because the explorer report did not show the ingredients yet. The route explorer now also reports where the names, ingredients and images sit in a recipe and tries more pages for the favorites.*
+
+### Nieuw in 2.1.0
+
+- **Picnic-recepten lezen.** De recepten die je in de Picnic-app hebt opgeslagen en het kookboek van Picnic, met naam en id. Dit is gebouwd op de vorm die de verkenner bij jouw account vond: elk receptonderdeel op een pagina heeft `recipe_id` en `recipe_name` in zijn analysegegevens. Nieuwe route: `GET /api/picnic/recipes?source=saved|cookbook`.
+- **Nieuwe MCP-tool, alleen lezen:** `list_picnic_recipes` (`source`: `saved` of `cookbook`, en `limit`). Je AI-assistent kan zo je Picnic-recepten bekijken. Er wordt niets opgeslagen of aan je mandje toegevoegd. Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
+- **De verkenner vertelt meer over recepten.** Hij meldt per receptpagina welke velden de analysegegevens van een receptonderdeel hebben, welke soorten onderdelen erin zitten (en welke velden die hebben, zonder inhoud), en telt de producttegels op elke pagina. Zo zien we waar de ingrediënten, de bereiding en de afbeelding staan.
+- **Meer pagina's voor de favorieten.** Nog eens vijftien waarschijnlijke paginanamen worden geprobeerd. Uit het vorige rapport bleek dat `purchased-deep-dive-page-content` wel bestaat; het nieuwe rapport laat zien of dat een lijst producten is.
+
+### Goed om te weten
+
+- **De recepten staan nog niet in het scherm van de app** en worden nog niet in Mealie geïmporteerd: het rapport liet de namen en id's zien, maar nog niet de ingrediënten en de bereiding van een recept. Die komen na het volgende rapport van de verkenner.
+- **De favorieten zijn nog niet gevonden.** Geen enkele library kent de pagina en de gokken uit het vorige rapport gaven een 404. Weet je waar in de Picnic-app je Favorieten staan (welk scherm of tabblad)? Dat helpt bij het zoeken.
+
 ## v2.0.0
 
 *English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture. The image is now also tagged with its version (for example 2.0.0). This is a major version number because the published image changes, not because anything in the app breaks.*
