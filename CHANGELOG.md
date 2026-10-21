@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.4.2
+
+*English summary: Fixes "The update check failed (HTTP 403 (rate limit))". The check no longer uses api.github.com, where anonymous requests are limited to 60 per hour per IP address (easily used up on a shared address), but the public releases page, which GitHub redirects to the latest release tag. Nothing else changes.*
+
+### Opgelost in 2.4.2
+
+- **Updatecheck: `HTTP 403 (rate limit)`.** GitHub beperkt anonieme aanvragen naar `api.github.com` tot 60 per uur per IP-adres; op een gedeeld adres was die limiet al op, en dan faalde de updatecheck. De check kijkt nu op `github.com/helmerzNL/MealieShopper/releases/latest`, dat GitHub doorverwijst naar de nieuwste release-tag. Die pagina valt niet onder de API-limiet. Er verandert verder niets: nog steeds hooguit om de zes uur, zonder informatie over jou of de installatie.
+
 ## v2.4.1
 
 *English summary: Fixes the Picnic favorites showing all products instead of only your favorites. The Favorites tab of the Picnic app lists far more products than the ones you saved (197 in the explorer report), and the page marks yours with a `saved` field. MealieShopper now keeps only the products Picnic marks as saved, and when the page does not say which are favorites it shows all of them with a notice instead of silently pretending. The explorer reports how that field looks. The MCP tool list_picnic_favorites says whether it filtered.*

@@ -20,15 +20,11 @@ ANNA = "een-heel-ander-wachtwoord"
 
 
 def release(tag="v9.9.9"):
-    response = mock.Mock(status_code=200)
-    response.raise_for_status.return_value = None
-    response.json.return_value = {
-        "tag_name": tag,
-        "name": f"MealieShopper {tag}",
-        "html_url": f"https://github.com/helmerzNL/MealieShopper/releases/tag/{tag}",
-        "published_at": "2026-10-01T10:00:00Z",
-    }
-    return response
+    """Het antwoord van github.com/<repo>/releases/latest: een doorverwijzing naar de tag."""
+    return mock.Mock(
+        status_code=302,
+        headers={"Location": f"https://github.com/helmerzNL/MealieShopper/releases/tag/{tag}"},
+    )
 
 
 class VersionCompareTest(unittest.TestCase):
@@ -67,7 +63,9 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((result["current"], result["latest"]), ("1.0.0", "9.9.9"))
         self.assertFalse(result["error"])
         self.assertTrue(result["url"].startswith("https://github.com/helmerzNL/MealieShopper/"))
-        self.assertEqual(get.call_args.args[0], "https://api.github.com/repos/helmerzNL/MealieShopper/releases/latest")
+        self.assertEqual(get.call_args.args[0], "https://github.com/helmerzNL/MealieShopper/releases/latest")
+        self.assertFalse(get.call_args.kwargs["allow_redirects"])
+        self.assertNotIn("api.github.com", get.call_args.args[0], "de API heeft een lage limiet voor anonieme aanvragen")
 
     def test_same_version_is_not_an_update(self):
         with mock.patch.object(updates.requests, "get", return_value=release("v1.0.0")):
@@ -122,22 +120,30 @@ class StatusTest(unittest.TestCase):
         self.assertTrue(result["available"], "de eerder gevonden update blijft zichtbaar")
 
     def test_unexpected_answer_is_an_error(self):
-        bad = release()
-        bad.json.return_value = {"tag_name": "geen-versie"}
-        with mock.patch.object(updates.requests, "get", return_value=bad):
-            self.assertTrue(updates.status()["error"])
+        for bad in (
+            mock.Mock(status_code=302, headers={"Location": "https://github.com/helmerzNL/MealieShopper/releases/tag/geen-versie"}),
+            mock.Mock(status_code=302, headers={}),
+            mock.Mock(status_code=200, headers={}),
+        ):
+            updates.reset()
+            with mock.patch.object(updates.requests, "get", return_value=bad):
+                self.assertTrue(updates.status()["error"])
 
     def test_no_release_yet_is_not_an_error(self):
-        none = mock.Mock(status_code=404)
-        with mock.patch.object(updates.requests, "get", return_value=none):
-            result = updates.status()
-        self.assertFalse(result["error"])
-        self.assertFalse(result["available"])
-        self.assertEqual(result["latest"], "")
+        for none in (
+            mock.Mock(status_code=404, headers={}),
+            mock.Mock(status_code=302, headers={"Location": "https://github.com/helmerzNL/MealieShopper/releases"}),
+        ):
+            updates.reset()
+            with mock.patch.object(updates.requests, "get", return_value=none):
+                result = updates.status()
+            self.assertFalse(result["error"])
+            self.assertFalse(result["available"])
+            self.assertEqual(result["latest"], "")
 
     def test_link_always_points_at_the_repository(self):
         odd = release()
-        odd.json.return_value["html_url"] = "https://evil.example/phish"
+        odd.headers["Location"] = "https://evil.example/helmerzNL/MealieShopper/releases/tag/v9.9.9"
         with mock.patch.object(updates.requests, "get", return_value=odd):
             self.assertEqual(updates.status()["url"], "https://github.com/helmerzNL/MealieShopper/releases/tag/v9.9.9")
 
