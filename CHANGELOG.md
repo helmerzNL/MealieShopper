@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.7.0
+
+*English summary: Jumbo recipes are in MealieShopper. Under Stores > Recipes (choose Jumbo) you search all recipes of jumbo.com, open one to see the ingredients, method, tip and nutrition values, and import it into Mealie as a schema.org recipe (with the jumbo.com link as its source). Pasting a jumbo.com recipe link into the importer also goes through the Jumbo API when Jumbo is linked. Two read-only MCP tools (search_jumbo_recipes, get_jumbo_recipe) and explorer probes were added. Your own recipe lists (Favourites and custom lists) are not shown yet: Jumbo's request that returns the recipes of one list is still needed. Built from the real answers of jumbo.com (getRecipe, getRecipesListers, getRecipeLists) but tried only with mocked responses so far.*
+
+### Nieuw in 2.7.0
+
+- **Recepten van Jumbo.** Onder **Winkels > Recepten** (keuze *Jumbo*) zoek je in alle recepten van jumbo.com, per 24 met `Meer recepten`. `Bekijken` toont de ingrediënten (met de hoeveelheden van het recept), de bereiding, de tip, de voedingswaarden en een link naar het recept op jumbo.com.
+- **Importeren in Mealie.** `Importeer` zet het recept in Mealie als schema.org-recept met de link naar jumbo.com als bron, dus Mealie hoeft de Jumbo-pagina niet op te halen (jumbo.com weert servers). Een receptlink van jumbo.com (`jumbo.com/recepten/...`) in de importfunctie gaat, als Jumbo gekoppeld is, ook via de Jumbo-API. Receptnummers met een streepje (`1416890-7`, van Smulweb) werken ook.
+- **MCP.** `search_jumbo_recipes` en `get_jumbo_recipe` (alleen lezen).
+- **Verkenner.** **Jumbo-routes verkennen** toont nu ook het zoeken, je receptenlijsten, één recept en recepten op id (alleen vormen en aantallen, geen titels).
+
+### Goed om te weten
+
+- **Je receptenlijsten ontbreken nog.** Het overzicht van de site (`getRecipeLists`) kent je lijsten (Favorieten en eigen lijstjes) met hun aantallen, maar toont per lijst alleen titel en plaatje. De recepten van één lijst komen uit een andere aanvraag, waarvan de opgeslagen aanvraag (`operationName`, hash en variabelen) nog nodig is. Bladeren per categorie volgt ook daarna.
+- Alleen getest met nagebootste antwoorden in de vorm van de echte.
+
 ## v2.6.2
 
 *English summary: Picnic favorites now show only your own favorites. The explorer report, with two products hearted in the Picnic app, showed how the app knows: the Favorites tab lists suggested products under a "Favorieten" heading, and the product page of a favorite carries `likedSellables: {["s…"]: true}` in the code of its heart button (false for the others). MealieShopper now takes the products under the "Favorieten" heading and keeps those whose product page says true. That is one request per product (at most 30), done lazily: the app checks a few at a time and shows the favorites it has found so far, and the server remembers each product's answer for 30 minutes (the Load button forgets it). If Picnic says nothing, the list stays empty with an explanation, as before.*

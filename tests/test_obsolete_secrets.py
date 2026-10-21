@@ -53,11 +53,11 @@ class PurgeObsoleteSecretsTest(unittest.TestCase):
 class RemovedRoutesTest(unittest.TestCase):
     def test_the_old_jumbo_recipe_and_browser_routes_are_gone(self):
         # De huidige Jumbo-koppeling (GraphQL, geen headless browser) staat onder /api/jumbo/ en is
-        # bedoeld; alleen wat met Chromium en de oude REST-koppeling verdween blijft weg.
+        # bedoeld (ook /api/jumbo/recipes, de recepten via de GraphQL-API); alleen wat met Chromium en de oude
+        # REST-koppeling verdween blijft weg.
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"MEALIESHOPER_DATA_DIR": tmp}):
             client = create_app().test_client()
             for method, path in (
-                ("get", "/api/jumbo/recipes/saved"),
                 ("get", "/api/jumbo/browser/status"),
                 ("get", "/api/ah/browser/status"),
                 ("post", "/api/ah/browser/auth"),
