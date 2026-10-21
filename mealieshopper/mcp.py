@@ -310,11 +310,22 @@ def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_jumbo_favorite_recipes(args: dict[str, Any]) -> Any:
-    """De favoriete recepten van de eigenaar bij Jumbo, per pagina. Alleen lezen."""
+def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
+    """Je receptenlijsten bij Jumbo: Favorieten en eigen lijstjes, met aantallen. Alleen lezen."""
     _jumbo_linked()
-    found = jumbo_recipes.get_favorites(args.get("page"))
+    return {"lists": jumbo_recipes.get_lists()}
+
+
+def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
+    """De recepten van een Jumbo-receptenlijst (standaard Favorieten), per pagina. Alleen lezen."""
+    _jumbo_linked()
+    try:
+        info = jumbo_recipes.resolve_list(_text(args.get("list"), 120))
+        found = jumbo_recipes.get_recipes_of(info, args.get("page"))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
     return {
+        "list": info["name"],
         "total": found["total"],
         "page": found["page"],
         "hasNext": found["hasNext"],
@@ -646,11 +657,22 @@ TOOLS: dict[str, dict[str, Any]] = {
         "annotations": {**READ_ONLY, "title": "Jumbo-recepten zoeken"},
         "handler": tool_search_jumbo_recipes,
     },
-    "list_jumbo_favorite_recipes": {
-        "description": "De favoriete recepten van de eigenaar bij Jumbo (naam, tijd, personen, waardering en link), per pagina van 24. Live opgehaald. Gebruik het id met get_jumbo_recipe.",
-        "inputSchema": _schema({"page": {"type": "integer", "minimum": 1, "description": "Pagina, beginnend bij 1."}}),
-        "annotations": {**READ_ONLY, "title": "Favoriete Jumbo-recepten"},
-        "handler": tool_jumbo_favorite_recipes,
+    "list_jumbo_recipe_lists": {
+        "description": "Je receptenlijsten bij Jumbo: Favorieten en je eigen lijstjes (naam, soort en aantal recepten). Gebruik de naam of het id met get_jumbo_recipe_list.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "Jumbo-receptenlijsten"},
+        "handler": tool_list_jumbo_recipe_lists,
+    },
+    "get_jumbo_recipe_list": {
+        "description": "De recepten van een Jumbo-receptenlijst (naam, tijd, personen, waardering en link), per pagina van 24. Zonder opgave de Favorieten. Live opgehaald. Gebruik het id met get_jumbo_recipe.",
+        "inputSchema": _schema(
+            {
+                "list": {"type": "string", "description": "Id of (deel van) de naam van de lijst, bijvoorbeeld 'Kerst'. Standaard Favorieten."},
+                "page": {"type": "integer", "minimum": 1, "description": "Pagina, beginnend bij 1."},
+            }
+        ),
+        "annotations": {**READ_ONLY, "title": "Jumbo-receptenlijst"},
+        "handler": tool_get_jumbo_recipe_list,
     },
     "get_jumbo_recipe": {
         "description": "Een Jumbo-recept met ingrediënten en bereiding. Importeren in Mealie doe je in MealieShopper zelf.",

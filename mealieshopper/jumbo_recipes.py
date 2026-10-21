@@ -12,10 +12,12 @@ import re
 from typing import Any
 
 from . import jumbo
+from .ah_lists import _fold
 from .i18n import tr
 
 RECIPE_PAGE = 24  # zoveel recepten per zoekpagina, zoals de website
 MAX_RECIPE_LISTS = 24
+_LIST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_ID_LENGTH = 30
 # Een receptnummer is meestal een getal (`504898`), bij recepten van Smulweb en anderen `1416890-7`.
 _RECIPE_ID = re.compile(r"^[0-9A-Za-z_-]{1,%d}$" % MAX_ID_LENGTH)
@@ -132,30 +134,77 @@ def get_lists() -> list[dict[str, Any]]:
     return lists
 
 
-def get_favorites(page: Any = 1) -> dict[str, Any]:
-    """Je favoriete recepten (de lijst *Favorieten* onder *Mijn recepten*), per pagina van `RECIPE_PAGE`.
-
-    `{recipes, total, page, hasNext}`; `page` begint bij 1, zoals bij de website.
-    """
+def _page_number(page: Any) -> int:
     try:
-        number = max(1, int(page or 1))
+        return max(1, int(page or 1))
     except (TypeError, ValueError):
-        number = 1
-    data = jumbo._persisted_query("FavoriteRecipes", {"size": RECIPE_PAGE, "page": number})
-    lists = (data.get("recipeListsV2") or {}).get("items")
-    favourites = next((item for item in lists or [] if isinstance(item, dict)), None)
-    if favourites is None:
-        return {"recipes": [], "total": 0, "page": number, "hasNext": False}
-    items = favourites.get("items") if isinstance(favourites.get("items"), dict) else {}
-    info = items.get("paginationInfo") if isinstance(items.get("paginationInfo"), dict) else {}
-    recipes = summaries(items.get("recipeListItems"))
-    total = info.get("totalSize") if isinstance(info.get("totalSize"), int) else favourites.get("totalRecipes")
+        return 1
+
+
+def _list_page(data: Any, number: int) -> dict[str, Any]:
+    """Een pagina van een receptenlijst: de receptkaarten, het totaal en of er een volgende pagina is.
+
+    De kaarten en de `paginationInfo` zoeken we aan hun vorm, waar ze ook in het antwoord staan.
+    """
+    recipes = summaries(data)
+    info = next((n["paginationInfo"] for n in _walk(data) if isinstance(n.get("paginationInfo"), dict)), {})
+    total = info.get("totalSize")
+    if not isinstance(total, int):
+        total = next((n["totalRecipes"] for n in _walk(data) if isinstance(n.get("totalRecipes"), int)), None)
     return {
         "recipes": recipes,
         "total": total if isinstance(total, int) and total >= 0 else len(recipes),
         "page": number,
         "hasNext": bool(info.get("hasNextPage")),
     }
+
+
+def get_favorites(page: Any = 1) -> dict[str, Any]:
+    """Je favoriete recepten (de lijst *Favorieten* onder *Mijn recepten*), per pagina van `RECIPE_PAGE`.
+
+    `{recipes, total, page, hasNext}`; `page` begint bij 1, zoals bij de website.
+    """
+    number = _page_number(page)
+    return _list_page(jumbo._persisted_query("FavoriteRecipes", {"size": RECIPE_PAGE, "page": number}), number)
+
+
+def get_list_recipes(list_id: Any, page: Any = 1) -> dict[str, Any]:
+    """De recepten van een eigen receptenlijst (zoals *Kerst*), per pagina; dezelfde vorm als `get_favorites`."""
+    list_id = str(list_id or "").strip()
+    if not _LIST_ID.match(list_id):
+        raise ValueError(tr("Onbekend lijstje", "Unknown list"))
+    number = _page_number(page)
+    data = jumbo._persisted_query("getRecipeListById", {"listId": list_id, "itemsInput": {"page": number, "size": RECIPE_PAGE}})
+    return _list_page(data, number)
+
+
+def get_recipes_of(info: dict[str, Any], page: Any = 1) -> dict[str, Any]:
+    """De recepten van een lijst uit `get_lists()`: Favorieten via zijn eigen aanvraag, de rest op lijst-id."""
+    return get_favorites(page) if info.get("kind") == "favorites" else get_list_recipes(info["id"], page)
+
+
+def resolve_list(wanted: Any) -> dict[str, Any]:
+    """Een lijst op id of (deel van de) naam; zonder opgave Favorieten."""
+    lists = get_lists()
+    text = " ".join(str(wanted or "").split())
+    if not text:
+        favourites = next((item for item in lists if item["kind"] == "favorites"), None)
+        if favourites:
+            return favourites
+        raise ValueError(tr("Geen receptenlijsten gevonden", "No recipe lists found"))
+    exact = [item for item in lists if item["id"] == text]
+    if exact:
+        return exact[0]
+    words = _fold(text).split()
+    found = [item for item in lists if all(word in _fold(item["name"]) for word in words)]
+    if len(found) == 1:
+        return found[0]
+    names = ", ".join(f"'{item['name']}'" for item in (found or lists))
+    raise ValueError(
+        tr(f"Welke lijst bedoel je? Kies uit: {names}", f"Which list do you mean? Choose from: {names}")
+        if found
+        else tr(f"Geen lijst met die naam. Kies uit: {names}", f"No list with that name. Choose from: {names}")
+    )
 
 
 def search(query: Any, offset: Any = 0) -> dict[str, Any]:

@@ -931,6 +931,22 @@ def create_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
+    @app.get("/api/jumbo/recipe-lists")
+    def jumbo_recipe_lists():
+        # Alleen lezen: je receptenlijsten bij Jumbo (Favorieten eerst, dan je eigen lijstjes) met aantallen.
+        try:
+            return jsonify({"lists": jumbo_recipes.get_lists()})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
+    @app.get("/api/jumbo/recipe-lists/<list_id>")
+    def jumbo_recipe_list_recipes(list_id: str):
+        # Alleen lezen: de recepten van een eigen lijstje, per pagina (`page` begint bij 1).
+        try:
+            return jsonify({**jumbo_recipes.get_list_recipes(list_id, request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+        except Exception as exc:  # noqa: BLE001
+            return jumbo_error(exc)
+
     @app.get("/api/jumbo/recipes/<recipe_id>")
     def jumbo_recipe_detail(recipe_id: str):
         # Alleen lezen: één recept met ingrediënten en bereiding.
