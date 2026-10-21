@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.8.1
+
+*English summary: Picnic orders. Under Stores > Picnic there is a new Orders tab. Upcoming deliveries are fetched live; delivered orders are synced to a local copy in MealieShopper (date, delivery window, status, total and the products with quantity, size and price), so they stay viewable without a connection to Picnic. Sync fetches the overview and the products of up to 25 orders at a time, newest first; a delivered order is never deleted again. Open an order and put all its products back in your Picnic basket with one button (an order is never placed). The MCP tools list_picnic_orders and get_picnic_order read the local copy; get_picnic_delivery fetches one delivery live. No address is stored. Note: this account has no deliveries yet (the explorer shows an empty list), so the shape of an order is built from the known Picnic API and unverified; the explorer now also reports the shape of the first delivery as soon as there is one.*
+
+### Nieuw
+
+- **Bestellingen van Picnic.** Onder **Winkels > Picnic** staat een tab *Bestellingen* met je aankomende bezorgingen (live bij Picnic opgehaald) en je afgeleverde bestellingen: dag, bezorgvenster, status (*Gepland of onderweg*, *Geleverd*, *Geannuleerd*) en totaalbedrag, de nieuwste eerst.
+- **Afgeleverde bestellingen worden lokaal bewaard.** De knop *Synchroniseren* haalt het overzicht van je leveringen bij Picnic op en bewaart de afgeleverde bestellingen in MealieShopper, met hun producten. Daarna lees je ze uit die kopie: ook zonder verbinding met Picnic zijn ze te bekijken en te bevragen. Per keer komen de producten van hooguit 25 bestellingen binnen, de nieuwste eerst (*… bestellingen nog zonder producten: synchroniseer opnieuw*). Een afgeleverde bestelling verandert niet meer en wordt nooit verwijderd, ook niet als Picnic hem later niet meer toont; lopende en geannuleerde bestellingen bewaren we niet. Je afleveradres wordt niet bewaard. Is Picnic niet bereikbaar, dan staat bij de aankomende bestellingen een melding en blijven de bewaarde bestellingen zichtbaar.
+- **De producten van een bestelling.** Open een bestelling voor de producten met aantal, inhoud en prijs. Met **Alles in mandje** zet je ze met hun aantallen opnieuw in je Picnic-mandje; er wordt nooit een bestelling geplaatst.
+- **AI-assistent.** Nieuw: `list_picnic_orders` en `get_picnic_order` lezen de lokale kopie (werkt ook zonder Picnic); `get_picnic_delivery` haalt één levering live op. `list_picnic_deliveries` (al aanwezig) blijft de live lijst, ook met lopende leveringen. Alles alleen lezen en zonder adres.
+- API: `GET /api/picnic/orders`, `GET /api/picnic/orders/<id>` en `POST /api/picnic/orders/sync` voor de lokale kopie; `GET /api/picnic/deliveries/<id>` geeft één levering live met haar producten; `GET /api/picnic/deliveries` is nu nieuwste eerst en geeft ook de bezorgtijd (`deliveredStart`, `deliveredEnd`).
+
+### Verkenner
+
+- Nieuw: het aantal leveringen in het overzicht, en, zodra er een levering is, de vorm van de eerste (`GET deliveries/<id>`), zonder waarden.
+
+### Goed om te weten
+
+- **Nog niet met echte gegevens geprobeerd.** Je Picnic-account heeft nog geen leveringen (het verkennerrapport toont een lege lijst), dus ik heb de vorm van een bestelling niet gezien. De lijst en het detail zijn gebouwd naar de bekende Picnic-API en lezen alles voorzichtig: ontbreekt er een veld, dan blijft dat veld leeg in plaats van dat er iets stukgaat. Heb je straks een eerste bezorging, draai dan de verkenner opnieuw en deel het rapport; het onderdeel *bestelling: GET deliveries/<id>* laat zien of de producten goed binnenkomen.
+- Tot die tijd staat er *Nog niet gesynchroniseerd* of *Je hebt nog geen bestellingen bij Picnic.*
+- Recepten die je met een bestelling hebt besteld (*Opnieuw bestellen* bij de recepten) volgen pas als er bestellingen zijn om dat aan te zien.
+
 ## v2.8.0
 
 *English summary: "Find recipes" now searches Albert Heijn, Jumbo and Picnic at the same time (Jumbo and Picnic as soon as they are linked). Results are grouped per store, with "More recipes" for AH and Jumbo; a failing store leaves the others in place. For Jumbo and Picnic, "View" opens the recipe in the same tab with ingredients and method, and "Import" puts it in Mealie. Picnic has no recipe search, so MealieShopper filters your saved recipes and the cookbook by name. The separate Jumbo search under Stores > Recipes from 2.7.0 moved here, and AH results now show the result of an import under the card.*

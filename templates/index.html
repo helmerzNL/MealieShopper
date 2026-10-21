@@ -327,6 +327,7 @@
           <button class="subtab" data-subtab="ah-items-bestellingen" data-i18n="ah.tab.orders">Bestellingen</button>
           <button class="subtab" data-subtab="ah-items-picnic" hidden data-i18n="picnic.recipes.tab">Recepten</button>
           <button class="subtab" data-subtab="ah-items-picnic-favorieten" hidden data-i18n="picnic.favorites.tab">Favorieten</button>
+          <button class="subtab" data-subtab="ah-items-picnic-bestellingen" hidden data-i18n="picnic.orders.tab">Bestellingen</button>
         </nav>
 
         <div id="ah-items-recepten" class="subpanel is-active">
@@ -460,6 +461,32 @@
           <p class="muted" id="picnic-favorites-status"></p>
           <div id="picnic-favorites-message"></div>
           <div id="picnic-favorites" class="product-grid"></div>
+        </div>
+        </div>
+
+        <div id="ah-items-picnic-bestellingen" class="subpanel">
+        <div class="box box--wide" id="picnic-orders-list-view">
+          <div class="toolbar">
+            <h2 data-i18n="picnic.orders.title">Bestellingen van Picnic</h2>
+            <button class="button button--secondary" id="sync-picnic-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
+          </div>
+          <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen bij Picnic (live opgehaald) en je afgeleverde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
+          <p class="muted" id="picnic-orders-synced"></p>
+          <div id="picnic-orders-message"></div>
+          <h3 data-i18n="picnic.orders.upcoming">Aankomend</h3>
+          <div id="picnic-orders-upcoming"></div>
+          <h3 data-i18n="picnic.orders.past">Afgelopen</h3>
+          <div id="picnic-orders-past"></div>
+        </div>
+        <div class="box box--wide" id="picnic-order-view" hidden>
+          <div class="list-header">
+            <button class="icon-button" id="picnic-order-back" type="button" aria-label="Terug naar de bestellingen" data-i18n-attr="aria-label:picnic.orders.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <h2 id="picnic-order-title" tabindex="-1"></h2>
+          </div>
+          <div id="picnic-order-message"></div>
+          <p class="muted" id="picnic-order-meta"></p>
+          <button class="button" id="picnic-order-add-all" type="button" hidden data-i18n="picnic.orders.add_all">Alles in mandje</button>
+          <div id="picnic-order-items" class="product-grid"></div>
         </div>
         </div>
       </section>

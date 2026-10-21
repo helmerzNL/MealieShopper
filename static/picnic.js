@@ -3,6 +3,7 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
+const picnicOrders = { upcoming: [], past: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
 const picnicFavorites = { products: [], total: 0, filtered: true, pending: 0, run: 0, query: "", loaded: false };
 
 function postJson(url, body = {}) {
@@ -370,6 +371,182 @@ $("#picnic-favorite-filter").addEventListener("input", (event) => {
 $("#picnic-favorites").addEventListener("click", (event) => {
   const add = event.target.closest("[data-picnic-add]");
   if (add) addPicnicFavorite(add.dataset.picnicAdd, add, add.closest(".product-card").querySelector(".favorite-result"));
+});
+
+// ---- Bestellingen: aankomende leveringen live, afgeleverde bestellingen uit de lokale kopie (zie picnic_orders.py)
+function picnicOrderStatus(status) {
+  const known = {
+    CURRENT: t("picnic.orders.status.current"),
+    COMPLETED: t("picnic.orders.status.completed"),
+    CANCELLED: t("picnic.orders.status.cancelled"),
+  };
+  return known[String(status || "").toUpperCase()] || String(status || "");
+}
+
+function picnicOrderDay(order) {
+  return dayLabel(order.deliveredStart || order.windowStart || order.etaStart);
+}
+
+function picnicOrderCard(order, source) {
+  const lines = [
+    picnicOrderStatus(order.status),
+    [slotLabel(order.windowStart, order.windowEnd), money(order.total)].filter(Boolean).join(" \u00b7 "),
+    source === "local" ? (order.itemsSynced ? tn("list.items", order.itemCount || 0) : t("orders.items_pending")) : "",
+  ].filter(Boolean);
+  return `
+    <div class="list-card">
+      <button type="button" class="list-card__open" data-picnic-order="${escapeHtml(order.id)}" data-source="${source}">
+        <strong>${escapeHtml(picnicOrderDay(order) || t("picnic.orders.order_title", { id: order.id }))}</strong>
+        ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
+      </button>
+    </div>`;
+}
+
+function renderPicnicOrders() {
+  const { upcoming, past, syncedAt, loaded } = picnicOrders;
+  const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
+  $("#picnic-orders-upcoming").innerHTML = upcoming.length
+    ? upcoming.map((order) => picnicOrderCard(order, "live")).join("")
+    : empty(picnicOrders.upcomingFailed ? t("picnic.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
+  $("#picnic-orders-past").innerHTML = past.length
+    ? past.map((order) => picnicOrderCard(order, "local")).join("")
+    : empty(syncedAt ? t("picnic.orders.none") : t("picnic.orders.never_synced"));
+  $("#picnic-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
+}
+
+// De bewaarde bestellingen komen uit de lokale kopie en werken zonder Picnic; de aankomende halen we live op en
+// ontbreken (met een melding) als Picnic niet bereikbaar is.
+async function loadPicnicOrders() {
+  const run = ++picnicOrders.run;
+  message("#picnic-orders-message", "");
+  try {
+    const [local, live] = await Promise.all([
+      jsonFetch("/api/picnic/orders"),
+      jsonFetch("/api/picnic/deliveries?current=1").then((data) => data.deliveries || null, () => null),
+    ]);
+    if (run !== picnicOrders.run) return;
+    Object.assign(picnicOrders, {
+      past: local.orders || [],
+      syncedAt: local.syncedAt,
+      upcoming: (live || []).filter((order) => String(order.status).toUpperCase() === "CURRENT"),
+      upcomingFailed: live === null,
+      loaded: true,
+    });
+    renderPicnicOrders();
+  } catch (error) {
+    if (run === picnicOrders.run) message("#picnic-orders-message", error.message);
+  }
+}
+
+// Synchroniseren haalt de afgeleverde bestellingen bij Picnic op en bewaart ze; een deel van de producten per keer.
+async function syncPicnicOrders() {
+  const button = $("#sync-picnic-orders");
+  setBusy(button, true);
+  message("#picnic-orders-message", "");
+  let text = "";
+  let failed = false;
+  try {
+    const data = await postJson("/api/picnic/orders/sync");
+    const done = [tn("picnic.orders.sync_done", data.orders)];
+    if (data.new) done.push(tn("picnic.orders.sync_new", data.new));
+    if (data.remaining && !data.detailError) done.push(tn("picnic.orders.sync_remaining", data.remaining));
+    text = `${done.join(", ")}.`;
+    if (data.detailError) {
+      failed = true;
+      text += ` ${t("picnic.orders.sync_detail_error", { error: data.detailError })}`;
+    }
+  } catch (error) {
+    failed = true;
+    text = t("orders.sync_failed", { what: t("orders.part.orders"), error: error.message });
+  }
+  await loadPicnicOrders();
+  message("#picnic-orders-message", text, failed ? "error" : "success");
+  setBusy(button, false);
+}
+
+function showPicnicOrderList() {
+  picnicOrders.detail = null;
+  $("#picnic-order-view").hidden = true;
+  $("#picnic-orders-list-view").hidden = false;
+}
+
+function renderPicnicOrderItem(item) {
+  const meta = [item.quantity > 1 ? `${item.quantity}\u00d7` : "", item.unitSize, item.price ? formatPrice(item.price) : ""].filter(Boolean).join(" \u00b7 ");
+  return `
+    <article class="product-card">
+      ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      <div>
+        <strong>${escapeHtml(item.title || "")}</strong>
+        ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+      </div>
+    </article>`;
+}
+
+// Een bewaarde bestelling lezen we uit de lokale kopie; staan de producten daar nog niet, dan proberen we Picnic zelf.
+async function fetchPicnicOrder(id, source) {
+  if (source === "local") {
+    const order = await jsonFetch(`/api/picnic/orders/${encodeURIComponent(id)}`);
+    if (order.itemsSynced) return order;
+    try {
+      return { ...order, ...(await jsonFetch(`/api/picnic/deliveries/${encodeURIComponent(id)}`)) };
+    } catch {
+      return order;
+    }
+  }
+  return jsonFetch(`/api/picnic/deliveries/${encodeURIComponent(id)}`);
+}
+
+async function openPicnicOrder(id, source) {
+  $("#picnic-orders-list-view").hidden = true;
+  $("#picnic-order-view").hidden = false;
+  $("#picnic-order-title").textContent = t("picnic.orders.order_title", { id });
+  $("#picnic-order-meta").textContent = "";
+  $("#picnic-order-items").innerHTML = "";
+  $("#picnic-order-add-all").hidden = true;
+  message("#picnic-order-message", "");
+  picnicOrders.detail = null;
+  const open = ++picnicOrders.run;
+  try {
+    const order = await fetchPicnicOrder(id, source);
+    if (open !== picnicOrders.run) return;
+    const items = order.items || [];
+    picnicOrders.detail = order;
+    $("#picnic-order-title").textContent = picnicOrderDay(order) || t("picnic.orders.order_title", { id });
+    $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0)].filter(Boolean).join(" \u00b7 ");
+    $("#picnic-order-items").innerHTML = items.map(renderPicnicOrderItem).join("");
+    $("#picnic-order-add-all").hidden = !items.some((item) => item.id);
+    if (!items.length) message("#picnic-order-message", order.itemsSynced === false ? t("picnic.orders.items_not_synced") : t("picnic.orders.no_items"), "success");
+    $("#picnic-order-title").focus();
+  } catch (error) {
+    message("#picnic-order-message", error.message);
+  }
+}
+
+// De producten van een bestelling opnieuw in je Picnic-mandje; er wordt nooit een bestelling geplaatst.
+async function addPicnicOrderToBasket() {
+  const order = picnicOrders.detail;
+  if (!order) return;
+  const button = $("#picnic-order-add-all");
+  setBusy(button, true);
+  message("#picnic-order-message", "");
+  try {
+    const items = order.items.filter((item) => item.id).map((item) => ({ query: item.title || "", productId: item.id, quantity: item.quantity }));
+    const data = await postJson("/api/picnic/cart", { items });
+    const failed = (data.failed || []).length;
+    message("#picnic-order-message", [t("picnic.orders.added", { count: data.added || 0 }), failed ? t("picnic.orders.added_failed", { count: failed }) : ""].filter(Boolean).join(" "), failed ? "error" : "success");
+  } catch (error) {
+    message("#picnic-order-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+$("#sync-picnic-orders").addEventListener("click", syncPicnicOrders);
+$("#picnic-order-back").addEventListener("click", showPicnicOrderList);
+$("#picnic-order-add-all").addEventListener("click", addPicnicOrderToBasket);
+$("#picnic-orders-list-view").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-picnic-order]");
+  if (open) openPicnicOrder(open.dataset.picnicOrder, open.dataset.source);
 });
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)

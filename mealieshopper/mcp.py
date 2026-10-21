@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_recipes, server_settings
+from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -333,6 +333,31 @@ def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
     return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
 
 
+def tool_picnic_delivery(args: dict[str, Any]) -> Any:
+    _picnic_linked()
+    try:
+        found = picnic.get_delivery(args.get("id"))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    items = [{"title": i["title"], "size": i.get("unitSize"), "quantity": i["quantity"], "price": i.get("price")} for i in found["items"]]
+    return {**{k: v for k, v in found.items() if k != "items"}, "items": items}
+
+
+def tool_list_picnic_orders(args: dict[str, Any]) -> Any:
+    data = picnic_orders.list_orders()
+    limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
+    orders = data["orders"]
+    return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
+
+
+def tool_get_picnic_order(args: dict[str, Any]) -> Any:
+    order_id = _text(args.get("order_id"), 80)
+    order = picnic_orders.get_order(order_id) if order_id else None
+    if not order:
+        raise ToolError("Deze bestelling staat niet in de lokale kopie (zie list_picnic_orders)")
+    return order
+
+
 def tool_picnic_slots(args: dict[str, Any]) -> Any:
     _picnic_linked()
     limit = max(1, min(30, int(args.get("limit") or 10)))
@@ -527,10 +552,28 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_picnic_basket,
     },
     "list_picnic_deliveries": {
-        "description": "Leveringen van het Picnic-account met status, bezorgvenster en totaal. Live opgehaald, zonder adres.",
+        "description": "Leveringen van het Picnic-account met status, bezorgvenster en totaal (ook de lopende). Live opgehaald, zonder adres. Voor de bewaarde afgeleverde bestellingen, ook zonder verbinding: list_picnic_orders.",
         "inputSchema": _schema({"current_only": {"type": "boolean", "description": "Alleen de lopende leveringen, standaard alle."}}),
         "annotations": {**READ_ONLY, "title": "Picnic-leveringen"},
         "handler": tool_picnic_deliveries,
+    },
+    "list_picnic_orders": {
+        "description": "Afgeleverde Picnic-bestellingen uit de lokale kopie (werkt ook als Picnic niet bereikbaar is), nieuwste eerst, met dag, bezorgvenster, status en totaal (zonder adres). Gebruik het nummer met get_picnic_order.",
+        "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal bestellingen, standaard 50."}}),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Picnic-bestellingen"},
+        "handler": tool_list_picnic_orders,
+    },
+    "get_picnic_order": {
+        "description": "De producten van één afgeleverde Picnic-bestelling (naam, inhoud, aantal, prijs), uit de lokale kopie.",
+        "inputSchema": _schema({"order_id": {"type": "string", "description": "Het nummer uit list_picnic_orders."}}, ["order_id"]),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Picnic-bestelling bekijken"},
+        "handler": tool_get_picnic_order,
+    },
+    "get_picnic_delivery": {
+        "description": "Eén Picnic-levering (id uit list_picnic_deliveries) met de producten die erin zaten: naam, inhoud, aantal en prijs. Live opgehaald, zonder adres.",
+        "inputSchema": _schema({"id": {"type": "string", "description": "Het id van de levering."}}, required=["id"]),
+        "annotations": {**READ_ONLY, "title": "Picnic-levering"},
+        "handler": tool_picnic_delivery,
     },
     "list_picnic_delivery_slots": {
         "description": "De eerstvolgende bezorgmomenten van Picnic die nog beschikbaar zijn: begin, einde, uiterste bestelmoment en minimale bestelwaarde. Live opgehaald; er wordt geen moment gekozen of gereserveerd.",

@@ -856,6 +856,7 @@ def analytics_data(node: Any) -> list[dict[str, Any]]:
 def _delivery_summary(delivery: dict[str, Any]) -> dict[str, Any]:
     slot = delivery.get("slot") if isinstance(delivery.get("slot"), dict) else {}
     eta = delivery.get("eta2") if isinstance(delivery.get("eta2"), dict) else {}
+    delivered = delivery.get("delivery_time") if isinstance(delivery.get("delivery_time"), dict) else {}
     orders = [o for o in delivery.get("orders") or [] if isinstance(o, dict)]
     return {
         "id": delivery.get("delivery_id") or delivery.get("id"),
@@ -864,11 +865,35 @@ def _delivery_summary(delivery: dict[str, Any]) -> dict[str, Any]:
         "windowEnd": slot.get("window_end"),
         "etaStart": eta.get("start"),
         "etaEnd": eta.get("end"),
+        "deliveredStart": delivered.get("start"),
+        "deliveredEnd": delivered.get("end"),
         "total": _euros(sum(o.get("checkout_total_price") or o.get("total_price") or 0 for o in orders)),
     }
 
 
 def get_deliveries(current_only: bool = False) -> list[dict[str, Any]]:
-    """Leveringen van het account; alleen de lopende als `current_only` waar is."""
+    """Leveringen van het account, de nieuwste eerst; alleen de lopende als `current_only` waar is."""
     data = _authed("POST", "/deliveries/summary", body=["CURRENT"] if current_only else [])
-    return [_delivery_summary(d) for d in data or [] if isinstance(d, dict)]
+    deliveries = [_delivery_summary(d) for d in data or [] if isinstance(d, dict)]
+    return sorted(deliveries, key=lambda d: str(d.get("windowStart") or d.get("deliveredStart") or ""), reverse=True)
+
+
+_DELIVERY_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def get_delivery(delivery_id: Any) -> dict[str, Any]:
+    """Eén levering met de producten die erin zaten: naam, inhoud, aantal en prijs per product."""
+    clean = str(delivery_id or "").strip()
+    if not _DELIVERY_ID.match(clean):
+        raise ValueError(tr("Ongeldige bestelling", "Invalid order"))
+    data = _authed("GET", f"/deliveries/{clean}")
+    if not isinstance(data, dict):
+        raise RuntimeError(tr("Picnic gaf de bestelling in een onbekend formaat", "Picnic returned the order in an unknown format"))
+    items: list[dict[str, Any]] = []
+    for order in data.get("orders") or []:
+        if isinstance(order, dict):
+            items += cart_summary(order)["items"]
+    for item in items:
+        item.pop("available", None)  # of het nu leverbaar is, zegt een oude bestelling niet
+        item.pop("maxCount", None)
+    return {**_delivery_summary(data), "items": items, "itemCount": sum(item["quantity"] for item in items)}
