@@ -702,6 +702,14 @@ class FavoritesTest(TempDataDirTest):
         self.assertNotIn("Geheime", json.dumps(report))
         self.assertEqual(picnic_explore.code_report(None)["toestand (state)"], "leeg")
 
+    def test_code_report_gives_the_whole_heart_code_and_the_lazy_pages(self):
+        from mealieshopper import picnic_explore
+        code = 'getGlobalState("sellable-favorites").likedSellables["s1000024"] ' + "x" * 300
+        page = {"a": {"expression": code}, "b": {"pageConfig": {"id": "aisle-page", "parameters": {"aisle_id": "FRUIT", "index": 3}}}}
+        report = picnic_explore.code_report(page)
+        self.assertEqual(report["volledige code van de hartjesknop"], [code.replace("1000024", "<id>")])
+        self.assertEqual(report["pagina's die later laden (pageConfig)"], ["aisle-page ? aisle_id=FRUIT, index=3"])
+
     def test_favorite_values_report_flags_and_shapes_but_no_texts(self):
         from mealieshopper import picnic_explore
         page = {"a": {"isFavorite": True, "favoriteTitle": "Melk van Anna"}, "b": {"isFavorite": False, "saved": {"x": 1}}}
