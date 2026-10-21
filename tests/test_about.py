@@ -60,6 +60,13 @@ class VersionTest(unittest.TestCase):
         self.assertIn("GIT_COMMIT=${{ github.sha }}", workflow)
         self.assertNotIn("VERSION", (ROOT / ".dockerignore").read_text(encoding="utf-8"))
 
+    def test_workflow_builds_the_image_for_amd64_and_arm64(self):
+        # Zonder arm64 start de container op een Synology/ARM-NAS niet ("exec format error").
+        workflow = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
+        self.assertIn("platforms: linux/amd64,linux/arm64", workflow)
+        self.assertIn("docker/setup-qemu-action", workflow)
+        self.assertIn("docker/setup-buildx-action", workflow)
+
 
 class ComponentsTest(unittest.TestCase):
     def test_installed_python_packages_report_their_real_version(self):
