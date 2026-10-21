@@ -1030,6 +1030,27 @@ def _order_item(entry: dict[str, Any], taxonomy: str = "") -> dict[str, Any]:
     }
 
 
+def get_shopping_list() -> dict[str, Any]:
+    """Het AH-mandje zoals de app het toont: de boodschappenlijst waar `add_to_shopping_list` in schrijft.
+
+    De vorm van het antwoord is niet gedocumenteerd, dus het wordt ruim gelezen: een lijst of een object met `items`;
+    per regel de omschrijving of de productnaam, het aantal en het product-id. Afgevinkte regels (`strikeThrough`) laten we weg.
+    """
+    data = _get_json("/mobile-services/shoppinglist/v2/items") or {}
+    entries = data if isinstance(data, list) else data.get("items") or data.get("products") or []
+    items = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("strikeThrough"):
+            continue
+        product = entry.get("product") if isinstance(entry.get("product"), dict) else {}
+        title = _text(entry.get("description") or product.get("title") or entry.get("searchTerm"))
+        if not title:
+            continue
+        item = _order_item({"quantity": entry.get("quantity") or 1, "product": {**product, "webshopId": entry.get("productId") or product.get("webshopId"), "title": title}})
+        items.append({**item, "quantity": _int(entry.get("quantity")) or 1})
+    return {"id": None, "state": "", "shoppingType": "", "total": None, "discount": None, "deliveryDate": "", "slotStart": "", "slotEnd": "", "items": items}
+
+
 def get_active_order() -> dict[str, Any]:
     """Het bestelmandje: de actieve bestelling bij AH (producten, totaal, gekozen bezorgmoment)."""
     try:

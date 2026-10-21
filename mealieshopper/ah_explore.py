@@ -83,6 +83,9 @@ def explore() -> dict[str, Any]:
     """Roep alle leesroutes aan en geef een rapport met de vorm van de antwoorden."""
     probes: list[dict[str, Any]] = []
 
+    report, _ = _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
+    probes.append(report)
+
     report, active = _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))
     probes.append(report)
 

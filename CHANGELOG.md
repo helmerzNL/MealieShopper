@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.9.1
+
+*English summary: Fix: the Albert Heijn basket in the Basket tab was empty because it showed the active web-shop order, while the weekly menu writes to your shopping list (what you see in the AH app). It now shows that shopping list and refreshes it when you open the tab.*
+
+### Opgelost in 2.9.1
+
+- **Het AH-mandje in het tabblad Mandje toonde niets**, ook als je producten via het weekmenu in je AH-mandje had gezet en ze in de AH-app zag. Die producten staan op je **boodschappenlijst** bij AH, terwijl het tabblad de actieve bestelling van de webwinkel las (die vaak leeg is). Het tabblad toont nu die boodschappenlijst (naam en aantal; afgevinkte regels staan er niet bij), haalt hem op zodra je het tabblad opent en bewaart een kopie, die blijft staan als AH even niet bereikbaar is.
+- De tool `get_ah_basket` van de AI-assistent leest dezelfde lijst.
+- **AH-routes verkennen** meldt nu ook de vorm van de boodschappenlijst. De vorm van dat antwoord is nog niet tegen een echt account gezien: staat er niets of iets geks, draai de verkenner dan en deel het rapport.
+
 ## v2.9.0
 
 *English summary: Your favourite Jumbo recipes are now under Stores > Recipes (choose Jumbo): 24 per page with "More recipes", "View" (ingredients, method, tip, nutrition) and "Import" into Mealie. They come from jumbo.com's own stored request (FavoriteRecipes). A read-only MCP tool (list_jumbo_favorite_recipes) and an explorer probe were added. Your own recipe lists (such as "Kerst") are not shown yet. The recipe view is now shared between Find recipes and the favourites. Built from the real answer of jumbo.com but tried only with mocked responses so far.*

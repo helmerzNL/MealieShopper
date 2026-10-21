@@ -182,7 +182,8 @@ def get_basket() -> dict[str, Any]:
 
 
 def sync_basket() -> dict[str, Any]:
-    save_basket(ah.get_active_order())
+    """Bewaar het AH-mandje: de boodschappenlijst waar het weekmenu in schrijft (niet de actieve bestelling)."""
+    save_basket(ah.get_shopping_list())
     return get_basket()
 
 

@@ -105,26 +105,47 @@ class ParsingTest(unittest.TestCase):
         self.assertEqual((detail["discounts"][0]["amount"], detail["payments"][0]["method"]), (-0.5, "PIN"))
 
 
+SHOPPING = {"items": [
+    {"id": "a", "description": "Halfvolle melk", "productId": 111, "quantity": 2, "type": "SHOPPABLE", "originCode": "PRD", "strikeThrough": False},
+    {"id": "b", "description": "Brood", "productId": 222, "quantity": 1, "type": "SHOPPABLE", "strikeThrough": True},
+    {"id": "c", "description": "Bloemen voor mama", "quantity": 1, "type": "FREE_TEXT"},
+]}
+
+
 class BasketCacheTest(AhOrdersTestCase):
     def test_nothing_synced_yet(self):
         self.assertEqual(self.client.get("/api/ah/basket").get_json(), {"syncedAt": None, "items": [], "itemCount": 0, "units": 0})
 
+    def test_the_basket_is_the_shopping_list_without_ticked_off_lines(self):
+        with mock.patch.object(ah, "_get_json", return_value=SHOPPING) as get:
+            basket = ah.get_shopping_list()
+        get.assert_called_once_with("/mobile-services/shoppinglist/v2/items")
+        self.assertEqual([(i["productId"], i["title"], i["quantity"]) for i in basket["items"]], [(111, "Halfvolle melk", 2), (None, "Bloemen voor mama", 1)])
+
+    def test_the_shopping_list_is_read_leniently(self):
+        for body in ([{"description": "Melk", "quantity": 3}], {"products": [{"product": {"title": "Melk", "webshopId": 5}, "quantity": 3}]}, {"items": [None, "kapot", {"quantity": 1}]}, {}, None):
+            with mock.patch.object(ah, "_get_json", return_value=body):
+                items = ah.get_shopping_list()["items"]
+            self.assertEqual([(i["title"], i["quantity"]) for i in items], [("Melk", 3)] if body and ("products" in str(body) or "description" in str(body)) else [], body)
+
     def test_sync_stores_a_snapshot_and_reading_never_asks_ah(self):
-        with mock.patch.object(ah, "_get_json", return_value=ACTIVE):
+        with mock.patch.object(ah, "_get_json", return_value=SHOPPING):
             data = self.client.post("/api/ah/basket/sync").get_json()
-        self.assertEqual((data["itemCount"], data["units"], data["total"]), (2, 3, 25.5))
+        self.assertEqual((data["itemCount"], data["units"], data["total"]), (2, 3, None))
         with mock.patch.object(ah, "_get_json", side_effect=AssertionError("AH mag niet worden gebruikt")):
             cached = self.client.get("/api/ah/basket").get_json()
-        self.assertEqual((cached["itemCount"], cached["deliveryDate"]), (2, "2026-10-23"))
+        self.assertEqual((cached["itemCount"], [i["title"] for i in cached["items"]]), (2, ["Halfvolle melk", "Bloemen voor mama"]))
 
     def test_the_next_sync_replaces_the_snapshot(self):
-        with mock.patch.object(ah, "_get_json", return_value=ACTIVE):
+        with mock.patch.object(ah, "_get_json", return_value=SHOPPING):
             self.client.post("/api/ah/basket/sync")
-        with mock.patch.object(ah, "_get_json", return_value={**ACTIVE, "orderedProducts": ACTIVE["orderedProducts"][:1]}):
+        with mock.patch.object(ah, "_get_json", return_value={"items": SHOPPING["items"][:1]}):
             self.assertEqual(self.client.post("/api/ah/basket/sync").get_json()["itemCount"], 1)
+        with mock.patch.object(ah, "_get_json", return_value={"items": []}):
+            self.assertEqual(self.client.post("/api/ah/basket/sync").get_json()["itemCount"], 0)
 
     def test_a_failed_sync_keeps_the_copy(self):
-        with mock.patch.object(ah, "_get_json", return_value=ACTIVE):
+        with mock.patch.object(ah, "_get_json", return_value=SHOPPING):
             self.client.post("/api/ah/basket/sync")
         with mock.patch.object(ah, "_get_json", side_effect=RuntimeError("AH account niet gekoppeld")):
             response = self.client.post("/api/ah/basket/sync")
