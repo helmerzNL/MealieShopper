@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.1.1
+
+*English summary: The products of a Jumbo order should now come in. Jumbo's own error message from 1.14.6 showed that the order query expects the order number as a Float (`Variable "$orderId" of type "String!" used in position expecting type "Float!"`), so MealieShopper now asks for it that way first (a plain number). The other variants stay as a fallback. Tried only with mocked responses so far: sync again under Stores > Orders > Jumbo.*
+
+### Opgelost in 2.1.1
+
+- **Producten van Jumbo-bestellingen.** De foutmelding uit 1.14.6 liet zien dat Jumbo bij `order(orderId: …)` een `Float!` verwacht (*Variable "$orderId" of type "String!" used in position expecting type "Float!"*). Dat type en de naam `orderId` bleken dus goed, alleen het type niet. MealieShopper vraagt de bestelling nu eerst met een `Float!` (het nummer als gewoon getal); de andere varianten blijven als terugval. Synchroniseer opnieuw onder **Winkels > Bestellingen > Jumbo**; per keer komen de producten van de 25 nieuwste bestellingen die ze nog missen binnen.
+
 ## v2.1.0
 
 *English summary: MealieShopper can now read your Picnic recipes: the ones you saved in the Picnic app and the cookbook, with name and id. For now they are available through a new read-only MCP tool, `list_picnic_recipes`, and the route `GET /api/picnic/recipes`; nothing is imported into Mealie and the app has no recipe screen for them yet, because the explorer report did not show the ingredients yet. The route explorer now also reports where the names, ingredients and images sit in a recipe and tries more pages for the favorites.*

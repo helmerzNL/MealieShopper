@@ -849,9 +849,10 @@ def get_product_list(list_id: str) -> dict[str, Any]:
 # De lijst met bestellingen (en winkelbonnen) vraagt de website met de opgeslagen query
 # `OnlineOrdersAndStoreReceipts`. Voor de producten van één bestelling kennen we de opgeslagen query nog
 # niet; daarvoor probeert `get_order` gewone queries met de veldnamen uit het antwoord van de website.
+# Jumbo zelf meldde dat `order(orderId: …)` een `Float!` verwacht (het nummer gaat als getal mee).
 ORDER_PAGE_SIZE = 10
 MAX_ORDER_PAGES = 30
-ORDER_DETAIL_ARGUMENTS = tuple((name, kind) for kind in ("String!", "ID!", "Long!", "Int!") for name in ("orderId", "id"))
+ORDER_DETAIL_ARGUMENTS = tuple((name, kind) for kind in ("Float!", "Long!", "Int!", "String!", "ID!") for name in ("orderId", "id"))
 _ORDER_DETAIL_FIELDS = """
     orderId
     deliveryDate
@@ -1008,7 +1009,7 @@ def get_order(order_id: str) -> dict[str, Any]:
     for step in list(range(start, len(ORDER_DETAIL_ARGUMENTS))) + list(range(start)):
         name, kind = ORDER_DETAIL_ARGUMENTS[step]
         query = f"query GetOrder($orderId: {kind}) {{\n  order({name}: $orderId) {{{_ORDER_DETAIL_FIELDS}  }}\n}}"
-        value: Any = int(order_id) if kind in ("Long!", "Int!") else order_id
+        value: Any = int(order_id) if kind in ("Float!", "Long!", "Int!") else order_id
         try:
             data = _graphql(query, {"orderId": value}, "GetOrder", "JUMBO_WEB-orders")
         except JumboAuthError:
