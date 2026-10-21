@@ -103,7 +103,7 @@ You need a computer or NAS with Docker. You don't have to configure anything: on
 
 5. Open `http://<address of your server>:5959` and follow the setup guide.
 
-The image is at `ghcr.io/helmerznl/mealieshopper:latest`.
+The image is at `ghcr.io/helmerznl/mealieshopper:latest` and is built for `linux/amd64` and `linux/arm64`, so it also runs on an ARM NAS (such as some Synology models) and on a Raspberry Pi.
 
 ### Docker
 
@@ -387,7 +387,7 @@ python -m unittest discover -s tests          # all tests
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`: the workflow `.github/workflows/release.yml` then creates the tag and the GitHub release with that text. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
-- **Container registry:** the workflow builds and pushes on every push to `main` (and manually through `workflow_dispatch`) to `ghcr.io/helmerznl/mealieshopper:latest`.
+- **Container registry:** the workflow builds and pushes on every push to `main` (and manually through `workflow_dispatch`) to `ghcr.io/helmerznl/mealieshopper:latest`, for `linux/amd64` and `linux/arm64` (through QEMU and Buildx).
 - **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a demo environment with hand-drawn illustrations (no third-party photos), so they are free to use anywhere.
 
 ## Integrations and components

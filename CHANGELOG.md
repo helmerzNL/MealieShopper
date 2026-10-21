@@ -2,11 +2,11 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v1.16.0
+## v2.1.0
 
 *English summary: MealieShopper can now read your Picnic recipes: the ones you saved in the Picnic app and the cookbook, with name and id. For now they are available through a new read-only MCP tool, `list_picnic_recipes`, and the route `GET /api/picnic/recipes`; nothing is imported into Mealie and the app has no recipe screen for them yet, because the explorer report did not show the ingredients yet. The route explorer now also reports where the names, ingredients and images sit in a recipe and tries more pages for the favorites.*
 
-### Nieuw in 1.16.0
+### Nieuw in 2.1.0
 
 - **Picnic-recepten lezen.** De recepten die je in de Picnic-app hebt opgeslagen en het kookboek van Picnic, met naam en id. Dit is gebouwd op de vorm die de verkenner bij jouw account vond: elk receptonderdeel op een pagina heeft `recipe_id` en `recipe_name` in zijn analysegegevens. Nieuwe route: `GET /api/picnic/recipes?source=saved|cookbook`.
 - **Nieuwe MCP-tool, alleen lezen:** `list_picnic_recipes` (`source`: `saved` of `cookbook`, en `limit`). Je AI-assistent kan zo je Picnic-recepten bekijken. Er wordt niets opgeslagen of aan je mandje toegevoegd. Net als de andere Picnic-tools afzonderlijk uit te zetten bij AI-apps.
@@ -17,6 +17,21 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **De recepten staan nog niet in het scherm van de app** en worden nog niet in Mealie geïmporteerd: het rapport liet de namen en id's zien, maar nog niet de ingrediënten en de bereiding van een recept. Die komen na het volgende rapport van de verkenner.
 - **De favorieten zijn nog niet gevonden.** Geen enkele library kent de pagina en de gokken uit het vorige rapport gaven een 404. Weet je waar in de Picnic-app je Favorieten staan (welk scherm of tabblad)? Dat helpt bij het zoeken.
+
+## v2.0.0
+
+*English summary: The container image is now built for both linux/amd64 and linux/arm64. Before, only amd64 was published, so on an ARM NAS (Synology, Raspberry Pi) the container failed to start with "exec gunicorn failed: Exec format error". Pull the image again to get the right architecture. The image is now also tagged with its version (for example 2.0.0). This is a major version number because the published image changes, not because anything in the app breaks.*
+
+### Opgelost in 2.0.0
+
+- **De image start nu ook op een ARM-NAS.** Op een Synology (of een Raspberry Pi) stopte de container direct met `[FATAL tini] exec gunicorn failed: Exec format error`, omdat de image alleen voor `linux/amd64` werd gebouwd. De workflow `.github/workflows/docker.yml` bouwt en publiceert nu een image voor `linux/amd64` én `linux/arm64`, onder dezelfde tag (`latest`). Docker kiest zelf de juiste architectuur.
+- **De image heeft nu ook een versietag.** Naast `latest` en de commit krijgt de image de tag uit `VERSION` (bijvoorbeeld `ghcr.io/helmerznl/mealieshopper:2.0.0`), zodat je een vaste versie kunt vastzetten.
+
+### Goed om te weten
+
+- Draai je MealieShopper op een ARM-NAS? Haal de image opnieuw op (`docker compose pull && docker compose up -d`, of in Container Manager de image bijwerken) zodat je de arm64-versie krijgt.
+- Het nieuwe hoofdnummer (2.0.0) komt doordat de gepubliceerde image verandert; in de app zelf is niets wat breekt of wat je moet aanpassen.
+- De build duurt langer, omdat de arm64-versie op een amd64-server wordt nagebootst (QEMU). Er verandert niets aan de app zelf.
 
 ## v1.15.0
 

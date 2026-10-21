@@ -103,7 +103,7 @@ Je hebt een computer of NAS met Docker nodig. Je hoeft niets in te stellen: Meal
 
 5. Open `http://<adres van je server>:5959` en volg de installatiehulp.
 
-De image staat op `ghcr.io/helmerznl/mealieshopper:latest`.
+De image staat op `ghcr.io/helmerznl/mealieshopper:latest` en is gebouwd voor `linux/amd64` en `linux/arm64`, dus hij draait ook op een ARM-NAS (zoals sommige Synology-modellen) en op een Raspberry Pi.
 
 ### Docker
 
@@ -387,7 +387,7 @@ python -m unittest discover -s tests          # alle tests
 - **Teksten en talen:** de interface staat in `static/i18n/nl.js` en `en.js`, één tekst per regel. In de HTML staat de Nederlandse tekst in de pagina, met `data-i18n="sleutel"`; in de scripts gebruik je `t("sleutel", { naam })`, `th(...)` (met opmaak, waarden ge-escaped) en `tn("sleutel", aantal)` (meervoud). Een taal toevoegen betekent een bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`. `tests/test_i18n.py` bewaakt dat beide woordenboeken gelijk zijn.
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
 - **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `main`: de workflow `.github/workflows/release.yml` maakt dan de tag en de GitHub release, met die tekst. Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
-- **Container registry:** de workflow bouwt en pusht bij elke push naar `main` (en handmatig via `workflow_dispatch`) naar `ghcr.io/helmerznl/mealieshopper:latest`.
+- **Container registry:** de workflow bouwt en pusht bij elke push naar `main` (en handmatig via `workflow_dispatch`) naar `ghcr.io/helmerznl/mealieshopper:latest`, voor `linux/amd64` en `linux/arm64` (via QEMU en Buildx).
 - **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een demo-omgeving met zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn.
 
 ## Integraties en componenten
