@@ -23,7 +23,8 @@ from . import ah, ah_lists, auth
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
-ORDER_DETAILS_PER_SYNC = 15  # idem voor de producten van afgeleverde bestellingen
+ORDER_DETAILS_PER_SYNC = 25  # idem voor de producten van afgeleverde bestellingen
+MAX_CLOSED_PAGES = 30  # pagina's van 10 afgeronde bestellingen per synchronisatie
 RECEIPT_DETAILS_PER_SYNC = 40  # een synchronisatie blijft kort; de rest volgt bij de volgende
 
 SCHEMA = """
@@ -115,10 +116,17 @@ def _item_values(item: dict[str, Any]) -> tuple:
     )
 
 
+def _line_amount(row: Any) -> float | None:
+    """Het bedrag van een regel: aantal x prijs. (Versie 2.4.0 bewaarde hier het aantal van AH; dit herstelt dat bij het lezen.)"""
+    if row["price"] is not None and row["quantity"] is not None:
+        return round(row["quantity"] * row["price"], 2)
+    return row["amount"]
+
+
 def _item_json(row: Any) -> dict[str, Any]:
     return {
         "productId": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"],
-        "quantity": row["quantity"], "amount": row["amount"], "price": row["price"],
+        "quantity": row["quantity"], "amount": _line_amount(row), "price": row["price"],
         "priceBeforeBonus": row["price_before_bonus"], "bonus": bool(row["bonus"]),
         "taxonomy": row["taxonomy"], "image": row["image"],
     }
@@ -223,24 +231,55 @@ def _forget_order(conn, order_id: int) -> None:
     conn.execute("DELETE FROM ah_orders WHERE order_id = ?", (order_id,))
 
 
+def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
+    """Alle afgeronde bestellingen, nieuwste eerst, bladerend met `offset` (AH geeft er per keer 10).
+
+    Of `offset` rijen of pagina's telt is niet bekend: na de eerste pagina proberen we eerst de rij-offset en geeft die niets
+    nieuws, dan paginanummer 1. Het bladeren stopt als een pagina niets nieuws geeft (einde, of AH negeert de offset) en
+    zodra alles op een pagina al is bewaard of geannuleerd: oudere bestellingen zijn dan ook al binnen. Een mislukte
+    pagina houdt het gevondene.
+    """
+    found: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    offset = 0
+    mode = None  # "rows" of "pages", zodra duidelijk
+    for _ in range(MAX_CLOSED_PAGES):
+        try:
+            page = ah.get_closed_fulfillments(offset)
+        except Exception:  # noqa: BLE001 - wat al binnen is, blijft; de rest volgt bij de volgende synchronisatie
+            break
+        new = [order for order in page if order["id"] not in seen]
+        if not new:
+            if mode is None and offset > 1:
+                offset, mode = 1, "pages"  # de rij-offset gaf niets: misschien telt AH pagina's
+                continue
+            break
+        if mode is None and offset:
+            mode = "rows" if offset > 1 else "pages"
+        found.extend(new)
+        seen.update(order["id"] for order in new)
+        if all(order["id"] in complete or order.get("deliveryStatus") == "CANCELLED" for order in new):
+            break
+        offset += 1 if mode == "pages" else len(page)
+    return found
+
+
 def sync_orders() -> dict[str, Any]:
     """Haal de open en de afgeronde bestellingen op; wat is afgeleverd bewaren we voor altijd.
 
-    AH geeft van de afgeronde bestellingen per keer de laatste 10, dus een eerste synchronisatie vindt er
-    hoogstens 10 en elke volgende voegt toe wat sindsdien is afgeleverd. Geannuleerde bestellingen bewaren we niet.
+    Afgeronde bestellingen komen er pagina voor pagina (nieuwste eerst) uit; een volgende synchronisatie stopt zodra ze
+    bij bestellingen komt die al bewaard zijn. Geannuleerde bestellingen bewaren we niet (ze komen ook bij "open" voorbij).
     """
-    open_orders = ah.get_open_fulfillments()
-    open_ids = {order["id"] for order in open_orders}
-    try:
-        closed_orders = ah.get_closed_fulfillments()
-    except Exception:  # noqa: BLE001 - de open bestellingen zijn al binnen; de afgeronde volgen bij de volgende sync
-        closed_orders = []
-    cancelled = {order["id"] for order in closed_orders if order["deliveryStatus"] == "CANCELLED"}
-    delivered = [order for order in closed_orders if order["deliveryStatus"] != "CANCELLED" and order["id"] not in open_ids]
+    listed_open = ah.get_open_fulfillments()
     with closing(_connect()) as conn:
         previously_open = [row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'open'")]
         complete = {row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")}
         incomplete = [row["order_id"] for row in conn.execute("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")]
+    closed_orders = _closed_orders(complete)
+    cancelled = {order["id"] for order in listed_open + closed_orders if order.get("deliveryStatus") == "CANCELLED"}
+    open_orders = [order for order in listed_open if order["id"] not in cancelled]
+    open_ids = {order["id"] for order in open_orders}
+    delivered = [order for order in closed_orders if order["id"] not in cancelled and order["id"] not in open_ids]
 
     fetched = {order["id"]: _details_or_none(order["id"]) for order in open_orders}
     # Wat open was en het nu niet meer is, is afgeleverd (of geannuleerd): een laatste keer ophalen.
@@ -421,14 +460,14 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
     with closing(_connect()) as conn:
         for row in conn.execute(
             """
-            SELECT i.title, i.brand, i.quantity, i.amount, o.order_id, o.delivery_date, o.first_seen, o.kind
+            SELECT i.title, i.brand, i.quantity, i.amount, i.price, o.order_id, o.delivery_date, o.first_seen, o.kind
             FROM ah_order_items i JOIN ah_orders o ON o.order_id = i.order_id
             """
         ):
             if all(word in ah_lists._fold(f"{row['title']} {row['brand'] or ''}") for word in words):
                 occurrences.append({
                     "source": "bestelling", "product": row["title"], "brand": row["brand"], "quantity": row["quantity"],
-                    "amount": row["amount"], "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
+                    "amount": _line_amount(row), "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
                     "open": row["kind"] == "open",
                 })
         for row in conn.execute(

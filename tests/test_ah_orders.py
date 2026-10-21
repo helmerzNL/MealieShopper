@@ -23,8 +23,8 @@ DETAILS = {
     "orderId": 4242, "orderState": "DELIVERED", "deliveryDate": "2026-10-23", "deliveryType": "DELIVERY",
     "deliveryTimePeriod": {"startDateTime": "2026-10-23T18:00:00", "endDateTime": "2026-10-23T20:00:00"},
     "groupedProductsInTaxonomy": [
-        {"taxonomyName": "Zuivel", "orderedProducts": [{"amount": 2.58, "quantity": 2, "product": {"webshopId": 111, "title": "Halfvolle melk", "brand": "AH", "salesUnitSize": "1 l", "priceBeforeBonus": 1.45, "currentPrice": 1.29, "isBonus": True}}]},
-        {"taxonomyName": "Broodbeleg", "orderedProducts": [{"amount": 1.99, "quantity": 1, "product": {"webshopId": 222, "title": "Pindakaas", "brand": "Calvé", "salesUnitSize": "350 g", "priceBeforeBonus": 1.99, "currentPrice": None, "isBonus": False}}]},
+        {"taxonomyName": "Zuivel", "orderedProducts": [{"amount": 2, "quantity": 2, "product": {"webshopId": 111, "title": "Halfvolle melk", "brand": "AH", "salesUnitSize": "1 l", "priceBeforeBonus": 1.45, "currentPrice": 1.29, "isBonus": True}}]},
+        {"taxonomyName": "Broodbeleg", "orderedProducts": [{"amount": 1, "quantity": 1, "product": {"webshopId": 222, "title": "Pindakaas", "brand": "Calvé", "salesUnitSize": "350 g", "priceBeforeBonus": 1.99, "currentPrice": None, "isBonus": False}}]},
     ],
 }
 FULFILLMENTS = {"orderFulfillments": {"result": [{
@@ -86,6 +86,7 @@ class ParsingTest(unittest.TestCase):
         self.assertEqual([(i["title"], i["taxonomy"], i["unitSize"], i["bonus"]) for i in order["items"]], [("Halfvolle melk", "Zuivel", "1 l", True), ("Pindakaas", "Broodbeleg", "350 g", False)])
         self.assertEqual(order["items"][0]["price"], 1.29)
         self.assertEqual(order["items"][1]["price"], 1.99)  # geen bonusprijs: de gewone prijs
+        self.assertEqual([i["amount"] for i in order["items"]], [2.58, 1.99])  # aantal x prijs: `amount` van AH is een aantal
         self.assertEqual((order["state"], order["slotStart"]), ("DELIVERED", "2026-10-23T18:00:00"))
 
     def test_open_fulfillments(self):
@@ -146,7 +147,11 @@ def closed_order(order_id, status="DELIVERED", date="2026-10-01"):
 
 class OrdersCacheTest(AhOrdersTestCase):
     def sync(self, open_orders, details=fake_details, closed=()):
-        with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_closed_fulfillments", return_value=list(closed)), mock.patch.object(ah, "get_order_details", side_effect=details):
+        # Een lijst met bestellingen wordt als een pagina geleverd; een volgende pagina (offset > 0) is leeg.
+        def pages(offset=0):
+            return list(closed) if not offset else []
+
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=details):
             return self.client.post("/api/ah/orders/sync")
 
     def test_open_orders_are_stored_with_their_products(self):
@@ -192,6 +197,53 @@ class OrdersCacheTest(AhOrdersTestCase):
         self.assertEqual(second["remaining"], 0)
         self.assertTrue(all(o["itemsSynced"] for o in self.client.get("/api/ah/orders").get_json()["orders"]))
 
+    def test_closed_orders_are_fetched_page_by_page_until_nothing_new_is_left(self):
+        newest = [closed_order(1000 + n, date="2026-10-%02d" % (28 - n)) for n in range(10)]
+        older = [closed_order(2000 + n, date="2026-09-%02d" % (28 - n)) for n in range(10)]
+        asked = []
+
+        def pages(offset=0):
+            asked.append(offset)
+            return {0: newest, 10: older}.get(offset, [])
+
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
+            self.client.post("/api/ah/orders/sync")
+            self.assertEqual(asked, [0, 10, 20])  # tot een lege pagina
+            self.assertEqual(len(self.client.get("/api/ah/orders").get_json()["orders"]), 20)
+            self.client.post("/api/ah/orders/sync")  # alles is bewaard en compleet
+            self.client.post("/api/ah/orders/sync")
+        self.assertEqual(asked[3:], [0, 0])  # de eerste pagina bevat niets nieuws meer, dus geen tweede pagina
+
+    def test_paging_also_works_when_offset_counts_pages(self):
+        pages_of = {0: [closed_order(10 + n) for n in range(10)], 1: [closed_order(30 + n) for n in range(10)], 2: [closed_order(50 + n) for n in range(3)]}
+        asked = []
+
+        def pages(offset=0):
+            asked.append(offset)
+            return pages_of.get(offset, [])
+
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
+            self.client.post("/api/ah/orders/sync")
+        self.assertEqual(asked, [0, 10, 1, 2, 3])  # rij-offset 10 geeft niets, dan pagina 1, 2 en het einde
+        self.assertEqual(len(self.client.get("/api/ah/orders").get_json()["orders"]), 23)
+
+    def test_a_page_that_repeats_itself_stops_the_paging(self):
+        page = [closed_order(7)]
+        asked = []
+
+        def pages(offset=0):
+            asked.append(offset)
+            return page  # AH negeert de offset
+
+        with mock.patch.object(ah, "get_open_fulfillments", return_value=[]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
+            self.client.post("/api/ah/orders/sync")
+        self.assertEqual(asked, [0, 1])
+
+    def test_cancelled_orders_in_the_open_list_are_not_kept(self):
+        data = self.sync([fulfillment(1), {**fulfillment(2), "deliveryStatus": "CANCELLED", "stateText": "Geannuleerd"}]).get_json()
+        self.assertEqual(data["open"], 1)
+        self.assertEqual([o["id"] for o in self.client.get("/api/ah/orders").get_json()["orders"]], [1])
+
     def test_failing_closed_query_does_not_stop_the_open_orders(self):
         with mock.patch.object(ah, "get_open_fulfillments", return_value=[fulfillment(1)]), mock.patch.object(ah, "get_closed_fulfillments", side_effect=RuntimeError("AH even weg")), mock.patch.object(ah, "get_order_details", side_effect=fake_details):
             data = self.client.post("/api/ah/orders/sync").get_json()
@@ -222,6 +274,19 @@ class OrdersCacheTest(AhOrdersTestCase):
         self.sync([fulfillment(1, "2026-10-01"), fulfillment(2, "2026-10-09"), fulfillment(3, "2026-10-20")])
         self.sync([fulfillment(3, "2026-10-20")])
         self.assertEqual([o["id"] for o in self.client.get("/api/ah/orders").get_json()["orders"]], [3, 2, 1])
+
+    def test_line_amounts_are_quantity_times_price_even_for_orders_stored_before(self):
+        self.sync([fulfillment(1)])
+        from contextlib import closing
+
+        from mealieshopper import auth
+
+        with closing(auth.connect()) as conn, conn:  # zoals 2.4.0 het bewaarde: het aantal in plaats van het bedrag
+            conn.execute("UPDATE ah_order_items SET amount = 2")
+        item = self.client.get("/api/ah/orders/1").get_json()["items"][0]
+        self.assertEqual((item["quantity"], item["price"], item["amount"]), (2, 1.29, 2.58))
+        hit = next(o for o in self.client.get("/api/ah/purchases/search?q=melk").get_json()["occurrences"] if o["source"] == "bestelling")
+        self.assertEqual(hit["amount"], 2.58)
 
     def test_unknown_order(self):
         self.assertEqual(self.client.get("/api/ah/orders/999").status_code, 404)
@@ -388,6 +453,27 @@ class ExploreTest(unittest.TestCase):
         self.assertEqual(opened["shape"]["orderFulfillments"]["result"][0], {"orderId": "int", "statusCode": "str: SCHEDULED", "statusDescription": "str: Ingepland", "shoppingType": "str: DELIVERY", "transactionCompleted": "bool", "modifiable": "bool", "totalPrice": {"totalPrice": {"amount": "float"}}, "delivery": {"status": "str: SCHEDULED", "method": "str: HOME", "slot": {"date": "str", "dateDisplay": "str", "timeDisplay": "str", "startTime": "str", "endTime": "str"}}})
         text = json.dumps(report, ensure_ascii=False)
         for secret in ("Geheimstraat", "1234AB", "Halfvolle", "Calvé", "4242"):
+            self.assertNotIn(secret, text)
+
+    def test_paging_probes_report_only_counts(self):
+        def entry(order_id):
+            return {"orderId": order_id, "statusCode": 9, "delivery": {"status": "DELIVERED"}}
+
+        def graphql(query, variables=None):
+            if "offset: 5" in query:
+                return {"orderFulfillments": {"result": [entry(n) for n in range(5, 15)]}}
+            if "offset:" in query:
+                return {"orderFulfillments": {"result": []}}
+            if "orderFulfillments" in query:
+                return {"orderFulfillments": {"result": [entry(n) for n in range(10)]}}
+            raise RuntimeError("geen")
+
+        with mock.patch.object(ah_explore, "_raw_get", side_effect=RuntimeError("geen")), mock.patch.object(ah_explore, "_raw_graphql", side_effect=graphql), mock.patch.object(ah, "configured_refresh_token", return_value="x"):
+            report = ah_explore.explore()
+        probe = next(p for p in report["probes"] if p["name"].endswith("offset: 5"))
+        self.assertEqual(probe["info"], {"aantal": 10, "ook_op_offset_0": 5})
+        text = json.dumps(report)
+        for secret in ('"orderId": 7', "[5, 6"):
             self.assertNotIn(secret, text)
 
     def test_a_route_that_fails_is_reported_not_raised(self):

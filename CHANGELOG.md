@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.5.0
+
+*English summary: All your past Albert Heijn orders are now fetched, not just the latest 10: MealieShopper pages back through them. The products of delivered orders are read correctly (AH's "amount" is a quantity, so the line amount is quantity times price, which also fixes orders already stored). Cancelled orders no longer show up as open orders.*
+
+### Nieuw in 2.5.0
+
+- **Al je afgelopen bestellingen**, niet alleen de laatste 10. Uit het rapport van **AH-routes verkennen** bleek dat AH het argument `offset` kent; MealieShopper bladert nu door de afgeronde bestellingen (10 per pagina, nieuwste eerst) tot de oudste. Of `offset` rijen of pagina's telt weten we nog niet zeker; het ophalen probeert beide en neemt wat werkt. Een volgende synchronisatie stopt zodra ze bij bestellingen komt die al bewaard zijn. De producten van maximaal 25 bestellingen komen per keer binnen; staat er "nog zonder producten", synchroniseer dan opnieuw.
+- **Geannuleerde bestellingen** komen soms ook bij de open bestellingen voorbij. Die worden nu overgeslagen, en een bestelling die je eerder als open had en later is geannuleerd, wordt verwijderd.
+- **Bedragen van productregels kloppen.** Bij AH is `amount` in een bestelling een aantal, geen bedrag. Het bedrag van een regel is nu aantal x prijs. Dat geldt ook voor bestellingen die al waren bewaard: het wordt bij het tonen uitgerekend, je hoeft niets opnieuw op te halen.
+- **Verkenner:** de introspectie (staat bij AH uit) en de pagineringsgokken zijn vervangen door een controle hoe `offset` telt, met alleen aantallen en geen id's.
+
 ## v2.4.3
 
 *English summary: Picnic favorites no longer fall back to listing every product on the page. The explorer report showed that the Favorites tab of this account points to the "no purchases" page (`purchases_page_no_products_root`): 183 products and a `saved` field that is empty, so there is nothing that says which products are yours. Without a marker MealieShopper now shows no products and says why, and it also tries the `purchases-page-root` page. The explorer gets probes for the purchases pages, the product page's favorite fields and the account's delivery count and purchases consent, so the real source of your favorites can be found next.*
