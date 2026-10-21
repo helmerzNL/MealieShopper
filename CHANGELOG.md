@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.51.2
+
+*English summary: The planner no longer offers "Jumbo (shopping list)": groceries for Jumbo always go in the Jumbo basket. A remembered choice of the removed option falls back to Albert Heijn. The Jumbo shopping list itself is still shown under Stores > Lists. The API route that wrote to that list is unchanged but no longer used by the app.*
+
+### Verwijderd in 2.51.2
+
+- **De keuze "Jumbo (boodschappenlijstje)" in de planner.** Bij het weekmenu kies je nog tussen Albert Heijn, Picnic en Jumbo; bij Jumbo gaan de ingrediënten altijd in het Jumbo-mandje, niet meer op het boodschappenlijstje. Had je die keuze onthouden, dan staat de planner voortaan op Albert Heijn. Het boodschappenlijstje van Jumbo blijft te zien onder **Winkels > Lijstjes**.
+- De bijbehorende teksten zijn weggehaald (de knop, de melding na het toevoegen en de melding dat iets al op het lijstje stond) en de uitleg bij het koppelen van Jumbo noemt het lijstje niet meer als plek voor je boodschappen.
+
 ## v2.51.1
 
 *English summary: The "Stores" menu under Settings no longer carries a fixed "Stores" title: its button shows the chosen store (Albert Heijn, Picnic or Jumbo), just like the store picker on the Stores page. The static-file version is raised so browsers load the new script.*
