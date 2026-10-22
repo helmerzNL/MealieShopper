@@ -2504,6 +2504,30 @@ body.has-onboarding {
   margin-top: 0;
 }
 
+/* Fabrieksinstellingen (Instellingen > Systeem > Opschonen) */
+.button--danger {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.button--danger:hover {
+  border-color: var(--danger);
+}
+
+.reset-form {
+  margin-top: 16px;
+}
+
+.reset-warning ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.reset-warning li + li {
+  margin-top: 4px;
+}
+
 .update-facts {
   display: grid;
   grid-template-columns: max-content 1fr;

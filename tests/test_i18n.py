@@ -25,6 +25,7 @@ SOURCES = {
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
+    "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
     "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
     "profile.js": (STATIC / "profile.js").read_text(encoding="utf-8"),

@@ -140,7 +140,7 @@ class ProfileMarkupTest(unittest.TestCase):
         import re
 
         nav = re.search(r'<nav class="subtabs".*?</nav>', self.section("settings"), re.S).group(0)
-        self.assertEqual(re.findall(r'data-subtab="([\w-]+)"', nav), ["settings-link", "settings-users", "settings-audit", "settings-updates"])
+        self.assertEqual(re.findall(r'data-subtab="([\w-]+)"', nav), ["settings-link", "settings-users", "settings-audit", "settings-system"])
         self.assertEqual(nav.count("data-admin-only"), 4)
 
     def test_avatar_is_resized_in_the_browser_and_sent_with_its_own_type(self):

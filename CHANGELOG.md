@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.63.0
+
+*English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
+
+### Nieuw in 2.63.0
+
+- **Fabrieksinstellingen.** Onder *Instellingen > Systeem > Opschonen* zet de beheerder MealieShopper terug naar een nieuwe installatie. Dat verwijdert de database (gebruikers, wachtwoorden, passkeys, koppelingen, lijstjes, bestellingen, aanbiedingen, auditlog) en `secret.key`. De knop opent eerst een waarschuwing met de gevolgen en vraagt daarna om het woord `RESET`, om opnieuw te bewijzen wie je bent (wachtwoord, en bij tweestapsverificatie ook de code of een herstelcode; of een passkey) en om een laatste bevestiging. Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
+- **Opnieuw starten.** Na het wissen stopt de app zichzelf (onder gunicorn, zoals in de container; de container start door het restart-beleid weer op) en laadt de pagina vanzelf opnieuw zodra de app terug is, bij de onboarding. Draait de app op een andere manier, dan meldt hij dat je hem zelf opnieuw moet starten.
+- **Nieuwe routes** (alleen beheerder): `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` (de passkey-uitdaging) en `POST /api/system/factory-reset`.
+
+### Aangepast in 2.63.0
+
+- Het tabblad *Updates* in de Instellingen heet nu *Systeem* en bevat de updatecheck en het nieuwe blok *Opschonen*.
+- De passkey-controle van het inloggen staat nu in `auth.check_assertion`, zodat het wissen dezelfde controle gebruikt.
+
 ## v2.62.0
 
 *English summary: The recipe suggestions are about what you can cook with the offers of the chosen store. Above the recipes it now says so ("Recipes with as many ingredients as possible from the offers at Jumbo"), basics such as salt, oil, butter and flour no longer count towards "x of y ingredients on offer", the recipes with the largest share on offer come first, and each recipe lists what is not on offer. At the top there is a filter for the kind of dish (breakfast, lunch, starter, soup, main course, side dish, dessert, snack, other) with the number of recipes per kind. The kind comes from the recipe's source, so read the recipes once more after updating. A recipe card now says where the recipe comes from ("Recipe from Albert Heijn") instead of a bare store name that read like the store of the offers.*

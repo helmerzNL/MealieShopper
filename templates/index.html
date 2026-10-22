@@ -720,7 +720,7 @@
           <button class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>
           <button class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
           <button class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit">Auditlog</button>
-          <button class="subtab" data-subtab="settings-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
+          <button class="subtab" data-subtab="settings-system" data-admin-only><span data-i18n="settings.tab.system">Systeem</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
         </nav>
 
         <div id="settings-link" class="subpanel is-active">
@@ -952,7 +952,7 @@
         </div>
         </div>
 
-        <div id="settings-updates" class="subpanel">
+        <div id="settings-system" class="subpanel">
         <div class="box">
           <h2 data-i18n="update.title">Updatecheck</h2>
           <p class="muted" data-i18n="update.intro">MealieShopper kijkt op GitHub of er een nieuwere versie is dan deze installatie. Er gaat geen informatie over jou, je gegevens of deze installatie mee.</p>
@@ -972,6 +972,46 @@
             <button class="button" type="button" id="update-check" data-i18n="update.check">Nu controleren</button>
             <a class="button button--secondary" id="update-notes" href="#" target="_blank" rel="noopener noreferrer" hidden data-i18n="update.notes">Release-notes op GitHub</a>
           </div>
+        </div>
+        <div class="box" id="cleanup-box">
+          <h2 data-i18n="system.cleanup_title">Opschonen</h2>
+          <p class="muted" data-i18n="system.cleanup_intro">Ruim op wat je niet meer nodig hebt.</p>
+          <h3 data-i18n="system.reset_title">Fabrieksinstellingen</h3>
+          <p class="muted" data-i18n="system.reset_text">Zet MealieShopper helemaal terug naar een nieuwe installatie. Alle gegevens worden gewist en de app start opnieuw op.</p>
+          <div class="security-actions" id="reset-actions">
+            <button class="button button--danger" type="button" id="reset-open" data-i18n="system.reset_open">Fabrieksinstellingen terugzetten...</button>
+          </div>
+          <form class="auth-form reset-form" id="reset-form" autocomplete="off" hidden>
+            <div class="message error reset-warning" role="alert">
+              <strong data-i18n="system.reset_warning_title">Let op: dit kan niet ongedaan worden gemaakt.</strong>
+              <ul>
+                <li data-i18n="system.reset_loses_users">Alle gebruikers, wachtwoorden, passkeys en tweestapsverificatie worden verwijderd, ook die van jou. Je bent daarna uitgelogd.</li>
+                <li data-i18n="system.reset_loses_links">De koppelingen met Mealie, Albert Heijn, Jumbo en Picnic en met AI-assistenten (MCP) worden gewist.</li>
+                <li data-i18n="system.reset_loses_data">Alle opgeslagen gegevens verdwijnen: lijstjes, bestellingen, kassabonnen, aanbiedingen, het auditlog en alle instellingen. De database wordt verwijderd.</li>
+                <li data-i18n="system.reset_after">Daarna start de app opnieuw op en begin je weer bij de onboarding: alles moet opnieuw worden ingesteld.</li>
+              </ul>
+            </div>
+            <p class="muted" data-i18n="system.reset_keeps">Je recepten en weekmenu in Mealie en je accounts bij de supermarkten blijven ongemoeid. Instellingen uit de omgevingsvariabelen van de container blijven staan.</p>
+            <p class="muted" id="reset-no-restart" hidden data-i18n="system.reset_no_restart">Deze installatie kan zichzelf niet opnieuw starten. Start de app na het wissen zelf opnieuw.</p>
+            <label class="field">
+              <span data-i18n="system.reset_phrase_label">Typ RESET om te bevestigen</span>
+              <input class="input" id="reset-phrase" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+            <p class="muted" id="reset-auth-hint"></p>
+            <label class="field" id="reset-password-field" hidden>
+              <span data-i18n="system.reset_password_label">Je wachtwoord</span>
+              <input class="input" id="reset-password" type="password" autocomplete="current-password">
+            </label>
+            <label class="field" id="reset-code-field" hidden>
+              <span data-i18n="mfa.code_label">Code uit je authenticator-app</span>
+              <input class="input" id="reset-code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">
+            </label>
+            <div class="security-actions">
+              <button class="button button--danger" type="submit" id="reset-submit" data-i18n="system.reset_submit">Alles wissen en opnieuw starten</button>
+              <button class="button button--secondary" type="button" id="reset-cancel" data-i18n="common.cancel">Annuleren</button>
+            </div>
+          </form>
+          <div id="reset-message"></div>
         </div>
         </div>
       </section>
@@ -1011,6 +1051,7 @@
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>

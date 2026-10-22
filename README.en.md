@@ -292,7 +292,7 @@ At the top right is your **avatar** with a drop-down menu (on a small screen the
 - **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
 - **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.
 - **Profile > AI apps:** the MCP link with AI assistants, for everyone.
-- **Settings** (administrator): **Link** (Mealie and the supermarkets), **Users**, **Audit log** and **Updates**.
+- **Settings** (administrator): **Link** (Mealie and the supermarkets), **Users**, **Audit log** and **System** (the update check and the clean-up, see *Data and backups*).
 
 ### Language
 
@@ -472,6 +472,8 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your lists, recipes, orders and receipts at the supermarkets, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and the supermarkets again, and the app shows that as "not linked".
 
+**Factory reset.** Under **Settings, System, Clean-up** you reset MealieShopper to a fresh installation. That deletes the whole database and `secret.key`: all users, passwords, passkeys and two-step verification (yours too), the links to Mealie, the supermarkets and AI assistants, the saved lists, orders and offers, and the audit log. Your recipes in Mealie and your supermarket accounts are left alone, as is anything you set in environment variables. Because it can't be undone, the app first warns about the consequences and asks for the word `RESET` and for you to prove again that it is you: with your password (and the code from your authenticator app or a recovery code, if you use two-step verification) or with your passkey. After the erase the app restarts itself and you land in the setup assistant again. The restart works in the container (under gunicorn) when compose has a restart policy that starts it again after a normal stop, such as `unless-stopped` or `always` in the example; if you run the app another way, it tells you to restart it yourself. Back up the data folder first if you are not sure you want to lose everything.
+
 ## Updating
 
 ```bash
@@ -482,9 +484,9 @@ With a new version you don't have to do anything; the database is extended autom
 
 <img src="docs/screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 
-**Update check.** Under **Settings, Updates** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
+**Update check.** Under **Settings, System** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
 
-<img src="docs/screenshots/en/updates.png" alt="Settings, Updates: the installed and the latest version, with the notice at the top" width="900">
+<img src="docs/screenshots/en/updates.png" alt="Settings, System: the installed and the latest version, with the notice at the top" width="900">
 
 ## Troubleshooting
 
