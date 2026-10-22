@@ -1,6 +1,8 @@
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import date
 from os import environ
 from typing import Any
 from urllib.parse import unquote, urlencode, urlparse
@@ -625,6 +627,118 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
             }
         )
     return products
+
+
+# --- Bonus (aanbiedingen) -----------------------------------------------------------------------
+# De bonuspagina van de AH-app is een onofficiële route die we niet kunnen garanderen. Daarom lezen we het
+# antwoord op vorm (elk object met een `webshopId` en een `title` is een product) en vallen we terug op
+# zoekopdrachten met de bonusvlag als de pagina niets teruggeeft. De verkenner (`ah_explore`) toont wat AH geeft.
+BONUS_SECTION_PATH = "/mobile-services/bonuspage/v2/section"
+BONUS_FALLBACK_TERMS = (
+    "kip", "gehakt", "vis", "zalm", "worst", "spek", "rundvlees", "varkensvlees", "pasta", "rijst", "aardappel",
+    "groente", "tomaat", "ui", "paprika", "champignon", "salade", "fruit", "kaas", "melk", "yoghurt", "room", "ei",
+    "brood", "saus", "soep", "pizza", "noten", "olie", "bonen",
+)
+BONUS_PAGE_SIZE = 50
+
+
+def _bonus_label(item: dict[str, Any], group: str = "") -> str:
+    labels = item.get("discountLabels")
+    if isinstance(labels, list):
+        for label in labels:
+            text = label.get("defaultDescription") if isinstance(label, dict) else None
+            if text:
+                return str(text).strip()
+    return str(item.get("bonusMechanism") or group or "").strip()
+
+
+def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | None:
+    product_id = item.get("webshopId") or item.get("id")
+    title = str(item.get("title") or "").strip()
+    if not product_id or not title:
+        return None
+    now = item.get("currentPrice")
+    before = item.get("priceBeforeBonus")
+    images = item.get("images") or []
+    return {
+        "id": str(product_id),
+        "title": title,
+        "brand": item.get("brand") or None,
+        "unitSize": item.get("salesUnitSize") or None,
+        "price": now if isinstance(now, (int, float)) else before if isinstance(before, (int, float)) else None,
+        "priceBefore": before if isinstance(before, (int, float)) and isinstance(now, (int, float)) and before > now else None,
+        "promoLabel": _bonus_label(item, group),
+        "image": (images[0].get("url") if images and isinstance(images[0], dict) else None) or None,
+        "url": product_web_url(product_id),
+        "validUntil": item.get("bonusEndDate") or None,
+    }
+
+
+def bonus_products_in(node: Any, group: str = "") -> list[dict[str, Any]]:
+    """Alle producten ergens in een antwoord, met de naam van de bonusgroep waarin ze staan. Geen dubbelen."""
+    found: dict[str, dict[str, Any]] = {}
+
+    def walk(inner: Any, label: str) -> None:
+        if isinstance(inner, list):
+            for entry in inner:
+                walk(entry, label)
+        elif isinstance(inner, dict):
+            product = _bonus_product(inner, label) if "webshopId" in inner and "title" in inner else None
+            if product:
+                found.setdefault(product["id"], product)
+                return
+            own = str(inner.get("discountDescription") or inner.get("segmentDescription") or inner.get("title") or label or "")
+            for value in inner.values():
+                walk(value, own if isinstance(value, (list, dict)) else label)
+
+    walk(node, group)
+    return list(found.values())
+
+
+def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
+    response = requests.get(
+        f"{AH_API_BASE}/mobile-services/product/search/v2",
+        headers=_auth_headers(token, include_content_type=False),
+        params={"query": term, "page": 0, "size": BONUS_PAGE_SIZE, "sortOn": "RELEVANCE"},
+        timeout=30,
+    )
+    if not response.ok:
+        raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
+    products = [_bonus_product(item) for item in response.json().get("products") or [] if isinstance(item, dict) and item.get("isBonus")]
+    return [product for product in products if product]
+
+
+def get_bonus_products() -> list[dict[str, Any]]:
+    """De aanbiedingen (AH Bonus): eerst de bonuspagina, anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
+    token = get_token()
+    errors: list[str] = []
+    found: dict[str, dict[str, Any]] = {}
+    try:
+        data = _request_json(
+            "GET",
+            f"{AH_API_BASE}{BONUS_SECTION_PATH}",
+            headers=_auth_headers(token, include_content_type=False),
+            params={"date": date.today().isoformat(), "application": "AH", "promotionType": "NATIONAL"},
+        )
+        for product in bonus_products_in(data):
+            found.setdefault(product["id"], product)
+    except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op zoeken
+        errors.append(str(exc)[:200])
+    if not found:
+        def search(term: str) -> list[dict[str, Any]]:
+            try:
+                return _bonus_from_search(term, token)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(str(exc)[:200])
+                return []
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for products in pool.map(search, BONUS_FALLBACK_TERMS):
+                for product in products:
+                    found.setdefault(product["id"], product)
+    if not found and errors:
+        raise RuntimeError(errors[0])
+    return list(found.values())
 
 
 def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:

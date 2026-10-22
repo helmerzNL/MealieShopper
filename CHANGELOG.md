@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.53.0
+
+*English summary: New main tab **Offers**: shows the offers of a store (for now Albert Heijn Bonus, no AH link needed) and suggests recipes with ingredients on offer, from your Mealie recipes, Jumbo favourites, Picnic recipes and saved AH recipes. Matching runs locally, without an AI service. Picnic and Jumbo offers follow once their route is known: the explorers help find it. The main menu now has seven tabs, which also fits the installed app's bottom bar again.*
+
+### Nieuw in 2.53.0
+
+- **Tab Aanbiedingen.** Toont de aanbiedingen van een winkel met oude en nieuwe prijs en het label, bewaard in een lokale kopie met het tijdstip van ophalen. Nu voor Albert Heijn (Bonus, werkt zonder AH-koppeling); `Aanbiedingen ophalen` vernieuwt de kopie en bij een fout blijft de vorige staan.
+- **Receptvoorstellen.** `Recepten inlezen` leest de ingrediënten van je Mealie-recepten, Jumbo-favorieten, Picnic-recepten en bewaarde AH-recepten in. Daarna toont het tabblad de recepten waarvan ingrediënten in de aanbieding zijn, gerangschikt op het aandeel in de aanbieding en de geschatte besparing. Het vergelijken gebeurt lokaal (zonder meervoud, eenheden en basisingrediënten als zout en water); er gaat niets naar een AI-dienst.
+- **Nieuwe routes:** `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes` en `POST /api/offers/recipes/sync`.
+- **AH-verkenner** (`POST /api/ah/explore`) probeert nu ook de bonuspagina en meldt de vorm van het antwoord en het aantal gevonden producten.
+
+### Aangepast in 2.53.0
+
+- **Zeven tabs in het hoofdmenu.** De onderste menubalk van de geïnstalleerde app heeft weer evenveel kolommen als tabs (die stond sinds 2.52.0 op zeven bij zes tabs).
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-25), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- De bonusroute van AH is onofficieel en nog niet getest tegen de echte dienst. Antwoordt de bonuspagina niet, dan zoekt MealieShopper producten met de bonusvlag; draai bij twijfel de AH-verkenner.
+- Aanbiedingen van Picnic en Jumbo zijn er nog niet: voor beide moet eerst de juiste pagina of query worden gevonden (draai hun verkenner op je installatie).
+
 ## v2.52.0
 
 *English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*
