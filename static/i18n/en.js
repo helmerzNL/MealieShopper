@@ -14,6 +14,8 @@ I18N.add("en", {
   "brand.tagline": "From recipe to sorted.",
   "brand.home": "Go to the start screen",
   "auth.logout": "Log out",
+  "nav.collapse": "Collapse menu",
+  "nav.expand": "Expand menu",
   "nav.main": "Main screens",
   "nav.plan": "Week menu",
   "nav.recipes": "Recipes",

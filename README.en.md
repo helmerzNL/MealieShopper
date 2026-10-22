@@ -45,7 +45,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 - **Setup guide.** On the first start you go through security and the links with Mealie, Albert Heijn, Jumbo and Picnic in six steps.
 - **Audit log and update check.** The administrator sees every request to the stores and from AI assistants (with export) and gets a notice when a new version is available.
 - **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
-- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
+- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left and can be collapsed to icons only.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and the supermarkets and manage the users.
 - **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists and import a recipe into Mealie. OAuth login, with your own account.

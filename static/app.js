@@ -1709,6 +1709,34 @@ function showPanel(panelId, tab = null) {
   if (panelId === "recipes") ensureMealPlan();
 }
 
+// Het navigatiemenu links (groot scherm) inklappen tot alleen de pictogrammen; de keuze blijft bewaard.
+function updateNavToggle() {
+  const collapsed = document.documentElement.classList.contains("nav-collapsed");
+  const toggle = $("#nav-toggle");
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  const label = t(collapsed ? "nav.expand" : "nav.collapse");
+  toggle.setAttribute("aria-label", label);
+  toggle.title = collapsed ? label : "";
+  // Ingeklapt is van de tabs alleen het pictogram te zien: de naam komt dan als tooltip.
+  document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
+    const name = tab.querySelector(".tab-text")?.textContent || "";
+    if (collapsed && name) tab.title = name;
+    else tab.removeAttribute("title");
+  });
+}
+
+$("#nav-toggle").addEventListener("click", () => {
+  const collapsed = document.documentElement.classList.toggle("nav-collapsed");
+  try {
+    localStorage.setItem("ms-nav-collapsed", collapsed ? "1" : "0");
+  } catch {
+    // Zonder opslag geldt de keuze alleen tot je de pagina herlaadt.
+  }
+  updateNavToggle();
+});
+window.addEventListener("ms:languagechange", updateNavToggle);
+document.addEventListener("DOMContentLoaded", updateNavToggle);
+
 document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
   tab.addEventListener("click", () => showPanel(tab.dataset.tab, tab));
 });
