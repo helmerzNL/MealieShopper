@@ -209,11 +209,6 @@
           <span class="tab-text" data-i18n="nav.recipes">Recepten</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.recipes_short">Recepten</span>
         </button>
-        <button class="tab" data-tab="basket">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCart"><path d="M17,18C15.89,18 15,18.89 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20C19,18.89 18.1,18 17,18M1,2V4H3L6.6,11.59L5.24,13.96C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42A0.25,0.25 0 0,1 7.17,14.75C7.17,14.7 7.18,14.66 7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.58 17.3,11.97L20.88,5.5C20.95,5.34 21,5.17 21,5A1,1 0 0,0 20,4H5.21L4.27,2M7,18C5.89,18 5,18.89 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20C9,18.89 8.1,18 7,18Z"/></svg>
-          <span class="tab-text" data-i18n="nav.basket">Mandje</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.basket_short">Mandje</span>
-        </button>
         <button class="tab" data-tab="offers">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSale"><path d="M18.65,2.85L19.26,6.71L22.77,8.5L21,12L22.78,15.5L19.24,17.29L18.63,21.15L14.74,20.54L11.97,23.3L9.19,20.5L5.33,21.14L4.71,17.25L1.22,15.47L3,11.97L1.23,8.5L4.74,6.69L5.35,2.86L9.22,3.5L12,0.69L14.77,3.46L18.65,2.85M9.5,7A1.5,1.5 0 0,0 8,8.5A1.5,1.5 0 0,0 9.5,10A1.5,1.5 0 0,0 11,8.5A1.5,1.5 0 0,0 9.5,7M14.5,14A1.5,1.5 0 0,0 13,15.5A1.5,1.5 0 0,0 14.5,17A1.5,1.5 0 0,0 16,15.5A1.5,1.5 0 0,0 14.5,14M8.41,17L17,8.41L15.59,7L7,15.59L8.41,17Z"/></svg>
           <span class="tab-text" data-i18n="nav.offers">Aanbiedingen</span>
@@ -228,6 +223,11 @@
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiBasket"><path d="M5.5,21C4.72,21 4.04,20.55 3.71,19.9V19.9L1.1,10.44L1,10A1,1 0 0,1 2,9H6.58L11.18,2.43C11.36,2.17 11.66,2 12,2C12.34,2 12.65,2.17 12.83,2.44L17.42,9H22A1,1 0 0,1 23,10L22.96,10.29L20.29,19.9C19.96,20.55 19.28,21 18.5,21H5.5M12,4.74L9,9H15L12,4.74M12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17A2,2 0 0,0 14,15A2,2 0 0,0 12,13Z"/></svg>
           <span class="tab-text" data-i18n="nav.ah">Winkels</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">Winkels</span>
+        </button>
+        <button class="tab" data-tab="basket">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCart"><path d="M17,18C15.89,18 15,18.89 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20C19,18.89 18.1,18 17,18M1,2V4H3L6.6,11.59L5.24,13.96C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42A0.25,0.25 0 0,1 7.17,14.75C7.17,14.7 7.18,14.66 7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.58 17.3,11.97L20.88,5.5C20.95,5.34 21,5.17 21,5A1,1 0 0,0 20,4H5.21L4.27,2M7,18C5.89,18 5,18.89 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20C9,18.89 8.1,18 7,18Z"/></svg>
+          <span class="tab-text" data-i18n="nav.basket">Mandje</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.basket_short">Mandje</span>
         </button>
         <button class="tab tab--avatar" id="tab-avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger hidden>
           <span class="avatar tab-icon" data-avatar aria-hidden="true"></span>
@@ -263,7 +263,7 @@
             <span id="week-offset"></span>
           </div>
           <button class="icon-button" id="next-week" aria-label="Volgende week" data-i18n-attr="aria-label:plan.next_week">&rsaquo;</button>
-          <button class="button" id="load-plan" data-i18n="plan.load">Weekmenu laden</button>
+          <button class="icon-button" id="load-plan" type="button" aria-label="Weekmenu synchroniseren" title="Weekmenu synchroniseren" data-i18n-attr="aria-label:plan.sync;title:plan.sync"><svg viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSync"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
         </div>
         <div id="planner-message"></div>
         <div id="meal-days" class="day-grid"></div>

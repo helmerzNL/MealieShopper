@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.57.0
+
+*English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*
+
+### Nieuw in 2.57.0
+
+- **Het weekmenu laadt vanzelf.** Zodra Mealie gekoppeld is en je het weekmenu opent, staat de week er al; je hoeft niet meer op een knop te drukken. De twee weken erna worden rustig op de achtergrond opgehaald.
+- **Weken worden onthouden.** Een opgehaalde week blijft 30 minuten bewaard, dus vorige en volgende week openen direct. Bladeren met de pijltjes laadt de week zelf.
+
+### Aangepast in 2.57.0
+
+- **Synchroniseren in plaats van "Weekmenu laden".** Naast de week staat nu een synchroniseericoon (hetzelfde als bij het Mandje) dat de week opnieuw uit Mealie haalt; de tekst is weg.
+- **Winkelkeuze en "Voeg toe aan mandje" onder het boodschappenlijstje.** Ze stonden erboven; nu staan ze eronder. De winkelkeuze is een uitklapmenu in dezelfde stijl als de winkelkeuze bij **Winkels**.
+- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na Recepten), ook in de onderste menubalk van de app.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd.
+- Pull requests: #96.
+
 ## v2.56.1
 
 *English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. On small screens the banners show an icon and the name instead of the text, coloured by status (link icon on green = linked, check mark on dark green = linked and working, crossed-out link on red = not linked), two next to each other. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*

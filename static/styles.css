@@ -2883,3 +2883,9 @@ body.has-onboarding {
     display: none;
   }
 }
+
+/* Supermarktkeuze en knop onder de boodschappenlijst in het weekmenu. */
+.ingredients__actions {
+  margin-top: 16px;
+  flex-wrap: wrap;
+}

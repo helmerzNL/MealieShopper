@@ -1,6 +1,7 @@
 const state = {
   weekOffset: 0,
   entries: null,
+  planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
   credentials: [],
   ahListsLoaded: false,
@@ -537,14 +538,14 @@ function renderMealPlan(entries) {
   $("#ingredients-panel").innerHTML = ingredients.length
     ? `
       <div class="box ingredients">
-        <div class="toolbar">
-          <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
-          <span id="cart-store-slot"></span>
-          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
-        </div>
+        <h2>${escapeHtml(t("plan.all_ingredients", { count: I18N.formatNumber(ingredients.length) }))}</h2>
         <ul>
           ${ingredients.map((item) => `<li>${escapeHtml(item.display || item.food?.name || "-")}</li>`).join("")}
         </ul>
+        <div class="toolbar ingredients__actions">
+          <span id="cart-store-slot"></span>
+          <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
+        </div>
       </div>
     `
     : "";
@@ -552,21 +553,81 @@ function renderMealPlan(entries) {
   renderStoreChoice();
 }
 
-async function loadMealPlan() {
+// Een weekmenu verandert zelden: elke week wordt na het ophalen bewaard, zodat bladeren door de weken direct gaat.
+// Synchroniseren (de knop naast de week) haalt de week opnieuw op; na MEAL_PLAN_TTL_MS gebeurt dat vanzelf.
+const MEAL_PLAN_TTL_MS = 30 * 60 * 1000;
+const mealPlanCache = new Map(); // begin van de week -> { entries, at }
+let mealPlanRequest = 0;
+
+function cachedMealPlan(week) {
+  const cached = mealPlanCache.get(week.start);
+  return cached && Date.now() - cached.at < MEAL_PLAN_TTL_MS ? cached.entries : null;
+}
+
+const mealPlanInflight = new Map(); // begin van de week -> lopend verzoek, zodat een week niet dubbel wordt opgehaald
+
+function fetchMealPlan(week) {
+  if (!mealPlanInflight.has(week.start)) {
+    const request = jsonFetch(`/api/mealplan?start=${week.start}&end=${week.end}`)
+      .then((entries) => {
+        mealPlanCache.set(week.start, { entries, at: Date.now() });
+        return entries;
+      })
+      .finally(() => mealPlanInflight.delete(week.start));
+    mealPlanInflight.set(week.start, request);
+  }
+  return mealPlanInflight.get(week.start);
+}
+
+// De twee weken na de getoonde week alvast ophalen, een voor een en zonder foutmelding: ze zijn er pas straks nodig.
+async function prefetchMealPlans(request) {
+  for (const offset of [1, 2]) {
+    const week = getWeekBounds(state.weekOffset + offset);
+    if (cachedMealPlan(week)) continue;
+    try {
+      await fetchMealPlan(week);
+    } catch {
+      return;
+    }
+    if (request !== mealPlanRequest) return;
+  }
+}
+
+// Terug in het weekmenu: een week die nog niet (of niet meer) binnen is, alsnog ophalen.
+function ensureMealPlan() {
+  if (state.planAutoLoaded && !cachedMealPlan(getWeekBounds(state.weekOffset))) loadMealPlan();
+}
+
+async function loadMealPlan({ force = false } = {}) {
   const button = $("#load-plan");
   const week = getWeekBounds(state.weekOffset);
-  button.disabled = true;
-  button.textContent = t("plan.loading");
+  const request = ++mealPlanRequest;
   message("#planner-message", "");
   $("#cart-result").innerHTML = "";
+  const cached = force ? null : cachedMealPlan(week);
+  if (cached) {
+    state.entries = cached;
+    renderMealPlan(cached);
+    setBusy(button, false);
+    prefetchMealPlans(request);
+    return;
+  }
+  state.entries = null;
+  $("#meal-days").innerHTML = "";
+  $("#ingredients-panel").innerHTML = "";
+  message("#planner-message", t("plan.loading"), "success");
+  setBusy(button, true);
   try {
-    state.entries = await jsonFetch(`/api/mealplan?start=${week.start}&end=${week.end}`);
-    renderMealPlan(state.entries);
+    const entries = await fetchMealPlan(week);
+    if (request !== mealPlanRequest) return;
+    message("#planner-message", "");
+    state.entries = entries;
+    renderMealPlan(entries);
+    prefetchMealPlans(request);
   } catch (error) {
-    message("#planner-message", error.message);
+    if (request === mealPlanRequest) message("#planner-message", error.message);
   } finally {
-    button.disabled = false;
-    button.textContent = t("plan.load");
+    if (request === mealPlanRequest) setBusy(button, false);
   }
 }
 
@@ -620,7 +681,8 @@ function cartButtonLabel() {
   return t(currentStore().button);
 }
 
-// Supermarkt kiezen in de planner: alleen zichtbaar zodra een tweede winkel gekoppeld is.
+// Supermarkt kiezen in de planner: alleen zichtbaar zodra een tweede winkel gekoppeld is. Hetzelfde uitklapmenu
+// als de winkelkeuze in Winkels.
 function renderStoreChoice() {
   const available = Object.keys(STORES).filter((key) => key === "ah" || state.linkedStores[STORES[key].linked]);
   state.store = available.includes(state.preferredStore) ? state.preferredStore : "ah";
@@ -629,20 +691,28 @@ function renderStoreChoice() {
     slot.innerHTML =
       available.length < 2
         ? ""
-        : `<select id="cart-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-            ${available.map((key) => `<option value="${key}"${state.store === key ? " selected" : ""}>${STORES[key].name}</option>`).join("")}
-          </select>`;
-    $("#cart-store")?.addEventListener("change", (event) => {
-      state.store = event.target.value;
-      state.preferredStore = state.store;
-      try {
-        localStorage.setItem("ms-store", state.store);
-      } catch {
-        // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
-      }
-      const button = $("#add-cart");
-      if (button) button.textContent = cartButtonLabel();
-    });
+        : `<div class="subtab-menu" id="cart-store-menu">
+            <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="cart-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="cart-store-list" aria-label="${escapeHtml(t("cart.store"))}"><span>${escapeHtml(STORES[state.store].name)}</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+            <div class="subtab-menu__list" id="cart-store-list" hidden>
+              ${available.map((key) => `<button class="subtab-menu__item${state.store === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`).join("")}
+            </div>
+          </div>`;
+    const menu = $("#cart-store-menu");
+    if (menu) {
+      bindSubtabMenu(menu);
+      $("#cart-store-list").addEventListener("click", (event) => {
+        const item = event.target.closest("[data-store]");
+        if (!item) return;
+        state.store = item.dataset.store;
+        state.preferredStore = state.store;
+        try {
+          localStorage.setItem("ms-store", state.store);
+        } catch {
+          // Zonder opslag onthoudt de pagina de keuze alleen tot je hem herlaadt.
+        }
+        renderStoreChoice();
+      });
+    }
   }
   const button = $("#add-cart");
   if (button) button.textContent = cartButtonLabel();
@@ -989,6 +1059,14 @@ async function refreshAhStatus() {
 function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
+  // Het weekmenu laadt vanzelf zodra Mealie gekoppeld is; zonder koppeling vervalt wat we onthouden hadden.
+  if (!data.configured) {
+    mealPlanCache.clear();
+    state.planAutoLoaded = false;
+  } else if (!state.planAutoLoaded) {
+    state.planAutoLoaded = true;
+    loadMealPlan();
+  }
   $("#mealie-unlink").hidden = data.source !== "ui";
   const source = $("#mealie-source");
   source.hidden = data.source !== "env";
@@ -1628,6 +1706,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
   if (panelId === "basket") showBasket();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
+  if (panelId === "recipes") ensureMealPlan();
 }
 
 document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
@@ -1648,7 +1727,7 @@ function setSubtabMenu(menu, open) {
   menu.querySelector(".subtab-menu__toggle").setAttribute("aria-expanded", String(open));
 }
 
-document.querySelectorAll(".subtab-menu").forEach((menu) => {
+function bindSubtabMenu(menu) {
   const toggle = menu.querySelector(".subtab-menu__toggle");
   toggle.addEventListener("click", () => setSubtabMenu(menu, menu.querySelector(".subtab-menu__list").hidden));
   menu.addEventListener("keydown", (event) => {
@@ -1656,7 +1735,9 @@ document.querySelectorAll(".subtab-menu").forEach((menu) => {
     setSubtabMenu(menu, false);
     toggle.focus();
   });
-});
+}
+
+document.querySelectorAll(".subtab-menu").forEach(bindSubtabMenu);
 document.addEventListener("click", (event) => {
   document.querySelectorAll(".subtab-menu").forEach((menu) => {
     if (!menu.contains(event.target)) setSubtabMenu(menu, false);
@@ -1685,6 +1766,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
+    if (subtab.dataset.subtab === "planner") ensureMealPlan();
     if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
@@ -1760,12 +1842,14 @@ function openSettings(subtab = "settings-link") {
 $("#prev-week").addEventListener("click", () => {
   state.weekOffset -= 1;
   updateWeekLabel();
+  loadMealPlan();
 });
 $("#next-week").addEventListener("click", () => {
   state.weekOffset += 1;
   updateWeekLabel();
+  loadMealPlan();
 });
-$("#load-plan").addEventListener("click", loadMealPlan);
+$("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());

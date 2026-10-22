@@ -56,13 +56,13 @@ class TabbarMarkupTest(unittest.TestCase):
 
     def test_six_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items"])
+        self.assertEqual(buttons, ["recipes", "offers", "url", "ah-items", "basket"])
         self.assertEqual(self.nav.count('class="tab-icon"'), 5, "het avatar-icoon in de plaats van Beheer is een eigen soort")
         self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Profiel"])
+        self.assertEqual(short, ["Recepten", "Aanbod", "Import", "Winkels", "Mandje", "Profiel"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Profiel"])
+        self.assertEqual(long, ["Recepten", "Aanbiedingen", "URL importeren", "Winkels", "Mandje", "Profiel"])
 
     def test_avatar_is_the_last_tab_and_shows_on_small_screens_only(self):
         self.assertNotIn('data-tab="beheer"', self.html)
@@ -80,7 +80,7 @@ class TabbarMarkupTest(unittest.TestCase):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket"],
+            ["mdiCalendarWeek", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiCart"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)

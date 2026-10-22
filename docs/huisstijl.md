@@ -101,7 +101,7 @@ het exporteren). De Flask-app heeft voor deze assets geen extra dependency nodig
 SVG's, PNG's en het ICO-bestand komen uit dezelfde geometrie in dat script.
 
 Gebruik echte gerechtfoto's met natuurlijk licht. Houd boodschappenlijsten rustig.
-Schrijf kort en concreet: "Zoek bij AH", "Weekmenu laden", "Je boodschappen staan klaar".
+Schrijf kort en concreet: "Zoek bij AH", "Zoek recepten", "Je boodschappen staan klaar".
 
 ## Navigatie op een telefoon
 

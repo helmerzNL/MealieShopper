@@ -55,7 +55,7 @@ I18N.add("en", {
   "mealie.link": "Link Mealie",
   "plan.prev_week": "Previous week",
   "plan.next_week": "Next week",
-  "plan.load": "Load week menu",
+  "plan.sync": "Sync week menu",
   "search.placeholder": "Search a recipe at AH, Jumbo and Picnic...",
   "search.submit": "Search",
   "import.title": "Import a recipe from a URL",
