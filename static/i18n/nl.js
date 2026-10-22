@@ -14,6 +14,8 @@ I18N.add("nl", {
   "brand.tagline": "Van recept naar geregeld.",
   "brand.home": "Naar het startscherm",
   "auth.logout": "Uitloggen",
+  "nav.collapse": "Menu inklappen",
+  "nav.expand": "Menu uitklappen",
   "nav.main": "Hoofdscherm",
   "nav.plan": "Weekmenu",
   "nav.recipes": "Recepten",

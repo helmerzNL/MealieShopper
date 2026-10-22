@@ -2889,3 +2889,112 @@ body.has-onboarding {
   margin-top: 16px;
   flex-wrap: wrap;
 }
+
+/* Navigatiemenu links op een groot scherm. Het blijft een nav met dezelfde knoppen: onder 1024px staat het zoals altijd
+   boven de pagina (of als onderste menubalk in de app), en de knop om in te klappen is er dan niet. */
+.tabs__toggle {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .topbar__inner,
+  .shell {
+    max-width: 1360px;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .shell > * {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  .shell > .tabs {
+    grid-column: 1;
+    grid-row: 1 / span 12;
+    position: sticky;
+    top: 92px;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 2px;
+    width: 220px;
+    margin-bottom: 0;
+    transition: width 0.2s ease;
+  }
+
+  .tabs .tab {
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+  }
+
+  .tabs__toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: var(--control-height);
+    margin-top: 4px;
+    padding: 0 16px;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .tabs__toggle:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+
+  .tabs__toggle-icon {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    transition: transform 0.2s ease;
+  }
+
+  html.nav-collapsed .shell > .tabs {
+    width: 58px;
+  }
+
+  html.nav-collapsed .tabs .tab,
+  html.nav-collapsed .tabs__toggle {
+    justify-content: center;
+    padding: 0;
+  }
+
+  html.nav-collapsed .tabs .tab-text,
+  html.nav-collapsed .tabs__toggle-text {
+    display: none;
+  }
+
+  html.nav-collapsed .tabs__toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  html.nav-collapsed .tabs .update-dot {
+    top: 6px;
+    right: 6px;
+  }
+}
+
+@media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
+  .shell > .tabs,
+  .tabs__toggle-icon {
+    transition: none;
+  }
+}

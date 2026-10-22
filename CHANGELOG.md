@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.58.0
+
+*English summary: On a large screen (1024 px and wider) the main navigation now sits in a vertical menu on the left instead of above the page. It can be collapsed to icons only (with the name as a tooltip) with the button at the bottom of the menu; the choice is remembered. On smaller screens nothing changes.*
+
+### Nieuw in 2.58.0
+
+- **Navigatiemenu links op een groot scherm.** Vanaf 1024 px breed staan Recepten, Aanbiedingen, URL importeren, Winkels en Mandje onder elkaar in een menu links van de pagina, dat meescrolt. Op kleinere schermen staat het menu zoals altijd boven de pagina, en in de app op een telefoon als menubalk onderaan.
+- **Inklapbaar.** Onderaan het menu klapt **Menu inklappen** het in tot alleen de pictogrammen (de naam staat dan als tooltip); met dezelfde knop klap je het weer uit. MealieShopper onthoudt je keuze.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd.
+
 ## v2.57.0
 
 *English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*

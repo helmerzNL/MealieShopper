@@ -58,7 +58,7 @@ class TabbarMarkupTest(unittest.TestCase):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
         self.assertEqual(buttons, ["recipes", "offers", "url", "ah-items", "basket"])
         self.assertEqual(self.nav.count('class="tab-icon"'), 5, "het avatar-icoon in de plaats van Beheer is een eigen soort")
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 13, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
         self.assertEqual(short, ["Recepten", "Aanbod", "Import", "Winkels", "Mandje", "Profiel"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
