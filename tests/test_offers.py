@@ -451,6 +451,111 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertNotIn("offers.recipes.using", script)
 
 
+GRILLWORST = [
+    "Bread roll", "6 tbsp mayo", "1 tbsp curry sauce", "1 tsp paprika", "2 tbsp paprika",
+    "800 gr chicken thighs (or/and pork/bacon)", "Spice mixture (below)", "Cornstarch", "Old mature cheese", "1 shallot",
+    "1 tbsp ketchup", "2 tsp curry", "1 tsp salt", "½ tsp cayenne", "½ tsp turmeric", "2 tsp salt", "1 tbsp onion powder",
+    "1 tsp coriander", "1 tsp ginger", "½ / 1 tsp foelie or ½ tsp nutmeg",
+]
+SUSHIBOWL = ["zalmfilets zonder huid", "Ketjap manis", "Mayonaise", "komkommer", "avocado’s", "Bloemkoolrijst", "Taugé", "grillpan"]
+REAL_TITLES = [
+    "Bifi Roll XXL 2-pack", "Hellmann's Real mayonaise430 3-pack", "Go-Tan Sweet chilli sauce", "Lay's Paprika",
+    "AH Focaccia paprika olijf 3-pack", "AH Zalmfilet 2-pack", "Conimex Ketjap manis 2pack", "AH Tomaat komkommer M",
+    "Loving Blends Avocado olie shampoo 4-pack",
+]
+
+
+def real_offer(title, offer_id):
+    from mealieshopper import offer_categories
+
+    return {"id": str(offer_id), "title": title, "price": 2.0, "priceBefore": 3.0, "promoLabel": "Bonus",
+            "category": offer_categories.categorize(title)}
+
+
+class RealRecipesTest(TempDataDirTest):
+    """De recepten waarin de gebruiker verkeerde koppelingen zag, met hun eigen regels en aanbiedingen."""
+
+    def link(self, ingredient, title):
+        return offers.link_offer(ingredient, real_offer(title, 1))
+
+    def test_the_wrong_links_from_grillworst_and_the_sushi_bowl_are_gone(self):
+        for ingredient, title in (
+            ("Bread roll", "Bifi Roll XXL 2-pack"),
+            ("1 tbsp curry sauce", "Go-Tan Sweet chilli sauce"),
+            ("1 tsp paprika", "Lay's Paprika"),
+            ("2 tbsp paprika", "Lay's Paprika"),
+            ("2 tbsp paprika", "AH Focaccia paprika olijf 3-pack"),
+            ("avocado’s", "Loving Blends Avocado olie shampoo 4-pack"),
+            ("400 g kipfilet", "AH Kipfilet wrap"),
+        ):
+            self.assertIsNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_the_right_links_stay(self):
+        for ingredient, title in (
+            ("6 tbsp mayo", "Hellmann's Real mayonaise430 3-pack"),
+            ("Mayonaise", "Hellmann's Real mayonaise430 3-pack"),
+            ("Ketjap manis", "Conimex Ketjap manis 2pack"),
+            ("zalmfilets zonder huid", "AH Zalmfilet 2-pack"),
+            ("avocado’s", "AH Avocado eetrijp 2-pack"),
+            ("2 tbsp paprika", "AH Paprika rood"),
+            ("geraspte kaas", "AH Geraspte kaas"),
+            ("4 tomaten", "AH Tomaten rond"),
+            ("300 g tagliatelle", "AH Tagliatelle all' uovo 4-pack"),
+        ):
+            self.assertIsNotNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_a_curry_sauce_needs_the_curry_and_a_bread_roll_needs_the_bread(self):
+        self.assertIsNone(self.link("curry sauce", "Go-Tan Sweet chilli sauce"))
+        self.assertIsNotNone(self.link("sweet chilli sauce", "Go-Tan Sweet chilli sauce"))
+        self.assertIsNone(self.link("bread roll", "Bifi Roll XXL"))
+
+    def test_seasonings_basics_and_headings_are_not_ingredients(self):
+        for line in ("1 tsp salt", "½ tsp cayenne", "½ tsp turmeric", "1 tsp paprika", "2 tl kurkuma", "1 snuf nootmuskaat",
+                     "1 tbsp onion powder", "1 el knoflookpoeder", "Cornstarch", "Spice mixture (below)", "Kruidenmix (hieronder)"):
+            self.assertIsNone(offers.head_of(line), line)
+        for line in ("2 tbsp paprika", "1 tbsp curry sauce", "1 tbsp ketjap", "6 tbsp mayo"):
+            self.assertIsNotNone(offers.head_of(line), line)
+
+    def test_inflected_adjectives_do_not_count_as_words(self):
+        self.assertEqual(offers.tokens("geraspte kaas"), offers.tokens("kaas"))
+        self.assertEqual(offers.tokens("gerookte zalmfilet"), offers.tokens("zalmfilet"))
+
+    def test_grillworst_is_not_suggested_and_the_sushi_bowl_has_no_shampoo(self):
+        fetched = [real_offer(title, index) for index, title in enumerate(REAL_TITLES, 1)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        collectors = (("mealie", lambda: [
+            {"id": "g", "title": "Grillworst", "image": "", "url": "", "ingredients": GRILLWORST},
+            {"id": "s", "title": "Warme sushibowl", "image": "", "url": "", "ingredients": SUSHIBOWL},
+        ]),)
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        recipes = {recipe["id"]: recipe for recipe in offers.suggest("ah")["recipes"]}
+        self.assertNotIn("g", recipes, "één koppeling (mayo) is te weinig voor een recept met zoveel ingrediënten")
+        bowl = recipes["s"]
+        matched = {item["ingredient"]: item["offer"]["title"] for item in bowl["matched"]}
+        self.assertEqual(matched["zalmfilets zonder huid"], "AH Zalmfilet 2-pack")
+        self.assertEqual(matched["Ketjap manis"], "Conimex Ketjap manis 2pack")
+        self.assertEqual(matched["Mayonaise"], "Hellmann's Real mayonaise430 3-pack")
+        self.assertNotIn("avocado’s", matched, "shampoo is geen ingrediënt")
+        self.assertFalse(any("shampoo" in title for title in matched.values()))
+
+    def test_the_same_ingredient_twice_counts_once(self):
+        fetched = [real_offer("AH Paprika rood", 1), real_offer("AH Tomaten rond", 2)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        collectors = (("mealie", lambda: [
+            {"id": "p", "title": "Paprikaschotel", "image": "", "url": "", "ingredients": ["1 el paprika", "2 el paprika", "4 tomaten"]}]),)
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        recipe = offers.suggest("ah")["recipes"][0]
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 2))
+
+    def test_offers_that_are_never_ingredients_are_left_out(self):
+        for title in ("Loving Blends Avocado olie shampoo 4-pack", "Pampers luiers maat 3", "Whiskas kattenvoer met kip", "Glorix allesreiniger citroen"):
+            self.assertIsNone(self.link("avocado" if "Avocado" in title else "kip", title), title)
+
+
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()

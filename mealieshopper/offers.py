@@ -384,12 +384,23 @@ NOISE = {
     "gesnipperd", "geraspt", "gepeld", "gewassen", "grof", "fijn", "groot", "grote", "klein", "kleine",
     "middelgrote", "gekookt", "gebakken", "gerookt", "diepvries", "bijvoorbeeld", "bv", "uitgelekt", "halve",
     "hele", "heel", "half", "tot", "ongeveer", "stukje", "stukjes", "blad", "blaadjes",
+    # Engelse recepten (veel Mealie-imports): eenheden, voegwoorden en bijwoorden.
+    "tbsp", "tsp", "cup", "cups", "pinch", "slice", "slices", "clove", "cloves", "piece", "pieces", "can", "cans",
+    "bunch", "handful", "and", "with", "to", "the", "an", "some", "taste", "optional", "about", "fresh", "chopped",
+    "sliced", "diced", "minced", "grated", "large", "small", "medium", "pound", "lb", "oz",
 }
+
+
+def _is_noise(word: str) -> bool:
+    """Een eenheid of bijwoord, of de verbogen vorm van een bijvoeglijk woord uit de lijst ("geraspte" naast "geraspt")."""
+    return word in NOISE or (word.endswith("e") and word[:-1] in NOISE)
 # Basisingrediënten die altijd in huis zijn: een aanbieding daarvoor maakt een recept niet interessanter en ze tellen niet mee in
 # "x van y ingrediënten in de aanbieding". Een ingrediënt is basis als het hoofdwoord er een is of erop eindigt (zeezout, roomboter,
 # olijfolie, balsamicoazijn).
 PANTRY = (
     "zout", "peper", "water", "ijs", "olie", "boter", "bloem", "suiker", "azijn", "bouillon", "bouillonblokje",
+    # Kruidenpoeders (knoflookpoeder, onion powder) en de Engelse basis.
+    "poeder", "powder", "salt", "pepper", "oil", "butter", "flour", "sugar", "vinegar", "stock", "broth", "cornstarch", "maizena",
 )
 # Een aanbieding waarvan het woord hiermee verder gaat is een ander product dan het ingrediënt (tomatenpuree, kippensoep).
 DERIVED_PREFIXES = ("puree", "saus", "soep", "sap", "drank", "chips", "reep", "koek", "taart", "pizza", "ketchup", "jam", "smaak")
@@ -420,17 +431,24 @@ def tokens(text: Any) -> list[str]:
     """De betekenisvolle woorden van een ingrediëntregel of producttitel, gestemd en zonder eenheden."""
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or "")))
     words = re.findall(r"[a-z]+", folded)
-    return [_stem(word) for word in words if len(word) > 1 and word not in NOISE]
+    return [_stem(word) for word in words if len(word) > 1 and not _is_noise(word)]
 
 
 # Voorzetsels in een ingrediëntregel: wat erna staat beschrijft het ingrediënt ("gehakt met ui", "kipfilet in blokjes",
 # "olie voor het bakken") en is niet het ingrediënt zelf.
 INGREDIENT_CONNECTORS = re.compile(r"\b(?:met|in|op|zonder|voor|van)\b")
+# Een theelepel of een snuf is een kruid, geen product om bij de aanbiedingen te zoeken (1 tsp salt, 2 tl kurkuma, een snufje nootmuskaat).
+SEASONING_QUANTITY = re.compile(r"\b(?:tsp|tl|theelepels?|teaspoons?|snuf(?:je)?s?|mespunt(?:je)?s?|pinch(?:es)?)\b")
+# Een regel die naar een ander deel van het recept verwijst ("Spice mixture (below)") is een kopje en geen ingrediënt.
+HEADING_NOTE = re.compile(r"\((?:see\s+)?(?:below|above|hieronder|hierboven|zie[^)]*)\)")
 
 
 def head_of(ingredient: Any) -> str | None:
     """Het hoofdwoord van een ingrediënt (in het Nederlands het laatste woord vóór een voorzetsel), of None voor basisingrediënten."""
     text = str(ingredient or "")
+    lowered = ah_lists._fold(text)
+    if SEASONING_QUANTITY.search(lowered) or HEADING_NOTE.search(lowered):
+        return None
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", text))
     words = tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(text)
     # Alleen basis- en smaakwoorden ("zout en peper", "verse kruiden"), of een basis als hoofdwoord ("milde olijfolie"). Een smaakwoord
@@ -482,6 +500,14 @@ PRODUCT_TYPES = (
 PRODUCT_STEMS = tuple(_stem(kind) for kind in PRODUCT_TYPES)
 # Smaakwoorden zijn geen ingrediënt om een product bij te zoeken: "kruiden" vindt anders elke kruidenmix.
 WEAK_HEADS = {_stem(word) for word in ("kruiden", "specerijen", "smaakmakers", "garnering", "topping")}
+# Een soort in plaats van een product: bij "curry sauce" of "bread roll" bepaalt het andere woord welk product het is. Zo'n ingrediënt
+# past alleen bij een aanbieding waar die andere woorden ook in staan (niet "Sweet chilli sauce" of "Bifi Roll").
+GENERIC_HEADS = {
+    _stem(word) for word in (
+        "saus", "sauce", "soep", "soup", "kaas", "cheese", "worst", "sausage", "brood", "bread", "rol", "roll", "broodje", "dressing",
+        "drank", "vlees", "vis",
+    )
+}
 
 
 def offer_parts(title: Any) -> tuple[list[str], list[str]]:
@@ -497,7 +523,7 @@ def offer_parts(title: Any) -> tuple[list[str], list[str]]:
             if target is core and core:
                 target = rest
             continue
-        if len(word) < 2 or word in NOISE or word == "pack" or word.isdigit():
+        if len(word) < 2 or _is_noise(word) or word == "pack" or word.isdigit():
             continue
         target.append(_stem(word))
     return core, rest
@@ -510,11 +536,18 @@ def _covered(stem: str, ingredient_stems: set[str]) -> bool:
     )
 
 
-def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: list[str]) -> int | None:
+def match_offer(
+    head: str, ingredient_stems: set[str], core: list[str], rest: list[str], main_stems: set[str] | None = None
+) -> int | None:
     """Of een aanbieding het ingrediënt is. None: nee. Anders het aantal woorden in de titel dat niet bij het ingrediënt
     hoort; hoe minder, hoe beter de aanbieding past.
+
+    `main_stems` zijn de woorden van het ingrediënt vóór een voorzetsel; zonder die opgave zijn het alle woorden.
     """
     if not head or head in WEAK_HEADS or not matches(head, set(core)):
+        return None
+    # Een soort ("sauce", "roll"): de andere woorden van het ingrediënt moeten er ook in staan.
+    if head in GENERIC_HEADS and any(not _covered(stem, set(core)) for stem in (main_stems or ingredient_stems) if stem != head):
         return None
     # Samengesteld product ("Gehakt met ui"): alleen als het ingrediënt de rest ook noemt.
     if any(not _covered(stem, ingredient_stems) for stem in rest):
@@ -525,6 +558,38 @@ def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: li
             if stem.endswith(kind) and not any(kind in other for other in ingredient_stems):
                 return None
     return sum(1 for stem in core if not _covered(stem, ingredient_stems))
+
+
+# Aanbiedingen die nooit een ingrediënt zijn (shampoo met avocado, kattenvoer met kip).
+NOT_FOOD = {"drogisterie", "huishouden", "baby", "huisdier"}
+# Een rauw product past niet bij een bereid product: paprika is geen paprikachips of focaccia met paprika, kipfilet geen kipwrap.
+RAW_CATEGORIES = {"groente_fruit", "vlees", "vis", "zuivel_eieren", "kaas_vleeswaren"}
+PREPARED_CATEGORIES = {"brood_bakkerij", "maaltijden", "snacks_snoep"}
+
+
+def link_offer(
+    ingredient: str,
+    offer: dict[str, Any],
+    parts: tuple[list[str], list[str]] | None = None,
+    *,
+    head: str | None = None,
+    kind: str | None = None,
+) -> int | None:
+    """Of deze aanbieding bij deze ingrediëntregel hoort. None: nee. Anders het aantal woorden in de titel dat niet bij het
+    ingrediënt hoort (minder is beter).
+
+    `parts`, `head` en `kind` (de soort van het ingrediënt) kun je meegeven als je ze al hebt: bij veel recepten scheelt dat veel rekenwerk.
+    """
+    head = head if head is not None else head_of(ingredient)
+    if not head or offer.get("category") in NOT_FOOD:
+        return None
+    kind = kind if kind is not None else offer_categories.categorize(ingredient)
+    if kind in RAW_CATEGORIES and offer.get("category") in PREPARED_CATEGORIES:
+        return None
+    core, rest = parts or offer_parts(offer["title"])
+    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient)))
+    main_stems = set(tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(ingredient))
+    return match_offer(head, set(tokens(ingredient)), core, rest, main_stems)
 
 
 def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
@@ -548,18 +613,23 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
     for row in rows:
         ingredients = json.loads(row["ingredients"])
         heads = [(text, head_of(text)) for text in ingredients]
-        heads = [(text, head) for text, head in heads if head]
+        # Hetzelfde ingrediënt twee keer in een recept ("1 el paprika", "2 el paprika") telt één keer.
+        unique: dict[str, str] = {}
+        for text, head in heads:
+            if head:
+                unique.setdefault(head, text)
+        heads = [(text, head) for head, text in unique.items()]
         if not heads:
             continue
         found: list[dict[str, Any]] = []
         used: set[str] = set()
         for text, head in heads:
-            ingredient_stems = set(tokens(text))
+            kind = offer_categories.categorize(text)
             best: tuple[int, dict[str, Any]] | None = None
             for offer, core, rest in prepared:
                 if offer["id"] in used:
                     continue
-                extra = match_offer(head, ingredient_stems, core, rest)
+                extra = link_offer(text, offer, (core, rest), head=head, kind=kind)
                 if extra is not None and (best is None or extra < best[0]):
                     best = (extra, offer)
             if best:
