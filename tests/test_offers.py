@@ -463,6 +463,7 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn("openProductPopup(", script, "de winkelpagina opent in het bestaande losse venster")
         self.assertIn('event.target.closest(".offer-match")', script)
         self.assertIn("offersState.recipes = data.recipes", script)
+        self.assertIn('t("offers.also_in"', script, "staat het recept ook in een andere bron, dan staat dat op de kaart")
         self.assertIsNotNone(re.search(r"hidden = !offer\.url", script), "zonder adres (Picnic) geen knop naar de winkel")
         self.assertIn('hidden = Boolean(offer.url)', script, "zonder adres staat er waarom")
 
@@ -551,14 +552,47 @@ class RealRecipesTest(TempDataDirTest):
             ("150 g koelverse roomkaas met bieslook", "AH Mascarpone roomkaas chili dip 4-pack"),
             ("250 g verse spaghetti all'uovo", "AH Tagliatelle all' uovo 4-pack"),
             ("125 g ricotta", "AH Tortelloni verdi ricotta spinaci 3-pack"),
+            ("400 g Provençaalse wokgroente", "AH Wokgroente Chinees 2-pack"),
         ):
             self.assertIsNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_a_different_colour_cuisine_or_fat_content_is_a_different_product(self):
+        for ingredient, title in (
+            ("1 rode paprika", "AH Paprika geel 3-pack"),
+            ("1 oranje paprika", "AH Paprika rood geel groen 3-pack"),
+            ("500 ml halfvolle melk", "AH Volle melk"),
+            ("200 g witte rijst", "AH Rijst bruin"),
+            ("250 g Italiaanse tomaten", "AH Spaanse tomaten"),
+            ("400 g Provençaalse wokgroente", "AH Wokgroente Chinees 2-pack"),
+        ):
+            self.assertIsNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_when_one_side_names_no_such_property_or_they_agree_it_matches(self):
+        for ingredient, title in (
+            ("400 g wokgroente", "AH Wokgroente Chinees 2-pack"),
+            ("400 g Chinese wokgroente", "AH Wokgroente Chinees 2-pack"),
+            ("1 rode paprika", "AH Paprika rood"),
+            ("2 rode uien", "AH Rode uien 1 kg"),
+            ("2 rode uien", "AH Uien 1 kg"),
+            ("1 groene paprika", "AH Paprika rood geel groen 3-pack"),
+            ("500 ml halfvolle melk", "AH Halfvolle melk"),
+            ("500 ml melk", "AH Volle melk"),
+            ("200 g witte rijst", "AH Rijst wit"),
+            ("100 g Noorse gerookte zalmfilet", "AH Gerookte zalmfilet"),
+        ):
+            self.assertIsNotNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_the_variant_words_are_compared_in_every_form(self):
+        # rode/rood, witte/wit, chinese/chinees en groen (dat `_stem` als meervoud ziet: gro) zijn hetzelfde woord.
+        for a, b in (("rode", "rood"), ("witte", "wit"), ("chinese", "chinees"), ("groene", "groen"), ("gele", "geel"), ("italiaanse", "italiaans")):
+            self.assertFalse(offers.variant_clash([offers._stem(a)], [offers._stem(b)]), (a, b))
+        self.assertTrue(offers.variant_clash([offers._stem("rode")], [offers._stem("geel")]))
+        self.assertFalse(offers.variant_clash(["paprika"], ["geel"]), "alleen één kant noemt een kleur")
 
     def test_what_was_right_in_that_report_stays(self):
         for ingredient, title in (
             ("200 g gerookte zalmsnippers", "AH Gerookte zalmsnippers 2-pack"),
             ("195 g pastasaus sugo basilicum", "AH Pastasaus pomodori basilicum 2-pack"),
-            ("400 g Provençaalse wokgroente", "AH Wokgroente Chinees 2-pack"),
             ("300 g tagliatelle all'uovo", "AH Tagliatelle all' uovo 4-pack"),
             ("125 g ricotta", "AH Ricotta"),
             ("300 g gemengde groente", "AH Gemengde groente 500 g"),
@@ -668,6 +702,56 @@ class RealRecipesTest(TempDataDirTest):
                 mock.patch.object(offers.mealie, "recipe_page_url", side_effect=RuntimeError("weg")):
             recipes = offers.suggest("ah")["recipes"]
         self.assertEqual(recipes[0]["url"], "https://mealie.example/recipe/x")
+
+    def duplicate_setup(self, recipes):
+        fetched = [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2), real_offer("AH Rijst basmati", 3)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        collectors = tuple((name, (lambda items=items: items)) for name, items in recipes.items())
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        return offers.suggest("ah")
+
+    def test_the_same_recipe_from_two_sources_is_one_card(self):
+        lines = ["400 g kipfilet", "4 tomaten", "200 g rijst"]
+        data = self.duplicate_setup({
+            "mealie": [{"id": "m", "title": "Supersnelle spaghetti met runderballetjes", "image": "", "url": "http://m/x", "ingredients": lines}],
+            "ah": [{"id": "a", "title": "Supersnelle  spaghetti met Runderballetjes!", "image": "", "url": "http://ah/x", "ingredients": lines}],
+        })
+        self.assertEqual(len(data["recipes"]), 1)
+        recipe = data["recipes"][0]
+        self.assertEqual((recipe["source"], recipe["alsoIn"]), ("mealie", ["ah"]), "bij gelijke dekking staat het eigen recept bovenaan")
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["courses"], [{"id": "overig", "count": 1}], "ook de aantallen per soort tellen het recept één keer")
+
+    def test_the_better_covered_copy_is_the_one_that_stays(self):
+        data = self.duplicate_setup({
+            "mealie": [{"id": "m", "title": "Kip en rijst", "image": "", "url": "", "ingredients": ["400 g kipfilet", "200 g rijst", "1 grillpan", "1 wokpan"]}],
+            "ah": [{"id": "a", "title": "Kip en rijst", "image": "", "url": "", "ingredients": ["400 g kipfilet", "200 g rijst"]}],
+        })
+        recipe = data["recipes"][0]
+        self.assertEqual((recipe["source"], recipe["alsoIn"], recipe["matchedCount"], recipe["ingredientCount"]), ("ah", ["mealie"], 2, 2))
+
+    def test_two_recipes_with_the_same_title_from_the_same_source_stay_two(self):
+        lines = ["400 g kipfilet", "4 tomaten"]
+        data = self.duplicate_setup({"mealie": [
+            {"id": "1", "title": "Pasta", "image": "", "url": "", "ingredients": lines},
+            {"id": "2", "title": "Pasta", "image": "", "url": "", "ingredients": lines},
+        ]})
+        self.assertEqual(len(data["recipes"]), 2)
+        self.assertTrue(all(recipe["alsoIn"] == [] for recipe in data["recipes"]))
+
+    def test_different_titles_are_not_merged_and_three_sources_list_both_others(self):
+        lines = ["400 g kipfilet", "4 tomaten"]
+        data = self.duplicate_setup({
+            "mealie": [{"id": "1", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": lines},
+                       {"id": "2", "title": "Kip met tomaat en rijst", "image": "", "url": "", "ingredients": lines}],
+            "ah": [{"id": "3", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": lines}],
+            "jumbo": [{"id": "4", "title": "kip met tomaat", "image": "", "url": "", "ingredients": lines}],
+        })
+        by_title = {recipe["title"]: recipe for recipe in data["recipes"]}
+        self.assertEqual(set(by_title), {"Kip met tomaat", "Kip met tomaat en rijst"})
+        self.assertEqual(by_title["Kip met tomaat"]["alsoIn"], ["ah", "jumbo"])
 
     def test_the_same_ingredient_twice_counts_once(self):
         fetched = [real_offer("AH Paprika rood", 1), real_offer("AH Tomaten rond", 2)]

@@ -15,7 +15,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
@@ -550,6 +550,53 @@ def _covered(stem: str, ingredient_stems: set[str]) -> bool:
     )
 
 
+def _variant_key(word: str) -> str:
+    """Een woord zonder buigings-e, dubbele klinkers en meervoud, zodat rode/rood, witte/wit en chinese/chinees hetzelfde zijn."""
+    word = word[:-1] if word.endswith("e") and len(word) > 3 else word
+    word = re.sub(r"([aeou])\1", r"\1", word)
+    word = re.sub(r"([^aeiou])\1$", r"\1", word)
+    return word[:-1] if word.endswith("s") and len(word) > 4 else word
+
+
+# Eigenschappen die een product onderscheiden: een rode paprika is geen gele, wokgroente op z'n Chinees geen Provençaalse en halfvolle melk geen volle.
+# Noemen ingrediënt én aanbieding een eigenschap uit dezelfde groep en zijn die verschillend, dan is het een ander product.
+_VARIANT_WORDS: tuple[tuple[str, ...], ...] = (
+    # kleur
+    ("rood", "rode", "geel", "gele", "groen", "groene", "oranje", "wit", "witte", "zwart", "zwarte", "bruin", "bruine", "paars", "paarse",
+     "blauw", "blauwe"),
+    # keuken of streek
+    ("chinees", "chinese", "provencaals", "provencaalse", "italiaans", "italiaanse", "mexicaans", "mexicaanse", "thai", "thais", "thaise",
+     "indiaas", "indiase", "grieks", "griekse", "spaans", "spaanse", "frans", "franse", "hollands", "hollandse", "oosters", "oosterse",
+     "mediterraan", "mediterrane", "japans", "japanse", "koreaans", "koreaanse", "turks", "turkse", "marokkaans", "marokkaanse",
+     "amerikaans", "amerikaanse", "surinaams", "surinaamse", "indonesisch", "indonesische", "aziatisch", "aziatische"),
+    # vetgehalte
+    ("mager", "magere", "halfvol", "halfvolle", "vol", "volle"),
+)
+
+
+def _variant_canon(words: tuple[str, ...]) -> dict[str, str]:
+    """Alle vormen van de woorden in een groep (met en zonder -e, en zoals `_stem` ze maakt: groen wordt gro) naar één vaste vorm."""
+    canon: dict[str, str] = {}
+    for word in words:
+        fixed = _variant_key(word)
+        for form in (word, _stem(word), word[:-1] if word.endswith("e") else word, _stem(word[:-1] if word.endswith("e") else word)):
+            canon[_variant_key(form)] = fixed
+    return canon
+
+
+VARIANT_GROUPS: tuple[dict[str, str], ...] = tuple(_variant_canon(words) for words in _VARIANT_WORDS)
+
+
+def variant_clash(ingredient_stems: Iterable[str], title_stems: Iterable[str]) -> bool:
+    """Of ingrediënt en aanbieding een eigenschap uit dezelfde groep (kleur, keuken, vetgehalte) noemen die niet overeenkomt."""
+    for group in VARIANT_GROUPS:
+        wanted = {group[key] for stem in ingredient_stems if (key := _variant_key(stem)) in group}
+        offered = {group[key] for stem in title_stems if (key := _variant_key(stem)) in group}
+        if wanted and offered and not wanted & offered:
+            return True
+    return False
+
+
 def match_offer(
     head: str, ingredient_stems: set[str], core: list[str], rest: list[str], main_stems: set[str] | None = None
 ) -> int | None:
@@ -571,6 +618,9 @@ def match_offer(
         for kind in PRODUCT_STEMS:
             if stem.endswith(kind) and not any(kind in other for other in ingredient_stems):
                 return None
+    # Een andere kleur, keuken of vetgehalte ("Provençaalse wokgroente" tegenover "Wokgroente Chinees").
+    if variant_clash(main_stems or ingredient_stems, [*core, *rest]):
+        return None
     return sum(1 for stem in core if not _covered(stem, ingredient_stems))
 
 
@@ -613,6 +663,35 @@ def link_offer(
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient)))
     main_stems = set(tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(ingredient))
     return match_offer(head, set(tokens(ingredient)), core, rest, main_stems)
+
+
+# Bij gelijke dekking staat het eigen recept (Mealie) boven hetzelfde recept uit een winkel.
+SOURCE_RANK = {"mealie": 0, "ah": 1, "jumbo": 2, "picnic": 3}
+
+
+def _title_key(title: Any) -> str:
+    """De titel van een recept zonder hoofdletters, accenten en leestekens, om hetzelfde recept uit twee bronnen te herkennen."""
+    return re.sub(r"[^a-z0-9]+", " ", ah_lists._fold(title)).strip()
+
+
+def merge_duplicates(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hetzelfde recept uit meerdere bronnen (bijvoorbeeld een AH-recept dat je ook in Mealie hebt) wordt één kaart.
+
+    De lijst moet al gesorteerd zijn, de beste eerst: die blijft staan en krijgt in `alsoIn` de andere bronnen. Twee recepten met dezelfde
+    titel uit dezelfde bron blijven allebei staan: dat zijn twee recepten.
+    """
+    kept: dict[str, dict[str, Any]] = {}
+    merged: list[dict[str, Any]] = []
+    for item in results:
+        key = _title_key(item["title"])
+        first = kept.get(key)
+        if first and item["source"] != first["source"] and item["source"] not in first["alsoIn"]:
+            first["alsoIn"].append(item["source"])
+            continue
+        item["alsoIn"] = []
+        merged.append(item)
+        kept.setdefault(key, item)
+    return merged
 
 
 # Het adres van een Mealie-recept zoals het in de index staat: /recipe/<recept> (voor v2.65.1) of /g/<groep>/r/<recept>.
@@ -702,7 +781,10 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
                 "saving": round(saving, 2),
             }
         )
-    results.sort(key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], item["title"]))
+    results.sort(
+        key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], SOURCE_RANK.get(item["source"], 9), item["title"])
+    )
+    results = merge_duplicates(results)
     courses = offer_courses.summarize([item["course"] for item in results])
     shown = [item for item in results if not course or item["course"] == course]
     return {
