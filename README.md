@@ -414,6 +414,7 @@ MealieShopper heeft een [MCP](https://modelcontextprotocol.io)-server op `<adres
 | `list_jumbo_lists`, `get_jumbo_list` | Je Jumbo-lijstjes (boodschappenlijstje, eigen lijstjes, Favorieten) en de producten erin. |
 | `list_jumbo_orders`, `get_jumbo_order` | Je Jumbo-bestellingen en hun producten, uit de lokale kopie. |
 | `search_jumbo_recipes`, `get_jumbo_recipe`, `list_jumbo_recipe_lists`, `get_jumbo_recipe_list` | Jumbo-recepten zoeken en bekijken, en je receptenlijsten (Favorieten en eigen lijstjes). |
+| `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` | Koppelingen tussen recept-ingrediënten en producten in de aanbieding beoordelen: de assistent krijgt de unieke paren (ingrediënt + product, met het aantal recepten) van één winkel, meldt de onjuiste (`report_offer_mismatch`, met een reden; `undo` haalt de melding weg) en kan de gemelde koppelingen bekijken. Een melding verbergt de koppeling, ook bij andere recepten met hetzelfde ingrediënt. De enige schrijftool hier; er wordt niets verwijderd. |
 | `import_recipe_to_mealie` | Een recept in Mealie importeren. Dit maakt iets nieuws aan en overschrijft niets. |
 
 Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert.
@@ -450,6 +451,7 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Profiel, AI-apps gaat voor. |
 | `MEALIESHOPPER_OFFERS_SCHEDULE` | Met `false` zet je de dagelijkse taak uit die de aanbiedingen van alle winkels ophaalt. De knop onder Instellingen, Koppelen blijft werken. Standaard aan. |
 | `MEALIESHOPPER_OFFERS_SYNC_HOUR` | Het uur van de dag (0 tot en met 23, tijd van de container) waarop die taak de aanbiedingen ophaalt. Standaard 5. |
+| `MEALIESHOPPER_OFFERS_RECIPES` | Met `true` toont de app het subtabblad **Recepten** bij Aanbiedingen (receptvoorstellen uit de aanbiedingen). Standaard uit: de koppelingen tussen ingrediënten en producten zijn nog niet goed genoeg. De MCP-tools voor AI-assistenten werken ook als dit uit staat. |
 | `MEALIESHOPPER_UPDATE_CHECK` | Met `false` zet je de updatecheck uit (Instellingen, Updates). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
 | `MEALIESHOPPER_AUDIT_LOG` | Met `false` zet je de auditlog uit (Instellingen, Auditlog). Standaard aan. |
 | `MEALIESHOPPER_AUDIT_BODIES` | Met `false` bewaart de auditlog alleen wie, wat, wanneer en de uitkomst, niet de verzoeken en antwoorden zelf. Standaard aan. |

@@ -1,8 +1,8 @@
 """MCP-server (Model Context Protocol) zodat Claude, ChatGPT en Copilot MealieShopper kunnen bevragen.
 
 Streamable HTTP, zonder sessies en zonder streams: elk JSON-RPC-verzoek is een POST dat direct een
-JSON-antwoord krijgt. De tools lezen (weekmenu, recepten zoeken, AH-lijstjes en -producten) en
-kunnen een recept in Mealie importeren. Er is bewust geen tool die het AH-, Picnic- of Jumbo-mandje vult
+JSON-antwoord krijgt. De tools lezen (weekmenu, recepten zoeken, AH-lijstjes en -producten), kunnen een
+recept in Mealie importeren en een onjuiste koppeling tussen ingrediënt en aanbieding melden (verbergen, ongedaan te maken). Er is bewust geen tool die het AH-, Picnic- of Jumbo-mandje vult
 of iets verwijdert.
 
 Toegang loopt via OAuth (zie oauth.py). De server staat alleen aan als de app zelf inloggen
@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, server_settings
+from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -424,6 +424,33 @@ def _private_host(hostname: str) -> bool:
     return not address.is_global
 
 
+def _int_arg(args: dict[str, Any], name: str, default: int, low: int, high: int) -> int:
+    return max(low, min(high, int(args.get(name) if args.get(name) is not None else default)))
+
+
+def tool_review_offer_matches(args: dict[str, Any]) -> Any:
+    data = offers.review_pairs(args.get("store"), _int_arg(args, "limit", 40, 1, 100), _int_arg(args, "offset", 0, 0, 10**6))
+    data["hint"] = (
+        "Elk paar is een ingrediënt uit een recept en het aanbiedingsproduct waaraan MealieShopper het koppelde. Een koppeling klopt alleen als het "
+        "product zelf het ingrediënt is, in dezelfde vorm: geen bereid product (saus, soep, maaltijd) voor een rauw ingrediënt, niet een andere soort, "
+        "kleur of keuken, en niet iets waar het ingrediënt slechts in zit. Meld alleen paren waarvan je zeker bent met report_offer_mismatch."
+    )
+    return data
+
+
+def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
+    store, ingredient, offer_id = args.get("store"), args.get("ingredient"), args.get("offer_id")
+    if not store or not ingredient or offer_id in (None, ""):
+        raise ToolError("Geef store, ingredient en offer_id op")
+    if args.get("undo"):
+        return {"undone": True, **offers.undo_mismatch(store, ingredient, offer_id)}
+    return {"reported": True, **offers.report_mismatch(store, ingredient, offer_id, _text(args.get("reason"), 300), source="assistant")}
+
+
+def tool_list_offer_mismatches(args: dict[str, Any]) -> Any:
+    return offers.list_mismatches(args.get("store") or None, _int_arg(args, "limit", 100, 1, MAX_LIST_ITEMS))
+
+
 def tool_import_recipe(args: dict[str, Any]) -> Any:
     url = _text(args.get("url"), 2000)
     parts = urlsplit(url)
@@ -736,6 +763,53 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Aankopen doorzoeken"},
         "handler": tool_search_purchases,
+    },
+    "review_offer_matches": {
+        "description": (
+            "Koppelingen tussen recept-ingrediënten en producten in de aanbieding van één winkel, om te beoordelen. Geeft unieke paren (ingrediënt + product) "
+            "met het aantal recepten waarin ze voorkomen, het vaakst gebruikte eerst. Beoordeel of het product echt het ingrediënt is en meld de foute met "
+            "report_offer_mismatch. Gebruik offset om verder te lezen. Al gemelde paren staan er niet meer in."
+        ),
+        "inputSchema": _schema(
+            {
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "De winkel waarvan de aanbiedingen worden vergeleken."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal paren, standaard 40."},
+                "offset": {"type": "integer", "minimum": 0, "description": "Vanaf welk paar, standaard 0."},
+            },
+            ["store"],
+        ),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Koppelingen met aanbiedingen beoordelen"},
+        "handler": tool_review_offer_matches,
+    },
+    "report_offer_mismatch": {
+        "description": (
+            "Meld dat een product in de aanbieding niet bij een recept-ingrediënt hoort. De koppeling komt niet meer terug, ook niet bij andere recepten met "
+            "hetzelfde hoofdwoord in die winkel; het volgende passende product neemt zijn plaats in. Er wordt niets verwijderd: met undo=true haal je de melding weer weg. "
+            "Gebruik ingredient en offer_id uit review_offer_matches."
+        ),
+        "inputSchema": _schema(
+            {
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "De winkel van het product."},
+                "ingredient": {"type": "string", "description": "De ingrediëntregel, precies zoals in review_offer_matches."},
+                "offer_id": {"type": "string", "description": "Het offerId uit review_offer_matches."},
+                "reason": {"type": "string", "description": "Korte reden, bijvoorbeeld 'sauzen zijn geen rauw vlees'."},
+                "undo": {"type": "boolean", "description": "Trek een eerdere melding in."},
+            },
+            ["store", "ingredient", "offer_id"],
+        ),
+        "annotations": {"title": "Onjuiste koppeling melden", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        "handler": tool_report_offer_mismatch,
+    },
+    "list_offer_mismatches": {
+        "description": "De gemelde onjuiste koppelingen (door de eigenaar met de vlag of door een assistent), de nieuwste eerst, met ingrediënt, product en reden.",
+        "inputSchema": _schema(
+            {
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "Alleen deze winkel; standaard alle."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal meldingen, standaard 100."},
+            }
+        ),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Gemelde koppelingen"},
+        "handler": tool_list_offer_mismatches,
     },
     "import_recipe_to_mealie": {
         "description": "Importeer een recept van een webpagina (ook Allerhande) in Mealie. Maakt een nieuw recept aan; er wordt niets overschreven of verwijderd.",
