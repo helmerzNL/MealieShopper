@@ -535,7 +535,7 @@ class RealRecipesTest(TempDataDirTest):
             ("Ketjap manis", "Conimex Ketjap manis 2pack"),
             ("zalmfilets zonder huid", "AH Zalmfilet 2-pack"),
             ("avocado’s", "AH Avocado eetrijp 2-pack"),
-            ("2 tbsp paprika", "AH Paprika rood"),
+            ("1 rode paprika", "AH Paprika rood"),
             ("geraspte kaas", "AH Geraspte kaas"),
             ("4 tomaten", "AH Tomaten rond"),
             ("300 g tagliatelle", "AH Tagliatelle all' uovo 4-pack"),
@@ -551,8 +551,11 @@ class RealRecipesTest(TempDataDirTest):
         for line in ("1 tsp salt", "½ tsp cayenne", "½ tsp turmeric", "1 tsp paprika", "2 tl kurkuma", "1 snuf nootmuskaat",
                      "1 tbsp onion powder", "1 el knoflookpoeder", "Cornstarch", "Spice mixture (below)", "Kruidenmix (hieronder)"):
             self.assertIsNone(offers.head_of(line), line)
-        for line in ("2 tbsp paprika", "1 tbsp curry sauce", "1 tbsp ketjap", "6 tbsp mayo"):
+        for line in ("1 tbsp curry sauce", "1 tbsp ketjap", "6 tbsp mayo", "2 rode paprika", "1 paprika"):
             self.assertIsNotNone(offers.head_of(line), line)
+        # Een eetlepel van een gedroogde specerij is een kruid, geen groente.
+        for line in ("2 tbsp paprika", "1 el kurkuma", "1 tbsp cumin", "2 el kerrie", "1 tablespoon cinnamon"):
+            self.assertIsNone(offers.head_of(line), line)
 
     def test_inflected_adjectives_do_not_count_as_words(self):
         self.assertEqual(offers.tokens("geraspte kaas"), offers.tokens("kaas"))
@@ -583,7 +586,7 @@ class RealRecipesTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
             offers.sync("ah")
         collectors = (("mealie", lambda: [
-            {"id": "p", "title": "Paprikaschotel", "image": "", "url": "", "ingredients": ["1 el paprika", "2 el paprika", "4 tomaten"]}]),)
+            {"id": "p", "title": "Paprikaschotel", "image": "", "url": "", "ingredients": ["1 paprika", "2 paprika", "4 tomaten"]}]),)
         with mock.patch.object(offers, "COLLECTORS", collectors):
             offers.sync_recipes()
         recipe = offers.suggest("ah")["recipes"][0]
@@ -592,6 +595,67 @@ class RealRecipesTest(TempDataDirTest):
     def test_offers_that_are_never_ingredients_are_left_out(self):
         for title in ("Loving Blends Avocado olie shampoo 4-pack", "Pampers luiers maat 3", "Whiskas kattenvoer met kip", "Glorix allesreiniger citroen"):
             self.assertIsNone(self.link("avocado" if "Avocado" in title else "kip", title), title)
+
+
+
+DUTCH_OFFERS = [
+    "AH Kippendijfilet 600 g", "AH Rundergehakt 500 g", "Hellmann's Real mayonaise430 3-pack", "Heinz Tomaat ketchup", "AH Oude kaas plakken",
+    "AH Sjalot 250 g", "AH Broodjes 6-pack", "Lay's Paprika", "Go-Tan Sweet chilli sauce", "AH Kipfilet", "AH Rijst basmati", "AH Tomaten rond",
+    "AH Rode paprika 3-pack", "AH Zalmfilet 2-pack", "AH Spinazie", "Jumbo Sojasaus", "AH Bosui bos",
+    "Loving Blends Avocado olie shampoo 4-pack",
+]
+
+
+class EnglishRecipesTest(TempDataDirTest):
+    """Een Engelstalig recept uit Mealie tegen Nederlandse aanbiedingen."""
+
+    def suggestions(self, recipes):
+        fetched = [real_offer(title, index) for index, title in enumerate(DUTCH_OFFERS, 1)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        collectors = (("mealie", lambda: [
+            {"id": key, "title": key, "image": "", "url": "", "ingredients": lines} for key, lines in recipes.items()]),)
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        return {recipe["id"]: recipe for recipe in offers.suggest("ah")["recipes"]}
+
+    def test_english_ingredients_match_dutch_offers(self):
+        recipes = self.suggestions({"rice": [
+            "400 g chicken breast", "2 cups rice", "3 tomatoes", "1 red bell pepper", "2 tbsp olive oil", "2 tbsp soy sauce",
+            "1 bunch spring onions", "salt and pepper", "200 g spinach"]})
+        recipe = recipes["rice"]
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (7, 7), "olijfolie, zout en peper zijn basis")
+        matched = {item["ingredient"]: item["offer"]["title"] for item in recipe["matched"]}
+        self.assertEqual(matched["400 g chicken breast"], "AH Kipfilet")
+        self.assertEqual(matched["2 cups rice"], "AH Rijst basmati")
+        self.assertEqual(matched["1 red bell pepper"], "AH Rode paprika 3-pack")
+        self.assertEqual(matched["1 bunch spring onions"], "AH Bosui bos")
+        self.assertEqual(recipe["missing"], [])
+
+    def test_the_original_english_line_is_what_you_see(self):
+        recipe = self.suggestions({"x": ["800 gr chicken thighs (or/and pork/bacon)", "1 shallot"]})["x"]
+        self.assertEqual([item["ingredient"] for item in recipe["matched"]], ["800 gr chicken thighs (or/and pork/bacon)", "1 shallot"])
+        titles = {item["offer"]["title"] for item in recipe["matched"]}
+        self.assertEqual(titles, {"AH Kippendijfilet 600 g", "AH Sjalot 250 g"}, "de tweede Nederlandse naam (kipdijfilet) wordt ook geprobeerd")
+
+    def test_grillworst_in_english_matches_what_is_really_on_offer(self):
+        grill = ["Bread roll", "6 tbsp mayo", "1 tbsp curry sauce", "1 tsp paprika", "2 tbsp paprika", "800 gr chicken thighs (or/and pork/bacon)",
+                 "Spice mixture (below)", "Cornstarch", "Old mature cheese", "1 shallot", "1 tbsp ketchup", "2 tsp curry", "1 tsp salt",
+                 "½ tsp cayenne", "1 tbsp onion powder"]
+        recipe = self.suggestions({"grill": grill})["grill"]
+        matched = {item["ingredient"]: item["offer"]["title"] for item in recipe["matched"]}
+        self.assertEqual(matched["6 tbsp mayo"], "Hellmann's Real mayonaise430 3-pack")
+        self.assertEqual(matched["Old mature cheese"], "AH Oude kaas plakken")
+        self.assertEqual(matched["1 tbsp ketchup"], "Heinz Tomaat ketchup")
+        self.assertNotIn("1 tbsp curry sauce", matched, "Sweet chilli sauce is geen currysaus")
+        self.assertEqual(recipe["missing"], ["1 tbsp curry sauce"])
+        self.assertFalse(any("Lay's" in title for title in matched.values()), "chips zijn geen paprika")
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (6, 7), "paprika, kruiden, zout en het kopje tellen niet mee")
+
+    def test_dutch_recipes_are_unaffected(self):
+        recipe = self.suggestions({"nl": ["400 g kipfilet", "4 tomaten", "2 el olijfolie", "1 rode paprika", "250 g bloem"]})["nl"]
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (3, 3))
+        self.assertEqual({item["offer"]["title"] for item in recipe["matched"]}, {"AH Kipfilet", "AH Tomaten rond", "AH Rode paprika 3-pack"})
 
 
 class OffersRoutesTest(TempDataDirTest):

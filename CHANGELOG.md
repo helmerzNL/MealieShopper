@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.65.0
+
+*English summary: English ingredients (many Mealie imports) can now be matched with the Dutch offers. Before comparing, each ingredient line is translated into Dutch from a built-in list of a few hundred common ingredients and phrases ("2 tbsp mayo" becomes "2 tbsp mayonaise", "chicken thighs" becomes "kippendijen", "kipdijfilet" and "kippendij"); nothing is sent to a translation service. A Dutch line is left as it is and the recipe card still shows the line as written in the recipe. A tablespoon of a dried spice ("2 tbsp paprika") is a seasoning and no longer looks for bell peppers.*
+
+### Nieuw in 2.65.0
+
+- **Engelse ingrediënten worden vertaald voor het vergelijken.** Een nieuwe module, `mealieshopper/offer_translate.py`, zet een Engelse regel om in het Nederlands, op woorden en uit een vaste lijst (een paar honderd gangbare ingrediënten en samenstellingen: groente en fruit, vlees en vis, zuivel, brood en pasta, sauzen, bakproducten, noten en specerijen). Aantallen, eenheden en wat tussen haakjes staat blijven staan; een meervoud (*tomatoes*, *cherries*) en hoofdletters maken niet uit; de langste frase wint (*cream cheese* wordt *roomkaas* en niet *room kaas*). Er gaat niets naar een vertaaldienst.
+- **Meerdere Nederlandse namen worden allemaal geprobeerd.** De winkels noemen hetzelfde product niet gelijk: *chicken thighs* wordt *kippendijen*, *kipdijfilet* en *kippendij*, *ground beef* wordt *rundergehakt* en *gehakt*, *spring onion* wordt *bosui* en *lente-ui*. De aanbieding die het beste past wint.
+- **De kaart toont de regel zoals hij in het recept staat** (Engels), met het Nederlandse product erachter, en *Niet in de aanbieding* noemt de oorspronkelijke regel.
+
+### Aangepast in 2.65.0
+
+- **Een eetlepel van een gedroogde specerij is een kruid.** *2 tbsp paprika*, *1 el kurkuma*, *1 tbsp cumin*, *2 el kerrie* en *1 tablespoon cinnamon* zoeken geen product meer bij de aanbiedingen. Voorheen werd *2 tbsp paprika* gekoppeld aan een zak paprika's, terwijl er paprikapoeder in een kruidenmix bedoeld werd. Een gewone *rode paprika* of *1 paprika* blijft een groente.
+
+### Goed om te weten
+
+- **De lijst is niet volledig.** Een Engels woord dat er niet in staat, blijft Engels en vindt dus meestal niets. Woorden die in beide talen gelijk zijn (*pasta*, *pesto*, *mozzarella*, *avocado*) hebben geen vertaling nodig. Ontbreekt een ingrediënt dat je vaak tegenkomt, geef het door; het is één regel in de lijst.
+- Een Nederlandse regel verandert niet: de tests controleren dat voor een reeks gangbare Nederlandse regels, en dat opnieuw vertalen van een vertaalde regel niets verandert.
+- Alleen de ingrediëntregels worden vertaald, niet de titels van recepten of de aanbiedingen (die zijn Nederlands).
+- De API en de MCP-tools zijn niet veranderd.
+
 ## v2.64.0
 
 *English summary: The products linked to a recipe's ingredients can be clicked. A dialog shows the product (picture, name, brand and size, the offer, the price with the old price, the conditions) and which ingredient from which recipe it is linked to, so you see at once whether the link is right. A button opens the store's own page in a separate window; Picnic has no web shop, so there the dialog says there is no product page. The dialog works with the keyboard (Enter opens, Esc closes), also closes with a click outside it, and fits a phone and the dark theme.*
