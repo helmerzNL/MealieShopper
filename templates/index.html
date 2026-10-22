@@ -712,6 +712,8 @@
         </div>
 
         <div id="beheer-mealie" class="subpanel">
+        <div id="mealie-status"></div>
+        <p class="muted" id="mealie-source" hidden></p>
         <div class="box">
           <h2 data-i18n="mealie.link">Mealie koppelen</h2>
           <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
@@ -731,8 +733,6 @@
             </label>
             <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
           </form>
-          <div id="mealie-status"></div>
-          <p class="muted" id="mealie-source" hidden></p>
           <div class="toolbar">
             <button class="button button--secondary" id="check-mealie" data-i18n="common.check_link">Koppeling controleren</button>
             <button class="button button--secondary" id="mealie-unlink" hidden data-i18n="mealie.unlink">Ontkoppelen</button>

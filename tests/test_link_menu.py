@@ -40,6 +40,11 @@ class LinkMenuTest(unittest.TestCase):
             self.assertRegex(body, rf'id="{"explore" if store == "ah" else store + "-explore"}-run"', "verkennen zit in het blok")
             self.assertNotIn(f'id="{store}-status"', body)
 
+    def test_mealie_status_is_on_top_of_its_page_too(self):
+        page = panel("mealie")
+        self.assertLess(page.index('id="mealie-status"'), page.index('<div class="box">'))
+        self.assertLess(page.index('id="mealie-source"'), page.index('<div class="box">'))
+
     def test_titles_all_say_log_in_to(self):
         self.assertIn('"ahlogin.title": "Inloggen bij Albert Heijn"', NL)
         self.assertIn('"picnic.title": "Inloggen bij Picnic"', NL)

@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.54.1
+
+*English summary: On the Settings > Link > Mealie page, the "Mealie linked" banner (and the line saying where the link comes from) now sits on top of the page, above the form, like on the store pages.*
+
+### Aangepast in 2.54.1
+
+- **Mealie: de melding "gekoppeld" staat bovenaan.** Onder Beheer > Koppelen > Mealie staat de melding dat Mealie gekoppeld is (en de regel waar de koppeling vandaan komt) nu boven het formulier, zoals bij de winkels.
+
+### Goed om te weten
+
+- Verder verandert er niets. Dit sluit aan op 2.54.0 (menu Koppelen).
+
 ## v2.54.0
 
 *English summary: Settings > Stores is now Settings > **Link**: one drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie (Mealie no longer has its own tab). The three store pages have the same layout: the "account linked" banner (with Check link, and Unlink for Picnic and Jumbo) on top, and one collapsible block "Log in to ..." that also holds "Finish linking" and the route explorer. The block folds up once the store is linked. The titles are now all "Log in to ...", where Albert Heijn still said "Log in with". Texts that point to Settings > Stores now say Settings > Link.*
