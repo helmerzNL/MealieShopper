@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from flask import Flask, jsonify, request
 
-from . import auth, oauth
+from . import auth, oauth, profile
 from .i18n import tr
 
 INVITE_TTL = timedelta(days=7)
@@ -47,10 +47,12 @@ def list_users() -> list[dict[str, Any]]:
     auth.ensure_db()
     with closing(auth.connect()) as conn:
         rows = conn.execute("SELECT id, username, created_at FROM users ORDER BY (id = ?) DESC, LOWER(username)", (OWNER_ID,)).fetchall()
+    profiles = profile.info_map()
     return [
         {
             "id": row["id"],
             "username": row["username"],
+            **profiles.get(row["id"], {"displayName": "", "hasAvatar": False, "avatarVersion": 0}),
             "role": "owner" if row["id"] == OWNER_ID else "user",
             "createdAt": row["created_at"],
             "passkeys": auth.passkey_count(row["id"]),
@@ -89,6 +91,7 @@ def delete_user(user_id: str) -> bool:
         for table in ("passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes", "invites"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    profile.delete(user_id)
     oauth.forget_user(user_id)  # ook de AI-apps van deze gebruiker
     return True
 

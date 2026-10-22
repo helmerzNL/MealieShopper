@@ -50,6 +50,10 @@ class PicnicAuthError(RuntimeError):
     """De login is geweigerd of de koppeling is verlopen."""
 
 
+class PicnicBlockedError(RuntimeError):
+    """Picnic weigert het verzoek nog voor de login: een 403 met een kale webpagina in plaats van een JSON-antwoord."""
+
+
 class Picnic2FAError(RuntimeError):
     """De tweestapscode is onjuist of verlopen."""
 
@@ -66,7 +70,7 @@ def base_url() -> str:
 def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
-            "Picnic account niet gekoppeld. De beheerder koppelt het bij Beheer > Winkels > Picnic.",
+            "Picnic account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Picnic.",
             "Picnic account not linked. The admin links it under Admin > Picnic.",
         )
     )
@@ -97,6 +101,18 @@ def _call(
     if isinstance(error, dict) and error.get("code") in AUTH_ERROR_CODES:
         # Bewust niet de tekst van Picnic zelf: de aanroeper kiest een eigen, begrijpelijke melding.
         raise PicnicAuthError(tr("Picnic weigerde de sessie", "Picnic refused the session"))
+    if response.status_code == 403 and not isinstance(data, dict):
+        # Een 403 van de API zelf komt als JSON; een kale pagina komt van de poort ervoor, dus van het netwerk, niet van de login.
+        raise PicnicBlockedError(
+            tr(
+                "Picnic weigert verbindingen vanaf dit netwerk (403). Dat ligt niet aan je e-mailadres of wachtwoord. "
+                "Picnic weert soms server- en datacenter-adressen, ook van een VPN of proxy, en blokkeert tijdelijk na "
+                "veel pogingen. Probeer het over een tijdje opnieuw of vanaf een thuisnetwerk.",
+                "Picnic refuses connections from this network (403). This is not about your email address or password. "
+                "Picnic sometimes blocks server and datacenter addresses, including a VPN or proxy, and blocks for a "
+                "while after many attempts. Try again later or from a home network.",
+            )
+        )
     if not response.ok:
         raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
     return data, new_token
@@ -127,7 +143,7 @@ def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> 
     except PicnicAuthError as exc:
         raise PicnicAuthError(
             tr(
-                "Picnic-koppeling verlopen of geweigerd. Koppel opnieuw bij Beheer > Winkels > Picnic.",
+                "Picnic-koppeling verlopen of geweigerd. Koppel opnieuw bij Instellingen > Koppelen > Picnic.",
                 "Picnic link expired or refused. Link again under Admin > Picnic.",
             )
         ) from exc
@@ -621,6 +637,216 @@ def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str,
         if flag:
             favorites.append({**product, "favorite": True})
     return {"products": favorites, "total": found["total"], "filtered": known or pending > 0, "pending": pending}
+
+
+# --- aanbiedingen -------------------------------------------------------------------------------
+# Picnic heeft in de tabbalk geen aanbiedingen-tab. Het verkenner-rapport liet zien waar ze wel staan, op de startpagina
+# (de tab Ontdek): bij sommige producttegels staat een kortingtekst ernaast ("1+1 gratis", "20% korting", "2 voor €5"), en onder
+# *Acties van de week* staan kaarten per merk of productgroep die een eigen pagina openen (`promo-group-deep-dive`) met alle
+# producten van die actie. We lezen beide; wat op een pagina staat die niet over aanbiedingen gaat telt alleen met zo'n teken.
+
+_OFFER_WORDS = re.compile(r"aanbied|deal|promo|actie|korting|offer|bonus|sale", re.I)
+_HOME_WORDS = re.compile(r"home|ontdek|discover", re.I)
+OFFER_FALLBACKS = ("deals-page-root", "promotions-page-root", "promotions-page")
+HOME_FALLBACK = "home_page_root"
+MAX_OFFER_PAGES = 40
+OFFER_PAGE_DELAY = 0.15  # seconden tussen de pagina's, zodat we Picnic niet overspoelen
+_PROMO_TYPES = ("PROMO", "DISCOUNT", "SALE", "DEAL", "OFFER", "BONUS")
+# Een tekst bij een producttegel die over een korting gaat, zoals het rapport ze liet zien.
+_PROMO_TEXT = re.compile(
+    r"\d+\s*\+\s*\d+\s*gratis|\d+\s*%\s*korting|\d+e?\s*=\s*\d+\s*%\s*korting|\d+e?\s*=\s*gratis|\d+\s+voor\s+€\s*[\d.,]+|"
+    r"\bnu\s+€\s*[\d.,]+|halve\s+prijs|\bgratis\b|\bkorting\b",
+    re.I,
+)
+# Een verwijzing naar een pagina van de app, met de parameters erachter: `nl.picnic-supermarkt://store/page;id=naam,sleutel=waarde`.
+_STORE_PAGE = re.compile(r"(?:picnic|supermarkt)://store/page;id=([A-Za-z0-9_.-]+)((?:,[A-Za-z0-9_.:=&%,-]+)?)")
+_COLOR_MARKUP = re.compile(r"#\([^)]*\)")
+
+
+def _clean_text(markdown: Any) -> str:
+    """Een tekst uit de app zonder de kleurcodes (`#(KLEUR)tekst#(KLEUR)`)."""
+    return _COLOR_MARKUP.sub("", str(markdown or "")).strip()
+
+
+def page_references(page: Any) -> list[str]:
+    """De pagina's waar een pagina naar verwijst, als verzoekpad: `naam` of `naam?sleutel=waarde&...`."""
+    found = []
+    for name, params in _STORE_PAGE.findall(json.dumps(page)):
+        query = params.lstrip(",").replace(",", "&")
+        found.append(f"{name}?{query}" if query else name)
+    return list(dict.fromkeys(found))
+
+
+def _offer(unit: dict[str, Any], texts: tuple[str, ...] = ()) -> dict[str, Any] | None:
+    """Een product van een pagina als aanbieding. `texts` zijn de teksten bij de tegel; een kortingtekst daarin wordt het label."""
+    product = _product(unit)
+    if not product:
+        return None
+    paid, listed = _line_prices(unit)
+    promo_decorators = [
+        d for d in unit.get("decorators") or []
+        if isinstance(d, dict) and any(word in str(d.get("type", "")).upper() for word in _PROMO_TYPES)
+    ]
+    labels = [str(d["text"]).strip() for d in promo_decorators if isinstance(d.get("text"), str) and d["text"].strip()]
+    labels += [text for text in texts if len(text) <= 40 and _PROMO_TEXT.search(text)]
+    return {
+        "id": product["id"],
+        "title": product["title"],
+        "brand": None,
+        "unitSize": product["unitSize"],
+        "price": paid if paid is not None else product["price"],
+        "priceBefore": listed,
+        "promoLabel": " · ".join(dict.fromkeys(labels)),
+        "image": product["image"],
+        "url": None,
+        "validUntil": None,
+        "promo": bool(labels or listed is not None or unit.get("price_ranges")),
+    }
+
+
+def offers_from_page(page: Any) -> list[dict[str, Any]]:
+    """De producten op een pagina als aanbiedingen, zonder dubbelen, met de kortingtekst die bij hun tegel staat."""
+    texts_by_unit: dict[str, tuple[str, ...]] = {}
+    for node in _walk(page):
+        if node.get("type") != "PML":
+            continue
+        inside = list(_walk(node))
+        tiles = [n for n in inside if n.get("type") == "SELLING_UNIT_TILE" and isinstance(n.get("sellingUnit"), dict)]
+        if len(tiles) == 1:
+            texts_by_unit[str(tiles[0]["sellingUnit"].get("id"))] = tuple(
+                text for text in (_clean_text(n.get("markdown")) for n in inside if n.get("type") == "RICH_TEXT") if text
+            )
+    seen: set[str] = set()
+    offers: list[dict[str, Any]] = []
+    for node in _walk(page):
+        unit = node.get("sellingUnit") if node.get("type") == "SELLING_UNIT_TILE" else None
+        offer = _offer(unit, texts_by_unit.get(str(unit.get("id")), ())) if isinstance(unit, dict) else None
+        if offer and offer["id"] not in seen:
+            seen.add(offer["id"])
+            offers.append(offer)
+    return offers
+
+
+def promo_groups(page: Any) -> dict[str, str]:
+    """De kaarten op een pagina die naar een actiepagina verwijzen: {pagina: titel van de kaart}, bijvoorbeeld *Appels en peren*."""
+    groups: dict[str, str] = {}
+    for node in _walk(page):
+        if node.get("type") != "PML":
+            continue
+        inside = list(_walk(node))
+        if any(n.get("type") == "SELLING_UNIT_TILE" for n in inside):
+            continue
+        references = [ref for ref in page_references(node) if _OFFER_WORDS.search(ref.split("?")[0])]
+        if not references:
+            continue
+        title = next((t for t in (_clean_text(n.get("markdown")) for n in inside if n.get("type") == "RICH_TEXT") if t), "")
+        for reference in references:
+            groups.setdefault(reference, title[:60])
+    return groups
+
+
+def lazy_pages(page: Any) -> list[str]:
+    """De pagina's die een pagina later zelf laadt (`pageConfig`): daar zit vaak de eigenlijke inhoud."""
+    found = [
+        n["pageConfig"]["id"] for n in _walk(page)
+        if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
+    ]
+    return [ref for ref in dict.fromkeys(found) if _PAGE_REFERENCE.match(ref)]
+
+
+def offer_references() -> list[tuple[str, bool]]:
+    """De pagina's waar aanbiedingen kunnen staan, als (pagina, streng). Bij een strenge pagina (de startpagina) tellen
+    alleen producten met een korting-teken en volgen we alleen verwijzingen die over aanbiedingen gaan."""
+    try:
+        tabs = bootstrap_tabs()
+    except PicnicAuthError:
+        raise
+    except Exception:  # noqa: BLE001 - zonder tabbalk vallen we terug op de paginanamen
+        tabs = []
+    named: list[tuple[str, bool]] = []
+    home: list[tuple[str, bool]] = []
+    for tab in tabs:
+        words = " ".join(str(tab.get(key) or "") for key in ("id", "title", "label", "reference"))
+        if not tab.get("reference"):
+            continue
+        if _OFFER_WORDS.search(words):
+            named.append((tab["reference"], False))
+        elif _HOME_WORDS.search(words):
+            home.append((tab["reference"], True))
+    references = named + [(ref, False) for ref in OFFER_FALLBACKS] + (home or [(HOME_FALLBACK, True)])
+    seen: set[str] = set()
+    result = []
+    for ref, strict in references:
+        if ref not in seen and _PAGE_REFERENCE.match(ref):
+            seen.add(ref)
+            result.append((ref, strict))
+    return result
+
+
+def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[str, dict[str, Any]]:
+    """Lees een pagina en de actiepagina's waar hij naar verwijst; geef de gevonden aanbiedingen per product-id.
+
+    Op de eerste pagina tellen bij een strenge pagina alleen producten met een kortingteken. Een actiepagina (waar een kaart naartoe
+    leidt) bevat alleen aanbiedingen: alle producten tellen, met de kortingtekst van hun tegel of anders de titel van de kaart.
+    """
+    queue: list[tuple[str, str | None]] = [(reference, None)]
+    visited: set[str] = set()
+    found: dict[str, dict[str, Any]] = {}
+    while queue and len(visited) < MAX_OFFER_PAGES:
+        current, group = queue.pop(0)
+        if current in visited:
+            continue
+        if visited and OFFER_PAGE_DELAY:
+            time.sleep(OFFER_PAGE_DELAY)
+        visited.add(current)
+        try:
+            page = _page(current)
+        except PicnicAuthError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - een pagina die niet bestaat probeert de volgende
+            errors.append(str(exc)[:200])
+            continue
+        if not isinstance(page, dict):
+            continue
+        is_group = group is not None
+        for offer in offers_from_page(page):
+            if is_group:
+                offer["promo"] = True
+                offer["promoLabel"] = offer["promoLabel"] or group
+            if offer["id"] not in found or (offer["promo"] and not found[offer["id"]]["promo"]):
+                found[offer["id"]] = offer
+        references = promo_groups(page)
+        for ref in page_references(page):
+            if ref in visited or not _PAGE_REFERENCE.match(ref):
+                continue
+            if ref in references:
+                queue.append((ref, references[ref]))
+            elif _OFFER_WORDS.search(ref.split("?")[0]):
+                queue.append((ref, None))
+        for lazy in lazy_pages(page):
+            if lazy not in visited and (is_group or not strict or _OFFER_WORDS.search(lazy)):
+                queue.append((lazy, group))
+    return found
+
+
+def get_offers() -> list[dict[str, Any]]:
+    """De aanbiedingen van Picnic. Vraagt een gekoppeld Picnic-account."""
+    if not configured_auth_key():
+        raise _not_linked()
+    errors: list[str] = []
+    for reference, strict in offer_references():
+        found = _walk_offer_pages(reference, strict, errors)
+        offers = list(found.values())
+        promos = [offer for offer in offers if offer["promo"]]
+        chosen = promos if strict else (promos or offers)
+        if chosen:
+            return [{key: value for key, value in offer.items() if key != "promo"} for offer in chosen]
+    raise RuntimeError(
+        tr(
+            "Picnic gaf geen aanbiedingen" + (f" ({errors[0]})" if errors else "") + ". Draai onder Instellingen > Koppelen > Picnic de verkenner en deel het rapport.",
+            "Picnic returned no offers" + (f" ({errors[0]})" if errors else "") + ". Run the explorer under Admin > Picnic and share the report.",
+        )
+    )
 
 
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:

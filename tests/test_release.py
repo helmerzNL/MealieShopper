@@ -36,6 +36,25 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("release_notes.py", workflow)
         self.assertIn("contents: write", workflow)
 
+    def test_beta_builds_get_their_own_tags_and_a_prerelease(self):
+        docker = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
+        release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        for workflow in (docker, release):
+            self.assertIn("- beta", workflow)
+        self.assertIn("type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}", docker)
+        self.assertIn("type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}", docker)
+        self.assertIn("--prerelease", release)
+
+    def test_only_beta_may_open_a_pull_request_to_main(self):
+        guard = (ROOT / ".github" / "workflows" / "pr-target.yml").read_text(encoding="utf-8")
+        self.assertIn("- main", guard)
+        self.assertIn('"$HEAD_REF" != "beta"', guard)
+
+    def test_branch_rule_is_written_down(self):
+        text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertIn("rechtstreeks naar `main`", text)
+        self.assertIn("`beta`", text)
+
     def test_release_rule_is_written_down(self):
         for name in ("CLAUDE.md", "CHANGELOG.md"):
             self.assertIn("GitHub release", (ROOT / name).read_text(encoding="utf-8"), name)

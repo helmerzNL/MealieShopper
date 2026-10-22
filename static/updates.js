@@ -1,4 +1,4 @@
-// Updatecheck: kijkt of er een nieuwere versie is en meldt dat bij de beheerder (bolletje, melding en Beheer > Updates).
+// Updatecheck: kijkt of er een nieuwere versie is en meldt dat bij de beheerder (bolletje, melding en Instellingen > Systeem).
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, th, escapeHtml, ...).
 
 const updateState = { data: null, loading: false, dismissedKey: "ms_update_dismissed" };
@@ -53,6 +53,8 @@ function renderUpdate() {
 
   $("#update-dot-tab").hidden = !available;
   $("#update-dot-subtab").hidden = !available;
+  $("#update-dot-user").hidden = !available;
+  $("#update-dot-settings").hidden = !available;
   const banner = $("#update-banner");
   banner.hidden = !available || dismissed;
   if (available) {
@@ -93,7 +95,7 @@ function renderUpdate() {
 }
 
 $("#update-check").addEventListener("click", () => loadUpdate({ force: true }));
-$("#update-banner-open").addEventListener("click", () => openBeheer("beheer-updates"));
+$("#update-banner-open").addEventListener("click", () => openSettings("settings-system"));
 $("#update-banner-dismiss").addEventListener("click", () => {
   if (updateState.data?.latest) rememberUpdateDismissed(updateState.data.latest);
   renderUpdate();

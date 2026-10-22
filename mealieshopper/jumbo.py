@@ -21,6 +21,7 @@ import json
 import re
 import secrets
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urlencode
 
@@ -66,7 +67,7 @@ _access_cache: dict[str, Any] = {"token": "", "expires_at": 0.0}
 def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
-            "Jumbo account niet gekoppeld. De beheerder koppelt het bij Beheer > Winkels > Jumbo.",
+            "Jumbo account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
             "Jumbo account not linked. The admin links it under Admin > Jumbo.",
         )
     )
@@ -327,7 +328,7 @@ def _graphql(
             if _looks_like_auth_failure(errors):
                 raise JumboAuthError(
                     tr(
-                        "Jumbo-koppeling verlopen of geweigerd. Koppel opnieuw bij Beheer > Winkels > Jumbo.",
+                        "Jumbo-koppeling verlopen of geweigerd. Koppel opnieuw bij Instellingen > Koppelen > Jumbo.",
                         "Jumbo link expired or refused. Link again under Admin > Jumbo.",
                     )
                 )
@@ -425,11 +426,9 @@ def products_from_search(data: Any) -> list[dict[str, Any]]:
     return [p for p in products if p]
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def _search_data(term: str) -> dict[str, Any]:
+    """Het ruwe antwoord van een zoekopdracht, met de terugvalstappen van de zoekquery."""
     global _search_variant
-    term = str(query or "").strip()
-    if not term:
-        return []
     variables = {"input": {"searchType": "KEYWORD", "searchTerms": term}}
     last_error: Exception | None = None
     for step in range(_search_variant, len(SEARCH_EXTRA_FIELDS)):
@@ -439,9 +438,90 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
             last_error = exc
             continue
         _search_variant = step
-        products = [p for p in products_from_search(data) if p["available"]]
-        return products[: max(1, limit)]
+        return data
     raise RuntimeError(str(last_error))
+
+
+def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    term = str(query or "").strip()
+    if not term:
+        return []
+    products = [p for p in products_from_search(_search_data(term)) if p["available"]]
+    return products[: max(1, limit)]
+
+
+# --- aanbiedingen -------------------------------------------------------------------------------
+# Jumbo heeft geen route die alle aanbiedingen in een keer geeft die wij kennen. Daarom zoeken we met de bekende
+# zoekquery op veel gangbare termen en houden de producten over die een actieprijs of een actielabel hebben, zoals
+# bij AH als de bonuspagina niets geeft. Het zijn dus de aanbiedingen die bij deze termen horen, niet per se alle.
+OFFER_TERMS = (
+    "kip", "gehakt", "vlees", "worst", "spek", "ham", "vis", "zalm", "garnalen", "kaas", "melk", "yoghurt", "kwark",
+    "boter", "room", "ei", "brood", "beleg", "ontbijtgranen", "pasta", "rijst", "aardappel", "groente", "tomaat",
+    "salade", "fruit", "banaan", "appel", "saus", "soep", "pizza", "diepvries", "ijs", "chips", "noten", "snoep",
+    "chocolade", "koek", "koffie", "thee", "frisdrank", "sap", "water", "bier", "wijn", "olie", "kruiden", "bonen",
+    "schoonmaak", "wasmiddel", "tandpasta", "shampoo", "luiers", "kattenvoer", "hondenvoer",
+)
+
+
+def _offer(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Een aanbieding uit een zoekresultaat, of None als het product geen actie heeft."""
+    sku, title = raw.get("sku"), raw.get("title")
+    if not sku or not title or (raw.get("availability") or {}).get("isAvailable") is False:
+        return None
+    price = raw.get("price") if isinstance(raw.get("price"), dict) else {}
+    promo = price.get("promoPrice") if isinstance(price.get("promoPrice"), (int, float)) else None
+    tags = [
+        str(tag.get("text")).strip()
+        for promotion in raw.get("promotions") or []
+        if isinstance(promotion, dict)
+        for tag in promotion.get("tags") or []
+        if isinstance(tag, dict) and tag.get("text")
+    ]
+    if promo is None and not tags:
+        return None
+    regular = price.get("price") if isinstance(price.get("price"), (int, float)) else None
+    link = raw.get("link")
+    return {
+        "id": str(sku),
+        "title": str(title),
+        "brand": None,
+        "unitSize": raw.get("subtitle") or None,
+        "price": _euros(promo if promo is not None else regular),
+        "priceBefore": _euros(regular) if promo is not None and regular is not None and regular > promo else None,
+        "promoLabel": " · ".join(dict.fromkeys(tags)),
+        "image": _image(raw.get("image")),
+        "url": f"{SITE_URL}{link}" if isinstance(link, str) and link.startswith("/") else None,
+        "validUntil": None,
+    }
+
+
+def offers_in_search(data: Any) -> list[dict[str, Any]]:
+    found = ((data or {}).get("searchProducts") or {}).get("products") or []
+    offers = [_offer(item) for item in found if isinstance(item, dict)]
+    return [offer for offer in offers if offer]
+
+
+def get_offers() -> list[dict[str, Any]]:
+    """De aanbiedingen die Jumbo bij de gangbare zoektermen laat zien. Vraagt een gekoppeld Jumbo-account."""
+    errors: list[Exception] = []
+
+    def search(term: str) -> list[dict[str, Any]]:
+        try:
+            return offers_in_search(_search_data(term))
+        except JumboAuthError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - een term die mislukt mag de andere niet blokkeren
+            errors.append(exc)
+            return []
+
+    found: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for offers in pool.map(search, OFFER_TERMS):
+            for offer in offers:
+                found.setdefault(offer["id"], offer)
+    if not found and errors:
+        raise RuntimeError(str(errors[0])[:300])
+    return list(found.values())
 
 
 def search_product(query: str) -> dict[str, Any] | None:

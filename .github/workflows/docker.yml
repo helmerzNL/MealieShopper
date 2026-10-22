@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - beta
   workflow_dispatch:
 
 permissions:
@@ -41,10 +42,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # main geeft de stabiele tags (latest, X.Y.Z); beta geeft aparte tags (beta, X.Y.Z-beta),
+          # zodat een beta-build nooit over een stabiele tag heen schrijft.
           tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
+            type=raw,value=${{ steps.version.outputs.version }}-beta,enable=${{ github.ref == 'refs/heads/beta' }}
+            type=sha,prefix=beta-,enable=${{ github.ref == 'refs/heads/beta' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

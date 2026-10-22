@@ -12,6 +12,7 @@ statussen AH kent. Zo kun je het rapport veilig delen.
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any, Callable
 
 import requests
@@ -183,6 +184,20 @@ def explore() -> dict[str, Any]:
         probes.append(report)
     else:
         probes.append({"name": "een kassabon: GraphQL posReceiptDetails", "ok": False, "error": "overgeslagen: er zijn geen kassabonnen om te proberen"})
+
+    # Aanbiedingen (Bonus): werkt met het anonieme token, dus ook zonder AH-koppeling.
+    def bonus_page() -> Any:
+        return ah._request_json(
+            "GET",
+            f"{ah.AH_API_BASE}{ah.BONUS_SECTION_PATH}",
+            headers=ah._auth_headers(ah.get_token(), include_content_type=False),
+            params={"date": date.today().isoformat(), "application": "AH", "promotionType": "NATIONAL"},
+        )
+
+    report, bonus = _probe("aanbiedingen: GET bonuspage/v2/section", bonus_page)
+    probes.append(report)
+    if report["ok"]:
+        report["productCount"] = len(ah.bonus_products_in(bonus))
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",

@@ -53,6 +53,17 @@ class ParseMechanicTests(unittest.TestCase):
         self.assertEqual(deals.parse_mechanic("BONUS", "2e halve prijs")["type"], "second_half")
         self.assertEqual(deals.parse_mechanic(None, "2 VOOR 5")["type"], "x_for_y")
 
+    def test_nth_item_with_a_percentage_is_not_a_plain_percentage(self):
+        # Picnic: "2e = 50% korting" is het tweede stuk met 50% korting, niet 50% op alles.
+        for text in ("2e = 50% korting", "2e 50% korting", "2e stuk 50% korting"):
+            self.assertEqual(deals.parse_mechanic(text), {"type": "nth_percent", "minQuantity": 2, "percent": 50.0}, text)
+        self.assertEqual(deals.parse_mechanic("3e: 100% korting")["minQuantity"], 3)
+
+    def test_now_price(self):
+        self.assertEqual(deals.parse_mechanic("nu €1.99"), {"type": "fixed", "minQuantity": 1, "fixedPrice": 1.99})
+        self.assertEqual(deals.parse_mechanic("Nu € 2,49")["fixedPrice"], 2.49)
+        self.assertEqual(deals.parse_mechanic("20% korting nu €1.99")["type"], "percent", "een percentage wint")
+
     def test_percent_is_not_read_as_x_for_y(self):
         self.assertEqual(deals.parse_mechanic("2 voor 25%")["type"], "percent")
 
@@ -75,6 +86,15 @@ class EffectiveUnitPriceTests(unittest.TestCase):
         self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("25% korting"), 4.0, 3.0), 3.0)
         self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("€ 1,00 korting"), 4.0, 3.0), 3.0)
         self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("€ 9 korting"), 4.0, 3.0), 0.0)
+
+    def test_nth_percent_averages_over_the_pieces(self):
+        mechanic = deals.parse_mechanic("2e = 50% korting")
+        self.assertEqual(deals.effective_unit_price(mechanic, 4.0, 4.0), 3.0)
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("3e = 100% korting"), 3.0, 3.0), 2.0)
+        self.assertIsNone(deals.effective_unit_price(mechanic, None, 4.0), "zonder gewone prijs niet te rekenen")
+
+    def test_now_price_is_the_price_per_item(self):
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("nu €1.99"), None, 2.49), 1.99)
 
     def test_fixed_uses_the_shop_price_but_unknown_does_not(self):
         self.assertEqual(deals.effective_unit_price({"type": "fixed", "minQuantity": 1}, 4.0, 3.0), 3.0)
@@ -145,6 +165,25 @@ class MakeDealTests(unittest.TestCase):
     def test_price_dict_of_ah_is_read(self):
         product = {"webshopId": "7", "title": "Ei", "price": {"now": 2.0, "unitSize": "10"}, "isBonus": True}
         self.assertEqual(deals.make_deal("ah", product, self.TODAY)["priceNow"], 2.0)
+
+
+class DescribeTests(unittest.TestCase):
+    TODAY = date(2026, 10, 22)
+
+    def test_label_and_prices_give_the_conditions_and_the_unit_price(self):
+        described = deals.describe("2e halve prijs", price_now=4.0, price_before=4.0, valid_until="2026-10-25", today=self.TODAY)
+        self.assertEqual(described, {"mechanic": "second_half", "minQuantity": 2, "unitPrice": 3.0, "validity": "valid"})
+
+    def test_cheaper_without_a_label_is_a_fixed_price(self):
+        described = deals.describe("", price_now=1.5, price_before=2.0, today=self.TODAY)
+        self.assertEqual((described["mechanic"], described["unitPrice"], described["validity"]), ("fixed", 1.5, "unknown"))
+
+    def test_unreadable_label_stays_unknown_without_a_unit_price(self):
+        described = deals.describe("Op=op", price_now=1.5, price_before=None, today=self.TODAY)
+        self.assertEqual((described["mechanic"], described["unitPrice"]), ("unknown", None))
+
+    def test_expired_period_is_reported(self):
+        self.assertEqual(deals.describe("25% korting", valid_until="2026-10-18", today=self.TODAY)["validity"], "expired")
 
 
 class AhPromoTests(unittest.TestCase):

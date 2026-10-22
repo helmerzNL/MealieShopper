@@ -1,3 +1,4 @@
+import hashlib
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
@@ -10,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, server_settings, updates, users
+from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -21,13 +22,17 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-23")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-39")
+    # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
+    app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
     auth.register_routes(app)
     auth_password.register_routes(app)
     onboarding.register_routes(app)
+    factory_reset.register_routes(app)
+    profile.register_routes(app)
 
     try:
         removed = auth.purge_obsolete_secrets()
@@ -315,6 +320,73 @@ def create_app() -> Flask:
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(ah_explore.explore())
 
+    # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
+
+    def offers_action(action, error_text: str):
+        try:
+            return jsonify(action())
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; toon de fout, de bewaarde kopie blijft staan
+            app.logger.exception("Offers error")
+            return jsonify({"error": str(exc) or error_text}), 424
+
+    @app.get("/api/offers")
+    def offers_list():
+        # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
+        # (geen nieuwe synchronisatie, nog dezelfde dag), dan volgt een 304 zonder de lijst te laden of te versturen.
+        store = request.args.get("store") or "ah"
+        try:
+            etag = hashlib.sha1(offers.signature(store).encode("utf-8")).hexdigest()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
+        if request.if_none_match.contains(etag):
+            return Response(status=304, headers=headers)
+        response = offers_action(lambda: offers.load(store), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        if isinstance(response, Response) and response.status_code == 200:
+            response.headers.update(headers)
+        return response
+
+    @app.get("/api/offers/history")
+    def offers_history():
+        return offers_action(
+            lambda: offers.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
+            tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
+        )
+
+    @app.post("/api/offers/sync")
+    def offers_sync():
+        body = request.get_json(silent=True) or {}
+        return offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+
+    @app.get("/api/offers/status")
+    def offers_status():
+        return offers_action(offers_schedule.status, tr("Status van de aanbiedingen laden mislukt", "Loading the offers status failed"))
+
+    @app.post("/api/offers/sync-all")
+    def offers_sync_all():
+        # Alleen de beheerder (auth.ADMIN_PATHS): de knop onder Instellingen > Koppelen.
+        return offers_action(offers_schedule.sync_now, tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+
+    @app.get("/api/offers/recipes")
+    def offers_recipes():
+        return offers_action(lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course")), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
+
+    @app.route("/api/offers/rejections", methods=["POST", "DELETE"])
+    def offers_rejections():
+        # Een koppeling als onjuist melden (POST) of de melding weer intrekken (DELETE).
+        body = request.get_json(silent=True) or {}
+        action = offers.report_mismatch if request.method == "POST" else offers.undo_mismatch
+        return offers_action(
+            lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
+            tr("Koppeling melden mislukt", "Reporting the match failed"),
+        )
+
+    @app.post("/api/offers/recipes/sync")
+    def offers_recipes_sync():
+        return offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
+
     @app.get("/api/mealie/status")
     def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
@@ -560,7 +632,7 @@ def create_app() -> Flask:
     # gaan direct in het echte Picnic-winkelmandje (er is geen apart boodschappenlijstje).
 
     def picnic_error(exc: Exception) -> Any:
-        return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError)
+        return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError, picnic.PicnicBlockedError)
 
     @app.get("/api/picnic/auth/status")
     def picnic_auth_status():
@@ -743,7 +815,7 @@ def create_app() -> Flask:
     @app.post("/api/picnic/explore")
     def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
-        return jsonify(picnic_explore.explore())
+        return jsonify(picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
 
     # --- Jumbo --------------------------------------------------------------------------
     # Koppelen werkt zoals bij AH (de beheerder plakt een regel uit de browserconsole); de producten

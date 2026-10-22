@@ -36,6 +36,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic or Jumbo, as far as linked. One button looks up the best products for every ingredient, works out how many packs you need and puts them in your basket at that store. If the app is unsure, you check that line yourself first. You finish the order yourself, at Albert Heijn, in the Picnic app or at Jumbo.
+- **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus), Picnic and Jumbo, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
 - **Search and import recipes.** Search the recipes of Albert Heijn, Jumbo and Picnic at the same time and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
@@ -44,7 +45,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 - **Setup guide.** On the first start you go through security and the links with Mealie, Albert Heijn, Jumbo and Picnic in six steps.
 - **Audit log and update check.** The administrator sees every request to the stores and from AI assistants (with export) and gets a notice when a new version is available.
 - **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
-- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
+- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left and can be collapsed to icons only.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and the supermarkets and manage the users.
 - **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists and import a recipe into Mealie. OAuth login, with your own account.
@@ -200,7 +201,7 @@ The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.loca
 
 ## First start
 
-On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings**. An existing installation (with a passkey or password) does not see it.
+On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings** (in the avatar menu). An existing installation (with a passkey or password) does not see it.
 
 **1. Security.** The app looks at how you open it.
 
@@ -237,6 +238,8 @@ After the password you can turn on **two-step verification** with an authenticat
 
 ## Usage
 
+The **Recipes** tab has two subtabs: **Week menu** (your Mealie week menu to your basket) and **Find recipes**.
+
 ### Week menu to your basket
 
 The week menu loads by itself when you open the page, with the pictures, and the two weeks after it are fetched in the background. Each week is remembered for a while, so paging through weeks is instant; the sync button next to the week fetches it again from Mealie. If Picnic or Jumbo is linked next to Albert Heijn, you choose the store in the drop-down menu below the shopping list, next to the button. The button carries the name of the chosen store, for example `Add to Albert Heijn basket`. It looks up the best five products per ingredient and works out how many packs you need, using the pack size the store gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
@@ -253,11 +256,17 @@ The **Basket** tab shows the basket of the store you choose at the top (Albert H
 
 `Find recipes` searches **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time. The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Choose `Import` to put a recipe in Mealie, or for Jumbo and Picnic `View` for the ingredients and the method. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
+### Offers
+
+The **Offers** tab has the same layout as Stores: a drop-down menu for the store (once more than one is linked) and the sub-tabs **Offers** and **Recipes**. The first shows a store's offers, with the old and new price and the label (for example *2 for 3*). That works for **Albert Heijn** (Bonus; no AH link needed), **Picnic** and **Jumbo** (both once linked). Picnic has no offers tab: MealieShopper reads the home page (Discover): the products with a discount text next to them ("1+1 free", "20% off", "2 for €5") and the action pages behind the cards under *Deals of the week*, where every product is an offer. The label is the text of the tile, or else the title of the card. Picnic gives no old price, so it is missing. The explorer (`POST /api/picnic/explore`) shows at the top of its report what those pages give. Jumbo has no route that gives everything at once: MealieShopper searches the common terms (chicken, cheese, coffee and so on) and keeps the products with an action, so these are the offers for those terms and not necessarily all of them. The offers are cached: a store you already saw shows at once again, and the browser only asks whether anything changed (`ETag`, a `304` if not). While the offers of another store load, a spinning icon with *Loading the offers of …* shows (it stands still if your system asks for reduced motion). Above the offers are the categories with their count ("5x Vegetables & Fruit", "10x Meat"); a click shows the offers of that category. Three rows show first; `More` shows three more each time. MealieShopper makes the division itself from the product name, because the stores do not give the same categories; a product that fits nowhere is under *Other*. There is no button to refresh here any more: the offers come from the local copy, which is refreshed every day and which the administrator can sync right away (see below); if fetching fails, the previous copy stays. Every sync also writes the offers to a history in the database, kept forever: per product when it was on offer, with price, old price, label and validity. A continuous period counts as one time; a price change during the same offer does not. `GET /api/offers/history` (with `store`, `q` for part of the name and `limit`) shows how often something was on offer and the details. Under **Settings, Link** there is an **Offers** block with `Sync offers`: it refreshes the offers of all stores at once (administrator only) and shows per store how many there are and when they were fetched. A background task also does this every day by itself, by default around 5 am (the container's time). If the app is off at that time, it follows at the next start. Use `MEALIESHOPPER_OFFERS_SYNC_HOUR` to pick the hour and `MEALIESHOPPER_OFFERS_SCHEDULE=false` to turn the task off. The AH explorer (`POST /api/ah/explore`) also reports whether the bonus page answers; without an answer MealieShopper searches for products with the bonus flag. Each offer shows what it involves: from how many items, what an item then costs and until when it applies, as far as the store says (AH gives an end date; Picnic and Jumbo do not). For that MealieShopper reads the offer text (*2nd half price*, *1+1 free*, *2 for 5*, *25% off*, *2nd = 50% off*, *now €1.99*). What it cannot read with certainty, it does not calculate. An offer whose end date has passed disappears from the list and the suggestions between two syncs.
+
+The **Recipes** sub-tab shows the recipe suggestions: recipes with ingredients on offer, the best first, with the estimated saving. `Read recipes` reads the ingredients of your recipes: Mealie (up to 300), Jumbo favourites and Picnic recipes (up to 60 per source) and your saved AH recipes (up to 60 new ones at a time; fetch them first under **Stores**). The comparison happens inside MealieShopper, on words without plurals, units and basics like salt and water; nothing is sent to an AI service. An ingredient only belongs to an offer that is that product itself: the ingredient's name must be the product in the title, not something that comes with it. So *Mince with onion*, *Tuna in olive oil* and *Spinach with cream* do not count for onion, olive oil or fresh spinach, and a prepared variant such as *mushroom sauce*, *herb mix* or *orange juice* only counts if the ingredient asks for that itself. A flavour word like *herbs* does not look for a product. If the name is a kind (*sauce*, *soup*, *cheese*, *bread*, *sausage*), the other words must be in it too: *curry sauce* does not fit *Sweet chilli sauce*. A raw product such as bell pepper or chicken fillet does not fit a prepared product (crisps, focaccia, a wrap), and what is not food (shampoo, cat food) is left out. English ingredients (many Mealie imports, for example *2 tbsp mayo* or *chicken thighs*) are first translated into Dutch from a fixed list of a few hundred common ingredients; nothing is sent to a translation service. If a product has more than one name at the stores, they are all tried (*chicken thighs* becomes *kippendijen*, *kipdijfilet* and *kippendij*). A Dutch line stays as it is, and the card shows the line as it is in the recipe. A word that is not in the list stays as it is. A tablespoon of a dried spice (*2 tbsp paprika*, *1 el turmeric*) is a seasoning and does not look for a product. A line with a teaspoon or a pinch (*1 tsp salt*, *2 tl turmeric*), a spice powder (*onion powder*) and a heading such as *Spice mixture (below)* do not count as an ingredient, and the same ingredient twice in a recipe counts once. If more than one offer fits, the one with the fewest words around it wins. Better one link too few than a wrong one. The store choice at the top decides which offers the recipes are compared with, and that is stated above the recipes (*Recipes with as many ingredients as possible from the offers at Jumbo*). The recipes themselves come from all your sources (Mealie, Jumbo, Picnic and AH), because a recipe can be cooked with any store; the card says where it comes from (*Recipe from Albert Heijn*). Basics (salt, pepper, water, oil, butter, flour, sugar, vinegar, stock and herbs) do not count in *x of y ingredients on offer*. The recipes with the largest share of their ingredients on offer come first; with an equal share, the recipe with the most ingredients first and then the largest saving. Under the links each recipe says what is not on offer (*Not on offer: …*). If the same recipe is in more than one source (for example an AH recipe you also have in Mealie), it is one card: the recipe with the best coverage stays (with equal coverage your own recipe from Mealie) and *also in Albert Heijn* names the other source. If the ingredient has a colour, cuisine or fat content (*red bell pepper*, *Provençal stir-fry vegetables*, *semi-skimmed milk*) and the offer names a different one (*Pepper yellow*, *Chinese stir-fry vegetables*, *Whole milk*), it is a different product. If a match is wrong, report it with the small flag next to the product (or with *Not a match* in the dialog below): the match disappears, also from other recipes with the same ingredient in that store, and the next fitting product takes its place. *Undo* is right under the message; reports are kept (`POST` and `DELETE /api/offers/rejections`). Click a linked product to view it in a dialog: picture, name, brand and size, the offer, the price (with the old price), the conditions and which ingredient from which recipe it is linked to, so you see at once whether the link is right. The *View at Albert Heijn* (or Jumbo) button opens the store's page in a separate window. Picnic has no web shop; there the dialog says there is no product page. *View* on a Mealie recipe opens the recipe in Mealie at the address Mealie itself uses (`/g/<group>/r/<recipe>`); MealieShopper asks Mealie for the group once and remembers it for an hour. With an older Mealie that gives no group, the old address (`/recipe/<recipe>`) stays. At the top is a filter for the kind of dish (breakfast, lunch, starter, soup, main course, side dish, dessert, snack and other), with the number of recipes per kind; only kinds that occur are listed. The kind comes from the source: the course at Jumbo, the categories and tags in Mealie, the recipe's category at AH. Picnic gives no course, so those recipes are under *other*. After updating, read the recipes once more (`Read recipes`), otherwise everything is still under *other*. The saving uses the price per item under the offer's condition (for *2nd half price* on € 4.00 that is € 3.00 each), and only when the regular price is known.
+
 ### Stores
 
-The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keeps. If Jumbo or Picnic is linked next to Albert Heijn, you choose the store in the drop-down menu on the left of the tab bar; its button shows the chosen store. With only Albert Heijn the menu is not there. Picnic has recipes, favourites and orders, Jumbo lists, orders and recipe lists (see *Picnic* and *Jumbo*); you search all Jumbo recipes under **Find recipes**.
+The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keeps. The subtabs are in the same order for every store: **Recipes**, **Lists** and **Orders** for Albert Heijn and Jumbo, and **Recipes**, **Favorites** and **Orders** for Picnic. When you switch store, the **Recipes** tab of that store opens. If Jumbo or Picnic is linked next to Albert Heijn, you choose the store in the drop-down menu on the left of the tab bar; its button shows the chosen store. With only Albert Heijn the menu is not there. Picnic has recipes, favourites and orders, Jumbo lists, orders and recipe lists (see *Picnic* and *Jumbo*); you search all Jumbo recipes under **Find recipes**.
 
-- **AH Recipes**: your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
+- **Recipes** (Albert Heijn): your saved Allerhande recipes. `Fetch from AH` (afterwards `Refresh`) fetches them all and keeps them in MealieShopper. The tab then shows the local copy and no longer calls AH until you refresh yourself; if a refresh fails, the previous copy stays. Search your recipes at the top.
 - **Lists**: at AH your favourite lists, at Jumbo your own lists, Favourites and the shopping list (see *Jumbo*). With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `On list: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
 
 - **Orders** (at Jumbo: your completed orders with their products, see *Jumbo*): the sync icon fetches the basket, the open and closed orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper keeps it as **delivered**. AH returns 10 closed orders per request; MealieShopper pages back to your oldest order and keeps what has been delivered (if it says "still without products", sync again). Cancelled orders are skipped. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The **AH basket** (Basket tab) is the shopping list that `Add to basket` writes to; it is fetched when you open the tab and stays as a copy. It is something other than the active order at AH (the web shop's order basket), which is often empty. MealieShopper does not keep the delivery address, only date and time slot.
@@ -276,19 +285,28 @@ Installing only works over HTTPS (except on `localhost`). To look at the menu ba
 
 Next to the flags is a button (moon or sun) that switches between the light and the dark theme. The choice is kept in your browser; without a choice the app follows your device setting.
 
+### Profile and settings
+
+At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only), **About** and **Log out**.
+
+- **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
+- **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.
+- **Profile > AI apps:** the MCP link with AI assistants, for everyone.
+- **Settings** (administrator): **Link** (Mealie and the supermarkets), **Users**, **Audit log** and **System** (the update check and the clean-up, see *Data and backups*).
+
 ### Language
 
 With the flags (top right, on the login page and in the setup guide) you switch between Dutch and English. The choice is kept in your browser; without a choice the app follows your browser language. What Mealie and the supermarkets return themselves (recipe names, product names and their error messages) stays as they send it.
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings**. There, **Stores** is a drop-down menu with Albert Heijn, Picnic and Jumbo; its button shows the chosen store and you open the link, the settings and the explorer of that store from it. Mealie has a tab of its own. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo** and **Picnic**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 
-<img src="docs/screenshots/en/settings-picnic.png" alt="Settings, Stores, Picnic: logging in with email address and password" width="900">
+<img src="docs/screenshots/en/settings-picnic.png" alt="Settings, Link, Picnic: logging in with email address and password" width="900">
 
-<img src="docs/screenshots/en/settings-jumbo.png" alt="Settings, Stores, Jumbo: logging in through the browser console" width="900">
+<img src="docs/screenshots/en/settings-jumbo.png" alt="Settings, Link, Jumbo: logging in through the browser console" width="900">
 
 ### Mealie
 
@@ -312,7 +330,7 @@ With `Check link` you see whether the stored token still works. Under **Explore 
 
 ### Picnic
 
-Picnic has no official link. MealieShopper logs in like the Picnic app, with your email address and password (administrator only, under **Settings > Stores > Picnic**):
+Picnic has no official link. MealieShopper logs in like the Picnic app, with your email address and password (administrator only, under **Settings > Link > Picnic**):
 
 1. Enter your email address and password and choose `Log in to Picnic`.
 2. Picnic usually asks for a code. It arrives by SMS (or by email, with the button below). Enter it and choose `Confirm`.
@@ -322,7 +340,7 @@ Your password is not stored, only the session that Picnic returns, encrypted. Pi
 
 ### Jumbo
 
-Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your own browser (on a computer, administrator only, under **Settings > Stores > Jumbo**). It works just like Albert Heijn:
+Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your own browser (on a computer, administrator only, under **Settings > Link > Jumbo**). It works just like Albert Heijn:
 
 1. Choose `Log in to Jumbo`; a new tab opens.
 2. In that tab, open the developer console (`F12`) **before** you log in.
@@ -337,12 +355,12 @@ Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless b
 
 <img src="docs/screenshots/en/login.png" alt="The login page with username and password" width="900">
 
-- **Passkey** (domain name with HTTPS): log in with your fingerprint, face or screen lock. Add extra passkeys under Settings, Security; the last passkey can only be removed if there is a password.
+- **Passkey** (domain name with HTTPS): log in with your fingerprint, face or screen lock. Add extra passkeys under Profile, Security; the last passkey can only be removed if there is a password.
 - **Password**: at least 10 characters, hashed with scrypt and never stored or logged. After 5 failed attempts per IP address (or 25 in total) logging in is blocked for 15 minutes.
 - **Two-step verification** (TOTP, when logging in with a password): the secret is stored encrypted in the database, a code works once, and you get 8 recovery codes (16 characters, only the SHA-256 is in the database). With a passkey you need neither a password nor two-step verification; those blocks are then folded away.
 - **Sessions**: an HttpOnly cookie. A new password or disabled two-step verification logs other devices out.
 
-<img src="docs/screenshots/en/security.png" alt="Settings, Security: password, two-step verification and passkeys" width="900">
+<img src="docs/screenshots/en/security.png" alt="Profile, Security: password, two-step verification and passkeys" width="900">
 
 **The secret.** Without `MEALIESHOPPER_AUTH_SECRET` the app creates a random secret on the first start and keeps it in the data folder (`secret.key`, readable only by the owner). Two separate keys follow from it: one for sessions and one for encrypting your stored links and the two-step secret. If you set `MEALIESHOPPER_AUTH_SECRET` yourself, the key is not on disk next to the database; use a long, fixed, random value (`openssl rand -hex 32`) and don't change it afterwards.
 
@@ -366,14 +384,14 @@ The first user, the one who goes through the setup wizard, is the **administrato
 
 - **Lost their login?** Choose **New login link** for that user. The old login keeps working until the new one is set up, and stops working after that.
 - **Remove** deletes the account and all its login details. The administrator cannot be removed.
-- Every user has their own login details, two-step verification and passkeys under Settings, Security. A new password only logs that user out.
+- Every user has their own login details, two-step verification and passkeys under Profile, Security. A new password only logs that user out.
 - Quantities in a list, and the lists themselves, are shared: they belong to the account at the store.
 
 ## AI assistants (MCP)
 
 MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address of MealieShopper>/mcp`. With it you can ask Claude, ChatGPT or GitHub Copilot things like *"what are we eating this week and what's in my Weekly groceries list?"* or *"import this recipe into Mealie"*.
 
-<img src="docs/screenshots/en/ai.png" alt="Settings, AI apps: the address of the MCP server and instructions per assistant" width="900">
+<img src="docs/screenshots/en/ai.png" alt="Profile, AI apps: the address of the MCP server and instructions per assistant" width="900">
 
 **What the assistant can do** (only in your name and with your rights):
 
@@ -396,14 +414,15 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 | `list_jumbo_lists`, `get_jumbo_list` | Your Jumbo lists (shopping list, own lists, Favourites) and the products in them. |
 | `list_jumbo_orders`, `get_jumbo_order` | Your Jumbo orders and their products, from the local copy. |
 | `search_jumbo_recipes`, `get_jumbo_recipe`, `list_jumbo_recipe_lists`, `get_jumbo_recipe_list` | Search and view Jumbo recipes, and your recipe lists (Favourites and own lists). |
+| `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` | Review the matches between recipe ingredients and products on offer: the assistant gets the unique pairs (ingredient + product, with the number of recipes) of one store, reports the wrong ones (`report_offer_mismatch`, with a reason; `undo` removes the report) and can list the reported matches. A report hides the match, also in other recipes with the same ingredient. The only write tool here; nothing is deleted. |
 | `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
 
 There is deliberately **no** tool that fills a basket at a store or deletes anything.
 
 **Setting up**
 
-1. As administrator open **Settings, AI apps**. At the top are the settings: the **MCP server on** switch and the **public address**. The app detects that address itself from how you open it; if MealieShopper is behind a reverse proxy, check that it is the public https address and otherwise enter it here. ChatGPT and claude.ai reach the server from outside, so the address must be reachable from the internet, with HTTPS. Forward `/mcp`, `/oauth/*` and `/.well-known/oauth-*` in your reverse proxy (an ordinary proxy does that for the whole site already).
-2. As a user open **Settings, AI apps** (the settings are not shown to you), copy the address and follow the instructions for your assistant. You get the consent screen; after **Allow** the assistant is connected.
+1. As administrator open **Profile, AI apps**. At the top are the settings: the **MCP server on** switch and the **public address**. The app detects that address itself from how you open it; if MealieShopper is behind a reverse proxy, check that it is the public https address and otherwise enter it here. ChatGPT and claude.ai reach the server from outside, so the address must be reachable from the internet, with HTTPS. Forward `/mcp`, `/oauth/*` and `/.well-known/oauth-*` in your reverse proxy (an ordinary proxy does that for the whole site already).
+2. As a user open **Profile, AI apps** (the settings are not shown to you), copy the address and follow the instructions for your assistant. You get the consent screen; after **Allow** the assistant is connected.
    - **Claude** (claude.ai, Desktop, phone): Settings, Connectors, *Add custom connector*.
    - **Claude Code:** `claude mcp add --transport http mealieshopper https://your-address/mcp`, then `/mcp` to log in.
    - **ChatGPT:** developer mode on, a new connector with the address and OAuth. Availability depends on your plan.
@@ -415,7 +434,7 @@ There is deliberately **no** tool that fills a basket at a store or deletes anyt
 
 - OAuth 2.1 with PKCE (S256); apps register themselves (dynamic client registration), public clients only, and only https, loopback or app redirects.
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
-- A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
+- A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Profile, AI apps** you revoke an app's access yourself.
 - The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings. Under **What the assistant can do** the administrator can also switch each tool off individually, for all users. A switched-off tool is hidden from assistants and refused; they see the change on their next connection.
 - What the assistant reads (recipe names, product names) comes from Mealie and the supermarkets; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
 
@@ -427,9 +446,12 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 |---|---|
 | `MEALIESHOPPER_DATA_DIR` | Folder for the database and `secret.key`. `/data` in the Docker image, `./data` by default locally. |
 | `MEALIESHOPPER_AUTH_SECRET` (or `JWT_SECRET`) | Your own secret for sessions and encryption. Without it the app creates `secret.key`. |
-| `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address (for the preview image, invitation links and the AI connection). Optional: the app detects it itself, and an address the administrator enters under Settings, AI apps takes precedence. |
+| `MEALIESHOPPER_PUBLIC_BASE_URL` | The public address (for the preview image, invitation links and the AI connection). Optional: the app detects it itself, and an address the administrator enters under Profile, AI apps takes precedence. |
 | `RP_ID`, `RP_ORIGINS` (or `RP_ORIGIN`), `RP_NAME` | Only for passkeys, with a domain name and HTTPS. |
-| `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Settings, AI apps takes precedence. |
+| `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Profile, AI apps takes precedence. |
+| `MEALIESHOPPER_OFFERS_SCHEDULE` | Set to `false` to turn off the daily task that fetches the offers of all stores. The button under Settings, Link keeps working. On by default. |
+| `MEALIESHOPPER_OFFERS_SYNC_HOUR` | The hour of the day (0 to 23, the container's time) at which that task fetches the offers. Default 5. |
+| `MEALIESHOPPER_OFFERS_RECIPES` | With `true` the app shows the **Recipes** subtab under Offers (recipe suggestions from the offers). Off by default: the matches between ingredients and products are not good enough yet. The MCP tools for AI assistants work with this off too. |
 | `MEALIESHOPPER_UPDATE_CHECK` | Set to `false` to turn the update check off (Settings, Updates). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
 | `MEALIESHOPPER_AUDIT_LOG` | Set to `false` to turn the audit log off (Settings, Audit log). On by default. |
 | `MEALIESHOPPER_AUDIT_BODIES` | Set to `false` and the audit log stores only who, what, when and the outcome, not the requests and answers themselves. On by default. |
@@ -452,6 +474,8 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your lists, recipes, orders and receipts at the supermarkets, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and the supermarkets again, and the app shows that as "not linked".
 
+**Factory reset.** Under **Settings, System, Clean-up** you reset MealieShopper to a fresh installation. That deletes the whole database and `secret.key`: all users, passwords, passkeys and two-step verification (yours too), the links to Mealie, the supermarkets and AI assistants, the saved lists, orders and offers, and the audit log. Your recipes in Mealie and your supermarket accounts are left alone, as is anything you set in environment variables. Because it can't be undone, the app first warns about the consequences and asks for the word `RESET` and for you to prove again that it is you: with your password (and the code from your authenticator app or a recovery code, if you use two-step verification) or with your passkey. After the erase the app restarts itself and you land in the setup assistant again. The restart works in the container (under gunicorn) when compose has a restart policy that starts it again after a normal stop, such as `unless-stopped` or `always` in the example; if you run the app another way, it tells you to restart it yourself. Back up the data folder first if you are not sure you want to lose everything.
+
 ## Updating
 
 ```bash
@@ -462,9 +486,9 @@ With a new version you don't have to do anything; the database is extended autom
 
 <img src="docs/screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 
-**Update check.** Under **Settings, Updates** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
+**Update check.** Under **Settings, System** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
 
-<img src="docs/screenshots/en/updates.png" alt="Settings, Updates: the installed and the latest version, with the notice at the top" width="900">
+<img src="docs/screenshots/en/updates.png" alt="Settings, System: the installed and the latest version, with the notice at the top" width="900">
 
 ## Troubleshooting
 
@@ -480,7 +504,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo refuses the request (403)".** Jumbo blocks this address or server. Try again later; if it keeps happening, Jumbo does not work from this location. See **Explore Jumbo routes**.
 
-**Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Stores > Picnic and log in again.
+**Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Link > Picnic and log in again.
 
 **AH: "code expired or used".** The code from the console works only once and expires quickly. Log in again and paste the new line right away.
 
@@ -500,11 +524,11 @@ Then open the app: the setup guide appears again and you set up security anew. T
 python -m unittest discover -s tests          # all tests
 ```
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `offers_schedule.py`, `offer_categories.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
-- **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `main`: the workflow `.github/workflows/release.yml` then creates the tag and the GitHub release with that text. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
-- **Container registry:** the workflow builds and pushes on every push to `main` (and manually through `workflow_dispatch`) to `ghcr.io/helmerznl/mealieshopper:latest`, for `linux/amd64` and `linux/arm64` (through QEMU and Buildx).
+- **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
+- **Branches and container registry:** pull requests go to `beta`, not to `main` (`main` only receives a pull request from `beta`; the check in `.github/workflows/pr-target.yml` enforces it). The workflow builds and pushes on every push to `main` to `ghcr.io/helmerznl/mealieshopper:latest` (and `X.Y.Z`), and on every push to `beta` to `ghcr.io/helmerznl/mealieshopper:beta` (and `X.Y.Z-beta`), for `linux/amd64` and `linux/arm64` (through QEMU and Buildx; also manually through `workflow_dispatch`). To run the development version, use the `beta` tag and a separate data folder.
 - **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a demo environment with hand-drawn illustrations (no third-party photos), so they are free to use anywhere.
 
 ## Integrations and components

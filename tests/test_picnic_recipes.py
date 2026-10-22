@@ -290,10 +290,11 @@ class RoutesTest(TempDataDirTest):
         picnic.save_auth_key("key")
         with mock.patch.object(mealie, "ensure_configured"), \
                 mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"), \
                 mock.patch.object(picnic_recipes, "get_recipe", return_value=MealieTest.RECIPE), \
                 mock.patch.object(mealie, "import_via_jsonld", return_value="pasta-pesto") as send:
             body = self.client.post("/api/picnic/recipes/r1/import").get_json()
-        self.assertEqual(body, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/recipe/pasta-pesto"})
+        self.assertEqual(body, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
         url, data = send.call_args.args
         self.assertEqual(url, picnic_recipes.source_url("r1"))
         self.assertEqual(data["name"], "Pasta pesto")

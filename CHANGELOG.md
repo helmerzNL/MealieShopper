@@ -2,6 +2,477 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.67.2
+
+### Sinds de vorige stabiele versie (v2.53.0)
+
+Deze release brengt `main` van v2.53.0 naar v2.67.2. De tussenliggende versies (2.53.1 tot en met 2.67.1) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.53.0: the new Offers tab (offers of Albert Heijn, Picnic and Jumbo, in categories, refreshed daily in the background, with a permanent history, the conditions and end date of each offer, and a cache so switching store is quick); recipe suggestions based on the offers of the chosen store (hidden by default in this release: set `MEALIESHOPPER_OFFERS_RECIPES=true` to show them), with clickable linked products, English ingredients translated for matching, a flag to report wrong matches and three new MCP tools so ChatGPT or Claude can review the matches; a reorganised interface (Settings > Link on one page, an avatar menu with Profile and Settings, a vertical menu on large screens, a week menu that loads by itself, the same subtab order for every store); links to Mealie recipes that work again; and Settings > System with a factory reset.*
+
+- **Aanbiedingen (2.53.0 tot en met 2.67.1).** Een nieuw tabblad **Aanbiedingen** met de aanbiedingen van Albert Heijn, Picnic en Jumbo, per categorie, met oude en nieuwe prijs, de voorwaarden (*bij 2 stuks*) en de einddatum. Een achtergrondtaak ververst ze elke dag (standaard rond 5 uur) en de beheerder synchroniseert ze meteen onder *Instellingen > Koppelen*. Elke synchronisatie komt ook in een blijvende geschiedenis (`GET /api/offers/history`). Bij het wisselen van winkel toont de pagina een laadicoon en onthoudt ze de aanbiedingen; `GET /api/offers` stuurt een `ETag` mee.
+- **Receptvoorstellen (verborgen in deze release).** Recepten uit Mealie, Jumbo, Picnic en AH worden vergeleken met de aanbiedingen van de gekozen winkel, met de meeste ingrediënten in de aanbieding bovenaan, een filter op soort gerecht en per recept wat er niet in de aanbieding is. Gekoppelde producten zijn aan te klikken (venster met plaatje, prijs en voorwaarden), Engelse ingrediënten worden vertaald voor het vergelijken, hetzelfde recept uit twee bronnen is één kaart en de koppelingen zijn strenger (basisingrediënten, bereide producten, kleur, keuken en vetgehalte). Omdat de koppelingen nog niet goed genoeg zijn, staat het subtabblad *Recepten* sinds v2.67.0 standaard uit; met `MEALIESHOPPER_OFFERS_RECIPES=true` komt het terug.
+- **Koppelingen beoordelen (2.66.0 en 2.67.0).** Een onjuiste koppeling meld je met een kleine vlag of de knop *Klopt niet*; de melding blijft bewaard (tabel `offer_rejections`) en geldt voor het hoofdwoord in die winkel. ChatGPT en Claude kunnen de koppelingen via de MCP-server beoordelen met de nieuwe tools `review_offer_matches`, `report_offer_mismatch` en `list_offer_mismatches`; er draait geen AI in MealieShopper zelf.
+- **Nieuwe indeling.** *Instellingen > Koppelen* is één pagina met de status van Mealie en de winkels bovenaan; een avatar-menu met Profiel, Instellingen en Over vervangt het tabblad Beheer; op een groot scherm staat het hoofdmenu links en is het inklapbaar; het weekmenu laadt vanzelf met een cache van 30 minuten; de subtabs onder *Winkels* staan bij elke winkel in dezelfde volgorde (Recepten eerst) en *AH Recepten* heet nu *Recepten*.
+- **Instellingen > Systeem.** Het tabblad *Updates* heet nu *Systeem* en bevat de updatecheck en de beheerdersfunctie *Fabrieksinstellingen* (v2.63.0 verderop).
+- **Opgelost.** Links naar Mealie-recepten gebruiken weer het adres dat Mealie zelf gebruikt (`/g/<groep>/r/<recept>`), ook na het importeren van een recept en in de MCP-tools.
+- **Nieuwe routes** (alleen beheerder, tenzij anders vermeld): `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes`, `POST /api/offers/recipes/sync`, `GET /api/offers/status`, `POST /api/offers/sync-all`, `GET /api/offers/history`, `POST` en `DELETE /api/offers/rejections`, `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` en `POST /api/system/factory-reset`. **Nieuwe MCP-tools:** `review_offer_matches`, `report_offer_mismatch` en `list_offer_mismatches`.
+- **Verwijderd.** De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen (de aanbiedingen komen uit de lokale kopie), het aparte tabje *Mealie* (nu onderdeel van *Koppelen*) en het tabblad *Beheer* (nu in het avatar-menu).
+
+#### Goed om te weten bij het bijwerken
+
+- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_OFFERS_SYNC_HOUR` (uur van de dagelijkse run, standaard 5), `MEALIESHOPPER_OFFERS_SCHEDULE=false` om de dagelijkse taak uit te zetten en `MEALIESHOPPER_OFFERS_RECIPES=true` om de receptvoorstellen onder Aanbiedingen weer te tonen. Zonder aanpassing werkt alles zoals voorheen, met de receptvoorstellen verborgen.
+- **Zet je de receptvoorstellen aan, lees je recepten dan één keer opnieuw in** (*Aanbiedingen > Recepten > Recepten inlezen*): de soort gerecht wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*.
+- De database wordt zo nodig vanzelf aangevuld (onder meer de kolom *categorie*, de geschiedenis van de aanbiedingen en de tabel met gemelde koppelingen); je hoeft niets te migreren.
+- De aanbiedingen van Picnic en Jumbo komen uit onofficiële routes en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij *Koppelen* en bij *Aanbiedingen*.
+- De screenshots in `docs/screenshots/` kunnen nog een oudere indeling tonen.
+
+Pull requests sinds v2.53.0: #89 tot en met #115.
+
+*English summary: The subtabs under Stores are now in the same order for every store: Recipes, Lists, Orders for Albert Heijn and Jumbo, and Recipes, Favorites, Orders for Picnic. Jumbo showed Lists, Orders, Recipes before. The Albert Heijn tab "AH Recipes" is now just "Recipes", and switching store always opens the Recipes tab of that store (before, Albert Heijn and Jumbo started at Lists).*
+
+### Aangepast in 2.67.2
+
+- **De subtabs onder Winkels staan bij elke winkel in dezelfde volgorde.** Albert Heijn: *Recepten, Lijstjes, Bestellingen*. Jumbo: *Recepten, Lijstjes, Bestellingen* (Recepten stond achteraan). Picnic: *Recepten, Favorieten, Bestellingen*.
+- **Het tabblad *AH Recepten* heet nu *Recepten*.** De winkelkeuze ernaast laat al zien dat het om Albert Heijn gaat. De melding bij het indexeren van recepten noemt nu *Winkels > Albert Heijn > Recepten*.
+- **Wisselen van winkel opent altijd het tabblad *Recepten* van die winkel.** Voorheen begonnen Albert Heijn en Jumbo bij *Lijstjes*, en bleef een open tabblad staan als het bij de nieuwe winkel bestond. Lijstjes en bestellingen laden voor de nieuwe winkel zodra je ze opent.
+
+## v2.67.1
+
+*English summary: When you switch store under Offers, the list of the previous store now disappears at once and a spinning icon (Material Design Icons "loading") with "Loading the offers of {store}…" shows until the new offers are in. Before, the old list stayed on screen under the new store name, so it looked as if nothing happened. A slow answer from a store you already switched away from no longer overwrites the list. With reduced motion set in the system the icon stands still and the text stays. The offers are also cached now: a store you already saw shows at once when you switch back (and is checked in the background), and the browser only gets the list again when it changed (ETag, 304).*
+
+### Opgelost in 2.67.1
+
+- **Bij het wisselen van winkel was niet te zien dat er geladen werd.** De lijst van de vorige winkel bleef staan, onder de naam van de nieuwe winkel, tot de nieuwe aanbiedingen binnen waren. Nu verdwijnt die lijst meteen en staat er een draaiend icoon (MDI *loading*) met *Aanbiedingen van Jumbo laden…*; daarna komen de aanbiedingen. Dat geldt ook bij het openen van het tabblad en bij een taalwissel.
+- **Een traag antwoord van de vorige winkel overschrijft de lijst niet meer.** Wissel je snel twee keer, dan telt alleen de laatste winkel. Een fout haalt het icoon weg en toont de foutmelding.
+- **Minder beweging.** Staat in je systeem *beweging verminderen* aan, dan draait het icoon niet; de tekst blijft staan.
+
+### Nieuw in 2.67.1
+
+- **De aanbiedingen worden gecachet.** Wissel je terug naar een winkel die je al zag, dan staat de lijst er meteen (zonder icoon) en controleert de pagina op de achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd, dus je plek en je *Meer* blijven staan.
+- **De browser vraagt alleen of er iets veranderd is.** `GET /api/offers` stuurt een `ETag` mee (`Cache-Control: private, no-cache`). Is de lijst niet veranderd, dan volgt een `304` zonder de lijst te laden of te versturen. De ETag verandert bij een nieuwe synchronisatie van die winkel, op een nieuwe dag (aanbiedingen lopen af) en bij een nieuwe versie van de app.
+
+### Goed om te weten
+
+- De server zelf is niet traag: 3000 aanbiedingen laden kost ± 30 ms, dus de database cachen heeft weinig zin. De wachttijd zat in het ophalen en tekenen van de lijst, en tot 2.67.0 ook in de receptvoorstellen die bij elke winkelwissel mee werden berekend; die staan sinds 2.67.0 uit (`MEALIESHOPPER_OFFERS_RECIPES`).
+- De cache in de pagina geldt tot je de pagina herlaadt; daarna zorgt de ETag ervoor dat het ophalen klein blijft.
+
+## v2.67.0
+
+*English summary: The recipe suggestions under Offers are hidden for now (set `MEALIESHOPPER_OFFERS_RECIPES=true` to show them again), because the matches are not good enough yet. ChatGPT and Claude can now review the matches through the MCP server: `review_offer_matches` lists the unique ingredient + product pairs of a store, `report_offer_mismatch` reports a wrong one (with a reason, undoable) and `list_offer_mismatches` shows the reports. Reports from the assistant and from the flag in the app share one list and one effect: the match is hidden and the next fitting product takes its place. No AI runs inside MealieShopper itself: your own assistant does the judging, with your own subscription.*
+
+### Aangepast in 2.67.0
+
+- **De receptvoorstellen onder Aanbiedingen zijn verborgen.** Het subtabblad *Recepten* staat standaard uit, zolang de koppelingen niet goed genoeg zijn. Met `MEALIESHOPPER_OFFERS_RECIPES=true` komt het terug. De aanbiedingen zelf en de API (`/api/offers/recipes`) blijven werken.
+
+### Nieuw in 2.67.0
+
+- **ChatGPT en Claude beoordelen de koppelingen, via de MCP-server.** Drie nieuwe tools: `review_offer_matches` (de unieke paren ingrediënt + product van een winkel, het vaakst gebruikte eerst, met het aantal recepten en voorbeelden; `limit` en `offset` om verder te lezen), `report_offer_mismatch` (een paar als onjuist melden, met een korte reden; `undo` haalt de melding weg) en `list_offer_mismatches` (de gemelde koppelingen, met wie meldde en waarom). Vraag het bijvoorbeeld zo: *"Beoordeel met MealieShopper de koppelingen van Jumbo en meld de onjuiste."*
+- **Eén meldlijst.** Meldingen van de assistent en van de vlag in de app (v2.66.0) staan in dezelfde tabel en hebben hetzelfde effect: de koppeling verdwijnt, ook bij andere recepten met hetzelfde hoofdwoord in die winkel, en het volgende passende product neemt de plaats in. De tabel heeft er twee kolommen bij (`reason`, `source`); meldingen van 2.66.0 blijven werken.
+- **Geen AI in MealieShopper zelf.** Er gaat niets automatisch naar een AI-dienst en er zijn geen API-sleutels nodig: je assistent doet het oordelen, met je eigen abonnement, en alleen als jij erom vraagt.
+
+### Goed om te weten
+
+- `report_offer_mismatch` is de enige schrijftool voor aanbiedingen; ze verwijdert niets en is ongedaan te maken. Je kunt haar, net als elke andere tool, uitzetten onder Profiel, AI-apps.
+- De kleine vlag in de app is verborgen samen met het tabblad; dat de melding daar beter in beeld moet komen, wordt opgepakt als het tabblad terugkomt.
+
+## v2.66.0
+
+*English summary: A wrong match between a recipe ingredient and an offer can now be reported with one click: a small flag (the Material Design Icons "flag-outline") next to every matched product, and a "Not a match" button in the product window. The match does not come back, also not in other recipes with the same main ingredient in that store, and the next best product takes its place. You can undo it right after reporting, and a report survives the daily sync. Still no AI involved.*
+
+### Nieuw in 2.66.0
+
+- **Een onjuiste koppeling melden.** Naast elk gekoppeld product onder een receptvoorstel staat een kleine vlag (het MDI-icoon *flag-outline*); in het productvenster staat dezelfde melding als knop *Klopt niet*. Daarna staat er een melding met *Ongedaan maken*, en de koppeling is weg. Heeft de winkel een ander product dat wel past, dan komt dat ervoor in de plaats.
+- **Een melding geldt voor het hoofdwoord, in die winkel.** *Kipfilet → AH Kipfilet met saus* melden verbergt die koppeling ook in andere recepten met kipfilet. Bij een andere winkel is het een ander product en blijft het staan. Een Engelse regel (*chicken breast*) wordt gemeld onder het Nederlandse hoofdwoord, net zoals hij wordt gekoppeld.
+- **Meldingen blijven bewaard.** Ze staan in een eigen tabel (`offer_rejections`) en overleven de dagelijkse synchronisatie en het opnieuw inlezen van de recepten. Je kunt zo ook zien welke koppelingen niet kloppen, om de regels beter te maken.
+- **Nieuwe route:** `POST /api/offers/rejections` meldt een koppeling (`store`, `ingredient`, `offerId`) en `DELETE` met dezelfde velden trekt de melding in.
+
+## v2.65.2
+
+*English summary: The same recipe from two sources (for example an AH recipe you also have in Mealie) is now one card, with "also in Albert Heijn" next to it; the recipe with the best coverage stays, and with equal coverage your own recipe from Mealie. An ingredient with a colour, cuisine or fat content (red bell pepper, Provençal stir-fry vegetables, semi-skimmed milk) no longer matches an offer that names a different one (yellow, Chinese, whole milk).*
+
+### Opgelost in 2.65.2
+
+- **Hetzelfde recept uit twee bronnen is één kaart.** *Supersnelle spaghetti met runderballetjes* stond twee keer in de lijst, één keer uit Mealie en één keer uit Albert Heijn. Recepten met dezelfde titel (hoofdletters, accenten en leestekens tellen niet mee) uit verschillende bronnen worden nu samengevoegd. Het recept met de beste dekking blijft staan, bij gelijke dekking het eigen recept uit Mealie, en op de kaart staat *ook in Albert Heijn*. De aantallen bij *Alle* en bij de soorten gerecht tellen het recept één keer. Twee recepten met dezelfde titel uit dezelfde bron blijven allebei staan: dat zijn twee recepten.
+- **Een andere kleur, keuken of vetgehalte is een ander product.** *400 g Provençaalse wokgroente* hoorde bij *AH Wokgroente Chinees*. Noemen het ingrediënt en de aanbieding allebei een kleur (rood, geel, groen, oranje, wit, zwart, bruin, paars, blauw), een keuken of streek (Chinees, Provençaals, Italiaans, Thais, Spaans, …) of een vetgehalte (mager, halfvol, vol) en zijn die verschillend, dan is het geen match: *rode paprika* past niet bij *Paprika geel*, *halfvolle melk* niet bij *Volle melk*. Noemt maar één kant zoiets (*wokgroente*, *Wokgroente Chinees*) of noemt de aanbieding meerdere (*Paprika rood geel groen*), dan blijft het een match. *Rode* en *rood*, *witte* en *wit* en *Chinese* en *Chinees* gelden als hetzelfde woord.
+
+### Goed om te weten
+
+- De kaart toont de bron van het recept dat blijft staan; *ook in …* noemt de bronnen van de samengevoegde recepten.
+- De API en de MCP-tools zijn niet veranderd, op het extra veld `alsoIn` bij elk recept in `GET /api/offers/recipes` na.
+
+## v2.65.1
+
+*English summary: Links to Mealie recipes now use the address Mealie itself uses, `/g/<group>/r/<recipe>`, instead of `/recipe/<recipe>` (which gave an error page). This also fixes the link after importing a recipe and the links of the MCP tools, and recipes that were read in before are corrected without reading them again. Six more wrong links between ingredients and offers are gone: a vegetable burger for broccoli, a pie with beef stew for onions, a cream cheese dip for cream cheese, tortelloni with ricotta for ricotta, "spaghetti all'uovo" matching "tagliatelle all'uovo", and a noodle meal for "vegetables".*
+
+### Opgelost in 2.65.1
+
+- **De links naar Mealie-recepten klopten niet.** De knop *Bekijken* bij een receptvoorstel opende `/recipe/<recept>`, terwijl Mealie `/g/<groep>/r/<recept>` gebruikt (bijvoorbeeld `/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven`). MealieShopper vraagt de groep (`groupSlug`) één keer aan Mealie (`/api/users/self`, met je eigen token), onthoudt die een uur en bouwt daarmee het adres op. Bij een oudere Mealie die geen groep geeft, of als Mealie even niet antwoordt, blijft het oude adres staan; na een mislukte poging probeert MealieShopper het na een minuut opnieuw en blokkeert het niets.
+  - Dit geldt ook voor de link na het **importeren van een recept** (AH, Picnic, Jumbo, een adres) en voor de **MCP-tools** (`get_week_menu`, `import_recipe_to_mealie`).
+  - Recepten die al in de index staan, hoeven niet opnieuw ingelezen: het adres wordt bij het tonen opnieuw opgebouwd uit het bewaarde adres.
+- **Zes verkeerde koppelingen uit de receptvoorstellen bij AH**:
+  - *500 g broccoli* hoorde bij *AH Terra Groenteburger broccoli paprika* en *2 middelgrote uien* bij *AH Pie runderstoof ui*. Een aanbieding in een andere rauwe soort (vlees) dan het ingrediënt (groente) is een samengesteld product waar het ingrediënt maar een deel van is; die telt niet meer.
+  - *150 g koelverse roomkaas met bieslook* hoorde bij *AH Mascarpone roomkaas chili dip*. Een *dip*, *burger*, *nugget* of *schotel* is een bereid product en telt alleen als het ingrediënt dat zelf vraagt.
+  - *125 g ricotta* hoorde bij *AH Tortelloni verdi ricotta spinaci*. Gevulde pasta (tortelloni, tortellini, ravioli, cannelloni, gnocchi) en pastavormen (tagliatelle, fusilli, …) zijn nu een maaltijd, ook als er ricotta in zit; ricotta, mascarpone, burrata, pecorino, gorgonzola en camembert zijn kaas.
+  - *250 g verse spaghetti all'uovo* hoorde bij *AH Tagliatelle all' uovo*: *uovo* was het hoofdwoord. Een Italiaanse toevoeging (*all'uovo*) telt niet meer mee, dus het hoofdwoord is *spaghetti*.
+  - *Verspakket plaattaart groente* hoorde bij *Knorr Good noodles groente*. *Groente* en *fruit* zijn nu net als *saus* en *kaas* een soort: de andere woorden van het ingrediënt moeten er ook in staan.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd, op het adres van een Mealie-recept na.
+
+## v2.65.0
+
+*English summary: English ingredients (many Mealie imports) can now be matched with the Dutch offers. Before comparing, each ingredient line is translated into Dutch from a built-in list of a few hundred common ingredients and phrases ("2 tbsp mayo" becomes "2 tbsp mayonaise", "chicken thighs" becomes "kippendijen", "kipdijfilet" and "kippendij"); nothing is sent to a translation service. A Dutch line is left as it is and the recipe card still shows the line as written in the recipe. A tablespoon of a dried spice ("2 tbsp paprika") is a seasoning and no longer looks for bell peppers.*
+
+### Nieuw in 2.65.0
+
+- **Engelse ingrediënten worden vertaald voor het vergelijken.** Een nieuwe module, `mealieshopper/offer_translate.py`, zet een Engelse regel om in het Nederlands, op woorden en uit een vaste lijst (een paar honderd gangbare ingrediënten en samenstellingen: groente en fruit, vlees en vis, zuivel, brood en pasta, sauzen, bakproducten, noten en specerijen). Aantallen, eenheden en wat tussen haakjes staat blijven staan; een meervoud (*tomatoes*, *cherries*) en hoofdletters maken niet uit; de langste frase wint (*cream cheese* wordt *roomkaas* en niet *room kaas*). Er gaat niets naar een vertaaldienst.
+- **Meerdere Nederlandse namen worden allemaal geprobeerd.** De winkels noemen hetzelfde product niet gelijk: *chicken thighs* wordt *kippendijen*, *kipdijfilet* en *kippendij*, *ground beef* wordt *rundergehakt* en *gehakt*, *spring onion* wordt *bosui* en *lente-ui*. De aanbieding die het beste past wint.
+- **De kaart toont de regel zoals hij in het recept staat** (Engels), met het Nederlandse product erachter, en *Niet in de aanbieding* noemt de oorspronkelijke regel.
+
+### Aangepast in 2.65.0
+
+- **Een eetlepel van een gedroogde specerij is een kruid.** *2 tbsp paprika*, *1 el kurkuma*, *1 tbsp cumin*, *2 el kerrie* en *1 tablespoon cinnamon* zoeken geen product meer bij de aanbiedingen. Voorheen werd *2 tbsp paprika* gekoppeld aan een zak paprika's, terwijl er paprikapoeder in een kruidenmix bedoeld werd. Een gewone *rode paprika* of *1 paprika* blijft een groente.
+
+### Goed om te weten
+
+- **De lijst is niet volledig.** Een Engels woord dat er niet in staat, blijft Engels en vindt dus meestal niets. Woorden die in beide talen gelijk zijn (*pasta*, *pesto*, *mozzarella*, *avocado*) hebben geen vertaling nodig. Ontbreekt een ingrediënt dat je vaak tegenkomt, geef het door; het is één regel in de lijst.
+- Een Nederlandse regel verandert niet: de tests controleren dat voor een reeks gangbare Nederlandse regels, en dat opnieuw vertalen van een vertaalde regel niets verandert.
+- Alleen de ingrediëntregels worden vertaald, niet de titels van recepten of de aanbiedingen (die zijn Nederlands).
+- De API en de MCP-tools zijn niet veranderd.
+
+## v2.64.0
+
+*English summary: The products linked to a recipe's ingredients can be clicked. A dialog shows the product (picture, name, brand and size, the offer, the price with the old price, the conditions) and which ingredient from which recipe it is linked to, so you see at once whether the link is right. A button opens the store's own page in a separate window; Picnic has no web shop, so there the dialog says there is no product page. The dialog works with the keyboard (Enter opens, Esc closes), also closes with a click outside it, and fits a phone and the dark theme.*
+
+### Nieuw in 2.64.0
+
+- **Gekoppelde producten zijn aan te klikken.** Onder een receptvoorstel is `→ AH Zalmfilet 2-pack` nu een knop. Die opent een venster met het plaatje, de naam, het merk en de inhoud, de actie (*1+1 gratis*), de prijs met de oude prijs, de voorwaarden (*bij 2 stuks · € 2,50 per stuk · t/m 25 okt*) en de zin *Gekoppeld aan "100 g zalmfilet" uit Romige tagliatelle met zalm*. Zo zie je meteen of het product bij het ingrediënt past.
+- **Bekijk bij de winkel.** Een knop *Bekijk bij Albert Heijn* of *Bekijk bij Jumbo* opent de pagina van het product in een los venster (hetzelfde als *Bekijk product* bij het mandje). Picnic heeft geen webwinkel; daar staat in het venster dat er geen productpagina is en ontbreekt de knop.
+- Het venster sluit met *Sluiten*, met Esc of met een klik ernaast. Met het toetsenbord opent Enter op de productnaam het venster, en na het sluiten staat de focus weer op die naam. Het past op een telefoon en volgt het donkere thema.
+
+### Goed om te weten
+
+- Een productplaatje dat niet laadt wordt in het venster verborgen en niet uit de pagina gehaald (anders zou het venster daarna geen plaatjes meer kunnen tonen).
+- Alleen bij de receptvoorstellen; de kaarten bij Aanbiedingen > Aanbiedingen openen nog steeds direct de winkelpagina in een nieuw tabblad.
+- De API en de MCP-tools zijn niet veranderd.
+
+## v2.63.1
+
+*English summary: Fewer wrong links between recipe ingredients and offers. A kind of product ("curry sauce", "bread roll") only fits an offer that has the other words too, a raw product (bell pepper, chicken fillet) no longer fits a prepared one (crisps, focaccia, a wrap), shampoo, cat food and other non-food offers are left out, and Lay's/Bifi and similar snack brands are snacks instead of "vegetables". A line with a teaspoon or a pinch, a spice powder, English basics (salt, oil, flour ...) and a heading such as "Spice mixture (below)" no longer count as ingredients, and the same ingredient twice in a recipe counts once. In the two recipes that were reported, "5 of 20" became 1 of 8 (and is no longer suggested), and the shampoo is gone from the sushi bowl.*
+
+### Opgelost in 2.63.1
+
+- **Verkeerde koppelingen in de receptvoorstellen**, uit twee gemelde recepten:
+  - *Bread roll* hoorde bij *Bifi Roll XXL*, *1 tbsp curry sauce* bij *Sweet chilli sauce*. Bij een soort (*saus*, *sauce*, *soep*, *kaas*, *brood*, *rol*, *worst*, *dressing*, *drank*, *vlees*, *vis*) moeten de andere woorden van het ingrediënt ook in de aanbieding staan.
+  - *Paprika* hoorde bij *Lay's Paprika* en bij *AH Focaccia paprika olijf*. Een rauw product (groente en fruit, vlees, vis, zuivel en eieren, kaas en vleeswaren) past niet bij een bereid product (brood en bakkerij, maaltijden, snacks). Lay's, Doritos, Pringles, Cheetos, Bifi, Bugles en Tostitos zijn nu snacks; voorheen telde *Lay's Paprika* als groente. Dat verbetert ook de categorieën bij de aanbiedingen.
+  - *Avocado's* hoorde bij *Avocado olie shampoo*. Aanbiedingen van drogisterie, huishouden, baby en huisdier doen niet meer mee aan de receptvoorstellen.
+- **Wat geen ingrediënt is, telt niet meer mee** in *x van y* en in *Niet in de aanbieding*: een regel met een theelepel of snuf (*1 tsp salt*, *½ tsp cayenne*, *2 tl kurkuma*, *1 snuf nootmuskaat*), kruidenpoeders (*onion powder*, *knoflookpoeder*), de Engelse basis (*salt*, *pepper*, *oil*, *butter*, *flour*, *sugar*, *vinegar*, *stock*, *cornstarch*, *maizena*) en een kopje als *Spice mixture (below)* of *Kruidenmix (hieronder)*. Engelse eenheden en bijwoorden (*tbsp*, *tsp*, *cup*, *and*, *with*, *chopped*, ...) tellen niet als woorden van het ingrediënt, en een verbogen bijvoeglijk woord (*geraspte*, *gerookte*) telt net als *geraspt* niet mee.
+- **Hetzelfde ingrediënt twee keer in een recept telt één keer** (*1 tsp paprika* en *2 tbsp paprika* waren twee ingrediënten met twee verschillende aanbiedingen).
+- In de twee gemelde recepten werd *Grillworst* van "5 van 20" naar 1 van 8 (en wordt daarom niet meer voorgesteld, de enige koppeling is *mayo* → *Hellmann's*), en de *Warme sushibowl* verloor de shampoo.
+
+### Goed om te weten
+
+- **Engelse receptregels** (veel Mealie-imports) kunnen niet met Nederlandse aanbiedingen worden vergeleken: alleen woorden die in beide talen gelijk zijn (*paprika*, *mayo*, *avocado*) matchen. Zo'n recept toont nu minder valse koppelingen, maar blijft meestal onder de ondergrens.
+- *Komkommer* hoort nog bij *AH Tomaat komkommer M* (een titel met een tweede groente); of dat klopt, is uit de titel alleen niet te zien. Gereedschap als *grillpan* telt nog als ingrediënt dat niet in de aanbieding is.
+- De API en de MCP-tools zijn niet veranderd.
+
+## v2.63.0
+
+*English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
+
+### Nieuw in 2.63.0
+
+- **Fabrieksinstellingen.** Onder *Instellingen > Systeem > Opschonen* zet de beheerder MealieShopper terug naar een nieuwe installatie. Dat verwijdert de database (gebruikers, wachtwoorden, passkeys, koppelingen, lijstjes, bestellingen, aanbiedingen, auditlog) en `secret.key`. De knop opent eerst een waarschuwing met de gevolgen en vraagt daarna om het woord `RESET`, om opnieuw te bewijzen wie je bent (wachtwoord, en bij tweestapsverificatie ook de code of een herstelcode; of een passkey) en om een laatste bevestiging. Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
+- **Opnieuw starten.** Na het wissen stopt de app zichzelf (onder gunicorn, zoals in de container; de container start door het restart-beleid weer op) en laadt de pagina vanzelf opnieuw zodra de app terug is, bij de onboarding. Draait de app op een andere manier, dan meldt hij dat je hem zelf opnieuw moet starten.
+- **Nieuwe routes** (alleen beheerder): `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` (de passkey-uitdaging) en `POST /api/system/factory-reset`.
+
+### Aangepast in 2.63.0
+
+- Het tabblad *Updates* in de Instellingen heet nu *Systeem* en bevat de updatecheck en het nieuwe blok *Opschonen*.
+- De passkey-controle van het inloggen staat nu in `auth.check_assertion`, zodat het wissen dezelfde controle gebruikt.
+
+## v2.62.0
+
+*English summary: The recipe suggestions are about what you can cook with the offers of the chosen store. Above the recipes it now says so ("Recipes with as many ingredients as possible from the offers at Jumbo"), basics such as salt, oil, butter and flour no longer count towards "x of y ingredients on offer", the recipes with the largest share on offer come first, and each recipe lists what is not on offer. At the top there is a filter for the kind of dish (breakfast, lunch, starter, soup, main course, side dish, dessert, snack, other) with the number of recipes per kind. The kind comes from the recipe's source, so read the recipes once more after updating. A recipe card now says where the recipe comes from ("Recipe from Albert Heijn") instead of a bare store name that read like the store of the offers.*
+
+### Nieuw in 2.62.0
+
+- **Filter op soort gerecht.** Bovenaan Aanbiedingen > Recepten staat een rij keuzes: ontbijt, lunch, voorgerecht, soep, hoofdgerecht, bijgerecht, dessert, snack en overig, met het aantal recepten per soort. Alleen soorten die voorkomen staan erbij. De aantallen gelden voor alle voorstellen van de gekozen winkel, het filter beperkt de lijst. Een andere winkel zet het filter terug op alles. De soort komt uit de bron: de gang bij Jumbo, de categorieën en tags in Mealie en de categorie van het recept bij AH. Picnic geeft geen gang mee; die recepten staan onder overig.
+- **Boven de recepten staat van welke winkel de aanbiedingen zijn** (*Recepten met zoveel mogelijk ingrediënten uit de aanbiedingen van Jumbo*), met de uitleg dat basisingrediënten niet meetellen en de recepten met de meeste ingrediënten in de aanbieding bovenaan staan.
+- **Wat er niet in de aanbieding is.** Onder de gekoppelde ingrediënten staat *Niet in de aanbieding: …*, zodat je ziet wat je er nog bij moet halen.
+- `GET /api/offers/recipes` krijgt `course` (een van de soorten, of `all`) en geeft per recept `course` en `missing`, en `courses` met de aantallen per soort.
+
+### Aangepast in 2.62.0
+
+- **Basisingrediënten tellen niet meer mee.** Zout, peper, water, ijs, olie, boter, bloem, suiker, azijn, bouillon en kruiden zijn niet langer een ingrediënt dat in de aanbieding hoort te zijn. Een regel telt als basis als het hoofdwoord er een is of erop eindigt (*milde olijfolie*, *roomboter*, *zeezout*, *balsamicoazijn*). Het aantal in *x van y ingrediënten in de aanbieding* wordt daardoor kleiner (*2 van 6* in plaats van *2 van 7*). Een smaakwoord aan het eind van een langere regel (*zuivelspread knoflook en kruiden*) telt nog mee als ingrediënt dat niet te koppelen is.
+- **De receptkaart zegt waar het recept vandaan komt.** De winkelkeuze bij Aanbiedingen > Recepten bepaalt alleen met welke aanbiedingen de recepten worden vergeleken; de recepten komen uit al je bronnen. Achter het aantal ingrediënten stond de bron van het recept ("· Albert Heijn"), wat las alsof het AH-aanbiedingen waren, ook als je Jumbo had gekozen. Nu staat er *Recept uit Albert Heijn*.
+
+### Goed om te weten
+
+- **Lees je recepten één keer opnieuw in** (`Recepten inlezen`): de soort wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*. AH-recepten die al in de index staan maar nog geen soort hebben, worden bij het inlezen opnieuw opgehaald, binnen de 60 nieuwe AH-recepten per keer.
+- De volgorde is: het grootste deel van de ingrediënten in de aanbieding, dan het grootste aantal, dan de grootste besparing. Een recept moet minstens twee koppelingen hebben (één bij een recept met hooguit drie ingrediënten).
+- De soorten komen uit vrije tekst van de bron en worden op woorden herkend (*Avondeten* en *Main course* zijn hoofdgerecht). Een categorie die je zelf in Mealie hebt bedacht en niet herkend wordt, valt onder overig.
+
+## v2.61.0
+
+*English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". Ingredients are also linked to offers more strictly (a product that only contains the ingredient, such as mince with onion or tuna in olive oil, no longer counts). This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
+
+### Nieuw in 2.61.0
+
+- **De voorwaarden bij een aanbieding.** Op de kaart staat naast het label (bijvoorbeeld *1+1 gratis*) nu *bij 2 stuks*, de prijs per stuk bij die voorwaarde en *t/m 25 okt* als de winkel een einddatum geeft. Dat is wat in het eerste rapport ontbrak: een aanbieding "2 voor 5" liet alleen de prijs zien.
+- **Verlopen aanbiedingen verdwijnen.** Staat de einddatum in het verleden, dan laat de lijst de aanbieding niet meer zien en telt ze niet mee in de receptvoorstellen, ook al is er nog niet opnieuw gesynchroniseerd. `GET /api/offers` meldt hoeveel er zijn verborgen (`expired`). Bij AH komt de einddatum van de winkel zelf (`bonusEndDate`); Picnic en Jumbo geven geen datum, dus die blijven staan tot de volgende synchronisatie.
+- **De module `mealieshopper/deals.py`** (uit v2.53.0 van `main`) leest de actietekst en rekent de prijs per stuk uit. Nieuw is *2e = 50% korting* (Picnic), dat als percentage over alles werd gelezen, en *nu €1,99*.
+
+### Opgelost in 2.61.0
+
+- **Verkeerd gekoppelde ingrediënten in de receptvoorstellen.** Een ingrediënt hoorde bij een aanbieding zodra zijn woord *ergens* in de titel stond. Bij *Romige tagliatelle met zalm* stond daardoor "7 van 7 ingrediënten in de aanbieding" met onder meer *AH Gehakt met ui* voor de ui, *Champignon saus romig en vol* voor de champignons, *Tonijnstukken in olijfolie* voor de olijfolie, *Spinazie met room* voor de verse spinazie en *Kruidenmix gehakt* voor de kruiden, en een besparing van € 11,41. Nu geldt:
+  - de titel van de aanbieding wordt gesplitst bij *met*, *in*, *op*, *zonder*, *voor*, *en* en *&*; alleen het deel ervoor is het product. Wat erachter staat telt alleen als het ingrediënt het zelf noemt;
+  - een bereide variant (*saus*, *soep*, *mix*, *maaltijd*, *salade*, *sap*, *pizza*, *spread* en een paar meer) telt alleen als het ingrediënt dat woord zelf bevat;
+  - een smaakwoord (*kruiden*, *specerijen*) zoekt geen product;
+  - past er meer dan één aanbieding, dan wint die met de minste woorden eromheen, niet de eerste in de lijst.
+  Het voorbeeld houdt nu 2 van 7 over (tagliatelle en zalmfilet); de besparing telt alleen die twee.
+- **Het hoofdwoord van een ingrediënt** stopt bij *met*, *in*, *op*, *zonder*, *voor* en *van*: bij *gehakt met ui* is dat gehakt (voorheen ui), bij *kipfilet in blokjes* kipfilet (voorheen blokjes) en bij *olie voor het bakken* olie.
+- **Sinaasappel was ook sinaasappelsap.** De controle op afgeleide producten haalde de *s* van *sap* weg als voegklank. Daardoor telde *Sinaasappelsap* voor *sinaasappels*.
+
+### Aangepast in 2.61.0
+
+- **De besparing in de receptvoorstellen** rekent met de prijs per stuk onder de voorwaarde van de aanbieding. Voorheen was het de oude minus de huidige prijs die de winkel noemt; bij *1+1 gratis* op € 4,50 leidde dat tot € 1,50 in plaats van € 2,25. Zonder herkende aanbieding of zonder gewone prijs is het gedrag zoals eerder.
+- De uitleg bij de verkenners van AH, Picnic en Jumbo noemt het onderdeel *aanbiedingen*.
+
+### Goed om te weten
+
+- Bij AH is niet bevestigd of `currentPrice` bij een aanbieding met voorwaarde de gewone prijs of de actieprijs is. De besparing gebruikt daarom de gewone prijs (`priceBeforeBonus`) en de actietekst, en blijft op nul als een van beide ontbreekt.
+- De API en de MCP-tools zijn niet veranderd, op de extra velden `mechanic`, `minQuantity`, `unitPrice`, `validity` en `expired` bij `GET /api/offers` na.
+
+## v2.60.2
+
+*English summary: Picnic's offers are now read from where the explorer report showed them: the discount text next to products on the home page ("1+1 free", "20% off", "2 for €5", "now €1.99") and the action pages behind the cards under "Acties van de week" (`promo-group-deep-dive`), where every product is an offer. The label is the tile's text, or else the card's title. Picnic gives no old price.*
+
+### Aangepast in 2.60.2
+
+- **Picnic-aanbiedingen komen nu uit de startpagina.** Het rapport van de verkenner liet zien hoe ze erin staan: bij sommige producttegels staat een kortingtekst ernaast (*1+1 gratis*, *20% korting*, *2 voor €5*, *nu €1.99*, *2e = 50% korting*), en de kaarten onder *Acties van de week* openen een actiepagina (`promo-group-deep-dive`) met de producten van die actie. MealieShopper neemt de producten met een kortingtekst en leest die actiepagina's (met hun parameters, en de pagina's die ze zelf later laden), waar alle producten aanbiedingen zijn. Het label is de kortingtekst van de tegel, of anders de titel van de kaart (bijvoorbeeld *Appels en peren*). Recepten en andere pagina's worden niet gevolgd.
+- **Rustig bij Picnic.** Tussen de pagina's zit een korte pauze en er worden hooguit veertig pagina's per synchronisatie gelezen, zodat Picnic niet tijdelijk blokkeert.
+- De verwijzingen in de app komen met `nl.picnic-supermarkt://` en een parameter erachter; die worden nu herkend en doorgegeven.
+- De Picnic-verkenner leest nu ook de eerste drie actiepagina's, voor als hun opbouw anders blijkt dan verwacht.
+
+### Goed om te weten
+
+- Picnic geeft geen oude prijs bij een aanbieding, dus *oude prijs* ontbreekt; de prijs is die van de tegel.
+- Dit is gebouwd op het verkenner-rapport, zonder de actiepagina's zelf te hebben gezien. Geeft een synchronisatie weinig of niets, deel dan het deel van het rapport met *aanbiedingen: GET pages/promo-group-deep-dive...*.
+
+## v2.60.1
+
+*English summary: The Picnic explorer is lighter (no more than a few dozen requests instead of more than a hundred, so Picnic no longer blocks the network halfway through; the old favorites exploration needs `?extended=1`) and reports more about the offers on the home page: the texts next to products and where the "Acties" cards lead.*
+
+### Aangepast in 2.60.1
+
+- **De Picnic-verkenner stuurt veel minder verzoeken.** Het vorige rapport liep halverwege vast op een 403: de verkenning van de favorieten-pagina's stuurde ruim honderd verzoeken achter elkaar en Picnic blokkeert dan tijdelijk. Die verkenning (de favorieten zijn klaar) draait nu alleen met `POST /api/picnic/explore?extended=1`; het gewone rapport blijft ruim onder de veertig verzoeken.
+- **Meer over de Picnic-aanbiedingen in het rapport.** Het rapport van de startpagina liet zien dat de aanbiedingen onder *Acties van de week* kaarten per merk of productgroep zijn (geen producttegels) en dat de producttegels geen korting-teken hebben. Het rapport meldt nu ook welke kortingachtige teksten bij de tegels staan (zoals een percentage of een actieprijs, met cijfers als #, zonder productnamen) en waar de kaarten onder *Acties* naartoe leiden (vorm van hun actie en verwijzing, zonder inhoud).
+
+### Goed om te weten
+
+- Picnic-aanbiedingen worden nog niet gevonden: de herkenning wacht op dit rapport.
+
+## v2.60.0
+
+*English summary: The Offers tab shows categories with a count ("5x Vegetables & Fruit", "10x Meat") for every store; clicking one shows its offers. Three rows show first and a "More" button adds three rows at a time. The "Fetch offers" button is gone: the offers come from the local copy, refreshed daily or via Settings > Link. Every sync now also writes the offers to a permanent history in the database (when, price, old price, label, validity), available through `GET /api/offers/history`.*
+
+### Nieuw in 2.60.0
+
+- **Categorieën bij de aanbiedingen, voor alle winkels.** Boven de aanbiedingen staat per categorie een knop met het aantal ("5x Groente & Fruit", "10x Vlees", "9x Frisdrank & Sap"), plus **Alle**. Een klik toont de aanbiedingen van die categorie. De indeling (negentien categoriën, van Groente & Fruit tot Huisdier en Overig) maakt MealieShopper zelf uit de productnaam, omdat AH, Picnic en Jumbo geen gelijke categorieën geven; een categorie-hint van de winkel telt alleen mee als de naam niets zegt. De categorie wordt bij het synchroniseren bewaard.
+- **Drie rijen, dan Meer.** Er staan eerst drie rijen aanbiedingen (het aantal per rij hangt van de breedte af); de knop **Meer** toont er steeds drie extra.
+- **Geschiedenis van de aanbiedingen.** Elke synchronisatie schrijft de aanbiedingen ook in een geschiedenis in de database, voor altijd bewaard: per product wanneer het in de aanbieding was, met prijs, oude prijs, label, geldigheid, categorie en het aantal synchronisaties dat het erbij stond. Een aaneengesloten periode telt als een keer; een prijswijziging tijdens dezelfde aanbieding niet; komt een product na een onderbreking terug, dan is dat een nieuwe keer. `GET /api/offers/history` (met `store`, `q` en `limit`) toont per product hoe vaak het in de aanbieding was en de details. Het ophalen blijft de lokale kopie vervangen, en mislukt het ophalen dan blijven de kopie en de geschiedenis ongewijzigd.
+
+### Verwijderd in 2.60.0
+
+- **De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen.** De aanbiedingen komen uit de lokale kopie, die elke dag wordt ververst; de beheerder synchroniseert ze meteen onder **Instellingen > Koppelen**.
+
+### Goed om te weten
+
+- Een database van een eerdere versie wordt vanzelf bijgewerkt (de kolom *categorie* komt erbij); bestaande aanbiedingen krijgen hun categorie uit de naam. De geschiedenis begint bij de eerstvolgende synchronisatie.
+- Jumbo-aanbiedingen worden via zoekopdrachten gevonden; een product dat bij een synchronisatie net niet in die zoekresultaten staat telt als weg en als een nieuwe keer als het terugkomt.
+- De MCP-tools zijn niet veranderd.
+
+## v2.59.1
+
+*English summary: When Picnic answers the login with a bare "403 Forbidden" page (the gateway in front of the API refusing this network, not a wrong password), MealieShopper now says so and what to try, instead of the generic "Picnic error". Picnic's offers are now looked for on the home page (Discover), because the app has no offers tab; the Picnic explorer reports on those pages first.*
+
+### Aangepast in 2.59.1
+
+- **Duidelijke melding als Picnic het netwerk weert.** Antwoordt Picnic bij het inloggen met een kale *403 Forbidden*-pagina (geen JSON), dan komt dat van de poort vóór de API en niet van de login zelf. MealieShopper meldt nu dat Picnic verbindingen vanaf dit netwerk weigert, dat het niet aan je e-mailadres of wachtwoord ligt, en dat je het later of vanaf een thuisnetwerk kunt proberen (Picnic weert soms server- en datacenter-adressen en blokkeert tijdelijk na veel pogingen). Voorheen stond er alleen *Picnic fout*. Een 403 die de API zelf als JSON geeft blijft een gewone fout.
+
+- **Picnic-aanbiedingen zoeken op de startpagina.** De verkenner liet zien dat de tabbalk van de Picnic-app geen aanbiedingen-tab heeft (alleen Ontdek, Favorieten, Koken, Zoeken en Mandje), dus de eerdere zoektocht naar zo'n tab vond niets. MealieShopper leest nu de startpagina (*Ontdek*) en de pagina's waar die over aanbiedingen naar verwijst, ook de pagina's die ze zelf later laadt, en houdt alleen producten over met een korting-teken (een oude prijs, prijsklassen of een actielabel). Staan er geen aanbiedingen, dan meldt MealieShopper dat en vraagt het rapport van de verkenner.
+- **De Picnic-verkenner begint met de aanbiedingen.** Bovenaan het rapport staat per pagina de opbouw, hoeveel producttegels een korting-teken hebben, welke velden en decorators ze hebben en welke pagina's er later laden. Zonder namen, prijzen of id's.
+
+### Goed om te weten
+
+- Het inloggen zelf is niet veranderd, alleen wat je te zien krijgt als Picnic het netwerk weigert. Dat het inloggen daarna weer lukte past bij een tijdelijke blokkade.
+- Welk veld Picnic bij een productkorting precies gebruikt is nog niet bekend: de verkenner heeft er een tegel zonder korting van laten zien. Draai hem opnieuw als de lijst leeg blijft.
+
+## v2.59.0
+
+*English summary: The offers of Picnic and Jumbo are now fetched and shown on the Offers tab, next to Albert Heijn. A background task fetches the offers of all stores once a day (default around 5 am; `MEALIESHOPPER_OFFERS_SYNC_HOUR`, switch off with `MEALIESHOPPER_OFFERS_SCHEDULE=false`), and under Settings > Link a new "Sync offers" button fetches them right away. Picnic's offers come from the app's offers tab; Jumbo has no route for all offers, so they are found by searching common terms and keeping products with an action.*
+
+### Nieuw in 2.59.0
+
+- **Aanbiedingen van Picnic en Jumbo.** Het tabblad **Aanbiedingen** toont nu ook de aanbiedingen van Picnic en Jumbo, zodra die gekoppeld zijn, met de oude en de nieuwe prijs en het label. Picnic wordt gelezen van de aanbiedingen-tab van de app (via `/bootstrap`, met een paar bekende paginanamen als terugval). Jumbo heeft geen route die alles in een keer geeft: MealieShopper zoekt op ruim vijftig gangbare termen en houdt de producten met een actieprijs of actielabel over. Dat zijn dus de aanbiedingen bij die termen, niet per se alle.
+- **Elke dag vanzelf.** Een achtergrondtaak haalt een keer per dag de aanbiedingen van alle winkels op, standaard rond 5 uur (tijd van de container). Is de app dan uit, dan volgt het bij de volgende start; meerdere workers voeren de dagelijkse run maar een keer uit. Het uur stel je in met `MEALIESHOPPER_OFFERS_SYNC_HOUR`, uitzetten kan met `MEALIESHOPPER_OFFERS_SCHEDULE=false`.
+- **Synchroniseren onder Instellingen > Koppelen.** Een nieuw blok **Aanbiedingen** met de knop **Aanbiedingen synchroniseren** (alleen de beheerder) haalt de aanbiedingen van alle winkels meteen op. Eronder staat per winkel hoeveel aanbiedingen er zijn en wanneer ze zijn opgehaald, of dat de winkel niet gekoppeld is of het ophalen mislukte, plus wanneer de dagelijkse taak voor het laatst liep en weer loopt.
+- Nieuwe routes: `GET /api/offers/status` en `POST /api/offers/sync-all` (alleen de beheerder).
+
+### Aangepast in 2.59.0
+
+- Een winkel die niet gekoppeld is of waar het ophalen mislukt blokkeert de andere winkels niet; de vorige kopie van die winkel blijft staan.
+
+### Goed om te weten
+
+- De routes van Picnic en Jumbo zijn onofficieel en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij Koppelen en bij Aanbiedingen.
+- De MCP-tools zijn niet veranderd.
+
+## v2.58.0
+
+*English summary: On a large screen (1024 px and wider) the main navigation now sits in a vertical menu on the left instead of above the page. It can be collapsed to icons only (with the name as a tooltip) with the button at the bottom of the menu; the choice is remembered. On smaller screens nothing changes.*
+
+### Nieuw in 2.58.0
+
+- **Navigatiemenu links op een groot scherm.** Vanaf 1024 px breed staan Recepten, Aanbiedingen, URL importeren, Winkels en Mandje onder elkaar in een menu links van de pagina, dat meescrolt. Op kleinere schermen staat het menu zoals altijd boven de pagina, en in de app op een telefoon als menubalk onderaan.
+- **Inklapbaar.** Onderaan het menu klapt **Menu inklappen** het in tot alleen de pictogrammen (de naam staat dan als tooltip); met dezelfde knop klap je het weer uit. MealieShopper onthoudt je keuze.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd.
+
+## v2.57.0
+
+*English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*
+
+### Nieuw in 2.57.0
+
+- **Het weekmenu laadt vanzelf.** Zodra Mealie gekoppeld is en je het weekmenu opent, staat de week er al; je hoeft niet meer op een knop te drukken. De twee weken erna worden rustig op de achtergrond opgehaald.
+- **Weken worden onthouden.** Een opgehaalde week blijft 30 minuten bewaard, dus vorige en volgende week openen direct. Bladeren met de pijltjes laadt de week zelf.
+
+### Aangepast in 2.57.0
+
+- **Synchroniseren in plaats van "Weekmenu laden".** Naast de week staat nu een synchroniseericoon (hetzelfde als bij het Mandje) dat de week opnieuw uit Mealie haalt; de tekst is weg.
+- **Winkelkeuze en "Voeg toe aan mandje" onder het boodschappenlijstje.** Ze stonden erboven; nu staan ze eronder. De winkelkeuze is een uitklapmenu in dezelfde stijl als de winkelkeuze bij **Winkels**.
+- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na Recepten), ook in de onderste menubalk van de app.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd.
+- Pull requests: #96.
+
+## v2.56.1
+
+*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. On small screens the banners show an icon and the name instead of the text, coloured by status (link icon on green = linked, check mark on dark green = linked and working, crossed-out link on red = not linked), two next to each other. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
+
+### Aangepast in 2.56.1
+
+- **De "gekoppeld"-meldingen zijn even breed als de blokken eronder** (ze liepen over de volle breedte).
+- **Kortere titels op de blokken:** *Mealie*, *Albert Heijn*, *Jumbo* en *Picnic* in plaats van *Mealie koppelen* en *Inloggen bij ...*.
+- **Nieuwe volgorde:** Albert Heijn, Jumbo, Picnic, zowel bij de meldingen als bij de blokken.
+- **Over zit nu in het avatar-menu**, tussen *Instellingen* en *Uitloggen*; de tab Over is uit de tabbalk (die heeft nu zes plekken). Op een klein scherm lichtt de avatar op als Over open is.
+- **De Mealie-melding zegt nu *Mealie gekoppeld*** (zonder het adres).
+- **Op een klein scherm staan er pictogrammen in de meldingen** in plaats van *gekoppeld*, *nog niet gekoppeld* en *gekoppeld en werkt*: een schakel op groen (gekoppeld), een vinkje op donkergroen (gekoppeld en werkt) en een doorgestreepte schakel op rood (niet gekoppeld), met de naam van de dienst. Ook op een smal scherm staan twee meldingen naast elkaar. De tekst blijft voor schermlezers staan.
+- **De AH-melding zegt nu *Albert Heijn gekoppeld*** (was *AH account gekoppeld*), net als *Albert Heijn nog niet gekoppeld* en *Albert Heijn gekoppeld en werkt*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-31).
+
+### Goed om te weten
+
+- Verder verandert er niets.
+
+## v2.56.0
+
+*English summary: The "Logged in as ..." chip is replaced by an avatar with a drop-down menu (Profile, Settings for the administrator, Log out). On small screens the avatar sits in the tab bar in place of Settings. Profile has General (display name and avatar upload), Security (one Password block with Two-step verification inside it, plus Passkeys) and AI apps (for everyone). Settings, administrator only, has Link, Users, Audit log and Updates. The main tab Settings is gone.*
+
+### Nieuw in 2.56.0
+
+- **Avatar met uitklapmenu in plaats van "Ingelogd als ...".** Menu: **Profiel**, **Instellingen** (alleen de beheerder) en **Uitloggen**. Het werkt ook zonder inloggen (dan zonder Uitloggen), zodat je het wachtwoord en de koppelingen kunt instellen. Op een klein scherm staat de avatar in de tabbalk op de plek van het Beheer-icoon.
+- **Profiel > Algemeen:** je displaynaam en een avatar uploaden (PNG, JPEG of WebP; de browser verkleint hem tot 256 x 256, hoogstens 256 kB, geen SVG). Zonder avatar zie je je initialen. De displaynaam staat ook in Instellingen > Gebruikers, met de avatar.
+- **Profiel > Beveiliging:** het blok *Wachtwoord* bevat nu ook *Tweestapsverificatie* (geen eigen blok meer), met daaronder *Passkeys*.
+- **Profiel > AI-apps** is voor iedereen.
+- **Instellingen** (alleen de beheerder): *Koppelen*, *Gebruikers*, *Auditlog* en *Updates*. Het bolletje bij een nieuwe versie staat nu op de avatar en bij Instellingen.
+- **Nieuwe routes:** `GET/PUT /api/profile`, `POST/DELETE /api/profile/avatar` en `GET /api/profile/avatar/<gebruiker>`. De avatar staat in de database; het type wordt aan de inhoud gecontroleerd.
+
+### Aangepast in 2.56.0
+
+- **De hoofdtab Beheer is vervallen.** Teksten die ernaar wezen zeggen nu *Instellingen > Koppelen*, *Profiel > Beveiliging* en *Profiel > AI-apps*. De onderste menubalk heeft nog zeven plekken: de avatar staat waar Beheer stond.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-29).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de MCP-tools of de rechten. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
+## v2.55.0
+
+*English summary: Settings > Link is now a plain sub-tab with one page instead of a drop-down menu. The page shows the four "linked" banners (Mealie, Albert Heijn, Picnic, Jumbo) on top, two next to each other, followed by one collapsible block per service: Mealie first, the stores below it. The Unlink button now sits next to the Link button inside the block of the store (together with Check link). The Mealie block is collapsible too and folds up once Mealie is linked.*
+
+### Aangepast in 2.55.0
+
+- **Koppelen is een gewoon subtab** (geen uitklapmenu meer) en toont direct de koppelpagina. De aparte pagina's per winkel en de pagina Mealie zijn samengevoegd: bovenaan de statussen, daaronder de blokken **Mealie koppelen**, **Inloggen bij Albert Heijn**, **Inloggen bij Picnic** en **Inloggen bij Jumbo**.
+- **De vier "gekoppeld"-meldingen staan bovenaan, twee naast elkaar** (op een smal scherm onder elkaar).
+- **Het blok Mealie is ook inklapbaar** en klapt in zodra Mealie gekoppeld is, net als de blokken van de winkels. De knop *Mealie koppelen* in de melding bovenaan Weekmenu opent het blok altijd.
+- **Ontkoppelen staat naast Koppelen.** In het blok van elke winkel staan *Koppelen* (bij Picnic *Inloggen bij Picnic*), *Ontkoppelen* (Picnic, Jumbo en Mealie) en *Koppeling controleren* naast elkaar, zichtbaar zodra de winkel gekoppeld is.
+- Eerder in deze ronde (niet apart uitgebracht): menu Koppelen met de winkels, uniforme titels *Inloggen bij ...*, inklapbare blokken en de melding bovenaan.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-28).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
+## v2.54.0
+
+*English summary: Settings > Stores is now Settings > **Link**: one drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie (Mealie no longer has its own tab). The three store pages have the same layout: the "account linked" banner (with Check link, and Unlink for Picnic and Jumbo) on top, and one collapsible block "Log in to ..." that also holds "Finish linking" and the route explorer. The block folds up once the store is linked. The titles are now all "Log in to ...", where Albert Heijn still said "Log in with". Texts that point to Settings > Stores now say Settings > Link.*
+
+### Aangepast in 2.54.0
+
+- **Nieuw submenu Koppelen onder Beheer.** Het uitklapmenu met de winkels is verhuisd naar **Koppelen** en Mealie staat er nu ook in (het tabje Mealie is vervallen). Het menu bevat Albert Heijn, Picnic, Jumbo en Mealie en is alleen voor de beheerder.
+- **Alle titels heten nu "Inloggen bij ...".** Bij Albert Heijn stond nog *Inloggen via Albert Heijn*.
+- **Inklapbaar blok per winkel.** *Inloggen bij ...*, *Koppeling afronden* en *Routes verkennen* staan nu in een blok dat je in- en uitklapt. Het blok klapt vanzelf in zodra de winkel gekoppeld is en staat open zolang dat nog niet zo is (ook als Picnic om een bevestigingscode vraagt). Een keuze die je zelf maakt blijft staan tot je de pagina herlaadt.
+- **De melding "account gekoppeld" staat bovenaan**, boven het blok, met de knoppen *Koppeling controleren* (en *Ontkoppelen* bij Picnic en Jumbo) eronder. Ze blijven zichtbaar als het blok is ingeklapt. De bevestigingscode van Picnic staat nu in het inklapbare blok.
+- **Teksten die naar de plek wijzen** (meldingen van de app, de installatiehulp en de README's) zeggen nu *Beheer > Koppelen > ...* in plaats van *Beheer > Winkels > ...*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-27), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien en volgen bij een volgende ronde.
+
+## v2.53.1
+
+*English summary: The Offers tab now follows the layout of the Stores tab: a store drop-down menu (shown once a second store is linked) followed by two sub-tabs, **Offers** and **Recipes**, instead of a store select box and two blocks below each other. Nothing changes in what the offers and the suggestions do.*
+
+### Aangepast in 2.53.1
+
+- **Aanbiedingen heeft dezelfde opzet als Winkels.** De winkelkeuze is nu het eerste uitklapmenu in de subtabbalk (het verschijnt zodra naast Albert Heijn ook Picnic of Jumbo gekoppeld is, en toont de gekozen winkel), gevolgd door de subtabs **Aanbiedingen** (de producten) en **Recepten** (de receptvoorstellen en `Recepten inlezen`). De keuzelijst boven de blokken is vervallen; de gekozen winkel wordt nog steeds onthouden.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-26), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan de aanbiedingen, de receptvoorstellen, de koppelingen of de API.
+
+## v2.53.0 (beta, tabblad Aanbiedingen)
+
+*English summary: New main tab **Offers**: shows the offers of a store (for now Albert Heijn Bonus, no AH link needed) and suggests recipes with ingredients on offer, from your Mealie recipes, Jumbo favourites, Picnic recipes and saved AH recipes. Matching runs locally, without an AI service. Picnic and Jumbo offers follow once their route is known: the explorers help find it. The main menu now has seven tabs, which also fits the installed app's bottom bar again.*
+
+### Nieuw in 2.53.0
+
+- **Tab Aanbiedingen.** Toont de aanbiedingen van een winkel met oude en nieuwe prijs en het label, bewaard in een lokale kopie met het tijdstip van ophalen. Nu voor Albert Heijn (Bonus, werkt zonder AH-koppeling); `Aanbiedingen ophalen` vernieuwt de kopie en bij een fout blijft de vorige staan.
+- **Receptvoorstellen.** `Recepten inlezen` leest de ingrediënten van je Mealie-recepten, Jumbo-favorieten, Picnic-recepten en bewaarde AH-recepten in. Daarna toont het tabblad de recepten waarvan ingrediënten in de aanbieding zijn, gerangschikt op het aandeel in de aanbieding en de geschatte besparing. Het vergelijken gebeurt lokaal (zonder meervoud, eenheden en basisingrediënten als zout en water); er gaat niets naar een AI-dienst.
+- **Nieuwe routes:** `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes` en `POST /api/offers/recipes/sync`.
+- **AH-verkenner** (`POST /api/ah/explore`) probeert nu ook de bonuspagina en meldt de vorm van het antwoord en het aantal gevonden producten.
+
+### Aangepast in 2.53.0
+
+- **Zeven tabs in het hoofdmenu.** De onderste menubalk van de geïnstalleerde app heeft weer evenveel kolommen als tabs (die stond sinds 2.52.0 op zeven bij zes tabs).
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-25), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- De bonusroute van AH is onofficieel en nog niet getest tegen de echte dienst. Antwoordt de bonuspagina niet, dan zoekt MealieShopper producten met de bonusvlag; draai bij twijfel de AH-verkenner.
+- Aanbiedingen van Picnic en Jumbo zijn er nog niet: voor beide moet eerst de juiste pagina of query worden gevonden (draai hun verkenner op je installatie).
+
 ## v2.53.0
 
 *English summary: First step towards reliable offers for recipes, without AI. The stores' offers are no longer reduced to a yes/no flag: the offer text (such as "2nd half price" or "2 for 5"), the regular price and, where the store gives it, the period are kept, and a new module turns them into one shape with the kind of offer, the minimum quantity, the price per item and whether the offer is still valid. The check list of the week menu shows the offer and until when it applies, and says so when it has expired. The explorers of AH, Picnic and Jumbo now also report what an offer looks like (fields, offer texts and dates; no prices or products) so the store fields can be confirmed with real answers. Offers are not yet matched to recipes; that comes after the explorer reports.*
@@ -24,22 +495,17 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.52.0
 
-*English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*
-
-### Nieuw in 2.52.0
-
-- **Het weekmenu laadt vanzelf.** Zodra Mealie gekoppeld is en je het weekmenu opent, staat de week er al; je hoeft niet meer op een knop te drukken. De twee weken erna worden rustig op de achtergrond opgehaald.
-- **Weken worden onthouden.** Een opgehaalde week blijft 30 minuten bewaard, dus vorige en volgende week openen direct. Bladeren met de pijltjes laadt de week zelf.
+*English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*
 
 ### Aangepast in 2.52.0
 
-- **Synchroniseren in plaats van "Weekmenu laden".** Naast de week staat nu een synchroniseericoon (hetzelfde als bij het Mandje) dat de week opnieuw uit Mealie haalt; de tekst is weg.
-- **Winkelkeuze en "Voeg toe aan mandje" onder het boodschappenlijstje.** Ze stonden erboven; nu staan ze eronder. De winkelkeuze is een uitklapmenu in dezelfde stijl als de winkelkeuze bij **Winkels**.
-- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na het weekmenu), ook in de onderste menubalk van de app.
+- **Eén tab Recepten met subtabs.** *Weekmenu naar winkel* en *Recepten zoeken* staan niet meer los in het hoofdmenu, maar als subtabs onder de nieuwe tab **Recepten**. Het hoofdmenu heeft daardoor zes tabs in plaats van zeven. Recepten opent op het weekmenu; het logo brengt je daar nog steeds naartoe.
+- **Weekmenu naar winkel heet nu Weekmenu**, en beide subtabs hebben een Material Design-icoon (een kalender bij Weekmenu, een vergrootglas bij Recepten zoeken). De teksten zijn in het Nederlands en het Engels bijgewerkt en de README's noemen de nieuwe indeling.
+- **De versie van de statische bestanden is opgehoogd** (`MEALIESHOPPER_ASSET_VERSION`, 20261023-23), zodat browsers en de geïnstalleerde app de nieuwe vertalingen en opmaak laden. Zonder dat toonde de tab de sleutel `nav.recipes` en waren de subtab-iconen te groot. De iconen hebben nu ook een vaste grootte.
 
 ### Goed om te weten
 
-- De API en de MCP-tools zijn niet veranderd.
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
 
 ## v2.51.2
 

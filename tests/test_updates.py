@@ -193,9 +193,9 @@ class RouteTest(unittest.TestCase):
 
 class PageTest(unittest.TestCase):
     def test_settings_has_an_updates_tab_and_the_page_has_a_banner(self):
-        self.assertIn('data-subtab="beheer-updates" data-admin-only', HTML)
-        self.assertIn('id="beheer-updates"', HTML)
-        for ident in ("update-banner", "update-dot-tab", "update-dot-subtab", "update-check", "update-status"):
+        self.assertIn('data-subtab="settings-system" data-admin-only', HTML)
+        self.assertIn('id="settings-system"', HTML)
+        for ident in ("update-banner", "update-dot-tab", "update-dot-subtab", "update-dot-user", "update-dot-settings", "update-check", "update-status"):
             self.assertIn(f'id="{ident}"', HTML)
         link = re.search(r'<a[^>]*id="update-notes"[^>]*>', HTML).group(0)
         self.assertIn('rel="noopener noreferrer"', link)

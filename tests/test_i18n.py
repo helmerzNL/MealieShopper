@@ -25,7 +25,10 @@ SOURCES = {
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
+    "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
+    "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
+    "profile.js": (STATIC / "profile.js").read_text(encoding="utf-8"),
 }
 JS = "\n".join(SOURCES.values())
 ENTRY = re.compile(r'^  "([^"]+)": "((?:[^"\\]|\\.)*)",$', re.M)
@@ -133,7 +136,7 @@ class UsageTest(unittest.TestCase):
         html_keys = set(re.findall(r'data-i18n(?:-html)?="([\w.]+)"', HTML))
         for spec in re.findall(r'data-i18n-attr="([^"]+)"', HTML):
             html_keys |= {pair.split(":")[1] for pair in spec.split(";")}
-        prefixes = {"ob.step.", "ob.title.", "meal.", "about.group.", "about.desc."}
+        prefixes = {"ob.step.", "ob.title.", "meal.", "about.group.", "about.desc.", "offers.source.", "offers.cat.", "offers.course."}
         for key in NL:
             base = re.sub(r"\.(one|other)$", "", key)
             used = (

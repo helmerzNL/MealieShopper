@@ -23,6 +23,19 @@ def response(data=None, *, status=200, token=None):
     return reply
 
 
+def blocked_page():
+    """Wat de poort voor Picnic teruggeeft als hij een netwerk weert: een kale 403-pagina, geen JSON."""
+    reply = mock.Mock()
+    reply.status_code = 403
+    reply.ok = False
+    body = "<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n"
+    reply.content = body.encode()
+    reply.text = body
+    reply.json.side_effect = ValueError("geen JSON")
+    reply.headers = {"content-type": "text/html"}
+    return reply
+
+
 def tile(unit_id, name, unit_quantity, cents=199, **extra):
     """Een zoektegel zoals Picnic die in de widgetboom zet."""
     unit = {"id": unit_id, "name": name, "display_price": cents, "image_id": f"img{unit_id}",
@@ -164,6 +177,22 @@ class LoginTest(TempDataDirTest):
             with self.assertRaises(picnic.PicnicAuthError):
                 picnic.login("jan@example.com", "fout")
         self.assertEqual(picnic.configured_auth_key(), "")
+
+    def test_a_blocked_network_is_explained_and_is_not_a_credentials_error(self):
+        with mock.patch.object(picnic.requests, "request", return_value=blocked_page()):
+            with self.assertRaises(picnic.PicnicBlockedError) as caught:
+                picnic.login("jan@example.com", "goed")
+        self.assertNotIsInstance(caught.exception, picnic.PicnicAuthError)
+        self.assertIn("403", str(caught.exception))
+        self.assertNotIn("<html>", str(caught.exception))
+        self.assertEqual(picnic.configured_auth_key(), "")
+
+    def test_a_json_403_from_the_api_itself_stays_a_plain_error(self):
+        api_forbidden = response({"error": {"code": "FORBIDDEN", "message": "x"}}, status=403)
+        with mock.patch.object(picnic.requests, "request", return_value=api_forbidden):
+            with self.assertRaises(RuntimeError) as caught:
+                picnic.login("jan@example.com", "goed")
+        self.assertNotIsInstance(caught.exception, picnic.PicnicBlockedError)
 
     def test_missing_fields_are_rejected(self):
         for args in (("", "x"), ("a@b.nl", "")):
@@ -953,7 +982,7 @@ class FavoritesTest(TempDataDirTest):
                 return response(self.TABS)
             return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
         with mock.patch.object(picnic.requests, "request", side_effect=fake):
-            report = picnic_explore.explore()
+            report = picnic_explore.explore(extended=True)
         names = {p["name"]: p for p in report["probes"]}
         tabs = next(p for n, p in names.items() if n.startswith("tabbalk"))
         self.assertEqual(tabs["info"]["favorietenpagina"], "favorites-root")
@@ -1038,7 +1067,7 @@ class RecipeExploreTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=fake):
-            report = picnic_explore.explore()
+            report = picnic_explore.explore(extended=True)
         names = {probe["name"]: probe for probe in report["probes"]}
         self.assertTrue(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["ok"])
         self.assertEqual(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["info"]["receptonderdelen"], 1)
@@ -1158,6 +1187,13 @@ class PicnicRoutesTest(TempDataDirTest):
         self.assertEqual(reply.status_code, 400)
         self.assertIn("e-mailadres en wachtwoord", reply.get_json()["error"])
         self.assertNotIn("geheim", reply.get_data(as_text=True))
+
+    def test_a_blocked_network_shows_our_explanation_instead_of_a_generic_error(self):
+        with mock.patch.object(picnic.requests, "request", return_value=blocked_page()):
+            reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "goed"})
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("netwerk", reply.get_json()["error"])
+        self.assertNotIn("<html>", reply.get_data(as_text=True))
 
     def test_wrong_code_shows_our_text_not_picnics(self):
         login = response({"second_factor_authentication_required": True}, token="pending")

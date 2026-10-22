@@ -22,6 +22,7 @@ from typing import Any
 PERCENT = "percent"  # "25% korting"
 AMOUNT_OFF = "amount_off"  # "€ 1,00 korting"
 SECOND_HALF = "second_half"  # "2e halve prijs"
+NTH_PERCENT = "nth_percent"  # "2e = 50% korting": het n-de stuk met korting
 NTH_FREE = "nth_free"  # "2e gratis", "1+1 gratis", "2+1 gratis"
 X_FOR_Y = "x_for_y"  # "2 voor 5,00"
 FIXED = "fixed"  # alleen een lagere prijs, zonder voorwaarde
@@ -39,6 +40,8 @@ _BUY_GET_FREE_RE = re.compile(r"\b(\d+)\s*\+\s*(\d+)\s*(?:stuks?\s*)?gratis\b")
 _NTH_FREE_RE = re.compile(r"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?gratis\b")
 _SECOND_HALF_RE = re.compile(r"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?(?:voor\s*)?(?:de\s*)?halve\s*prijs\b")
 _X_FOR_Y_RE = re.compile(rf"\b(\d+)\s*(?:stuks?\s*)?voor\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)")
+_NTH_PERCENT_RE = re.compile(rf"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?(?:=|:|-)?\s*{_NUMBER}\s*%")
+_NOW_PRICE_RE = re.compile(rf"\bnu\s*{_EURO}{_NUMBER}")
 _PERCENT_RE = re.compile(rf"{_NUMBER}\s*%")
 _AMOUNT_OFF_RE = re.compile(rf"{_EURO}{_NUMBER}\s*(?:euro\s*)?korting|korting\s*{_EURO}{_NUMBER}")
 _FROM_QUANTITY_RE = re.compile(r"\bvanaf\s*(\d+)\s*(?:stuks?|st)\b")
@@ -70,6 +73,9 @@ def parse_mechanic(*texts: Any) -> dict[str, Any]:
         if match:
             nth = int(match.group(1))
             return {"type": NTH_FREE, "minQuantity": nth, "payQuantity": nth - 1}
+        match = _NTH_PERCENT_RE.search(text)
+        if match:
+            return {"type": NTH_PERCENT, "minQuantity": int(match.group(1)), "percent": _number(match.group(2))}
         match = _X_FOR_Y_RE.search(text)
         if match:
             return {"type": X_FOR_Y, "minQuantity": int(match.group(1)), "total": _number(match.group(2))}
@@ -82,6 +88,10 @@ def parse_mechanic(*texts: Any) -> dict[str, Any]:
             minimum = _FROM_QUANTITY_RE.search(text)
             amount = match.group(1) or match.group(2)
             return {"type": AMOUNT_OFF, "minQuantity": int(minimum.group(1)) if minimum else 1, "amountOff": _number(amount)}
+    for raw in texts:
+        match = _NOW_PRICE_RE.search(str(raw or "").lower())
+        if match:
+            return {"type": FIXED, "minQuantity": 1, "fixedPrice": _number(match.group(1))}
     return {"type": UNKNOWN, "minQuantity": 1}
 
 
@@ -102,10 +112,15 @@ def effective_unit_price(
         return round(base * 0.75, 2)
     if kind == NTH_FREE and base and mechanic.get("minQuantity"):
         return round(base * mechanic.get("payQuantity", 1) / mechanic["minQuantity"], 2)
+    if kind == NTH_PERCENT and base and mechanic.get("minQuantity"):
+        count = mechanic["minQuantity"]
+        return round(base * (count - mechanic["percent"] / 100) / count, 2)
     if kind == PERCENT and base:
         return round(base * (1 - mechanic["percent"] / 100), 2)
     if kind == AMOUNT_OFF and base:
         return round(max(0.0, base - mechanic["amountOff"]), 2)
+    if kind == FIXED and mechanic.get("fixedPrice") is not None:
+        return round(mechanic["fixedPrice"], 2)
     if kind == FIXED and price_now is not None:
         return round(price_now, 2)
     return None
@@ -142,6 +157,30 @@ def validity(valid_from: Any, valid_until: Any, today: date | None = None) -> st
     return VALID
 
 
+def describe(
+    *texts: Any,
+    price_now: float | None = None,
+    price_before: float | None = None,
+    valid_from: Any = None,
+    valid_until: Any = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Wat een aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
+
+    `texts` zijn de actieteksten van de winkel (label, mechaniek). Zonder herkenbare tekst maar met een lagere prijs dan de
+    gewone prijs is het een gewone prijsverlaging (`fixed`). Is de soort onbekend, dan is `unitPrice` None.
+    """
+    mechanic = parse_mechanic(*texts)
+    if mechanic["type"] == UNKNOWN and price_before and price_now is not None and price_now < price_before:
+        mechanic = {"type": FIXED, "minQuantity": 1}
+    return {
+        "mechanic": mechanic["type"],
+        "minQuantity": mechanic["minQuantity"],
+        "unitPrice": effective_unit_price(mechanic, price_before, price_now),
+        "validity": validity(valid_from, valid_until, today),
+    }
+
+
 def make_deal(store: str, product: dict[str, Any], today: date | None = None) -> dict[str, Any] | None:
     """Zet een winkelproduct met aanbieding om naar een genormaliseerde aanbieding, of None als het geen aanbieding is.
 
@@ -155,9 +194,10 @@ def make_deal(store: str, product: dict[str, Any], today: date | None = None) ->
     price_now = product.get("price")
     price_now = price_now.get("now") if isinstance(price_now, dict) else price_now
     price_before = promo.get("priceBefore")
-    mechanic = parse_mechanic(promo.get("mechanism"), promo.get("label"))
-    if mechanic["type"] == UNKNOWN and price_before and price_now is not None and price_now < price_before:
-        mechanic = {"type": FIXED, "minQuantity": 1}
+    described = describe(
+        promo.get("mechanism"), promo.get("label"), price_now=price_now, price_before=price_before,
+        valid_from=promo.get("validFrom"), valid_until=promo.get("validUntil"), today=today,
+    )
     return {
         "store": store,
         "productId": str(product.get("id") or product.get("webshopId") or ""),
@@ -166,12 +206,9 @@ def make_deal(store: str, product: dict[str, Any], today: date | None = None) ->
         "priceBefore": price_before,
         "priceNow": price_now,
         "label": promo.get("label") or promo.get("mechanism"),
-        "mechanic": mechanic["type"],
-        "minQuantity": mechanic["minQuantity"],
-        "unitPrice": effective_unit_price(mechanic, price_before, price_now),
+        **described,
         "validFrom": promo.get("validFrom"),
         "validUntil": promo.get("validUntil"),
-        "validity": validity(promo.get("validFrom"), promo.get("validUntil"), today),
     }
 
 

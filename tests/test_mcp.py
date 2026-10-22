@@ -507,13 +507,15 @@ class ProtocolTest(McpTestCase):
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
-                         "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe"})
+                         "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe",
+                         "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches"})
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)
             self.assertTrue(tool["description"], name)
             self.assertIs(tool["annotations"]["destructiveHint"], False, name)
-        self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["import_recipe_to_mealie"])
+        self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["report_offer_mismatch", "import_recipe_to_mealie"])
+        self.assertIs(tools["report_offer_mismatch"]["annotations"]["idempotentHint"], True, "dezelfde melding twee keer is dezelfde melding")
         # Geen enkele tool vult het mandje of verwijdert iets.
         # De tools die over het mandje of bestellingen gaan, lezen alleen; er is geen tool die iets toevoegt, wijzigt of verwijdert.
         for name, tool in tools.items():
@@ -521,6 +523,65 @@ class ProtocolTest(McpTestCase):
                 self.assertTrue(name.startswith(("get_", "list_", "search_")), name)
                 self.assertTrue(tool["annotations"]["readOnlyHint"], name)
         self.assertFalse(any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in tools))
+
+
+class OfferReviewToolsTest(McpTestCase):
+    """ChatGPT en Claude beoordelen de koppelingen tussen ingrediënten en aanbiedingen, en melden de foute."""
+
+    def setUp(self):
+        super().setUp()
+        self.token = self.grant()[0]["access_token"]
+        from mealieshopper import offers
+
+        self.offers = offers
+        fetched = [
+            {"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
+            {"id": "2", "title": "Jumbo Kipfilet", "price": 3.5, "priceBefore": 4.0, "promoLabel": "Bonus"},
+            {"id": "3", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"},
+        ]
+        recipes = [
+            {"id": "r1", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": ["400 g kipfilet", "4 tomaten"]},
+            {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: recipes),)):
+            offers.sync_recipes()
+
+    def data(self, name, args=None):
+        result = self.call(self.token, name, args)
+        self.assertFalse(result["isError"], result["content"][0]["text"])
+        return json.loads(result["content"][0]["text"])
+
+    def test_review_lists_each_pair_once_with_the_number_of_recipes(self):
+        data = self.data("review_offer_matches", {"store": "ah"})
+        self.assertEqual(data["total"], 2, "kipfilet en tomaten: twee paren, ook al staan ze in twee recepten")
+        pair = data["pairs"][0]
+        self.assertEqual((pair["offerId"], pair["product"], pair["recipes"]), ("1", "AH Kipfilet", 2))
+        self.assertEqual(sorted(pair["exampleRecipes"]), ["Kip met tomaat", "Kipsalade"])
+        self.assertIn("report_offer_mismatch", data["hint"])
+        self.assertEqual(self.data("review_offer_matches", {"store": "ah", "limit": 1, "offset": 1})["pairs"][0]["offerId"], "3")
+
+    def test_a_reported_pair_leaves_the_review_and_can_be_listed_and_undone(self):
+        reported = self.data("report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "reason": "  geen\nkip "})
+        self.assertTrue(reported["reported"])
+        pairs = {p["offerId"] for p in self.data("review_offer_matches", {"store": "ah"})["pairs"]}
+        self.assertEqual(pairs, {"2", "3"}, "het andere kipfilet-product neemt de plaats in")
+        listed = self.data("list_offer_mismatches")
+        self.assertEqual((listed["total"], listed["reports"][0]["offerId"], listed["reports"][0]["source"], listed["reports"][0]["reason"]), (1, "1", "assistant", "geen kip"))
+        self.assertTrue(self.data("report_offer_mismatch", {"store": "ah", "ingredient": "400 g kipfilet", "offer_id": "1", "undo": True})["undone"])
+        self.assertEqual(self.data("list_offer_mismatches", {"store": "ah"})["total"], 0)
+        self.assertEqual(self.data("review_offer_matches", {"store": "ah"})["total"], 2)
+
+    def test_bad_input_is_a_readable_error(self):
+        for name, args in (("review_offer_matches", {"store": "lidl"}), ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet"}),
+                           ("report_offer_mismatch", {"store": "ah", "ingredient": "kipfilet", "offer_id": "999"})):
+            self.assertTrue(self.call(self.token, name, args)["isError"], name)
+
+    def test_the_app_flag_and_the_assistant_share_the_same_reports(self):
+        self.offers.report_mismatch("ah", "tomaten", "3")
+        listed = self.data("list_offer_mismatches")
+        self.assertEqual([(r["product"], r["source"]) for r in listed["reports"]], [("AH Tomaten rond", "app")])
 
 
 class PurchaseToolsTest(McpTestCase):
@@ -639,12 +700,13 @@ class ToolsTest(McpTestCase):
             {"date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]}},
             {"date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "recipe": None, "recipeDetail": None},
         ]
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"):
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
             data = self.data("get_week_menu", {"start_date": "2026-10-19", "days": 3})
         plan.assert_called_once_with("2026-10-19", "2026-10-21")
         self.assertEqual([m["date"] for m in data["meals"]], ["2026-10-19", "2026-10-20"])
         self.assertEqual(data["meals"][0]["recipe"], "Restjes")
-        self.assertEqual(data["meals"][1]["url"], "https://mealie.example/recipe/pasta")
+        self.assertEqual(data["meals"][1]["url"], "https://mealie.example/g/home/r/pasta")
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
 
     def test_week_menu_defaults_to_this_week_and_validates(self):
@@ -705,10 +767,11 @@ class ToolsTest(McpTestCase):
         self.assertEqual((data["products"][0]["price"], data["products"][0]["url"]), (1.25, "https://www.ah.nl/producten/product/wi42"))
 
     def test_import_recipe(self):
-        with mock.patch.object(mealie, "import_from_url", return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"):
+        with mock.patch.object(mealie, "import_from_url", return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
             data = self.data("import_recipe_to_mealie", {"url": "https://www.ah.nl/allerhande/recept/R-R1/pesto"})
         imp.assert_called_once()
-        self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/recipe/pasta-pesto"})
+        self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
 
     def test_import_refuses_addresses_on_your_own_network(self):
         with mock.patch.object(mealie, "import_from_url") as imp:

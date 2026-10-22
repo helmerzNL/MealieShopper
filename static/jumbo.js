@@ -7,7 +7,8 @@ const jumboState = { connected: false, report: null };
 function renderJumboStatus() {
   $("#jumbo-unlink").hidden = !jumboState.connected;
   $("#jumbo-check").hidden = !jumboState.connected;
-  message("#jumbo-status", jumboState.connected ? t("jumbo.linked") : t("jumbo.not_linked"), jumboState.connected ? "success" : "error");
+  renderLinkStatus("#jumbo-status", STORES.jumbo.name, jumboState.connected ? "linked" : "unlinked");
+  applyStoreFold("jumbo", jumboState.connected);
 }
 
 async function refreshJumboStatus() {
@@ -43,8 +44,9 @@ async function checkJumboConnection() {
   message("#jumbo-status", t("ah.checking"), "success");
   try {
     const data = await jsonFetch("/api/jumbo/auth/status?verify=1");
-    if (data.verified) message("#jumbo-status", t("jumbo.works"), "success");
-    else message("#jumbo-status", data.connected ? t("jumbo.broken", { error: data.error || "" }) : t("jumbo.not_linked"));
+    if (data.verified) renderLinkStatus("#jumbo-status", STORES.jumbo.name, "working");
+    else if (data.connected) message("#jumbo-status", t("jumbo.broken", { error: data.error || "" }));
+    else renderLinkStatus("#jumbo-status", STORES.jumbo.name, "unlinked");
   } catch (error) {
     message("#jumbo-status", error.message);
   }

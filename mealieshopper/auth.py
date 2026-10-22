@@ -570,6 +570,28 @@ def assert_rp_hash(auth_data: bytes) -> None:
         raise ValueError("RP ID hash mismatch")
 
 
+def check_assertion(credential: dict[str, Any], challenge: bytes, public_key: bytes) -> int:
+    """Controleert de ondertekening van een passkey-aanmelding; geeft de nieuwe teller of gooit een fout."""
+    client_data_raw = validate_client_data(
+        client_data_json_b64=credential["response"]["clientDataJSON"],
+        expected_type="webauthn.get",
+        expected_challenge=challenge,
+    )
+    auth_data = b64url_decode(credential["response"]["authenticatorData"])
+    signature = b64url_decode(credential["response"]["signature"])
+    client_data_hash = hashlib.sha256(client_data_raw).digest()
+    assert_rp_hash(auth_data)
+    verify_signature(public_key, auth_data, client_data_hash, signature)
+    return parse_auth_data(auth_data)[2]
+
+
+def forget_runtime_state() -> None:
+    """Vergeet wat er in het geheugen staat over de database en het geheim (na het wissen van de data-map)."""
+    global _INITIALIZED
+    _INITIALIZED = False
+    _master_secrets.clear()
+
+
 def cookie_response(payload: dict[str, Any], token: str | None = None, status: int = 200):
     result = make_response(jsonify(payload), status)
     if token:
@@ -622,6 +644,9 @@ def register_routes(app: Flask) -> None:
             payload["passwordConfigured"] = password_configured(uid)
             payload["mfaEnabled"] = mfa_enabled(uid)
             payload["recoveryCodesLeft"] = recovery_codes_left(uid)
+            from . import profile  # late import: profile gebruikt dit module
+
+            payload.update(profile.get(uid))
         return jsonify(payload)
 
     @app.get("/api/auth/credentials")
@@ -823,17 +848,7 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "Unknown credential"}), 400
 
         try:
-            client_data_raw = validate_client_data(
-                client_data_json_b64=credential["response"]["clientDataJSON"],
-                expected_type="webauthn.get",
-                expected_challenge=challenge,
-            )
-            auth_data = b64url_decode(credential["response"]["authenticatorData"])
-            signature = b64url_decode(credential["response"]["signature"])
-            client_data_hash = hashlib.sha256(client_data_raw).digest()
-            assert_rp_hash(auth_data)
-            verify_signature(bytes(stored["public_key"]), auth_data, client_data_hash, signature)
-            _, _, new_sign_count = parse_auth_data(auth_data)
+            new_sign_count = check_assertion(credential, challenge, bytes(stored["public_key"]))
         except Exception as exc:
             return jsonify({"error": f"Verification failed: {exc}"}), 400
 
@@ -852,8 +867,8 @@ def register_routes(app: Flask) -> None:
 
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
-ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/mealie/auth", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/")
-ADMIN_PATHS = {"/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore"}
+ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/mealie/auth", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/")
+ADMIN_PATHS = {"/api/offers/sync-all", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status"}
 
 

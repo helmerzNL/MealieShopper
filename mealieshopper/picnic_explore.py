@@ -311,9 +311,125 @@ def _page_info(page: Any) -> dict[str, Any]:
             "verwijzingen": page_links(page)}
 
 
-def explore() -> dict[str, Any]:
-    """Roep de leesroutes aan en geef een rapport met de vorm van de antwoorden."""
+def tile_census(page: Any) -> dict[str, Any]:
+    """Wat producttegels op een pagina zeggen over een korting: welke velden, welke decorators en hoeveel als aanbieding gelden. Zonder inhoud."""
+    units = [n["sellingUnit"] for n in picnic._walk(page) if n.get("type") == "SELLING_UNIT_TILE" and isinstance(n.get("sellingUnit"), dict)]
+    decorators = Counter(
+        f"{d.get('type')}: {', '.join(sorted(k for k in d if k != 'type'))}"
+        for unit in units for d in unit.get("decorators") or [] if isinstance(d, dict)
+    )
+    return {
+        "tegels": len(units),
+        "velden van een tegel": sorted({key for unit in units for key in unit}),
+        "met `price`": sum(1 for unit in units if "price" in unit),
+        "`price` anders dan `display_price`": sum(1 for unit in units if isinstance(unit.get("price"), (int, float)) and unit.get("price") != unit.get("display_price")),
+        "met `price_ranges`": sum(1 for unit in units if unit.get("price_ranges")),
+        "decorators": dict(decorators.most_common(12)),
+        "als aanbieding herkend": sum(1 for offer in picnic.offers_from_page(page) if offer["promo"]),
+    }
+
+
+# Teksten bij een producttegel die over een korting gaan (een actieprijs, een percentage, "1+1 gratis"), met cijfers als #.
+_PROMO_TEXT = re.compile(r"gratis|korting|%|€|\d\s*\+\s*\d|\bvoor\b|actie|bonus|aanbieding|\bdeal\b|\bnu\b|\bvan\b.*\bvoor\b|-\s*\d", re.I)
+
+
+def tile_text_patterns(page: Any) -> dict[str, Any]:
+    """Welke soort teksten er bij producttegels staan: hoeveel teksten per tegel, en de kortingachtige teksten met cijfers als #.
+
+    De korting staat misschien niet in het product zelf maar in de tekst ernaast ("-25%", een doorgestreepte prijs). Zo zien we
+    of en hoe, zonder productnamen: alleen korte teksten die over een korting gaan komen in het rapport.
+    """
+    per_tile: Counter = Counter()
+    patterns: Counter = Counter()
+    for node in picnic._walk(page):
+        if node.get("type") != "PML":
+            continue
+        subtree = list(picnic._walk(node))
+        if sum(1 for n in subtree if n.get("type") == "SELLING_UNIT_TILE") != 1:
+            continue
+        texts = [n["markdown"].strip() for n in subtree if n.get("type") == "RICH_TEXT" and isinstance(n.get("markdown"), str) and n["markdown"].strip()]
+        per_tile[len(texts)] += 1
+        for text in texts:
+            if len(text) <= 30 and _PROMO_TEXT.search(text):
+                patterns[re.sub(r"\d", "#", _redact(text))] += 1
+    return {"tegels met precies een tegel in het onderdeel": sum(per_tile.values()),
+            "aantal teksten per tegel": dict(sorted(per_tile.items())),
+            "kortingachtige teksten (cijfers als #)": dict(patterns.most_common(15))}
+
+
+def promo_cards(page: Any, limit: int = 2) -> Any:
+    """De kaarten onder de kop *Acties*: geen producten, maar een merk of productgroep. Waar leidt zo'n kaart naartoe?
+
+    Toont de vorm (zonder inhoud) van de eerste kaarten en van alles in een kaart dat een actie of verwijzing lijkt, en de ids van
+    de kaart zelf, zodat te zien is welke pagina bij een klik opent.
+    """
+    nodes = list(picnic._walk(page))
+    start = next((i for i, n in enumerate(nodes) if n.get("type") == "RICH_TEXT" and isinstance(n.get("markdown"), str) and re.search(r"\bacties\b", n["markdown"], re.I)), None)
+    if start is None:
+        return "geen kop met Acties"
+    cards = []
+    for node in nodes[start + 1:]:
+        if node.get("type") != "PML":
+            continue
+        inside = list(picnic._walk(node))
+        if any(n.get("type") == "SELLING_UNIT_TILE" for n in inside) or not any(n.get("type") == "RICH_TEXT" for n in inside):
+            continue
+        cards.append((node, inside))
+        if len(cards) >= limit:
+            break
+    report: dict[str, Any] = {"kaarten gevonden (eerste %d)" % limit: len(cards)}
+    for index, (card, inside) in enumerate(cards, 1):
+        actions = [n for n in inside if any(key in n for key in ("onPress", "onAction", "target", "pageConfig", "reference", "actionType"))]
+        report[f"kaart {index}"] = {
+            "id": _redact(str(card.get("id")))[:80],
+            "velden": sorted(card),
+            "analysegegevens": analytics_fields(card) if recipe_tiles(card) else shape(card.get("analytics")),
+            "acties en verwijzingen (vorm)": [shape(n) for n in actions[:6]],
+            "teksten die naar een pagina of campagne wijzen": sorted({_redact(v)[:80] for n in inside for v in n.values() if isinstance(v, str) and re.search(r"picnic://|page;id=|campaign|promo|deal|actie", v, re.I)})[:10],
+        }
+    return report
+
+
+def _offer_page_info(page: Any) -> dict[str, Any]:
+    info = _page_info(page)
+    if isinstance(page, dict):
+        info["telling van de tegels"] = tile_census(page)
+        info["teksten bij de tegels"] = tile_text_patterns(page)
+        info["kaarten onder Acties"] = promo_cards(page)
+        info["opbouw"] = page_outline(page, 60)
+        info["pagina's die later laden (pageConfig)"] = [_redact(ref) for ref in picnic.lazy_pages(page)][:25]
+        info["verwijzingen over aanbiedingen"] = [link for link in info.get("verwijzingen", []) if picnic._OFFER_WORDS.search(link)]
+    return info
+
+
+def offer_probes() -> list[dict[str, Any]]:
+    """Waar staan de aanbiedingen? Kijk naar de pagina's waar `get_offers` zoekt: de startpagina en wat daar over aanbiedingen gaat."""
     probes: list[dict[str, Any]] = []
+    try:
+        references = picnic.offer_references()
+    except Exception as exc:  # noqa: BLE001 - zonder tabbalk geen paginalijst; de rest van het rapport blijft
+        return [{"name": "aanbiedingen: welke pagina's zoeken we", "ok": False, "error": str(exc)[:200]}]
+    probes.append({"name": "aanbiedingen: welke pagina's zoeken we (pagina, streng)", "ok": True,
+                   "info": {"pagina's": [{"pagina": ref, "streng": strict} for ref, strict in references]}})
+    followed: list[str] = []
+    for reference, _strict in references:
+        report, page = _probe(f"aanbiedingen: GET pages/{reference}", lambda r=reference: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        probes.append(report)
+        if isinstance(page, dict):
+            linked = picnic.page_references(page) + picnic.lazy_pages(page)
+            followed.extend(link for link in linked if picnic._OFFER_WORDS.search(link.split("?")[0]) and link not in followed and picnic._PAGE_REFERENCE.match(link))
+    for link in followed[:3]:
+        report, _ = _probe(f"aanbiedingen: GET pages/{_redact(link)}", lambda r=link: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        probes.append(report)
+    return probes
+
+
+def explore(extended: bool = False) -> dict[str, Any]:
+    """Roep de leesroutes aan en geef een rapport met de vorm van de antwoorden.
+
+    Met `extended` komt ook de uitgebreide verkenning van de favorieten-pagina's erbij (veel verzoeken; kan een tijdelijke blokkade geven).
+    """
+    probes: list[dict[str, Any]] = offer_probes()
 
     report, page = _probe(
         "zoeken: GET pages/search-page-results",
@@ -434,78 +550,81 @@ def explore() -> dict[str, Any]:
         lambda found: {"tabs": found, "favorietenpagina": picnic.favorites_reference(found)},
     )
     probes.append(report)
-    reference = picnic.favorites_reference(tabs or [])
-    if reference:
-        report, favorites_page = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
-        probes.append(report)
-        if isinstance(favorites_page, dict):
-            probes.append({"name": "favorieten: de markering `saved` (vorm, aantallen per product)", "ok": True, "info": saved_report(favorites_page)})
+    # De favorieten zijn klaar; deze verkenning van hun pagina's stuurt ruim honderd verzoeken achter elkaar en Picnic
+    # blokkeert dan tijdelijk (403). Daarom alleen met `?extended=1`.
+    if extended:
+        reference = picnic.favorites_reference(tabs or [])
+        if reference:
+            report, favorites_page = _probe(f"favorieten: GET pages/{reference}", lambda: picnic._authed("GET", f"/pages/{reference}", text=True), _page_info)
+            probes.append(report)
+            if isinstance(favorites_page, dict):
+                probes.append({"name": "favorieten: de markering `saved` (vorm, aantallen per product)", "ok": True, "info": saved_report(favorites_page)})
 
-        # Op de pagina van de tab staan misschien niet je favorieten (zonder boodschappen is het een lijst met
-        # populaire producten). Kijk welke pagina's de app daarnaast kent, en of een productpagina zegt of het een favoriet is.
-        for page_id in PURCHASE_PAGES:
-            report, purchases = _probe(f"favorieten: GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
-            probes.append(report)
-            if isinstance(purchases, dict):
-                probes.append({"name": f"favorieten: de markering `saved` op {page_id}", "ok": True, "info": saved_report(purchases)})
-        for page_id in (reference, "purchases-page-root", "purchased-deep-dive-page-content", "meals-purchase-page-root"):
-            report, code_page = _probe(f"favorieten: hoe {page_id} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), code_report)
-            probes.append(report)
-        first_product = next(iter(picnic.products_from_page(favorites_page)), None) if isinstance(favorites_page, dict) else None
-        if first_product:
-            for name, page_id in (
-                ("de bevestiging bij een favoriet weghalen", f"unfavorite-confirmation-dialog?sellable_id={first_product['id']}"),
-                ("de bevestiging bij een favoriet weghalen (met presentatie)", f"unfavorite-confirmation-dialog?presentation-mode=MODAL_OVER_CONTEXT&sellable_id={first_product['id']}"),
-                ("een productpagina", f"product-details-page-root?id={first_product['id']}"),
-            ):
-                report, code_page = _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
+            # Op de pagina van de tab staan misschien niet je favorieten (zonder boodschappen is het een lijst met
+            # populaire producten). Kijk welke pagina's de app daarnaast kent, en of een productpagina zegt of het een favoriet is.
+            for page_id in PURCHASE_PAGES:
+                report, purchases = _probe(f"favorieten: GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
                 probes.append(report)
-        # De opbouw van de pagina van de tab, en de pagina's die zij zelf later laadt (`pageConfig`).
-        if isinstance(favorites_page, dict):
-            probes.append({"name": "favorieten: opbouw van de pagina van de tab (koppen en groepen tegels)", "ok": True,
-                           "info": {"opbouw": page_outline(favorites_page)}})
-            lazy_ids = list(dict.fromkeys(
-                n["pageConfig"]["id"] for n in picnic._walk(favorites_page)
-                if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
-                and picnic._PAGE_REFERENCE.match(n["pageConfig"]["id"])))[:4]
-            for lazy_id in lazy_ids:
-                report, lazy_page = _probe(f"favorieten: later geladen pagina {_redact(lazy_id)}",
-                                           lambda i=lazy_id: picnic._authed("GET", f"/pages/{i}", text=True), _page_info)
+                if isinstance(purchases, dict):
+                    probes.append({"name": f"favorieten: de markering `saved` op {page_id}", "ok": True, "info": saved_report(purchases)})
+            for page_id in (reference, "purchases-page-root", "purchased-deep-dive-page-content", "meals-purchase-page-root"):
+                report, code_page = _probe(f"favorieten: hoe {page_id} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), code_report)
                 probes.append(report)
-                if isinstance(lazy_page, dict):
-                    probes.append({"name": f"favorieten: opbouw en markering van {_redact(lazy_id)}", "ok": True,
-                                   "info": {"opbouw": page_outline(lazy_page), "saved": saved_report(lazy_page)}})
-        # Zet de server zelf in de hartjescode van een productpagina of het product favoriet is? Kijk bij een paar producten.
-        sample = (picnic.products_from_page(favorites_page)[:8] if isinstance(favorites_page, dict) else [])
-        flags: dict[str, Any] = {}
-        for index, product in enumerate(sample):
-            try:
-                flags[f"product {index + 1}"] = like_constants(picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
-            except Exception as exc:  # noqa: BLE001 - een product dat niet laadt slaan we over
-                flags[f"product {index + 1}"] = f"fout: {type(exc).__name__}"
-        probes.append({"name": "favorieten: waar/onwaar in de hartjescode van de productpagina's (per product)", "ok": True, "info": flags})
-        for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
-            report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
-                                    lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
-                                    lambda data: {"waarden": favorite_values(data)})
+            first_product = next(iter(picnic.products_from_page(favorites_page)), None) if isinstance(favorites_page, dict) else None
+            if first_product:
+                for name, page_id in (
+                    ("de bevestiging bij een favoriet weghalen", f"unfavorite-confirmation-dialog?sellable_id={first_product['id']}"),
+                    ("de bevestiging bij een favoriet weghalen (met presentatie)", f"unfavorite-confirmation-dialog?presentation-mode=MODAL_OVER_CONTEXT&sellable_id={first_product['id']}"),
+                    ("een productpagina", f"product-details-page-root?id={first_product['id']}"),
+                ):
+                    report, code_page = _probe(f"favorieten: hoe {name} zijn gegevens ophaalt", lambda p=page_id: picnic._authed("GET", f"/pages/{p}"), code_report)
+                    probes.append(report)
+            # De opbouw van de pagina van de tab, en de pagina's die zij zelf later laadt (`pageConfig`).
+            if isinstance(favorites_page, dict):
+                probes.append({"name": "favorieten: opbouw van de pagina van de tab (koppen en groepen tegels)", "ok": True,
+                               "info": {"opbouw": page_outline(favorites_page)}})
+                lazy_ids = list(dict.fromkeys(
+                    n["pageConfig"]["id"] for n in picnic._walk(favorites_page)
+                    if isinstance(n.get("pageConfig"), dict) and isinstance(n["pageConfig"].get("id"), str)
+                    and picnic._PAGE_REFERENCE.match(n["pageConfig"]["id"])))[:4]
+                for lazy_id in lazy_ids:
+                    report, lazy_page = _probe(f"favorieten: later geladen pagina {_redact(lazy_id)}",
+                                               lambda i=lazy_id: picnic._authed("GET", f"/pages/{i}", text=True), _page_info)
+                    probes.append(report)
+                    if isinstance(lazy_page, dict):
+                        probes.append({"name": f"favorieten: opbouw en markering van {_redact(lazy_id)}", "ok": True,
+                                       "info": {"opbouw": page_outline(lazy_page), "saved": saved_report(lazy_page)}})
+            # Zet de server zelf in de hartjescode van een productpagina of het product favoriet is? Kijk bij een paar producten.
+            sample = (picnic.products_from_page(favorites_page)[:8] if isinstance(favorites_page, dict) else [])
+            flags: dict[str, Any] = {}
+            for index, product in enumerate(sample):
+                try:
+                    flags[f"product {index + 1}"] = like_constants(picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
+                except Exception as exc:  # noqa: BLE001 - een product dat niet laadt slaan we over
+                    flags[f"product {index + 1}"] = f"fout: {type(exc).__name__}"
+            probes.append({"name": "favorieten: waar/onwaar in de hartjescode van de productpagina's (per product)", "ok": True, "info": flags})
+            for index, product in enumerate(picnic.products_from_page(favorites_page)[:3] if isinstance(favorites_page, dict) else []):
+                report, detail = _probe(f"favorieten: productpagina {index + 1}: velden over favorieten",
+                                        lambda i=product["id"]: picnic._authed("GET", f"/pages/product-details-page-root?id={i}"),
+                                        lambda data: {"waarden": favorite_values(data)})
+                probes.append(report)
+
+        # De hartjesknop leest `getGlobalState("sellable-favorites")`: een toestand die de app zelf vult, niet de pagina.
+        # Misschien zit die in /bootstrap of komt hij van een eigen route; kijk naar beide.
+        report, _ = _probe(
+            "favorieten: de velden van /bootstrap naast de tabs (alleen de vorm)",
+            lambda: picnic._authed("GET", "/bootstrap"),
+            lambda data: {key: shape(value) for key, value in sorted(data.items()) if key != "tabs"} if isinstance(data, dict) else shape(data),
+        )
+        probes.append(report)
+        for path in FAVORITE_ROUTES:
+            report, _ = _probe(f"favorieten? GET {path}", lambda p=path: picnic._authed("GET", p))
             probes.append(report)
 
-    # De hartjesknop leest `getGlobalState("sellable-favorites")`: een toestand die de app zelf vult, niet de pagina.
-    # Misschien zit die in /bootstrap of komt hij van een eigen route; kijk naar beide.
-    report, _ = _probe(
-        "favorieten: de velden van /bootstrap naast de tabs (alleen de vorm)",
-        lambda: picnic._authed("GET", "/bootstrap"),
-        lambda data: {key: shape(value) for key, value in sorted(data.items()) if key != "tabs"} if isinstance(data, dict) else shape(data),
-    )
-    probes.append(report)
-    for path in FAVORITE_ROUTES:
-        report, _ = _probe(f"favorieten? GET {path}", lambda p=path: picnic._authed("GET", p))
-        probes.append(report)
-
-    # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
-    for page_id in FAVORITE_GUESSES:
-        report, _ = _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
-        probes.append(report)
+        # Favorieten: onbekend. Probeer de gokken; een pagina die bestaat, wordt met zijn vorm en verwijzingen gemeld.
+        for page_id in FAVORITE_GUESSES:
+            report, _ = _probe(f"favorieten? GET pages/{page_id}", lambda p=page_id: picnic._authed("GET", f"/pages/{p}", text=True), _page_info)
+            probes.append(report)
 
     # Het antwoord van Picnic bij een fout kan van alles bevatten; in het rapport staan alleen de codes.
     for probe in probes:
