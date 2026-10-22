@@ -2,20 +2,42 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.62.0
+## v2.63.0
 
 *English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
 
-### Nieuw in 2.62.0
+### Nieuw in 2.63.0
 
 - **Fabrieksinstellingen.** Onder *Instellingen > Systeem > Opschonen* zet de beheerder MealieShopper terug naar een nieuwe installatie. Dat verwijdert de database (gebruikers, wachtwoorden, passkeys, koppelingen, lijstjes, bestellingen, aanbiedingen, auditlog) en `secret.key`. De knop opent eerst een waarschuwing met de gevolgen en vraagt daarna om het woord `RESET`, om opnieuw te bewijzen wie je bent (wachtwoord, en bij tweestapsverificatie ook de code of een herstelcode; of een passkey) en om een laatste bevestiging. Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
 - **Opnieuw starten.** Na het wissen stopt de app zichzelf (onder gunicorn, zoals in de container; de container start door het restart-beleid weer op) en laadt de pagina vanzelf opnieuw zodra de app terug is, bij de onboarding. Draait de app op een andere manier, dan meldt hij dat je hem zelf opnieuw moet starten.
 - **Nieuwe routes** (alleen beheerder): `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` (de passkey-uitdaging) en `POST /api/system/factory-reset`.
 
-### Aangepast in 2.62.0
+### Aangepast in 2.63.0
 
 - Het tabblad *Updates* in de Instellingen heet nu *Systeem* en bevat de updatecheck en het nieuwe blok *Opschonen*.
 - De passkey-controle van het inloggen staat nu in `auth.check_assertion`, zodat het wissen dezelfde controle gebruikt.
+
+## v2.62.0
+
+*English summary: The recipe suggestions are about what you can cook with the offers of the chosen store. Above the recipes it now says so ("Recipes with as many ingredients as possible from the offers at Jumbo"), basics such as salt, oil, butter and flour no longer count towards "x of y ingredients on offer", the recipes with the largest share on offer come first, and each recipe lists what is not on offer. At the top there is a filter for the kind of dish (breakfast, lunch, starter, soup, main course, side dish, dessert, snack, other) with the number of recipes per kind. The kind comes from the recipe's source, so read the recipes once more after updating. A recipe card now says where the recipe comes from ("Recipe from Albert Heijn") instead of a bare store name that read like the store of the offers.*
+
+### Nieuw in 2.62.0
+
+- **Filter op soort gerecht.** Bovenaan Aanbiedingen > Recepten staat een rij keuzes: ontbijt, lunch, voorgerecht, soep, hoofdgerecht, bijgerecht, dessert, snack en overig, met het aantal recepten per soort. Alleen soorten die voorkomen staan erbij. De aantallen gelden voor alle voorstellen van de gekozen winkel, het filter beperkt de lijst. Een andere winkel zet het filter terug op alles. De soort komt uit de bron: de gang bij Jumbo, de categorieën en tags in Mealie en de categorie van het recept bij AH. Picnic geeft geen gang mee; die recepten staan onder overig.
+- **Boven de recepten staat van welke winkel de aanbiedingen zijn** (*Recepten met zoveel mogelijk ingrediënten uit de aanbiedingen van Jumbo*), met de uitleg dat basisingrediënten niet meetellen en de recepten met de meeste ingrediënten in de aanbieding bovenaan staan.
+- **Wat er niet in de aanbieding is.** Onder de gekoppelde ingrediënten staat *Niet in de aanbieding: …*, zodat je ziet wat je er nog bij moet halen.
+- `GET /api/offers/recipes` krijgt `course` (een van de soorten, of `all`) en geeft per recept `course` en `missing`, en `courses` met de aantallen per soort.
+
+### Aangepast in 2.62.0
+
+- **Basisingrediënten tellen niet meer mee.** Zout, peper, water, ijs, olie, boter, bloem, suiker, azijn, bouillon en kruiden zijn niet langer een ingrediënt dat in de aanbieding hoort te zijn. Een regel telt als basis als het hoofdwoord er een is of erop eindigt (*milde olijfolie*, *roomboter*, *zeezout*, *balsamicoazijn*). Het aantal in *x van y ingrediënten in de aanbieding* wordt daardoor kleiner (*2 van 6* in plaats van *2 van 7*). Een smaakwoord aan het eind van een langere regel (*zuivelspread knoflook en kruiden*) telt nog mee als ingrediënt dat niet te koppelen is.
+- **De receptkaart zegt waar het recept vandaan komt.** De winkelkeuze bij Aanbiedingen > Recepten bepaalt alleen met welke aanbiedingen de recepten worden vergeleken; de recepten komen uit al je bronnen. Achter het aantal ingrediënten stond de bron van het recept ("· Albert Heijn"), wat las alsof het AH-aanbiedingen waren, ook als je Jumbo had gekozen. Nu staat er *Recept uit Albert Heijn*.
+
+### Goed om te weten
+
+- **Lees je recepten één keer opnieuw in** (`Recepten inlezen`): de soort wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*. AH-recepten die al in de index staan maar nog geen soort hebben, worden bij het inlezen opnieuw opgehaald, binnen de 60 nieuwe AH-recepten per keer.
+- De volgorde is: het grootste deel van de ingrediënten in de aanbieding, dan het grootste aantal, dan de grootste besparing. Een recept moet minstens twee koppelingen hebben (één bij een recept met hooguit drie ingrediënten).
+- De soorten komen uit vrije tekst van de bron en worden op woorden herkend (*Avondeten* en *Main course* zijn hoofdgerecht). Een categorie die je zelf in Mealie hebt bedacht en niet herkend wordt, valt onder overig.
 
 ## v2.61.0
 

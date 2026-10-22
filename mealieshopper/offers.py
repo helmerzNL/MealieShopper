@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import ah, ah_lists, deals, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import ah, ah_lists, deals, offer_categories, offer_courses, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS offer_recipes (
   image TEXT,
   url TEXT,
   ingredients TEXT NOT NULL,
+  course TEXT,
   PRIMARY KEY (source, recipe_id)
 );
 
@@ -114,6 +115,9 @@ def _connect():
     # Een database van vóór de categorieën heeft die kolom nog niet.
     if "category" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
         conn.execute("ALTER TABLE offers ADD COLUMN category TEXT")
+    # Een index van vóór de soorten gerecht heeft die kolom nog niet; de soort volgt bij de volgende keer inlezen.
+    if "course" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")}:
+        conn.execute("ALTER TABLE offer_recipes ADD COLUMN course TEXT")
     return conn
 
 
@@ -381,8 +385,12 @@ NOISE = {
     "middelgrote", "gekookt", "gebakken", "gerookt", "diepvries", "bijvoorbeeld", "bv", "uitgelekt", "halve",
     "hele", "heel", "half", "tot", "ongeveer", "stukje", "stukjes", "blad", "blaadjes",
 }
-# Basisingrediënten die altijd in huis zijn: een aanbieding daarvoor maakt een recept niet interessanter.
-PANTRY = {"zout", "peper", "water", "ijs"}
+# Basisingrediënten die altijd in huis zijn: een aanbieding daarvoor maakt een recept niet interessanter en ze tellen niet mee in
+# "x van y ingrediënten in de aanbieding". Een ingrediënt is basis als het hoofdwoord er een is of erop eindigt (zeezout, roomboter,
+# olijfolie, balsamicoazijn).
+PANTRY = (
+    "zout", "peper", "water", "ijs", "olie", "boter", "bloem", "suiker", "azijn", "bouillon", "bouillonblokje",
+)
 # Een aanbieding waarvan het woord hiermee verder gaat is een ander product dan het ingrediënt (tomatenpuree, kippensoep).
 DERIVED_PREFIXES = ("puree", "saus", "soep", "sap", "drank", "chips", "reep", "koek", "taart", "pizza", "ketchup", "jam", "smaak")
 
@@ -400,6 +408,12 @@ def _stem(token: str) -> str:
 
 
 DERIVED_STEMS = tuple(_stem(prefix) for prefix in DERIVED_PREFIXES)
+PANTRY_STEMS = {_stem(word) for word in PANTRY}
+
+
+def is_basic(word: str) -> bool:
+    """Of een (gestemd) woord een basisingrediënt is: zelf in de lijst, of een samenstelling die erop eindigt."""
+    return word in PANTRY_STEMS or any(len(basic) >= 4 and word.endswith(basic) for basic in PANTRY_STEMS)
 
 
 def tokens(text: Any) -> list[str]:
@@ -419,7 +433,9 @@ def head_of(ingredient: Any) -> str | None:
     text = str(ingredient or "")
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", text))
     words = tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(text)
-    if not words or all(word in {_stem(item) for item in PANTRY} for word in words):
+    # Alleen basis- en smaakwoorden ("zout en peper", "verse kruiden"), of een basis als hoofdwoord ("milde olijfolie"). Een smaakwoord
+    # aan het eind van een langere regel ("zuivelspread knoflook en kruiden") blijft staan: het ingrediënt telt mee maar zoekt geen product.
+    if not words or all(is_basic(word) or word in WEAK_HEADS for word in words) or (is_basic(words[-1]) and words[-1] not in WEAK_HEADS):
         return None
     return words[-1]
 
@@ -498,7 +514,7 @@ def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: li
     """Of een aanbieding het ingrediënt is. None: nee. Anders het aantal woorden in de titel dat niet bij het ingrediënt
     hoort; hoe minder, hoe beter de aanbieding past.
     """
-    if head in WEAK_HEADS or not matches(head, set(core)):
+    if not head or head in WEAK_HEADS or not matches(head, set(core)):
         return None
     # Samengesteld product ("Gehakt met ui"): alleen als het ingrediënt de rest ook noemt.
     if any(not _covered(stem, ingredient_stems) for stem in rest):
@@ -511,13 +527,23 @@ def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: li
     return sum(1 for stem in core if not _covered(stem, ingredient_stems))
 
 
-def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
-    """Recepten uit de index waarvan ingrediënten in de aanbieding zijn, de beste eerst."""
+def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
+    """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
+
+    Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
+    dan het grootste aantal, dan de grootste besparing. `course` beperkt de lijst tot één soort gerecht (zie `offer_courses`); de
+    aantallen per soort in `courses` gelden voor alle voorstellen, zodat je ziet wat er bij een andere keuze zou staan.
+    """
+    course = str(course or "").strip().lower()
+    if course in ("", "all"):
+        course = ""
+    elif course not in offer_courses.COURSES:
+        raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
     offers = load(store)
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
-        rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients FROM offer_recipes").fetchall()
+        rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients, course FROM offer_recipes").fetchall()
     results: list[dict[str, Any]] = []
     for row in rows:
         ingredients = json.loads(row["ingredients"])
@@ -543,6 +569,7 @@ def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
         if len(found) < needed:
             continue
         saving = sum(saving_of(item["offer"]) for item in found)
+        matched_texts = {item["ingredient"] for item in found}
         results.append(
             {
                 "source": row["source"],
@@ -550,17 +577,24 @@ def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
                 "title": row["title"],
                 "image": row["image"] or "",
                 "url": row["url"] or "",
+                "course": row["course"] or offer_courses.OTHER,
                 "ingredientCount": len(heads),
                 "matchedCount": len(found),
                 "matched": found,
+                # De ingrediënten (zonder basis) die niet in de aanbieding zijn, om te zien wat er nog bij moet.
+                "missing": [text for text, _ in heads if text not in matched_texts],
                 "saving": round(saving, 2),
             }
         )
     results.sort(key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], item["title"]))
+    courses = offer_courses.summarize([item["course"] for item in results])
+    shown = [item for item in results if not course or item["course"] == course]
     return {
         "store": offers["store"],
-        "recipes": results[: max(1, min(100, int(limit)))],
-        "total": len(results),
+        "recipes": shown[: max(1, min(100, int(limit)))],
+        "total": len(shown),
+        "courses": courses,
+        "course": course or "all",
         "offersSyncedAt": offers["syncedAt"],
         "indexedAt": meta["synced_at"] if meta else None,
         "sources": json.loads(meta["summary"]) if meta else {},
@@ -594,6 +628,7 @@ def _collect_mealie() -> list[dict[str, Any]]:
             "image": mealie_images.image_path(recipe) or "",
             "url": mealie.recipe_page_url(summary["slug"]),
             "ingredients": lines,
+            "course": offer_courses.course_of(recipe.get("recipeCategory"), recipe.get("tags")),
         }
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
@@ -614,7 +649,8 @@ def _collect_jumbo() -> list[dict[str, Any]]:
         if not lines:
             return None
         return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
-                "url": jumbo_recipes.source_url(recipe), "ingredients": lines}
+                "url": jumbo_recipes.source_url(recipe), "ingredients": lines,
+                "course": offer_courses.course_of(recipe.get("course"), card.get("course"))}
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
@@ -641,16 +677,18 @@ def _collect_picnic() -> list[dict[str, Any]]:
         if not lines:
             return None
         return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
-                "url": picnic_recipes.source_url(recipe["id"]), "ingredients": lines}
+                "url": picnic_recipes.source_url(recipe["id"]), "ingredients": lines,
+                "course": offer_courses.course_of(card.get("tags"))}
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
 
 
-def _indexed(source: str) -> dict[str, list[str]]:
+def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
+    """Wat er van een bron al in de index staat: per recept de ingrediënten en de soort (None als die nog niet is ingelezen)."""
     with closing(_connect()) as conn:
-        rows = conn.execute("SELECT recipe_id, ingredients FROM offer_recipes WHERE source = ?", (source,)).fetchall()
-    return {row["recipe_id"]: json.loads(row["ingredients"]) for row in rows}
+        rows = conn.execute("SELECT recipe_id, ingredients, course FROM offer_recipes WHERE source = ?", (source,)).fetchall()
+    return {row["recipe_id"]: (json.loads(row["ingredients"]), row["course"]) for row in rows}
 
 
 def _collect_ah() -> list[dict[str, Any]]:
@@ -662,18 +700,24 @@ def _collect_ah() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for recipe in saved["recipes"]:
         recipe_id = str(recipe["id"])
-        lines = known.get(recipe_id)
-        if lines is None:
+        lines, course = known.get(recipe_id, (None, None))
+        # Een recept dat al in de index staat maar nog geen soort heeft (ingelezen vóór de soorten) halen we opnieuw op.
+        if lines is None or course is None:
             if fetched >= AH_NEW_RECIPES_PER_SYNC:
-                continue
-            fetched += 1
-            try:
-                lines = ah.get_recipe_jsonld(int(recipe_id)).get("recipeIngredient") or []
-            except Exception:  # noqa: BLE001
-                continue
+                if lines is None:
+                    continue
+            else:
+                fetched += 1
+                try:
+                    jsonld = ah.get_recipe_jsonld(int(recipe_id))
+                    lines = jsonld.get("recipeIngredient") or lines or []
+                    course = offer_courses.course_of(jsonld.get("recipeCategory"))
+                except Exception:  # noqa: BLE001
+                    if lines is None:
+                        continue
         if lines:
             items.append({"id": recipe_id, "title": recipe["title"], "image": recipe.get("image") or "",
-                          "url": recipe.get("url") or "", "ingredients": list(lines)})
+                          "url": recipe.get("url") or "", "ingredients": list(lines), "course": course})
     return items
 
 
@@ -701,8 +745,9 @@ def sync_recipes() -> dict[str, Any]:
         for source, items in collected.items():
             conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
             conn.executemany(
-                "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients) VALUES (?, ?, ?, ?, ?, ?)",
-                [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"])) for item in items],
+                "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"]), item.get("course"))
+                 for item in items],
             )
         conn.execute(
             """
