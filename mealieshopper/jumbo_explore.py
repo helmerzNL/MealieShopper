@@ -10,12 +10,13 @@ id's worden vervangen door hun type. Zo kun je het rapport veilig delen.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 import requests
 
 from . import jumbo, jumbo_recipes
-from .ah_explore import shape
+from .ah_explore import PROMO_TERMS, promo_probe, shape
 
 EXAMPLE_TERM = "melk"
 EXAMPLE_RECIPE = "pasta"
@@ -31,6 +32,43 @@ def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] |
     except Exception as exc:  # noqa: BLE001 - het fouttype is genoeg om de route te onderzoeken
         return {"name": name, "ok": False, "error": type(exc).__name__}, None
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
+
+
+# Velden die een Jumbo-promotie kan hebben. Jumbo noemt bij een onbekend veld in zijn foutmelding de naam,
+# zodat we in een paar rondes de bestaande velden vinden zonder het schema te kennen.
+PROMOTION_FIELD_CANDIDATES = (
+    "id", "title", "description", "text", "name", "type", "startDate", "endDate", "validFrom", "validUntil",
+    "validityPeriod", "periodDescription", "maxQuantity", "minQuantity", "group", "campaign",
+)
+_FIELD_IN_ERROR = re.compile(r'[Ff]ield "(\w+)"')
+
+
+def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
+    query = jumbo._search_query("").replace(
+        "promotions { tags { text } }", "promotions { tags { text } " + " ".join(fields) + " }"
+    )
+    data = jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
+    return [p for p in ((data.get("searchProducts") or {}).get("products") or []) if isinstance(p, dict)]
+
+
+def _promotion_probe() -> dict[str, Any]:
+    """Zoek welke velden een Jumbo-promotie heeft en laat de actieteksten en looptijd zien."""
+    fields = list(PROMOTION_FIELD_CANDIDATES)
+    for _ in range(len(fields) + 1):
+        try:
+            _search_with_promotion_fields(PROMO_TERMS[0], fields)
+            break
+        except jumbo.JumboSchemaError as exc:
+            rejected = {name for name in _FIELD_IN_ERROR.findall(str(exc)) if name in fields}
+            if not rejected:
+                raise
+            fields = [name for name in fields if name not in rejected]
+    report = promo_probe(
+        PROMO_TERMS,
+        lambda term: _search_with_promotion_fields(term, fields),
+        lambda item: bool(item.get("promotions")),
+    )
+    return {"promotievelden die bestaan": fields, **report}
 
 
 def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -109,6 +147,11 @@ def explore() -> dict[str, Any]:
             "velden gebruikt voor de query": jumbo.SEARCH_EXTRA_FIELDS[jumbo._search_variant] or "(alleen de kernvelden)",
             "eerste product": shape(products[0] if products else None),
         },
+    )
+    probes.append(report)
+
+    report, _ = _probe(
+        "aanbiedingen: GraphQL searchProducts met extra promotievelden", _promotion_probe, lambda data: data
     )
     probes.append(report)
 

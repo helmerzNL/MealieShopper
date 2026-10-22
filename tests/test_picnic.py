@@ -64,6 +64,15 @@ class SearchParsingTest(unittest.TestCase):
         products = picnic.products_from_search_page(search_page(promo, plain))
         self.assertEqual([p["isBonus"] for p in products], [True, False])
 
+    def test_promotion_label_and_regular_price_are_kept(self):
+        promo = tile("s1", "Kaas", "400 g", cents=299, price=399,
+                     decorators=[{"type": "PROMOTION_LABEL", "text": "2e halve prijs"}])
+        plain = tile("s2", "Brood", "800 g")
+        found, other = picnic.products_from_search_page(search_page(promo, plain))
+        self.assertEqual(found["promo"]["label"], "2e halve prijs")
+        self.assertEqual(found["promo"]["priceBefore"], 3.99)
+        self.assertNotIn("promo", other)
+
     def test_unexpected_pages_give_no_products(self):
         for page in (None, {}, {"body": None}, [], "x"):
             self.assertEqual(picnic.products_from_search_page(page), [])

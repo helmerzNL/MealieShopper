@@ -558,7 +558,7 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
 def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
     unit_size = item.get("salesUnitSize")
     price_now = item.get("currentPrice") or item.get("priceBeforeBonus") or 0
-    return {
+    product = {
         "webshopId": str(item.get("webshopId") or item.get("id")),
         "title": item.get("title") or query,
         "price": {"now": price_now, "unitSize": unit_size},
@@ -566,6 +566,30 @@ def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
         "brand": item.get("brand"),
         "unitSize": unit_size,
         "isBonus": bool(item.get("isBonus")),
+    }
+    if product["isBonus"]:
+        product["promo"] = _bonus_promo(item)
+    return product
+
+
+def _bonus_promo(item: dict[str, Any]) -> dict[str, Any]:
+    """Wat AH over de bonus meegeeft: mechaniek, gewone prijs en looptijd.
+
+    De veldnamen (`bonusMechanism`, `bonusStartDate`, `bonusEndDate`, `discountLabels`) zijn niet gedocumenteerd
+    en zijn nog niet met een echte respons gecontroleerd; ontbreekt een veld, dan blijft de waarde leeg en
+    wordt de aanbieding als onbekend getoond in plaats van met een gokwaarde.
+    """
+    labels = [
+        str(label.get("defaultDescription") or label.get("description"))
+        for label in item.get("discountLabels") or []
+        if isinstance(label, dict) and (label.get("defaultDescription") or label.get("description"))
+    ]
+    return {
+        "label": " | ".join(labels) or None,
+        "mechanism": item.get("bonusMechanism") or None,
+        "priceBefore": item.get("priceBeforeBonus") or None,
+        "validFrom": item.get("bonusStartDate") or None,
+        "validUntil": item.get("bonusEndDate") or None,
     }
 
 
