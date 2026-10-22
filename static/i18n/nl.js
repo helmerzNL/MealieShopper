@@ -28,6 +28,7 @@ I18N.add("nl", {
   "offers.title": "Aanbiedingen",
   "offers.status.one": "{count} aanbieding, opgehaald op {when}.",
   "offers.status.other": "{count} aanbiedingen, opgehaald op {when}.",
+  "offers.loading": "Aanbiedingen van {store} laden…",
   "offers.never": "Nog niet opgehaald. De aanbiedingen worden elke dag opgehaald; de beheerder kan ze ook meteen synchroniseren onder Instellingen > Koppelen.",
   "offers.unsupported": "Aanbiedingen van {store} zijn nog niet beschikbaar.",
   "offers.sync.title": "Aanbiedingen",

@@ -1,3 +1,4 @@
+import hashlib
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
@@ -332,7 +333,20 @@ def create_app() -> Flask:
 
     @app.get("/api/offers")
     def offers_list():
-        return offers_action(lambda: offers.load(request.args.get("store") or "ah"), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
+        # (geen nieuwe synchronisatie, nog dezelfde dag), dan volgt een 304 zonder de lijst te laden of te versturen.
+        store = request.args.get("store") or "ah"
+        try:
+            etag = hashlib.sha1(offers.signature(store).encode("utf-8")).hexdigest()
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
+        if request.if_none_match.contains(etag):
+            return Response(status=304, headers=headers)
+        response = offers_action(lambda: offers.load(store), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        if isinstance(response, Response) and response.status_code == 200:
+            response.headers.update(headers)
+        return response
 
     @app.get("/api/offers/history")
     def offers_history():

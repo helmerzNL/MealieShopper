@@ -147,12 +147,46 @@ function offersShowMore() {
   renderOfferGrid();
 }
 
+// De lijst van de vorige winkel maakt plaats voor een draaiend icoon zolang de aanbiedingen van de gekozen winkel binnenkomen.
+function renderOffersLoading() {
+  $("#offers-status").textContent = "";
+  $("#offers-categories").hidden = true;
+  $("#offers-products").innerHTML = "";
+  $("#offers-products").setAttribute("aria-busy", "true");
+  $("#offers-more").hidden = true;
+  const box = $("#offers-loading");
+  box.innerHTML = `${mdiIcon(MDI_LOADING, "offers-loading__icon")}<span>${escapeHtml(t("offers.loading", { store: STORES[offersState.store].name }))}</span>`;
+  box.hidden = false;
+}
+
+function endOffersLoading() {
+  $("#offers-loading").hidden = true;
+  $("#offers-products").removeAttribute("aria-busy");
+}
+
+// Wisselt iemand tijdens het laden van winkel, dan telt alleen de laatste aanvraag; een traag antwoord van de vorige winkel wordt genegeerd.
+let offersLoadId = 0;
+// De laatst geladen lijst per winkel. Wissel je terug naar een winkel die je al zag, dan staat die lijst er meteen en controleren we op de
+// achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd. De browser doet hetzelfde met een ETag (304).
+const offersCache = {};
+
 async function showOffers() {
+  const loadId = ++offersLoadId;
+  const store = offersState.store;
   renderOffersStore();
   message("#offers-message", "");
+  const cached = offersCache[store];
+  if (cached) renderOffers(cached);
+  else renderOffersLoading();
   try {
-    renderOffers(await jsonFetch(`/api/offers?store=${encodeURIComponent(offersState.store)}`));
+    const data = await jsonFetch(`/api/offers?store=${encodeURIComponent(store)}`);
+    if (loadId !== offersLoadId) return;
+    endOffersLoading();
+    if (!cached || JSON.stringify(cached) !== JSON.stringify(data)) renderOffers(data);
+    offersCache[store] = data;
   } catch (error) {
+    if (loadId !== offersLoadId) return;
+    endOffersLoading();
     message("#offers-message", error.message);
   }
   showOfferRecipes();

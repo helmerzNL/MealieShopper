@@ -28,6 +28,7 @@ I18N.add("en", {
   "offers.title": "Offers",
   "offers.status.one": "{count} offer, fetched on {when}.",
   "offers.status.other": "{count} offers, fetched on {when}.",
+  "offers.loading": "Loading the offers of {store}…",
   "offers.never": "Not fetched yet. The offers are fetched every day; the administrator can also sync them right away under Settings > Link.",
   "offers.unsupported": "Offers from {store} are not available yet.",
   "offers.sync.title": "Offers",
