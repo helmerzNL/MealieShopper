@@ -101,6 +101,17 @@ CREATE TABLE IF NOT EXISTS offer_recipes (
   PRIMARY KEY (source, recipe_id)
 );
 
+-- Koppelingen die je als onjuist hebt gemeld: dit product hoort niet bij dit hoofdwoord van een ingrediënt (in deze winkel).
+CREATE TABLE IF NOT EXISTS offer_rejections (
+  store TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  head TEXT NOT NULL,
+  ingredient TEXT NOT NULL,
+  title TEXT NOT NULL,
+  reported_at TEXT NOT NULL,
+  PRIMARY KEY (store, product_id, head)
+);
+
 CREATE TABLE IF NOT EXISTS offer_recipes_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   synced_at TEXT NOT NULL,
@@ -713,6 +724,47 @@ def _mealie_recipe_url(stored: str) -> str:
         return stored
 
 
+def _rejection_head(ingredient: Any) -> str:
+    """Het hoofdwoord waaronder een gemelde koppeling wordt bewaard: dat van de eerste (Nederlandse) vorm van de ingrediëntregel."""
+    text = str(ingredient or "").strip()
+    head = head_of(offer_translate.variants(text)[0]) if text else None
+    if not head:
+        raise ValueError(tr("Dit ingrediënt kan niet worden gemeld", "This ingredient cannot be reported"))
+    return head
+
+
+def report_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
+    """Meld dat dit product niet bij dit ingrediënt hoort. De koppeling komt niet meer terug, ook niet bij andere recepten
+    met hetzelfde hoofdwoord in deze winkel; `undo_mismatch` haalt de melding weer weg."""
+    store = _valid_store(store)
+    head = _rejection_head(ingredient)
+    with closing(_connect()) as conn:
+        offer = conn.execute("SELECT title FROM offers WHERE store = ? AND product_id = ?", (store, str(offer_id))).fetchone()
+        if offer is None:
+            raise ValueError(tr("Dit product staat niet meer in de aanbiedingen", "This product is no longer in the offers"))
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now()),
+            )
+    return {"store": store, "offerId": str(offer_id), "head": head}
+
+
+def undo_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
+    """Haalt een melding van `report_mismatch` weer weg."""
+    store = _valid_store(store)
+    head = _rejection_head(ingredient)
+    with closing(_connect()) as conn, conn:
+        conn.execute("DELETE FROM offer_rejections WHERE store = ? AND product_id = ? AND head = ?", (store, str(offer_id), head))
+    return {"store": store, "offerId": str(offer_id), "head": head}
+
+
+def _rejections(store: str) -> set[tuple[str, str]]:
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,)).fetchall()
+    return {(row["product_id"], row["head"]) for row in rows}
+
+
 def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
@@ -726,6 +778,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
     elif course not in offer_courses.COURSES:
         raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
     offers = load(store)
+    rejected = _rejections(offers["store"])
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
@@ -751,7 +804,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
             options = [(line, option_head, kind) for line, option_head, kind in options if option_head]
             best: tuple[int, dict[str, Any]] | None = None
             for offer, core, rest in prepared:
-                if offer["id"] in used:
+                if offer["id"] in used or (str(offer["id"]), head) in rejected:
                     continue
                 for line, option_head, kind in options:
                     extra = link_offer(line, offer, (core, rest), head=option_head, kind=kind)

@@ -357,6 +357,16 @@ def create_app() -> Flask:
     def offers_recipes():
         return offers_action(lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course")), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
 
+    @app.route("/api/offers/rejections", methods=["POST", "DELETE"])
+    def offers_rejections():
+        # Een koppeling als onjuist melden (POST) of de melding weer intrekken (DELETE).
+        body = request.get_json(silent=True) or {}
+        action = offers.report_mismatch if request.method == "POST" else offers.undo_mismatch
+        return offers_action(
+            lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
+            tr("Koppeling melden mislukt", "Reporting the match failed"),
+        )
+
     @app.post("/api/offers/recipes/sync")
     def offers_recipes_sync():
         return offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
