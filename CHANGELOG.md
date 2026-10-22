@@ -4,6 +4,31 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.67.2
 
+### Sinds de vorige stabiele versie (v2.53.0)
+
+Deze release brengt `main` van v2.53.0 naar v2.67.2. De tussenliggende versies (2.53.1 tot en met 2.67.1) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.53.0: the new Offers tab (offers of Albert Heijn, Picnic and Jumbo, in categories, refreshed daily in the background, with a permanent history, the conditions and end date of each offer, and a cache so switching store is quick); recipe suggestions based on the offers of the chosen store (hidden by default in this release: set `MEALIESHOPPER_OFFERS_RECIPES=true` to show them), with clickable linked products, English ingredients translated for matching, a flag to report wrong matches and three new MCP tools so ChatGPT or Claude can review the matches; a reorganised interface (Settings > Link on one page, an avatar menu with Profile and Settings, a vertical menu on large screens, a week menu that loads by itself, the same subtab order for every store); links to Mealie recipes that work again; and Settings > System with a factory reset.*
+
+- **Aanbiedingen (2.53.0 tot en met 2.67.1).** Een nieuw tabblad **Aanbiedingen** met de aanbiedingen van Albert Heijn, Picnic en Jumbo, per categorie, met oude en nieuwe prijs, de voorwaarden (*bij 2 stuks*) en de einddatum. Een achtergrondtaak ververst ze elke dag (standaard rond 5 uur) en de beheerder synchroniseert ze meteen onder *Instellingen > Koppelen*. Elke synchronisatie komt ook in een blijvende geschiedenis (`GET /api/offers/history`). Bij het wisselen van winkel toont de pagina een laadicoon en onthoudt ze de aanbiedingen; `GET /api/offers` stuurt een `ETag` mee.
+- **Receptvoorstellen (verborgen in deze release).** Recepten uit Mealie, Jumbo, Picnic en AH worden vergeleken met de aanbiedingen van de gekozen winkel, met de meeste ingrediënten in de aanbieding bovenaan, een filter op soort gerecht en per recept wat er niet in de aanbieding is. Gekoppelde producten zijn aan te klikken (venster met plaatje, prijs en voorwaarden), Engelse ingrediënten worden vertaald voor het vergelijken, hetzelfde recept uit twee bronnen is één kaart en de koppelingen zijn strenger (basisingrediënten, bereide producten, kleur, keuken en vetgehalte). Omdat de koppelingen nog niet goed genoeg zijn, staat het subtabblad *Recepten* sinds v2.67.0 standaard uit; met `MEALIESHOPPER_OFFERS_RECIPES=true` komt het terug.
+- **Koppelingen beoordelen (2.66.0 en 2.67.0).** Een onjuiste koppeling meld je met een kleine vlag of de knop *Klopt niet*; de melding blijft bewaard (tabel `offer_rejections`) en geldt voor het hoofdwoord in die winkel. ChatGPT en Claude kunnen de koppelingen via de MCP-server beoordelen met de nieuwe tools `review_offer_matches`, `report_offer_mismatch` en `list_offer_mismatches`; er draait geen AI in MealieShopper zelf.
+- **Nieuwe indeling.** *Instellingen > Koppelen* is één pagina met de status van Mealie en de winkels bovenaan; een avatar-menu met Profiel, Instellingen en Over vervangt het tabblad Beheer; op een groot scherm staat het hoofdmenu links en is het inklapbaar; het weekmenu laadt vanzelf met een cache van 30 minuten; de subtabs onder *Winkels* staan bij elke winkel in dezelfde volgorde (Recepten eerst) en *AH Recepten* heet nu *Recepten*.
+- **Instellingen > Systeem.** Het tabblad *Updates* heet nu *Systeem* en bevat de updatecheck en de beheerdersfunctie *Fabrieksinstellingen* (v2.63.0 verderop).
+- **Opgelost.** Links naar Mealie-recepten gebruiken weer het adres dat Mealie zelf gebruikt (`/g/<groep>/r/<recept>`), ook na het importeren van een recept en in de MCP-tools.
+- **Nieuwe routes** (alleen beheerder, tenzij anders vermeld): `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes`, `POST /api/offers/recipes/sync`, `GET /api/offers/status`, `POST /api/offers/sync-all`, `GET /api/offers/history`, `POST` en `DELETE /api/offers/rejections`, `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` en `POST /api/system/factory-reset`. **Nieuwe MCP-tools:** `review_offer_matches`, `report_offer_mismatch` en `list_offer_mismatches`.
+- **Verwijderd.** De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen (de aanbiedingen komen uit de lokale kopie), het aparte tabje *Mealie* (nu onderdeel van *Koppelen*) en het tabblad *Beheer* (nu in het avatar-menu).
+
+#### Goed om te weten bij het bijwerken
+
+- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_OFFERS_SYNC_HOUR` (uur van de dagelijkse run, standaard 5), `MEALIESHOPPER_OFFERS_SCHEDULE=false` om de dagelijkse taak uit te zetten en `MEALIESHOPPER_OFFERS_RECIPES=true` om de receptvoorstellen onder Aanbiedingen weer te tonen. Zonder aanpassing werkt alles zoals voorheen, met de receptvoorstellen verborgen.
+- **Zet je de receptvoorstellen aan, lees je recepten dan één keer opnieuw in** (*Aanbiedingen > Recepten > Recepten inlezen*): de soort gerecht wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*.
+- De database wordt zo nodig vanzelf aangevuld (onder meer de kolom *categorie*, de geschiedenis van de aanbiedingen en de tabel met gemelde koppelingen); je hoeft niets te migreren.
+- De aanbiedingen van Picnic en Jumbo komen uit onofficiële routes en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij *Koppelen* en bij *Aanbiedingen*.
+- De screenshots in `docs/screenshots/` kunnen nog een oudere indeling tonen.
+
+Pull requests sinds v2.53.0: #89 tot en met #115.
+
 *English summary: The subtabs under Stores are now in the same order for every store: Recipes, Lists, Orders for Albert Heijn and Jumbo, and Recipes, Favorites, Orders for Picnic. Jumbo showed Lists, Orders, Recipes before. The Albert Heijn tab "AH Recipes" is now just "Recipes", and switching store always opens the Recipes tab of that store (before, Albert Heijn and Jumbo started at Lists).*
 
 ### Aangepast in 2.67.2
@@ -62,6 +87,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Meldingen blijven bewaard.** Ze staan in een eigen tabel (`offer_rejections`) en overleven de dagelijkse synchronisatie en het opnieuw inlezen van de recepten. Je kunt zo ook zien welke koppelingen niet kloppen, om de regels beter te maken.
 - **Nieuwe route:** `POST /api/offers/rejections` meldt een koppeling (`store`, `ingredient`, `offerId`) en `DELETE` met dezelfde velden trekt de melding in.
 
+## v2.65.2
 
 *English summary: The same recipe from two sources (for example an AH recipe you also have in Mealie) is now one card, with "also in Albert Heijn" next to it; the recipe with the best coverage stays, and with equal coverage your own recipe from Mealie. An ingredient with a colour, cuisine or fat content (red bell pepper, Provençal stir-fry vegetables, semi-skimmed milk) no longer matches an offer that names a different one (yellow, Chinese, whole milk).*
 
@@ -155,29 +181,6 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 ## v2.63.0
 
 *English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
-
-### Sinds de vorige stabiele versie (v2.53.0)
-
-Deze release brengt `main` van v2.53.0 naar v2.63.0. De tussenliggende versies (2.53.1 tot en met 2.62.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
-
-*English summary of everything since v2.53.0: the new Offers tab (offers of Albert Heijn, Picnic and Jumbo, in categories, refreshed daily in the background, with a permanent history and the conditions and end date of each offer); recipe suggestions based on the offers of the chosen store, with a filter on the kind of dish; a reorganised interface (Settings > Link on one page, an avatar menu with Profile and Settings, a vertical menu on large screens, a week menu that loads by itself); and Settings > System with a factory reset. Read your recipes once more after updating so the kind of dish is stored.*
-
-- **Aanbiedingen (2.53.0 tot en met 2.62.0).** Een nieuw tabblad **Aanbiedingen** met de aanbiedingen van Albert Heijn, Picnic en Jumbo, per categorie, met oude en nieuwe prijs, de voorwaarden (*bij 2 stuks*) en de einddatum. Een achtergrondtaak ververst ze elke dag (standaard rond 5 uur) en de beheerder synchroniseert ze meteen onder *Instellingen > Koppelen*. Elke synchronisatie komt ook in een blijvende geschiedenis (`GET /api/offers/history`).
-- **Receptvoorstellen.** Recepten uit Mealie, Jumbo, Picnic en AH worden vergeleken met de aanbiedingen van de gekozen winkel, met de meeste ingrediënten in de aanbieding bovenaan, een filter op soort gerecht en per recept wat er niet in de aanbieding is. Ingrediënten worden strenger aan aanbiedingen gekoppeld en basisingrediënten (zout, olie, boter, bloem, …) tellen niet mee.
-- **Nieuwe indeling.** *Instellingen > Koppelen* is één pagina met de status van Mealie en de winkels bovenaan; een avatar-menu met Profiel, Instellingen en Over vervangt het tabblad Beheer; op een groot scherm staat het hoofdmenu links en is het inklapbaar; het weekmenu laadt vanzelf met een cache van 30 minuten.
-- **Instellingen > Systeem.** Het tabblad *Updates* heet nu *Systeem* en bevat de updatecheck en de beheerdersfunctie *Fabrieksinstellingen* (v2.63.0 hieronder).
-- **Nieuwe routes** (alleen beheerder, tenzij anders vermeld): `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes`, `POST /api/offers/recipes/sync`, `GET /api/offers/status`, `POST /api/offers/sync-all`, `GET /api/offers/history`, `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` en `POST /api/system/factory-reset`. De MCP-tools zijn niet veranderd.
-- **Verwijderd.** De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen (de aanbiedingen komen uit de lokale kopie), het aparte tabje *Mealie* (nu onderdeel van *Koppelen*) en het tabblad *Beheer* (nu in het avatar-menu).
-
-#### Goed om te weten bij het bijwerken
-
-- **Lees je recepten één keer opnieuw in** (*Aanbiedingen > Recepten > Recepten inlezen*): de soort gerecht wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*.
-- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_OFFERS_SYNC_HOUR` (uur van de dagelijkse run, standaard 5) en `MEALIESHOPPER_OFFERS_SCHEDULE=false` om de dagelijkse taak uit te zetten. Zonder aanpassing werkt alles zoals voorheen.
-- De database wordt zo nodig vanzelf aangevuld (onder meer de kolom *categorie* en de geschiedenis van de aanbiedingen); je hoeft niets te migreren.
-- De aanbiedingen van Picnic en Jumbo komen uit onofficiële routes en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij *Koppelen* en bij *Aanbiedingen*.
-- De screenshots in `docs/screenshots/` kunnen nog een oudere indeling tonen.
-
-Pull requests sinds v2.53.0: #89 tot en met #107.
 
 ### Nieuw in 2.63.0
 
