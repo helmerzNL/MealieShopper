@@ -10,6 +10,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Eén tab Recepten met subtabs.** *Weekmenu naar winkel* en *Recepten zoeken* staan niet meer los in het hoofdmenu, maar als subtabs onder de nieuwe tab **Recepten**. Het hoofdmenu heeft daardoor zes tabs in plaats van zeven. Recepten opent op het weekmenu; het logo brengt je daar nog steeds naartoe.
 - **Weekmenu naar winkel heet nu Weekmenu**, en beide subtabs hebben een Material Design-icoon (een kalender bij Weekmenu, een vergrootglas bij Recepten zoeken). De teksten zijn in het Nederlands en het Engels bijgewerkt en de README's noemen de nieuwe indeling.
+- **De versie van de statische bestanden is opgehoogd** (`MEALIESHOPPER_ASSET_VERSION`, 20261023-23), zodat browsers en de geïnstalleerde app de nieuwe vertalingen en opmaak laden. Zonder dat toonde de tab de sleutel `nav.recipes` en waren de subtab-iconen te groot. De iconen hebben nu ook een vaste grootte.
 
 ### Goed om te weten
 
