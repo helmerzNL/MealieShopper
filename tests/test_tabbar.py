@@ -56,19 +56,19 @@ class TabbarMarkupTest(unittest.TestCase):
 
     def test_seven_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["planner", "basket", "search", "url", "ah-items", "beheer", "about"])
+        self.assertEqual(buttons, ["planner", "search", "url", "ah-items", "basket", "beheer", "about"])
         self.assertEqual(self.nav.count('class="tab-icon"'), 7)
         self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Menu", "Mandje", "Zoeken", "Import", "Winkels", "Beheer", "Over"])
+        self.assertEqual(short, ["Menu", "Zoeken", "Import", "Winkels", "Mandje", "Beheer", "Over"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Weekmenu naar winkel", "Mandje", "Recepten zoeken", "URL importeren", "Winkels", "Beheer", "Over"])
+        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "Winkels", "Mandje", "Beheer", "Over"])
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiCart", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCart", "mdiCog", "mdiInformationOutline"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)

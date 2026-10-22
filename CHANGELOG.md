@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.52.0
+
+*English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*
+
+### Nieuw in 2.52.0
+
+- **Het weekmenu laadt vanzelf.** Zodra Mealie gekoppeld is en je het weekmenu opent, staat de week er al; je hoeft niet meer op een knop te drukken. De twee weken erna worden rustig op de achtergrond opgehaald.
+- **Weken worden onthouden.** Een opgehaalde week blijft 30 minuten bewaard, dus vorige en volgende week openen direct. Bladeren met de pijltjes laadt de week zelf.
+
+### Aangepast in 2.52.0
+
+- **Synchroniseren in plaats van "Weekmenu laden".** Naast de week staat nu een synchroniseericoon (hetzelfde als bij het Mandje) dat de week opnieuw uit Mealie haalt; de tekst is weg.
+- **Winkelkeuze en "Voeg toe aan mandje" onder het boodschappenlijstje.** Ze stonden erboven; nu staan ze eronder. De winkelkeuze is een uitklapmenu in dezelfde stijl als de winkelkeuze bij **Winkels**.
+- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na het weekmenu), ook in de onderste menubalk van de app.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd.
+
 ## v2.51.2
 
 *English summary: The planner no longer offers "Jumbo (shopping list)": groceries for Jumbo always go in the Jumbo basket. A remembered choice of the removed option falls back to Albert Heijn. The Jumbo shopping list itself is still shown under Stores > Lists. The API route that wrote to that list is unchanged but no longer used by the app.*
