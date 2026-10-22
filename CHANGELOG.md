@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.55.0
+
+*English summary: Settings > Link is now a plain sub-tab with one page instead of a drop-down menu. The page shows the four "linked" banners (Mealie, Albert Heijn, Picnic, Jumbo) on top, two next to each other, followed by one collapsible block per service: Mealie first, the stores below it. The Unlink button now sits next to the Link button inside the block of the store (together with Check link). The Mealie block is collapsible too and folds up once Mealie is linked.*
+
+### Aangepast in 2.55.0
+
+- **Koppelen is een gewoon subtab** (geen uitklapmenu meer) en toont direct de koppelpagina. De aparte pagina's per winkel en de pagina Mealie zijn samengevoegd: bovenaan de statussen, daaronder de blokken **Mealie koppelen**, **Inloggen bij Albert Heijn**, **Inloggen bij Picnic** en **Inloggen bij Jumbo**.
+- **De vier "gekoppeld"-meldingen staan bovenaan, twee naast elkaar** (op een smal scherm onder elkaar).
+- **Het blok Mealie is ook inklapbaar** en klapt in zodra Mealie gekoppeld is, net als de blokken van de winkels. De knop *Mealie koppelen* in de melding bovenaan Weekmenu opent het blok altijd.
+- **Ontkoppelen staat naast Koppelen.** In het blok van elke winkel staan *Koppelen* (bij Picnic *Inloggen bij Picnic*), *Ontkoppelen* (Picnic, Jumbo en Mealie) en *Koppeling controleren* naast elkaar, zichtbaar zodra de winkel gekoppeld is.
+- Eerder in deze ronde (niet apart uitgebracht): menu Koppelen met de winkels, uniforme titels *Inloggen bij ...*, inklapbare blokken en de melding bovenaan.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-28).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
 ## v2.54.0
 
 *English summary: Settings > Stores is now Settings > **Link**: one drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie (Mealie no longer has its own tab). The three store pages have the same layout: the "account linked" banner (with Check link, and Unlink for Picnic and Jumbo) on top, and one collapsible block "Log in to ..." that also holds "Finish linking" and the route explorer. The block folds up once the store is linked. The titles are now all "Log in to ...", where Albert Heijn still said "Log in with". Texts that point to Settings > Stores now say Settings > Link.*

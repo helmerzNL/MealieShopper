@@ -339,7 +339,7 @@ class RoutesTest(MealieTestCase):
 
     def test_page_shows_the_tab_and_the_notice(self):
         html = self.client.get("/").get_data(as_text=True)
-        for fragment in ('data-subtab="beheer-mealie"', 'id="mealie-form"', 'id="mealie-token" type="password"',
+        for fragment in ('data-subtab="beheer-link"', 'id="mealie-login-box"', 'id="mealie-form"', 'id="mealie-token" type="password"',
                          'class="message warning message--action" id="mealie-setup"', 'id="check-mealie"',
                          'id="mealie-unlink"'):
             self.assertIn(fragment, html, fragment)

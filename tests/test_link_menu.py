@@ -7,38 +7,49 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 NL = (ROOT / "static" / "i18n" / "nl.js").read_text(encoding="utf-8")
 EN = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+PAGE = HTML[HTML.index('<div id="beheer-link" class="subpanel'):HTML.index('<div id="beheer-security" class="subpanel">')]
+STORES = ("mealie", "ah", "picnic", "jumbo")
 
 
-def panel(name):
-    start = HTML.index(f'<div id="beheer-{name}" class="subpanel')
-    return HTML[start:HTML.index('<div id="beheer-', start + 10)]
+def block(name):
+    start = PAGE.index(f'<div class="box fold" id="{name}-login-box">')
+    nxt = PAGE.find('<div class="box fold"', start + 10)
+    return PAGE[start:nxt if nxt != -1 else len(PAGE)]
 
 
-class LinkMenuTest(unittest.TestCase):
-    def setUp(self):
-        self.nav = re.search(r'<nav class="subtabs" aria-label="Beheer".*?</nav>', HTML, re.S).group(0)
+class LinkPageTest(unittest.TestCase):
+    def test_koppelen_is_a_plain_subtab_and_the_dropdown_is_gone(self):
+        nav = re.search(r'<nav class="subtabs" aria-label="Beheer".*?</nav>', HTML, re.S).group(0)
+        self.assertIn('<button class="subtab is-active" data-subtab="beheer-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>', nav)
+        self.assertNotIn("subtab-menu", nav)
+        for gone in ("beheer-ah", "beheer-picnic", "beheer-jumbo", "beheer-mealie", "beheer-link-menu", "beheer-stores"):
+            self.assertNotIn(gone, HTML, gone)
 
-    def test_link_menu_holds_the_stores_and_mealie(self):
-        menu = re.search(r'<div class="subtab-menu" id="beheer-link-menu".*?</div>\s*</div>', self.nav, re.S).group(0)
-        self.assertIn('data-admin-only', menu)
-        self.assertIn('data-i18n="settings.tab.link">Koppelen<', menu)
-        self.assertEqual(re.findall(r'data-subtab="([\w-]+)"', menu), ["beheer-ah", "beheer-picnic", "beheer-jumbo", "beheer-mealie"])
-        self.assertNotIn("beheer-stores", HTML)
+    def test_statuses_come_first_two_next_to_each_other(self):
+        grid = PAGE[PAGE.index('<div class="link-statuses">'):PAGE.index('<div class="box fold"')]
+        self.assertEqual(re.findall(r'id="(\w+)-status"', grid), list(STORES))
+        rule = re.search(r"\.link-statuses\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("repeat(2", rule)
+        for store in STORES:
+            self.assertEqual(PAGE.count(f'id="{store}-status"'), 1, store)
 
-    def test_mealie_has_no_tab_of_its_own_any_more(self):
-        outside = self.nav.replace(re.search(r'<div class="subtab-menu".*?</div>\s*</div>', self.nav, re.S).group(0), "")
-        self.assertNotIn("beheer-mealie", outside)
+    def test_blocks_are_collapsible_with_mealie_first_and_the_stores_below(self):
+        positions = [PAGE.index(f'id="{store}-login-box"') for store in STORES]
+        self.assertEqual(positions, sorted(positions))
+        for store in STORES:
+            self.assertIn(f'id="{store}-login-toggle" aria-expanded="true" aria-controls="{store}-login-body"', block(store))
+            self.assertIn(f'id="{store}-login-body"', block(store))
+        self.assertIn('for (const store of ["mealie", "ah", "picnic", "jumbo"])', APP_JS)
 
-    def test_every_store_page_has_status_on_top_and_one_collapsible_login_block(self):
-        for store in ("ah", "picnic", "jumbo"):
-            page = panel(store)
-            self.assertLess(page.index(f'id="{store}-status"'), page.index(f'id="{store}-login-box"'), store)
-            self.assertEqual(page.count('class="box fold"'), 1, store)
-            self.assertIn(f'id="{store}-login-toggle" aria-expanded="true" aria-controls="{store}-login-body"', page)
-            body = page[page.index(f'id="{store}-login-body"'):]
-            self.assertIn("ahfinish.title" if store != "picnic" else "picnic.code_title", body, "afronden zit in het blok")
-            self.assertRegex(body, rf'id="{"explore" if store == "ah" else store + "-explore"}-run"', "verkennen zit in het blok")
-            self.assertNotIn(f'id="{store}-status"', body)
+    def test_unlink_sits_next_to_the_link_button_in_the_store_block(self):
+        for store, link in (("picnic", "picnic-login"), ("jumbo", "jumbo-link"), ("mealie", "mealie-link")):
+            row = re.search(r'<div class="toolbar">\s*<button[^>]*id="%s".*?</div>' % link, block(store), re.S).group(0)
+            self.assertIn(f'id="{store}-unlink"', row, store)
+            self.assertIn("common.check_link", row, store)
+        row = re.search(r'<div class="toolbar">\s*<button[^>]*id="verify-token".*?</div>', block("ah"), re.S).group(0)
+        self.assertIn('id="check-ah"', row)
 
     def test_titles_all_say_log_in_to(self):
         self.assertIn('"ahlogin.title": "Inloggen bij Albert Heijn"', NL)
@@ -46,11 +57,12 @@ class LinkMenuTest(unittest.TestCase):
         self.assertIn('"jumbo.title": "Inloggen bij Jumbo"', NL)
         self.assertIn('"ahlogin.title": "Log in to Albert Heijn"', EN)
         for store, title in (("ah", "Inloggen bij Albert Heijn"), ("picnic", "Inloggen bij Picnic"), ("jumbo", "Inloggen bij Jumbo")):
-            self.assertIn(f'<span data-i18n="{"ahlogin" if store == "ah" else store}.title">{title}</span>', panel(store))
+            self.assertIn(f'<span data-i18n="{"ahlogin" if store == "ah" else store}.title">{title}</span>', block(store))
 
-    def test_folds_close_when_the_store_is_linked(self):
+    def test_folds_close_when_linked(self):
         self.assertIn("function applyStoreFold(store, linked)", APP_JS)
         self.assertIn('applyStoreFold("ah", Boolean(data.connected))', APP_JS)
+        self.assertIn('applyStoreFold("mealie", Boolean(data.configured))', APP_JS)
         self.assertIn('applyStoreFold("picnic", picnicState.connected)', (ROOT / "static" / "picnic.js").read_text(encoding="utf-8"))
         self.assertIn('applyStoreFold("jumbo", jumboState.connected)', (ROOT / "static" / "jumbo.js").read_text(encoding="utf-8"))
 

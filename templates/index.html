@@ -559,15 +559,7 @@
 
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
-          <div class="subtab-menu" id="beheer-link-menu" data-admin-only>
-            <button class="subtab subtab-menu__toggle is-active" id="beheer-link-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="beheer-link-list"><span data-i18n="settings.tab.link">Koppelen</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
-            <div class="subtab-menu__list" id="beheer-link-list" hidden>
-              <button class="subtab-menu__item is-active" type="button" data-subtab="beheer-ah" data-i18n="settings.tab.ah">Albert Heijn</button>
-              <button class="subtab-menu__item" type="button" data-subtab="beheer-picnic" data-i18n="settings.tab.picnic">Picnic</button>
-              <button class="subtab-menu__item" type="button" data-subtab="beheer-jumbo" data-i18n="settings.tab.jumbo">Jumbo</button>
-              <button class="subtab-menu__item" type="button" data-subtab="beheer-mealie" data-i18n="settings.tab.mealie">Mealie</button>
-            </div>
-          </div>
+          <button class="subtab is-active" data-subtab="beheer-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
           <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
           <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
@@ -575,10 +567,40 @@
           <button class="subtab" data-subtab="beheer-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
         </nav>
 
-        <div id="beheer-ah" class="subpanel is-active">
-        <div id="ah-status"></div>
-        <div class="toolbar">
-          <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
+        <div id="beheer-link" class="subpanel is-active">
+        <div class="link-statuses">
+          <div id="mealie-status"></div>
+          <div id="ah-status"></div>
+          <div id="picnic-status"></div>
+          <div id="jumbo-status"></div>
+        </div>
+        <div class="box fold" id="mealie-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="mealie.link">Mealie koppelen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="mealie-login-body">
+            <p class="muted" id="mealie-source" hidden></p>
+            <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
+  <ol class="steps">
+              <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
+              <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
+              <li data-i18n="mealie.step3">Kopieer de token meteen: Mealie toont hem maar één keer.</li>
+            </ol>
+            <form class="auth-form" id="mealie-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="mealie.url_label">Adres van je Mealie</span>
+                <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.url_ph">
+              </label>
+              <label class="field">
+                <span data-i18n="mealie.token_label">API-token</span>
+                <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.token_ph">
+              </label>
+              <div class="toolbar">
+                <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="check-mealie" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+                <button class="button button--secondary" id="mealie-unlink" type="button" hidden data-i18n="mealie.unlink">Ontkoppelen</button>
+              </div>
+            </form>
+            <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
+          </div>
         </div>
         <div class="box fold" id="ah-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Inloggen bij Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
@@ -598,7 +620,10 @@
               <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
               <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
               <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
-              <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
+              <div class="toolbar">
+                <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
               <div id="token-message"></div>
             </div>
             <div class="fold__section">
@@ -614,14 +639,6 @@
             </div>
           </div>
         </div>
-        </div>
-
-        <div id="beheer-picnic" class="subpanel">
-        <div id="picnic-status"></div>
-        <div class="toolbar">
-          <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-          <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
-        </div>
         <div class="box fold" id="picnic-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Inloggen bij Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="picnic-login-body">
@@ -635,7 +652,11 @@
                 <span data-i18n="picnic.password">Wachtwoord</span>
                 <input class="input" id="picnic-password" type="password" autocomplete="off" required>
               </label>
-              <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
+              <div class="toolbar">
+                <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
+                <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
             </form>
             <div id="picnic-message"></div>
             <div class="fold__section" id="picnic-code-box" hidden>
@@ -667,14 +688,6 @@
             </div>
           </div>
         </div>
-        </div>
-
-        <div id="beheer-jumbo" class="subpanel">
-        <div id="jumbo-status"></div>
-        <div class="toolbar">
-          <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-          <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
-        </div>
         <div class="box fold" id="jumbo-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Inloggen bij Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="jumbo-login-body">
@@ -693,7 +706,11 @@
               <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
               <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
               <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
-              <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+              <div class="toolbar">
+                <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
               <div id="jumbo-message"></div>
             </div>
             <div class="fold__section">
@@ -708,36 +725,6 @@
               </div>
             </div>
           </div>
-        </div>
-        </div>
-
-        <div id="beheer-mealie" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="mealie.link">Mealie koppelen</h2>
-          <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
-          <ol class="steps">
-            <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
-            <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
-            <li data-i18n="mealie.step3">Kopieer de token meteen: Mealie toont hem maar één keer.</li>
-          </ol>
-          <form class="auth-form" id="mealie-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="mealie.url_label">Adres van je Mealie</span>
-              <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.url_ph">
-            </label>
-            <label class="field">
-              <span data-i18n="mealie.token_label">API-token</span>
-              <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.token_ph">
-            </label>
-            <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
-          </form>
-          <div id="mealie-status"></div>
-          <p class="muted" id="mealie-source" hidden></p>
-          <div class="toolbar">
-            <button class="button button--secondary" id="check-mealie" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="mealie-unlink" hidden data-i18n="mealie.unlink">Ontkoppelen</button>
-          </div>
-          <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
         </div>
         </div>
 
