@@ -191,3 +191,65 @@ window.addEventListener("ms:languagechange", () => {
   if (offersTabActive()) showOffers();
 });
 renderOffersStore();
+
+// ---- Instellingen > Koppelen: de aanbiedingen van alle winkels synchroniseren, en wat de dagelijkse taak deed.
+const offersSync = { status: null, result: null };
+
+function offersSyncStoreLine(store, info, failure) {
+  const name = STORES[store].name;
+  if (failure) return t("offers.sync.store.error", { store: name, error: failure });
+  if (!info.linked) return t("offers.sync.store.skipped", { store: name });
+  if (!info.syncedAt) return t("offers.sync.store.never", { store: name });
+  return tn("offers.sync.store.ok", info.total, { store: name, when: formatSyncTime(info.syncedAt) });
+}
+
+function renderOffersSync() {
+  const status = offersSync.status;
+  if (!status) return;
+  const failures = {};
+  for (const [store, info] of Object.entries((offersSync.result || status.lastResult || {}).stores || {})) {
+    if (info.error) failures[store] = info.error;
+  }
+  $("#offers-sync-stores").innerHTML = OFFERS_STORES.map(
+    (store) => `<li class="${failures[store] ? "offers-sync-list__failed" : ""}">${escapeHtml(offersSyncStoreLine(store, status.stores[store], failures[store]))}</li>`
+  ).join("");
+  const lines = [];
+  if (status.enabled) {
+    lines.push(t("offers.sync.schedule", { hour: String(status.hour).padStart(2, "0"), next: formatSyncTime(status.nextRun) }));
+  } else {
+    lines.push(t("offers.sync.off"));
+  }
+  if (status.lastRun) {
+    lines.push(t("offers.sync.last", { when: formatSyncTime(status.lastRun), trigger: t(status.lastTrigger === "scheduled" ? "offers.sync.trigger.scheduled" : "offers.sync.trigger.manual") }));
+  }
+  $("#offers-sync-schedule").textContent = lines.join(" ");
+}
+
+async function loadOffersSyncStatus() {
+  try {
+    offersSync.status = await jsonFetch("/api/offers/status");
+    renderOffersSync();
+  } catch (error) {
+    message("#offers-sync-message", error.message);
+  }
+}
+
+async function offersSyncAll() {
+  const button = $("#offers-sync-all");
+  message("#offers-sync-message", "");
+  setBusy(button, true, t("offers.sync.running"));
+  try {
+    offersSync.result = await jsonFetch("/api/offers/sync-all", { method: "POST" });
+    await loadOffersSyncStatus();
+    const failed = Object.values(offersSync.result.stores).some((info) => info.error);
+    message("#offers-sync-message", failed ? t("offers.sync.partial") : t("offers.sync.done"), failed ? "error" : "success");
+    if (offersTabActive()) showOffers();
+  } catch (error) {
+    message("#offers-sync-message", error.message);
+  } finally {
+    setBusy(button, false, t("offers.sync.running"));
+  }
+}
+
+$("#offers-sync-all").addEventListener("click", offersSyncAll);
+window.addEventListener("ms:languagechange", renderOffersSync);

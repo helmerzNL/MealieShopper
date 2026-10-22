@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-33")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-34")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
@@ -335,6 +335,15 @@ def create_app() -> Flask:
     def offers_sync():
         body = request.get_json(silent=True) or {}
         return offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+
+    @app.get("/api/offers/status")
+    def offers_status():
+        return offers_action(offers_schedule.status, tr("Status van de aanbiedingen laden mislukt", "Loading the offers status failed"))
+
+    @app.post("/api/offers/sync-all")
+    def offers_sync_all():
+        # Alleen de beheerder (auth.ADMIN_PATHS): de knop onder Instellingen > Koppelen.
+        return offers_action(offers_schedule.sync_now, tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/recipes")
     def offers_recipes():

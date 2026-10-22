@@ -96,10 +96,11 @@ class OffersStoreTest(TempDataDirTest):
                 offers.sync("ah")
         self.assertEqual(offers.load("ah")["total"], 3)
 
-    def test_other_stores_are_not_supported_yet(self):
-        self.assertFalse(offers.load("jumbo")["supported"])
+    def test_every_store_has_a_fetcher_and_unknown_stores_are_rejected(self):
+        for store in offers.STORES:
+            self.assertTrue(offers.load(store)["supported"], store)
         with self.assertRaises(ValueError):
-            offers.sync("jumbo")
+            offers.sync("lidl")
         with self.assertRaises(ValueError):
             offers.load("lidl")
 
@@ -190,9 +191,15 @@ class OffersRoutesTest(TempDataDirTest):
         suggestions = self.client.get("/api/offers/recipes?store=ah").get_json()
         self.assertEqual([r["id"] for r in suggestions["recipes"]], ["r1"])
 
-    def test_unknown_or_unsupported_store_is_a_400_and_a_store_failure_a_424(self):
+    def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
         self.assertEqual(self.client.get("/api/offers?store=lidl").status_code, 400)
-        self.assertEqual(self.client.post("/api/offers/sync", json={"store": "jumbo"}).status_code, 400)
+        self.assertEqual(self.client.post("/api/offers/sync", json={"store": "lidl"}).status_code, 400)
+
+        def not_linked():
+            raise RuntimeError("Jumbo account niet gekoppeld")
+
+        with mock.patch.dict(offers.FETCHERS, {"jumbo": not_linked}):
+            self.assertEqual(self.client.post("/api/offers/sync", json={"store": "jumbo"}).status_code, 424)
 
         def boom():
             raise RuntimeError("AH is stuk")

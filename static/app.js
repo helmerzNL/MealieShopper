@@ -1707,6 +1707,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "basket") showBasket();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
+  if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
 }
 
 // Het navigatiemenu links (groot scherm) inklappen tot alleen de pictogrammen; de keuze blijft bewaard.
@@ -1795,6 +1796,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
+    if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
     if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
