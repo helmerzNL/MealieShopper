@@ -737,7 +737,7 @@ function applyFold(name, { collapsible, defaultOpen, notNeeded }) {
   $(`#${name}-badge`).hidden = !notNeeded;
 }
 
-for (const name of ["password", "mfa"]) {
+for (const name of ["password"]) {
   $(`#${name}-toggle`).addEventListener("click", () => {
     const toggle = $(`#${name}-toggle`);
     const open = toggle.getAttribute("aria-expanded") !== "true";
@@ -750,21 +750,18 @@ for (const name of ["password", "mfa"]) {
 
 function renderSecurityPanel() {
   const passwordBox = $("#security-password-box");
-  const mfaBox = $("#security-mfa-box");
-  if (!passwordBox || !mfaBox) return;
+  if (!passwordBox) return;
   const auth = state.auth;
   const envOff = state.onboarding && state.onboarding.authEnabled === false;
   const canManage = Boolean(auth) && (auth.authenticated || !auth.enabled) && !envOff;
   passwordBox.hidden = !canManage;
-  mfaBox.hidden = !canManage;
   if (!canManage) return;
 
   const configured = Boolean(auth.passwordConfigured);
   const hasPasskey = Boolean(auth.methods?.passkey);
-  // Met een passkey is een wachtwoord (en dus ook tweestapsverificatie) niet nodig: die delen zijn dan
-  // inklapbaar, en dicht zolang je ze niet gebruikt. Zonder passkey blijven ze open.
+  // Met een passkey is een wachtwoord (en dus ook tweestapsverificatie) niet nodig: dat blok is dan
+  // inklapbaar, en dicht zolang je het niet gebruikt. Zonder passkey blijft het open.
   applyFold("password", { collapsible: hasPasskey, defaultOpen: configured, notNeeded: hasPasskey && !configured });
-  applyFold("mfa", { collapsible: hasPasskey, defaultOpen: configured, notNeeded: hasPasskey && !configured });
   $("#password-intro").textContent = configured
     ? t("sec.password.intro_set")
     : !auth.enabled

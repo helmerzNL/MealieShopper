@@ -34,7 +34,7 @@ class MarkupTest(unittest.TestCase):
             self.assertIn(needle, HTML, needle)
 
     def test_security_tab_manages_password_and_mfa(self):
-        security = HTML[HTML.index('id="beheer-security"'):HTML.index("</section>", HTML.index('id="beheer-security"'))]
+        security = HTML[HTML.index('id="profile-security"'):HTML.index("</section>", HTML.index('id="profile-security"'))]
         for needle in ('id="password-form"', 'id="pw-current"', 'autocomplete="new-password"', 'id="mfa-panel"', 'id="credentials-list"'):
             self.assertIn(needle, security, needle)
 
@@ -103,7 +103,8 @@ class ScriptTest(unittest.TestCase):
                        "obIntegrationDone", 'id="ob-mealie-next"', 'id="ob-ah-next"', 'id="ob-mealie-skip"', 'id="ob-ah-skip"'):
             self.assertIn(needle, OB_JS, needle)
         self.assertNotIn("finish-mealie", OB_JS)
-        self.assertNotIn("openBeheer", OB_JS)
+        self.assertNotIn("openSettings", OB_JS)
+        self.assertNotIn("openProfile", OB_JS)
 
     def test_jumbo_and_picnic_are_linked_inside_the_wizard_and_can_be_skipped(self):
         for needle in ('data-ob-form="jumbo"', '"/api/jumbo/auth"', '"/api/jumbo/auth/status"', 'href="/api/jumbo/auth/start"',
@@ -144,10 +145,14 @@ class ScriptTest(unittest.TestCase):
 
     def test_security_blocks_fold_away_when_a_passkey_exists(self):
         self.assertIn('collapsible: hasPasskey', OB_JS)
-        for name in ("password", "mfa"):
+        # Tweestapsverificatie is geen eigen blok meer: het zit in het wachtwoordblok.
+        for name in ("password",):
             self.assertIn(f'id="{name}-toggle"', HTML)
             self.assertIn(f'id="{name}-body"', HTML)
             self.assertIn(f'id="{name}-badge"', HTML)
+        self.assertNotIn('id="mfa-toggle"', HTML)
+        body = HTML[HTML.index('id="password-body"'):HTML.index('id="credentials-list"')]
+        self.assertIn('id="mfa-panel"', body)
         self.assertIn("Niet nodig", NL["sec.not_needed"])
         self.assertIn("Niet nodig", NL["sec.password.intro_passkey"])
         self.assertIn("passkey", NL["sec.password.intro_passkey"])

@@ -88,7 +88,7 @@ def auth_headers() -> dict[str, str]:
 
 def ensure_configured() -> None:
     if not mealie_url() or not mealie_token():
-        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Beheer > Koppelen > Mealie.")
+        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Instellingen > Koppelen > Mealie.")
 
 
 def check_connection(url: str, token: str) -> dict[str, Any]:

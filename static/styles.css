@@ -213,32 +213,6 @@ select:focus-visible {
   margin-top: 16px;
 }
 
-.auth-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.auth-chip button {
-  min-height: var(--control-height);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--surface);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 0 14px;
-}
-
-.auth-chip button:hover {
-  background: var(--selection);
-}
-
 .brand-mark {
   display: block;
   flex: none;
@@ -358,7 +332,7 @@ h2 {
   color: var(--on-primary);
 }
 
-/* Uitklapmenu in een subtabbalk (Beheer > Winkels): de knop opent een lijst met de winkels eronder. */
+/* Uitklapmenu in een subtabbalk (Instellingen > Koppelen): de knop opent een lijst met de winkels eronder. */
 .subtab-menu {
   position: relative;
 }
@@ -1181,12 +1155,6 @@ a.product-card__main:hover strong {
     padding: 10px 16px;
   }
 
-  .auth-chip {
-    width: 100%;
-    margin-left: 0;
-    justify-content: space-between;
-  }
-
   .toolbar,
   .form-row,
   .security-actions,
@@ -1861,7 +1829,7 @@ body.has-onboarding {
   }
 }
 
-/* Inklapbare blokken (Beheer > Beveiliging) */
+/* Inklapbare blokken (Profiel > Beveiliging) */
 .fold__title {
   margin: 0;
 }
@@ -2121,7 +2089,7 @@ body.has-onboarding {
   justify-content: flex-end;
 }
 
-.topbar__inner .switches + .auth-chip {
+.topbar__inner .switches + .user-menu {
   margin-left: 8px;
 }
 
@@ -2237,7 +2205,7 @@ body.has-onboarding {
   }
 }
 
-/* Gebruikers (Beheer > Gebruikers) en regels die alleen de beheerder aangaan */
+/* Gebruikers (Instellingen > Gebruikers) en regels die alleen de beheerder aangaan */
 .user-badge {
   display: inline-block;
   margin-left: 6px;
@@ -2298,7 +2266,7 @@ body.has-onboarding {
   margin-top: 20px;
 }
 
-/* AI-apps (Beheer > AI-apps) */
+/* AI-apps (Profiel > AI-apps) */
 .ai-guide {
   margin: 8px 0;
   padding: 10px 12px;
@@ -2329,12 +2297,12 @@ body.has-onboarding {
   opacity: 0.6;
 }
 
-#beheer-ai .form-row {
+#profile-ai .form-row {
   flex-wrap: wrap;
   width: 100%;
 }
 
-#beheer-ai .form-row .input {
+#profile-ai .form-row .input {
   flex: 1 1 220px;
   min-width: 0;
 }
@@ -2475,7 +2443,7 @@ body.has-onboarding {
   border-radius: 2px;
 }
 
-/* Updatecheck (Beheer > Updates): een bolletje bij de tab en een melding als er een nieuwe versie is */
+/* Updatecheck (Instellingen > Updates): een bolletje bij de tab en een melding als er een nieuwe versie is */
 .update-dot {
   position: absolute;
   top: 8px;
@@ -2517,7 +2485,7 @@ body.has-onboarding {
   margin: 24px 0 10px;
 }
 
-/* Auditlog (Beheer > Auditlog) */
+/* Auditlog (Instellingen > Auditlog) */
 .audit-summary {
   display: flex;
   flex-wrap: wrap;
@@ -2692,6 +2660,187 @@ body.has-onboarding {
   }
 
   .audit-duration {
+    display: none;
+  }
+}
+
+/* Avatar en avatar-menu: op een groot scherm in de kop, op een klein scherm in de tabbalk (op de plek van Beheer). */
+.avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+
+.avatar--xl {
+  width: 96px;
+  height: 96px;
+  font-size: 32px;
+}
+
+.user-menu {
+  display: flex;
+  margin-left: auto;
+}
+
+.user-menu__button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 3px 8px 3px 4px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.user-menu__button:hover {
+  background: var(--selection);
+}
+
+.user-menu__name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu__chevron {
+  width: 20px;
+  height: 20px;
+  fill: var(--muted);
+}
+
+.user-menu__button[aria-expanded="true"] .user-menu__chevron {
+  transform: rotate(180deg);
+}
+
+.user-menu__list {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  max-width: calc(100vw - 16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+}
+
+.user-menu__list[hidden] {
+  display: none;
+}
+
+.user-menu__who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 8px 12px;
+}
+
+.user-menu__who small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.user-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  padding: 0 12px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.user-menu__item:hover,
+.user-menu__item:focus-visible {
+  background: var(--selection);
+}
+
+.user-menu__item[hidden] {
+  display: none;
+}
+
+.tab--avatar {
+  display: none;
+}
+
+.tab--avatar .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+}
+
+.tab[hidden] {
+  display: none !important;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.profile-avatar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .tab--avatar:not([hidden]) {
+    display: inline-flex;
+  }
+
+  .user-menu {
     display: none;
   }
 }

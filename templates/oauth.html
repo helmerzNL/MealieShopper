@@ -42,7 +42,7 @@
         <li>{{ tr("Producten en je mandje bij Jumbo bekijken", "See products and your basket at Jumbo") }}</li>
         <li>{{ tr("Een recept in Mealie importeren", "Import a recipe into Mealie") }}</li>
       </ul>
-      <p class="muted">{{ tr("De app kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen. Je trekt de toegang altijd in onder Beheer > AI-apps.", "The app can't delete anything and can't fill your AH, Picnic or Jumbo basket. You can always revoke access under Settings > AI apps.") }}</p>
+      <p class="muted">{{ tr("De app kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen. Je trekt de toegang altijd in onder Profiel > AI-apps.", "The app can't delete anything and can't fill your AH, Picnic or Jumbo basket. You can always revoke access under Profile > AI apps.") }}</p>
       <form method="post" action="{{ base }}/oauth/authorize" class="oauth-actions">
         <input type="hidden" name="request" value="{{ signed }}">
         <button class="button button--secondary" type="submit" name="decision" value="deny">{{ tr("Weigeren", "Deny") }}</button>

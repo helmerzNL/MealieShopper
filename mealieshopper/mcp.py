@@ -193,7 +193,7 @@ def tool_search_products(args: dict[str, Any]) -> Any:
 
 def _picnic_linked() -> None:
     if not picnic.configured_auth_key():
-        raise ToolError("Picnic is niet gekoppeld. De beheerder koppelt het bij Beheer, Picnic.")
+        raise ToolError("Picnic is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Picnic.")
 
 
 def tool_search_picnic_products(args: dict[str, Any]) -> Any:
@@ -217,7 +217,7 @@ def tool_picnic_basket(args: dict[str, Any]) -> Any:
 
 def _jumbo_linked() -> None:
     if not jumbo.configured_refresh_token():
-        raise ToolError("Jumbo is niet gekoppeld. De beheerder koppelt het bij Beheer, Jumbo.")
+        raise ToolError("Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Jumbo.")
 
 
 def tool_search_jumbo_products(args: dict[str, Any]) -> Any:

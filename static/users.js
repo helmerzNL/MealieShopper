@@ -7,15 +7,17 @@ function applyRole() {
   const signedIn = Boolean(auth.authenticated) || !auth.enabled;
   const owner = !auth.enabled || auth.isOwner !== false;
   document.querySelectorAll("[data-admin-only]").forEach((element) => {
-    const isUsersTab = element.dataset.subtab === "beheer-users";
+    const isUsersTab = element.dataset.subtab === "settings-users";
     // Gebruikers beheren kan alleen als inloggen aanstaat; koppelen kan alleen de beheerder.
     element.hidden = isUsersTab ? !(signedIn && owner && auth.enabled) : signedIn && !owner;
   });
   document.querySelectorAll("[data-regular-only]").forEach((element) => {
     element.hidden = !(signedIn && !owner);
   });
-  const active = document.querySelector("#beheer [data-subtab].is-active");
-  if (active && active.closest("[hidden]:not(.subtab-menu__list)")) document.querySelector('[data-subtab="beheer-security"]')?.click();
+  // Staat het scherm of subtab niet meer open voor deze gebruiker (bijvoorbeeld na uitloggen), ga dan naar een plek die wel kan.
+  if (!(signedIn && owner) && $("#settings.is-active")) document.querySelector('.tab[data-tab="recipes"]').click();
+  const active = document.querySelector("#settings [data-subtab].is-active");
+  if (active?.hidden) document.querySelector('#settings [data-subtab="settings-link"]')?.click();
   document.documentElement.classList.toggle("is-regular-user", signedIn && !owner);
   const nameInput = $("#pw-username");
   if (nameInput) nameInput.readOnly = signedIn && !owner; // alleen de beheerder kan de naam wijzigen
@@ -40,9 +42,12 @@ function renderUsers() {
       const owner = user.role === "owner";
       return `
         <div class="credential-row">
-          <div>
-            <strong>${escapeHtml(user.username)}</strong>${owner ? ` <span class="user-badge">${escapeHtml(t("users.owner"))}</span>` : ""}
-            <small>${escapeHtml(userMethods(user))} · ${escapeHtml(t("users.since", { date: formatCredentialDate(user.createdAt).slice(0, 10) }))}</small>
+          <div class="user-row">
+            <span class="avatar" aria-hidden="true">${profileAvatarHtml({ name: user.displayName || user.username, userId: user.id, hasAvatar: user.hasAvatar, version: user.avatarVersion })}</span>
+            <div>
+              <strong>${escapeHtml(user.displayName || user.username)}</strong>${owner ? ` <span class="user-badge">${escapeHtml(t("users.owner"))}</span>` : ""}
+              <small>${escapeHtml([user.displayName ? user.username : "", userMethods(user), t("users.since", { date: formatCredentialDate(user.createdAt).slice(0, 10) })].filter(Boolean).join(" · "))}</small>
+            </div>
           </div>
           ${
             owner
@@ -135,7 +140,7 @@ async function createInvite(event) {
 
 $("#invite-create-form").addEventListener("submit", createInvite);
 
-$("#beheer-users").addEventListener("click", async (event) => {
+$("#settings-users").addEventListener("click", async (event) => {
   const reset = event.target.closest("[data-user-reset]");
   const remove = event.target.closest("[data-user-delete]");
   const revoke = event.target.closest("[data-invite-revoke]");

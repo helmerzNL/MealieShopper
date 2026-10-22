@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.56.0
+
+*English summary: The "Logged in as ..." chip is replaced by an avatar with a drop-down menu (Profile, Settings for the administrator, Log out). On small screens the avatar sits in the tab bar in place of Settings. Profile has General (display name and avatar upload), Security (one Password block with Two-step verification inside it, plus Passkeys) and AI apps (for everyone). Settings, administrator only, has Link, Users, Audit log and Updates. The main tab Settings is gone.*
+
+### Nieuw in 2.56.0
+
+- **Avatar met uitklapmenu in plaats van "Ingelogd als ...".** Menu: **Profiel**, **Instellingen** (alleen de beheerder) en **Uitloggen**. Het werkt ook zonder inloggen (dan zonder Uitloggen), zodat je het wachtwoord en de koppelingen kunt instellen. Op een klein scherm staat de avatar in de tabbalk op de plek van het Beheer-icoon.
+- **Profiel > Algemeen:** je displaynaam en een avatar uploaden (PNG, JPEG of WebP; de browser verkleint hem tot 256 x 256, hoogstens 256 kB, geen SVG). Zonder avatar zie je je initialen. De displaynaam staat ook in Instellingen > Gebruikers, met de avatar.
+- **Profiel > Beveiliging:** het blok *Wachtwoord* bevat nu ook *Tweestapsverificatie* (geen eigen blok meer), met daaronder *Passkeys*.
+- **Profiel > AI-apps** is voor iedereen.
+- **Instellingen** (alleen de beheerder): *Koppelen*, *Gebruikers*, *Auditlog* en *Updates*. Het bolletje bij een nieuwe versie staat nu op de avatar en bij Instellingen.
+- **Nieuwe routes:** `GET/PUT /api/profile`, `POST/DELETE /api/profile/avatar` en `GET /api/profile/avatar/<gebruiker>`. De avatar staat in de database; het type wordt aan de inhoud gecontroleerd.
+
+### Aangepast in 2.56.0
+
+- **De hoofdtab Beheer is vervallen.** Teksten die ernaar wezen zeggen nu *Instellingen > Koppelen*, *Profiel > Beveiliging* en *Profiel > AI-apps*. De onderste menubalk heeft nog zeven plekken: de avatar staat waar Beheer stond.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-29).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de MCP-tools of de rechten. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
 ## v2.55.0
 
 *English summary: Settings > Link is now a plain sub-tab with one page instead of a drop-down menu. The page shows the four "linked" banners (Mealie, Albert Heijn, Picnic, Jumbo) on top, two next to each other, followed by one collapsible block per service: Mealie first, the stores below it. The Unlink button now sits next to the Link button inside the block of the store (together with Check link). The Mealie block is collapsible too and folds up once Mealie is linked.*

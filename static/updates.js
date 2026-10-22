@@ -53,6 +53,8 @@ function renderUpdate() {
 
   $("#update-dot-tab").hidden = !available;
   $("#update-dot-subtab").hidden = !available;
+  $("#update-dot-user").hidden = !available;
+  $("#update-dot-settings").hidden = !available;
   const banner = $("#update-banner");
   banner.hidden = !available || dismissed;
   if (available) {
@@ -93,7 +95,7 @@ function renderUpdate() {
 }
 
 $("#update-check").addEventListener("click", () => loadUpdate({ force: true }));
-$("#update-banner-open").addEventListener("click", () => openBeheer("beheer-updates"));
+$("#update-banner-open").addEventListener("click", () => openSettings("settings-updates"));
 $("#update-banner-dismiss").addEventListener("click", () => {
   if (updateState.data?.latest) rememberUpdateDismissed(updateState.data.latest);
   renderUpdate();
