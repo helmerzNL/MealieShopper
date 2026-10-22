@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-34")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-35")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
@@ -597,7 +597,7 @@ def create_app() -> Flask:
     # gaan direct in het echte Picnic-winkelmandje (er is geen apart boodschappenlijstje).
 
     def picnic_error(exc: Exception) -> Any:
-        return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError)
+        return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError, picnic.PicnicBlockedError)
 
     @app.get("/api/picnic/auth/status")
     def picnic_auth_status():

@@ -132,6 +132,53 @@ class PicnicOffersTest(TempDataDirTest):
         with self.serve(pages):
             self.assertEqual([o["id"] for o in picnic.get_offers()], ["s1", "s2"])
 
+    HOME_TABS = [
+        {"id": "home-tab", "title": "Ontdek", "label": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}},
+        {"id": "meals-page", "title": "Koken", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "meals-page-root"}},
+    ]
+
+    def test_without_an_offers_tab_the_discover_page_is_used_and_only_discounts_count(self):
+        pages = {"home_page_root": page(tile("s1", "Kipfilet", 349, 499, "2e halve prijs"), tile("s2", "Melk", 129))}
+        with self.serve(pages, self.HOME_TABS):
+            found = picnic.get_offers()
+        self.assertEqual([o["id"] for o in found], ["s1"], "de gewone producten van de startpagina zijn geen aanbiedingen")
+
+    def test_references_put_offer_pages_first_and_mark_the_home_page_strict(self):
+        with self.serve({}, self.HOME_TABS):
+            references = picnic.offer_references()
+        self.assertEqual(references[-1], ("home_page_root", True))
+        self.assertEqual([ref for ref, strict in references if strict], ["home_page_root"])
+        self.assertEqual([ref for ref, _ in references[:3]], list(picnic.OFFER_FALLBACKS))
+        with self.serve({}, []):
+            self.assertEqual(picnic.offer_references()[-1], (picnic.HOME_FALLBACK, True))
+
+    def test_the_strict_page_only_follows_links_about_offers_including_lazy_pages(self):
+        home = page(tile("s1", "Melk", 129), links=["aanbiedingen-page", "fruit-page"])
+        home["body"]["lazy"] = {"pageConfig": {"id": "week-deals-content"}}
+        pages = {
+            "home_page_root": home,
+            "aanbiedingen-page": page(tile("s2", "Kaas", 299, 399)),
+            "week-deals-content": page(tile("s3", "Brood", 99, 149, "1+1 gratis")),
+            "fruit-page": page(tile("s4", "Appel", 99, 199)),
+        }
+        with self.serve(pages, self.HOME_TABS):
+            found = picnic.get_offers()
+        self.assertEqual(sorted(o["id"] for o in found), ["s2", "s3"], "fruit-page gaat niet over aanbiedingen")
+
+    def test_a_home_page_without_any_discount_is_an_error_not_a_list_of_products(self):
+        pages = {"home_page_root": page(tile("s1", "Melk", 129), tile("s2", "Kaas", 299))}
+        with self.serve(pages, self.HOME_TABS):
+            with self.assertRaisesRegex(RuntimeError, "verkenner|explorer"):
+                picnic.get_offers()
+
+    def test_discount_markers_cover_ranges_and_other_promo_decorators(self):
+        ranged = picnic.offers_from_page(page(tile("s1", "Koffie", 599, price_ranges=[{"x": 1}])))
+        self.assertTrue(ranged[0]["promo"])
+        other = picnic.offers_from_page(page({"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s2", "name": "Thee", "display_price": 199, "decorators": [{"type": "DISCOUNT_LABEL", "text": "25% korting"}]}}))
+        self.assertEqual((other[0]["promo"], other[0]["promoLabel"]), (True, "25% korting"))
+        plain = picnic.offers_from_page(page({"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s3", "name": "Water", "display_price": 59, "decorators": [{"type": "QUANTITY", "quantity": 1}]}}))
+        self.assertFalse(plain[0]["promo"])
+
     def test_no_page_at_all_is_a_clear_error_and_an_unlinked_account_too(self):
         with self.serve({}):
             with self.assertRaisesRegex(RuntimeError, "geen aanbiedingen|no offers"):
@@ -139,6 +186,40 @@ class PicnicOffersTest(TempDataDirTest):
         auth.set_secret(picnic.AUTH_KEY_SECRET, "")
         with self.assertRaises(RuntimeError):
             picnic.get_offers()
+
+
+class PicnicExplorerTest(TempDataDirTest):
+    def test_the_report_describes_the_offer_pages_without_content(self):
+        from mealieshopper import picnic_explore
+
+        home = page(tile("s1", "Kipfilet", 349, 499, "2e halve prijs"), tile("s2", "Melk", 129), links=["aanbiedingen-page"])
+        home["body"]["lazy"] = {"pageConfig": {"id": "week-deals-content"}}
+        pages = {"home_page_root": home, "aanbiedingen-page": page(tile("s3", "Kaas", 299, 399)), "week-deals-content": page(tile("s4", "Brood", 99, 149))}
+        tabs = [{"id": "home-tab", "title": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}}]
+
+        def authed(method, path, **kwargs):
+            if path == "/bootstrap":
+                return {"tabs": tabs}
+            reference = path.split("/pages/", 1)[1]
+            if reference not in pages:
+                raise RuntimeError('404: {"error": {"code": "NOT_FOUND"}}')
+            return pages[reference]
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=authed):
+            probes = picnic_explore.offer_probes()
+        names = [p["name"] for p in probes]
+        self.assertEqual(names[0], "aanbiedingen: welke pagina's zoeken we (pagina, streng)")
+        home_probe = next(p for p in probes if p["name"] == "aanbiedingen: GET pages/home_page_root")
+        census = home_probe["info"]["telling van de tegels"]
+        self.assertEqual((census["tegels"], census["als aanbieding herkend"], census["`price` anders dan `display_price`"]), (2, 1, 1))
+        self.assertIn("PROMO: text", census["decorators"])
+        self.assertEqual(home_probe["info"]["pagina's die later laden (pageConfig)"], ["week-deals-content"])
+        self.assertIn("aanbiedingen: GET pages/aanbiedingen-page", names)
+        self.assertIn("aanbiedingen: GET pages/week-deals-content", names)
+        report = repr(probes)
+        for secret in ("Kipfilet", "Melk", "Kaas"):
+            self.assertNotIn(secret, report)
 
 
 class SyncAllTest(TempDataDirTest):

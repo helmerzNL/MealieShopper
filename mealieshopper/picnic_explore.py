@@ -311,9 +311,59 @@ def _page_info(page: Any) -> dict[str, Any]:
             "verwijzingen": page_links(page)}
 
 
+def tile_census(page: Any) -> dict[str, Any]:
+    """Wat producttegels op een pagina zeggen over een korting: welke velden, welke decorators en hoeveel als aanbieding gelden. Zonder inhoud."""
+    units = [n["sellingUnit"] for n in picnic._walk(page) if n.get("type") == "SELLING_UNIT_TILE" and isinstance(n.get("sellingUnit"), dict)]
+    decorators = Counter(
+        f"{d.get('type')}: {', '.join(sorted(k for k in d if k != 'type'))}"
+        for unit in units for d in unit.get("decorators") or [] if isinstance(d, dict)
+    )
+    return {
+        "tegels": len(units),
+        "velden van een tegel": sorted({key for unit in units for key in unit}),
+        "met `price`": sum(1 for unit in units if "price" in unit),
+        "`price` anders dan `display_price`": sum(1 for unit in units if isinstance(unit.get("price"), (int, float)) and unit.get("price") != unit.get("display_price")),
+        "met `price_ranges`": sum(1 for unit in units if unit.get("price_ranges")),
+        "decorators": dict(decorators.most_common(12)),
+        "als aanbieding herkend": sum(1 for offer in picnic.offers_from_page(page) if offer["promo"]),
+    }
+
+
+def _offer_page_info(page: Any) -> dict[str, Any]:
+    info = _page_info(page)
+    if isinstance(page, dict):
+        info["telling van de tegels"] = tile_census(page)
+        info["opbouw"] = page_outline(page, 60)
+        info["pagina's die later laden (pageConfig)"] = [_redact(ref) for ref in picnic.lazy_pages(page)][:25]
+        info["verwijzingen over aanbiedingen"] = [link for link in info.get("verwijzingen", []) if picnic._OFFER_WORDS.search(link)]
+    return info
+
+
+def offer_probes() -> list[dict[str, Any]]:
+    """Waar staan de aanbiedingen? Kijk naar de pagina's waar `get_offers` zoekt: de startpagina en wat daar over aanbiedingen gaat."""
+    probes: list[dict[str, Any]] = []
+    try:
+        references = picnic.offer_references()
+    except Exception as exc:  # noqa: BLE001 - zonder tabbalk geen paginalijst; de rest van het rapport blijft
+        return [{"name": "aanbiedingen: welke pagina's zoeken we", "ok": False, "error": str(exc)[:200]}]
+    probes.append({"name": "aanbiedingen: welke pagina's zoeken we (pagina, streng)", "ok": True,
+                   "info": {"pagina's": [{"pagina": ref, "streng": strict} for ref, strict in references]}})
+    followed: list[str] = []
+    for reference, _strict in references:
+        report, page = _probe(f"aanbiedingen: GET pages/{reference}", lambda r=reference: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        probes.append(report)
+        if isinstance(page, dict):
+            linked = list(dict.fromkeys(picnic._LINKED_PAGE.findall(json.dumps(page)))) + picnic.lazy_pages(page)
+            followed.extend(link for link in linked if picnic._OFFER_WORDS.search(link) and link not in followed and picnic._PAGE_REFERENCE.match(link))
+    for link in followed[:6]:
+        report, _ = _probe(f"aanbiedingen: GET pages/{_redact(link)}", lambda r=link: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
+        probes.append(report)
+    return probes
+
+
 def explore() -> dict[str, Any]:
     """Roep de leesroutes aan en geef een rapport met de vorm van de antwoorden."""
-    probes: list[dict[str, Any]] = []
+    probes: list[dict[str, Any]] = offer_probes()
 
     report, page = _probe(
         "zoeken: GET pages/search-page-results",
