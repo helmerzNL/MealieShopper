@@ -5,7 +5,7 @@
 
 const OFFERS_STORES = ["ah", "picnic", "jumbo"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
-const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", rows: OFFER_ROWS };
+const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", rows: OFFER_ROWS };
 
 function offersStores() {
   return OFFERS_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
@@ -42,6 +42,7 @@ function renderOffersStore() {
 function offersSwitchStore(store) {
   offersState.store = offersStores().includes(store) ? store : "ah";
   offersState.category = "all";
+  offersState.course = "all";
   try {
     localStorage.setItem("ms-offers-store", offersState.store);
   } catch {
@@ -162,15 +163,40 @@ function offerRecipeCard(recipe) {
     .map((item) => `<li>${escapeHtml(item.ingredient)} <span class="muted">→ ${escapeHtml(item.offer.title)}</span></li>`)
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";
+  const missing = recipe.missing && recipe.missing.length ? `<p class="muted">${escapeHtml(t("offers.recipe.missing", { list: recipe.missing.join(", ") }))}</p>` : "";
   return `
     <article class="recipe-card">
       ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
-      <p class="muted">${escapeHtml(t("offers.match", { matched: recipe.matchedCount, total: recipe.ingredientCount }))} · ${escapeHtml(t(`offers.source.${recipe.source}`))}</p>
+      <p class="muted">${escapeHtml(t("offers.match", { matched: recipe.matchedCount, total: recipe.ingredientCount }))}</p>
+      <p class="muted">${escapeHtml(t("offers.recipe_from", { source: t(`offers.source.${recipe.source}`) }))}</p>
       <ul class="offer-matches">${matched}</ul>
+      ${missing}
       ${saving}
       ${recipe.url ? `<div class="recipe-card__actions"><a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("rsearch.open"))}</a></div>` : ""}
     </article>`;
+}
+
+function renderOfferCourses(courses) {
+  const total = courses.reduce((sum, course) => sum + course.count, 0);
+  const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
+    courses.map((course) => ({
+      id: course.id,
+      label: t("offers.chip", { count: I18N.formatNumber(course.count), category: t(`offers.course.${course.id}`) }),
+    }))
+  );
+  $("#offers-courses").hidden = !total;
+  $("#offers-courses").innerHTML = chips
+    .map(
+      (chip) =>
+        `<button class="offer-chip${offersState.course === chip.id ? " is-active" : ""}" type="button" data-course="${escapeHtml(chip.id)}" aria-pressed="${offersState.course === chip.id}">${escapeHtml(chip.label)}</button>`
+    )
+    .join("");
+}
+
+function offersChooseCourse(course) {
+  offersState.course = course;
+  showOfferRecipes();
 }
 
 function offerIndexSummary(sources) {
@@ -188,13 +214,22 @@ async function showOfferRecipes() {
   const status = $("#offers-recipes-status");
   const list = $("#offers-recipes");
   message("#offers-recipes-message", "");
+  $("#offers-recipes-heading").textContent = t("offers.recipes.heading", { store: STORES[offersState.store].name });
   if (!offersState.supported) {
     status.textContent = "";
     list.innerHTML = "";
+    $("#offers-courses").hidden = true;
     return;
   }
   try {
-    const data = await jsonFetch(`/api/offers/recipes?store=${encodeURIComponent(offersState.store)}`);
+    const course = offersState.course === "all" ? "" : `&course=${encodeURIComponent(offersState.course)}`;
+    const data = await jsonFetch(`/api/offers/recipes?store=${encodeURIComponent(offersState.store)}${course}`);
+    // Staat de gekozen soort er na het opnieuw inlezen niet meer bij, dan tonen we weer alles.
+    if (offersState.course !== "all" && !(data.courses || []).some((item) => item.id === offersState.course)) {
+      offersState.course = "all";
+      return showOfferRecipes();
+    }
+    renderOfferCourses(data.courses || []);
     if (!data.indexedAt) {
       status.textContent = t("offers.recipes.never");
     } else if (!data.offersSyncedAt) {
@@ -225,6 +260,10 @@ async function offersIndexRecipes() {
 }
 
 $("#offers-more").addEventListener("click", offersShowMore);
+$("#offers-courses").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-course]");
+  if (chip) offersChooseCourse(chip.dataset.course);
+});
 $("#offers-categories").addEventListener("click", (event) => {
   const chip = event.target.closest("[data-cat]");
   if (chip) offersChooseCategory(chip.dataset.cat);

@@ -184,7 +184,8 @@ class LinkingTest(unittest.TestCase):
     def test_the_head_of_an_ingredient_stops_at_a_preposition(self):
         self.assertEqual(offers.head_of("250 g gehakt met ui"), "gehakt")
         self.assertEqual(offers.head_of("400 g kipfilet in blokjes"), "kipfilet")
-        self.assertEqual(offers.head_of("3 el olie voor het bakken"), "olie")
+        self.assertEqual(offers.head_of("400 g kipfilet voor de wok"), "kipfilet")
+        self.assertIsNone(offers.head_of("3 el olie voor het bakken"), "olie is een basisingrediënt")
         self.assertEqual(offers.head_of("1 bosje bieslook (in ringetjes)"), offers.head_of("bieslook"))
         self.assertEqual(offers.head_of("in blokjes gesneden ui"), "ui", "begint de regel met een voorzetsel, dan geldt de hele regel")
 
@@ -225,7 +226,7 @@ class SuggestionsTest(TempDataDirTest):
         data = offers.suggest("ah")
         self.assertEqual([r["id"] for r in data["recipes"]], ["r1"], "r2 heeft maar 1 van 5, r3 niets")
         recipe = data["recipes"][0]
-        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 3), "zout telt niet mee")
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 2), "zout en olijfolie zijn basis en tellen niet mee")
         # Tomaten "2 voor 3" van 2,00: 1,50 per stuk, dus 0,50 goedkoper. Kipfilet "1+1 gratis" van 4,50: 2,25 per stuk,
         # dus 2,25 goedkoper (niet 1,50, het verschil met de huidige prijs die de winkel noemt).
         self.assertEqual(recipe["saving"], 2.75)
@@ -247,9 +248,75 @@ class SuggestionsTest(TempDataDirTest):
                             "400 g verse spinazie", "100 g Noorse gerookte zalmfilet", "200 g zuivelspread knoflook en kruiden"],
         }]})
         recipe = offers.suggest("ah")["recipes"][0]
-        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 7))
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 6), "de olijfolie is een basisingrediënt en telt niet mee")
         self.assertEqual(sorted(m["offer"]["id"] for m in recipe["matched"]), ["1", "6"])
         self.assertEqual(recipe["saving"], 2.0, "twee keer 1,00 goedkoper, niet 11,41")
+
+    def course_setup(self):
+        fetched = [
+            {"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
+            {"id": "2", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"},
+            {"id": "3", "title": "AH Eieren 10 stuks", "price": 2.0, "priceBefore": 3.0, "promoLabel": "Bonus"},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.index({
+            "mealie": [
+                {"id": "a", "title": "Kip met tomaat", "image": "", "url": "", "course": "hoofdgerecht",
+                 "ingredients": ["400 g kipfilet", "4 tomaten", "2 el olijfolie", "zout", "1 courgette"]},
+                {"id": "b", "title": "Roerei", "image": "", "url": "", "course": "ontbijt",
+                 "ingredients": ["6 eieren", "2 tomaten", "30 g roomboter"]},
+                {"id": "c", "title": "Tomatensalade", "image": "", "url": "", "course": "overig",
+                 "ingredients": ["4 tomaten", "1 komkommer", "2 el azijn"]},
+            ]
+        })
+
+    def test_basics_do_not_count_and_missing_ingredients_are_listed(self):
+        self.course_setup()
+        recipe = {r["id"]: r for r in offers.suggest("ah")["recipes"]}["a"]
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 3), "olijfolie en zout zijn basis")
+        self.assertEqual(recipe["missing"], ["1 courgette"])
+        roerei = {r["id"]: r for r in offers.suggest("ah")["recipes"]}["b"]
+        self.assertEqual((roerei["matchedCount"], roerei["ingredientCount"], roerei["missing"]), (2, 2, []), "roomboter is basis")
+
+    def test_the_most_complete_recipe_comes_first(self):
+        self.course_setup()
+        self.assertEqual([r["id"] for r in offers.suggest("ah")["recipes"]], ["b", "a", "c"])
+
+    def test_courses_are_counted_over_all_suggestions_and_the_filter_applies_before_the_limit(self):
+        self.course_setup()
+        data = offers.suggest("ah")
+        self.assertEqual(data["courses"], [{"id": "ontbijt", "count": 1}, {"id": "hoofdgerecht", "count": 1}, {"id": "overig", "count": 1}])
+        self.assertEqual(data["course"], "all")
+        main = offers.suggest("ah", limit=1, course="hoofdgerecht")
+        self.assertEqual([r["id"] for r in main["recipes"]], ["a"], "het filter geldt vóór de limiet")
+        self.assertEqual((main["total"], main["course"]), (1, "hoofdgerecht"))
+        self.assertEqual(main["courses"], data["courses"], "de aantallen blijven die van alle voorstellen")
+        self.assertEqual(offers.suggest("ah", course="dessert")["recipes"], [])
+        self.assertEqual(len(offers.suggest("ah", course="all")["recipes"]), 3)
+
+    def test_an_unknown_course_is_refused(self):
+        self.course_setup()
+        with self.assertRaises(ValueError):
+            offers.suggest("ah", course="pannenkoek")
+
+    def test_recipes_without_a_course_are_other(self):
+        self.course_setup()
+        self.index({"mealie": [{"id": "z", "title": "Oud", "image": "", "url": "", "ingredients": ["4 tomaten", "400 g kipfilet"]}]})
+        self.assertEqual(offers.suggest("ah")["recipes"][0]["course"], "overig")
+
+    def test_an_index_from_before_the_courses_gets_the_column(self):
+        import sqlite3
+        from contextlib import closing
+
+        with closing(offers._connect()) as conn:
+            conn.execute("DROP TABLE offer_recipes")
+            conn.execute("CREATE TABLE offer_recipes (source TEXT NOT NULL, recipe_id TEXT NOT NULL, title TEXT NOT NULL, image TEXT, url TEXT, ingredients TEXT NOT NULL, PRIMARY KEY (source, recipe_id))")
+            conn.execute("INSERT INTO offer_recipes VALUES ('mealie', 'old', 'Oud recept', '', '', '[\"4 tomaten\"]')")
+            conn.commit()
+        with closing(offers._connect()) as conn:
+            self.assertIn("course", {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")})
+            self.assertIsNone(conn.execute("SELECT course FROM offer_recipes").fetchone()["course"])
 
     def test_the_best_fitting_offer_wins_over_the_first_one(self):
         fetched = [
@@ -292,6 +359,57 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual(calls, [1, 2])
 
 
+class CourseCollectorsTest(TempDataDirTest):
+    def test_each_source_gives_its_course(self):
+        recipe = {"id": "m1", "name": "Pasta", "slug": "pasta", "recipeIngredient": [{"food": {"name": "pasta"}}],
+                  "recipeCategory": [{"name": "Avondeten"}], "tags": [{"name": "Snel"}]}
+        with mock.patch.object(offers.mealie, "list_recipes", return_value=[{"slug": "pasta"}]), \
+                mock.patch.object(offers.mealie, "get_recipe", return_value=recipe), \
+                mock.patch.object(offers.mealie, "recipe_page_url", return_value="http://m/pasta"), \
+                mock.patch.object(offers.mealie_images, "image_path", return_value=""):
+            self.assertEqual(offers._collect_mealie()[0]["course"], "hoofdgerecht")
+
+        jumbo_recipe = {"id": "j1", "name": "Ontbijtbowl", "ingredients": [{"name": "yoghurt"}], "course": "Ontbijt"}
+        with mock.patch.object(offers.jumbo, "configured_refresh_token", return_value="x"), \
+                mock.patch.object(offers.jumbo_recipes, "get_favorites", return_value={"recipes": [{"id": "j1"}]}), \
+                mock.patch.object(offers.jumbo_recipes, "get_recipe", return_value=jumbo_recipe), \
+                mock.patch.object(offers.jumbo_recipes, "source_url", return_value=""):
+            self.assertEqual(offers._collect_jumbo()[0]["course"], "ontbijt")
+
+        picnic_recipe = {"id": "p1", "name": "Soep", "ingredients": [{"name": "prei"}]}
+        with mock.patch.object(offers.picnic, "configured_auth_key", return_value="x"), \
+                mock.patch.object(offers.picnic_recipes, "get_recipes", return_value=[{"id": "p1", "tags": ["Soepen"]}]), \
+                mock.patch.object(offers.picnic_recipes, "get_recipe", return_value=picnic_recipe), \
+                mock.patch.object(offers.picnic_recipes, "source_url", return_value=""):
+            self.assertEqual(offers._collect_picnic()[0]["course"], "soep")
+
+    def test_ah_reads_the_category_and_refetches_recipes_indexed_without_one(self):
+        saved = {"recipes": [{"id": str(i), "title": f"R{i}", "image": "", "url": ""} for i in (1, 2)]}
+        calls = []
+
+        def jsonld(recipe_id):
+            calls.append(recipe_id)
+            return {"recipeIngredient": ["kip"], "recipeCategory": "Hoofdgerecht" if recipe_id == 1 else ["Dessert"]}
+
+        with mock.patch.object(ah_recipes, "load", return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
+            first = offers._collect_ah()
+            self.assertEqual([item["course"] for item in first], ["hoofdgerecht", "dessert"])
+        # In de index, recept 1 mét soort en recept 2 zonder (ingelezen vóór de soorten): alleen 2 wordt opnieuw opgehaald.
+        from contextlib import closing
+
+        with closing(offers._connect()) as conn, conn:
+            for recipe_id, course in (("1", "hoofdgerecht"), ("2", None)):
+                conn.execute(
+                    "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES ('ah', ?, 'R', '', '', '[\"kip\"]', ?)",
+                    (recipe_id, course),
+                )
+        calls.clear()
+        with mock.patch.object(ah_recipes, "load", return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
+            again = offers._collect_ah()
+        self.assertEqual(calls, [2])
+        self.assertEqual([item["course"] for item in again], ["hoofdgerecht", "dessert"])
+
+
 class OffersTabMarkupTest(unittest.TestCase):
     def test_offers_follows_the_layout_of_the_stores_tab(self):
         import re
@@ -306,6 +424,32 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
         self.assertNotIn("offers-store-slot", section)
 
+    def test_recipes_have_a_heading_and_a_course_filter_above_them(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        panel = html[html.index('<div id="offers-suggestions"'):html.index('<section id="url"')]
+        order = ["offers-recipes-heading", "offers.recipes.explain", 'id="offers-courses"', 'id="offers-recipes-status"', 'id="offers-recipes"']
+        positions = [panel.index(marker) for marker in order]
+        self.assertEqual(positions, sorted(positions), "kop, uitleg, soortfilter, status, recepten")
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertIn("&course=", script, "de gekozen soort gaat mee naar de server")
+        self.assertIn('"#offers-courses").addEventListener("click"', script)
+        self.assertIn("offersState.course = \"all\";\n  try {", script, "een andere winkel zet het filter terug op alles")
+
+    def test_recipe_cards_say_where_the_recipe_is_from_and_whose_offers_are_used(self):
+        from pathlib import Path
+
+        script = (Path(__file__).resolve().parent.parent / "static" / "offers.js").read_text(encoding="utf-8")
+        card = script[script.index("function offerRecipeCard"):script.index("function offerIndexSummary")]
+        self.assertIn('t("offers.recipe_from"', card)
+        self.assertNotIn("· ${escapeHtml(t(`offers.source", card, "de bron mag niet als winkel van de aanbieding lezen")
+        status = script[script.index("async function showOfferRecipes"):script.index("async function offersIndexRecipes")]
+        self.assertIn('t("offers.recipes.heading"', status, "boven de recepten staat van welke winkel de aanbiedingen zijn")
+        self.assertIn("STORES[offersState.store].name", status)
+        self.assertNotIn("offers.recipes.using", script)
+
 
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
@@ -318,10 +462,14 @@ class OffersRoutesTest(TempDataDirTest):
             synced = self.client.post("/api/offers/sync", json={"store": "ah"})
         self.assertEqual((synced.status_code, synced.get_json()["total"]), (200, 3))
         with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: [
-                {"id": "r1", "title": "Kip", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]}]),)):
+                {"id": "r1", "title": "Kip", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"], "course": "hoofdgerecht"}]),)):
             self.assertEqual(self.client.post("/api/offers/recipes/sync").status_code, 200)
         suggestions = self.client.get("/api/offers/recipes?store=ah").get_json()
         self.assertEqual([r["id"] for r in suggestions["recipes"]], ["r1"])
+        self.assertEqual(suggestions["courses"], [{"id": "hoofdgerecht", "count": 1}])
+        self.assertEqual([r["id"] for r in self.client.get("/api/offers/recipes?store=ah&course=hoofdgerecht").get_json()["recipes"]], ["r1"])
+        self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=dessert").get_json()["recipes"], [])
+        self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=pannenkoek").status_code, 400)
 
     def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
         self.assertEqual(self.client.get("/api/offers?store=lidl").status_code, 400)
