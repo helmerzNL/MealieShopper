@@ -354,7 +354,7 @@ def create_app() -> Flask:
 
     @app.get("/api/offers/recipes")
     def offers_recipes():
-        return offers_action(lambda: offers.suggest(request.args.get("store") or "ah"), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
+        return offers_action(lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course")), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
 
     @app.post("/api/offers/recipes/sync")
     def offers_recipes_sync():

@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.62.0
+
+*English summary: The recipe suggestions are about what you can cook with the offers of the chosen store. Above the recipes it now says so ("Recipes with as many ingredients as possible from the offers at Jumbo"), basics such as salt, oil, butter and flour no longer count towards "x of y ingredients on offer", the recipes with the largest share on offer come first, and each recipe lists what is not on offer. At the top there is a filter for the kind of dish (breakfast, lunch, starter, soup, main course, side dish, dessert, snack, other) with the number of recipes per kind. The kind comes from the recipe's source, so read the recipes once more after updating. A recipe card now says where the recipe comes from ("Recipe from Albert Heijn") instead of a bare store name that read like the store of the offers.*
+
+### Nieuw in 2.62.0
+
+- **Filter op soort gerecht.** Bovenaan Aanbiedingen > Recepten staat een rij keuzes: ontbijt, lunch, voorgerecht, soep, hoofdgerecht, bijgerecht, dessert, snack en overig, met het aantal recepten per soort. Alleen soorten die voorkomen staan erbij. De aantallen gelden voor alle voorstellen van de gekozen winkel, het filter beperkt de lijst. Een andere winkel zet het filter terug op alles. De soort komt uit de bron: de gang bij Jumbo, de categorieën en tags in Mealie en de categorie van het recept bij AH. Picnic geeft geen gang mee; die recepten staan onder overig.
+- **Boven de recepten staat van welke winkel de aanbiedingen zijn** (*Recepten met zoveel mogelijk ingrediënten uit de aanbiedingen van Jumbo*), met de uitleg dat basisingrediënten niet meetellen en de recepten met de meeste ingrediënten in de aanbieding bovenaan staan.
+- **Wat er niet in de aanbieding is.** Onder de gekoppelde ingrediënten staat *Niet in de aanbieding: …*, zodat je ziet wat je er nog bij moet halen.
+- `GET /api/offers/recipes` krijgt `course` (een van de soorten, of `all`) en geeft per recept `course` en `missing`, en `courses` met de aantallen per soort.
+
+### Aangepast in 2.62.0
+
+- **Basisingrediënten tellen niet meer mee.** Zout, peper, water, ijs, olie, boter, bloem, suiker, azijn, bouillon en kruiden zijn niet langer een ingrediënt dat in de aanbieding hoort te zijn. Een regel telt als basis als het hoofdwoord er een is of erop eindigt (*milde olijfolie*, *roomboter*, *zeezout*, *balsamicoazijn*). Het aantal in *x van y ingrediënten in de aanbieding* wordt daardoor kleiner (*2 van 6* in plaats van *2 van 7*). Een smaakwoord aan het eind van een langere regel (*zuivelspread knoflook en kruiden*) telt nog mee als ingrediënt dat niet te koppelen is.
+- **De receptkaart zegt waar het recept vandaan komt.** De winkelkeuze bij Aanbiedingen > Recepten bepaalt alleen met welke aanbiedingen de recepten worden vergeleken; de recepten komen uit al je bronnen. Achter het aantal ingrediënten stond de bron van het recept ("· Albert Heijn"), wat las alsof het AH-aanbiedingen waren, ook als je Jumbo had gekozen. Nu staat er *Recept uit Albert Heijn*.
+
+### Goed om te weten
+
+- **Lees je recepten één keer opnieuw in** (`Recepten inlezen`): de soort wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*. AH-recepten die al in de index staan maar nog geen soort hebben, worden bij het inlezen opnieuw opgehaald, binnen de 60 nieuwe AH-recepten per keer.
+- De volgorde is: het grootste deel van de ingrediënten in de aanbieding, dan het grootste aantal, dan de grootste besparing. Een recept moet minstens twee koppelingen hebben (één bij een recept met hooguit drie ingrediënten).
+- De soorten komen uit vrije tekst van de bron en worden op woorden herkend (*Avondeten* en *Main course* zijn hoofdgerecht). Een categorie die je zelf in Mealie hebt bedacht en niet herkend wordt, valt onder overig.
+
 ## v2.61.0
 
 *English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". Ingredients are also linked to offers more strictly (a product that only contains the ingredient, such as mince with onion or tuna in olive oil, no longer counts). This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
