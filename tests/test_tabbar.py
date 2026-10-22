@@ -54,21 +54,33 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_seven_tabs_with_icon_long_and_short_label(self):
+    def test_six_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["planner", "search", "url", "ah-items", "basket", "beheer", "about"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 7)
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["recipes", "offers", "url", "ah-items", "basket"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 5, "het avatar-icoon in de plaats van Beheer is een eigen soort")
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Menu", "Zoeken", "Import", "Winkels", "Mandje", "Beheer", "Over"])
+        self.assertEqual(short, ["Recepten", "Aanbod", "Import", "Winkels", "Mandje", "Profiel"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Weekmenu naar winkel", "Recepten zoeken", "URL importeren", "Winkels", "Mandje", "Beheer", "Over"])
+        self.assertEqual(long, ["Recepten", "Aanbiedingen", "URL importeren", "Winkels", "Mandje", "Profiel"])
+
+    def test_avatar_is_the_last_tab_and_shows_on_small_screens_only(self):
+        self.assertNotIn('data-tab="beheer"', self.html)
+        avatar = re.search(r'<button class="tab tab--avatar" id="tab-avatar".*?</button>', self.nav, re.S).group(0)
+        self.assertIn("hidden", avatar.split(">")[0], "zonder inlog is er geen avatar")
+        self.assertIn('data-user-menu-trigger', avatar)
+        self.assertLess(self.nav.index('data-tab="ah-items"'), self.nav.index('id="tab-avatar"'))
+        self.assertNotIn('data-tab="about"', self.nav, "Over zit in het avatar-menu")
+        self.assertRegex(CSS, r"\.tab--avatar\s*{\s*display: none;")
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--avatar"):]
+        self.assertIn(".tab--avatar:not([hidden])", media)
+        self.assertIn(".user-menu {\n    display: none;", media, "op een klein scherm staat de avatar niet in de kop")
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiMagnify", "mdiLinkVariant", "mdiBasket", "mdiCart", "mdiCog", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiCart"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
@@ -90,9 +102,15 @@ class TabbarMarkupTest(unittest.TestCase):
         self.assertIn("display: inline-flex", tab)
         self.assertIn("align-items: center", tab)
 
+    def test_recipes_tab_holds_the_week_menu_and_recipe_search_as_subtabs(self):
+        section = self.html[self.html.index('<section id="recipes"'):self.html.index('<section id="basket"')]
+        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["planner", "search"])
+        self.assertIn('<div id="planner" class="subpanel is-active">', section)
+        self.assertIn('<div id="search" class="subpanel">', section)
+
     def test_current_page_is_announced(self):
         self.assertEqual(self.nav.count('aria-current="page"'), 1)
-        self.assertRegex(self.nav, r'data-tab="planner" aria-current="page"')
+        self.assertRegex(self.nav, r'data-tab="recipes" aria-current="page"')
 
     def test_head_script_decides_when_the_bar_shows(self):
         script = re.search(r"<script>(.*?)</script>", self.html, re.S).group(1)
@@ -121,7 +139,7 @@ class TabbarStyleTest(unittest.TestCase):
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(7", "border-radius: 32px",
+        for declaration in ("position: fixed", "grid-template-columns: repeat(6", "border-radius: 32px",
                             "bottom: max(12px, env(safe-area-inset-bottom))",
                             "left: max(12px, env(safe-area-inset-left))",
                             "right: max(12px, env(safe-area-inset-right))"):

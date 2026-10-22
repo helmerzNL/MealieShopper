@@ -10,7 +10,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, server_settings, updates, users
+from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth
 from .i18n import tr
 
@@ -21,13 +21,14 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-23")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-32")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
     auth.register_routes(app)
     auth_password.register_routes(app)
     onboarding.register_routes(app)
+    profile.register_routes(app)
 
     try:
         removed = auth.purge_obsolete_secrets()
@@ -314,6 +315,34 @@ def create_app() -> Flask:
     def ah_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(ah_explore.explore())
+
+    # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
+
+    def offers_action(action, error_text: str):
+        try:
+            return jsonify(action())
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; toon de fout, de bewaarde kopie blijft staan
+            app.logger.exception("Offers error")
+            return jsonify({"error": str(exc) or error_text}), 424
+
+    @app.get("/api/offers")
+    def offers_list():
+        return offers_action(lambda: offers.load(request.args.get("store") or "ah"), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+
+    @app.post("/api/offers/sync")
+    def offers_sync():
+        body = request.get_json(silent=True) or {}
+        return offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+
+    @app.get("/api/offers/recipes")
+    def offers_recipes():
+        return offers_action(lambda: offers.suggest(request.args.get("store") or "ah"), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
+
+    @app.post("/api/offers/recipes/sync")
+    def offers_recipes_sync():
+        return offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
 
     @app.get("/api/mealie/status")
     def mealie_status():

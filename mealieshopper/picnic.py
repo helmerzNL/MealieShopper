@@ -66,7 +66,7 @@ def base_url() -> str:
 def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
-            "Picnic account niet gekoppeld. De beheerder koppelt het bij Beheer > Winkels > Picnic.",
+            "Picnic account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Picnic.",
             "Picnic account not linked. The admin links it under Admin > Picnic.",
         )
     )
@@ -127,7 +127,7 @@ def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> 
     except PicnicAuthError as exc:
         raise PicnicAuthError(
             tr(
-                "Picnic-koppeling verlopen of geweigerd. Koppel opnieuw bij Beheer > Winkels > Picnic.",
+                "Picnic-koppeling verlopen of geweigerd. Koppel opnieuw bij Instellingen > Koppelen > Picnic.",
                 "Picnic link expired or refused. Link again under Admin > Picnic.",
             )
         ) from exc

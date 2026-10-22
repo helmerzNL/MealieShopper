@@ -180,24 +180,39 @@
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
-        <div class="auth-chip" id="auth-chip" hidden>
-          <span id="auth-chip-text"></span>
-          <button type="button" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
+        <div class="user-menu" id="user-menu" hidden>
+          <button type="button" class="user-menu__button" id="user-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger>
+            <span class="avatar" data-avatar aria-hidden="true"></span>
+            <span class="user-menu__name" id="user-menu-name"></span>
+            <svg class="user-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+            <span class="update-dot" id="update-dot-user" hidden></span>
+          </button>
         </div>
       </div>
     </header>
 
+    <div class="user-menu__list" id="user-menu-list" role="menu" hidden>
+      <div class="user-menu__who">
+        <span class="avatar avatar--lg" data-avatar aria-hidden="true"></span>
+        <span><strong id="user-menu-who-name"></strong><small id="user-menu-who-user"></small></span>
+      </div>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="profile" data-i18n="user.profile">Profiel</button>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="settings" data-admin-only><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></button>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="about" data-i18n="user.about">Over</button>
+      <button type="button" role="menuitem" class="user-menu__item" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
+    </div>
+
     <main class="shell">
       <nav class="tabs" aria-label="Hoofdscherm" data-i18n-attr="aria-label:nav.main">
-        <button class="tab is-active" data-tab="planner" aria-current="page">
+        <button class="tab is-active" data-tab="recipes" aria-current="page">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg>
-          <span class="tab-text" data-i18n="nav.plan">Weekmenu naar winkel</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.plan_short">Menu</span>
+          <span class="tab-text" data-i18n="nav.recipes">Recepten</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.recipes_short">Recepten</span>
         </button>
-        <button class="tab" data-tab="search">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiMagnify"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
-          <span class="tab-text" data-i18n="nav.search">Recepten zoeken</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.search_short">Zoeken</span>
+        <button class="tab" data-tab="offers">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiSale"><path d="M18.65,2.85L19.26,6.71L22.77,8.5L21,12L22.78,15.5L19.24,17.29L18.63,21.15L14.74,20.54L11.97,23.3L9.19,20.5L5.33,21.14L4.71,17.25L1.22,15.47L3,11.97L1.23,8.5L4.74,6.69L5.35,2.86L9.22,3.5L12,0.69L14.77,3.46L18.65,2.85M9.5,7A1.5,1.5 0 0,0 8,8.5A1.5,1.5 0 0,0 9.5,10A1.5,1.5 0 0,0 11,8.5A1.5,1.5 0 0,0 9.5,7M14.5,14A1.5,1.5 0 0,0 13,15.5A1.5,1.5 0 0,0 14.5,17A1.5,1.5 0 0,0 16,15.5A1.5,1.5 0 0,0 14.5,14M8.41,17L17,8.41L15.59,7L7,15.59L8.41,17Z"/></svg>
+          <span class="tab-text" data-i18n="nav.offers">Aanbiedingen</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.offers_short">Aanbod</span>
         </button>
         <button class="tab" data-tab="url">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLinkVariant"><path d="M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z"/></svg>
@@ -214,16 +229,11 @@
           <span class="tab-text" data-i18n="nav.basket">Mandje</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.basket_short">Mandje</span>
         </button>
-        <button class="tab" data-tab="beheer">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCog"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-          <span class="tab-text" data-i18n="nav.settings">Beheer</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.settings_short">Beheer</span>
+        <button class="tab tab--avatar" id="tab-avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger hidden>
+          <span class="avatar tab-icon" data-avatar aria-hidden="true"></span>
+          <span class="tab-text" data-i18n="user.profile">Profiel</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="user.profile">Profiel</span>
           <span class="update-dot" id="update-dot-tab" hidden></span>
-        </button>
-        <button class="tab" data-tab="about">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
-          <span class="tab-text" data-i18n="nav.about">Over</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.about_short">Over</span>
         </button>
       </nav>
 
@@ -235,7 +245,12 @@
         </span>
       </div>
 
-      <section id="planner" class="panel is-active">
+      <section id="recipes" class="panel is-active">
+        <nav class="subtabs" aria-label="Recepten" data-i18n-attr="aria-label:recipes.nav">
+          <button class="subtab subtab--icon is-active" data-subtab="planner"><svg class="subtab-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCalendarWeek"><path d="M6 1H8V3H16V1H18V3H19C20.11 3 21 3.9 21 5V19C21 20.11 20.11 21 19 21H5C3.89 21 3 20.1 3 19V5C3 3.89 3.89 3 5 3H6V1M5 8V19H19V8H5M7 10H17V12H7V10Z"/></svg><span data-i18n="nav.plan">Weekmenu</span></button>
+          <button class="subtab subtab--icon" data-subtab="search"><svg class="subtab-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiMagnify"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg><span data-i18n="nav.search">Recepten zoeken</span></button>
+        </nav>
+      <div id="planner" class="subpanel is-active">
         <div class="message warning message--action" id="mealie-setup" hidden>
           <span data-i18n-html="plan.mealie_missing"><strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.</span>
           <button class="button inline-button" id="open-mealie-setup" type="button" data-admin-only data-i18n="mealie.link">Mealie koppelen</button>
@@ -254,22 +269,9 @@
         <div id="meal-days" class="day-grid"></div>
         <div id="ingredients-panel"></div>
         <div id="cart-result"></div>
-      </section>
+      </div>
 
-      <section id="basket" class="panel">
-        <div class="box box--wide">
-          <div class="toolbar">
-            <h2 data-i18n="basket.title">Mandje</h2>
-            <span id="basket-store-slot"></span>
-            <button class="icon-button" id="basket-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:basket.refresh;title:basket.refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
-          </div>
-          <p class="muted" id="basket-intro"></p>
-          <div id="basket-message"></div>
-          <div id="basket-content"></div>
-        </div>
-      </section>
-
-      <section id="search" class="panel">
+      <div id="search" class="subpanel">
         <div id="search-main">
           <form class="form-row" id="search-form">
             <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo en Picnic..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
@@ -304,6 +306,53 @@
           </div>
           <div id="search-detail-message"></div>
           <div id="search-detail-body"></div>
+        </div>
+      </div>
+      </section>
+
+      <section id="basket" class="panel">
+        <div class="box box--wide">
+          <div class="toolbar">
+            <h2 data-i18n="basket.title">Mandje</h2>
+            <span id="basket-store-slot"></span>
+            <button class="icon-button" id="basket-refresh" type="button" aria-label="Vernieuwen" title="Vernieuwen" data-i18n-attr="aria-label:basket.refresh;title:basket.refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+          </div>
+          <p class="muted" id="basket-intro"></p>
+          <div id="basket-message"></div>
+          <div id="basket-content"></div>
+        </div>
+      </section>
+
+      <section id="offers" class="panel">
+        <nav class="subtabs" aria-label="Aanbiedingen" data-i18n-attr="aria-label:offers.nav">
+          <div class="subtab-menu" id="offers-store-menu" hidden>
+            <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="offers-store-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="offers-store-list" aria-label="Supermarkt" data-i18n-attr="aria-label:cart.store"><span id="offers-store-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+            <div class="subtab-menu__list" id="offers-store-list" hidden></div>
+          </div>
+          <button class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers">Aanbiedingen</button>
+          <button class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes">Recepten</button>
+        </nav>
+        <div id="offers-items" class="subpanel is-active">
+        <div class="box box--wide">
+          <div class="toolbar">
+            <h2 data-i18n="offers.title">Aanbiedingen</h2>
+            <button class="button button--secondary" id="offers-refresh" type="button" data-i18n="offers.refresh">Aanbiedingen ophalen</button>
+          </div>
+          <p class="muted" id="offers-status"></p>
+          <div id="offers-message"></div>
+          <div id="offers-products" class="product-grid"></div>
+        </div>
+        </div>
+        <div id="offers-suggestions" class="subpanel">
+        <div class="box box--wide">
+          <div class="toolbar">
+            <h2 data-i18n="offers.recipes.title">Receptvoorstellen</h2>
+            <button class="button button--secondary" id="offers-index" type="button" data-i18n="offers.recipes.index">Recepten inlezen</button>
+          </div>
+          <p class="muted" id="offers-recipes-status"></p>
+          <div id="offers-recipes-message"></div>
+          <div id="offers-recipes" class="recipe-grid recipe-grid--compact"></div>
+        </div>
         </div>
       </section>
 
@@ -345,7 +394,7 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
-          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Beheer &gt; Winkels &gt; Albert Heijn.</p>
+          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen &gt; Koppelen &gt; Albert Heijn.</p>
           <div id="ah-recipes-message"></div>
           <div id="ah-recipes" class="recipe-grid recipe-grid--compact"></div>
         </div>
@@ -518,185 +567,46 @@
         </div>
       </section>
 
-      <section id="beheer" class="panel">
-        <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
-          <div class="subtab-menu" id="beheer-stores-menu" data-admin-only>
-            <button class="subtab subtab-menu__toggle is-active" id="beheer-stores-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="beheer-stores-list" aria-label="Winkels" data-i18n-attr="aria-label:settings.tab.stores"><span id="beheer-stores-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
-            <div class="subtab-menu__list" id="beheer-stores-list" hidden>
-              <button class="subtab-menu__item is-active" type="button" data-subtab="beheer-ah" data-i18n="settings.tab.ah">Albert Heijn</button>
-              <button class="subtab-menu__item" type="button" data-subtab="beheer-picnic" data-i18n="settings.tab.picnic">Picnic</button>
-              <button class="subtab-menu__item" type="button" data-subtab="beheer-jumbo" data-i18n="settings.tab.jumbo">Jumbo</button>
-            </div>
-          </div>
-          <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
-          <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
-          <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
-          <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
-          <button class="subtab" data-subtab="beheer-audit" data-admin-only data-i18n="settings.tab.audit">Auditlog</button>
-          <button class="subtab" data-subtab="beheer-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
+      <section id="profile" class="panel">
+        <nav class="subtabs" aria-label="Profiel" data-i18n-attr="aria-label:profile.nav">
+          <button class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general">Algemeen</button>
+          <button class="subtab" data-subtab="profile-security" data-i18n="settings.tab.security">Beveiliging</button>
+          <button class="subtab" data-subtab="profile-ai" data-i18n="settings.tab.ai">AI-apps</button>
         </nav>
 
-        <div id="beheer-ah" class="subpanel is-active">
+        <div id="profile-general" class="subpanel is-active">
         <div class="box">
-          <h2 data-i18n="ahlogin.title">Inloggen via Albert Heijn</h2>
-          <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
-          <ol class="steps">
-            <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
-            <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-            <li data-i18n="ahlogin.step3">Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
-            <li data-i18n-html="ahlogin.step4">In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
-            <li data-i18n-html="ahlogin.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-          </ol>
-          <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
-            <button class="button inline-button" id="ah-login" type="submit" data-i18n="ahlogin.button">Inloggen bij Albert Heijn</button>
-          </form>
-          <div id="ah-status"></div>
-          <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
-        </div>
-        <div class="box">
-          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
-          <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-          <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
-          <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
-          <div id="token-message"></div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="explore.title">AH-routes verkennen</h2>
-          <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="explore-message"></div>
-          <div id="explore-report" hidden>
-            <p class="muted" id="explore-summary"></p>
-            <pre class="ai-code" id="explore-output"></pre>
-            <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+          <h2 data-i18n="profile.avatar.title">Avatar</h2>
+          <div class="profile-avatar">
+            <span class="avatar avatar--xl" id="profile-avatar-preview" data-avatar aria-hidden="true"></span>
+            <div class="profile-avatar__actions">
+              <input type="file" id="profile-avatar-file" accept="image/png,image/jpeg,image/webp" hidden>
+              <button class="button" type="button" id="profile-avatar-upload" data-i18n="profile.avatar.upload">Avatar uploaden</button>
+              <button class="button button--secondary" type="button" id="profile-avatar-remove" hidden data-i18n="profile.avatar.remove">Avatar verwijderen</button>
+            </div>
           </div>
+          <p class="muted" data-i18n="profile.avatar.help">PNG, JPEG of WebP. De afbeelding wordt verkleind tot een vierkantje van 256 bij 256 pixels.</p>
+          <div id="profile-avatar-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="profile.name.title">Displaynaam</h2>
+          <p class="muted" data-i18n="profile.name.help">Deze naam zie je in het menu en in de gebruikerslijst. Inloggen blijft met je gebruikersnaam.</p>
+          <form class="auth-form" id="profile-form" autocomplete="off">
+            <label class="field">
+              <span data-i18n="profile.name.label">Naam</span>
+              <input class="input" id="profile-name" maxlength="40" autocomplete="nickname">
+            </label>
+            <label class="field">
+              <span data-i18n="field.username">Gebruikersnaam</span>
+              <input class="input" id="profile-username" readonly>
+            </label>
+            <button class="button" id="profile-save" type="submit" data-i18n="profile.name.save">Opslaan</button>
+          </form>
+          <div id="profile-message"></div>
         </div>
         </div>
 
-        <div id="beheer-picnic" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="picnic.title">Inloggen bij Picnic</h2>
-          <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
-          <form class="auth-form" id="picnic-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="picnic.email">E-mailadres</span>
-              <input class="input" id="picnic-email" type="email" autocomplete="off" required>
-            </label>
-            <label class="field">
-              <span data-i18n="picnic.password">Wachtwoord</span>
-              <input class="input" id="picnic-password" type="password" autocomplete="off" required>
-            </label>
-            <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
-          </form>
-          <div id="picnic-message"></div>
-        </div>
-        <div class="box" id="picnic-code-box" hidden>
-          <h2 data-i18n="picnic.code_title">Bevestigingscode</h2>
-          <p class="muted" data-i18n="picnic.code_intro">Picnic vraagt om een code. Vraag hem aan, vul hem hieronder in en bevestig.</p>
-          <form class="auth-form" id="picnic-code-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="picnic.code_label">Code</span>
-              <input class="input" id="picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
-            </label>
-            <button class="button" id="picnic-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
-          </form>
-          <div class="toolbar">
-            <button class="button button--secondary" id="picnic-send-sms" type="button" data-i18n="picnic.send_sms">Code per sms sturen</button>
-            <button class="button button--secondary" id="picnic-send-email" type="button" data-i18n="picnic.send_email">Code per e-mail sturen</button>
-          </div>
-          <div id="picnic-code-message"></div>
-        </div>
-        <div class="box">
-          <div id="picnic-status"></div>
-          <div class="toolbar">
-            <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
-          </div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="picnic.explore_title">Picnic-routes verkennen</h2>
-          <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="picnic-explore-message"></div>
-          <div id="picnic-explore-report" hidden>
-            <p class="muted" id="picnic-explore-summary"></p>
-            <pre class="ai-code" id="picnic-explore-output"></pre>
-            <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
-          </div>
-        </div>
-        </div>
-
-        <div id="beheer-jumbo" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="jumbo.title">Inloggen bij Jumbo</h2>
-          <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
-          <ol class="steps">
-            <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
-            <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-            <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
-            <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
-            <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-          </ol>
-          <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
-            <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
-          </form>
-          <div id="jumbo-status"></div>
-          <div class="toolbar">
-            <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
-          </div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
-          <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-          <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
-          <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
-          <div id="jumbo-message"></div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h2>
-          <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="jumbo-explore-message"></div>
-          <div id="jumbo-explore-report" hidden>
-            <p class="muted" id="jumbo-explore-summary"></p>
-            <pre class="ai-code" id="jumbo-explore-output"></pre>
-            <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
-          </div>
-        </div>
-        </div>
-
-        <div id="beheer-mealie" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="mealie.link">Mealie koppelen</h2>
-          <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
-          <ol class="steps">
-            <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
-            <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
-            <li data-i18n="mealie.step3">Kopieer de token meteen: Mealie toont hem maar één keer.</li>
-          </ol>
-          <form class="auth-form" id="mealie-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="mealie.url_label">Adres van je Mealie</span>
-              <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.url_ph">
-            </label>
-            <label class="field">
-              <span data-i18n="mealie.token_label">API-token</span>
-              <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.token_ph">
-            </label>
-            <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
-          </form>
-          <div id="mealie-status"></div>
-          <p class="muted" id="mealie-source" hidden></p>
-          <div class="toolbar">
-            <button class="button button--secondary" id="check-mealie" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="mealie-unlink" hidden data-i18n="mealie.unlink">Ontkoppelen</button>
-          </div>
-          <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
-        </div>
-        </div>
-
-        <div id="beheer-security" class="subpanel">
+        <div id="profile-security" class="subpanel">
         <div class="box fold" id="security-password-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="password-toggle" aria-expanded="true" aria-controls="password-body"><span data-i18n="sec.password.title">Wachtwoord</span><span class="fold__badge" id="password-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <p class="muted" id="password-intro"></p>
@@ -721,14 +631,12 @@
               <button class="button" id="pw-submit" type="submit" data-i18n="sec.password.set">Wachtwoord instellen</button>
             </form>
             <div id="password-message"></div>
-          </div>
-        </div>
-        <div class="box fold" id="security-mfa-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mfa-toggle" aria-expanded="true" aria-controls="mfa-body"><span data-i18n="sec.mfa.title">Tweestapsverificatie</span><span class="fold__badge" id="mfa-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <p class="muted" id="mfa-intro"></p>
-          <div class="fold__body" id="mfa-body">
-            <div id="mfa-panel"></div>
-            <div id="mfa-message"></div>
+            <div class="fold__section">
+              <h3 data-i18n="sec.mfa.title">Tweestapsverificatie</h3>
+              <p class="muted" id="mfa-intro"></p>
+              <div id="mfa-panel"></div>
+              <div id="mfa-message"></div>
+            </div>
           </div>
         </div>
         <div class="box">
@@ -743,7 +651,7 @@
         </div>
         </div>
 
-        <div id="beheer-ai" class="subpanel">
+        <div id="profile-ai" class="subpanel">
         <div class="box" id="ai-settings-box" data-admin-only>
           <h2 data-i18n="ai.settings_title">Instellingen (beheerder)</h2>
           <label class="switch-row">
@@ -790,7 +698,178 @@
         </div>
         </div>
 
-        <div id="beheer-users" class="subpanel">
+      </section>
+
+      <section id="settings" class="panel">
+        <nav class="subtabs" aria-label="Instellingen" data-i18n-attr="aria-label:settings.nav">
+          <button class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>
+          <button class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
+          <button class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit">Auditlog</button>
+          <button class="subtab" data-subtab="settings-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
+        </nav>
+
+        <div id="settings-link" class="subpanel is-active">
+        <div class="link-statuses">
+          <div id="mealie-status"></div>
+          <div id="ah-status"></div>
+          <div id="jumbo-status"></div>
+          <div id="picnic-status"></div>
+        </div>
+        <div class="box fold" id="mealie-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="mealie-login-body">
+            <p class="muted" id="mealie-source" hidden></p>
+            <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
+  <ol class="steps">
+              <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
+              <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
+              <li data-i18n="mealie.step3">Kopieer de token meteen: Mealie toont hem maar één keer.</li>
+            </ol>
+            <form class="auth-form" id="mealie-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="mealie.url_label">Adres van je Mealie</span>
+                <input class="input" id="mealie-url" type="url" inputmode="url" placeholder="https://mealie.jouwdomein.nl" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.url_ph">
+              </label>
+              <label class="field">
+                <span data-i18n="mealie.token_label">API-token</span>
+                <input class="input" id="mealie-token" type="password" placeholder="Plak hier de token" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:mealie.token_ph">
+              </label>
+              <div class="toolbar">
+                <button class="button" id="mealie-link" type="submit" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="check-mealie" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+                <button class="button button--secondary" id="mealie-unlink" type="button" hidden data-i18n="mealie.unlink">Ontkoppelen</button>
+              </div>
+            </form>
+            <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
+          </div>
+        </div>
+        <div class="box fold" id="ah-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ah-login-body">
+            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
+            <ol class="steps">
+              <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
+              <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+              <li data-i18n="ahlogin.step3">Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
+              <li data-i18n-html="ahlogin.step4">In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
+              <li data-i18n-html="ahlogin.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            </ol>
+            <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
+              <button class="button inline-button" id="ah-login" type="submit" data-i18n="ahlogin.button">Inloggen bij Albert Heijn</button>
+            </form>
+            <div class="fold__section">
+              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
+              <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+              <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
+              <div class="toolbar">
+                <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
+              <div id="token-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="explore.title">AH-routes verkennen</h3>
+              <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="explore-message"></div>
+              <div id="explore-report" hidden>
+                <p class="muted" id="explore-summary"></p>
+                <pre class="ai-code" id="explore-output"></pre>
+                <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="box fold" id="jumbo-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="jumbo-login-body">
+            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            <ol class="steps">
+              <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
+              <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+              <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
+              <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
+              <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            </ol>
+            <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
+              <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
+            </form>
+            <div class="fold__section">
+              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
+              <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
+              <div class="toolbar">
+                <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
+              <div id="jumbo-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
+              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="jumbo-explore-message"></div>
+              <div id="jumbo-explore-report" hidden>
+                <p class="muted" id="jumbo-explore-summary"></p>
+                <pre class="ai-code" id="jumbo-explore-output"></pre>
+                <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="box fold" id="picnic-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="picnic-login-body">
+            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            <form class="auth-form" id="picnic-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="picnic.email">E-mailadres</span>
+                <input class="input" id="picnic-email" type="email" autocomplete="off" required>
+              </label>
+              <label class="field">
+                <span data-i18n="picnic.password">Wachtwoord</span>
+                <input class="input" id="picnic-password" type="password" autocomplete="off" required>
+              </label>
+              <div class="toolbar">
+                <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
+                <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
+            </form>
+            <div id="picnic-message"></div>
+            <div class="fold__section" id="picnic-code-box" hidden>
+              <h3 data-i18n="picnic.code_title">Bevestigingscode</h3>
+              <p class="muted" data-i18n="picnic.code_intro">Picnic vraagt om een code. Vraag hem aan, vul hem hieronder in en bevestig.</p>
+              <form class="auth-form" id="picnic-code-form" autocomplete="off">
+                <label class="field">
+                  <span data-i18n="picnic.code_label">Code</span>
+                  <input class="input" id="picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+                </label>
+                <button class="button" id="picnic-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
+              </form>
+              <div class="toolbar">
+                <button class="button button--secondary" id="picnic-send-sms" type="button" data-i18n="picnic.send_sms">Code per sms sturen</button>
+                <button class="button button--secondary" id="picnic-send-email" type="button" data-i18n="picnic.send_email">Code per e-mail sturen</button>
+              </div>
+              <div id="picnic-code-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="picnic.explore_title">Picnic-routes verkennen</h3>
+              <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="picnic-explore-message"></div>
+              <div id="picnic-explore-report" hidden>
+                <p class="muted" id="picnic-explore-summary"></p>
+                <pre class="ai-code" id="picnic-explore-output"></pre>
+                <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div id="settings-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
           <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
@@ -810,7 +889,7 @@
         </div>
         </div>
 
-        <div id="beheer-audit" class="subpanel">
+        <div id="settings-audit" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="audit.title">Auditlog</h2>
           <p class="muted" data-i18n="audit.intro">Hier zie je wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen: elk verzoek met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
@@ -848,7 +927,7 @@
         </div>
         </div>
 
-        <div id="beheer-updates" class="subpanel">
+        <div id="settings-updates" class="subpanel">
         <div class="box">
           <h2 data-i18n="update.title">Updatecheck</h2>
           <p class="muted" data-i18n="update.intro">MealieShopper kijkt op GitHub of er een nieuwere versie is dan deze installatie. Er gaat geen informatie over jou, je gegevens of deze installatie mee.</p>
@@ -904,6 +983,8 @@
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>

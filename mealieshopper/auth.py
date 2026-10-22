@@ -622,6 +622,9 @@ def register_routes(app: Flask) -> None:
             payload["passwordConfigured"] = password_configured(uid)
             payload["mfaEnabled"] = mfa_enabled(uid)
             payload["recoveryCodesLeft"] = recovery_codes_left(uid)
+            from . import profile  # late import: profile gebruikt dit module
+
+            payload.update(profile.get(uid))
         return jsonify(payload)
 
     @app.get("/api/auth/credentials")

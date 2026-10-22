@@ -66,7 +66,7 @@ class ConfigSourceTest(MealieTestCase):
         self.assertEqual(mealie._config(), ("", "", None))
         with self.assertRaises(RuntimeError) as ctx:
             mealie.ensure_configured()
-        self.assertIn("Beheer > Mealie", str(ctx.exception))
+        self.assertIn("Instellingen > Koppelen > Mealie", str(ctx.exception))
 
     def test_environment_only(self):
         with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl/", "MEALIE_API_TOKEN": "env-token"}):
@@ -339,7 +339,7 @@ class RoutesTest(MealieTestCase):
 
     def test_page_shows_the_tab_and_the_notice(self):
         html = self.client.get("/").get_data(as_text=True)
-        for fragment in ('data-subtab="beheer-mealie"', 'id="mealie-form"', 'id="mealie-token" type="password"',
+        for fragment in ('data-subtab="settings-link"', 'id="mealie-login-box"', 'id="mealie-form"', 'id="mealie-token" type="password"',
                          'class="message warning message--action" id="mealie-setup"', 'id="check-mealie"',
                          'id="mealie-unlink"'):
             self.assertIn(fragment, html, fragment)

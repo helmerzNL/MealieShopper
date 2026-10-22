@@ -2,24 +2,148 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.52.0
+## v2.57.0
 
 *English summary: The week menu loads by itself when you open it, and the two following weeks are fetched lazily in the background; every week is cached for 30 minutes, so paging through weeks is instant. "Load week menu" is now a sync icon next to the week. The store picker and "Add to basket" moved below the shopping list, and the picker uses the same drop-down as the store picker on Stores. The Basket tab moved to the right of Stores.*
 
-### Nieuw in 2.52.0
+### Nieuw in 2.57.0
 
 - **Het weekmenu laadt vanzelf.** Zodra Mealie gekoppeld is en je het weekmenu opent, staat de week er al; je hoeft niet meer op een knop te drukken. De twee weken erna worden rustig op de achtergrond opgehaald.
 - **Weken worden onthouden.** Een opgehaalde week blijft 30 minuten bewaard, dus vorige en volgende week openen direct. Bladeren met de pijltjes laadt de week zelf.
 
-### Aangepast in 2.52.0
+### Aangepast in 2.57.0
 
 - **Synchroniseren in plaats van "Weekmenu laden".** Naast de week staat nu een synchroniseericoon (hetzelfde als bij het Mandje) dat de week opnieuw uit Mealie haalt; de tekst is weg.
 - **Winkelkeuze en "Voeg toe aan mandje" onder het boodschappenlijstje.** Ze stonden erboven; nu staan ze eronder. De winkelkeuze is een uitklapmenu in dezelfde stijl als de winkelkeuze bij **Winkels**.
-- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na het weekmenu), ook in de onderste menubalk van de app.
+- **Het tabblad Mandje staat rechts van Winkels** (voorheen tweede, na Recepten), ook in de onderste menubalk van de app.
 
 ### Goed om te weten
 
 - De API en de MCP-tools zijn niet veranderd.
+- Pull requests: #96.
+
+## v2.56.1
+
+*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. On small screens the banners show an icon and the name instead of the text, coloured by status (link icon on green = linked, check mark on dark green = linked and working, crossed-out link on red = not linked), two next to each other. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
+
+### Aangepast in 2.56.1
+
+- **De "gekoppeld"-meldingen zijn even breed als de blokken eronder** (ze liepen over de volle breedte).
+- **Kortere titels op de blokken:** *Mealie*, *Albert Heijn*, *Jumbo* en *Picnic* in plaats van *Mealie koppelen* en *Inloggen bij ...*.
+- **Nieuwe volgorde:** Albert Heijn, Jumbo, Picnic, zowel bij de meldingen als bij de blokken.
+- **Over zit nu in het avatar-menu**, tussen *Instellingen* en *Uitloggen*; de tab Over is uit de tabbalk (die heeft nu zes plekken). Op een klein scherm lichtt de avatar op als Over open is.
+- **De Mealie-melding zegt nu *Mealie gekoppeld*** (zonder het adres).
+- **Op een klein scherm staan er pictogrammen in de meldingen** in plaats van *gekoppeld*, *nog niet gekoppeld* en *gekoppeld en werkt*: een schakel op groen (gekoppeld), een vinkje op donkergroen (gekoppeld en werkt) en een doorgestreepte schakel op rood (niet gekoppeld), met de naam van de dienst. Ook op een smal scherm staan twee meldingen naast elkaar. De tekst blijft voor schermlezers staan.
+- **De AH-melding zegt nu *Albert Heijn gekoppeld*** (was *AH account gekoppeld*), net als *Albert Heijn nog niet gekoppeld* en *Albert Heijn gekoppeld en werkt*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-31).
+
+### Goed om te weten
+
+- Verder verandert er niets.
+
+## v2.56.0
+
+*English summary: The "Logged in as ..." chip is replaced by an avatar with a drop-down menu (Profile, Settings for the administrator, Log out). On small screens the avatar sits in the tab bar in place of Settings. Profile has General (display name and avatar upload), Security (one Password block with Two-step verification inside it, plus Passkeys) and AI apps (for everyone). Settings, administrator only, has Link, Users, Audit log and Updates. The main tab Settings is gone.*
+
+### Nieuw in 2.56.0
+
+- **Avatar met uitklapmenu in plaats van "Ingelogd als ...".** Menu: **Profiel**, **Instellingen** (alleen de beheerder) en **Uitloggen**. Het werkt ook zonder inloggen (dan zonder Uitloggen), zodat je het wachtwoord en de koppelingen kunt instellen. Op een klein scherm staat de avatar in de tabbalk op de plek van het Beheer-icoon.
+- **Profiel > Algemeen:** je displaynaam en een avatar uploaden (PNG, JPEG of WebP; de browser verkleint hem tot 256 x 256, hoogstens 256 kB, geen SVG). Zonder avatar zie je je initialen. De displaynaam staat ook in Instellingen > Gebruikers, met de avatar.
+- **Profiel > Beveiliging:** het blok *Wachtwoord* bevat nu ook *Tweestapsverificatie* (geen eigen blok meer), met daaronder *Passkeys*.
+- **Profiel > AI-apps** is voor iedereen.
+- **Instellingen** (alleen de beheerder): *Koppelen*, *Gebruikers*, *Auditlog* en *Updates*. Het bolletje bij een nieuwe versie staat nu op de avatar en bij Instellingen.
+- **Nieuwe routes:** `GET/PUT /api/profile`, `POST/DELETE /api/profile/avatar` en `GET /api/profile/avatar/<gebruiker>`. De avatar staat in de database; het type wordt aan de inhoud gecontroleerd.
+
+### Aangepast in 2.56.0
+
+- **De hoofdtab Beheer is vervallen.** Teksten die ernaar wezen zeggen nu *Instellingen > Koppelen*, *Profiel > Beveiliging* en *Profiel > AI-apps*. De onderste menubalk heeft nog zeven plekken: de avatar staat waar Beheer stond.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-29).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de MCP-tools of de rechten. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
+## v2.55.0
+
+*English summary: Settings > Link is now a plain sub-tab with one page instead of a drop-down menu. The page shows the four "linked" banners (Mealie, Albert Heijn, Picnic, Jumbo) on top, two next to each other, followed by one collapsible block per service: Mealie first, the stores below it. The Unlink button now sits next to the Link button inside the block of the store (together with Check link). The Mealie block is collapsible too and folds up once Mealie is linked.*
+
+### Aangepast in 2.55.0
+
+- **Koppelen is een gewoon subtab** (geen uitklapmenu meer) en toont direct de koppelpagina. De aparte pagina's per winkel en de pagina Mealie zijn samengevoegd: bovenaan de statussen, daaronder de blokken **Mealie koppelen**, **Inloggen bij Albert Heijn**, **Inloggen bij Picnic** en **Inloggen bij Jumbo**.
+- **De vier "gekoppeld"-meldingen staan bovenaan, twee naast elkaar** (op een smal scherm onder elkaar).
+- **Het blok Mealie is ook inklapbaar** en klapt in zodra Mealie gekoppeld is, net als de blokken van de winkels. De knop *Mealie koppelen* in de melding bovenaan Weekmenu opent het blok altijd.
+- **Ontkoppelen staat naast Koppelen.** In het blok van elke winkel staan *Koppelen* (bij Picnic *Inloggen bij Picnic*), *Ontkoppelen* (Picnic, Jumbo en Mealie) en *Koppeling controleren* naast elkaar, zichtbaar zodra de winkel gekoppeld is.
+- Eerder in deze ronde (niet apart uitgebracht): menu Koppelen met de winkels, uniforme titels *Inloggen bij ...*, inklapbare blokken en de melding bovenaan.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-28).
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien.
+
+## v2.54.0
+
+*English summary: Settings > Stores is now Settings > **Link**: one drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie (Mealie no longer has its own tab). The three store pages have the same layout: the "account linked" banner (with Check link, and Unlink for Picnic and Jumbo) on top, and one collapsible block "Log in to ..." that also holds "Finish linking" and the route explorer. The block folds up once the store is linked. The titles are now all "Log in to ...", where Albert Heijn still said "Log in with". Texts that point to Settings > Stores now say Settings > Link.*
+
+### Aangepast in 2.54.0
+
+- **Nieuw submenu Koppelen onder Beheer.** Het uitklapmenu met de winkels is verhuisd naar **Koppelen** en Mealie staat er nu ook in (het tabje Mealie is vervallen). Het menu bevat Albert Heijn, Picnic, Jumbo en Mealie en is alleen voor de beheerder.
+- **Alle titels heten nu "Inloggen bij ...".** Bij Albert Heijn stond nog *Inloggen via Albert Heijn*.
+- **Inklapbaar blok per winkel.** *Inloggen bij ...*, *Koppeling afronden* en *Routes verkennen* staan nu in een blok dat je in- en uitklapt. Het blok klapt vanzelf in zodra de winkel gekoppeld is en staat open zolang dat nog niet zo is (ook als Picnic om een bevestigingscode vraagt). Een keuze die je zelf maakt blijft staan tot je de pagina herlaadt.
+- **De melding "account gekoppeld" staat bovenaan**, boven het blok, met de knoppen *Koppeling controleren* (en *Ontkoppelen* bij Picnic en Jumbo) eronder. Ze blijven zichtbaar als het blok is ingeklapt. De bevestigingscode van Picnic staat nu in het inklapbare blok.
+- **Teksten die naar de plek wijzen** (meldingen van de app, de installatiehulp en de README's) zeggen nu *Beheer > Koppelen > ...* in plaats van *Beheer > Winkels > ...*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-27), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien en volgen bij een volgende ronde.
+
+## v2.53.1
+
+*English summary: The Offers tab now follows the layout of the Stores tab: a store drop-down menu (shown once a second store is linked) followed by two sub-tabs, **Offers** and **Recipes**, instead of a store select box and two blocks below each other. Nothing changes in what the offers and the suggestions do.*
+
+### Aangepast in 2.53.1
+
+- **Aanbiedingen heeft dezelfde opzet als Winkels.** De winkelkeuze is nu het eerste uitklapmenu in de subtabbalk (het verschijnt zodra naast Albert Heijn ook Picnic of Jumbo gekoppeld is, en toont de gekozen winkel), gevolgd door de subtabs **Aanbiedingen** (de producten) en **Recepten** (de receptvoorstellen en `Recepten inlezen`). De keuzelijst boven de blokken is vervallen; de gekozen winkel wordt nog steeds onthouden.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-26), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan de aanbiedingen, de receptvoorstellen, de koppelingen of de API.
+
+## v2.53.0
+
+*English summary: New main tab **Offers**: shows the offers of a store (for now Albert Heijn Bonus, no AH link needed) and suggests recipes with ingredients on offer, from your Mealie recipes, Jumbo favourites, Picnic recipes and saved AH recipes. Matching runs locally, without an AI service. Picnic and Jumbo offers follow once their route is known: the explorers help find it. The main menu now has seven tabs, which also fits the installed app's bottom bar again.*
+
+### Nieuw in 2.53.0
+
+- **Tab Aanbiedingen.** Toont de aanbiedingen van een winkel met oude en nieuwe prijs en het label, bewaard in een lokale kopie met het tijdstip van ophalen. Nu voor Albert Heijn (Bonus, werkt zonder AH-koppeling); `Aanbiedingen ophalen` vernieuwt de kopie en bij een fout blijft de vorige staan.
+- **Receptvoorstellen.** `Recepten inlezen` leest de ingrediënten van je Mealie-recepten, Jumbo-favorieten, Picnic-recepten en bewaarde AH-recepten in. Daarna toont het tabblad de recepten waarvan ingrediënten in de aanbieding zijn, gerangschikt op het aandeel in de aanbieding en de geschatte besparing. Het vergelijken gebeurt lokaal (zonder meervoud, eenheden en basisingrediënten als zout en water); er gaat niets naar een AI-dienst.
+- **Nieuwe routes:** `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes` en `POST /api/offers/recipes/sync`.
+- **AH-verkenner** (`POST /api/ah/explore`) probeert nu ook de bonuspagina en meldt de vorm van het antwoord en het aantal gevonden producten.
+
+### Aangepast in 2.53.0
+
+- **Zeven tabs in het hoofdmenu.** De onderste menubalk van de geïnstalleerde app heeft weer evenveel kolommen als tabs (die stond sinds 2.52.0 op zeven bij zes tabs).
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-25), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- De bonusroute van AH is onofficieel en nog niet getest tegen de echte dienst. Antwoordt de bonuspagina niet, dan zoekt MealieShopper producten met de bonusvlag; draai bij twijfel de AH-verkenner.
+- Aanbiedingen van Picnic en Jumbo zijn er nog niet: voor beide moet eerst de juiste pagina of query worden gevonden (draai hun verkenner op je installatie).
+
+## v2.52.0
+
+*English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*
+
+### Aangepast in 2.52.0
+
+- **Eén tab Recepten met subtabs.** *Weekmenu naar winkel* en *Recepten zoeken* staan niet meer los in het hoofdmenu, maar als subtabs onder de nieuwe tab **Recepten**. Het hoofdmenu heeft daardoor zes tabs in plaats van zeven. Recepten opent op het weekmenu; het logo brengt je daar nog steeds naartoe.
+- **Weekmenu naar winkel heet nu Weekmenu**, en beide subtabs hebben een Material Design-icoon (een kalender bij Weekmenu, een vergrootglas bij Recepten zoeken). De teksten zijn in het Nederlands en het Engels bijgewerkt en de README's noemen de nieuwe indeling.
+- **De versie van de statische bestanden is opgehoogd** (`MEALIESHOPPER_ASSET_VERSION`, 20261023-23), zodat browsers en de geïnstalleerde app de nieuwe vertalingen en opmaak laden. Zonder dat toonde de tab de sleutel `nav.recipes` en waren de subtab-iconen te groot. De iconen hebben nu ook een vaste grootte.
+
+### Goed om te weten
+
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
 
 ## v2.51.2
 

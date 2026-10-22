@@ -1,0 +1,431 @@
+"""Aanbiedingen van de supermarkten en receptvoorstellen die ermee te maken zijn.
+
+Aanbiedingen worden bij de winkel opgehaald en in SQLite bewaard; een vernieuwing vervangt de kopie van die
+winkel in een keer, en mislukt het ophalen, dan blijft de vorige kopie staan. Voor de receptvoorstellen bewaren
+we een index met de ingrediënten van je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten). De voorstellen
+komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst.
+
+Nu leveren alleen de AH-aanbiedingen (Bonus) echte gegevens; Picnic en Jumbo komen als hun route bekend is.
+"""
+from __future__ import annotations
+
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from datetime import datetime, timezone
+from typing import Any, Callable
+
+from . import ah, ah_lists, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from .i18n import tr
+
+# Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
+FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {"ah": ah.get_bonus_products}
+STORES = ("ah", "picnic", "jumbo")
+
+MEALIE_RECIPE_LIMIT = 300
+OTHER_RECIPE_LIMIT = 60
+AH_NEW_RECIPES_PER_SYNC = 60
+WORKERS = 8
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS offers (
+  store TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  brand TEXT,
+  unit_size TEXT,
+  price REAL,
+  price_before REAL,
+  promo_label TEXT,
+  image TEXT,
+  url TEXT,
+  valid_until TEXT,
+  PRIMARY KEY (store, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS offers_meta (
+  store TEXT PRIMARY KEY,
+  synced_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS offer_recipes (
+  source TEXT NOT NULL,
+  recipe_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  image TEXT,
+  url TEXT,
+  ingredients TEXT NOT NULL,
+  PRIMARY KEY (source, recipe_id)
+);
+
+CREATE TABLE IF NOT EXISTS offer_recipes_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  synced_at TEXT NOT NULL,
+  summary TEXT NOT NULL
+);
+"""
+
+
+def _connect():
+    conn = auth.connect()
+    conn.executescript(SCHEMA)
+    return conn
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _valid_store(store: Any) -> str:
+    store = str(store or "").strip().lower()
+    if store not in STORES:
+        raise ValueError(tr("Onbekende winkel (kies ah, picnic of jumbo)", "Unknown store (choose ah, picnic or jumbo)"))
+    return store
+
+
+# --- aanbiedingen -------------------------------------------------------------------------------
+
+
+def load(store: Any) -> dict[str, Any]:
+    """De lokale kopie van de aanbiedingen van een winkel; `syncedAt` is None zolang er nooit is opgehaald."""
+    store = _valid_store(store)
+    with closing(_connect()) as conn:
+        meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
+        rows = conn.execute(
+            """
+            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until
+            FROM offers WHERE store = ? ORDER BY position
+            """,
+            (store,),
+        ).fetchall()
+    offers = [
+        {
+            "id": row["product_id"],
+            "title": row["title"],
+            "brand": row["brand"],
+            "unitSize": row["unit_size"],
+            "price": row["price"],
+            "priceBefore": row["price_before"],
+            "promoLabel": row["promo_label"] or "",
+            "image": row["image"] or "",
+            "url": row["url"] or "",
+            "validUntil": row["valid_until"],
+        }
+        for row in rows
+    ]
+    return {
+        "store": store,
+        "offers": offers,
+        "total": len(offers),
+        "syncedAt": meta["synced_at"] if meta else None,
+        "supported": store in FETCHERS,
+    }
+
+
+def sync(store: Any) -> dict[str, Any]:
+    """Haal de aanbiedingen van een winkel op en vervang de lokale kopie."""
+    store = _valid_store(store)
+    fetch = FETCHERS.get(store)
+    if not fetch:
+        raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
+    offers = fetch()
+    rows = [
+        (
+            store,
+            str(offer["id"]),
+            position,
+            str(offer.get("title") or ""),
+            offer.get("brand"),
+            offer.get("unitSize"),
+            offer.get("price"),
+            offer.get("priceBefore"),
+            offer.get("promoLabel") or "",
+            offer.get("image") or "",
+            offer.get("url") or "",
+            offer.get("validUntil"),
+        )
+        for position, offer in enumerate(offers)
+        if offer.get("id") and offer.get("title")
+    ]
+    with closing(_connect()) as conn, conn:
+        conn.execute("DELETE FROM offers WHERE store = ?", (store,))
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO offers
+              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        conn.execute(
+            """
+            INSERT INTO offers_meta (store, synced_at) VALUES (?, ?)
+            ON CONFLICT(store) DO UPDATE SET synced_at = excluded.synced_at
+            """,
+            (store, _now()),
+        )
+    return load(store)
+
+
+# --- ingrediënten en aanbiedingen vergelijken ----------------------------------------------------
+
+# Woorden die geen ingrediënt zijn: eenheden, hoeveelheden, bijwoorden en bereidingswoorden.
+NOISE = {
+    "g", "gr", "gram", "kg", "kilo", "mg", "ml", "cl", "dl", "l", "liter", "el", "eetlepel", "eetlepels",
+    "tl", "theelepel", "theelepels", "koffielepel", "stuk", "stuks", "st", "teen", "tenen", "teentje", "teentjes",
+    "blik", "blikje", "blikken", "pak", "pakje", "pakken", "zak", "zakje", "bos", "bosje", "snuf", "snufje",
+    "plak", "plakje", "plakjes", "fles", "flesje", "bakje", "portie", "handvol", "scheutje", "scheut", "beetje",
+    "naar", "smaak", "eventueel", "optioneel", "ca", "circa", "of", "en", "de", "het", "een", "in", "van", "met",
+    "voor", "uit", "op", "per", "zonder", "plus", "extra", "vers", "verse", "gesneden", "fijngesneden",
+    "gesnipperd", "geraspt", "gepeld", "gewassen", "grof", "fijn", "groot", "grote", "klein", "kleine",
+    "middelgrote", "gekookt", "gebakken", "gerookt", "diepvries", "bijvoorbeeld", "bv", "uitgelekt", "halve",
+    "hele", "heel", "half", "tot", "ongeveer", "stukje", "stukjes", "blad", "blaadjes",
+}
+# Basisingrediënten die altijd in huis zijn: een aanbieding daarvoor maakt een recept niet interessanter.
+PANTRY = {"zout", "peper", "water", "ijs"}
+# Een aanbieding waarvan het woord hiermee verder gaat is een ander product dan het ingrediënt (tomatenpuree, kippensoep).
+DERIVED_PREFIXES = ("puree", "saus", "soep", "sap", "drank", "chips", "reep", "koek", "taart", "pizza", "ketchup", "jam", "smaak")
+
+
+def _stem(token: str) -> str:
+    """Een woord zonder meervoud en dubbele klinkers, zodat 'tomaten' en 'tomaat' op elkaar passen."""
+    if len(token) > 5 and token.endswith("eren"):
+        token = token[:-4]
+    elif len(token) >= 4 and token.endswith("en"):
+        token = token[:-2]
+    elif len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")) and not re.search(r"[aeou]{2}s$", token):
+        token = token[:-1]
+    token = re.sub(r"([aeou])\1", r"\1", token)
+    return re.sub(r"([^aeiou])\1$", r"\1", token)
+
+
+DERIVED_STEMS = tuple(_stem(prefix) for prefix in DERIVED_PREFIXES)
+
+
+def tokens(text: Any) -> list[str]:
+    """De betekenisvolle woorden van een ingrediëntregel of producttitel, gestemd en zonder eenheden."""
+    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or "")))
+    words = re.findall(r"[a-z]+", folded)
+    return [_stem(word) for word in words if len(word) > 1 and word not in NOISE]
+
+
+def head_of(ingredient: Any) -> str | None:
+    """Het hoofdwoord van een ingrediënt (in het Nederlands het laatste woord), of None voor basisingrediënten."""
+    words = tokens(ingredient)
+    if not words or all(word in {_stem(item) for item in PANTRY} for word in words):
+        return None
+    return words[-1]
+
+
+def matches(head: str, offer_stems: set[str]) -> bool:
+    if head in offer_stems:
+        return True
+    if len(head) < 3:
+        return False
+    for stem in offer_stems:
+        if len(stem) > len(head) and stem.startswith(head):
+            rest = re.sub(r"^(?:en|s)", "", stem[len(head):])  # tomaten|puree, kippen|soep
+            if not any(part in rest for part in DERIVED_STEMS):
+                return True
+    return False
+
+
+def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
+    """Recepten uit de index waarvan ingrediënten in de aanbieding zijn, de beste eerst."""
+    offers = load(store)
+    prepared = [(offer, set(tokens(offer["title"]))) for offer in offers["offers"]]
+    with closing(_connect()) as conn:
+        meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
+        rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients FROM offer_recipes").fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        ingredients = json.loads(row["ingredients"])
+        heads = [(text, head_of(text)) for text in ingredients]
+        heads = [(text, head) for text, head in heads if head]
+        if not heads:
+            continue
+        found: list[dict[str, Any]] = []
+        used: set[str] = set()
+        for text, head in heads:
+            for offer, stems in prepared:
+                if offer["id"] not in used and matches(head, stems):
+                    used.add(offer["id"])
+                    found.append({"ingredient": text, "offer": offer})
+                    break
+        needed = 1 if len(heads) <= 3 else 2
+        if len(found) < needed:
+            continue
+        saving = sum(
+            max(0.0, (item["offer"]["priceBefore"] or 0) - (item["offer"]["price"] or 0)) for item in found
+        )
+        results.append(
+            {
+                "source": row["source"],
+                "id": row["recipe_id"],
+                "title": row["title"],
+                "image": row["image"] or "",
+                "url": row["url"] or "",
+                "ingredientCount": len(heads),
+                "matchedCount": len(found),
+                "matched": found,
+                "saving": round(saving, 2),
+            }
+        )
+    results.sort(key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], item["title"]))
+    return {
+        "store": offers["store"],
+        "recipes": results[: max(1, min(100, int(limit)))],
+        "total": len(results),
+        "offersSyncedAt": offers["syncedAt"],
+        "indexedAt": meta["synced_at"] if meta else None,
+        "sources": json.loads(meta["summary"]) if meta else {},
+    }
+
+
+# --- de receptenindex ---------------------------------------------------------------------------
+
+
+def _mealie_ingredient(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    food = item.get("food") if isinstance(item.get("food"), dict) else {}
+    return str(food.get("name") or item.get("note") or item.get("display") or item.get("originalText") or "").strip()
+
+
+def _collect_mealie() -> list[dict[str, Any]]:
+    summaries = mealie.list_recipes(MEALIE_RECIPE_LIMIT)
+
+    def one(summary: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            recipe = mealie.get_recipe(summary["slug"])
+        except Exception:  # noqa: BLE001 - een recept dat niet lukt slaan we over
+            return None
+        lines = [line for line in (_mealie_ingredient(i) for i in recipe.get("recipeIngredient") or []) if line]
+        if not lines:
+            return None
+        return {
+            "id": str(recipe.get("id") or summary["slug"]),
+            "title": str(recipe.get("name") or summary["slug"]),
+            "image": mealie_images.image_path(recipe) or "",
+            "url": mealie.recipe_page_url(summary["slug"]),
+            "ingredients": lines,
+        }
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        return [item for item in pool.map(one, summaries) if item]
+
+
+def _collect_jumbo() -> list[dict[str, Any]]:
+    if not jumbo.configured_refresh_token():
+        raise LookupError(tr("niet gekoppeld", "not linked"))
+    cards = jumbo_recipes.get_favorites(1).get("recipes") or []
+
+    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            recipe = jumbo_recipes.get_recipe(card["id"])
+        except Exception:  # noqa: BLE001
+            return None
+        lines = [i["name"] for i in recipe["ingredients"] if i.get("name")]
+        if not lines:
+            return None
+        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
+                "url": jumbo_recipes.source_url(recipe), "ingredients": lines}
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+
+
+def _collect_picnic() -> list[dict[str, Any]]:
+    if not picnic.configured_auth_key():
+        raise LookupError(tr("niet gekoppeld", "not linked"))
+    cards: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in ("saved", "cookbook"):
+        for card in picnic_recipes.get_recipes(source):
+            if card["id"] not in seen:
+                seen.add(card["id"])
+                cards.append(card)
+
+    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            recipe = picnic_recipes.get_recipe(card["id"])
+        except Exception:  # noqa: BLE001
+            return None
+        lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
+        lines = [line for line in lines if line]
+        if not lines:
+            return None
+        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
+                "url": picnic_recipes.source_url(recipe["id"]), "ingredients": lines}
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+
+
+def _indexed(source: str) -> dict[str, list[str]]:
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT recipe_id, ingredients FROM offer_recipes WHERE source = ?", (source,)).fetchall()
+    return {row["recipe_id"]: json.loads(row["ingredients"]) for row in rows}
+
+
+def _collect_ah() -> list[dict[str, Any]]:
+    saved = ah_recipes.load()
+    if not saved or not saved["recipes"]:
+        raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > AH Recepten)", "no saved recipes (fetch them first under Stores > AH Recipes)"))
+    known = _indexed("ah")
+    fetched = 0
+    items: list[dict[str, Any]] = []
+    for recipe in saved["recipes"]:
+        recipe_id = str(recipe["id"])
+        lines = known.get(recipe_id)
+        if lines is None:
+            if fetched >= AH_NEW_RECIPES_PER_SYNC:
+                continue
+            fetched += 1
+            try:
+                lines = ah.get_recipe_jsonld(int(recipe_id)).get("recipeIngredient") or []
+            except Exception:  # noqa: BLE001
+                continue
+        if lines:
+            items.append({"id": recipe_id, "title": recipe["title"], "image": recipe.get("image") or "",
+                          "url": recipe.get("url") or "", "ingredients": list(lines)})
+    return items
+
+
+COLLECTORS: tuple[tuple[str, Callable[[], list[dict[str, Any]]]], ...] = (
+    ("mealie", _collect_mealie),
+    ("jumbo", _collect_jumbo),
+    ("picnic", _collect_picnic),
+    ("ah", _collect_ah),
+)
+
+
+def sync_recipes() -> dict[str, Any]:
+    """Lees de ingrediënten van je recepten in de index. Een bron die niet lukt of niet gekoppeld is laat de rest staan."""
+    summary: dict[str, Any] = {}
+    collected: dict[str, list[dict[str, Any]]] = {}
+    for source, collect in COLLECTORS:
+        try:
+            collected[source] = collect()
+            summary[source] = {"count": len(collected[source])}
+        except LookupError as exc:
+            summary[source] = {"count": 0, "skipped": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - een bron die faalt mag de andere niet blokkeren
+            summary[source] = {"count": 0, "error": str(exc)[:200] or tr("mislukt", "failed")}
+    with closing(_connect()) as conn, conn:
+        for source, items in collected.items():
+            conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
+            conn.executemany(
+                "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients) VALUES (?, ?, ?, ?, ?, ?)",
+                [(source, item["id"], item["title"], item["image"], item["url"], json.dumps(item["ingredients"])) for item in items],
+            )
+        conn.execute(
+            """
+            INSERT INTO offer_recipes_meta (id, synced_at, summary) VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET synced_at = excluded.synced_at, summary = excluded.summary
+            """,
+            (_now(), json.dumps(summary)),
+        )
+    return {"indexedAt": _now(), "sources": summary, "total": sum(len(items) for items in collected.values())}

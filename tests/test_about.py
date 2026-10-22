@@ -132,14 +132,17 @@ class RouteTest(unittest.TestCase):
 
 
 class PageTest(unittest.TestCase):
-    def test_about_is_the_sixth_tab_with_versions_components_and_coffee_in_that_order(self):
+    def test_about_page_has_versions_components_and_coffee_in_that_order_and_sits_in_the_avatar_menu(self):
         section = HTML[HTML.index('<section id="about"'):HTML.index("</main>")]
         self.assertLess(section.index('id="about-version"'), section.index('id="about-components"'))
         self.assertLess(section.index('id="about-components"'), section.index('id="about-coffee"'))
-        self.assertEqual(re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)"', HTML)[-1], "about")
+        self.assertNotIn('data-tab="about"', HTML)
+        menu = HTML[HTML.index('id="user-menu-list"'):HTML.index("</div>\n\n    <main")]
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"], "Over staat tussen Instellingen en Uitloggen")
+        self.assertLess(menu.index('data-user-action="about"'), menu.index('id="auth-logout"'))
 
     def test_script_loads_the_details_once_and_redraws_on_a_language_change(self):
-        self.assertIn('tab.dataset.tab === "about" && !state.aboutLoaded', APP_JS)
+        self.assertIn('panelId === "about" && !state.aboutLoaded', APP_JS)
         self.assertIn('jsonFetch("/api/about")', APP_JS)
         handler = APP_JS[APP_JS.index('addEventListener("ms:languagechange"'):]
         self.assertIn("renderAbout()", handler)

@@ -88,7 +88,7 @@ def auth_headers() -> dict[str, str]:
 
 def ensure_configured() -> None:
     if not mealie_url() or not mealie_token():
-        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Beheer > Mealie.")
+        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Instellingen > Koppelen > Mealie.")
 
 
 def check_connection(url: str, token: str) -> dict[str, Any]:
@@ -321,3 +321,28 @@ def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str,
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         result.append(enriched)
     return result
+
+
+def list_recipes(limit: int = 500) -> list[dict[str, Any]]:
+    """Alle recepten in Mealie (naam, slug, afbeelding), voor het zoeken naar receptvoorstellen."""
+    ensure_configured()
+    items: list[dict[str, Any]] = []
+    page = 1
+    per_page = 100
+    while len(items) < limit:
+        response = requests.get(
+            f"{mealie_url()}/api/recipes",
+            headers=auth_headers(),
+            params={"page": page, "perPage": per_page, "orderBy": "name", "orderDirection": "asc"},
+            timeout=30,
+        )
+        if not response.ok:
+            raise RuntimeError(f"Recepten ophalen mislukt ({response.status_code})")
+        data = response.json()
+        batch = data.get("items", []) if isinstance(data, dict) else []
+        items.extend(item for item in batch if isinstance(item, dict) and item.get("slug"))
+        total_pages = data.get("total_pages") if isinstance(data, dict) else None
+        if not batch or (isinstance(total_pages, int) and page >= total_pages) or len(batch) < per_page:
+            break
+        page += 1
+    return items[:limit]

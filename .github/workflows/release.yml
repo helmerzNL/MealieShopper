@@ -1,11 +1,13 @@
 name: GitHub release
 
-# Bij elke push naar main: bestaat er nog geen release voor de versie in VERSION,
-# dan maken we de tag en de release, met de tekst uit CHANGELOG.md.
+# Elke versie in VERSION krijgt een GitHub release, met de tekst uit CHANGELOG.md:
+# - push naar beta: een pre-release `vX.Y.Z-beta` (eenmalig per versie, niet "latest");
+# - push naar main (alleen vanuit beta): de stabiele release `vX.Y.Z`, als "latest".
 on:
   push:
     branches:
       - main
+      - beta
   workflow_dispatch:
 
 permissions:
@@ -23,13 +25,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="v$(tr -d '[:space:]' < VERSION)"
-          if gh release view "$version" >/dev/null 2>&1; then
-            echo "Release $version bestaat al."
+          if [ "$GITHUB_REF_NAME" = "beta" ]; then
+            tag="$version-beta"
+            flags="--prerelease"
+            title="MealieShopper $version (beta)"
+          else
+            tag="$version"
+            flags="--latest"
+            title="MealieShopper $version"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag bestaat al."
             exit 0
           fi
           python3 scripts/release_notes.py "$version" > notes.md
-          gh release create "$version" \
+          gh release create "$tag" \
             --target "$GITHUB_SHA" \
-            --title "MealieShopper $version" \
+            --title "$title" \
             --notes-file notes.md \
-            --latest
+            $flags

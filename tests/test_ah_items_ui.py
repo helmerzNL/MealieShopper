@@ -32,7 +32,7 @@ class OverviewMarkupTest(unittest.TestCase):
         self.assertIn("recipe-grid--compact", recipes)
 
     def test_lists_have_a_search_bar_and_a_detail_view_with_a_back_button(self):
-        lists = HTML[HTML.index('id="ah-items-lijstjes"'):HTML.index('<section id="beheer"')]
+        lists = HTML[HTML.index('id="ah-items-lijstjes"'):HTML.index('<section id="profile"')]
         self.assertIn('id="ah-list-filter"', lists)
         self.assertLess(lists.index("ah-list-filter"), lists.index('id="ah-lists"'))
         self.assertIn('id="ah-lists-view"', lists)

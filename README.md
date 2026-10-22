@@ -36,6 +36,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic of Jumbo, voor zover gekoppeld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je mandje bij die winkel. Twijfelt de app, dan controleer je de regel eerst zelf. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app of bij Jumbo.
+- **Aanbiedingen en receptvoorstellen.** Het tabblad Aanbiedingen toont de AH-Bonus en zoekt in je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten) naar gerechten waarvan ingrediënten in de aanbieding zijn. Picnic en Jumbo volgen.
 - **Recepten zoeken en importeren.** Zoek tegelijk in de recepten van Albert Heijn, Jumbo en Picnic en zet ze met één klik in Mealie, of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic en Jumbo, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
@@ -200,7 +201,7 @@ De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.loca
 
 ## Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Beheer**. Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Instellingen** (in het avatar-menu). Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
 
 **1. Beveiliging.** De app kijkt hoe je hem opent.
 
@@ -237,6 +238,8 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 ## Gebruik
 
+De tab **Recepten** bevat twee subtabs: **Weekmenu** (het weekmenu uit Mealie naar je mandje) en **Recepten zoeken**.
+
 ### Weekmenu naar je mandje
 
 Het weekmenu laadt vanzelf zodra je de pagina opent, met de plaatjes, en de twee weken erna worden alvast op de achtergrond opgehaald. Elke week wordt even onthouden, zodat bladeren direct gaat; met de synchroniseerknop naast de week haal je hem opnieuw op uit Mealie. Is naast Albert Heijn ook Picnic of Jumbo gekoppeld, dan kies je onder de boodschappenlijst met het uitklapmenu naar welke winkel het gaat, naast de knop. De knop draagt de naam van de gekozen winkel, bijvoorbeeld `Voeg toe aan Albert Heijn mandje`. Hij zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die de winkel bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
@@ -252,6 +255,12 @@ Het tabblad **Mandje** toont het mandje van de winkel die je bovenaan kiest (Alb
 ### Recepten zoeken en importeren
 
 `Recepten zoeken` zoekt tegelijk bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) en **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Kies `Importeer` om een recept in Mealie te zetten, of bij Jumbo en Picnic `Bekijken` voor de ingrediënten en de bereiding. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
+
+### Aanbiedingen
+
+Het tabblad **Aanbiedingen** heeft dezelfde opzet als Winkels: een uitklapmenu voor de winkel (zodra er meer dan één gekoppeld is) en de subtabs **Aanbiedingen** en **Recepten**. Het eerste toont de aanbiedingen van een winkel, met de oude en de nieuwe prijs en het label (bijvoorbeeld *2 voor 3*). Nu werkt dat voor **Albert Heijn** (Bonus; dit gaat zonder AH-koppeling). Picnic en Jumbo hebben nog geen bron: de beheerder kan hun verkenner draaien (`POST /api/picnic/explore` en `/api/jumbo/explore`) om te zien waar de aanbiedingen staan. `Aanbiedingen ophalen` vernieuwt de lokale kopie; mislukt het, dan blijft de vorige staan. De AH-verkenner (`POST /api/ah/explore`) meldt ook of de bonuspagina antwoordt; zonder antwoord zoekt MealieShopper producten met de bonusvlag.
+
+Het subtab **Recepten** toont de receptvoorstellen: recepten waarvan ingrediënten in de aanbieding zijn, de beste bovenaan, met de geschatte besparing. `Recepten inlezen` leest de ingrediënten van je recepten in: Mealie (tot 300), Jumbo-favorieten en Picnic-recepten (tot 60 per bron) en je bewaarde AH-recepten (tot 60 nieuwe per keer; haal ze eerst op bij **Winkels**). Het vergelijken gebeurt in MealieShopper zelf, op woorden zonder meervoud, eenheden en basisingrediënten als zout en water; er gaat niets naar een AI-dienst.
 
 ### Winkels
 
@@ -276,19 +285,28 @@ Installeren werkt alleen via HTTPS (behalve op `localhost`). Wil je de menubalk 
 
 Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en het donkere thema wisselt. De keuze blijft in je browser bewaard; zonder keuze volgt de app de instelling van je apparaat.
 
+### Profiel en instellingen
+
+Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder), **Over** en **Uitloggen**.
+
+- **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
+- **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.
+- **Profiel > AI-apps:** de MCP-koppeling met AI-assistenten, voor iedereen.
+- **Instellingen** (beheerder): **Koppelen** (Mealie en de supermarkten), **Gebruikers**, **Auditlog** en **Updates**.
+
 ### Taal
 
 Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wissel je tussen Nederlands en Engels. De keuze blijft in je browser bewaard; zonder keuze volgt de app je browsertaal. Wat Mealie en de supermarkten zelf teruggeven (receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat bij **Winkels** een uitklapmenu met Albert Heijn, Picnic en Jumbo; de knop toont de gekozen winkel en je opent er de koppeling, de instellingen en de verkenner van die winkel. Mealie heeft een eigen tab. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo** en **Picnic**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
-<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte winkelmenu: Albert Heijn, Picnic en Jumbo" width="900">
+<img src="docs/screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen en de blokken voor Mealie, Albert Heijn, Picnic en Jumbo" width="900">
 
-<img src="docs/screenshots/nl/settings-picnic.png" alt="Beheer, Winkels, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
+<img src="docs/screenshots/nl/settings-picnic.png" alt="Instellingen, Koppelen, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
 
-<img src="docs/screenshots/nl/settings-jumbo.png" alt="Beheer, Winkels, Jumbo: inloggen via de browserconsole" width="900">
+<img src="docs/screenshots/nl/settings-jumbo.png" alt="Instellingen, Koppelen, Jumbo: inloggen via de browserconsole" width="900">
 
 ### Mealie
 
@@ -312,7 +330,7 @@ Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. Onder **AH-
 
 ### Picnic
 
-Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Winkels > Picnic**):
+Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Instellingen > Koppelen > Picnic**):
 
 1. Vul je e-mailadres en wachtwoord in en kies `Inloggen bij Picnic`.
 2. Picnic vraagt meestal om een code. Die komt per sms (of per e-mail, via de knop eronder). Vul hem in en kies `Bevestigen`.
@@ -322,7 +340,7 @@ Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versle
 
 ### Jumbo
 
-Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Winkels > Jumbo**). Dat werkt net als bij Albert Heijn:
+Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Instellingen > Koppelen > Jumbo**). Dat werkt net als bij Albert Heijn:
 
 1. Kies `Inloggen bij Jumbo`; er opent een nieuw tabblad.
 2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) **voordat** je inlogt.
@@ -337,12 +355,12 @@ Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen head
 
 <img src="docs/screenshots/nl/login.png" alt="De inlogpagina met gebruikersnaam en wachtwoord" width="900">
 
-- **Passkey** (domeinnaam met HTTPS): inloggen met je vingerafdruk, gezicht of schermvergrendeling. Voeg extra passkeys toe onder Beheer, Beveiliging; de laatste passkey kan alleen weg als er een wachtwoord is.
+- **Passkey** (domeinnaam met HTTPS): inloggen met je vingerafdruk, gezicht of schermvergrendeling. Voeg extra passkeys toe onder Profiel, Beveiliging; de laatste passkey kan alleen weg als er een wachtwoord is.
 - **Wachtwoord**: minstens 10 tekens, met scrypt gehasht en nooit bewaard of gelogd. Na 5 mislukte pogingen per IP-adres (of 25 in totaal) is inloggen 15 minuten geblokkeerd.
 - **Tweestapsverificatie** (TOTP, bij inloggen met een wachtwoord): het geheim staat versleuteld in de database, een code werkt één keer, en je krijgt 8 herstelcodes (16 tekens, alleen de SHA-256 staat in de database). Met een passkey heb je geen wachtwoord of tweestapsverificatie nodig; die blokken staan dan ingeklapt.
 - **Sessies**: een HttpOnly cookie. Een nieuw wachtwoord of uitgezette tweestapsverificatie logt andere apparaten uit.
 
-<img src="docs/screenshots/nl/security.png" alt="Beheer, Beveiliging: wachtwoord, tweestapsverificatie en passkeys" width="900">
+<img src="docs/screenshots/nl/security.png" alt="Profiel, Beveiliging: wachtwoord, tweestapsverificatie en passkeys" width="900">
 
 **Het geheim.** Zonder `MEALIESHOPPER_AUTH_SECRET` maakt de app bij de eerste start zelf een willekeurig geheim en bewaart dat in de data-map (`secret.key`, alleen leesbaar voor de eigenaar). Daaruit volgen twee aparte sleutels: een voor de sessies en een voor de versleuteling van je opgeslagen koppelingen en het MFA-geheim. Zet je zelf `MEALIESHOPPER_AUTH_SECRET`, dan staat de sleutel niet op schijf naast de database; gebruik dan een lange, vaste, willekeurige waarde (`openssl rand -hex 32`) en verander hem niet achteraf.
 
@@ -356,9 +374,9 @@ Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen head
 
 De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en de supermarkten en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu, de recepten en de lijstjes gebruiken, producten in het mandje van een winkel zetten en recepten importeren, maar kan niets koppelen of beheren. De koppelingen en de mandjes zijn die van de beheerder; Mealie en de supermarkten zijn dus gedeeld.
 
-<img src="docs/screenshots/nl/users.png" alt="Beheer, Gebruikers: de beheerder met twee gebruikers, en een formulier om iemand uit te nodigen" width="900">
+<img src="docs/screenshots/nl/users.png" alt="Instellingen, Gebruikers: de beheerder met twee gebruikers, en een formulier om iemand uit te nodigen" width="900">
 
-1. Ga als beheerder naar **Beheer, Gebruikers** en kies **Uitnodiging maken** (met of zonder naam).
+1. Ga als beheerder naar **Instellingen, Gebruikers** en kies **Uitnodiging maken** (met of zonder naam).
 2. Kopieer de link en stuur hem door. Je ziet hem maar één keer; de link werkt één keer en verloopt na 7 dagen.
 3. Wie de link opent, kiest een gebruikersnaam en een wachtwoord of een passkey. Jij kent het wachtwoord dus nooit.
 
@@ -366,14 +384,14 @@ De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder*
 
 - **Inlog kwijt?** Kies bij die gebruiker **Nieuwe inloglink**. De oude inlog blijft werken tot de nieuwe is ingesteld, en werkt daarna niet meer.
 - **Verwijderen** haalt het account en alle inloggegevens weg. De beheerder kan niet worden verwijderd.
-- Elke gebruiker heeft eigen inloggegevens, eigen tweestapsverificatie en eigen passkeys onder Beheer, Beveiliging. Een nieuw wachtwoord logt alleen die gebruiker uit.
+- Elke gebruiker heeft eigen inloggegevens, eigen tweestapsverificatie en eigen passkeys onder Profiel, Beveiliging. Een nieuw wachtwoord logt alleen die gebruiker uit.
 - Wijzigingen in een lijstje (aantallen) en de lijstjes zelf zijn gedeeld: ze horen bij het account bij de winkel.
 
 ## AI-assistenten (MCP)
 
 MealieShopper heeft een [MCP](https://modelcontextprotocol.io)-server op `<adres van MealieShopper>/mcp`. Daarmee kun je in Claude, ChatGPT of GitHub Copilot vragen stellen als *"wat eten we deze week en wat staat er in mijn lijstje Weekboodschappen?"* of *"importeer dit recept in Mealie"*.
 
-<img src="docs/screenshots/nl/ai.png" alt="Beheer, AI-apps: het adres van de MCP-server en uitleg per assistent" width="900">
+<img src="docs/screenshots/nl/ai.png" alt="Profiel, AI-apps: het adres van de MCP-server en uitleg per assistent" width="900">
 
 **Wat de assistent kan** (alleen in jouw naam en met jouw rechten):
 
@@ -402,8 +420,8 @@ Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert
 
 **Instellen**
 
-1. Open als beheerder **Beheer, AI-apps**. Bovenaan staan de instellingen: de schakelaar **MCP-server aan** en het **publieke adres**. Dat adres herkent de app zelf uit hoe je hem opent; staat MealieShopper achter een reverse proxy, controleer dan dat het het publieke https-adres is en vul het anders hier in. ChatGPT en claude.ai halen de server van buiten op, dus het adres moet vanaf internet bereikbaar zijn, met HTTPS. Stuur `/mcp`, `/oauth/*` en `/.well-known/oauth-*` door in je reverse proxy (dat doet een gewone proxy voor de hele site al).
-2. Open als gebruiker **Beheer, AI-apps** (daar staat het niet onder de instellingen), kopieer het adres en volg de uitleg voor jouw assistent. Je krijgt het toestemmingsscherm; na **Toestaan** is de assistent gekoppeld.
+1. Open als beheerder **Profiel, AI-apps**. Bovenaan staan de instellingen: de schakelaar **MCP-server aan** en het **publieke adres**. Dat adres herkent de app zelf uit hoe je hem opent; staat MealieShopper achter een reverse proxy, controleer dan dat het het publieke https-adres is en vul het anders hier in. ChatGPT en claude.ai halen de server van buiten op, dus het adres moet vanaf internet bereikbaar zijn, met HTTPS. Stuur `/mcp`, `/oauth/*` en `/.well-known/oauth-*` door in je reverse proxy (dat doet een gewone proxy voor de hele site al).
+2. Open als gebruiker **Profiel, AI-apps** (daar staat het niet onder de instellingen), kopieer het adres en volg de uitleg voor jouw assistent. Je krijgt het toestemmingsscherm; na **Toestaan** is de assistent gekoppeld.
    - **Claude** (claude.ai, Desktop, telefoon): Instellingen, Connectors, *Aangepaste connector toevoegen*.
    - **Claude Code:** `claude mcp add --transport http mealieshopper https://jouw-adres/mcp`, daarna `/mcp` om in te loggen.
    - **ChatGPT:** ontwikkelaarsmodus aan, een nieuwe connector met het adres en OAuth. Beschikbaarheid hangt van je abonnement af.
@@ -415,7 +433,7 @@ Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert
 
 - OAuth 2.1 met PKCE (S256); apps registreren zichzelf (dynamic client registration), alleen publieke clients, en alleen https-, loopback- of app-redirects.
 - Elk token hoort bij **de gebruiker die toestemming gaf** en geeft alleen die rechten. Toegangstokens gelden een uur, verversingstokens 30 dagen en worden bij elk gebruik vervangen; een verversingstoken dat twee keer wordt gebruikt, trekt de hele reeks in. Tokens staan alleen gehasht in de database.
-- Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Beheer, AI-apps** trek je zelf de toegang van een app in.
+- Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Profiel, AI-apps** trek je zelf de toegang van een app in.
 - De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen. Onder **Wat de assistent kan** zet de beheerder ook elke tool afzonderlijk uit, voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en wordt geweigerd; ze zien de wijziging bij hun volgende verbinding.
 - Wat de assistent leest (receptnamen, productnamen) komt van Mealie en de supermarkten; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
 
@@ -427,11 +445,11 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 |---|---|
 | `MEALIESHOPPER_DATA_DIR` | Map voor de database en `secret.key`. In de Docker-image `/data`, lokaal standaard `./data`. |
 | `MEALIESHOPPER_AUTH_SECRET` (of `JWT_SECRET`) | Eigen geheim voor sessies en versleuteling. Zonder deze waarde maakt de app `secret.key`. |
-| `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres (voor de voorbeeldafbeelding, uitnodigingslinks en de AI-koppeling). Optioneel: de app herkent het zelf, en een adres dat de beheerder bij Beheer, AI-apps invult gaat voor. |
+| `MEALIESHOPPER_PUBLIC_BASE_URL` | Het publieke adres (voor de voorbeeldafbeelding, uitnodigingslinks en de AI-koppeling). Optioneel: de app herkent het zelf, en een adres dat de beheerder bij Profiel, AI-apps invult gaat voor. |
 | `RP_ID`, `RP_ORIGINS` (of `RP_ORIGIN`), `RP_NAME` | Alleen voor passkeys, met een domeinnaam en HTTPS. |
-| `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Beheer, AI-apps gaat voor. |
-| `MEALIESHOPPER_UPDATE_CHECK` | Met `false` zet je de updatecheck uit (Beheer, Updates). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
-| `MEALIESHOPPER_AUDIT_LOG` | Met `false` zet je de auditlog uit (Beheer, Auditlog). Standaard aan. |
+| `MEALIESHOPPER_MCP` | Beginwaarde van de MCP-server voor AI-assistenten (standaard aan, als inloggen aanstaat). De schakelaar bij Profiel, AI-apps gaat voor. |
+| `MEALIESHOPPER_UPDATE_CHECK` | Met `false` zet je de updatecheck uit (Instellingen, Updates). Standaard kijkt de app op GitHub of er een nieuwere release is en meldt dat aan de beheerder; er gaat geen informatie over jou of de installatie mee. |
+| `MEALIESHOPPER_AUDIT_LOG` | Met `false` zet je de auditlog uit (Instellingen, Auditlog). Standaard aan. |
 | `MEALIESHOPPER_AUDIT_BODIES` | Met `false` bewaart de auditlog alleen wie, wat, wanneer en de uitkomst, niet de verzoeken en antwoorden zelf. Standaard aan. |
 | `MEALIESHOPPER_AUDIT_BODY_CHARS` | Hoeveel tekens van elk verzoek en antwoord de auditlog bewaart (standaard 4000; langere teksten worden ingekort). |
 | `MEALIESHOPPER_AUDIT_RETENTION_DAYS` | Na hoeveel dagen de auditlog regels wist (standaard 30; `0` wist nooit vanzelf). |
@@ -442,9 +460,9 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `PORT` | Poort bij `python run.py` (standaard 8000). |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Overschrijven het versienummer en de commit die bij Over staan. |
 
-**Auditlog.** Onder **Beheer, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel, alleen fouten tonen en zoeken. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
+**Auditlog.** Onder **Instellingen, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel, alleen fouten tonen en zoeken. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
 
-<img src="docs/screenshots/nl/audit.png" alt="Beheer, Auditlog: samenvatting per dienst, filters en de laatste verzoeken" width="900">
+<img src="docs/screenshots/nl/audit.png" alt="Instellingen, Auditlog: samenvatting per dienst, filters en de laatste verzoeken" width="900">
 
 <img src="docs/screenshots/nl/audit-detail.png" alt="Een geopende regel in de auditlog, met het verzoek en het antwoord" width="900">
 
@@ -462,9 +480,9 @@ Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf 
 
 <img src="docs/screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 
-**Updatecheck.** Onder **Beheer, Updates** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
+**Updatecheck.** Onder **Instellingen, Updates** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 
-<img src="docs/screenshots/nl/updates.png" alt="Beheer, Updates: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
+<img src="docs/screenshots/nl/updates.png" alt="Instellingen, Updates: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
 
 ## Problemen oplossen
 
@@ -480,7 +498,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.
 
-**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Winkels > Picnic en log opnieuw in.
+**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Instellingen > Koppelen > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
 
@@ -500,11 +518,11 @@ Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiligin
 python -m unittest discover -s tests          # alle tests
 ```
 
-- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
+- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
 - **Teksten en talen:** de interface staat in `static/i18n/nl.js` en `en.js`, één tekst per regel. In de HTML staat de Nederlandse tekst in de pagina, met `data-i18n="sleutel"`; in de scripts gebruik je `t("sleutel", { naam })`, `th(...)` (met opmaak, waarden ge-escaped) en `tn("sleutel", aantal)` (meervoud). Een taal toevoegen betekent een bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`. `tests/test_i18n.py` bewaakt dat beide woordenboeken gelijk zijn.
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
-- **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `main`: de workflow `.github/workflows/release.yml` maakt dan de tag en de GitHub release, met die tekst. Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
-- **Container registry:** de workflow bouwt en pusht bij elke push naar `main` (en handmatig via `workflow_dispatch`) naar `ghcr.io/helmerznl/mealieshopper:latest`, voor `linux/amd64` en `linux/arm64` (via QEMU en Buildx).
+- **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `beta`: de workflow `.github/workflows/release.yml` maakt dan de pre-release `vX.Y.Z-beta`, met die tekst; bij de promotie van `beta` naar `main` volgt de stabiele release `vX.Y.Z`. Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
+- **Branches en container registry:** pull requests gaan naar `beta`, niet naar `main` (`main` krijgt alleen een pull request vanuit `beta`; de check in `.github/workflows/pr-target.yml` dwingt dat af). De workflow bouwt en pusht bij elke push naar `main` naar `ghcr.io/helmerznl/mealieshopper:latest` (en `X.Y.Z`), en bij elke push naar `beta` naar `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`), voor `linux/amd64` en `linux/arm64` (via QEMU en Buildx; ook handmatig via `workflow_dispatch`). Wil je de ontwikkelversie draaien, gebruik dan de tag `beta` en een eigen data-map.
 - **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een demo-omgeving met zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn.
 
 ## Integraties en componenten
