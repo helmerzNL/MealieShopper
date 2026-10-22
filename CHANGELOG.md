@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.67.2
+
+*English summary: The subtabs under Stores are now in the same order for every store: Recipes, Lists, Orders for Albert Heijn and Jumbo, and Recipes, Favorites, Orders for Picnic. Jumbo showed Lists, Orders, Recipes before. The Albert Heijn tab "AH Recipes" is now just "Recipes", and switching store always opens the Recipes tab of that store (before, Albert Heijn and Jumbo started at Lists).*
+
+### Aangepast in 2.67.2
+
+- **De subtabs onder Winkels staan bij elke winkel in dezelfde volgorde.** Albert Heijn: *Recepten, Lijstjes, Bestellingen*. Jumbo: *Recepten, Lijstjes, Bestellingen* (Recepten stond achteraan). Picnic: *Recepten, Favorieten, Bestellingen*.
+- **Het tabblad *AH Recepten* heet nu *Recepten*.** De winkelkeuze ernaast laat al zien dat het om Albert Heijn gaat. De melding bij het indexeren van recepten noemt nu *Winkels > Albert Heijn > Recepten*.
+- **Wisselen van winkel opent altijd het tabblad *Recepten* van die winkel.** Voorheen begonnen Albert Heijn en Jumbo bij *Lijstjes*, en bleef een open tabblad staan als het bij de nieuwe winkel bestond. Lijstjes en bestellingen laden voor de nieuwe winkel zodra je ze opent.
+
 ## v2.67.1
 
 *English summary: When you switch store under Offers, the list of the previous store now disappears at once and a spinning icon (Material Design Icons "loading") with "Loading the offers of {store}…" shows until the new offers are in. Before, the old list stayed on screen under the new store name, so it looked as if nothing happened. A slow answer from a store you already switched away from no longer overwrites the list. With reduced motion set in the system the icon stands still and the text stays. The offers are also cached now: a store you already saw shows at once when you switch back (and is checked in the background), and the browser only gets the list again when it changed (ETag, 304).*

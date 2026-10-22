@@ -23,6 +23,54 @@ def small_screen_css() -> str:
     return CSS[start:start + 400]
 
 
+class StoreSubtabsTest(unittest.TestCase):
+    """De subtabs onder Winkels staan bij elke winkel in dezelfde volgorde: eerst de recepten."""
+
+    ORDER = [
+        "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
+        "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
+    ]
+    STORES = {
+        "ah": ["ah-items-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
+        "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
+        "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"],
+    }
+
+    def nav(self):
+        nav = HTML[HTML.index('<nav class="subtabs" aria-label="Winkels"'):HTML.index('id="ah-items-recepten" class="subpanel')]
+        return re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"[^>]*>', nav)
+
+    def test_the_buttons_are_in_the_order_recipes_first(self):
+        self.assertEqual(self.nav(), self.ORDER)
+
+    def test_each_store_shows_its_three_subtabs_in_the_wanted_order(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        # De winkelkeuze verbergt per winkel wat er niet bij hoort; wat overblijft staat in de volgorde van de knoppen.
+        self.assertIn('hide("ah-items-recepten", state.itemsStore !== "ah");', script)
+        self.assertIn('hide("ah-items-lijstjes", picnic);', script)
+        self.assertIn('hide("ah-items-bestellingen", picnic);', script)
+        self.assertIn('PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));', script)
+        self.assertIn('JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));', script)
+        self.assertIn('const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];', script)
+        self.assertIn('const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];', script)
+        for store, wanted in self.STORES.items():
+            self.assertEqual([tab for tab in self.ORDER if tab in wanted], wanted, store)
+
+    def test_the_first_tab_is_called_recipes_for_every_store(self):
+        nl = (ROOT / "static" / "i18n" / "nl.js").read_text(encoding="utf-8")
+        en = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
+        self.assertIn('"ah.tab.recipes": "Recepten"', nl)
+        self.assertIn('"ah.tab.recipes": "Recipes"', en)
+        self.assertIn('data-i18n="ah.tab.recipes">Recepten</button>', HTML)
+
+    def test_switching_store_opens_the_first_visible_tab_of_that_store(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        body = script[script.index("function switchItemsStore"):script.index('localStorage.getItem("ms-store")')]
+        self.assertIn('document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();', body)
+        self.assertNotIn("PICNIC_SUBTABS", body)
+        self.assertNotIn("loadAhFavoriteLists", body)
+
+
 class OverviewMarkupTest(unittest.TestCase):
     def test_recipes_have_a_search_bar_above_the_cards(self):
         recipes = HTML[HTML.index('id="ah-items-recepten"'):HTML.index('id="ah-items-lijstjes"')]

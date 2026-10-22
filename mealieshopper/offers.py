@@ -1024,7 +1024,7 @@ def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
 def _collect_ah() -> list[dict[str, Any]]:
     saved = ah_recipes.load()
     if not saved or not saved["recipes"]:
-        raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > AH Recepten)", "no saved recipes (fetch them first under Stores > AH Recipes)"))
+        raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > Albert Heijn > Recepten)", "no saved recipes (fetch them first under Stores > Albert Heijn > Recipes)"))
     known = _indexed("ah")
     fetched = 0
     items: list[dict[str, Any]] = []

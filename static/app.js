@@ -792,18 +792,8 @@ function switchItemsStore(store) {
   renderAhLists();
   renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
-  // Een tab die bij de gekozen winkel niet bestaat, maakt plaats: Picnic begint bij de recepten, AH en Jumbo bij de
-  // lijstjes (Jumbo heeft zijn favoriete recepten in een eigen tabblad). Anders blijft de tab waar hij was.
-  const active = document.querySelector("#ah-items .subtab.is-active");
-  const activeId = active?.dataset.subtab || "";
-  if (state.itemsStore === "picnic") {
-    if (!PICNIC_SUBTABS.includes(activeId)) document.querySelector('[data-subtab="ah-items-picnic"]').click();
-  } else if (PICNIC_SUBTABS.includes(activeId) || (state.itemsStore === "jumbo" && activeId === "ah-items-recepten") || (state.itemsStore !== "jumbo" && JUMBO_SUBTABS.includes(activeId))) {
-    document.querySelector('[data-subtab="ah-items-lijstjes"]').click();
-  } else if (document.querySelector("#ah-items-lijstjes.is-active")) {
-    state.ahListsLoaded = true;
-    loadAhFavoriteLists();
-  }
+  // Elke winkel begint bij zijn eerste tabblad, en dat is steeds Recepten. De lijstjes en bestellingen laden opnieuw als je ze opent.
+  document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
 }
 
 try {
