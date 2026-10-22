@@ -9,7 +9,7 @@ EN = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 
-PAGE = HTML[HTML.index('<div id="beheer-link" class="subpanel'):HTML.index('<div id="beheer-security" class="subpanel">')]
+PAGE = HTML[HTML.index('<div id="settings-link" class="subpanel'):HTML.index('<div id="settings-users" class="subpanel')]
 STORES = ("mealie", "ah", "picnic", "jumbo")
 
 
@@ -20,12 +20,14 @@ def block(name):
 
 
 class LinkPageTest(unittest.TestCase):
-    def test_koppelen_is_a_plain_subtab_and_the_dropdown_is_gone(self):
-        nav = re.search(r'<nav class="subtabs" aria-label="Beheer".*?</nav>', HTML, re.S).group(0)
-        self.assertIn('<button class="subtab is-active" data-subtab="beheer-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>', nav)
+    def test_koppelen_is_the_first_subtab_of_settings_and_the_dropdown_is_gone(self):
+        nav = re.search(r'<nav class="subtabs" aria-label="Instellingen".*?</nav>', HTML, re.S).group(0)
+        self.assertIn('<button class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>', nav)
+        self.assertEqual(re.findall(r'data-subtab="([\w-]+)"', nav), ["settings-link", "settings-users", "settings-audit", "settings-updates"])
         self.assertNotIn("subtab-menu", nav)
-        for gone in ("beheer-ah", "beheer-picnic", "beheer-jumbo", "beheer-mealie", "beheer-link-menu", "beheer-stores"):
-            self.assertNotIn(gone, HTML, gone)
+        for gone in ("beheer", "beheer-link-menu", "beheer-stores"):
+            self.assertNotIn(f'id="{gone}', HTML, gone)
+            self.assertNotIn(f'data-subtab="{gone}', HTML, gone)
 
     def test_statuses_come_first_two_next_to_each_other(self):
         grid = PAGE[PAGE.index('<div class="link-statuses">'):PAGE.index('<div class="box fold"')]
@@ -67,10 +69,12 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('applyStoreFold("jumbo", jumboState.connected)', (ROOT / "static" / "jumbo.js").read_text(encoding="utf-8"))
 
     def test_texts_point_to_the_new_place(self):
-        for path in ("mealieshopper/ah.py", "mealieshopper/jumbo.py", "mealieshopper/picnic.py", "mealieshopper/mealie.py", "static/i18n/nl.js"):
-            self.assertNotIn("Beheer > Winkels >", (ROOT / path).read_text(encoding="utf-8"), path)
-        self.assertNotIn("Settings > Stores >", EN)
-
+        for path in ("mealieshopper/ah.py", "mealieshopper/jumbo.py", "mealieshopper/picnic.py", "mealieshopper/mealie.py", "static/i18n/nl.js", "README.md"):
+            text = (ROOT / path).read_text(encoding="utf-8")
+            self.assertNotIn("Beheer >", text, path)
+            self.assertNotIn("Beheer, Beveiliging", text, path)
+        self.assertNotIn("Settings > Stores", EN)
+        self.assertIn("Instellingen > Koppelen > Picnic", (ROOT / "mealieshopper" / "picnic.py").read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()

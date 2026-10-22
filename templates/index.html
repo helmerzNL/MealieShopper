@@ -180,12 +180,26 @@
           <button type="button" class="lang-switch__button" data-lang="nl" lang="nl" title="Nederlands" aria-label="Nederlands" aria-pressed="true"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-nl"/></svg></button>
           <button type="button" class="lang-switch__button" data-lang="en" lang="en" title="English" aria-label="English" aria-pressed="false"><svg class="flag" viewBox="0 0 28 20" aria-hidden="true" focusable="false"><use href="#flag-gb"/></svg></button>
         </div><button type="button" class="theme-toggle" data-theme-toggle title="Donkere modus" aria-label="Donkere modus" aria-pressed="false" data-i18n-attr="title:theme.dark;aria-label:theme.dark"><svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg><svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg></button></div>
-        <div class="auth-chip" id="auth-chip" hidden>
-          <span id="auth-chip-text"></span>
-          <button type="button" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
+        <div class="user-menu" id="user-menu" hidden>
+          <button type="button" class="user-menu__button" id="user-menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger>
+            <span class="avatar" data-avatar aria-hidden="true"></span>
+            <span class="user-menu__name" id="user-menu-name"></span>
+            <svg class="user-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+            <span class="update-dot" id="update-dot-user" hidden></span>
+          </button>
         </div>
       </div>
     </header>
+
+    <div class="user-menu__list" id="user-menu-list" role="menu" hidden>
+      <div class="user-menu__who">
+        <span class="avatar avatar--lg" data-avatar aria-hidden="true"></span>
+        <span><strong id="user-menu-who-name"></strong><small id="user-menu-who-user"></small></span>
+      </div>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="profile" data-i18n="user.profile">Profiel</button>
+      <button type="button" role="menuitem" class="user-menu__item" data-user-action="settings" data-admin-only><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></button>
+      <button type="button" role="menuitem" class="user-menu__item" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
+    </div>
 
     <main class="shell">
       <nav class="tabs" aria-label="Hoofdscherm" data-i18n-attr="aria-label:nav.main">
@@ -214,10 +228,10 @@
           <span class="tab-text" data-i18n="nav.ah">Winkels</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">Winkels</span>
         </button>
-        <button class="tab" data-tab="beheer">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCog"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
-          <span class="tab-text" data-i18n="nav.settings">Beheer</span>
-          <span class="tab-short" aria-hidden="true" data-i18n="nav.settings_short">Beheer</span>
+        <button class="tab tab--avatar" id="tab-avatar" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-list" data-user-menu-trigger hidden>
+          <span class="avatar tab-icon" data-avatar aria-hidden="true"></span>
+          <span class="tab-text" data-i18n="user.profile">Profiel</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="user.profile">Profiel</span>
           <span class="update-dot" id="update-dot-tab" hidden></span>
         </button>
         <button class="tab" data-tab="about">
@@ -384,7 +398,7 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
-          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Beheer &gt; Winkels &gt; Albert Heijn.</p>
+          <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen &gt; Koppelen &gt; Albert Heijn.</p>
           <div id="ah-recipes-message"></div>
           <div id="ah-recipes" class="recipe-grid recipe-grid--compact"></div>
         </div>
@@ -557,17 +571,148 @@
         </div>
       </section>
 
-      <section id="beheer" class="panel">
-        <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
-          <button class="subtab is-active" data-subtab="beheer-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>
-          <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
-          <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
-          <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
-          <button class="subtab" data-subtab="beheer-audit" data-admin-only data-i18n="settings.tab.audit">Auditlog</button>
-          <button class="subtab" data-subtab="beheer-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
+      <section id="profile" class="panel">
+        <nav class="subtabs" aria-label="Profiel" data-i18n-attr="aria-label:profile.nav">
+          <button class="subtab is-active" data-subtab="profile-general" data-i18n="profile.tab.general">Algemeen</button>
+          <button class="subtab" data-subtab="profile-security" data-i18n="settings.tab.security">Beveiliging</button>
+          <button class="subtab" data-subtab="profile-ai" data-i18n="settings.tab.ai">AI-apps</button>
         </nav>
 
-        <div id="beheer-link" class="subpanel is-active">
+        <div id="profile-general" class="subpanel is-active">
+        <div class="box">
+          <h2 data-i18n="profile.avatar.title">Avatar</h2>
+          <div class="profile-avatar">
+            <span class="avatar avatar--xl" id="profile-avatar-preview" data-avatar aria-hidden="true"></span>
+            <div class="profile-avatar__actions">
+              <input type="file" id="profile-avatar-file" accept="image/png,image/jpeg,image/webp" hidden>
+              <button class="button" type="button" id="profile-avatar-upload" data-i18n="profile.avatar.upload">Avatar uploaden</button>
+              <button class="button button--secondary" type="button" id="profile-avatar-remove" hidden data-i18n="profile.avatar.remove">Avatar verwijderen</button>
+            </div>
+          </div>
+          <p class="muted" data-i18n="profile.avatar.help">PNG, JPEG of WebP. De afbeelding wordt verkleind tot een vierkantje van 256 bij 256 pixels.</p>
+          <div id="profile-avatar-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="profile.name.title">Displaynaam</h2>
+          <p class="muted" data-i18n="profile.name.help">Deze naam zie je in het menu en in de gebruikerslijst. Inloggen blijft met je gebruikersnaam.</p>
+          <form class="auth-form" id="profile-form" autocomplete="off">
+            <label class="field">
+              <span data-i18n="profile.name.label">Naam</span>
+              <input class="input" id="profile-name" maxlength="40" autocomplete="nickname">
+            </label>
+            <label class="field">
+              <span data-i18n="field.username">Gebruikersnaam</span>
+              <input class="input" id="profile-username" readonly>
+            </label>
+            <button class="button" id="profile-save" type="submit" data-i18n="profile.name.save">Opslaan</button>
+          </form>
+          <div id="profile-message"></div>
+        </div>
+        </div>
+
+        <div id="profile-security" class="subpanel">
+        <div class="box fold" id="security-password-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="password-toggle" aria-expanded="true" aria-controls="password-body"><span data-i18n="sec.password.title">Wachtwoord</span><span class="fold__badge" id="password-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <p class="muted" id="password-intro"></p>
+          <div class="fold__body" id="password-body">
+            <form class="auth-form" id="password-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="field.username">Gebruikersnaam</span>
+                <input class="input" id="pw-username" autocomplete="username" autocapitalize="none" spellcheck="false">
+              </label>
+              <label class="field" id="pw-current-field" hidden>
+                <span data-i18n="sec.password.current">Huidig wachtwoord</span>
+                <input class="input" id="pw-current" type="password" autocomplete="current-password">
+              </label>
+              <label class="field">
+                <span id="pw-new-label" data-i18n="field.password">Wachtwoord</span>
+                <input class="input" id="pw-new" type="password" autocomplete="new-password">
+              </label>
+              <label class="field">
+                <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
+                <input class="input" id="pw-new2" type="password" autocomplete="new-password">
+              </label>
+              <button class="button" id="pw-submit" type="submit" data-i18n="sec.password.set">Wachtwoord instellen</button>
+            </form>
+            <div id="password-message"></div>
+            <div class="fold__section">
+              <h3 data-i18n="sec.mfa.title">Tweestapsverificatie</h3>
+              <p class="muted" id="mfa-intro"></p>
+              <div id="mfa-panel"></div>
+              <div id="mfa-message"></div>
+            </div>
+          </div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="sec.passkeys.title">Passkeys</h2>
+          <p class="muted" data-i18n="sec.passkeys.intro">Voeg extra apparaten toe of verwijder oude passkeys.</p>
+          <div id="credentials-list" class="credential-list"></div>
+          <div class="security-actions">
+            <input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off">
+            <button class="button" id="add-passkey" data-i18n="sec.passkeys.add">Passkey toevoegen</button>
+          </div>
+          <div id="security-message"></div>
+        </div>
+        </div>
+
+        <div id="profile-ai" class="subpanel">
+        <div class="box" id="ai-settings-box" data-admin-only>
+          <h2 data-i18n="ai.settings_title">Instellingen (beheerder)</h2>
+          <label class="switch-row">
+            <input type="checkbox" id="ai-enabled">
+            <span data-i18n="ai.enabled">MCP-server aan</span>
+          </label>
+          <p class="muted" id="ai-enabled-note"></p>
+          <label class="field">
+            <span data-i18n="ai.base_label">Publiek adres van MealieShopper</span>
+            <span class="form-row">
+              <input class="input" id="ai-base-url" placeholder="https://mealieshopper.jouwdomein.nl" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
+              <button class="button" type="button" id="ai-base-save" data-i18n="ai.base_save">Opslaan</button>
+              <button class="button button--secondary" type="button" id="ai-base-auto" data-i18n="ai.base_auto">Automatisch</button>
+            </span>
+          </label>
+          <p class="muted" id="ai-base-note"></p>
+          <div id="ai-settings-message"></div>
+        </div>
+        <div class="box">
+          <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
+          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          <div id="ai-message"></div>
+          <div id="ai-body" hidden>
+            <label class="field">
+              <span data-i18n="ai.url_label">Adres van de MCP-server</span>
+              <span class="form-row">
+                <input class="input" id="ai-url" readonly aria-label="Adres van de MCP-server" data-i18n-attr="aria-label:ai.url_label">
+                <button class="button" type="button" id="ai-copy" data-i18n="users.copy">Kopiëren</button>
+              </span>
+            </label>
+            <div id="ai-insecure"></div>
+            <div id="ai-guides"></div>
+          </div>
+        </div>
+        <div class="box" id="ai-tools-box" hidden>
+          <h2 data-i18n="ai.tools_title">Wat de assistent kan</h2>
+          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen.</p>
+          <p class="muted" id="ai-tools-owner-note" data-i18n="ai.tools_owner_note" hidden>Als beheerder zet je hier tools uit voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en niet meer te gebruiken; ze zien de wijziging bij de volgende verbinding.</p>
+          <ul class="ai-tools" id="ai-tools"></ul>
+        </div>
+        <div class="box" id="ai-apps-box" hidden>
+          <h2 data-i18n="ai.apps_title">Gekoppelde apps</h2>
+          <div id="ai-apps" class="credential-list"></div>
+        </div>
+        </div>
+
+      </section>
+
+      <section id="settings" class="panel">
+        <nav class="subtabs" aria-label="Instellingen" data-i18n-attr="aria-label:settings.nav">
+          <button class="subtab is-active" data-subtab="settings-link" data-admin-only data-i18n="settings.tab.link">Koppelen</button>
+          <button class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
+          <button class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit">Auditlog</button>
+          <button class="subtab" data-subtab="settings-updates" data-admin-only><span data-i18n="settings.tab.updates">Updates</span><span class="update-dot" id="update-dot-subtab" hidden></span></button>
+        </nav>
+
+        <div id="settings-link" class="subpanel is-active">
         <div class="link-statuses">
           <div id="mealie-status"></div>
           <div id="ah-status"></div>
@@ -728,101 +873,7 @@
         </div>
         </div>
 
-        <div id="beheer-security" class="subpanel">
-        <div class="box fold" id="security-password-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="password-toggle" aria-expanded="true" aria-controls="password-body"><span data-i18n="sec.password.title">Wachtwoord</span><span class="fold__badge" id="password-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <p class="muted" id="password-intro"></p>
-          <div class="fold__body" id="password-body">
-            <form class="auth-form" id="password-form" autocomplete="off">
-              <label class="field">
-                <span data-i18n="field.username">Gebruikersnaam</span>
-                <input class="input" id="pw-username" autocomplete="username" autocapitalize="none" spellcheck="false">
-              </label>
-              <label class="field" id="pw-current-field" hidden>
-                <span data-i18n="sec.password.current">Huidig wachtwoord</span>
-                <input class="input" id="pw-current" type="password" autocomplete="current-password">
-              </label>
-              <label class="field">
-                <span id="pw-new-label" data-i18n="field.password">Wachtwoord</span>
-                <input class="input" id="pw-new" type="password" autocomplete="new-password">
-              </label>
-              <label class="field">
-                <span data-i18n="field.repeat_password">Herhaal het wachtwoord</span>
-                <input class="input" id="pw-new2" type="password" autocomplete="new-password">
-              </label>
-              <button class="button" id="pw-submit" type="submit" data-i18n="sec.password.set">Wachtwoord instellen</button>
-            </form>
-            <div id="password-message"></div>
-          </div>
-        </div>
-        <div class="box fold" id="security-mfa-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mfa-toggle" aria-expanded="true" aria-controls="mfa-body"><span data-i18n="sec.mfa.title">Tweestapsverificatie</span><span class="fold__badge" id="mfa-badge" hidden data-i18n="sec.not_needed">Niet nodig</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <p class="muted" id="mfa-intro"></p>
-          <div class="fold__body" id="mfa-body">
-            <div id="mfa-panel"></div>
-            <div id="mfa-message"></div>
-          </div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="sec.passkeys.title">Passkeys</h2>
-          <p class="muted" data-i18n="sec.passkeys.intro">Voeg extra apparaten toe of verwijder oude passkeys.</p>
-          <div id="credentials-list" class="credential-list"></div>
-          <div class="security-actions">
-            <input class="input" id="new-passkey-name" value="Extra passkey" autocomplete="off">
-            <button class="button" id="add-passkey" data-i18n="sec.passkeys.add">Passkey toevoegen</button>
-          </div>
-          <div id="security-message"></div>
-        </div>
-        </div>
-
-        <div id="beheer-ai" class="subpanel">
-        <div class="box" id="ai-settings-box" data-admin-only>
-          <h2 data-i18n="ai.settings_title">Instellingen (beheerder)</h2>
-          <label class="switch-row">
-            <input type="checkbox" id="ai-enabled">
-            <span data-i18n="ai.enabled">MCP-server aan</span>
-          </label>
-          <p class="muted" id="ai-enabled-note"></p>
-          <label class="field">
-            <span data-i18n="ai.base_label">Publiek adres van MealieShopper</span>
-            <span class="form-row">
-              <input class="input" id="ai-base-url" placeholder="https://mealieshopper.jouwdomein.nl" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
-              <button class="button" type="button" id="ai-base-save" data-i18n="ai.base_save">Opslaan</button>
-              <button class="button button--secondary" type="button" id="ai-base-auto" data-i18n="ai.base_auto">Automatisch</button>
-            </span>
-          </label>
-          <p class="muted" id="ai-base-note"></p>
-          <div id="ai-settings-message"></div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
-          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
-          <div id="ai-message"></div>
-          <div id="ai-body" hidden>
-            <label class="field">
-              <span data-i18n="ai.url_label">Adres van de MCP-server</span>
-              <span class="form-row">
-                <input class="input" id="ai-url" readonly aria-label="Adres van de MCP-server" data-i18n-attr="aria-label:ai.url_label">
-                <button class="button" type="button" id="ai-copy" data-i18n="users.copy">Kopiëren</button>
-              </span>
-            </label>
-            <div id="ai-insecure"></div>
-            <div id="ai-guides"></div>
-          </div>
-        </div>
-        <div class="box" id="ai-tools-box" hidden>
-          <h2 data-i18n="ai.tools_title">Wat de assistent kan</h2>
-          <p class="muted" data-i18n="ai.tools_intro">De assistent kan niets verwijderen en je AH-, Picnic- of Jumbo-mandje niet vullen.</p>
-          <p class="muted" id="ai-tools-owner-note" data-i18n="ai.tools_owner_note" hidden>Als beheerder zet je hier tools uit voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en niet meer te gebruiken; ze zien de wijziging bij de volgende verbinding.</p>
-          <ul class="ai-tools" id="ai-tools"></ul>
-        </div>
-        <div class="box" id="ai-apps-box" hidden>
-          <h2 data-i18n="ai.apps_title">Gekoppelde apps</h2>
-          <div id="ai-apps" class="credential-list"></div>
-        </div>
-        </div>
-
-        <div id="beheer-users" class="subpanel">
+        <div id="settings-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
           <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
@@ -842,7 +893,7 @@
         </div>
         </div>
 
-        <div id="beheer-audit" class="subpanel">
+        <div id="settings-audit" class="subpanel">
         <div class="box box--wide">
           <h2 data-i18n="audit.title">Auditlog</h2>
           <p class="muted" data-i18n="audit.intro">Hier zie je wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt en wat AI-assistenten (MCP) opvragen: elk verzoek met uitkomst, duur en antwoord. Een MCP-verzoek toont de winkelverzoeken die eruit volgden. Wachtwoorden, tokens en codes worden nooit bewaard.</p>
@@ -880,7 +931,7 @@
         </div>
         </div>
 
-        <div id="beheer-updates" class="subpanel">
+        <div id="settings-updates" class="subpanel">
         <div class="box">
           <h2 data-i18n="update.title">Updatecheck</h2>
           <p class="muted" data-i18n="update.intro">MealieShopper kijkt op GitHub of er een nieuwere versie is dan deze installatie. Er gaat geen informatie over jou, je gegevens of deze installatie mee.</p>
@@ -937,6 +988,7 @@
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>

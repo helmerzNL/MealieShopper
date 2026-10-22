@@ -139,7 +139,7 @@ class PageTest(unittest.TestCase):
         self.assertEqual(re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)"', HTML)[-1], "about")
 
     def test_script_loads_the_details_once_and_redraws_on_a_language_change(self):
-        self.assertIn('tab.dataset.tab === "about" && !state.aboutLoaded', APP_JS)
+        self.assertIn('panelId === "about" && !state.aboutLoaded', APP_JS)
         self.assertIn('jsonFetch("/api/about")', APP_JS)
         handler = APP_JS[APP_JS.index('addEventListener("ms:languagechange"'):]
         self.assertIn("renderAbout()", handler)

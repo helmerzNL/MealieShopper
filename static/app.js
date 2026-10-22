@@ -156,7 +156,6 @@ function publicKeyCredentialToJSON(credential) {
 
 function renderAuthState() {
   const gate = $("#auth-gate");
-  const chip = $("#auth-chip");
   const auth = state.auth || {};
   const onboardingBusy = typeof onboardingVisible === "function" && onboardingVisible();
   const authenticated = auth.authenticated || !auth.enabled;
@@ -165,8 +164,7 @@ function renderAuthState() {
   const showGate = !authenticated && !auth.setupRequired && !onboardingBusy && !inviteOpen;
 
   gate.hidden = !showGate;
-  chip.hidden = !authenticated || !auth.enabled;
-  $("#auth-chip-text").textContent = authenticated && auth.username ? t("auth.chip", { name: auth.username }) : "";
+  if (typeof renderUserMenu === "function") renderUserMenu();
 
   if (showGate) {
     const methods = auth.methods || {};
@@ -1599,20 +1597,27 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
   }
 }
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
-    document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
-    tab.classList.add("is-active");
-    tab.setAttribute("aria-current", "page");
-    $(`#${tab.dataset.tab}`).classList.add("is-active");
-    // Zoals een native tabbalk: een andere tab begint bovenaan.
-    window.scrollTo({ top: 0 });
-    if (tab.dataset.tab === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
-    if (tab.dataset.tab === "about" && !state.aboutLoaded) loadAbout();
-    if (tab.dataset.tab === "basket") showBasket();
-    if (tab.dataset.tab === "offers" && typeof showOffers === "function") showOffers();
-  });
+// Een scherm tonen. Een hoofdtab geeft zijn knop mee (die lichtt op); het profiel en de instellingen horen bij het avatar-menu:
+// op een klein scherm lichtt dan de avatar-knop in de tabbalk op.
+function showPanel(panelId, tab = null) {
+  document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
+  document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
+  const highlighted = tab || (["profile", "settings"].includes(panelId) ? $("#tab-avatar") : null);
+  if (highlighted) {
+    highlighted.classList.add("is-active");
+    highlighted.setAttribute("aria-current", "page");
+  }
+  $(`#${panelId}`).classList.add("is-active");
+  // Zoals een native tabbalk: een andere tab begint bovenaan.
+  window.scrollTo({ top: 0 });
+  if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
+  if (panelId === "about" && !state.aboutLoaded) loadAbout();
+  if (panelId === "basket") showBasket();
+  if (panelId === "offers" && typeof showOffers === "function") showOffers();
+}
+
+document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
+  tab.addEventListener("click", () => showPanel(tab.dataset.tab, tab));
 });
 
 // Het logo brengt je naar het startscherm (de eerste tab); met Ctrl, Cmd of de middelste knop opent het gewoon een nieuw tabblad.
@@ -1666,9 +1671,9 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);
     if (target) target.classList.add("is-active");
-    if (subtab.dataset.subtab === "beheer-users" && typeof loadUsers === "function") loadUsers();
-    if (subtab.dataset.subtab === "beheer-ai" && typeof loadAi === "function") loadAi();
-    if (subtab.dataset.subtab === "beheer-audit" && typeof loadAudit === "function") loadAudit();
+    if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
+    if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
+    if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
@@ -1723,10 +1728,19 @@ function renderAbout() {
     .join("");
 }
 
-function openBeheer(subtab = "beheer-link") {
-  document.querySelector('[data-tab="beheer"]').click();
+// Het profiel en de instellingen openen, desgewenst op een bepaald subtab.
+function openSubtab(panelId, subtab) {
+  showPanel(panelId);
   const button = document.querySelector(`[data-subtab="${subtab}"]`);
   if (button) button.click();
+}
+
+function openProfile(subtab = "profile-general") {
+  openSubtab("profile", subtab);
+}
+
+function openSettings(subtab = "settings-link") {
+  openSubtab("settings", subtab);
 }
 
 $("#prev-week").addEventListener("click", () => {
@@ -1764,7 +1778,7 @@ $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", unlinkMealie);
 $("#open-mealie-setup").addEventListener("click", () => {
-  openBeheer();
+  openSettings();
   state.storeFold.mealie = true;
   applyStoreFold("mealie", false);
 });
@@ -1833,18 +1847,18 @@ $("#auth-logout").addEventListener("click", async () => {
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
-  openBeheer();
+  openSettings();
   $("#token-input").value = params.get("ah_refresh");
   message("#token-message", t("ah.refresh_received"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_connected")) {
-  openBeheer();
+  openSettings();
   message("#token-message", t("ah.saved"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_error")) {
-  openBeheer();
+  openSettings();
   message("#token-message", t("ah.redirect_failed", { error: params.get("ah_error") }));
   history.replaceState({}, "", "/");
 }

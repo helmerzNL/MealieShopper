@@ -56,19 +56,31 @@ class TabbarMarkupTest(unittest.TestCase):
 
     def test_seven_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items", "beheer", "about"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 7)
+        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items", "about"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 6, "het avatar-icoon in de plaats van Beheer is een eigen soort")
         self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Beheer", "Over"])
+        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Profiel", "Over"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Beheer", "Over"])
+        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Profiel", "Over"])
+
+    def test_avatar_takes_the_place_of_beheer_and_shows_on_small_screens_only(self):
+        self.assertNotIn('data-tab="beheer"', self.html)
+        avatar = re.search(r'<button class="tab tab--avatar" id="tab-avatar".*?</button>', self.nav, re.S).group(0)
+        self.assertIn("hidden", avatar.split(">")[0], "zonder inlog is er geen avatar")
+        self.assertIn('data-user-menu-trigger', avatar)
+        self.assertLess(self.nav.index('data-tab="ah-items"'), self.nav.index('id="tab-avatar"'))
+        self.assertLess(self.nav.index('id="tab-avatar"'), self.nav.index('data-tab="about"'))
+        self.assertRegex(CSS, r"\.tab--avatar\s*{\s*display: none;")
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--avatar"):]
+        self.assertIn(".tab--avatar:not([hidden])", media)
+        self.assertIn(".user-menu {\n    display: none;", media, "op een klein scherm staat de avatar niet in de kop")
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiInformationOutline"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
