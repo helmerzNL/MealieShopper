@@ -84,6 +84,36 @@ class OffersStoreTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: first[:1]}):
             self.assertEqual(offers.sync("ah")["total"], 1)
 
+    def test_load_adds_the_conditions_of_each_offer(self):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+            offers.sync("ah")
+        by_title = {o["title"]: o for o in offers.load("ah")["offers"]}
+        kip = by_title["Kipfilet"]
+        self.assertEqual((kip["mechanic"], kip["minQuantity"], kip["unitPrice"]), ("nth_free", 2, 2.25))
+        tomaten = by_title["AH Tomaten rond"]
+        self.assertEqual((tomaten["mechanic"], tomaten["minQuantity"], tomaten["unitPrice"]), ("x_for_y", 2, 1.5))
+        puree = by_title["Tomatenpuree"]
+        self.assertEqual((puree["mechanic"], puree["unitPrice"]), ("fixed", 0.9), "lagere prijs zonder label")
+        self.assertEqual(kip["validity"], "unknown", "zonder einddatum is niet te controleren")
+
+    def test_expired_offers_are_not_shown_but_counted(self):
+        old = {"id": "21", "title": "Oude aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2000-01-01"}
+        current = {"id": "22", "title": "Lopende aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2999-01-01"}
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [old, current]}):
+            offers.sync("ah")
+        data = offers.load("ah")
+        self.assertEqual([o["id"] for o in data["offers"]], ["22"])
+        self.assertEqual((data["total"], data["expired"]), (1, 1))
+        self.assertEqual(data["offers"][0]["validity"], "valid")
+
+    def test_saving_uses_the_unit_price_of_the_condition(self):
+        second_half = {"price": 4.0, "priceBefore": 4.0, "unitPrice": 3.0}
+        self.assertEqual(offers.saving_of(second_half), 1.0)
+        plain = {"price": 1.5, "priceBefore": 2.0, "unitPrice": None}
+        self.assertEqual(offers.saving_of(plain), 0.5)
+        self.assertEqual(offers.saving_of({"price": 1.5, "priceBefore": None, "unitPrice": 1.5}), 0.0)
+        self.assertEqual(offers.saving_of({"price": 3.0, "priceBefore": 2.0, "unitPrice": None}), 0.0, "nooit negatief")
+
     def test_failed_sync_keeps_the_previous_copy(self):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
             offers.sync("ah")
@@ -126,7 +156,9 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual([r["id"] for r in data["recipes"]], ["r1"], "r2 heeft maar 1 van 5, r3 niets")
         recipe = data["recipes"][0]
         self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 3), "zout telt niet mee")
-        self.assertEqual(recipe["saving"], 2.0)
+        # Tomaten "2 voor 3" van 2,00: 1,50 per stuk, dus 0,50 goedkoper. Kipfilet "1+1 gratis" van 4,50: 2,25 per stuk,
+        # dus 2,25 goedkoper (niet 1,50, het verschil met de huidige prijs die de winkel noemt).
+        self.assertEqual(recipe["saving"], 2.75)
         self.assertEqual(sorted(m["offer"]["id"] for m in recipe["matched"]), ["11", "12"])
 
     def test_a_failing_source_does_not_block_the_others(self):

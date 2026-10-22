@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import ah, ah_lists, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import ah, ah_lists, deals, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -143,7 +143,7 @@ def load(store: Any) -> dict[str, Any]:
             """,
             (store,),
         ).fetchall()
-    offers = [
+    all_offers = [
         {
             "id": row["product_id"],
             "title": row["title"],
@@ -157,13 +157,20 @@ def load(store: Any) -> dict[str, Any]:
             "validUntil": row["valid_until"],
             # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
             "category": row["category"] or offer_categories.categorize(row["title"]),
+            # Wat de aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
+            **deals.describe(
+                row["promo_label"], price_now=row["price"], price_before=row["price_before"], valid_until=row["valid_until"]
+            ),
         }
         for row in rows
     ]
+    # Tussen twee synchronisaties kan een aanbieding aflopen; die laten we niet meer zien.
+    offers = [offer for offer in all_offers if offer["validity"] != deals.EXPIRED]
     return {
         "store": store,
         "offers": offers,
         "total": len(offers),
+        "expired": len(all_offers) - len(offers),
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
@@ -423,6 +430,19 @@ def matches(head: str, offer_stems: set[str]) -> bool:
     return False
 
 
+def saving_of(offer: dict[str, Any]) -> float:
+    """Wat een stuk goedkoper is dan normaal als je de voorwaarde van de aanbieding haalt.
+
+    Met de gewone prijs en een herkende aanbieding ("2e halve prijs", "2 voor 5") rekenen we met de prijs per stuk die daaruit
+    volgt, want de prijs die de winkel noemt kan de gewone prijs of de actieprijs zijn. Anders is het verschil tussen de oude en
+    de huidige prijs.
+    """
+    before, unit = offer.get("priceBefore"), offer.get("unitPrice")
+    if before and unit is not None:
+        return max(0.0, before - unit)
+    return max(0.0, (before or 0) - (offer.get("price") or 0))
+
+
 def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
     """Recepten uit de index waarvan ingrediënten in de aanbieding zijn, de beste eerst."""
     offers = load(store)
@@ -448,9 +468,7 @@ def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
         needed = 1 if len(heads) <= 3 else 2
         if len(found) < needed:
             continue
-        saving = sum(
-            max(0.0, (item["offer"]["priceBefore"] or 0) - (item["offer"]["price"] or 0)) for item in found
-        )
+        saving = sum(saving_of(item["offer"]) for item in found)
         results.append(
             {
                 "source": row["source"],

@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.61.0
+
+*English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
+
+### Nieuw in 2.61.0
+
+- **De voorwaarden bij een aanbieding.** Op de kaart staat naast het label (bijvoorbeeld *1+1 gratis*) nu *bij 2 stuks*, de prijs per stuk bij die voorwaarde en *t/m 25 okt* als de winkel een einddatum geeft. Dat is wat in het eerste rapport ontbrak: een aanbieding "2 voor 5" liet alleen de prijs zien.
+- **Verlopen aanbiedingen verdwijnen.** Staat de einddatum in het verleden, dan laat de lijst de aanbieding niet meer zien en telt ze niet mee in de receptvoorstellen, ook al is er nog niet opnieuw gesynchroniseerd. `GET /api/offers` meldt hoeveel er zijn verborgen (`expired`). Bij AH komt de einddatum van de winkel zelf (`bonusEndDate`); Picnic en Jumbo geven geen datum, dus die blijven staan tot de volgende synchronisatie.
+- **De module `mealieshopper/deals.py`** (uit v2.53.0 van `main`) leest de actietekst en rekent de prijs per stuk uit. Nieuw is *2e = 50% korting* (Picnic), dat als percentage over alles werd gelezen, en *nu €1,99*.
+
+### Aangepast in 2.61.0
+
+- **De besparing in de receptvoorstellen** rekent met de prijs per stuk onder de voorwaarde van de aanbieding. Voorheen was het de oude minus de huidige prijs die de winkel noemt; bij *1+1 gratis* op € 4,50 leidde dat tot € 1,50 in plaats van € 2,25. Zonder herkende aanbieding of zonder gewone prijs is het gedrag zoals eerder.
+- De uitleg bij de verkenners van AH, Picnic en Jumbo noemt het onderdeel *aanbiedingen*.
+
+### Goed om te weten
+
+- Bij AH is niet bevestigd of `currentPrice` bij een aanbieding met voorwaarde de gewone prijs of de actieprijs is. De besparing gebruikt daarom de gewone prijs (`priceBeforeBonus`) en de actietekst, en blijft op nul als een van beide ontbreekt.
+- De API en de MCP-tools zijn niet veranderd, op de extra velden `mechanic`, `minQuantity`, `unitPrice`, `validity` en `expired` bij `GET /api/offers` na.
+
 ## v2.60.2
 
 *English summary: Picnic's offers are now read from where the explorer report showed them: the discount text next to products on the home page ("1+1 free", "20% off", "2 for €5", "now €1.99") and the action pages behind the cards under "Acties van de week" (`promo-group-deep-dive`), where every product is an offer. The label is the tile's text, or else the card's title. Picnic gives no old price.*
