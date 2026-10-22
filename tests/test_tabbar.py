@@ -54,21 +54,21 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_six_tabs_with_icon_long_and_short_label(self):
+    def test_seven_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["recipes", "basket", "url", "ah-items", "beheer", "about"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 6)
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items", "beheer", "about"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 7)
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Recepten", "Mandje", "Import", "Winkels", "Beheer", "Over"])
+        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Beheer", "Over"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Recepten", "Mandje", "URL importeren", "Winkels", "Beheer", "Over"])
+        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Beheer", "Over"])
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiCart", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiCog", "mdiInformationOutline"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)

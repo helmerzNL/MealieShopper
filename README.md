@@ -36,6 +36,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic of Jumbo, voor zover gekoppeld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je mandje bij die winkel. Twijfelt de app, dan controleer je de regel eerst zelf. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app of bij Jumbo.
+- **Aanbiedingen en receptvoorstellen.** Het tabblad Aanbiedingen toont de AH-Bonus en zoekt in je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten) naar gerechten waarvan ingrediënten in de aanbieding zijn. Picnic en Jumbo volgen.
 - **Recepten zoeken en importeren.** Zoek tegelijk in de recepten van Albert Heijn, Jumbo en Picnic en zet ze met één klik in Mealie, of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic en Jumbo, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
@@ -254,6 +255,12 @@ Het tabblad **Mandje** toont het mandje van de winkel die je bovenaan kiest (Alb
 ### Recepten zoeken en importeren
 
 `Recepten zoeken` zoekt tegelijk bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) en **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Kies `Importeer` om een recept in Mealie te zetten, of bij Jumbo en Picnic `Bekijken` voor de ingrediënten en de bereiding. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
+
+### Aanbiedingen
+
+Het tabblad **Aanbiedingen** toont de aanbiedingen van een winkel, met de oude en de nieuwe prijs en het label (bijvoorbeeld *2 voor 3*). Nu werkt dat voor **Albert Heijn** (Bonus; dit gaat zonder AH-koppeling). Picnic en Jumbo hebben nog geen bron: de beheerder kan hun verkenner draaien (`POST /api/picnic/explore` en `/api/jumbo/explore`) om te zien waar de aanbiedingen staan. `Aanbiedingen ophalen` vernieuwt de lokale kopie; mislukt het, dan blijft de vorige staan. De AH-verkenner (`POST /api/ah/explore`) meldt ook of de bonuspagina antwoordt; zonder antwoord zoekt MealieShopper producten met de bonusvlag.
+
+Onder **Receptvoorstellen** staan recepten waarvan ingrediënten in de aanbieding zijn, de beste bovenaan, met de geschatte besparing. `Recepten inlezen` leest de ingrediënten van je recepten in: Mealie (tot 300), Jumbo-favorieten en Picnic-recepten (tot 60 per bron) en je bewaarde AH-recepten (tot 60 nieuwe per keer; haal ze eerst op bij **Winkels**). Het vergelijken gebeurt in MealieShopper zelf, op woorden zonder meervoud, eenheden en basisingrediënten als zout en water; er gaat niets naar een AI-dienst.
 
 ### Winkels
 
@@ -502,7 +509,7 @@ Open daarna de app: de installatiehulp verschijnt weer en je stelt de beveiligin
 python -m unittest discover -s tests          # alle tests
 ```
 
-- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
+- **Opbouw:** `mealieshopper/` (Flask-app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `about.py`, `i18n.py`), `static/` en `templates/` (de interface, zonder bouwstap), `tests/`.
 - **Teksten en talen:** de interface staat in `static/i18n/nl.js` en `en.js`, één tekst per regel. In de HTML staat de Nederlandse tekst in de pagina, met `data-i18n="sleutel"`; in de scripts gebruik je `t("sleutel", { naam })`, `th(...)` (met opmaak, waarden ge-escaped) en `tn("sleutel", aantal)` (meervoud). Een taal toevoegen betekent een bestand `static/i18n/<taal>.js`, een vlag en de taal in `static/i18n.js` en `mealieshopper/i18n.py`. `tests/test_i18n.py` bewaakt dat beide woordenboeken gelijk zijn.
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
 - **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `beta`: de workflow `.github/workflows/release.yml` maakt dan de pre-release `vX.Y.Z-beta`, met die tekst; bij de promotie van `beta` naar `main` volgt de stabiele release `vX.Y.Z`. Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`

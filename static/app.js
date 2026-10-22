@@ -1587,6 +1587,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     if (tab.dataset.tab === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
     if (tab.dataset.tab === "about" && !state.aboutLoaded) loadAbout();
     if (tab.dataset.tab === "basket") showBasket();
+    if (tab.dataset.tab === "offers" && typeof showOffers === "function") showOffers();
   });
 });
 

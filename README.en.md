@@ -36,6 +36,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic or Jumbo, as far as linked. One button looks up the best products for every ingredient, works out how many packs you need and puts them in your basket at that store. If the app is unsure, you check that line yourself first. You finish the order yourself, at Albert Heijn, in the Picnic app or at Jumbo.
+- **Offers and recipe suggestions.** The Offers tab shows the AH Bonus and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer. Picnic and Jumbo follow.
 - **Search and import recipes.** Search the recipes of Albert Heijn, Jumbo and Picnic at the same time and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
@@ -254,6 +255,12 @@ The **Basket** tab shows the basket of the store you choose at the top (Albert H
 ### Searching and importing recipes
 
 `Find recipes` searches **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time. The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Choose `Import` to put a recipe in Mealie, or for Jumbo and Picnic `View` for the ingredients and the method. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
+
+### Offers
+
+The **Offers** tab shows a store's offers, with the old and new price and the label (for example *2 for 3*). For now that works for **Albert Heijn** (Bonus; no AH link needed). Picnic and Jumbo have no source yet: the administrator can run their explorer (`POST /api/picnic/explore` and `/api/jumbo/explore`) to see where the offers live. `Fetch offers` refreshes the local copy; if it fails, the previous one stays. The AH explorer (`POST /api/ah/explore`) also reports whether the bonus page answers; without an answer MealieShopper searches for products with the bonus flag.
+
+Under **Recipe suggestions** you find recipes with ingredients on offer, the best first, with the estimated saving. `Read recipes` reads the ingredients of your recipes: Mealie (up to 300), Jumbo favourites and Picnic recipes (up to 60 per source) and your saved AH recipes (up to 60 new ones at a time; fetch them first under **Stores**). The comparison happens inside MealieShopper, on words without plurals, units and basics like salt and water; nothing is sent to an AI service.
 
 ### Stores
 
@@ -502,7 +509,7 @@ Then open the app: the setup guide appears again and you set up security anew. T
 python -m unittest discover -s tests          # all tests
 ```
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
