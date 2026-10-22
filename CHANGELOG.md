@@ -4,13 +4,24 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.61.0
 
-*English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
+*English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". Ingredients are also linked to offers more strictly (a product that only contains the ingredient, such as mince with onion or tuna in olive oil, no longer counts). This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
 
 ### Nieuw in 2.61.0
 
 - **De voorwaarden bij een aanbieding.** Op de kaart staat naast het label (bijvoorbeeld *1+1 gratis*) nu *bij 2 stuks*, de prijs per stuk bij die voorwaarde en *t/m 25 okt* als de winkel een einddatum geeft. Dat is wat in het eerste rapport ontbrak: een aanbieding "2 voor 5" liet alleen de prijs zien.
 - **Verlopen aanbiedingen verdwijnen.** Staat de einddatum in het verleden, dan laat de lijst de aanbieding niet meer zien en telt ze niet mee in de receptvoorstellen, ook al is er nog niet opnieuw gesynchroniseerd. `GET /api/offers` meldt hoeveel er zijn verborgen (`expired`). Bij AH komt de einddatum van de winkel zelf (`bonusEndDate`); Picnic en Jumbo geven geen datum, dus die blijven staan tot de volgende synchronisatie.
 - **De module `mealieshopper/deals.py`** (uit v2.53.0 van `main`) leest de actietekst en rekent de prijs per stuk uit. Nieuw is *2e = 50% korting* (Picnic), dat als percentage over alles werd gelezen, en *nu €1,99*.
+
+### Opgelost in 2.61.0
+
+- **Verkeerd gekoppelde ingrediënten in de receptvoorstellen.** Een ingrediënt hoorde bij een aanbieding zodra zijn woord *ergens* in de titel stond. Bij *Romige tagliatelle met zalm* stond daardoor "7 van 7 ingrediënten in de aanbieding" met onder meer *AH Gehakt met ui* voor de ui, *Champignon saus romig en vol* voor de champignons, *Tonijnstukken in olijfolie* voor de olijfolie, *Spinazie met room* voor de verse spinazie en *Kruidenmix gehakt* voor de kruiden, en een besparing van € 11,41. Nu geldt:
+  - de titel van de aanbieding wordt gesplitst bij *met*, *in*, *op*, *zonder*, *voor*, *en* en *&*; alleen het deel ervoor is het product. Wat erachter staat telt alleen als het ingrediënt het zelf noemt;
+  - een bereide variant (*saus*, *soep*, *mix*, *maaltijd*, *salade*, *sap*, *pizza*, *spread* en een paar meer) telt alleen als het ingrediënt dat woord zelf bevat;
+  - een smaakwoord (*kruiden*, *specerijen*) zoekt geen product;
+  - past er meer dan één aanbieding, dan wint die met de minste woorden eromheen, niet de eerste in de lijst.
+  Het voorbeeld houdt nu 2 van 7 over (tagliatelle en zalmfilet); de besparing telt alleen die twee.
+- **Het hoofdwoord van een ingrediënt** stopt bij *met*, *in*, *op*, *zonder*, *voor* en *van*: bij *gehakt met ui* is dat gehakt (voorheen ui), bij *kipfilet in blokjes* kipfilet (voorheen blokjes) en bij *olie voor het bakken* olie.
+- **Sinaasappel was ook sinaasappelsap.** De controle op afgeleide producten haalde de *s* van *sap* weg als voegklank. Daardoor telde *Sinaasappelsap* voor *sinaasappels*.
 
 ### Aangepast in 2.61.0
 
