@@ -229,6 +229,27 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - De bonusroute van AH is onofficieel en nog niet getest tegen de echte dienst. Antwoordt de bonuspagina niet, dan zoekt MealieShopper producten met de bonusvlag; draai bij twijfel de AH-verkenner.
 - Aanbiedingen van Picnic en Jumbo zijn er nog niet: voor beide moet eerst de juiste pagina of query worden gevonden (draai hun verkenner op je installatie).
 
+## v2.53.0
+
+*English summary: First step towards reliable offers for recipes, without AI. The stores' offers are no longer reduced to a yes/no flag: the offer text (such as "2nd half price" or "2 for 5"), the regular price and, where the store gives it, the period are kept, and a new module turns them into one shape with the kind of offer, the minimum quantity, the price per item and whether the offer is still valid. The check list of the week menu shows the offer and until when it applies, and says so when it has expired. The explorers of AH, Picnic and Jumbo now also report what an offer looks like (fields, offer texts and dates; no prices or products) so the store fields can be confirmed with real answers. Offers are not yet matched to recipes; that comes after the explorer reports.*
+
+### Nieuw in 2.53.0
+
+- **Aanbiedingen als eigen onderdeel.** De nieuwe module `mealieshopper/deals.py` leest de actietekst van de winkels ("2e halve prijs", "1+1 gratis", "2 voor 5,00", "25% korting", "€ 1,50 korting") en rekent uit wat één stuk kost als je de voorwaarde haalt. Wat niet met zekerheid te lezen is blijft "onbekend", zodat er geen verkeerde prijs verschijnt. Ook de looptijd wordt gecontroleerd: een aanbieding is geldig, verlopen, nog niet begonnen of zonder datums.
+- **De actie, de gewone prijs en de looptijd blijven bewaard.** Bij AH, Jumbo en Picnic bevatten producten met een aanbieding nu een extra veld `promo`. Voorheen bleef alleen over of er een aanbieding was; Jumbo gooide de actietekst weg en AH de gewone prijs.
+- **De verkenners laten aanbiedingen zien.** Bij **AH-routes**, **Picnic-routes** en **Jumbo-routes verkennen** staat nu een onderdeel "aanbiedingen" met de velden rond een aanbieding en de actieteksten en datums die de winkel gebruikt. Er staan geen prijzen of producten in, dus het rapport blijft veilig te delen. Bij Jumbo zoekt de verkenner zelf uit welke extra promotievelden bestaan.
+
+### Aangepast in 2.53.0
+
+- **De controlelijst van het weekmenu toont de aanbieding.** Bij een product met een aanbieding staat nu de actie erbij en tot wanneer die geldt ("2e halve prijs t/m 25 okt"). Is de aanbieding verlopen, dan staat er "aanbieding verlopen".
+
+### Goed om te weten
+
+- Of AH, Jumbo en Picnic de actietekst en looptijd echt meegeven en onder welke veldnamen, is nog niet met echte antwoorden bevestigd. Ontbreekt iets, dan blijft het leeg en toont de lijst alleen "Bonus". Draai de verkenners en deel het rapport om dit vast te stellen.
+- Er worden nog geen aanbiedingen aan recepten gekoppeld; dat volgt na de verkennerrapporten.
+- De API en de MCP-tools zijn niet veranderd, op het extra veld `deal` bij de producten van de controlelijst na.
+
+## v2.52.0
 ## v2.52.0
 
 *English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*

@@ -640,8 +640,20 @@ function formatPrice(value) {
   return price ? `\u20ac${price.toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
 }
 
+function dealText(deal) {
+  // Wat de aanbieding inhoudt en tot wanneer ze geldt; een verlopen aanbieding zeggen we ronduit.
+  if (deal.validity === "expired") return t("cart.deal_expired");
+  const until = deal.validUntil ? new Date(deal.validUntil) : null;
+  const day =
+    until && !Number.isNaN(until.getTime())
+      ? t("cart.deal_until", { date: until.toLocaleDateString(I18N.locale(), { day: "numeric", month: "short" }) })
+      : "";
+  return [deal.label || t("list.bonus"), day].filter(Boolean).join(" ");
+}
+
 function cartCandidateLabel(candidate) {
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" \u2013 ");
+  const deal = candidate.deal ? dealText(candidate.deal) : "";
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), deal].filter(Boolean).join(" \u2013 ");
 }
 
 function openProductPopup(url) {

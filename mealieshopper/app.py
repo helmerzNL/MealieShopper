@@ -11,7 +11,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
-from . import auth
+from . import auth, deals
 from .i18n import tr
 
 
@@ -402,6 +402,7 @@ def create_app() -> Flask:
             "price": product["price"]["now"],
             "image": images[0].get("url") if images and isinstance(images[0], dict) else None,
             "isBonus": bool(product.get("isBonus")),
+            "deal": deals.candidate_deal("ah", product),
             "url": ah.product_web_url(product["webshopId"]),
             "packs": packs,
             "doubt": doubt,

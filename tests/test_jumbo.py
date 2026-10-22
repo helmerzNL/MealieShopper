@@ -236,6 +236,17 @@ class SearchTest(TempDataDirTest):
         raw = product("3", "Kaas", promotions=[{"tags": [{"text": "2 voor 5"}]}])
         self.assertTrue(jumbo.products_from_search(self.data(raw))[0]["isBonus"])
 
+    def test_promotion_text_and_regular_price_are_kept(self):
+        raw = product("4", "Kaas", 299, 249, promotions=[{"tags": [{"text": "2 voor 5"}, {"text": "Nu extra"}]}])
+        found = jumbo.products_from_search(self.data(raw))[0]
+        self.assertEqual(found["promo"]["label"], "2 voor 5 | Nu extra")
+        self.assertEqual(found["promo"]["priceBefore"], 2.99)
+
+    def test_a_product_without_promotion_has_no_promo(self):
+        found = jumbo.products_from_search(self.data(product("5", "Melk")))[0]
+        self.assertFalse(found["isBonus"])
+        self.assertNotIn("promo", found)
+
     def test_odd_responses_give_no_products(self):
         for data in (None, {}, {"searchProducts": None}, {"searchProducts": {"products": [None, {"sku": "1"}]}}):
             self.assertEqual(jumbo.products_from_search(data), [])
