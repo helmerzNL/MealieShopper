@@ -159,6 +159,21 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual(calls, [1, 2])
 
 
+class OffersTabMarkupTest(unittest.TestCase):
+    def test_offers_follows_the_layout_of_the_stores_tab(self):
+        import re
+        from pathlib import Path
+
+        html = (Path(__file__).resolve().parent.parent / "templates" / "index.html").read_text(encoding="utf-8")
+        section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
+        self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
+        self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
+        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions"])
+        self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
+        self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
+        self.assertNotIn("offers-store-slot", section)
+
+
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()

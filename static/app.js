@@ -632,6 +632,7 @@ function renderStoreChoice() {
   if (button) button.textContent = cartButtonLabel();
   renderItemsStore();
   if (typeof renderBasketStoreChoice === "function") renderBasketStoreChoice();
+  if (typeof renderOffersStore === "function") renderOffersStore();
 }
 
 // De winkel in de tab Winkels: AH, of Jumbo zodra die gekoppeld is.
