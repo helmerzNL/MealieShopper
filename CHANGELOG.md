@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.67.1
+
+*English summary: When you switch store under Offers, the list of the previous store now disappears at once and a spinning icon (Material Design Icons "loading") with "Loading the offers of {store}…" shows until the new offers are in. Before, the old list stayed on screen under the new store name, so it looked as if nothing happened. A slow answer from a store you already switched away from no longer overwrites the list. With reduced motion set in the system the icon stands still and the text stays. The offers are also cached now: a store you already saw shows at once when you switch back (and is checked in the background), and the browser only gets the list again when it changed (ETag, 304).*
+
+### Opgelost in 2.67.1
+
+- **Bij het wisselen van winkel was niet te zien dat er geladen werd.** De lijst van de vorige winkel bleef staan, onder de naam van de nieuwe winkel, tot de nieuwe aanbiedingen binnen waren. Nu verdwijnt die lijst meteen en staat er een draaiend icoon (MDI *loading*) met *Aanbiedingen van Jumbo laden…*; daarna komen de aanbiedingen. Dat geldt ook bij het openen van het tabblad en bij een taalwissel.
+- **Een traag antwoord van de vorige winkel overschrijft de lijst niet meer.** Wissel je snel twee keer, dan telt alleen de laatste winkel. Een fout haalt het icoon weg en toont de foutmelding.
+- **Minder beweging.** Staat in je systeem *beweging verminderen* aan, dan draait het icoon niet; de tekst blijft staan.
+
+### Nieuw in 2.67.1
+
+- **De aanbiedingen worden gecachet.** Wissel je terug naar een winkel die je al zag, dan staat de lijst er meteen (zonder icoon) en controleert de pagina op de achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd, dus je plek en je *Meer* blijven staan.
+- **De browser vraagt alleen of er iets veranderd is.** `GET /api/offers` stuurt een `ETag` mee (`Cache-Control: private, no-cache`). Is de lijst niet veranderd, dan volgt een `304` zonder de lijst te laden of te versturen. De ETag verandert bij een nieuwe synchronisatie van die winkel, op een nieuwe dag (aanbiedingen lopen af) en bij een nieuwe versie van de app.
+
+### Goed om te weten
+
+- De server zelf is niet traag: 3000 aanbiedingen laden kost ± 30 ms, dus de database cachen heeft weinig zin. De wachttijd zat in het ophalen en tekenen van de lijst, en tot 2.67.0 ook in de receptvoorstellen die bij elke winkelwissel mee werden berekend; die staan sinds 2.67.0 uit (`MEALIESHOPPER_OFFERS_RECIPES`).
+- De cache in de pagina geldt tot je de pagina herlaadt; daarna zorgt de ETag ervoor dat het ophalen klein blijft.
+
 ## v2.67.0
 
 *English summary: The recipe suggestions under Offers are hidden for now (set `MEALIESHOPPER_OFFERS_RECIPES=true` to show them again), because the matches are not good enough yet. ChatGPT and Claude can now review the matches through the MCP server: `review_offer_matches` lists the unique ingredient + product pairs of a store, `report_offer_mismatch` reports a wrong one (with a reason, undoable) and `list_offer_mismatches` shows the reports. Reports from the assistant and from the flag in the app share one list and one effect: the match is hidden and the next fitting product takes its place. No AI runs inside MealieShopper itself: your own assistant does the judging, with your own subscription.*

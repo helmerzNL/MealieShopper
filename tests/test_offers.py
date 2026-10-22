@@ -486,6 +486,27 @@ class CourseCollectorsTest(TempDataDirTest):
 
 
 class OffersTabMarkupTest(unittest.TestCase):
+    def test_switching_store_shows_a_spinning_icon_while_the_offers_load(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        css = (root / "static" / "styles.css").read_text(encoding="utf-8")
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";', app_js, "het officiële MDI-icoon, geen eigen tekening")
+        self.assertIn('<div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>', html)
+        body = script[script.index("async function showOffers()"):script.index("function offerRecipeCard")]
+        self.assertLess(body.index("renderOffersLoading()"), body.index("await jsonFetch"), "de laadstand staat er al voordat er iets wordt opgehaald")
+        self.assertEqual(body.count("loadId !== offersLoadId"), 2, "een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout")
+        self.assertIn("mdiIcon(MDI_LOADING", script)
+        self.assertIn("const offersCache = {};", script, "de laatst geladen lijst per winkel staat er bij terugkeren meteen")
+        self.assertIn("if (cached) renderOffers(cached);\n  else renderOffersLoading();", body.replace(body[:0], ""), "met een lijst in de cache geen spinner")
+        self.assertIn("JSON.stringify(cached) !== JSON.stringify(data)", script, "alleen bij een andere lijst wordt het scherm vernieuwd")
+        self.assertIn('t("offers.loading", { store:', script)
+        self.assertRegex(css, r"\.offers-loading__icon \{[^}]*animation: spin 1s linear infinite;")
+        self.assertRegex(css, r"@media \(prefers-reduced-motion: reduce\) \{\s*\.offers-loading__icon \{\s*animation: none;", "zonder bewegingsvoorkeur draait het icoon niet; de tekst blijft")
+
     def test_a_wrong_match_can_be_reported_from_the_card_and_from_the_dialog_with_an_mdi_icon(self):
         from pathlib import Path
 
@@ -950,6 +971,31 @@ class OffersRoutesTest(TempDataDirTest):
         self.assertEqual(self.client.delete("/api/offers/rejections", json=body).status_code, 200)
         self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "offerId": "nope"}).status_code, 400)
         self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "ingredient": ""}).status_code, 400)
+
+    def test_the_offers_are_cached_by_the_browser_and_only_resent_when_they_changed(self):
+        fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            self.client.post("/api/offers/sync", json={"store": "ah"})
+        first = self.client.get("/api/offers?store=ah")
+        etag = first.headers["ETag"]
+        self.assertEqual((first.status_code, first.headers["Cache-Control"]), (200, "private, no-cache"))
+        self.assertEqual(first.get_json()["total"], 1)
+        again = self.client.get("/api/offers?store=ah", headers={"If-None-Match": etag})
+        self.assertEqual((again.status_code, again.get_data()), (304, b""), "ongewijzigd: geen lijst opnieuw versturen")
+        self.assertEqual(again.headers["ETag"], etag)
+        self.assertEqual(self.client.get("/api/offers?store=ah", headers={"If-None-Match": '"iets-anders"'}).status_code, 200)
+        self.assertNotEqual(self.client.get("/api/offers?store=jumbo").headers["ETag"], etag, "elke winkel heeft een eigen ETag")
+        # Een nieuwe synchronisatie, een nieuwe dag en een nieuwe versie geven een andere ETag.
+        with mock.patch.object(offers, "_now", return_value="2030-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.assertNotEqual(self.client.get("/api/offers?store=ah").headers["ETag"], etag)
+        with mock.patch.object(offers, "date") as fake_date:
+            fake_date.today.return_value.isoformat.return_value = "2031-02-03"
+            self.assertNotIn("2031-02-03", etag)
+            self.assertIn("2031-02-03", offers.signature("ah"))
+        with mock.patch.object(offers.about, "read_version", return_value="9.9.9"):
+            self.assertTrue(offers.signature("ah").endswith("9.9.9"))
+        self.assertEqual(self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag}).status_code, 400)
 
     def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
         import re

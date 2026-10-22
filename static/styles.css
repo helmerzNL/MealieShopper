@@ -1523,6 +1523,28 @@ a.product-card__main:hover strong {
   }
 }
 
+/* Zolang de aanbiedingen van een winkel laden: een draaiend icoon met tekst, op de plek van het raster. */
+.offers-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 160px;
+  color: var(--muted);
+}
+
+.offers-loading[hidden] {
+  display: none;
+}
+
+.offers-loading__icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  fill: currentColor;
+  animation: spin 1s linear infinite;
+}
+
 .list-header {
   display: flex;
   align-items: center;
@@ -1596,6 +1618,12 @@ a.product-card__main:hover strong {
 
 @media (prefers-reduced-motion: reduce) {
   .icon-button.is-busy svg {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offers-loading__icon {
     animation: none;
   }
 }

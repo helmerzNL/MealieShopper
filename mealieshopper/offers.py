@@ -14,10 +14,10 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Iterable
 
-from . import ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -151,6 +151,16 @@ def _valid_store(store: Any) -> str:
 
 
 # --- aanbiedingen -------------------------------------------------------------------------------
+
+
+def signature(store: Any) -> str:
+    """Verandert precies dan als `load(store)` een ander antwoord geeft: bij een nieuwe synchronisatie, op een nieuwe dag (aanbiedingen
+    lopen af) en bij een nieuwe versie van de app (de indeling en de voorwaarden worden bij het laden uit de bewaarde tekst afgeleid).
+    Goedkoop: een rij uit de database. Dient als ETag, zodat een browser met de lijst al in de cache geen nieuwe hoeft te krijgen."""
+    store = _valid_store(store)
+    with closing(_connect()) as conn:
+        meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), about.read_version()))
 
 
 def load(store: Any) -> dict[str, Any]:
