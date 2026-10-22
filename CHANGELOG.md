@@ -2,6 +2,37 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.61.0
+
+*English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". Ingredients are also linked to offers more strictly (a product that only contains the ingredient, such as mince with onion or tuna in olive oil, no longer counts). This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*
+
+### Nieuw in 2.61.0
+
+- **De voorwaarden bij een aanbieding.** Op de kaart staat naast het label (bijvoorbeeld *1+1 gratis*) nu *bij 2 stuks*, de prijs per stuk bij die voorwaarde en *t/m 25 okt* als de winkel een einddatum geeft. Dat is wat in het eerste rapport ontbrak: een aanbieding "2 voor 5" liet alleen de prijs zien.
+- **Verlopen aanbiedingen verdwijnen.** Staat de einddatum in het verleden, dan laat de lijst de aanbieding niet meer zien en telt ze niet mee in de receptvoorstellen, ook al is er nog niet opnieuw gesynchroniseerd. `GET /api/offers` meldt hoeveel er zijn verborgen (`expired`). Bij AH komt de einddatum van de winkel zelf (`bonusEndDate`); Picnic en Jumbo geven geen datum, dus die blijven staan tot de volgende synchronisatie.
+- **De module `mealieshopper/deals.py`** (uit v2.53.0 van `main`) leest de actietekst en rekent de prijs per stuk uit. Nieuw is *2e = 50% korting* (Picnic), dat als percentage over alles werd gelezen, en *nu €1,99*.
+
+### Opgelost in 2.61.0
+
+- **Verkeerd gekoppelde ingrediënten in de receptvoorstellen.** Een ingrediënt hoorde bij een aanbieding zodra zijn woord *ergens* in de titel stond. Bij *Romige tagliatelle met zalm* stond daardoor "7 van 7 ingrediënten in de aanbieding" met onder meer *AH Gehakt met ui* voor de ui, *Champignon saus romig en vol* voor de champignons, *Tonijnstukken in olijfolie* voor de olijfolie, *Spinazie met room* voor de verse spinazie en *Kruidenmix gehakt* voor de kruiden, en een besparing van € 11,41. Nu geldt:
+  - de titel van de aanbieding wordt gesplitst bij *met*, *in*, *op*, *zonder*, *voor*, *en* en *&*; alleen het deel ervoor is het product. Wat erachter staat telt alleen als het ingrediënt het zelf noemt;
+  - een bereide variant (*saus*, *soep*, *mix*, *maaltijd*, *salade*, *sap*, *pizza*, *spread* en een paar meer) telt alleen als het ingrediënt dat woord zelf bevat;
+  - een smaakwoord (*kruiden*, *specerijen*) zoekt geen product;
+  - past er meer dan één aanbieding, dan wint die met de minste woorden eromheen, niet de eerste in de lijst.
+  Het voorbeeld houdt nu 2 van 7 over (tagliatelle en zalmfilet); de besparing telt alleen die twee.
+- **Het hoofdwoord van een ingrediënt** stopt bij *met*, *in*, *op*, *zonder*, *voor* en *van*: bij *gehakt met ui* is dat gehakt (voorheen ui), bij *kipfilet in blokjes* kipfilet (voorheen blokjes) en bij *olie voor het bakken* olie.
+- **Sinaasappel was ook sinaasappelsap.** De controle op afgeleide producten haalde de *s* van *sap* weg als voegklank. Daardoor telde *Sinaasappelsap* voor *sinaasappels*.
+
+### Aangepast in 2.61.0
+
+- **De besparing in de receptvoorstellen** rekent met de prijs per stuk onder de voorwaarde van de aanbieding. Voorheen was het de oude minus de huidige prijs die de winkel noemt; bij *1+1 gratis* op € 4,50 leidde dat tot € 1,50 in plaats van € 2,25. Zonder herkende aanbieding of zonder gewone prijs is het gedrag zoals eerder.
+- De uitleg bij de verkenners van AH, Picnic en Jumbo noemt het onderdeel *aanbiedingen*.
+
+### Goed om te weten
+
+- Bij AH is niet bevestigd of `currentPrice` bij een aanbieding met voorwaarde de gewone prijs of de actieprijs is. De besparing gebruikt daarom de gewone prijs (`priceBeforeBonus`) en de actietekst, en blijft op nul als een van beide ontbreekt.
+- De API en de MCP-tools zijn niet veranderd, op de extra velden `mechanic`, `minQuantity`, `unitPrice`, `validity` en `expired` bij `GET /api/offers` na.
+
 ## v2.60.2
 
 *English summary: Picnic's offers are now read from where the explorer report showed them: the discount text next to products on the home page ("1+1 free", "20% off", "2 for €5", "now €1.99") and the action pages behind the cards under "Acties van de week" (`promo-group-deep-dive`), where every product is an offer. The label is the tile's text, or else the card's title. Picnic gives no old price.*
@@ -229,6 +260,27 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - De bonusroute van AH is onofficieel en nog niet getest tegen de echte dienst. Antwoordt de bonuspagina niet, dan zoekt MealieShopper producten met de bonusvlag; draai bij twijfel de AH-verkenner.
 - Aanbiedingen van Picnic en Jumbo zijn er nog niet: voor beide moet eerst de juiste pagina of query worden gevonden (draai hun verkenner op je installatie).
 
+## v2.53.0
+
+*English summary: First step towards reliable offers for recipes, without AI. The stores' offers are no longer reduced to a yes/no flag: the offer text (such as "2nd half price" or "2 for 5"), the regular price and, where the store gives it, the period are kept, and a new module turns them into one shape with the kind of offer, the minimum quantity, the price per item and whether the offer is still valid. The check list of the week menu shows the offer and until when it applies, and says so when it has expired. The explorers of AH, Picnic and Jumbo now also report what an offer looks like (fields, offer texts and dates; no prices or products) so the store fields can be confirmed with real answers. Offers are not yet matched to recipes; that comes after the explorer reports.*
+
+### Nieuw in 2.53.0
+
+- **Aanbiedingen als eigen onderdeel.** De nieuwe module `mealieshopper/deals.py` leest de actietekst van de winkels ("2e halve prijs", "1+1 gratis", "2 voor 5,00", "25% korting", "€ 1,50 korting") en rekent uit wat één stuk kost als je de voorwaarde haalt. Wat niet met zekerheid te lezen is blijft "onbekend", zodat er geen verkeerde prijs verschijnt. Ook de looptijd wordt gecontroleerd: een aanbieding is geldig, verlopen, nog niet begonnen of zonder datums.
+- **De actie, de gewone prijs en de looptijd blijven bewaard.** Bij AH, Jumbo en Picnic bevatten producten met een aanbieding nu een extra veld `promo`. Voorheen bleef alleen over of er een aanbieding was; Jumbo gooide de actietekst weg en AH de gewone prijs.
+- **De verkenners laten aanbiedingen zien.** Bij **AH-routes**, **Picnic-routes** en **Jumbo-routes verkennen** staat nu een onderdeel "aanbiedingen" met de velden rond een aanbieding en de actieteksten en datums die de winkel gebruikt. Er staan geen prijzen of producten in, dus het rapport blijft veilig te delen. Bij Jumbo zoekt de verkenner zelf uit welke extra promotievelden bestaan.
+
+### Aangepast in 2.53.0
+
+- **De controlelijst van het weekmenu toont de aanbieding.** Bij een product met een aanbieding staat nu de actie erbij en tot wanneer die geldt ("2e halve prijs t/m 25 okt"). Is de aanbieding verlopen, dan staat er "aanbieding verlopen".
+
+### Goed om te weten
+
+- Of AH, Jumbo en Picnic de actietekst en looptijd echt meegeven en onder welke veldnamen, is nog niet met echte antwoorden bevestigd. Ontbreekt iets, dan blijft het leeg en toont de lijst alleen "Bonus". Draai de verkenners en deel het rapport om dit vast te stellen.
+- Er worden nog geen aanbiedingen aan recepten gekoppeld; dat volgt na de verkennerrapporten.
+- De API en de MCP-tools zijn niet veranderd, op het extra veld `deal` bij de producten van de controlelijst na.
+
+## v2.52.0
 ## v2.52.0
 
 *English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*

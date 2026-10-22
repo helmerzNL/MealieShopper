@@ -50,6 +50,20 @@ function offersSwitchStore(store) {
   showOffers();
 }
 
+// De voorwaarden van een aanbieding: vanaf hoeveel stuks, wat een stuk dan kost en tot wanneer ze geldt.
+function offerConditionsText(offer) {
+  const parts = [];
+  if (offer.minQuantity > 1) parts.push(t("offers.min_quantity", { count: offer.minQuantity }));
+  if (offer.unitPrice && offer.mechanic !== "fixed" && offer.unitPrice !== offer.price) {
+    parts.push(t("offers.unit_price", { price: formatPrice(offer.unitPrice) }));
+  }
+  const until = offer.validUntil ? new Date(`${String(offer.validUntil).slice(0, 10)}T12:00:00`) : null;
+  if (until && !Number.isNaN(until.getTime())) {
+    parts.push(t("offers.valid_until", { date: until.toLocaleDateString(I18N.locale(), { day: "numeric", month: "short" }) }));
+  }
+  return parts.join(" \u00b7 ");
+}
+
 function offerProductCard(offer) {
   const meta = [offer.brand, offer.unitSize].filter(Boolean).join(" · ");
   const was = offer.priceBefore ? ` <s>${escapeHtml(formatPrice(offer.priceBefore))}</s>` : "";
@@ -62,6 +76,7 @@ function offerProductCard(offer) {
         <strong>${escapeHtml(offer.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
+        ${offerConditionsText(offer) ? `<small>${escapeHtml(offerConditionsText(offer))}</small>` : ""}
         ${offer.price ? `<small>${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
       </span>
     </${tag}>`;

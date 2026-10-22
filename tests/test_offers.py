@@ -42,6 +42,12 @@ class MatchingTest(unittest.TestCase):
         self.assertIsNone(offers.head_of("zout en peper"))
         self.assertIsNone(offers.head_of("water"))
 
+    def test_a_linking_s_is_not_mistaken_for_the_start_of_the_next_word(self):
+        # sinaasappel|sap: de s hoort bij "sap", dus het is geen sinaasappel.
+        self.assertFalse(offers.matches(offers.head_of("sinaasappels"), set(offers.tokens("Sinaasappelsap 1 l"))))
+        self.assertFalse(offers.matches(offers.head_of("appel"), set(offers.tokens("Appelsap"))))
+        self.assertTrue(offers.matches(offers.head_of("sinaasappels"), set(offers.tokens("Sinaasappelen net"))))
+
     def test_derived_products_are_not_the_ingredient(self):
         self.assertFalse(offers.matches(offers.head_of("tomaat"), set(offers.tokens("Tomatenpuree 140 g"))))
         self.assertFalse(offers.matches(offers.head_of("kip"), set(offers.tokens("Kippensoep"))))
@@ -84,6 +90,36 @@ class OffersStoreTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: first[:1]}):
             self.assertEqual(offers.sync("ah")["total"], 1)
 
+    def test_load_adds_the_conditions_of_each_offer(self):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+            offers.sync("ah")
+        by_title = {o["title"]: o for o in offers.load("ah")["offers"]}
+        kip = by_title["Kipfilet"]
+        self.assertEqual((kip["mechanic"], kip["minQuantity"], kip["unitPrice"]), ("nth_free", 2, 2.25))
+        tomaten = by_title["AH Tomaten rond"]
+        self.assertEqual((tomaten["mechanic"], tomaten["minQuantity"], tomaten["unitPrice"]), ("x_for_y", 2, 1.5))
+        puree = by_title["Tomatenpuree"]
+        self.assertEqual((puree["mechanic"], puree["unitPrice"]), ("fixed", 0.9), "lagere prijs zonder label")
+        self.assertEqual(kip["validity"], "unknown", "zonder einddatum is niet te controleren")
+
+    def test_expired_offers_are_not_shown_but_counted(self):
+        old = {"id": "21", "title": "Oude aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2000-01-01"}
+        current = {"id": "22", "title": "Lopende aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2999-01-01"}
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [old, current]}):
+            offers.sync("ah")
+        data = offers.load("ah")
+        self.assertEqual([o["id"] for o in data["offers"]], ["22"])
+        self.assertEqual((data["total"], data["expired"]), (1, 1))
+        self.assertEqual(data["offers"][0]["validity"], "valid")
+
+    def test_saving_uses_the_unit_price_of_the_condition(self):
+        second_half = {"price": 4.0, "priceBefore": 4.0, "unitPrice": 3.0}
+        self.assertEqual(offers.saving_of(second_half), 1.0)
+        plain = {"price": 1.5, "priceBefore": 2.0, "unitPrice": None}
+        self.assertEqual(offers.saving_of(plain), 0.5)
+        self.assertEqual(offers.saving_of({"price": 1.5, "priceBefore": None, "unitPrice": 1.5}), 0.0)
+        self.assertEqual(offers.saving_of({"price": 3.0, "priceBefore": 2.0, "unitPrice": None}), 0.0, "nooit negatief")
+
     def test_failed_sync_keeps_the_previous_copy(self):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
             offers.sync("ah")
@@ -103,6 +139,70 @@ class OffersStoreTest(TempDataDirTest):
             offers.sync("lidl")
         with self.assertRaises(ValueError):
             offers.load("lidl")
+
+
+class LinkingTest(unittest.TestCase):
+    """Een ingrediënt hoort alleen bij een aanbieding die dat product zelf is, niet bij een bereid product waar het in zit."""
+
+    def match(self, ingredient, title):
+        core, rest = offers.offer_parts(title)
+        return offers.match_offer(offers.head_of(ingredient), set(offers.tokens(ingredient)), core, rest)
+
+    def test_products_that_only_contain_the_ingredient_do_not_match(self):
+        # Het voorbeeld van "Romige tagliatelle met zalm": dit klopte allemaal niet.
+        for ingredient, title in (
+            ("1 middelgrote ui", "AH Gehakt met ui 3-pack"),
+            ("250 g champignons", "AH Champignon saus romig en vol 3-pack"),
+            ("2 el milde olijfolie", "Princes Tonijnstukken in olijfolie 3-pack"),
+            ("400 g verse spinazie", "Hak Spinazie met room 4-pack"),
+            ("200 g zuivelspread knoflook en kruiden", "Verstegen Kruidenmix gehakt slagersrecept 3-pack"),
+        ):
+            self.assertIsNone(self.match(ingredient, title), (ingredient, title))
+
+    def test_the_product_itself_still_matches(self):
+        for ingredient, title in (
+            ("300 g tagliatelle", "AH Tagliatelle all' uovo 4-pack"),
+            ("100 g Noorse gerookte zalmfilet", "AH Zalmfilet 2-pack"),
+            ("400 g kipfilet", "AH Kipfilet"),
+            ("1 l melk", "Jumbo Halfvolle Melk 1 l"),
+            ("4 tomaten", "AH Tomaten rond"),
+            ("6 eieren", "AH Scharrel eieren 10 stuks"),
+            ("2 uien", "AH Uien 1 kg"),
+            ("500 g gehakt", "Picnic Rundergehakt"),
+        ):
+            if ingredient == "500 g gehakt":
+                continue  # samenstellingen met het ingrediënt aan het eind worden nog niet herkend
+            self.assertIsNotNone(self.match(ingredient, title), (ingredient, title))
+
+    def test_a_prepared_variant_matches_when_the_ingredient_asks_for_it(self):
+        self.assertIsNone(self.match("tomaat", "Heinz Tomatenketchup"))
+        self.assertIsNotNone(self.match("1 el tomatenketchup", "Heinz Tomatenketchup"))
+        self.assertIsNotNone(self.match("250 g gehakt met ui", "AH Gehakt met ui 3-pack"), "het ingrediënt noemt de ui zelf")
+        self.assertIsNone(self.match("sinaasappels", "Appelsientje Sinaasappelsap"))
+        self.assertIsNotNone(self.match("200 ml sinaasappelsap", "Appelsientje Sinaasappelsap"))
+
+    def test_the_head_of_an_ingredient_stops_at_a_preposition(self):
+        self.assertEqual(offers.head_of("250 g gehakt met ui"), "gehakt")
+        self.assertEqual(offers.head_of("400 g kipfilet in blokjes"), "kipfilet")
+        self.assertEqual(offers.head_of("3 el olie voor het bakken"), "olie")
+        self.assertEqual(offers.head_of("1 bosje bieslook (in ringetjes)"), offers.head_of("bieslook"))
+        self.assertEqual(offers.head_of("in blokjes gesneden ui"), "ui", "begint de regel met een voorzetsel, dan geldt de hele regel")
+
+    def test_flavour_words_are_not_an_ingredient(self):
+        self.assertIsNone(self.match("verse kruiden", "AH Italiaanse kruiden"))
+        self.assertIsNone(self.match("2 el kruiden", "Verstegen Kruidenmix"))
+
+    def test_brand_amounts_and_packaging_do_not_count(self):
+        self.assertEqual(offers.offer_parts("AH Gehakt met ui 3-pack"), (["ah", "gehakt"], ["ui"]))
+        self.assertEqual(offers.offer_parts("Jumbo Halfvolle Melk 1 l"), (["jumbo", "halfvolle", "melk"], []))
+        self.assertEqual(offers.offer_parts("Ben & Jerry's Vanilla 465 ml")[1][0], "jerry")
+
+    def test_fewer_unrelated_words_is_the_better_match(self):
+        core_a, rest_a = offers.offer_parts("AH Kipfilet")
+        core_b, rest_b = offers.offer_parts("AH Kipfilet Mediterraan gekruid")
+        stems = set(offers.tokens("400 g kipfilet"))
+        head = offers.head_of("400 g kipfilet")
+        self.assertLess(offers.match_offer(head, stems, core_a, rest_a), offers.match_offer(head, stems, core_b, rest_b))
 
 
 class SuggestionsTest(TempDataDirTest):
@@ -126,8 +226,40 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual([r["id"] for r in data["recipes"]], ["r1"], "r2 heeft maar 1 van 5, r3 niets")
         recipe = data["recipes"][0]
         self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 3), "zout telt niet mee")
-        self.assertEqual(recipe["saving"], 2.0)
+        # Tomaten "2 voor 3" van 2,00: 1,50 per stuk, dus 0,50 goedkoper. Kipfilet "1+1 gratis" van 4,50: 2,25 per stuk,
+        # dus 2,25 goedkoper (niet 1,50, het verschil met de huidige prijs die de winkel noemt).
+        self.assertEqual(recipe["saving"], 2.75)
         self.assertEqual(sorted(m["offer"]["id"] for m in recipe["matched"]), ["11", "12"])
+
+    def test_the_tagliatelle_example_links_only_what_is_really_on_offer(self):
+        titles = [
+            ("1", "AH Tagliatelle all' uovo 4-pack"), ("2", "AH Gehakt met ui 3-pack"),
+            ("3", "AH Champignon saus romig en vol 3-pack"), ("4", "Princes Tonijnstukken in olijfolie 3-pack"),
+            ("5", "Hak Spinazie met room 4-pack"), ("6", "AH Zalmfilet 2-pack"),
+            ("7", "Verstegen Kruidenmix gehakt slagersrecept 3-pack"),
+        ]
+        fetched = [{"id": i, "title": t, "price": 2.0, "priceBefore": 3.0, "promoLabel": "Bonus"} for i, t in titles]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.index({"mealie": [{
+            "id": "r1", "title": "Romige tagliatelle met zalm", "image": "", "url": "",
+            "ingredients": ["300 g tagliatelle", "1 middelgrote ui", "250 g champignons", "2 el milde olijfolie",
+                            "400 g verse spinazie", "100 g Noorse gerookte zalmfilet", "200 g zuivelspread knoflook en kruiden"],
+        }]})
+        recipe = offers.suggest("ah")["recipes"][0]
+        self.assertEqual((recipe["matchedCount"], recipe["ingredientCount"]), (2, 7))
+        self.assertEqual(sorted(m["offer"]["id"] for m in recipe["matched"]), ["1", "6"])
+        self.assertEqual(recipe["saving"], 2.0, "twee keer 1,00 goedkoper, niet 11,41")
+
+    def test_the_best_fitting_offer_wins_over_the_first_one(self):
+        fetched = [
+            {"id": "1", "title": "AH Kipfilet Mediterraan gekruid", "price": 4.0, "priceBefore": 5.0, "promoLabel": "Bonus"},
+            {"id": "2", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.index({"mealie": [{"id": "r1", "title": "Kip", "image": "", "url": "", "ingredients": ["400 g kipfilet"]}]})
+        self.assertEqual(offers.suggest("ah")["recipes"][0]["matched"][0]["offer"]["id"], "2")
 
     def test_a_failing_source_does_not_block_the_others(self):
         def broken():

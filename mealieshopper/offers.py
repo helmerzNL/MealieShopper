@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import ah, ah_lists, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import ah, ah_lists, deals, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -143,7 +143,7 @@ def load(store: Any) -> dict[str, Any]:
             """,
             (store,),
         ).fetchall()
-    offers = [
+    all_offers = [
         {
             "id": row["product_id"],
             "title": row["title"],
@@ -157,13 +157,20 @@ def load(store: Any) -> dict[str, Any]:
             "validUntil": row["valid_until"],
             # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
             "category": row["category"] or offer_categories.categorize(row["title"]),
+            # Wat de aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
+            **deals.describe(
+                row["promo_label"], price_now=row["price"], price_before=row["price_before"], valid_until=row["valid_until"]
+            ),
         }
         for row in rows
     ]
+    # Tussen twee synchronisaties kan een aanbieding aflopen; die laten we niet meer zien.
+    offers = [offer for offer in all_offers if offer["validity"] != deals.EXPIRED]
     return {
         "store": store,
         "offers": offers,
         "total": len(offers),
+        "expired": len(all_offers) - len(offers),
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
@@ -402,9 +409,16 @@ def tokens(text: Any) -> list[str]:
     return [_stem(word) for word in words if len(word) > 1 and word not in NOISE]
 
 
+# Voorzetsels in een ingrediëntregel: wat erna staat beschrijft het ingrediënt ("gehakt met ui", "kipfilet in blokjes",
+# "olie voor het bakken") en is niet het ingrediënt zelf.
+INGREDIENT_CONNECTORS = re.compile(r"\b(?:met|in|op|zonder|voor|van)\b")
+
+
 def head_of(ingredient: Any) -> str | None:
-    """Het hoofdwoord van een ingrediënt (in het Nederlands het laatste woord), of None voor basisingrediënten."""
-    words = tokens(ingredient)
+    """Het hoofdwoord van een ingrediënt (in het Nederlands het laatste woord vóór een voorzetsel), of None voor basisingrediënten."""
+    text = str(ingredient or "")
+    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", text))
+    words = tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(text)
     if not words or all(word in {_stem(item) for item in PANTRY} for word in words):
         return None
     return words[-1]
@@ -417,16 +431,90 @@ def matches(head: str, offer_stems: set[str]) -> bool:
         return False
     for stem in offer_stems:
         if len(stem) > len(head) and stem.startswith(head):
-            rest = re.sub(r"^(?:en|s)", "", stem[len(head):])  # tomaten|puree, kippen|soep
-            if not any(part in rest for part in DERIVED_STEMS):
+            rest = stem[len(head):]
+            linked = re.sub(r"^(?:en|s)", "", rest)  # tomaten|puree, kippen|soep: een voegklank hoort niet bij het woord
+            # Beide kanten controleren: bij sinaasappel|sap is de s geen voegklank maar het begin van "sap".
+            if not any(part in rest or part in linked for part in DERIVED_STEMS):
                 return True
     return False
+
+
+def saving_of(offer: dict[str, Any]) -> float:
+    """Wat een stuk goedkoper is dan normaal als je de voorwaarde van de aanbieding haalt.
+
+    Met de gewone prijs en een herkende aanbieding ("2e halve prijs", "2 voor 5") rekenen we met de prijs per stuk die daaruit
+    volgt, want de prijs die de winkel noemt kan de gewone prijs of de actieprijs zijn. Anders is het verschil tussen de oude en
+    de huidige prijs.
+    """
+    before, unit = offer.get("priceBefore"), offer.get("unitPrice")
+    if before and unit is not None:
+        return max(0.0, before - unit)
+    return max(0.0, (before or 0) - (offer.get("price") or 0))
+
+
+# --- een ingrediënt aan een aanbieding koppelen ------------------------------------------------------
+# Woorden waarmee een producttitel een samengesteld product aankondigt: "Gehakt met ui", "Tonijn in olijfolie",
+# "Champignon saus romig en vol". Wat erachter staat hoort bij het product, niet bij het ingrediënt.
+CONNECTORS = {"met", "in", "op", "zonder", "voor", "en", "of", "&"}
+# Een woord in de titel dat hiermee eindigt maakt het product een bereide variant (champignonsaus, kruidenmix,
+# sinaasappelsap). Zo'n product is het ingrediënt alleen als het ingrediënt zelf dat woord noemt.
+PRODUCT_TYPES = (
+    "saus", "soep", "mix", "maaltijd", "salade", "dressing", "pesto", "bouillon", "chips", "koek", "taart",
+    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread",
+)
+# Dezelfde bewerking als de woorden in de titel, anders komt "maaltijd" (titel: "maltijd") er nooit mee overeen.
+PRODUCT_STEMS = tuple(_stem(kind) for kind in PRODUCT_TYPES)
+# Smaakwoorden zijn geen ingrediënt om een product bij te zoeken: "kruiden" vindt anders elke kruidenmix.
+WEAK_HEADS = {_stem(word) for word in ("kruiden", "specerijen", "smaakmakers", "garnering", "topping")}
+
+
+def offer_parts(title: Any) -> tuple[list[str], list[str]]:
+    """De titel van een aanbieding in twee delen: het product zelf, en wat erbij hoort na `met`, `in`, `en` enzovoort.
+
+    "AH Gehakt met ui 3-pack" wordt (["ah", "gehakt"], ["ui"]). Merk, aantallen en verpakking tellen niet mee.
+    """
+    core: list[str] = []
+    rest: list[str] = []
+    target = core
+    for word in re.findall(r"[a-z0-9]+|&", ah_lists._fold(title)):
+        if word in CONNECTORS:
+            if target is core and core:
+                target = rest
+            continue
+        if len(word) < 2 or word in NOISE or word == "pack" or word.isdigit():
+            continue
+        target.append(_stem(word))
+    return core, rest
+
+
+def _covered(stem: str, ingredient_stems: set[str]) -> bool:
+    """Of een woord uit de titel ook in het ingrediënt staat (ook als het een samenstelling is: zalm en zalmfilet)."""
+    return stem in ingredient_stems or any(
+        len(other) >= 3 and len(stem) >= 3 and (stem.startswith(other) or other.startswith(stem)) for other in ingredient_stems
+    )
+
+
+def match_offer(head: str, ingredient_stems: set[str], core: list[str], rest: list[str]) -> int | None:
+    """Of een aanbieding het ingrediënt is. None: nee. Anders het aantal woorden in de titel dat niet bij het ingrediënt
+    hoort; hoe minder, hoe beter de aanbieding past.
+    """
+    if head in WEAK_HEADS or not matches(head, set(core)):
+        return None
+    # Samengesteld product ("Gehakt met ui"): alleen als het ingrediënt de rest ook noemt.
+    if any(not _covered(stem, ingredient_stems) for stem in rest):
+        return None
+    # Bereide variant ("champignonsaus"): alleen als het ingrediënt dat zelf ook is.
+    for stem in core:
+        for kind in PRODUCT_STEMS:
+            if stem.endswith(kind) and not any(kind in other for other in ingredient_stems):
+                return None
+    return sum(1 for stem in core if not _covered(stem, ingredient_stems))
 
 
 def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
     """Recepten uit de index waarvan ingrediënten in de aanbieding zijn, de beste eerst."""
     offers = load(store)
-    prepared = [(offer, set(tokens(offer["title"]))) for offer in offers["offers"]]
+    prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
         rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients FROM offer_recipes").fetchall()
@@ -440,17 +528,21 @@ def suggest(store: Any, limit: int = 30) -> dict[str, Any]:
         found: list[dict[str, Any]] = []
         used: set[str] = set()
         for text, head in heads:
-            for offer, stems in prepared:
-                if offer["id"] not in used and matches(head, stems):
-                    used.add(offer["id"])
-                    found.append({"ingredient": text, "offer": offer})
-                    break
+            ingredient_stems = set(tokens(text))
+            best: tuple[int, dict[str, Any]] | None = None
+            for offer, core, rest in prepared:
+                if offer["id"] in used:
+                    continue
+                extra = match_offer(head, ingredient_stems, core, rest)
+                if extra is not None and (best is None or extra < best[0]):
+                    best = (extra, offer)
+            if best:
+                used.add(best[1]["id"])
+                found.append({"ingredient": text, "offer": best[1]})
         needed = 1 if len(heads) <= 3 else 2
         if len(found) < needed:
             continue
-        saving = sum(
-            max(0.0, (item["offer"]["priceBefore"] or 0) - (item["offer"]["price"] or 0)) for item in found
-        )
+        saving = sum(saving_of(item["offer"]) for item in found)
         results.append(
             {
                 "source": row["source"],

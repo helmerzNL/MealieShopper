@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import picnic
-from .ah_explore import _probe, _union, shape
+from .ah_explore import PROMO_TERMS, _probe, _union, promo_probe, shape
 
 SEARCH_TERM = "melk"
 
@@ -442,6 +442,18 @@ def explore(extended: bool = False) -> dict[str, Any]:
         # De ruwe boom is groot; de vorm van één tegel is wat we nodig hebben om het zoeken te herstellen.
         tile = next((n for n in picnic._walk(page.get("body")) if n.get("type") == "SELLING_UNIT_TILE"), None)
         probes.append({"name": "een zoektegel (ruwe vorm)", "ok": tile is not None, "shape": shape(tile)})
+
+    def raw_units(term: str) -> list[dict[str, Any]]:
+        found = picnic._authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
+        return [node["sellingUnit"] for node in picnic._walk(found.get("body") if isinstance(found, dict) else None)
+                if node.get("type") == "SELLING_UNIT_TILE" and isinstance(node.get("sellingUnit"), dict)]
+
+    report, _ = _probe(
+        "aanbiedingen: de velden van zoektegels met een aanbieding",
+        lambda: promo_probe(PROMO_TERMS, raw_units, lambda unit: bool((picnic._product(unit) or {}).get("isBonus"))),
+        lambda data: data,
+    )
+    probes.append(report)
 
     for name, path, method, body in (
         ("winkelmandje: GET cart", "/cart", "GET", None),

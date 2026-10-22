@@ -11,6 +11,7 @@ statussen AH kent. Zo kun je het rapport veilig delen.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any, Callable
 
@@ -60,6 +61,56 @@ def shape(value: Any, key: str = "", depth: int = 0) -> Any:
     return type(value).__name__
 
 
+# Zoektermen waarvan we verwachten dat er in de week producten in de aanbieding zijn.
+PROMO_TERMS = ("kip", "kaas", "pasta", "bier", "ijs", "groente")
+# Velden die met een aanbieding te maken kunnen hebben, en de velden waarvan we de tekst willen zien.
+PROMO_FIELD_RE = re.compile(r"bonus|price|discount|promo|label|mechanic|valid|start|end|period|decorator|unit", re.I)
+PROMO_TEXT_RE = re.compile(r"mechanism|mechanic|label|description|period|date|text|type|start|end|valid", re.I)
+MAX_PROMO_TEXTS = 40
+
+
+def _promo_texts(node: Any, key: str, found: dict[str, set[str]]) -> None:
+    if isinstance(node, dict):
+        for name, value in node.items():
+            _promo_texts(value, name, found)
+    elif isinstance(node, list):
+        for value in node:
+            _promo_texts(value, key, found)
+    elif isinstance(node, str) and node and PROMO_TEXT_RE.search(key):
+        found.setdefault(key, set()).add(node[:60])
+
+
+def promo_report(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Hoe de aanbiedingen van een winkel eruitzien: de velden eromheen en de teksten die erin staan.
+
+    Alleen velden die met prijs of aanbieding te maken hebben worden bekeken. Van getallen (prijzen) zien we
+    het type, niet de waarde; van tekstvelden zoals de actietekst ("2e halve prijs") en datums de waarde.
+    Producten en id's komen er niet in voor.
+    """
+    subsets = [{k: v for k, v in item.items() if PROMO_FIELD_RE.search(k)} for item in items if isinstance(item, dict)]
+    if not subsets:
+        return {"met aanbieding": 0}
+    found: dict[str, set[str]] = {}
+    for subset in subsets:
+        _promo_texts(subset, "", found)
+    texts = {key: sorted(values)[:MAX_PROMO_TEXTS] for key, values in sorted(found.items())}
+    return {
+        "met aanbieding": len(subsets),
+        "velden": _union([shape(subset) for subset in subsets]),
+        "teksten": texts,
+    }
+
+
+def promo_probe(terms: tuple[str, ...], fetch: Callable[[str], list[dict[str, Any]]], is_bonus: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+    """Zoek de termen en geef `promo_report` van de producten met een aanbieding."""
+    total, bonus = 0, []
+    for term in terms:
+        items = fetch(term)
+        total += len(items)
+        bonus.extend(item for item in items if is_bonus(item))
+    return {"gezocht": list(terms), "producten": total, **promo_report(bonus)}
+
+
 def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
     try:
         result = call()
@@ -83,6 +134,17 @@ def explore() -> dict[str, Any]:
     probes: list[dict[str, Any]] = []
 
     report, _ = _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
+    probes.append(report)
+
+    report, _ = _probe(
+        "aanbiedingen: GET product/search/v2 (de velden van producten in de bonus)",
+        lambda: promo_probe(
+            PROMO_TERMS,
+            lambda term: (_raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"}) or {}).get("products") or [],
+            lambda item: bool(item.get("isBonus")),
+        ),
+        lambda data: data,
+    )
     probes.append(report)
 
     report, active = _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))

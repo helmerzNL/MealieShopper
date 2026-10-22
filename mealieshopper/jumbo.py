@@ -27,7 +27,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from . import auth
+from . import auth, deals
 from .ah import extract_oauth_code
 from .i18n import tr
 from .packs import assess_packs, normalize_quantity
@@ -394,7 +394,9 @@ def _product(raw: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(tag, dict) and tag.get("text")
     ]
     link = raw.get("link")
-    return {
+    is_bonus = isinstance(promo, (int, float)) or bool(tags)
+    regular = _euros(price.get("price"))
+    product = {
         "id": str(sku),
         "title": str(title),
         "brand": None,
@@ -402,10 +404,20 @@ def _product(raw: dict[str, Any]) -> dict[str, Any] | None:
         "unitSize": raw.get("subtitle") or str(title),
         "price": _euros(promo if isinstance(promo, (int, float)) else price.get("price")),
         "image": _image(raw.get("image")),
-        "isBonus": isinstance(promo, (int, float)) or bool(tags),
+        "isBonus": is_bonus,
         "available": (raw.get("availability") or {}).get("isAvailable") is not False,
         "url": f"{SITE_URL}{link}" if isinstance(link, str) and link.startswith("/") else None,
     }
+    if is_bonus:
+        # De actietekst ("2 voor 5") en de gewone prijs, zodat `deals` kan uitrekenen wat de aanbieding inhoudt.
+        # Jumbo noemt hier geen looptijd; die blijft leeg tot een echte respons uitwijst waar die staat.
+        product["promo"] = {
+            "label": " | ".join(tags) or None,
+            "priceBefore": regular if isinstance(promo, (int, float)) and regular and regular > _euros(promo) else None,
+            "validFrom": None,
+            "validUntil": None,
+        }
+    return product
 
 
 def products_from_search(data: Any) -> list[dict[str, Any]]:
@@ -528,6 +540,7 @@ def candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, An
         "price": product.get("price"),
         "image": product.get("image"),
         "isBonus": bool(product.get("isBonus")),
+        "deal": deals.candidate_deal("jumbo", product),
         "url": product.get("url"),
         "packs": packs,
         "doubt": doubt,

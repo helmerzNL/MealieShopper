@@ -23,7 +23,7 @@ from urllib.parse import quote
 
 import requests
 
-from . import auth
+from . import auth, deals
 from .i18n import tr
 from .packs import MAX_CART_QUANTITY as MAX_QUANTITY, assess_packs, normalize_quantity
 
@@ -296,17 +296,32 @@ def _product(unit: dict[str, Any]) -> dict[str, Any] | None:
         return None
     decorators = [d for d in unit.get("decorators") or [] if isinstance(d, dict)]
     price = _euros(unit.get("display_price"))
-    return {
+    promo_decorators = [d for d in decorators if "PROMO" in str(d.get("type", "")).upper()]
+    is_bonus = bool(promo_decorators) or bool(unit.get("price_ranges"))
+    product = {
         "id": str(product_id),
         "title": str(unit["name"]),
         "brand": None,  # de zoektegel noemt het merk niet apart; het zit in de naam
         "unitSize": unit.get("unit_quantity"),
         "price": price,
         "image": image_url(unit.get("image_id")),
-        "isBonus": any("PROMO" in str(d.get("type", "")).upper() for d in decorators)
-        or bool(unit.get("price_ranges")),
+        "isBonus": is_bonus,
         "maxCount": unit.get("max_count"),
     }
+    if is_bonus:
+        # De tekst op het label en de gewone prijs. De velden zijn nog niet met een echte respons gecontroleerd
+        # en Picnic noemt geen looptijd op de zoektegel.
+        regular = _euros(unit.get("price"))
+        product["promo"] = {
+            "label": " | ".join(
+                str(d.get("text") or d.get("label")) for d in promo_decorators if d.get("text") or d.get("label")
+            )
+            or None,
+            "priceBefore": regular if regular is not None and price is not None and regular > price else None,
+            "validFrom": None,
+            "validUntil": None,
+        }
+    return product
 
 
 def products_from_search_page(page: Any) -> list[dict[str, Any]]:
@@ -860,6 +875,7 @@ def candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, An
         "price": product.get("price"),
         "image": product.get("image"),
         "isBonus": bool(product.get("isBonus")),
+        "deal": deals.candidate_deal("picnic", product),
         "url": None,  # Picnic heeft geen webwinkel waar een product op staat
         "packs": packs,
         "doubt": doubt,
