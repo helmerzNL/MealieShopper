@@ -192,11 +192,17 @@ async function showOffers() {
   showOfferRecipes();
 }
 
+// Het vinkje bij een koppeling die een AI heeft gevonden (zoeken) of goedgekeurd (beoordelen).
+function offerAiBadge(item) {
+  const label = item.ai === "search" ? t("aisearch.badge") : item.ai === "ok" ? t("aireview.badge") : "";
+  return label ? `<span class="offer-ai" title="${escapeHtml(label)}" role="img" aria-label="${escapeHtml(label)}">${mdiIcon(MDI_CHECK_CIRCLE_OUTLINE)}</span>` : "";
+}
+
 function offerRecipeCard(recipe, index) {
   const matched = recipe.matched
     .map(
       (item, at) =>
-        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button>${item.ai === "ok" ? `<span class="offer-ai" title="${escapeHtml(t("aireview.badge"))}" role="img" aria-label="${escapeHtml(t("aireview.badge"))}">${mdiIcon(MDI_CHECK_CIRCLE_OUTLINE)}</span>` : ""}<button class="offer-flag" type="button" data-recipe="${index}" data-match="${at}" title="${escapeHtml(t("offers.report.label"))}" aria-label="${escapeHtml(t("offers.report.aria", { product: item.offer.title }))}">${mdiIcon(MDI_FLAG_OUTLINE)}</button></li>`
+        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button>${offerAiBadge(item)}<button class="offer-flag" type="button" data-recipe="${index}" data-match="${at}" title="${escapeHtml(t("offers.report.label"))}" aria-label="${escapeHtml(t("offers.report.aria", { product: item.offer.title }))}">${mdiIcon(MDI_FLAG_OUTLINE)}</button></li>`
     )
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";

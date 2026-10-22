@@ -207,7 +207,7 @@ class ReviewTest(AiTestCase):
         listed = offers.list_mismatches("ah")["reports"]
         self.assertEqual([(r["offerId"], r["source"], r["reason"]) for r in listed], [("1", "ai", "reden")])
         data = offers.suggest("ah")
-        self.assertEqual(data["ai"], {"judged": 1, "unjudged": 1}, "het volgende kipfilet-product (Jumbo) is nog niet beoordeeld")
+        self.assertEqual({key: data["ai"][key] for key in ("judged", "unjudged")}, {"judged": 1, "unjudged": 1}, "het volgende kipfilet-product (Jumbo) is nog niet beoordeeld")
 
     def test_a_pair_is_only_judged_once(self):
         self.seed()
@@ -414,10 +414,10 @@ class MarkupTest(unittest.TestCase):
         self.assertIn('const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";', app_js, "het officiële MDI-icoon")
         self.assertIn('item.ai === "ok"', offers_js)
         self.assertIn("renderOfferAi(data.ai)", offers_js)
-        self.assertIn("window.confirm(t(\"aireview.confirm\"", script, "geld uitgeven vraagt een bevestiging")
-        self.assertIn("mdiIcon(MDI_LOADING", script, "draaiend icoon tijdens het beoordelen")
-        for route in ("/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review"):
+        self.assertIn("mdiIcon(MDI_LOADING", script, "draaiend icoon tijdens het werk")
+        for route in ("/api/offers/ai", "/api/offers/ai/test"):
             self.assertIn(f'"{route}"', script)
+        self.assertNotIn("/api/offers/ai/review", script, "de knop zoekt recepten; het beoordelen van koppelingen blijft alleen als API")
         self.assertIn('$(`#ai-key-${provider}`).value = "";', script, "het sleutelveld wordt na opslaan leeg gemaakt")
         self.assertIn("loadAiReviewSettings", app_js)
         for text in (readme, readme_en):

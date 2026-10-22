@@ -3,7 +3,8 @@
 
 const AI_REVIEW_PROVIDERS = ["anthropic", "openai"];
 const AI_REVIEW_ENV = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
-const aiReviewState = { status: null, unjudged: 0, running: false };
+const AI_SEARCH_POLL_MS = 2000;
+const aiReviewState = { status: null, running: false, timer: 0 };
 
 // Het tabblad Recepten bij Aanbiedingen is zichtbaar met een AI-sleutel (of de omgevingsvariabele); na het opslaan van een sleutel zonder herladen.
 function setOffersRecipesTab(visible) {
@@ -115,48 +116,87 @@ async function renderOfferAi(ai) {
   const status = aiReviewState.status;
   const text = $("#offers-ai-status");
   const button = $("#offers-ai-run");
-  aiReviewState.unjudged = ai ? ai.unjudged : 0;
   if (!status.active || !ai) {
     text.textContent = "";
     button.hidden = true;
     return;
   }
-  const total = ai.judged + ai.unjudged;
-  text.textContent = ai.judged ? t("aireview.progress", { judged: ai.judged, total }) : t("aireview.progress_none");
-  button.hidden = !ai.unjudged;
+  if (!aiReviewState.running) {
+    text.textContent = ai.searched ? t("aisearch.searched", { searched: ai.searched, recipes: ai.recipes }) : t("aisearch.searched_none");
+    button.hidden = false;
+  }
+  // Loopt er een ronde (ook na een herlading van de pagina), dan tonen we de voortgang.
+  if (status.search && status.search.state === "running" && !aiReviewState.running) watchAiSearch(status.search);
 }
 
-async function runAiReview() {
+function setAiSearchBusy(job) {
+  const button = $("#offers-ai-run");
+  button.disabled = true;
+  button.hidden = false;
+  button.innerHTML = `${mdiIcon(MDI_LOADING, "ai-run__icon")}<span>${escapeHtml(t("aisearch.progress", { done: job.done || 0, total: job.total || 0 }))}</span>`;
+}
+
+function aiSearchNotice(job, info) {
+  const result = job.result || {};
+  const done = t("aisearch.done", {
+    searched: result.searched || 0, matched: result.matched || 0, remaining: result.remaining || 0,
+    tokens: I18N.formatNumber(result.tokens || job.tokens || 0), name: info.name, model: result.model || info.model,
+  });
+  if (job.state === "error") return { text: result.searched ? `${done} ${job.error}` : job.error, type: "error" };
+  return { text: done, type: "success" };
+}
+
+// Volgt een lopende ronde: elke twee seconden de stand ophalen, en aan het eind de lijst vernieuwen en een melding tonen.
+function watchAiSearch(job) {
+  const status = aiReviewState.status;
+  const info = status.providers[status.active] || { name: "", model: "" };
+  aiReviewState.running = true;
+  setAiSearchBusy(job);
+  clearInterval(aiReviewState.timer);
+  const tick = async () => {
+    let current;
+    try {
+      current = await jsonFetch("/api/offers/ai/search/status");
+    } catch (error) {
+      current = { state: "error", error: error.message };
+    }
+    if (current.state === "running") {
+      setAiSearchBusy(current);
+      return;
+    }
+    clearInterval(aiReviewState.timer);
+    aiReviewState.running = false;
+    $("#offers-ai-run").disabled = false;
+    $("#offers-ai-run").textContent = t("aireview.run");
+    const notice = aiSearchNotice(current, info);
+    status.search = current;
+    await showOfferRecipes();
+    message("#offers-recipes-message", notice.text, notice.type);
+  };
+  aiReviewState.timer = setInterval(tick, AI_SEARCH_POLL_MS);
+}
+
+async function runAiSearch() {
   const status = aiReviewState.status;
   if (!status || !status.active || aiReviewState.running) return;
   const info = status.providers[status.active];
-  const count = Math.min(aiReviewState.unjudged, status.defaultMaxPairs);
-  if (!window.confirm(t("aireview.confirm", { count, name: info.name }))) return;
-  const button = $("#offers-ai-run");
-  aiReviewState.running = true;
-  button.disabled = true;
-  button.innerHTML = `${mdiIcon(MDI_LOADING, "ai-run__icon")}<span>${escapeHtml(t("aireview.running"))}</span>`;
-  let notice = null;
+  message("#offers-recipes-message", "");
   try {
-    const result = await jsonFetch("/api/offers/ai/review", {
+    const plan = await jsonFetch(`/api/offers/ai/search/plan?store=${encodeURIComponent(offersState.store)}`);
+    if (!plan.todo) {
+      message("#offers-recipes-message", t("aisearch.nothing"), "success");
+      return;
+    }
+    if (!window.confirm(t("aisearch.confirm", { recipes: plan.chosen, name: info.name, tokens: I18N.formatNumber(plan.estimatedTokens) }))) return;
+    const job = await jsonFetch("/api/offers/ai/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ store: offersState.store, max: status.defaultMaxPairs }),
+      body: JSON.stringify({ store: offersState.store, max: plan.maxRecipes }),
     });
-    const done = t("aireview.done", {
-      judged: result.judged, ok: result.ok, wrong: result.wrong, remaining: result.remaining,
-      tokens: I18N.formatNumber(result.tokens), name: info.name, model: result.model,
-    });
-    notice = result.error ? { text: `${done} ${result.error}`, type: "error" } : { text: result.judged ? done : t("aireview.nothing"), type: "success" };
+    watchAiSearch(job);
   } catch (error) {
-    notice = { text: error.message, type: "error" };
-  } finally {
-    aiReviewState.running = false;
-    button.disabled = false;
-    button.textContent = t("aireview.run");
+    message("#offers-recipes-message", error.message);
   }
-  await showOfferRecipes();
-  message("#offers-recipes-message", notice.text, notice.type);
 }
 
 $("#ai-review-form").addEventListener("submit", aiReviewSubmit);
@@ -164,7 +204,7 @@ for (const provider of AI_REVIEW_PROVIDERS) {
   $(`#ai-test-${provider}`).addEventListener("click", () => aiReviewTest(provider));
   $(`#ai-clear-${provider}`).addEventListener("click", () => aiReviewClear(provider));
 }
-$("#offers-ai-run").addEventListener("click", runAiReview);
+$("#offers-ai-run").addEventListener("click", runAiSearch);
 window.addEventListener("ms:languagechange", () => {
   if (aiReviewState.status) applyAiReviewStatus(aiReviewState.status);
 });
