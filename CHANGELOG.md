@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.60.2
+
+*English summary: Picnic's offers are now read from where the explorer report showed them: the discount text next to products on the home page ("1+1 free", "20% off", "2 for €5", "now €1.99") and the action pages behind the cards under "Acties van de week" (`promo-group-deep-dive`), where every product is an offer. The label is the tile's text, or else the card's title. Picnic gives no old price.*
+
+### Aangepast in 2.60.2
+
+- **Picnic-aanbiedingen komen nu uit de startpagina.** Het rapport van de verkenner liet zien hoe ze erin staan: bij sommige producttegels staat een kortingtekst ernaast (*1+1 gratis*, *20% korting*, *2 voor €5*, *nu €1.99*, *2e = 50% korting*), en de kaarten onder *Acties van de week* openen een actiepagina (`promo-group-deep-dive`) met de producten van die actie. MealieShopper neemt de producten met een kortingtekst en leest die actiepagina's (met hun parameters, en de pagina's die ze zelf later laden), waar alle producten aanbiedingen zijn. Het label is de kortingtekst van de tegel, of anders de titel van de kaart (bijvoorbeeld *Appels en peren*). Recepten en andere pagina's worden niet gevolgd.
+- **Rustig bij Picnic.** Tussen de pagina's zit een korte pauze en er worden hooguit veertig pagina's per synchronisatie gelezen, zodat Picnic niet tijdelijk blokkeert.
+- De verwijzingen in de app komen met `nl.picnic-supermarkt://` en een parameter erachter; die worden nu herkend en doorgegeven.
+- De Picnic-verkenner leest nu ook de eerste drie actiepagina's, voor als hun opbouw anders blijkt dan verwacht.
+
+### Goed om te weten
+
+- Picnic geeft geen oude prijs bij een aanbieding, dus *oude prijs* ontbreekt; de prijs is die van de tegel.
+- Dit is gebouwd op het verkenner-rapport, zonder de actiepagina's zelf te hebben gezien. Geeft een synchronisatie weinig of niets, deel dan het deel van het rapport met *aanbiedingen: GET pages/promo-group-deep-dive...*.
+
 ## v2.60.1
 
 *English summary: The Picnic explorer is lighter (no more than a few dozen requests instead of more than a hundred, so Picnic no longer blocks the network halfway through; the old favorites exploration needs `?extended=1`) and reports more about the offers on the home page: the texts next to products and where the "Acties" cards lead.*
