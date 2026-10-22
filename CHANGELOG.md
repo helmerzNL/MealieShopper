@@ -2,6 +2,42 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.64.0
+
+*English summary: The products linked to a recipe's ingredients can be clicked. A dialog shows the product (picture, name, brand and size, the offer, the price with the old price, the conditions) and which ingredient from which recipe it is linked to, so you see at once whether the link is right. A button opens the store's own page in a separate window; Picnic has no web shop, so there the dialog says there is no product page. The dialog works with the keyboard (Enter opens, Esc closes), also closes with a click outside it, and fits a phone and the dark theme.*
+
+### Nieuw in 2.64.0
+
+- **Gekoppelde producten zijn aan te klikken.** Onder een receptvoorstel is `→ AH Zalmfilet 2-pack` nu een knop. Die opent een venster met het plaatje, de naam, het merk en de inhoud, de actie (*1+1 gratis*), de prijs met de oude prijs, de voorwaarden (*bij 2 stuks · € 2,50 per stuk · t/m 25 okt*) en de zin *Gekoppeld aan "100 g zalmfilet" uit Romige tagliatelle met zalm*. Zo zie je meteen of het product bij het ingrediënt past.
+- **Bekijk bij de winkel.** Een knop *Bekijk bij Albert Heijn* of *Bekijk bij Jumbo* opent de pagina van het product in een los venster (hetzelfde als *Bekijk product* bij het mandje). Picnic heeft geen webwinkel; daar staat in het venster dat er geen productpagina is en ontbreekt de knop.
+- Het venster sluit met *Sluiten*, met Esc of met een klik ernaast. Met het toetsenbord opent Enter op de productnaam het venster, en na het sluiten staat de focus weer op die naam. Het past op een telefoon en volgt het donkere thema.
+
+### Goed om te weten
+
+- Een productplaatje dat niet laadt wordt in het venster verborgen en niet uit de pagina gehaald (anders zou het venster daarna geen plaatjes meer kunnen tonen).
+- Alleen bij de receptvoorstellen; de kaarten bij Aanbiedingen > Aanbiedingen openen nog steeds direct de winkelpagina in een nieuw tabblad.
+- De API en de MCP-tools zijn niet veranderd.
+
+## v2.63.1
+
+*English summary: Fewer wrong links between recipe ingredients and offers. A kind of product ("curry sauce", "bread roll") only fits an offer that has the other words too, a raw product (bell pepper, chicken fillet) no longer fits a prepared one (crisps, focaccia, a wrap), shampoo, cat food and other non-food offers are left out, and Lay's/Bifi and similar snack brands are snacks instead of "vegetables". A line with a teaspoon or a pinch, a spice powder, English basics (salt, oil, flour ...) and a heading such as "Spice mixture (below)" no longer count as ingredients, and the same ingredient twice in a recipe counts once. In the two recipes that were reported, "5 of 20" became 1 of 8 (and is no longer suggested), and the shampoo is gone from the sushi bowl.*
+
+### Opgelost in 2.63.1
+
+- **Verkeerde koppelingen in de receptvoorstellen**, uit twee gemelde recepten:
+  - *Bread roll* hoorde bij *Bifi Roll XXL*, *1 tbsp curry sauce* bij *Sweet chilli sauce*. Bij een soort (*saus*, *sauce*, *soep*, *kaas*, *brood*, *rol*, *worst*, *dressing*, *drank*, *vlees*, *vis*) moeten de andere woorden van het ingrediënt ook in de aanbieding staan.
+  - *Paprika* hoorde bij *Lay's Paprika* en bij *AH Focaccia paprika olijf*. Een rauw product (groente en fruit, vlees, vis, zuivel en eieren, kaas en vleeswaren) past niet bij een bereid product (brood en bakkerij, maaltijden, snacks). Lay's, Doritos, Pringles, Cheetos, Bifi, Bugles en Tostitos zijn nu snacks; voorheen telde *Lay's Paprika* als groente. Dat verbetert ook de categorieën bij de aanbiedingen.
+  - *Avocado's* hoorde bij *Avocado olie shampoo*. Aanbiedingen van drogisterie, huishouden, baby en huisdier doen niet meer mee aan de receptvoorstellen.
+- **Wat geen ingrediënt is, telt niet meer mee** in *x van y* en in *Niet in de aanbieding*: een regel met een theelepel of snuf (*1 tsp salt*, *½ tsp cayenne*, *2 tl kurkuma*, *1 snuf nootmuskaat*), kruidenpoeders (*onion powder*, *knoflookpoeder*), de Engelse basis (*salt*, *pepper*, *oil*, *butter*, *flour*, *sugar*, *vinegar*, *stock*, *cornstarch*, *maizena*) en een kopje als *Spice mixture (below)* of *Kruidenmix (hieronder)*. Engelse eenheden en bijwoorden (*tbsp*, *tsp*, *cup*, *and*, *with*, *chopped*, ...) tellen niet als woorden van het ingrediënt, en een verbogen bijvoeglijk woord (*geraspte*, *gerookte*) telt net als *geraspt* niet mee.
+- **Hetzelfde ingrediënt twee keer in een recept telt één keer** (*1 tsp paprika* en *2 tbsp paprika* waren twee ingrediënten met twee verschillende aanbiedingen).
+- In de twee gemelde recepten werd *Grillworst* van "5 van 20" naar 1 van 8 (en wordt daarom niet meer voorgesteld, de enige koppeling is *mayo* → *Hellmann's*), en de *Warme sushibowl* verloor de shampoo.
+
+### Goed om te weten
+
+- **Engelse receptregels** (veel Mealie-imports) kunnen niet met Nederlandse aanbiedingen worden vergeleken: alleen woorden die in beide talen gelijk zijn (*paprika*, *mayo*, *avocado*) matchen. Zo'n recept toont nu minder valse koppelingen, maar blijft meestal onder de ondergrens.
+- *Komkommer* hoort nog bij *AH Tomaat komkommer M* (een titel met een tweede groente); of dat klopt, is uit de titel alleen niet te zien. Gereedschap als *grillpan* telt nog als ingrediënt dat niet in de aanbieding is.
+- De API en de MCP-tools zijn niet veranderd.
+
 ## v2.63.0
 
 *English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*

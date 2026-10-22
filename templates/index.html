@@ -157,6 +157,27 @@
       </div>
     </section>
 
+    <dialog id="offer-product-dialog" class="product-dialog" aria-labelledby="offer-product-title">
+      <div class="product-dialog__inner">
+        <div class="product-dialog__body">
+          <img id="offer-product-image" class="product-dialog__image" alt="" hidden>
+          <div>
+            <h3 id="offer-product-title"></h3>
+            <p class="muted" id="offer-product-meta"></p>
+            <p class="bonus" id="offer-product-label"></p>
+            <p id="offer-product-price"></p>
+            <p class="muted" id="offer-product-conditions"></p>
+          </div>
+        </div>
+        <p class="product-dialog__match" id="offer-product-match"></p>
+        <p class="muted" id="offer-product-nopage" hidden data-i18n="offers.product.no_page">Deze winkel heeft geen productpagina op het web om te openen.</p>
+        <div class="product-dialog__actions">
+          <button class="button" type="button" id="offer-product-open" hidden></button>
+          <button class="button button--secondary" type="button" id="offer-product-close" data-i18n="offers.product.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="ob-title" hidden>
       <div class="onboarding__card">
         <header class="onboarding__head">
