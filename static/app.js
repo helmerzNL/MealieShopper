@@ -999,7 +999,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   } else if (verified) {
     message("#mealie-status", data.error || t("mealie.unexpected"), "error");
   } else {
-    message("#mealie-status", t("mealie.linked", { url: data.url }), "success");
+    message("#mealie-status", t("mealie.linked"), "success");
   }
 }
 
@@ -1602,7 +1602,7 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
 function showPanel(panelId, tab = null) {
   document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
   document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
-  const highlighted = tab || (["profile", "settings"].includes(panelId) ? $("#tab-avatar") : null);
+  const highlighted = tab || (["profile", "settings", "about"].includes(panelId) ? $("#tab-avatar") : null);
   if (highlighted) {
     highlighted.classList.add("is-active");
     highlighted.setAttribute("aria-current", "page");

@@ -4,13 +4,15 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.56.1
 
-*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. The AH banner now says "Albert Heijn linked". The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
+*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
 
 ### Aangepast in 2.56.1
 
 - **De "gekoppeld"-meldingen zijn even breed als de blokken eronder** (ze liepen over de volle breedte).
 - **Kortere titels op de blokken:** *Mealie*, *Albert Heijn*, *Jumbo* en *Picnic* in plaats van *Mealie koppelen* en *Inloggen bij ...*.
 - **Nieuwe volgorde:** Albert Heijn, Jumbo, Picnic, zowel bij de meldingen als bij de blokken.
+- **Over zit nu in het avatar-menu**, tussen *Instellingen* en *Uitloggen*; de tab Over is uit de tabbalk (die heeft nu zes plekken). Op een klein scherm lichtt de avatar op als Over open is.
+- **De Mealie-melding zegt nu *Mealie gekoppeld*** (zonder het adres).
 - **De AH-melding zegt nu *Albert Heijn gekoppeld*** (was *AH account gekoppeld*), net als *Albert Heijn nog niet gekoppeld* en *Albert Heijn gekoppeld en werkt*.
 - `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-30).
 

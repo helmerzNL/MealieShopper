@@ -287,7 +287,7 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Profile and settings
 
-At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only) and **Log out**.
+At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only), **About** and **Log out**.
 
 - **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
 - **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.

@@ -106,8 +106,8 @@ Schrijf kort en concreet: "Zoek bij AH", "Weekmenu laden", "Je boodschappen staa
 ## Navigatie op een telefoon
 
 In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
-zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: zeven items met een
-MDI-icoon en een kort label (`Recepten`, `Mandje`, `Aanbod`, `Import`, `Winkels`, `Profiel`, `Over`; bij `Profiel` staat de avatar op de plek van het icoon), een
+zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: zes items met een
+MDI-icoon en een kort label (`Recepten`, `Mandje`, `Aanbod`, `Import`, `Winkels`, `Profiel`; bij `Profiel` staat de avatar op de plek van het icoon, en `Over` zit in het avatar-menu), een
 groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
 de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere

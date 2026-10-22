@@ -287,7 +287,7 @@ Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en
 
 ### Profiel en instellingen
 
-Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder) en **Uitloggen**.
+Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder), **Over** en **Uitloggen**.
 
 - **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
 - **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.

@@ -54,23 +54,23 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_seven_tabs_with_icon_long_and_short_label(self):
+    def test_six_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
-        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items", "about"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 6, "het avatar-icoon in de plaats van Beheer is een eigen soort")
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 14, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["recipes", "basket", "offers", "url", "ah-items"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 5, "het avatar-icoon in de plaats van Beheer is een eigen soort")
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 12, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Profiel", "Over"])
+        self.assertEqual(short, ["Recepten", "Mandje", "Aanbod", "Import", "Winkels", "Profiel"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Profiel", "Over"])
+        self.assertEqual(long, ["Recepten", "Mandje", "Aanbiedingen", "URL importeren", "Winkels", "Profiel"])
 
-    def test_avatar_takes_the_place_of_beheer_and_shows_on_small_screens_only(self):
+    def test_avatar_is_the_last_tab_and_shows_on_small_screens_only(self):
         self.assertNotIn('data-tab="beheer"', self.html)
         avatar = re.search(r'<button class="tab tab--avatar" id="tab-avatar".*?</button>', self.nav, re.S).group(0)
         self.assertIn("hidden", avatar.split(">")[0], "zonder inlog is er geen avatar")
         self.assertIn('data-user-menu-trigger', avatar)
         self.assertLess(self.nav.index('data-tab="ah-items"'), self.nav.index('id="tab-avatar"'))
-        self.assertLess(self.nav.index('id="tab-avatar"'), self.nav.index('data-tab="about"'))
+        self.assertNotIn('data-tab="about"', self.nav, "Over zit in het avatar-menu")
         self.assertRegex(CSS, r"\.tab--avatar\s*{\s*display: none;")
         media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--avatar"):]
         self.assertIn(".tab--avatar:not([hidden])", media)
@@ -80,7 +80,7 @@ class TabbarMarkupTest(unittest.TestCase):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiInformationOutline"],
+            ["mdiCalendarWeek", "mdiCart", "mdiSale", "mdiLinkVariant", "mdiBasket"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
@@ -139,7 +139,7 @@ class TabbarStyleTest(unittest.TestCase):
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(7", "border-radius: 32px",
+        for declaration in ("position: fixed", "grid-template-columns: repeat(6", "border-radius: 32px",
                             "bottom: max(12px, env(safe-area-inset-bottom))",
                             "left: max(12px, env(safe-area-inset-left))",
                             "right: max(12px, env(safe-area-inset-right))"):

@@ -108,6 +108,7 @@ $("#user-menu-list").addEventListener("click", (event) => {
   profileMenuClose();
   if (item.dataset.userAction === "profile") openProfile();
   if (item.dataset.userAction === "settings") openSettings();
+  if (item.dataset.userAction === "about") showPanel("about");
 });
 
 // ---- De profielpagina
