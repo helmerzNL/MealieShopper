@@ -4,7 +4,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.56.1
 
-*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
+*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. On small screens the banners show an icon and the name instead of the text, coloured by status (link icon on green = linked, check mark on dark green = linked and working, crossed-out link on red = not linked), two next to each other. The AH banner now says "Albert Heijn linked" and the Mealie banner just "Mealie linked" (no address). "About" moved from the tab bar into the avatar menu, between Settings and Log out. The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
 
 ### Aangepast in 2.56.1
 
@@ -13,8 +13,9 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Nieuwe volgorde:** Albert Heijn, Jumbo, Picnic, zowel bij de meldingen als bij de blokken.
 - **Over zit nu in het avatar-menu**, tussen *Instellingen* en *Uitloggen*; de tab Over is uit de tabbalk (die heeft nu zes plekken). Op een klein scherm lichtt de avatar op als Over open is.
 - **De Mealie-melding zegt nu *Mealie gekoppeld*** (zonder het adres).
+- **Op een klein scherm staan er pictogrammen in de meldingen** in plaats van *gekoppeld*, *nog niet gekoppeld* en *gekoppeld en werkt*: een schakel op groen (gekoppeld), een vinkje op donkergroen (gekoppeld en werkt) en een doorgestreepte schakel op rood (niet gekoppeld), met de naam van de dienst. Ook op een smal scherm staan twee meldingen naast elkaar. De tekst blijft voor schermlezers staan.
 - **De AH-melding zegt nu *Albert Heijn gekoppeld*** (was *AH account gekoppeld*), net als *Albert Heijn nog niet gekoppeld* en *Albert Heijn gekoppeld en werkt*.
-- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-30).
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-31).
 
 ### Goed om te weten
 

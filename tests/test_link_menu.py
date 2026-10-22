@@ -62,10 +62,23 @@ class LinkPageTest(unittest.TestCase):
         for store, key, title in (("mealie", "link.mealie", "Mealie"), ("ah", "ahlogin.title", "Albert Heijn"), ("jumbo", "jumbo.title", "Jumbo"), ("picnic", "picnic.title", "Picnic")):
             self.assertIn(f'<span data-i18n="{key}">{title}</span>', block(store))
 
-    def test_the_ah_banner_uses_the_full_store_name(self):
-        self.assertIn('"ah.linked": "Albert Heijn gekoppeld."', NL)
-        self.assertIn('"ah.not_linked": "Albert Heijn nog niet gekoppeld."', NL)
-        self.assertIn('"ah.linked": "Albert Heijn linked."', EN)
+    def test_status_banners_have_icons_and_colours_for_small_screens(self):
+        self.assertIn('"link.status.linked": "gekoppeld"', NL)
+        self.assertIn('"link.status.unlinked": "nog niet gekoppeld"', NL)
+        self.assertIn('"link.status.working": "gekoppeld en werkt"', NL)
+        self.assertIn('"link.status.linked": "linked"', EN)
+        for needle in ("MDI_LINK", "MDI_LINK_OFF", "MDI_CHECK_CIRCLE", 'classes: "error"', "link-status--working"):
+            self.assertIn(needle, APP_JS, needle)
+        for store, script in (("picnic", "picnic.js"), ("jumbo", "jumbo.js")):
+            self.assertIn(f'renderLinkStatus("#{store}-status"', (ROOT / "static" / script).read_text(encoding="utf-8"))
+        icon = re.search(r"\.link-status__icon\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("display: none", icon, "op een groot scherm de tekst")
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .link-status__icon"):]
+        self.assertIn("display: block", media)
+        self.assertIn(".link-status__text {\n    position: absolute", media, "de tekst blijft voor schermlezers")
+        grid = re.search(r"\.link-statuses\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("repeat(2", grid)
+        self.assertNotRegex(CSS, r"@media \(max-width: 640px\) {\s*\.link-statuses", "ook op een klein scherm twee naast elkaar")
 
     def test_folds_close_when_linked(self):
         self.assertIn("function applyStoreFold(store, linked)", APP_JS)

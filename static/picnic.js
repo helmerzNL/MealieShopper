@@ -19,7 +19,7 @@ function renderPicnicStatus() {
   $("#picnic-code-box").hidden = !picnicState.codePending;
   $("#picnic-unlink").hidden = !picnicState.connected;
   $("#picnic-check").hidden = !picnicState.connected;
-  message("#picnic-status", picnicState.connected ? t("picnic.linked") : t("picnic.not_linked"), picnicState.connected ? "success" : "error");
+  renderLinkStatus("#picnic-status", STORES.picnic.name, picnicState.connected ? "linked" : "unlinked");
   applyStoreFold("picnic", picnicState.connected);
 }
 
@@ -41,8 +41,9 @@ async function checkPicnicConnection() {
   try {
     const data = await jsonFetch("/api/picnic/auth/status?verify=1");
     picnicState.connected = Boolean(data.connected);
-    if (data.verified) message("#picnic-status", t("picnic.works"), "success");
-    else message("#picnic-status", data.connected ? t("picnic.broken", { error: data.error || "" }) : t("picnic.not_linked"));
+    if (data.verified) renderLinkStatus("#picnic-status", STORES.picnic.name, "working");
+    else if (data.connected) message("#picnic-status", t("picnic.broken", { error: data.error || "" }));
+    else renderLinkStatus("#picnic-status", STORES.picnic.name, "unlinked");
   } catch (error) {
     message("#picnic-status", error.message);
   }

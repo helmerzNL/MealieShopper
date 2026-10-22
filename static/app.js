@@ -35,6 +35,24 @@ function mdiIcon(path, className = "mdi") {
   return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
 }
 
+const MDI_LINK = "M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z";
+const MDI_LINK_OFF = "M2,5.27L3.28,4L20,20.72L18.73,22L13.9,17.17L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L12.5,15.76L10.88,14.15C10.87,14.39 10.77,14.64 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C8.12,13.77 7.63,12.37 7.72,11L2,5.27M12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.79,8.97L9.38,7.55L12.71,4.22M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.2,10.54 16.61,12.5 16.06,14.23L14.28,12.46C14.23,11.78 13.94,11.11 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z";
+const MDI_CHECK_CIRCLE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z";
+
+// De meldingen op de koppelpagina: op een groot scherm "Albert Heijn gekoppeld", op een klein scherm alleen de naam met
+// een pictogram en de kleur van de balk (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld).
+// De tekst blijft voor schermlezers staan.
+const LINK_STATUS = {
+  linked: { icon: MDI_LINK, classes: "success", text: "link.status.linked" },
+  unlinked: { icon: MDI_LINK_OFF, classes: "error", text: "link.status.unlinked" },
+  working: { icon: MDI_CHECK_CIRCLE, classes: "success link-status--working", text: "link.status.working" },
+};
+
+function renderLinkStatus(target, name, status, detail = "") {
+  const info = LINK_STATUS[status];
+  $(target).innerHTML = `<div class="message ${info.classes} link-status" data-link-status="${status}" role="status">${mdiIcon(info.icon, "link-status__icon")}<span class="link-status__name">${escapeHtml(name)}</span> <span class="link-status__text">${escapeHtml(t(info.text))}${escapeHtml(detail)}.</span></div>`;
+}
+
 // Kleine letters zonder accenten, zodat "cafe" ook "café" vindt.
 function foldText(value) {
   return String(value ?? "")
@@ -961,11 +979,7 @@ async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
     const data = await jsonFetch("/api/ah/auth/status");
-    message(
-      "#ah-status",
-      data.connected ? t("ah.linked") : t("ah.not_linked"),
-      data.connected ? "success" : "error"
-    );
+    renderLinkStatus("#ah-status", STORES.ah.name, data.connected ? "linked" : "unlinked");
     applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
     message("#ah-status", error.message);
@@ -987,7 +1001,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   }
   applyStoreFold("mealie", Boolean(data.configured));
   if (!data.configured) {
-    message("#mealie-status", t("mealie.not_linked"), "error");
+    renderLinkStatus("#mealie-status", "Mealie", "unlinked");
   } else if (verified && data.connected) {
     const details = [
       data.version ? t("mealie.version", { version: data.version }) : "",
@@ -995,11 +1009,11 @@ function renderMealieStatus(data, { verified = false } = {}) {
     ]
       .filter(Boolean)
       .join(", ");
-    message("#mealie-status", t("mealie.works", { url: data.url, details: details ? ` (${details})` : "" }), "success");
+    renderLinkStatus("#mealie-status", "Mealie", "working", `: ${data.url}${details ? ` (${details})` : ""}`);
   } else if (verified) {
     message("#mealie-status", data.error || t("mealie.unexpected"), "error");
   } else {
-    message("#mealie-status", t("mealie.linked"), "success");
+    renderLinkStatus("#mealie-status", "Mealie", "linked");
   }
 }
 
@@ -1064,7 +1078,7 @@ async function checkAhConnection() {
   try {
     const data = await jsonFetch("/api/ah/auth/status?verify=1");
     if (data.connected) {
-      message("#ah-status", t("ah.works"), "success");
+      renderLinkStatus("#ah-status", STORES.ah.name, "working");
     } else {
       message(
         "#ah-status",

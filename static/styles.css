@@ -1899,9 +1899,43 @@ body.has-onboarding {
   margin-bottom: 8px;
 }
 
+.link-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.link-status__icon {
+  display: none;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.link-status--working {
+  border-color: var(--success-text);
+  font-weight: 600;
+}
+
+/* Op een klein scherm staan twee meldingen naast elkaar: alleen het pictogram en de naam; de tekst blijft voor schermlezers. */
 @media (max-width: 640px) {
-  .link-statuses {
-    grid-template-columns: minmax(0, 1fr);
+  .link-status__icon {
+    display: block;
+  }
+
+  .link-status__text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .link-status__name {
+    font-weight: 600;
   }
 }
 
