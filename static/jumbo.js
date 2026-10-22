@@ -8,6 +8,7 @@ function renderJumboStatus() {
   $("#jumbo-unlink").hidden = !jumboState.connected;
   $("#jumbo-check").hidden = !jumboState.connected;
   message("#jumbo-status", jumboState.connected ? t("jumbo.linked") : t("jumbo.not_linked"), jumboState.connected ? "success" : "error");
+  applyStoreFold("jumbo", jumboState.connected);
 }
 
 async function refreshJumboStatus() {

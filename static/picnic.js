@@ -20,6 +20,7 @@ function renderPicnicStatus() {
   $("#picnic-unlink").hidden = !picnicState.connected;
   $("#picnic-check").hidden = !picnicState.connected;
   message("#picnic-status", picnicState.connected ? t("picnic.linked") : t("picnic.not_linked"), picnicState.connected ? "success" : "error");
+  applyStoreFold("picnic", picnicState.connected);
 }
 
 async function refreshPicnicStatus() {

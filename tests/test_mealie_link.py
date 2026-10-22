@@ -66,7 +66,7 @@ class ConfigSourceTest(MealieTestCase):
         self.assertEqual(mealie._config(), ("", "", None))
         with self.assertRaises(RuntimeError) as ctx:
             mealie.ensure_configured()
-        self.assertIn("Beheer > Mealie", str(ctx.exception))
+        self.assertIn("Beheer > Koppelen > Mealie", str(ctx.exception))
 
     def test_environment_only(self):
         with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl/", "MEALIE_API_TOKEN": "env-token"}):

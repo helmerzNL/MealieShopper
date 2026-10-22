@@ -291,13 +291,13 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat bij **Winkels** een uitklapmenu met Albert Heijn, Picnic en Jumbo; de knop toont de gekozen winkel en je opent er de koppeling, de instellingen en de verkenner van die winkel. Mealie heeft een eigen tab. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat **Koppelen**, een uitklapmenu met Albert Heijn, Picnic, Jumbo en Mealie. Per winkel staat bovenaan of het account gekoppeld is (met `Koppeling controleren`), en daaronder het inklapbare blok **Inloggen bij ...** met de stappen, het afronden van de koppeling en de routeverkenner; het klapt in zodra de winkel gekoppeld is. Alleen de beheerder ziet dit.
 
-<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte winkelmenu: Albert Heijn, Picnic en Jumbo" width="900">
+<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte menu Koppelen: Albert Heijn, Picnic, Jumbo en Mealie" width="900">
 
-<img src="docs/screenshots/nl/settings-picnic.png" alt="Beheer, Winkels, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
+<img src="docs/screenshots/nl/settings-picnic.png" alt="Beheer, Koppelen, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
 
-<img src="docs/screenshots/nl/settings-jumbo.png" alt="Beheer, Winkels, Jumbo: inloggen via de browserconsole" width="900">
+<img src="docs/screenshots/nl/settings-jumbo.png" alt="Beheer, Koppelen, Jumbo: inloggen via de browserconsole" width="900">
 
 ### Mealie
 
@@ -321,7 +321,7 @@ Met `Koppeling controleren` zie je of de opgeslagen token nog werkt. Onder **AH-
 
 ### Picnic
 
-Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Winkels > Picnic**):
+Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord (alleen de beheerder, onder **Beheer > Koppelen > Picnic**):
 
 1. Vul je e-mailadres en wachtwoord in en kies `Inloggen bij Picnic`.
 2. Picnic vraagt meestal om een code. Die komt per sms (of per e-mail, via de knop eronder). Vul hem in en kies `Bevestigen`.
@@ -331,7 +331,7 @@ Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versle
 
 ### Jumbo
 
-Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Winkels > Jumbo**). Dat werkt net als bij Albert Heijn:
+Jumbo heeft geen officiële koppeling. MealieShopper logt in zoals de Jumbo-app, in je eigen browser (op een computer, alleen de beheerder, onder **Beheer > Koppelen > Jumbo**). Dat werkt net als bij Albert Heijn:
 
 1. Kies `Inloggen bij Jumbo`; er opent een nieuw tabblad.
 2. Open in dat tabblad de ontwikkelaarsconsole (`F12`) **voordat** je inlogt.
@@ -489,7 +489,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.
 
-**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Winkels > Picnic en log opnieuw in.
+**Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Beheer > Koppelen > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
 
