@@ -6,6 +6,29 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 *English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
 
+### Sinds de vorige stabiele versie (v2.53.0)
+
+Deze release brengt `main` van v2.53.0 naar v2.63.0. De tussenliggende versies (2.53.1 tot en met 2.62.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.53.0: the new Offers tab (offers of Albert Heijn, Picnic and Jumbo, in categories, refreshed daily in the background, with a permanent history and the conditions and end date of each offer); recipe suggestions based on the offers of the chosen store, with a filter on the kind of dish; a reorganised interface (Settings > Link on one page, an avatar menu with Profile and Settings, a vertical menu on large screens, a week menu that loads by itself); and Settings > System with a factory reset. Read your recipes once more after updating so the kind of dish is stored.*
+
+- **Aanbiedingen (2.53.0 tot en met 2.62.0).** Een nieuw tabblad **Aanbiedingen** met de aanbiedingen van Albert Heijn, Picnic en Jumbo, per categorie, met oude en nieuwe prijs, de voorwaarden (*bij 2 stuks*) en de einddatum. Een achtergrondtaak ververst ze elke dag (standaard rond 5 uur) en de beheerder synchroniseert ze meteen onder *Instellingen > Koppelen*. Elke synchronisatie komt ook in een blijvende geschiedenis (`GET /api/offers/history`).
+- **Receptvoorstellen.** Recepten uit Mealie, Jumbo, Picnic en AH worden vergeleken met de aanbiedingen van de gekozen winkel, met de meeste ingrediënten in de aanbieding bovenaan, een filter op soort gerecht en per recept wat er niet in de aanbieding is. Ingrediënten worden strenger aan aanbiedingen gekoppeld en basisingrediënten (zout, olie, boter, bloem, …) tellen niet mee.
+- **Nieuwe indeling.** *Instellingen > Koppelen* is één pagina met de status van Mealie en de winkels bovenaan; een avatar-menu met Profiel, Instellingen en Over vervangt het tabblad Beheer; op een groot scherm staat het hoofdmenu links en is het inklapbaar; het weekmenu laadt vanzelf met een cache van 30 minuten.
+- **Instellingen > Systeem.** Het tabblad *Updates* heet nu *Systeem* en bevat de updatecheck en de beheerdersfunctie *Fabrieksinstellingen* (v2.63.0 hieronder).
+- **Nieuwe routes** (alleen beheerder, tenzij anders vermeld): `GET /api/offers`, `POST /api/offers/sync`, `GET /api/offers/recipes`, `POST /api/offers/recipes/sync`, `GET /api/offers/status`, `POST /api/offers/sync-all`, `GET /api/offers/history`, `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` en `POST /api/system/factory-reset`. De MCP-tools zijn niet veranderd.
+- **Verwijderd.** De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen (de aanbiedingen komen uit de lokale kopie), het aparte tabje *Mealie* (nu onderdeel van *Koppelen*) en het tabblad *Beheer* (nu in het avatar-menu).
+
+#### Goed om te weten bij het bijwerken
+
+- **Lees je recepten één keer opnieuw in** (*Aanbiedingen > Recepten > Recepten inlezen*): de soort gerecht wordt daarbij bewaard. Tot dan staan alle recepten onder *overig*.
+- **Nieuwe, optionele instellingen:** `MEALIESHOPPER_OFFERS_SYNC_HOUR` (uur van de dagelijkse run, standaard 5) en `MEALIESHOPPER_OFFERS_SCHEDULE=false` om de dagelijkse taak uit te zetten. Zonder aanpassing werkt alles zoals voorheen.
+- De database wordt zo nodig vanzelf aangevuld (onder meer de kolom *categorie* en de geschiedenis van de aanbiedingen); je hoeft niets te migreren.
+- De aanbiedingen van Picnic en Jumbo komen uit onofficiële routes en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij *Koppelen* en bij *Aanbiedingen*.
+- De screenshots in `docs/screenshots/` kunnen nog een oudere indeling tonen.
+
+Pull requests sinds v2.53.0: #89 tot en met #107.
+
 ### Nieuw in 2.63.0
 
 - **Fabrieksinstellingen.** Onder *Instellingen > Systeem > Opschonen* zet de beheerder MealieShopper terug naar een nieuwe installatie. Dat verwijdert de database (gebruikers, wachtwoorden, passkeys, koppelingen, lijstjes, bestellingen, aanbiedingen, auditlog) en `secret.key`. De knop opent eerst een waarschuwing met de gevolgen en vraagt daarna om het woord `RESET`, om opnieuw te bewijzen wie je bent (wachtwoord, en bij tweestapsverificatie ook de code of een herstelcode; of een passkey) en om een laatste bevestiging. Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
@@ -276,7 +299,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - Verder verandert er niets aan de aanbiedingen, de receptvoorstellen, de koppelingen of de API.
 
-## v2.53.0
+## v2.53.0 (beta, tabblad Aanbiedingen)
 
 *English summary: New main tab **Offers**: shows the offers of a store (for now Albert Heijn Bonus, no AH link needed) and suggests recipes with ingredients on offer, from your Mealie recipes, Jumbo favourites, Picnic recipes and saved AH recipes. Matching runs locally, without an AI service. Picnic and Jumbo offers follow once their route is known: the explorers help find it. The main menu now has seven tabs, which also fits the installed app's bottom bar again.*
 
@@ -317,7 +340,6 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - Er worden nog geen aanbiedingen aan recepten gekoppeld; dat volgt na de verkennerrapporten.
 - De API en de MCP-tools zijn niet veranderd, op het extra veld `deal` bij de producten van de controlelijst na.
 
-## v2.52.0
 ## v2.52.0
 
 *English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*
