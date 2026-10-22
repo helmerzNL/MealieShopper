@@ -1,0 +1,25 @@
+name: Pull request target
+
+# Pull requests gaan naar beta. main krijgt alleen een pull request vanuit beta (de promotie
+# naar een stabiele release). Maak deze check verplicht in de branch protection van main.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  only-from-beta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require beta as the source branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" != "beta" ]; then
+            echo "::error::Pull requests naar main komen alleen vanuit beta (dit komt uit '$HEAD_REF'). Richt je pull request op beta."
+            exit 1
+          fi
