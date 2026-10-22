@@ -2998,3 +2998,20 @@ body.has-onboarding {
     transition: none;
   }
 }
+
+/* Instellingen > Koppelen: de aanbiedingen per winkel. */
+.offers-sync-list {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.offers-sync-list__failed {
+  color: var(--danger);
+}
+
+#offers-sync-box .toolbar {
+  margin-top: 12px;
+}

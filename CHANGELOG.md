@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.59.0
+
+*English summary: The offers of Picnic and Jumbo are now fetched and shown on the Offers tab, next to Albert Heijn. A background task fetches the offers of all stores once a day (default around 5 am; `MEALIESHOPPER_OFFERS_SYNC_HOUR`, switch off with `MEALIESHOPPER_OFFERS_SCHEDULE=false`), and under Settings > Link a new "Sync offers" button fetches them right away. Picnic's offers come from the app's offers tab; Jumbo has no route for all offers, so they are found by searching common terms and keeping products with an action.*
+
+### Nieuw in 2.59.0
+
+- **Aanbiedingen van Picnic en Jumbo.** Het tabblad **Aanbiedingen** toont nu ook de aanbiedingen van Picnic en Jumbo, zodra die gekoppeld zijn, met de oude en de nieuwe prijs en het label. Picnic wordt gelezen van de aanbiedingen-tab van de app (via `/bootstrap`, met een paar bekende paginanamen als terugval). Jumbo heeft geen route die alles in een keer geeft: MealieShopper zoekt op ruim vijftig gangbare termen en houdt de producten met een actieprijs of actielabel over. Dat zijn dus de aanbiedingen bij die termen, niet per se alle.
+- **Elke dag vanzelf.** Een achtergrondtaak haalt een keer per dag de aanbiedingen van alle winkels op, standaard rond 5 uur (tijd van de container). Is de app dan uit, dan volgt het bij de volgende start; meerdere workers voeren de dagelijkse run maar een keer uit. Het uur stel je in met `MEALIESHOPPER_OFFERS_SYNC_HOUR`, uitzetten kan met `MEALIESHOPPER_OFFERS_SCHEDULE=false`.
+- **Synchroniseren onder Instellingen > Koppelen.** Een nieuw blok **Aanbiedingen** met de knop **Aanbiedingen synchroniseren** (alleen de beheerder) haalt de aanbiedingen van alle winkels meteen op. Eronder staat per winkel hoeveel aanbiedingen er zijn en wanneer ze zijn opgehaald, of dat de winkel niet gekoppeld is of het ophalen mislukte, plus wanneer de dagelijkse taak voor het laatst liep en weer loopt.
+- Nieuwe routes: `GET /api/offers/status` en `POST /api/offers/sync-all` (alleen de beheerder).
+
+### Aangepast in 2.59.0
+
+- Een winkel die niet gekoppeld is of waar het ophalen mislukt blokkeert de andere winkels niet; de vorige kopie van die winkel blijft staan.
+
+### Goed om te weten
+
+- De routes van Picnic en Jumbo zijn onofficieel en kunnen veranderen. Geeft een winkel niets terug, dan staat dat als melding bij Koppelen en bij Aanbiedingen.
+- De MCP-tools zijn niet veranderd.
+
 ## v2.58.0
 
 *English summary: On a large screen (1024 px and wider) the main navigation now sits in a vertical menu on the left instead of above the page. It can be collapsed to icons only (with the name as a tooltip) with the button at the bottom of the menu; the choice is remembered. On smaller screens nothing changes.*

@@ -5,7 +5,8 @@ winkel in een keer, en mislukt het ophalen, dan blijft de vorige kopie staan. Vo
 we een index met de ingrediënten van je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten). De voorstellen
 komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst.
 
-Nu leveren alleen de AH-aanbiedingen (Bonus) echte gegevens; Picnic en Jumbo komen als hun route bekend is.
+De aanbiedingen van AH (Bonus), Picnic en Jumbo worden elke dag door `offers_schedule` opgehaald, en op verzoek via
+`sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen).
 """
 from __future__ import annotations
 
@@ -20,8 +21,21 @@ from . import ah, ah_lists, ah_recipes, auth, jumbo, jumbo_recipes, mealie, meal
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
-FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {"ah": ah.get_bonus_products}
+FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+    "ah": ah.get_bonus_products,
+    "picnic": picnic.get_offers,
+    "jumbo": jumbo.get_offers,
+}
 STORES = ("ah", "picnic", "jumbo")
+
+
+def linked(store: str) -> bool:
+    """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic en Jumbo vragen een koppeling."""
+    if store == "picnic":
+        return bool(picnic.configured_auth_key())
+    if store == "jumbo":
+        return bool(jumbo.configured_refresh_token())
+    return True
 
 MEALIE_RECIPE_LIMIT = 300
 OTHER_RECIPE_LIMIT = 60
@@ -167,6 +181,36 @@ def sync(store: Any) -> dict[str, Any]:
             (store, _now()),
         )
     return load(store)
+
+
+def sync_all() -> dict[str, Any]:
+    """Haal de aanbiedingen van alle winkels op. Een winkel die niet gekoppeld is of mislukt laat de rest staan.
+
+    Per winkel: `count` en `syncedAt` na een geslaagde vernieuwing, `skipped` als de winkel niet gekoppeld is,
+    `error` als het ophalen mislukte (de vorige kopie blijft dan staan).
+    """
+    results: dict[str, Any] = {}
+    for store in STORES:
+        if not linked(store):
+            results[store] = {"skipped": tr("niet gekoppeld", "not linked")}
+            continue
+        try:
+            data = sync(store)
+            results[store] = {"count": data["total"], "syncedAt": data["syncedAt"]}
+        except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; de bewaarde kopie blijft staan
+            results[store] = {"error": str(exc)[:300] or tr("mislukt", "failed")}
+    return {"stores": results, "finishedAt": _now()}
+
+
+def overview() -> dict[str, Any]:
+    """Per winkel: wanneer de aanbiedingen voor het laatst zijn opgehaald en hoeveel er staan."""
+    with closing(_connect()) as conn:
+        metas = {row["store"]: row["synced_at"] for row in conn.execute("SELECT store, synced_at FROM offers_meta")}
+        counts = {row["store"]: row["n"] for row in conn.execute("SELECT store, COUNT(*) AS n FROM offers GROUP BY store")}
+    return {
+        store: {"linked": linked(store), "syncedAt": metas.get(store), "total": counts.get(store, 0)}
+        for store in STORES
+    }
 
 
 # --- ingrediënten en aanbiedingen vergelijken ----------------------------------------------------
