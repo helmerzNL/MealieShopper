@@ -2,7 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.65.2
+## v2.66.0
+
+*English summary: A wrong match between a recipe ingredient and an offer can now be reported with one click: a small flag (the Material Design Icons "flag-outline") next to every matched product, and a "Not a match" button in the product window. The match does not come back, also not in other recipes with the same main ingredient in that store, and the next best product takes its place. You can undo it right after reporting, and a report survives the daily sync. Still no AI involved.*
+
+### Nieuw in 2.66.0
+
+- **Een onjuiste koppeling melden.** Naast elk gekoppeld product onder een receptvoorstel staat een kleine vlag (het MDI-icoon *flag-outline*); in het productvenster staat dezelfde melding als knop *Klopt niet*. Daarna staat er een melding met *Ongedaan maken*, en de koppeling is weg. Heeft de winkel een ander product dat wel past, dan komt dat ervoor in de plaats.
+- **Een melding geldt voor het hoofdwoord, in die winkel.** *Kipfilet → AH Kipfilet met saus* melden verbergt die koppeling ook in andere recepten met kipfilet. Bij een andere winkel is het een ander product en blijft het staan. Een Engelse regel (*chicken breast*) wordt gemeld onder het Nederlandse hoofdwoord, net zoals hij wordt gekoppeld.
+- **Meldingen blijven bewaard.** Ze staan in een eigen tabel (`offer_rejections`) en overleven de dagelijkse synchronisatie en het opnieuw inlezen van de recepten. Je kunt zo ook zien welke koppelingen niet kloppen, om de regels beter te maken.
+- **Nieuwe route:** `POST /api/offers/rejections` meldt een koppeling (`store`, `ingredient`, `offerId`) en `DELETE` met dezelfde velden trekt de melding in.
+
 
 *English summary: The same recipe from two sources (for example an AH recipe you also have in Mealie) is now one card, with "also in Albert Heijn" next to it; the recipe with the best coverage stays, and with equal coverage your own recipe from Mealie. An ingredient with a colour, cuisine or fat content (red bell pepper, Provençal stir-fry vegetables, semi-skimmed milk) no longer matches an offer that names a different one (yellow, Chinese, whole milk).*
 

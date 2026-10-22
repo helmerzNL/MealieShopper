@@ -162,7 +162,7 @@ function offerRecipeCard(recipe, index) {
   const matched = recipe.matched
     .map(
       (item, at) =>
-        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button></li>`
+        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button><button class="offer-flag" type="button" data-recipe="${index}" data-match="${at}" title="${escapeHtml(t("offers.report.label"))}" aria-label="${escapeHtml(t("offers.report.aria", { product: item.offer.title }))}">${mdiIcon(MDI_FLAG_OUTLINE)}</button></li>`
     )
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";
@@ -185,8 +185,11 @@ function offerRecipeCard(recipe, index) {
 }
 
 // Het product dat aan een ingrediënt is gekoppeld, in een venster: zo zie je meteen of de koppeling klopt.
+let offerDialogMatch = null;
+
 function openOfferProduct(recipe, item) {
   const offer = item.offer;
+  offerDialogMatch = item;
   $("#offer-product-title").textContent = offer.title;
   $("#offer-product-meta").textContent = [offer.brand, offer.unitSize].filter(Boolean).join(" \u00b7 ");
   $("#offer-product-label").textContent = offer.promoLabel || "";
@@ -275,6 +278,26 @@ async function showOfferRecipes() {
   }
 }
 
+// Een koppeling als onjuist melden: ze komt niet meer terug, ook niet bij andere recepten met hetzelfde ingrediënt. Ongedaan maken kan direct.
+async function reportOfferMismatch(item, undo = false) {
+  const message_ = $("#offers-recipes-message");
+  try {
+    await jsonFetch("/api/offers/rejections", {
+      method: undo ? "DELETE" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ store: offersState.store, ingredient: item.ingredient, offerId: item.offer.id }),
+    });
+    await showOfferRecipes();
+    if (undo) return;
+    message_.innerHTML = `<div class="message success message--action" role="status"><span>${escapeHtml(
+      t("offers.report.done", { product: item.offer.title, ingredient: item.ingredient })
+    )}</span><button class="inline-button" type="button" id="offers-report-undo">${escapeHtml(t("offers.report.undo"))}</button></div>`;
+    $("#offers-report-undo").addEventListener("click", () => reportOfferMismatch(item, true));
+  } catch (error) {
+    message("#offers-recipes-message", error.message);
+  }
+}
+
 async function offersIndexRecipes() {
   const button = $("#offers-index");
   message("#offers-recipes-message", "");
@@ -291,11 +314,18 @@ async function offersIndexRecipes() {
 
 $("#offers-more").addEventListener("click", offersShowMore);
 $("#offers-recipes").addEventListener("click", (event) => {
-  const button = event.target.closest(".offer-match");
+  const button = event.target.closest(".offer-match, .offer-flag");
   if (!button) return;
   const recipe = offersState.recipes[Number(button.dataset.recipe)];
   const item = recipe && recipe.matched[Number(button.dataset.match)];
-  if (item) openOfferProduct(recipe, item);
+  if (!item) return;
+  if (button.classList.contains("offer-flag")) reportOfferMismatch(item);
+  else openOfferProduct(recipe, item);
+});
+$("#offer-product-report").addEventListener("click", () => {
+  const item = offerDialogMatch;
+  $("#offer-product-dialog").close();
+  if (item) reportOfferMismatch(item);
 });
 $("#offer-product-open").addEventListener("click", (event) => {
   if (event.currentTarget.dataset.url) openProductPopup(event.currentTarget.dataset.url);

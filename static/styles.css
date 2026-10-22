@@ -872,6 +872,35 @@ a.product-card strong {
   text-decoration: underline;
 }
 
+/* De kleine vlag naast een gekoppeld product: meld dat de koppeling niet klopt. */
+.offer-flag {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 2px;
+  margin-left: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 0;
+  border-radius: 4px;
+}
+
+.offer-flag:hover {
+  color: var(--danger);
+}
+
+.offer-flag:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.offer-flag svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
 .offer-match:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -943,6 +972,18 @@ a.product-card strong {
 .product-dialog__match {
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+
+.product-dialog__actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.product-dialog__actions .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .product-dialog__actions {

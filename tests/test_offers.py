@@ -252,6 +252,68 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual(sorted(m["offer"]["id"] for m in recipe["matched"]), ["1", "6"])
         self.assertEqual(recipe["saving"], 2.0, "twee keer 1,00 goedkoper, niet 11,41")
 
+    def reported_setup(self):
+        fetched = [
+            {"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
+            {"id": "2", "title": "Jumbo Kipfilet", "price": 3.5, "priceBefore": 4.0, "promoLabel": "Bonus"},
+            {"id": "3", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.index({"mealie": [
+            {"id": "r1", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": ["400 g kipfilet", "4 tomaten"]},
+            {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten", "sla", "komkommer", "ui"]},
+        ]})
+
+    def matched_ids(self, recipe_id):
+        recipe = next(r for r in offers.suggest("ah")["recipes"] if r["id"] == recipe_id)
+        return {m["ingredient"]: m["offer"]["id"] for m in recipe["matched"]}
+
+    def test_a_reported_match_does_not_come_back_and_the_next_best_product_takes_its_place(self):
+        self.reported_setup()
+        self.assertEqual(self.matched_ids("r1")["400 g kipfilet"], "1")
+        reported = offers.report_mismatch("ah", "400 g kipfilet", "1")
+        self.assertEqual((reported["offerId"], reported["head"]), ("1", offers.head_of("400 g kipfilet")))
+        self.assertEqual(self.matched_ids("r1")["400 g kipfilet"], "2", "het andere kipfilet-product blijft over")
+        self.assertEqual(self.matched_ids("r1")["4 tomaten"], "3", "andere koppelingen blijven staan")
+
+    def test_a_report_counts_for_every_recipe_with_the_same_main_word_but_only_in_that_store(self):
+        self.reported_setup()
+        offers.report_mismatch("ah", "400 g kipfilet", "1")
+        self.assertEqual(self.matched_ids("r2")["kipfilet"], "2", "ook in een ander recept met kipfilet")
+        with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: [{"id": "1", "title": "Jumbo Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]}):
+            offers.sync("jumbo")
+        recipe = next(r for r in offers.suggest("jumbo")["recipes"] if r["id"] == "r1")
+        self.assertEqual({m["offer"]["id"] for m in recipe["matched"]}, {"1"}, "product 1 bij Jumbo is een ander product dan product 1 bij AH")
+
+    def test_a_report_can_be_undone_and_survives_a_new_sync(self):
+        self.reported_setup()
+        offers.report_mismatch("ah", "400 g kipfilet", "1")
+        fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
+                   {"id": "3", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        self.assertNotIn("400 g kipfilet", self.matched_ids("r1"), "na een nieuwe synchronisatie blijft de melding gelden")
+        offers.undo_mismatch("ah", "400 g kipfilet", "1")
+        self.assertEqual(self.matched_ids("r1")["400 g kipfilet"], "1")
+
+    def test_reporting_validates_store_ingredient_and_product(self):
+        self.reported_setup()
+        with self.assertRaises(ValueError):
+            offers.report_mismatch("lidl", "kipfilet", "1")
+        with self.assertRaises(ValueError):
+            offers.report_mismatch("ah", "zout", "1")  # een basisingrediënt koppelt niet, dus valt er niets te melden
+        with self.assertRaises(ValueError):
+            offers.report_mismatch("ah", "kipfilet", "999")
+        self.assertEqual(self.matched_ids("r1")["400 g kipfilet"], "1")
+
+    def test_an_english_line_is_reported_under_its_dutch_main_word(self):
+        self.reported_setup()
+        self.index({"mealie": [{"id": "e1", "title": "Chicken", "image": "", "url": "", "ingredients": ["400 g chicken breast", "4 tomatoes"]}]})
+        self.assertEqual(self.matched_ids("e1")["400 g chicken breast"], "1")
+        offers.report_mismatch("ah", "400 g chicken breast", "1")
+        self.assertEqual(self.matched_ids("e1")["400 g chicken breast"], "2")
+
     def course_setup(self):
         fetched = [
             {"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
@@ -411,6 +473,21 @@ class CourseCollectorsTest(TempDataDirTest):
 
 
 class OffersTabMarkupTest(unittest.TestCase):
+    def test_a_wrong_match_can_be_reported_from_the_card_and_from_the_dialog_with_an_mdi_icon(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('class="offer-flag"', script)
+        self.assertIn("mdiIcon(MDI_FLAG_OUTLINE)", script, "het icoon is een MDI-icoon, geen eigen tekening")
+        self.assertIn('const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";', app_js)
+        self.assertIn('"/api/offers/rejections"', script)
+        self.assertIn('method: undo ? "DELETE" : "POST"', script, "een melding is direct ongedaan te maken")
+        self.assertIn('id="offer-product-report"', html)
+        self.assertIn('d="M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4"', html)
+
     def test_offers_follows_the_layout_of_the_stores_tab(self):
         import re
         from pathlib import Path
@@ -461,7 +538,7 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn("showModal()", script)
         self.assertIn('$("#offer-product-image").addEventListener("error"', script, "een kapot plaatje wordt verborgen, niet verwijderd")
         self.assertIn("openProductPopup(", script, "de winkelpagina opent in het bestaande losse venster")
-        self.assertIn('event.target.closest(".offer-match")', script)
+        self.assertIn('event.target.closest(".offer-match, .offer-flag")', script)
         self.assertIn("offersState.recipes = data.recipes", script)
         self.assertIn('t("offers.also_in"', script, "staat het recept ook in een andere bron, dan staat dat op de kaart")
         self.assertIsNotNone(re.search(r"hidden = !offer\.url", script), "zonder adres (Picnic) geen knop naar de winkel")
@@ -849,6 +926,17 @@ class OffersRoutesTest(TempDataDirTest):
         self.assertEqual([r["id"] for r in self.client.get("/api/offers/recipes?store=ah&course=hoofdgerecht").get_json()["recipes"]], ["r1"])
         self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=dessert").get_json()["recipes"], [])
         self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=pannenkoek").status_code, 400)
+
+    def test_reporting_a_match_over_the_api(self):
+        fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            self.client.post("/api/offers/sync", json={"store": "ah"})
+        body = {"store": "ah", "ingredient": "400 g kipfilet", "offerId": "1"}
+        response = self.client.post("/api/offers/rejections", json=body)
+        self.assertEqual((response.status_code, response.get_json()["offerId"]), (200, "1"))
+        self.assertEqual(self.client.delete("/api/offers/rejections", json=body).status_code, 200)
+        self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "offerId": "nope"}).status_code, 400)
+        self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "ingredient": ""}).status_code, 400)
 
     def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
         self.assertEqual(self.client.get("/api/offers?store=lidl").status_code, 400)
