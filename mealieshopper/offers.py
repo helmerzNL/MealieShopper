@@ -15,7 +15,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from . import ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
@@ -427,9 +427,14 @@ def is_basic(word: str) -> bool:
     return word in PANTRY_STEMS or any(len(basic) >= 4 and word.endswith(basic) for basic in PANTRY_STEMS)
 
 
+# "all'uovo", "all' uovo": een Italiaanse toevoeging aan een pasta ("tagliatelle all'uovo"), geen eigen product. Zonder deze regel is "uovo" het
+# hoofdwoord van "spaghetti all'uovo" en past het ingrediënt bij elke pasta all'uovo.
+ITALIAN_ADDITION = re.compile(r"\ball?['\u2019]\s*\w+")
+
+
 def tokens(text: Any) -> list[str]:
     """De betekenisvolle woorden van een ingrediëntregel of producttitel, gestemd en zonder eenheden."""
-    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or "")))
+    folded = ITALIAN_ADDITION.sub(" ", ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or ""))))
     words = re.findall(r"[a-z]+", folded)
     return [_stem(word) for word in words if len(word) > 1 and not _is_noise(word)]
 
@@ -503,7 +508,7 @@ CONNECTORS = {"met", "in", "op", "zonder", "voor", "en", "of", "&"}
 # sinaasappelsap). Zo'n product is het ingrediënt alleen als het ingrediënt zelf dat woord noemt.
 PRODUCT_TYPES = (
     "saus", "soep", "mix", "maaltijd", "salade", "dressing", "pesto", "bouillon", "chips", "koek", "taart",
-    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread",
+    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread", "dip", "burger", "nugget", "schotel",
 )
 # Dezelfde bewerking als de woorden in de titel, anders komt "maaltijd" (titel: "maltijd") er nooit mee overeen.
 PRODUCT_STEMS = tuple(_stem(kind) for kind in PRODUCT_TYPES)
@@ -514,7 +519,7 @@ WEAK_HEADS = {_stem(word) for word in ("kruiden", "specerijen", "smaakmakers", "
 GENERIC_HEADS = {
     _stem(word) for word in (
         "saus", "sauce", "soep", "soup", "kaas", "cheese", "worst", "sausage", "brood", "bread", "rol", "roll", "broodje", "dressing",
-        "drank", "vlees", "vis",
+        "drank", "vlees", "vis", "groente", "fruit",
     )
 }
 
@@ -527,7 +532,7 @@ def offer_parts(title: Any) -> tuple[list[str], list[str]]:
     core: list[str] = []
     rest: list[str] = []
     target = core
-    for word in re.findall(r"[a-z0-9]+|&", ah_lists._fold(title)):
+    for word in re.findall(r"[a-z0-9]+|&", ITALIAN_ADDITION.sub(" ", ah_lists._fold(title))):
         if word in CONNECTORS:
             if target is core and core:
                 target = rest
@@ -543,6 +548,53 @@ def _covered(stem: str, ingredient_stems: set[str]) -> bool:
     return stem in ingredient_stems or any(
         len(other) >= 3 and len(stem) >= 3 and (stem.startswith(other) or other.startswith(stem)) for other in ingredient_stems
     )
+
+
+def _variant_key(word: str) -> str:
+    """Een woord zonder buigings-e, dubbele klinkers en meervoud, zodat rode/rood, witte/wit en chinese/chinees hetzelfde zijn."""
+    word = word[:-1] if word.endswith("e") and len(word) > 3 else word
+    word = re.sub(r"([aeou])\1", r"\1", word)
+    word = re.sub(r"([^aeiou])\1$", r"\1", word)
+    return word[:-1] if word.endswith("s") and len(word) > 4 else word
+
+
+# Eigenschappen die een product onderscheiden: een rode paprika is geen gele, wokgroente op z'n Chinees geen Provençaalse en halfvolle melk geen volle.
+# Noemen ingrediënt én aanbieding een eigenschap uit dezelfde groep en zijn die verschillend, dan is het een ander product.
+_VARIANT_WORDS: tuple[tuple[str, ...], ...] = (
+    # kleur
+    ("rood", "rode", "geel", "gele", "groen", "groene", "oranje", "wit", "witte", "zwart", "zwarte", "bruin", "bruine", "paars", "paarse",
+     "blauw", "blauwe"),
+    # keuken of streek
+    ("chinees", "chinese", "provencaals", "provencaalse", "italiaans", "italiaanse", "mexicaans", "mexicaanse", "thai", "thais", "thaise",
+     "indiaas", "indiase", "grieks", "griekse", "spaans", "spaanse", "frans", "franse", "hollands", "hollandse", "oosters", "oosterse",
+     "mediterraan", "mediterrane", "japans", "japanse", "koreaans", "koreaanse", "turks", "turkse", "marokkaans", "marokkaanse",
+     "amerikaans", "amerikaanse", "surinaams", "surinaamse", "indonesisch", "indonesische", "aziatisch", "aziatische"),
+    # vetgehalte
+    ("mager", "magere", "halfvol", "halfvolle", "vol", "volle"),
+)
+
+
+def _variant_canon(words: tuple[str, ...]) -> dict[str, str]:
+    """Alle vormen van de woorden in een groep (met en zonder -e, en zoals `_stem` ze maakt: groen wordt gro) naar één vaste vorm."""
+    canon: dict[str, str] = {}
+    for word in words:
+        fixed = _variant_key(word)
+        for form in (word, _stem(word), word[:-1] if word.endswith("e") else word, _stem(word[:-1] if word.endswith("e") else word)):
+            canon[_variant_key(form)] = fixed
+    return canon
+
+
+VARIANT_GROUPS: tuple[dict[str, str], ...] = tuple(_variant_canon(words) for words in _VARIANT_WORDS)
+
+
+def variant_clash(ingredient_stems: Iterable[str], title_stems: Iterable[str]) -> bool:
+    """Of ingrediënt en aanbieding een eigenschap uit dezelfde groep (kleur, keuken, vetgehalte) noemen die niet overeenkomt."""
+    for group in VARIANT_GROUPS:
+        wanted = {group[key] for stem in ingredient_stems if (key := _variant_key(stem)) in group}
+        offered = {group[key] for stem in title_stems if (key := _variant_key(stem)) in group}
+        if wanted and offered and not wanted & offered:
+            return True
+    return False
 
 
 def match_offer(
@@ -566,6 +618,9 @@ def match_offer(
         for kind in PRODUCT_STEMS:
             if stem.endswith(kind) and not any(kind in other for other in ingredient_stems):
                 return None
+    # Een andere kleur, keuken of vetgehalte ("Provençaalse wokgroente" tegenover "Wokgroente Chinees").
+    if variant_clash(main_stems or ingredient_stems, [*core, *rest]):
+        return None
     return sum(1 for stem in core if not _covered(stem, ingredient_stems))
 
 
@@ -574,6 +629,12 @@ NOT_FOOD = {"drogisterie", "huishouden", "baby", "huisdier"}
 # Een rauw product past niet bij een bereid product: paprika is geen paprikachips of focaccia met paprika, kipfilet geen kipwrap.
 RAW_CATEGORIES = {"groente_fruit", "vlees", "vis", "zuivel_eieren", "kaas_vleeswaren"}
 PREPARED_CATEGORIES = {"brood_bakkerij", "maaltijden", "snacks_snoep"}
+
+
+def ingredient_kind(ingredient: Any) -> str:
+    """De soort van een ingrediënt (groente en fruit, vlees, ...), uit het deel vóór een voorzetsel: bij "roomkaas met bieslook" is dat kaas."""
+    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient or "")))
+    return offer_categories.categorize(INGREDIENT_CONNECTORS.split(folded, 1)[0].strip() or ingredient)
 
 
 def link_offer(
@@ -592,13 +653,64 @@ def link_offer(
     head = head if head is not None else head_of(ingredient)
     if not head or offer.get("category") in NOT_FOOD:
         return None
-    kind = kind if kind is not None else offer_categories.categorize(ingredient)
+    kind = kind if kind is not None else ingredient_kind(ingredient)
     if kind in RAW_CATEGORIES and offer.get("category") in PREPARED_CATEGORIES:
+        return None
+    # Twee verschillende rauwe soorten: een aanbieding in vlees waar een ui in zit ("Pie runderstoof ui") is geen ui, een groenteburger geen broccoli.
+    if kind in RAW_CATEGORIES and offer.get("category") in RAW_CATEGORIES and offer["category"] != kind:
         return None
     core, rest = parts or offer_parts(offer["title"])
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient)))
     main_stems = set(tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(ingredient))
     return match_offer(head, set(tokens(ingredient)), core, rest, main_stems)
+
+
+# Bij gelijke dekking staat het eigen recept (Mealie) boven hetzelfde recept uit een winkel.
+SOURCE_RANK = {"mealie": 0, "ah": 1, "jumbo": 2, "picnic": 3}
+
+
+def _title_key(title: Any) -> str:
+    """De titel van een recept zonder hoofdletters, accenten en leestekens, om hetzelfde recept uit twee bronnen te herkennen."""
+    return re.sub(r"[^a-z0-9]+", " ", ah_lists._fold(title)).strip()
+
+
+def merge_duplicates(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hetzelfde recept uit meerdere bronnen (bijvoorbeeld een AH-recept dat je ook in Mealie hebt) wordt één kaart.
+
+    De lijst moet al gesorteerd zijn, de beste eerst: die blijft staan en krijgt in `alsoIn` de andere bronnen. Twee recepten met dezelfde
+    titel uit dezelfde bron blijven allebei staan: dat zijn twee recepten.
+    """
+    kept: dict[str, dict[str, Any]] = {}
+    merged: list[dict[str, Any]] = []
+    for item in results:
+        key = _title_key(item["title"])
+        first = kept.get(key)
+        if first and item["source"] != first["source"] and item["source"] not in first["alsoIn"]:
+            first["alsoIn"].append(item["source"])
+            continue
+        item["alsoIn"] = []
+        merged.append(item)
+        kept.setdefault(key, item)
+    return merged
+
+
+# Het adres van een Mealie-recept zoals het in de index staat: /recipe/<recept> (voor v2.65.1) of /g/<groep>/r/<recept>.
+_MEALIE_RECIPE_PATH = re.compile(r"/(?:recipe|g/[^/]+/r)/([^/?#]+)/?$")
+
+
+def _mealie_recipe_url(stored: str) -> str:
+    """Het huidige adres van een Mealie-recept, ook als de index nog het oude adres bewaart (zonder opnieuw inlezen).
+
+    Mealie wil /g/<groep>/r/<recept>; tot v2.65.0 bewaarden we /recipe/<recept>. Het adres wordt daarom bij het tonen opnieuw
+    opgebouwd uit het recept in het bewaarde adres. Is Mealie niet gekoppeld of niet te bereiken, dan blijft het bewaarde adres staan.
+    """
+    match = _MEALIE_RECIPE_PATH.search(stored or "")
+    if not match or not mealie.mealie_url():
+        return stored
+    try:
+        return mealie.recipe_page_url(match.group(1))
+    except Exception:  # noqa: BLE001 - een link die niet lukt mag de voorstellen niet blokkeren
+        return stored
 
 
 def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
@@ -635,7 +747,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
         found: list[dict[str, Any]] = []
         used: set[str] = set()
         for text, head in heads:
-            options = [(line, head_of(line), offer_categories.categorize(line)) for line in translated[text]]
+            options = [(line, head_of(line), ingredient_kind(line)) for line in translated[text]]
             options = [(line, option_head, kind) for line, option_head, kind in options if option_head]
             best: tuple[int, dict[str, Any]] | None = None
             for offer, core, rest in prepared:
@@ -659,7 +771,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
                 "id": row["recipe_id"],
                 "title": row["title"],
                 "image": row["image"] or "",
-                "url": row["url"] or "",
+                "url": (_mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
                 "course": row["course"] or offer_courses.OTHER,
                 "ingredientCount": len(heads),
                 "matchedCount": len(found),
@@ -669,7 +781,10 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
                 "saving": round(saving, 2),
             }
         )
-    results.sort(key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], item["title"]))
+    results.sort(
+        key=lambda item: (-item["matchedCount"] / item["ingredientCount"], -item["matchedCount"], -item["saving"], SOURCE_RANK.get(item["source"], 9), item["title"])
+    )
+    results = merge_duplicates(results)
     courses = offer_courses.summarize([item["course"] for item in results])
     shown = [item for item in results if not course or item["course"] == course]
     return {

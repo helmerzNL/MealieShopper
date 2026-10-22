@@ -639,12 +639,13 @@ class ToolsTest(McpTestCase):
             {"date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]}},
             {"date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "recipe": None, "recipeDetail": None},
         ]
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"):
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
             data = self.data("get_week_menu", {"start_date": "2026-10-19", "days": 3})
         plan.assert_called_once_with("2026-10-19", "2026-10-21")
         self.assertEqual([m["date"] for m in data["meals"]], ["2026-10-19", "2026-10-20"])
         self.assertEqual(data["meals"][0]["recipe"], "Restjes")
-        self.assertEqual(data["meals"][1]["url"], "https://mealie.example/recipe/pasta")
+        self.assertEqual(data["meals"][1]["url"], "https://mealie.example/g/home/r/pasta")
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
 
     def test_week_menu_defaults_to_this_week_and_validates(self):
@@ -705,10 +706,11 @@ class ToolsTest(McpTestCase):
         self.assertEqual((data["products"][0]["price"], data["products"][0]["url"]), (1.25, "https://www.ah.nl/producten/product/wi42"))
 
     def test_import_recipe(self):
-        with mock.patch.object(mealie, "import_from_url", return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"):
+        with mock.patch.object(mealie, "import_from_url", return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
             data = self.data("import_recipe_to_mealie", {"url": "https://www.ah.nl/allerhande/recept/R-R1/pesto"})
         imp.assert_called_once()
-        self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/recipe/pasta-pesto"})
+        self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
 
     def test_import_refuses_addresses_on_your_own_network(self):
         with mock.patch.object(mealie, "import_from_url") as imp:

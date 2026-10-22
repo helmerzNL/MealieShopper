@@ -166,13 +166,17 @@ function offerRecipeCard(recipe, index) {
     )
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";
+  // Staat hetzelfde recept ook in een andere bron, dan is het één kaart en staat daar de andere bron bij.
+  const alsoIn = recipe.alsoIn && recipe.alsoIn.length
+    ? ` \u00b7 ${t("offers.also_in", { sources: recipe.alsoIn.map((source) => t(`offers.source.${source}`)).join(", ") })}`
+    : "";
   const missing = recipe.missing && recipe.missing.length ? `<p class="muted">${escapeHtml(t("offers.recipe.missing", { list: recipe.missing.join(", ") }))}</p>` : "";
   return `
     <article class="recipe-card">
       ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       <p class="muted">${escapeHtml(t("offers.match", { matched: recipe.matchedCount, total: recipe.ingredientCount }))}</p>
-      <p class="muted">${escapeHtml(t("offers.recipe_from", { source: t(`offers.source.${recipe.source}`) }))}</p>
+      <p class="muted">${escapeHtml(t("offers.recipe_from", { source: t(`offers.source.${recipe.source}`) }))}${alsoIn}</p>
       <ul class="offer-matches">${matched}</ul>
       ${missing}
       ${saving}

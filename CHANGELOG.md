@@ -2,6 +2,40 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.65.2
+
+*English summary: The same recipe from two sources (for example an AH recipe you also have in Mealie) is now one card, with "also in Albert Heijn" next to it; the recipe with the best coverage stays, and with equal coverage your own recipe from Mealie. An ingredient with a colour, cuisine or fat content (red bell pepper, Provençal stir-fry vegetables, semi-skimmed milk) no longer matches an offer that names a different one (yellow, Chinese, whole milk).*
+
+### Opgelost in 2.65.2
+
+- **Hetzelfde recept uit twee bronnen is één kaart.** *Supersnelle spaghetti met runderballetjes* stond twee keer in de lijst, één keer uit Mealie en één keer uit Albert Heijn. Recepten met dezelfde titel (hoofdletters, accenten en leestekens tellen niet mee) uit verschillende bronnen worden nu samengevoegd. Het recept met de beste dekking blijft staan, bij gelijke dekking het eigen recept uit Mealie, en op de kaart staat *ook in Albert Heijn*. De aantallen bij *Alle* en bij de soorten gerecht tellen het recept één keer. Twee recepten met dezelfde titel uit dezelfde bron blijven allebei staan: dat zijn twee recepten.
+- **Een andere kleur, keuken of vetgehalte is een ander product.** *400 g Provençaalse wokgroente* hoorde bij *AH Wokgroente Chinees*. Noemen het ingrediënt en de aanbieding allebei een kleur (rood, geel, groen, oranje, wit, zwart, bruin, paars, blauw), een keuken of streek (Chinees, Provençaals, Italiaans, Thais, Spaans, …) of een vetgehalte (mager, halfvol, vol) en zijn die verschillend, dan is het geen match: *rode paprika* past niet bij *Paprika geel*, *halfvolle melk* niet bij *Volle melk*. Noemt maar één kant zoiets (*wokgroente*, *Wokgroente Chinees*) of noemt de aanbieding meerdere (*Paprika rood geel groen*), dan blijft het een match. *Rode* en *rood*, *witte* en *wit* en *Chinese* en *Chinees* gelden als hetzelfde woord.
+
+### Goed om te weten
+
+- De kaart toont de bron van het recept dat blijft staan; *ook in …* noemt de bronnen van de samengevoegde recepten.
+- De API en de MCP-tools zijn niet veranderd, op het extra veld `alsoIn` bij elk recept in `GET /api/offers/recipes` na.
+
+## v2.65.1
+
+*English summary: Links to Mealie recipes now use the address Mealie itself uses, `/g/<group>/r/<recipe>`, instead of `/recipe/<recipe>` (which gave an error page). This also fixes the link after importing a recipe and the links of the MCP tools, and recipes that were read in before are corrected without reading them again. Six more wrong links between ingredients and offers are gone: a vegetable burger for broccoli, a pie with beef stew for onions, a cream cheese dip for cream cheese, tortelloni with ricotta for ricotta, "spaghetti all'uovo" matching "tagliatelle all'uovo", and a noodle meal for "vegetables".*
+
+### Opgelost in 2.65.1
+
+- **De links naar Mealie-recepten klopten niet.** De knop *Bekijken* bij een receptvoorstel opende `/recipe/<recept>`, terwijl Mealie `/g/<groep>/r/<recept>` gebruikt (bijvoorbeeld `/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven`). MealieShopper vraagt de groep (`groupSlug`) één keer aan Mealie (`/api/users/self`, met je eigen token), onthoudt die een uur en bouwt daarmee het adres op. Bij een oudere Mealie die geen groep geeft, of als Mealie even niet antwoordt, blijft het oude adres staan; na een mislukte poging probeert MealieShopper het na een minuut opnieuw en blokkeert het niets.
+  - Dit geldt ook voor de link na het **importeren van een recept** (AH, Picnic, Jumbo, een adres) en voor de **MCP-tools** (`get_week_menu`, `import_recipe_to_mealie`).
+  - Recepten die al in de index staan, hoeven niet opnieuw ingelezen: het adres wordt bij het tonen opnieuw opgebouwd uit het bewaarde adres.
+- **Zes verkeerde koppelingen uit de receptvoorstellen bij AH**:
+  - *500 g broccoli* hoorde bij *AH Terra Groenteburger broccoli paprika* en *2 middelgrote uien* bij *AH Pie runderstoof ui*. Een aanbieding in een andere rauwe soort (vlees) dan het ingrediënt (groente) is een samengesteld product waar het ingrediënt maar een deel van is; die telt niet meer.
+  - *150 g koelverse roomkaas met bieslook* hoorde bij *AH Mascarpone roomkaas chili dip*. Een *dip*, *burger*, *nugget* of *schotel* is een bereid product en telt alleen als het ingrediënt dat zelf vraagt.
+  - *125 g ricotta* hoorde bij *AH Tortelloni verdi ricotta spinaci*. Gevulde pasta (tortelloni, tortellini, ravioli, cannelloni, gnocchi) en pastavormen (tagliatelle, fusilli, …) zijn nu een maaltijd, ook als er ricotta in zit; ricotta, mascarpone, burrata, pecorino, gorgonzola en camembert zijn kaas.
+  - *250 g verse spaghetti all'uovo* hoorde bij *AH Tagliatelle all' uovo*: *uovo* was het hoofdwoord. Een Italiaanse toevoeging (*all'uovo*) telt niet meer mee, dus het hoofdwoord is *spaghetti*.
+  - *Verspakket plaattaart groente* hoorde bij *Knorr Good noodles groente*. *Groente* en *fruit* zijn nu net als *saus* en *kaas* een soort: de andere woorden van het ingrediënt moeten er ook in staan.
+
+### Goed om te weten
+
+- De API en de MCP-tools zijn niet veranderd, op het adres van een Mealie-recept na.
+
 ## v2.65.0
 
 *English summary: English ingredients (many Mealie imports) can now be matched with the Dutch offers. Before comparing, each ingredient line is translated into Dutch from a built-in list of a few hundred common ingredients and phrases ("2 tbsp mayo" becomes "2 tbsp mayonaise", "chicken thighs" becomes "kippendijen", "kipdijfilet" and "kippendij"); nothing is sent to a translation service. A Dutch line is left as it is and the recipe card still shows the line as written in the recipe. A tablespoon of a dried spice ("2 tbsp paprika") is a seasoning and no longer looks for bell peppers.*

@@ -79,7 +79,10 @@ class ConfigSourceTest(MealieTestCase):
             self.assertEqual(mealie._config(), (URL, TOKEN, "ui"))
             self.assertEqual(mealie.mealie_url(), URL)
             self.assertEqual(mealie.auth_headers()["Authorization"], f"Bearer {TOKEN}")
-            self.assertEqual(mealie.recipe_page_url("stamppot"), f"{URL}/recipe/stamppot")
+            with mock.patch.object(mealie, "group_slug", return_value=None):
+                self.assertEqual(mealie.recipe_page_url("stamppot"), f"{URL}/recipe/stamppot", "zonder groep het oude adres")
+            with mock.patch.object(mealie, "group_slug", return_value="zb"):
+                self.assertEqual(mealie.recipe_page_url("stamppot"), f"{URL}/g/zb/r/stamppot")
 
     def test_url_and_token_are_never_mixed_between_sources(self):
         # Alleen een adres in de UI + een token in de omgeving: het env-token mag nooit naar het UI-adres.
@@ -87,6 +90,65 @@ class ConfigSourceTest(MealieTestCase):
         with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl", "MEALIE_API_TOKEN": "env-token"}):
             self.assertEqual(mealie._config(), ("https://env.example.nl", "env-token", "env"))
         self.assertEqual(mealie._config(), ("", "", None))
+
+
+class RecipePageUrlTest(MealieTestCase):
+    """Mealie zet de groep in het adres van een recept: /g/<groep>/r/<recept>, niet /recipe/<recept>."""
+
+    def setUp(self):
+        super().setUp()
+        auth.set_secret("MEALIE_URL", URL)
+        auth.set_secret("MEALIE_API_TOKEN", TOKEN)
+        mealie._group_slug_cache.clear()
+        self.addCleanup(mealie._group_slug_cache.clear)
+
+    def test_the_recipe_link_has_the_group_of_the_user(self):
+        with mock.patch.object(mealie.requests, "get", return_value=response(body={"username": "helmer", "groupSlug": "zb"})) as get:
+            self.assertEqual(
+                mealie.recipe_page_url("witlof-met-ham-en-kaas-uit-de-oven"), f"{URL}/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven"
+            )
+        self.assertEqual(get.call_args.args[0], f"{URL}/api/users/self")
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], f"Bearer {TOKEN}", "met het token van de koppeling")
+
+    def test_the_group_is_remembered_so_a_list_of_recipes_costs_one_request(self):
+        with mock.patch.object(mealie.requests, "get", return_value=response(body={"groupSlug": "zb"})) as get:
+            links = [mealie.recipe_page_url(f"recept-{n}") for n in range(50)]
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual(links[0], f"{URL}/g/zb/r/recept-0")
+
+    def test_an_older_mealie_without_a_group_keeps_the_old_address(self):
+        with mock.patch.object(mealie.requests, "get", return_value=response(body={"username": "helmer"})):
+            self.assertEqual(mealie.recipe_page_url("pasta"), f"{URL}/recipe/pasta")
+
+    def test_a_failing_lookup_falls_back_and_is_retried_later(self):
+        with mock.patch.object(mealie.requests, "get", side_effect=requests.ConnectionError("weg")) as get:
+            self.assertEqual(mealie.recipe_page_url("pasta"), f"{URL}/recipe/pasta")
+            self.assertEqual(mealie.recipe_page_url("soep"), f"{URL}/recipe/soep")
+            self.assertEqual(get.call_count, 1, "binnen een minuut niet opnieuw proberen")
+        for status in (401, 500):
+            mealie._group_slug_cache.clear()
+            with mock.patch.object(mealie.requests, "get", return_value=response(status=status)):
+                self.assertEqual(mealie.recipe_page_url("pasta"), f"{URL}/recipe/pasta", status)
+        mealie._group_slug_cache.clear()
+        with mock.patch.object(mealie.requests, "get", return_value=response(json_error=True)):
+            self.assertEqual(mealie.recipe_page_url("pasta"), f"{URL}/recipe/pasta")
+        # Na de wachttijd lukt het wel.
+        mealie._group_slug_cache[URL] = (0, None)
+        with mock.patch.object(mealie.requests, "get", return_value=response(body={"groupSlug": "zb"})):
+            self.assertEqual(mealie.recipe_page_url("pasta"), f"{URL}/g/zb/r/pasta")
+
+    def test_without_a_link_there_is_no_request(self):
+        with mock.patch.object(mealie, "mealie_url", return_value=""), mock.patch.object(mealie.requests, "get") as get:
+            self.assertIsNone(mealie.group_slug())
+        get.assert_not_called()
+
+    def test_the_group_is_per_mealie_address(self):
+        with mock.patch.object(mealie.requests, "get", return_value=response(body={"groupSlug": "zb"})):
+            self.assertEqual(mealie.group_slug(), "zb")
+        mealie._group_slug_cache[URL] = (mealie._group_slug_cache[URL][0], "zb")
+        with mock.patch.object(mealie, "mealie_url", return_value="https://andere.example"), \
+                mock.patch.object(mealie.requests, "get", return_value=response(body={"groupSlug": "home"})):
+            self.assertEqual(mealie.group_slug(), "home")
 
 
 class UnreadableDatabaseTest(MealieTestCase):

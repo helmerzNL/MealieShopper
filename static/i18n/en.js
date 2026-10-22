@@ -83,6 +83,7 @@ I18N.add("en", {
   "offers.recipes.indexed": "read on {when}",
   "offers.match": "{matched} of {total} ingredients on offer",
   "offers.recipe_from": "Recipe from {source}",
+  "offers.also_in": "also in {sources}",
   "offers.recipes.heading": "Recipes with as many ingredients as possible from the offers at {store}",
   "offers.recipes.explain": "Basics such as salt, oil, butter and flour do not count. The recipes with the most ingredients on offer come first.",
   "offers.courses.label": "Kind of dish",

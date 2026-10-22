@@ -83,6 +83,7 @@ I18N.add("nl", {
   "offers.recipes.indexed": "ingelezen op {when}",
   "offers.match": "{matched} van {total} ingrediënten in de aanbieding",
   "offers.recipe_from": "Recept uit {source}",
+  "offers.also_in": "ook in {sources}",
   "offers.recipes.heading": "Recepten met zoveel mogelijk ingrediënten uit de aanbiedingen van {store}",
   "offers.recipes.explain": "Basisingrediënten als zout, olie, boter en bloem tellen niet mee. De recepten met de meeste ingrediënten in de aanbieding staan bovenaan.",
   "offers.courses.label": "Soort gerecht",
