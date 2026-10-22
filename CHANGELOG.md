@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.56.1
+
+*English summary: On Settings > Link the "linked" banners are now as wide as the collapsible blocks below them. The AH banner now says "Albert Heijn linked". The blocks are titled just Mealie, Albert Heijn, Jumbo and Picnic (instead of "Link Mealie" and "Log in to ..."), and Jumbo now comes before Picnic, also in the banners.*
+
+### Aangepast in 2.56.1
+
+- **De "gekoppeld"-meldingen zijn even breed als de blokken eronder** (ze liepen over de volle breedte).
+- **Kortere titels op de blokken:** *Mealie*, *Albert Heijn*, *Jumbo* en *Picnic* in plaats van *Mealie koppelen* en *Inloggen bij ...*.
+- **Nieuwe volgorde:** Albert Heijn, Jumbo, Picnic, zowel bij de meldingen als bij de blokken.
+- **De AH-melding zegt nu *Albert Heijn gekoppeld*** (was *AH account gekoppeld*), net als *Albert Heijn nog niet gekoppeld* en *Albert Heijn gekoppeld en werkt*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-30).
+
+### Goed om te weten
+
+- Verder verandert er niets.
+
 ## v2.56.0
 
 *English summary: The "Logged in as ..." chip is replaced by an avatar with a drop-down menu (Profile, Settings for the administrator, Log out). On small screens the avatar sits in the tab bar in place of Settings. Profile has General (display name and avatar upload), Security (one Password block with Two-step verification inside it, plus Passkeys) and AI apps (for everyone). Settings, administrator only, has Link, Users, Audit log and Updates. The main tab Settings is gone.*

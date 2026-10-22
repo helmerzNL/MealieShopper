@@ -716,11 +716,11 @@
         <div class="link-statuses">
           <div id="mealie-status"></div>
           <div id="ah-status"></div>
-          <div id="picnic-status"></div>
           <div id="jumbo-status"></div>
+          <div id="picnic-status"></div>
         </div>
         <div class="box fold" id="mealie-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="mealie.link">Mealie koppelen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="mealie-login-body">
             <p class="muted" id="mealie-source" hidden></p>
             <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
@@ -748,7 +748,7 @@
           </div>
         </div>
         <div class="box fold" id="ah-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Inloggen bij Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="ah-login-body">
             <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
             <ol class="steps">
@@ -784,8 +784,46 @@
             </div>
           </div>
         </div>
+        <div class="box fold" id="jumbo-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="jumbo-login-body">
+            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            <ol class="steps">
+              <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
+              <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+              <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
+              <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
+              <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            </ol>
+            <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
+              <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
+            </form>
+            <div class="fold__section">
+              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
+              <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
+              <div class="toolbar">
+                <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+                <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
+              <div id="jumbo-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
+              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="jumbo-explore-message"></div>
+              <div id="jumbo-explore-report" hidden>
+                <p class="muted" id="jumbo-explore-summary"></p>
+                <pre class="ai-code" id="jumbo-explore-output"></pre>
+                <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="box fold" id="picnic-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Inloggen bij Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="picnic-login-body">
             <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
             <form class="auth-form" id="picnic-form" autocomplete="off">
@@ -829,44 +867,6 @@
                 <p class="muted" id="picnic-explore-summary"></p>
                 <pre class="ai-code" id="picnic-explore-output"></pre>
                 <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="box fold" id="jumbo-login-box">
-          <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Inloggen bij Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
-          <div class="fold__body" id="jumbo-login-body">
-            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
-            <ol class="steps">
-              <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
-              <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-              <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
-              <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
-              <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-            </ol>
-            <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
-              <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
-            </form>
-            <div class="fold__section">
-              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
-              <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
-              <div class="toolbar">
-                <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
-                <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
-                <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-              </div>
-              <div id="jumbo-message"></div>
-            </div>
-            <div class="fold__section">
-              <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
-              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
-              <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-              <div id="jumbo-explore-message"></div>
-              <div id="jumbo-explore-report" hidden>
-                <p class="muted" id="jumbo-explore-summary"></p>
-                <pre class="ai-code" id="jumbo-explore-output"></pre>
-                <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
               </div>
             </div>
           </div>

@@ -1885,6 +1885,7 @@ body.has-onboarding {
 }
 
 .link-statuses {
+  max-width: 680px; /* even breed als de blokken eronder */
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
@@ -1892,6 +1893,10 @@ body.has-onboarding {
 
 .link-statuses .message {
   margin: 8px 0;
+}
+
+.link-statuses {
+  margin-bottom: 8px;
 }
 
 @media (max-width: 640px) {
