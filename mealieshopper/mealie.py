@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import sqlite3
+import time
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from typing import Any
@@ -258,8 +259,41 @@ def import_from_url(url: str) -> str:
     raise RuntimeError("; ".join(errors))
 
 
+GROUP_SLUG_TTL = 3600  # seconden dat we de groep onthouden
+GROUP_SLUG_RETRY = 60  # na een mislukte poging proberen we het pas na zoveel seconden opnieuw
+_group_slug_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def group_slug() -> str | None:
+    """De groep (slug) van de gekoppelde gebruiker, zoals Mealie die in het adres van een recept zet (/g/<groep>/r/<recept>).
+
+    Wordt een uur onthouden. Geeft None als Mealie het niet zegt (een oudere versie) of niet te bereiken is; dan gebruiken we het
+    oude adres. Een mislukte poging blokkeert niets en wordt na een minuut opnieuw geprobeerd.
+    """
+    base = mealie_url()
+    if not base:
+        return None
+    now = time.time()
+    cached = _group_slug_cache.get(base)
+    if cached and now < cached[0]:
+        return cached[1]
+    slug: str | None = None
+    try:
+        response = requests.get(f"{base}/api/users/self", headers=auth_headers(), timeout=10)
+        if response.ok:
+            value = (response.json() or {}).get("groupSlug")
+            slug = str(value).strip() or None if value else None
+    except (requests.RequestException, ValueError):
+        slug = None
+    _group_slug_cache[base] = (now + (GROUP_SLUG_TTL if slug else GROUP_SLUG_RETRY), slug)
+    return slug
+
+
 def recipe_page_url(slug: str) -> str:
-    return f"{mealie_url()}/recipe/{slug}"
+    """Het adres van een recept in Mealie: /g/<groep>/r/<recept>, of het oude /recipe/<recept> als de groep onbekend is."""
+    base = mealie_url()
+    group = group_slug()
+    return f"{base}/g/{group}/r/{slug}" if group else f"{base}/recipe/{slug}"
 
 
 def get_meal_plan(start_date: str, end_date: str) -> list[dict[str, Any]]:

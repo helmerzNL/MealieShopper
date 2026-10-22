@@ -13,6 +13,15 @@ class SnackBrandsTest(unittest.TestCase):
         self.assertEqual(offer_categories.categorize("AH Paprika rood"), "groente_fruit")
         self.assertEqual(offer_categories.categorize("AH Biologische paprika mix"), "groente_fruit")
 
+    def test_filled_pasta_is_a_meal_and_not_cheese(self):
+        self.assertEqual(offer_categories.categorize("AH Tortelloni verdi ricotta spinaci 3-pack"), "maaltijden")
+        self.assertEqual(offer_categories.categorize("AH Ravioli mascarpone"), "maaltijden")
+        self.assertEqual(offer_categories.categorize("AH Tagliatelle all' uovo 4-pack"), "maaltijden")
+
+    def test_cheeses_are_cheese(self):
+        for title in ("AH Ricotta", "AH Mascarpone", "AH Burrata", "Pecorino romano", "Gorgonzola dolce", "AH Camembert"):
+            self.assertEqual(offer_categories.categorize(title), "kaas_vleeswaren", title)
+
     def test_shampoo_with_a_food_word_is_not_food(self):
         self.assertEqual(offer_categories.categorize("Loving Blends Avocado olie shampoo 4-pack"), "drogisterie")
 

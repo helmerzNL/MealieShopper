@@ -542,6 +542,47 @@ class RealRecipesTest(TempDataDirTest):
         ):
             self.assertIsNotNone(self.link(ingredient, title), (ingredient, title))
 
+    def test_the_wrong_links_from_the_second_report_are_gone(self):
+        # Zes koppelingen uit een schermafbeelding van de receptvoorstellen bij AH.
+        for ingredient, title in (
+            ("Verspakket plaattaart groente", "Knorr Good noodles groente 4-pack"),
+            ("500 g broccoli", "AH Terra Groenteburger broccoli paprika 4-pack"),
+            ("2 middelgrote uien", "AH Pie runderstoof ui 3-pack"),
+            ("150 g koelverse roomkaas met bieslook", "AH Mascarpone roomkaas chili dip 4-pack"),
+            ("250 g verse spaghetti all'uovo", "AH Tagliatelle all' uovo 4-pack"),
+            ("125 g ricotta", "AH Tortelloni verdi ricotta spinaci 3-pack"),
+        ):
+            self.assertIsNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_what_was_right_in_that_report_stays(self):
+        for ingredient, title in (
+            ("200 g gerookte zalmsnippers", "AH Gerookte zalmsnippers 2-pack"),
+            ("195 g pastasaus sugo basilicum", "AH Pastasaus pomodori basilicum 2-pack"),
+            ("400 g Provençaalse wokgroente", "AH Wokgroente Chinees 2-pack"),
+            ("300 g tagliatelle all'uovo", "AH Tagliatelle all' uovo 4-pack"),
+            ("125 g ricotta", "AH Ricotta"),
+            ("300 g gemengde groente", "AH Gemengde groente 500 g"),
+            ("500 g broccoli", "AH Broccoli"),
+            ("2 uien", "AH Uien 1 kg"),
+            ("200 g roomkaas", "AH Roomkaas naturel"),
+        ):
+            self.assertIsNotNone(self.link(ingredient, title), (ingredient, title))
+
+    def test_two_different_raw_kinds_do_not_go_together(self):
+        # Een ui in een vleesproduct is geen ui; een groenteburger is geen broccoli.
+        self.assertIsNone(self.link("2 uien", "AH Pie runderstoof ui 3-pack"))
+        self.assertIsNone(self.link("400 g kipfilet", "AH Rode paprika 3-pack"))
+
+    def test_an_italian_addition_is_not_the_head_of_the_ingredient(self):
+        self.assertEqual(offers.head_of("250 g verse spaghetti all'uovo"), offers.head_of("spaghetti"))
+        self.assertEqual(offers.head_of("tagliatelle all’uovo"), offers.head_of("tagliatelle"), "ook met een typografische apostrof")
+        self.assertEqual(offers.offer_parts("AH Tagliatelle all' uovo 4-pack"), (["ah", "tagliatelle"], []))
+
+    def test_a_dip_a_burger_and_a_gratin_are_prepared_variants(self):
+        self.assertIsNone(self.link("100 g roomkaas", "AH Roomkaas dip naturel"))
+        self.assertIsNone(self.link("400 g gehakt", "AH Runderburger"))
+        self.assertIsNotNone(self.link("2 runderburgers", "AH Runderburger 4-pack"), "het ingrediënt vraagt er zelf om")
+
     def test_a_curry_sauce_needs_the_curry_and_a_bread_roll_needs_the_bread(self):
         self.assertIsNone(self.link("curry sauce", "Go-Tan Sweet chilli sauce"))
         self.assertIsNotNone(self.link("sweet chilli sauce", "Go-Tan Sweet chilli sauce"))
@@ -580,6 +621,53 @@ class RealRecipesTest(TempDataDirTest):
         self.assertEqual(matched["Mayonaise"], "Hellmann's Real mayonaise430 3-pack")
         self.assertNotIn("avocado’s", matched, "shampoo is geen ingrediënt")
         self.assertFalse(any("shampoo" in title for title in matched.values()))
+
+    def test_pasta_with_salmon_and_broccoli_is_no_longer_suggested_on_three_wrong_links(self):
+        titles = ["AH Terra Groenteburger broccoli paprika 4-pack", "AH Pie runderstoof ui 3-pack", "AH Gerookte zalmsnippers 2-pack",
+                  "AH Mascarpone roomkaas chili dip 4-pack"]
+        fetched = [real_offer(title, index) for index, title in enumerate(titles, 1)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        collectors = (("mealie", lambda: [{"id": "p", "title": "Pasta met zalm en broccoli", "image": "", "url": "", "ingredients": [
+            "500 g broccoli", "2 middelgrote uien", "200 g gerookte zalmsnippers", "150 g koelverse roomkaas met bieslook", "300 g fusilli"]}]),)
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        self.assertEqual(offers.suggest("ah")["recipes"], [], "nog maar één koppeling (de zalm) van vijf: onder de ondergrens")
+
+    def test_mealie_links_in_an_old_index_are_rebuilt_with_the_group(self):
+        fetched = [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2)]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+            offers.sync("ah")
+        lines = ["400 g kipfilet", "4 tomaten"]
+        collectors = (
+            ("mealie", lambda: [{"id": "a", "title": "A", "image": "", "url": "https://mealie.example/recipe/witlof-met-ham", "ingredients": lines},
+                                {"id": "b", "title": "B", "image": "", "url": "https://mealie.example/g/zb/r/al-goed", "ingredients": lines}]),
+            ("jumbo", lambda: [{"id": "c", "title": "C", "image": "", "url": "https://www.jumbo.com/recepten/recipe/xyz", "ingredients": lines}]),
+        )
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        with mock.patch.object(offers.mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(offers.mealie, "group_slug", return_value="zb"):
+            urls = {recipe["id"]: recipe["url"] for recipe in offers.suggest("ah")["recipes"]}
+        self.assertEqual(urls["a"], "https://mealie.example/g/zb/r/witlof-met-ham", "het oude adres is gecorrigeerd")
+        self.assertEqual(urls["b"], "https://mealie.example/g/zb/r/al-goed", "een goed adres blijft goed")
+        self.assertEqual(urls["c"], "https://www.jumbo.com/recepten/recipe/xyz", "alleen Mealie-adressen worden aangepast")
+        # Zonder koppeling met Mealie blijft het bewaarde adres staan.
+        with mock.patch.object(offers.mealie, "mealie_url", return_value=""):
+            urls = {recipe["id"]: recipe["url"] for recipe in offers.suggest("ah")["recipes"]}
+        self.assertEqual(urls["a"], "https://mealie.example/recipe/witlof-met-ham")
+
+    def test_a_mealie_that_cannot_be_reached_does_not_block_the_suggestions(self):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2)]}):
+            offers.sync("ah")
+        collectors = (("mealie", lambda: [{"id": "a", "title": "A", "image": "", "url": "https://mealie.example/recipe/x",
+                                           "ingredients": ["400 g kipfilet", "4 tomaten"]}]),)
+        with mock.patch.object(offers, "COLLECTORS", collectors):
+            offers.sync_recipes()
+        with mock.patch.object(offers.mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(offers.mealie, "recipe_page_url", side_effect=RuntimeError("weg")):
+            recipes = offers.suggest("ah")["recipes"]
+        self.assertEqual(recipes[0]["url"], "https://mealie.example/recipe/x")
 
     def test_the_same_ingredient_twice_counts_once(self):
         fetched = [real_offer("AH Paprika rood", 1), real_offer("AH Tomaten rond", 2)]

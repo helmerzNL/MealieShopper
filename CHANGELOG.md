@@ -2,6 +2,28 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.65.1
+
+*English summary: Links to Mealie recipes now use the address Mealie itself uses, `/g/<group>/r/<recipe>`, instead of `/recipe/<recipe>` (which gave an error page). This also fixes the link after importing a recipe and the links of the MCP tools, and recipes that were read in before are corrected without reading them again. Six more wrong links between ingredients and offers are gone: a vegetable burger for broccoli, a pie with beef stew for onions, a cream cheese dip for cream cheese, tortelloni with ricotta for ricotta, "spaghetti all'uovo" matching "tagliatelle all'uovo", and a noodle meal for "vegetables".*
+
+### Opgelost in 2.65.1
+
+- **De links naar Mealie-recepten klopten niet.** De knop *Bekijken* bij een receptvoorstel opende `/recipe/<recept>`, terwijl Mealie `/g/<groep>/r/<recept>` gebruikt (bijvoorbeeld `/g/zb/r/witlof-met-ham-en-kaas-uit-de-oven`). MealieShopper vraagt de groep (`groupSlug`) één keer aan Mealie (`/api/users/self`, met je eigen token), onthoudt die een uur en bouwt daarmee het adres op. Bij een oudere Mealie die geen groep geeft, of als Mealie even niet antwoordt, blijft het oude adres staan; na een mislukte poging probeert MealieShopper het na een minuut opnieuw en blokkeert het niets.
+  - Dit geldt ook voor de link na het **importeren van een recept** (AH, Picnic, Jumbo, een adres) en voor de **MCP-tools** (`get_week_menu`, `import_recipe_to_mealie`).
+  - Recepten die al in de index staan, hoeven niet opnieuw ingelezen: het adres wordt bij het tonen opnieuw opgebouwd uit het bewaarde adres.
+- **Zes verkeerde koppelingen uit de receptvoorstellen bij AH**:
+  - *500 g broccoli* hoorde bij *AH Terra Groenteburger broccoli paprika* en *2 middelgrote uien* bij *AH Pie runderstoof ui*. Een aanbieding in een andere rauwe soort (vlees) dan het ingrediënt (groente) is een samengesteld product waar het ingrediënt maar een deel van is; die telt niet meer.
+  - *150 g koelverse roomkaas met bieslook* hoorde bij *AH Mascarpone roomkaas chili dip*. Een *dip*, *burger*, *nugget* of *schotel* is een bereid product en telt alleen als het ingrediënt dat zelf vraagt.
+  - *125 g ricotta* hoorde bij *AH Tortelloni verdi ricotta spinaci*. Gevulde pasta (tortelloni, tortellini, ravioli, cannelloni, gnocchi) en pastavormen (tagliatelle, fusilli, …) zijn nu een maaltijd, ook als er ricotta in zit; ricotta, mascarpone, burrata, pecorino, gorgonzola en camembert zijn kaas.
+  - *250 g verse spaghetti all'uovo* hoorde bij *AH Tagliatelle all' uovo*: *uovo* was het hoofdwoord. Een Italiaanse toevoeging (*all'uovo*) telt niet meer mee, dus het hoofdwoord is *spaghetti*.
+  - *Verspakket plaattaart groente* hoorde bij *Knorr Good noodles groente*. *Groente* en *fruit* zijn nu net als *saus* en *kaas* een soort: de andere woorden van het ingrediënt moeten er ook in staan.
+
+### Goed om te weten
+
+- Een recept dat zowel in Mealie als bij AH staat (bijvoorbeeld *Supersnelle spaghetti met runderballetjes*) staat twee keer in de lijst, met de bron erbij. Dat is niet veranderd.
+- *400 g Provençaalse wokgroente* hoort nog bij *AH Wokgroente Chinees*: dat is dezelfde soort product met een andere smaak, en daar is uit de titel weinig van te maken.
+- De API en de MCP-tools zijn niet veranderd, op het adres van een Mealie-recept na.
+
 ## v2.65.0
 
 *English summary: English ingredients (many Mealie imports) can now be matched with the Dutch offers. Before comparing, each ingredient line is translated into Dutch from a built-in list of a few hundred common ingredients and phrases ("2 tbsp mayo" becomes "2 tbsp mayonaise", "chicken thighs" becomes "kippendijen", "kipdijfilet" and "kippendij"); nothing is sent to a translation service. A Dutch line is left as it is and the recipe card still shows the line as written in the recipe. A tablespoon of a dried spice ("2 tbsp paprika") is a seasoning and no longer looks for bell peppers.*

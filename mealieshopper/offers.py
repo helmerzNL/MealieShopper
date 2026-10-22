@@ -427,9 +427,14 @@ def is_basic(word: str) -> bool:
     return word in PANTRY_STEMS or any(len(basic) >= 4 and word.endswith(basic) for basic in PANTRY_STEMS)
 
 
+# "all'uovo", "all' uovo": een Italiaanse toevoeging aan een pasta ("tagliatelle all'uovo"), geen eigen product. Zonder deze regel is "uovo" het
+# hoofdwoord van "spaghetti all'uovo" en past het ingrediënt bij elke pasta all'uovo.
+ITALIAN_ADDITION = re.compile(r"\ball?['\u2019]\s*\w+")
+
+
 def tokens(text: Any) -> list[str]:
     """De betekenisvolle woorden van een ingrediëntregel of producttitel, gestemd en zonder eenheden."""
-    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or "")))
+    folded = ITALIAN_ADDITION.sub(" ", ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(text or ""))))
     words = re.findall(r"[a-z]+", folded)
     return [_stem(word) for word in words if len(word) > 1 and not _is_noise(word)]
 
@@ -503,7 +508,7 @@ CONNECTORS = {"met", "in", "op", "zonder", "voor", "en", "of", "&"}
 # sinaasappelsap). Zo'n product is het ingrediënt alleen als het ingrediënt zelf dat woord noemt.
 PRODUCT_TYPES = (
     "saus", "soep", "mix", "maaltijd", "salade", "dressing", "pesto", "bouillon", "chips", "koek", "taart",
-    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread",
+    "pizza", "ketchup", "jam", "sap", "drank", "snack", "gerecht", "spread", "dip", "burger", "nugget", "schotel",
 )
 # Dezelfde bewerking als de woorden in de titel, anders komt "maaltijd" (titel: "maltijd") er nooit mee overeen.
 PRODUCT_STEMS = tuple(_stem(kind) for kind in PRODUCT_TYPES)
@@ -514,7 +519,7 @@ WEAK_HEADS = {_stem(word) for word in ("kruiden", "specerijen", "smaakmakers", "
 GENERIC_HEADS = {
     _stem(word) for word in (
         "saus", "sauce", "soep", "soup", "kaas", "cheese", "worst", "sausage", "brood", "bread", "rol", "roll", "broodje", "dressing",
-        "drank", "vlees", "vis",
+        "drank", "vlees", "vis", "groente", "fruit",
     )
 }
 
@@ -527,7 +532,7 @@ def offer_parts(title: Any) -> tuple[list[str], list[str]]:
     core: list[str] = []
     rest: list[str] = []
     target = core
-    for word in re.findall(r"[a-z0-9]+|&", ah_lists._fold(title)):
+    for word in re.findall(r"[a-z0-9]+|&", ITALIAN_ADDITION.sub(" ", ah_lists._fold(title))):
         if word in CONNECTORS:
             if target is core and core:
                 target = rest
@@ -576,6 +581,12 @@ RAW_CATEGORIES = {"groente_fruit", "vlees", "vis", "zuivel_eieren", "kaas_vleesw
 PREPARED_CATEGORIES = {"brood_bakkerij", "maaltijden", "snacks_snoep"}
 
 
+def ingredient_kind(ingredient: Any) -> str:
+    """De soort van een ingrediënt (groente en fruit, vlees, ...), uit het deel vóór een voorzetsel: bij "roomkaas met bieslook" is dat kaas."""
+    folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient or "")))
+    return offer_categories.categorize(INGREDIENT_CONNECTORS.split(folded, 1)[0].strip() or ingredient)
+
+
 def link_offer(
     ingredient: str,
     offer: dict[str, Any],
@@ -592,13 +603,35 @@ def link_offer(
     head = head if head is not None else head_of(ingredient)
     if not head or offer.get("category") in NOT_FOOD:
         return None
-    kind = kind if kind is not None else offer_categories.categorize(ingredient)
+    kind = kind if kind is not None else ingredient_kind(ingredient)
     if kind in RAW_CATEGORIES and offer.get("category") in PREPARED_CATEGORIES:
+        return None
+    # Twee verschillende rauwe soorten: een aanbieding in vlees waar een ui in zit ("Pie runderstoof ui") is geen ui, een groenteburger geen broccoli.
+    if kind in RAW_CATEGORIES and offer.get("category") in RAW_CATEGORIES and offer["category"] != kind:
         return None
     core, rest = parts or offer_parts(offer["title"])
     folded = ah_lists._fold(re.sub(r"\([^)]*\)", " ", str(ingredient)))
     main_stems = set(tokens(INGREDIENT_CONNECTORS.split(folded, 1)[0]) or tokens(ingredient))
     return match_offer(head, set(tokens(ingredient)), core, rest, main_stems)
+
+
+# Het adres van een Mealie-recept zoals het in de index staat: /recipe/<recept> (voor v2.65.1) of /g/<groep>/r/<recept>.
+_MEALIE_RECIPE_PATH = re.compile(r"/(?:recipe|g/[^/]+/r)/([^/?#]+)/?$")
+
+
+def _mealie_recipe_url(stored: str) -> str:
+    """Het huidige adres van een Mealie-recept, ook als de index nog het oude adres bewaart (zonder opnieuw inlezen).
+
+    Mealie wil /g/<groep>/r/<recept>; tot v2.65.0 bewaarden we /recipe/<recept>. Het adres wordt daarom bij het tonen opnieuw
+    opgebouwd uit het recept in het bewaarde adres. Is Mealie niet gekoppeld of niet te bereiken, dan blijft het bewaarde adres staan.
+    """
+    match = _MEALIE_RECIPE_PATH.search(stored or "")
+    if not match or not mealie.mealie_url():
+        return stored
+    try:
+        return mealie.recipe_page_url(match.group(1))
+    except Exception:  # noqa: BLE001 - een link die niet lukt mag de voorstellen niet blokkeren
+        return stored
 
 
 def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
@@ -635,7 +668,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
         found: list[dict[str, Any]] = []
         used: set[str] = set()
         for text, head in heads:
-            options = [(line, head_of(line), offer_categories.categorize(line)) for line in translated[text]]
+            options = [(line, head_of(line), ingredient_kind(line)) for line in translated[text]]
             options = [(line, option_head, kind) for line, option_head, kind in options if option_head]
             best: tuple[int, dict[str, Any]] | None = None
             for offer, core, rest in prepared:
@@ -659,7 +692,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
                 "id": row["recipe_id"],
                 "title": row["title"],
                 "image": row["image"] or "",
-                "url": row["url"] or "",
+                "url": (_mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
                 "course": row["course"] or offer_courses.OTHER,
                 "ingredientCount": len(heads),
                 "matchedCount": len(found),
