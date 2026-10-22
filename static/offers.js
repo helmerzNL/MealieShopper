@@ -13,34 +13,38 @@ function offersTabActive() {
   return Boolean(document.querySelector("#offers.is-active"));
 }
 
-function renderOffersStoreChoice() {
-  const slot = $("#offers-store-slot");
-  if (!slot) return;
+// De winkelkeuze is het eerste uitklapmenu in de subtabbalk, zoals bij Winkels; met maar een winkel valt er niets te kiezen.
+function renderOffersStore() {
+  const menu = $("#offers-store-menu");
+  if (!menu) return;
   const available = offersStores();
   if (!available.includes(offersState.store)) {
     let remembered = "";
     try {
       remembered = localStorage.getItem("ms-offers-store") || "";
     } catch {
-      // Zonder opslag begint de pagina bij Albert Heijn.
+      // Zonder opslag begint de pagina bij de winkel van de planner.
     }
     offersState.store = [remembered, state.preferredStore].find((key) => available.includes(key)) || "ah";
   }
-  slot.innerHTML =
-    available.length < 2
-      ? ""
-      : `<select id="offers-store" class="store-select" aria-label="${escapeHtml(t("cart.store"))}">
-          ${available.map((key) => `<option value="${key}"${offersState.store === key ? " selected" : ""}>${escapeHtml(STORES[key].name)}</option>`).join("")}
-        </select>`;
-  $("#offers-store")?.addEventListener("change", (event) => {
-    offersState.store = event.target.value;
-    try {
-      localStorage.setItem("ms-offers-store", offersState.store);
-    } catch {
-      // De keuze geldt dan alleen tot je de pagina herlaadt.
-    }
-    showOffers();
-  });
+  menu.hidden = available.length < 2;
+  $("#offers-store-name").textContent = STORES[offersState.store].name;
+  $("#offers-store-list").innerHTML = available
+    .map(
+      (key) =>
+        `<button class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
+    )
+    .join("");
+}
+
+function offersSwitchStore(store) {
+  offersState.store = offersStores().includes(store) ? store : "ah";
+  try {
+    localStorage.setItem("ms-offers-store", offersState.store);
+  } catch {
+    // De keuze geldt dan alleen tot je de pagina herlaadt.
+  }
+  showOffers();
 }
 
 function offerProductCard(offer) {
@@ -77,7 +81,7 @@ function renderOffers(data) {
 }
 
 async function showOffers() {
-  renderOffersStoreChoice();
+  renderOffersStore();
   message("#offers-message", "");
   try {
     renderOffers(await jsonFetch(`/api/offers?store=${encodeURIComponent(offersState.store)}`));
@@ -176,8 +180,14 @@ async function offersIndexRecipes() {
 
 $("#offers-refresh").addEventListener("click", offersRefresh);
 $("#offers-index").addEventListener("click", offersIndexRecipes);
+$("#offers-store-list").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-store]");
+  if (!item) return;
+  setSubtabMenu($("#offers-store-menu"), false);
+  offersSwitchStore(item.dataset.store);
+});
 window.addEventListener("ms:languagechange", () => {
-  renderOffersStoreChoice();
+  renderOffersStore();
   if (offersTabActive()) showOffers();
 });
-renderOffersStoreChoice();
+renderOffersStore();

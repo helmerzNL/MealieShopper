@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.53.1
+
+*English summary: The Offers tab now follows the layout of the Stores tab: a store drop-down menu (shown once a second store is linked) followed by two sub-tabs, **Offers** and **Recipes**, instead of a store select box and two blocks below each other. Nothing changes in what the offers and the suggestions do.*
+
+### Aangepast in 2.53.1
+
+- **Aanbiedingen heeft dezelfde opzet als Winkels.** De winkelkeuze is nu het eerste uitklapmenu in de subtabbalk (het verschijnt zodra naast Albert Heijn ook Picnic of Jumbo gekoppeld is, en toont de gekozen winkel), gevolgd door de subtabs **Aanbiedingen** (de producten) en **Recepten** (de receptvoorstellen en `Recepten inlezen`). De keuzelijst boven de blokken is vervallen; de gekozen winkel wordt nog steeds onthouden.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-26), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan de aanbiedingen, de receptvoorstellen, de koppelingen of de API.
+
 ## v2.53.0
 
 *English summary: New main tab **Offers**: shows the offers of a store (for now Albert Heijn Bonus, no AH link needed) and suggests recipes with ingredients on offer, from your Mealie recipes, Jumbo favourites, Picnic recipes and saved AH recipes. Matching runs locally, without an AI service. Picnic and Jumbo offers follow once their route is known: the explorers help find it. The main menu now has seven tabs, which also fits the installed app's bottom bar again.*
