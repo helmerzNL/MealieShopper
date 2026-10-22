@@ -938,6 +938,27 @@ async function importUrl(url, button = null) {
   }
 }
 
+// Het blok "Inloggen bij ..." onder Beheer > Koppelen is inklapbaar en klapt in zodra de winkel gekoppeld is.
+// Een keuze van de gebruiker blijft staan.
+state.storeFold = {};
+
+function applyStoreFold(store, linked) {
+  const toggle = $(`#${store}-login-toggle`);
+  if (!toggle) return;
+  const open = state.storeFold[store] ?? !linked;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.title = t(open ? "sec.collapse" : "sec.expand");
+  $(`#${store}-login-body`).hidden = !open;
+}
+
+for (const store of ["ah", "picnic", "jumbo"]) {
+  $(`#${store}-login-toggle`).addEventListener("click", () => {
+    const toggle = $(`#${store}-login-toggle`);
+    state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
+    applyStoreFold(store, false);
+  });
+}
+
 async function refreshAhStatus() {
   if (!$("#ah-status")) return;
   try {
@@ -947,6 +968,7 @@ async function refreshAhStatus() {
       data.connected ? t("ah.linked") : t("ah.not_linked"),
       data.connected ? "success" : "error"
     );
+    applyStoreFold("ah", Boolean(data.connected));
   } catch (error) {
     message("#ah-status", error.message);
   }
@@ -1639,8 +1661,6 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     const menu = subtab.closest(".subtab-menu");
     if (menu) {
       menu.querySelector(".subtab-menu__toggle").classList.add("is-active");
-      // Beheer > Winkels: de knop toont de gekozen winkel, zoals de winkelkeuze in Winkels.
-      if (menu.id === "beheer-stores-menu") $("#beheer-stores-name").textContent = subtab.textContent;
       setSubtabMenu(menu, false);
     }
     const target = panel.querySelector(`#${subtab.dataset.subtab}`);

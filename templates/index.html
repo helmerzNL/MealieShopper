@@ -559,15 +559,15 @@
 
       <section id="beheer" class="panel">
         <nav class="subtabs" aria-label="Beheer" data-i18n-attr="aria-label:settings.nav">
-          <div class="subtab-menu" id="beheer-stores-menu" data-admin-only>
-            <button class="subtab subtab-menu__toggle is-active" id="beheer-stores-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="beheer-stores-list" aria-label="Winkels" data-i18n-attr="aria-label:settings.tab.stores"><span id="beheer-stores-name">Albert Heijn</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
-            <div class="subtab-menu__list" id="beheer-stores-list" hidden>
+          <div class="subtab-menu" id="beheer-link-menu" data-admin-only>
+            <button class="subtab subtab-menu__toggle is-active" id="beheer-link-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="beheer-link-list"><span data-i18n="settings.tab.link">Koppelen</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+            <div class="subtab-menu__list" id="beheer-link-list" hidden>
               <button class="subtab-menu__item is-active" type="button" data-subtab="beheer-ah" data-i18n="settings.tab.ah">Albert Heijn</button>
               <button class="subtab-menu__item" type="button" data-subtab="beheer-picnic" data-i18n="settings.tab.picnic">Picnic</button>
               <button class="subtab-menu__item" type="button" data-subtab="beheer-jumbo" data-i18n="settings.tab.jumbo">Jumbo</button>
+              <button class="subtab-menu__item" type="button" data-subtab="beheer-mealie" data-i18n="settings.tab.mealie">Mealie</button>
             </div>
           </div>
-          <button class="subtab" data-subtab="beheer-mealie" data-admin-only data-i18n="settings.tab.mealie">Mealie</button>
           <button class="subtab" data-subtab="beheer-security" data-i18n="settings.tab.security">Beveiliging</button>
           <button class="subtab" data-subtab="beheer-ai" data-i18n="settings.tab.ai">AI-apps</button>
           <button class="subtab" data-subtab="beheer-users" data-admin-only hidden data-i18n="settings.tab.users">Gebruikers</button>
@@ -576,131 +576,137 @@
         </nav>
 
         <div id="beheer-ah" class="subpanel is-active">
-        <div class="box">
-          <h2 data-i18n="ahlogin.title">Inloggen via Albert Heijn</h2>
-          <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
-          <ol class="steps">
-            <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
-            <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-            <li data-i18n="ahlogin.step3">Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
-            <li data-i18n-html="ahlogin.step4">In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
-            <li data-i18n-html="ahlogin.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-          </ol>
-          <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
-            <button class="button inline-button" id="ah-login" type="submit" data-i18n="ahlogin.button">Inloggen bij Albert Heijn</button>
-          </form>
-          <div id="ah-status"></div>
+        <div id="ah-status"></div>
+        <div class="toolbar">
           <button class="button button--secondary" id="check-ah" data-i18n="common.check_link">Koppeling controleren</button>
         </div>
-        <div class="box">
-          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
-          <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-          <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
-          <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
-          <div id="token-message"></div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="explore.title">AH-routes verkennen</h2>
-          <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="explore-message"></div>
-          <div id="explore-report" hidden>
-            <p class="muted" id="explore-summary"></p>
-            <pre class="ai-code" id="explore-output"></pre>
-            <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+        <div class="box fold" id="ah-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ah-login-toggle" aria-expanded="true" aria-controls="ah-login-body"><span data-i18n="ahlogin.title">Inloggen bij Albert Heijn</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ah-login-body">
+            <p class="muted" data-i18n="ahlogin.intro">Je logt rechtstreeks in op login.ah.nl, zodat je passkey en de AH-inlogknop gewoon werken. Dit gaat op een computer (niet op een telefoon of tablet), omdat je de browserconsole nodig hebt.</p>
+            <ol class="steps">
+              <li data-i18n-html="ahlogin.step1">Klik op <strong>Inloggen bij Albert Heijn</strong>. De AH-loginpagina opent in een nieuw tabblad.</li>
+              <li data-i18n-html="ahlogin.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+              <li data-i18n="ahlogin.step3">Log in met je passkey of wachtwoord. De pagina lijkt daarna vast te lopen: AH probeert de AH-app te openen. Dat is normaal.</li>
+              <li data-i18n-html="ahlogin.step4">In de console staat nu een rode regel met <code>appie://login-exit?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>appie://</code> tot de sluitende aanhalingsteken).</li>
+              <li data-i18n-html="ahlogin.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            </ol>
+            <form class="inline-login-form" action="/api/ah/auth/start" method="get" target="_blank" rel="noopener">
+              <button class="button inline-button" id="ah-login" type="submit" data-i18n="ahlogin.button">Inloggen bij Albert Heijn</button>
+            </form>
+            <div class="fold__section">
+              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
+              <p class="muted" data-i18n-html="ahfinish.intro">Plak de <code>appie://login-exit?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+              <textarea id="token-input" class="textarea" rows="4" placeholder="appie://login-exit?code=..."></textarea>
+              <button class="button" id="verify-token" data-i18n="common.link">Koppelen</button>
+              <div id="token-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="explore.title">AH-routes verkennen</h3>
+              <p class="muted" data-i18n="explore.intro">Roept de onofficiële AH-routes voor het bestelmandje, bestellingen en kassabonnen aan en laat zien welke werken en welke velden erin zitten, ook welke statussen AH voor bestellingen kent. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="explore-message"></div>
+              <div id="explore-report" hidden>
+                <p class="muted" id="explore-summary"></p>
+                <pre class="ai-code" id="explore-output"></pre>
+                <button class="button button--secondary" id="explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
           </div>
         </div>
         </div>
 
         <div id="beheer-picnic" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="picnic.title">Inloggen bij Picnic</h2>
-          <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
-          <form class="auth-form" id="picnic-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="picnic.email">E-mailadres</span>
-              <input class="input" id="picnic-email" type="email" autocomplete="off" required>
-            </label>
-            <label class="field">
-              <span data-i18n="picnic.password">Wachtwoord</span>
-              <input class="input" id="picnic-password" type="password" autocomplete="off" required>
-            </label>
-            <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
-          </form>
-          <div id="picnic-message"></div>
+        <div id="picnic-status"></div>
+        <div class="toolbar">
+          <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+          <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
         </div>
-        <div class="box" id="picnic-code-box" hidden>
-          <h2 data-i18n="picnic.code_title">Bevestigingscode</h2>
-          <p class="muted" data-i18n="picnic.code_intro">Picnic vraagt om een code. Vraag hem aan, vul hem hieronder in en bevestig.</p>
-          <form class="auth-form" id="picnic-code-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="picnic.code_label">Code</span>
-              <input class="input" id="picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
-            </label>
-            <button class="button" id="picnic-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
-          </form>
-          <div class="toolbar">
-            <button class="button button--secondary" id="picnic-send-sms" type="button" data-i18n="picnic.send_sms">Code per sms sturen</button>
-            <button class="button button--secondary" id="picnic-send-email" type="button" data-i18n="picnic.send_email">Code per e-mail sturen</button>
-          </div>
-          <div id="picnic-code-message"></div>
-        </div>
-        <div class="box">
-          <div id="picnic-status"></div>
-          <div class="toolbar">
-            <button class="button button--secondary" id="picnic-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="picnic-unlink" type="button" data-i18n="picnic.unlink">Ontkoppelen</button>
-          </div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="picnic.explore_title">Picnic-routes verkennen</h2>
-          <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="picnic-explore-message"></div>
-          <div id="picnic-explore-report" hidden>
-            <p class="muted" id="picnic-explore-summary"></p>
-            <pre class="ai-code" id="picnic-explore-output"></pre>
-            <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+        <div class="box fold" id="picnic-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="picnic-login-toggle" aria-expanded="true" aria-controls="picnic-login-body"><span data-i18n="picnic.title">Inloggen bij Picnic</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="picnic-login-body">
+            <p class="muted" data-i18n="picnic.intro">Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-app, met je e-mailadres en wachtwoord. Het wachtwoord wordt niet bewaard: alleen de sessie die Picnic teruggeeft, versleuteld.</p>
+            <form class="auth-form" id="picnic-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="picnic.email">E-mailadres</span>
+                <input class="input" id="picnic-email" type="email" autocomplete="off" required>
+              </label>
+              <label class="field">
+                <span data-i18n="picnic.password">Wachtwoord</span>
+                <input class="input" id="picnic-password" type="password" autocomplete="off" required>
+              </label>
+              <button class="button" id="picnic-login" type="submit" data-i18n="picnic.login">Inloggen bij Picnic</button>
+            </form>
+            <div id="picnic-message"></div>
+            <div class="fold__section" id="picnic-code-box" hidden>
+              <h3 data-i18n="picnic.code_title">Bevestigingscode</h3>
+              <p class="muted" data-i18n="picnic.code_intro">Picnic vraagt om een code. Vraag hem aan, vul hem hieronder in en bevestig.</p>
+              <form class="auth-form" id="picnic-code-form" autocomplete="off">
+                <label class="field">
+                  <span data-i18n="picnic.code_label">Code</span>
+                  <input class="input" id="picnic-code" type="text" inputmode="numeric" autocomplete="one-time-code" required>
+                </label>
+                <button class="button" id="picnic-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
+              </form>
+              <div class="toolbar">
+                <button class="button button--secondary" id="picnic-send-sms" type="button" data-i18n="picnic.send_sms">Code per sms sturen</button>
+                <button class="button button--secondary" id="picnic-send-email" type="button" data-i18n="picnic.send_email">Code per e-mail sturen</button>
+              </div>
+              <div id="picnic-code-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="picnic.explore_title">Picnic-routes verkennen</h3>
+              <p class="muted" data-i18n="picnic.explore_intro">Roept de onofficiële Picnic-routes voor zoeken, het winkelmandje, leveringen, recepten en favorieten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="picnic-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="picnic-explore-message"></div>
+              <div id="picnic-explore-report" hidden>
+                <p class="muted" id="picnic-explore-summary"></p>
+                <pre class="ai-code" id="picnic-explore-output"></pre>
+                <button class="button button--secondary" id="picnic-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
           </div>
         </div>
         </div>
 
         <div id="beheer-jumbo" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="jumbo.title">Inloggen bij Jumbo</h2>
-          <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
-          <ol class="steps">
-            <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
-            <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
-            <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
-            <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
-            <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
-          </ol>
-          <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
-            <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
-          </form>
-          <div id="jumbo-status"></div>
-          <div class="toolbar">
-            <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
-            <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
-          </div>
+        <div id="jumbo-status"></div>
+        <div class="toolbar">
+          <button class="button button--secondary" id="jumbo-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+          <button class="button button--secondary" id="jumbo-unlink" type="button" data-i18n="jumbo.unlink">Ontkoppelen</button>
         </div>
-        <div class="box">
-          <h2 data-i18n="ahfinish.title">Koppeling afronden</h2>
-          <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
-          <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
-          <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
-          <div id="jumbo-message"></div>
-        </div>
-        <div class="box">
-          <h2 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h2>
-          <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
-          <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
-          <div id="jumbo-explore-message"></div>
-          <div id="jumbo-explore-report" hidden>
-            <p class="muted" id="jumbo-explore-summary"></p>
-            <pre class="ai-code" id="jumbo-explore-output"></pre>
-            <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+        <div class="box fold" id="jumbo-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="jumbo-login-toggle" aria-expanded="true" aria-controls="jumbo-login-body"><span data-i18n="jumbo.title">Inloggen bij Jumbo</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="jumbo-login-body">
+            <p class="muted" data-i18n="jumbo.intro">Jumbo heeft geen officiële koppeling. Je logt rechtstreeks in op Jumbo, in je eigen browser (op een computer, niet op een telefoon of tablet), omdat je de browserconsole nodig hebt. MealieShopper bewaart geen wachtwoord, alleen een sessie die Jumbo teruggeeft, versleuteld.</p>
+            <ol class="steps">
+              <li data-i18n-html="jumbo.step1">Klik op <strong>Inloggen bij Jumbo</strong>. De Jumbo-loginpagina opent in een nieuw tabblad.</li>
+              <li data-i18n-html="jumbo.step2">Open in dat tabblad de ontwikkelaarsconsole (<code>F12</code> of <code>Ctrl</code>+<code>Shift</code>+<code>J</code>, op een Mac <code>⌘</code>+<code>⌥</code>+<code>J</code>) <em>voordat</em> je inlogt.</li>
+              <li data-i18n="jumbo.step3">Log in met je Jumbo-account. De pagina lijkt daarna vast te lopen: Jumbo probeert de Jumbo-app te openen. Dat is normaal.</li>
+              <li data-i18n-html="jumbo.step4">In de console staat nu een rode regel met <code>jumbo://callbacks/login?code=...</code>. Kopieer die regel (of alleen de tekst vanaf <code>jumbo://</code> tot de sluitende aanhalingsteken).</li>
+              <li data-i18n-html="jumbo.step5">Plak hem hieronder en klik direct op <strong>Koppelen</strong>. De code werkt maar één keer en verloopt snel.</li>
+            </ol>
+            <form class="inline-login-form" action="/api/jumbo/auth/start" method="get" target="_blank" rel="noopener">
+              <button class="button inline-button" id="jumbo-login" type="submit" data-i18n="jumbo.login">Inloggen bij Jumbo</button>
+            </form>
+            <div class="fold__section">
+              <h3 data-i18n="ahfinish.title">Koppeling afronden</h3>
+              <p class="muted" data-i18n-html="jumbo.finish_intro">Plak de <code>jumbo://callbacks/login?code=...</code> regel uit de console (de code zelf of een refresh token mag ook).</p>
+              <textarea id="jumbo-code" class="textarea" rows="4" placeholder="jumbo://callbacks/login?code=..."></textarea>
+              <button class="button" id="jumbo-link" type="button" data-i18n="common.link">Koppelen</button>
+              <div id="jumbo-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="jumbo.explore_title">Jumbo-routes verkennen</h3>
+              <p class="muted" data-i18n="jumbo.explore_intro">Controleert eerst of Jumbo deze server toelaat en roept daarna de onofficiële Jumbo-routes voor zoeken en het winkelmandje aan. Er wordt niets gewijzigd of bewaard, ook het mandje vullen wordt alleen met een lege lijst geprobeerd. Het rapport bevat geen namen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="jumbo-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="jumbo-explore-message"></div>
+              <div id="jumbo-explore-report" hidden>
+                <p class="muted" id="jumbo-explore-summary"></p>
+                <pre class="ai-code" id="jumbo-explore-output"></pre>
+                <button class="button button--secondary" id="jumbo-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
           </div>
         </div>
         </div>

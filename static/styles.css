@@ -1916,6 +1916,16 @@ body.has-onboarding {
   display: none;
 }
 
+.fold__section {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.fold__section h3 {
+  margin: 0 0 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fold__toggle .fold__chevron {
     transition: none;

@@ -291,7 +291,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings**. There, **Stores** is a drop-down menu with Albert Heijn, Picnic and Jumbo; its button shows the chosen store and you open the link, the settings and the explorer of that store from it. Mealie has a tab of its own. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings**. There, **Link** is a drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie. Each store shows at the top whether the account is linked (with `Check link`), and below it the collapsible block **Log in to ...** with the steps, finishing the link and the route explorer; it folds up as soon as the store is linked. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 
@@ -321,7 +321,7 @@ With `Check link` you see whether the stored token still works. Under **Explore 
 
 ### Picnic
 
-Picnic has no official link. MealieShopper logs in like the Picnic app, with your email address and password (administrator only, under **Settings > Stores > Picnic**):
+Picnic has no official link. MealieShopper logs in like the Picnic app, with your email address and password (administrator only, under **Settings > Link > Picnic**):
 
 1. Enter your email address and password and choose `Log in to Picnic`.
 2. Picnic usually asks for a code. It arrives by SMS (or by email, with the button below). Enter it and choose `Confirm`.
@@ -331,7 +331,7 @@ Your password is not stored, only the session that Picnic returns, encrypted. Pi
 
 ### Jumbo
 
-Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your own browser (on a computer, administrator only, under **Settings > Stores > Jumbo**). It works just like Albert Heijn:
+Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your own browser (on a computer, administrator only, under **Settings > Link > Jumbo**). It works just like Albert Heijn:
 
 1. Choose `Log in to Jumbo`; a new tab opens.
 2. In that tab, open the developer console (`F12`) **before** you log in.
@@ -489,7 +489,7 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo refuses the request (403)".** Jumbo blocks this address or server. Try again later; if it keeps happening, Jumbo does not work from this location. See **Explore Jumbo routes**.
 
-**Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Stores > Picnic and log in again.
+**Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Link > Picnic and log in again.
 
 **AH: "code expired or used".** The code from the console works only once and expires quickly. Log in again and paste the new line right away.
 

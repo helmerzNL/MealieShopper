@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.54.0
+
+*English summary: Settings > Stores is now Settings > **Link**: one drop-down menu with Albert Heijn, Picnic, Jumbo and Mealie (Mealie no longer has its own tab). The three store pages have the same layout: the "account linked" banner (with Check link, and Unlink for Picnic and Jumbo) on top, and one collapsible block "Log in to ..." that also holds "Finish linking" and the route explorer. The block folds up once the store is linked. The titles are now all "Log in to ...", where Albert Heijn still said "Log in with". Texts that point to Settings > Stores now say Settings > Link.*
+
+### Aangepast in 2.54.0
+
+- **Nieuw submenu Koppelen onder Beheer.** Het uitklapmenu met de winkels is verhuisd naar **Koppelen** en Mealie staat er nu ook in (het tabje Mealie is vervallen). Het menu bevat Albert Heijn, Picnic, Jumbo en Mealie en is alleen voor de beheerder.
+- **Alle titels heten nu "Inloggen bij ...".** Bij Albert Heijn stond nog *Inloggen via Albert Heijn*.
+- **Inklapbaar blok per winkel.** *Inloggen bij ...*, *Koppeling afronden* en *Routes verkennen* staan nu in een blok dat je in- en uitklapt. Het blok klapt vanzelf in zodra de winkel gekoppeld is en staat open zolang dat nog niet zo is (ook als Picnic om een bevestigingscode vraagt). Een keuze die je zelf maakt blijft staan tot je de pagina herlaadt.
+- **De melding "account gekoppeld" staat bovenaan**, boven het blok, met de knoppen *Koppeling controleren* (en *Ontkoppelen* bij Picnic en Jumbo) eronder. Ze blijven zichtbaar als het blok is ingeklapt. De bevestigingscode van Picnic staat nu in het inklapbare blok.
+- **Teksten die naar de plek wijzen** (meldingen van de app, de installatiehulp en de README's) zeggen nu *Beheer > Koppelen > ...* in plaats van *Beheer > Winkels > ...*.
+- `MEALIESHOPER_ASSET_VERSION` is opgehoogd (20261023-27), zodat browsers de nieuwe bestanden laden.
+
+### Goed om te weten
+
+- Verder verandert er niets aan het koppelen, de verkenners, de MCP-tools of de API. De screenshots in `docs/screenshots/` laten nog de oude indeling zien en volgen bij een volgende ronde.
+
 ## v2.53.1
 
 *English summary: The Offers tab now follows the layout of the Stores tab: a store drop-down menu (shown once a second store is linked) followed by two sub-tabs, **Offers** and **Recipes**, instead of a store select box and two blocks below each other. Nothing changes in what the offers and the suggestions do.*
