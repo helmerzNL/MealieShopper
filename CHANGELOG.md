@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.60.1
+
+*English summary: The Picnic explorer is lighter (no more than a few dozen requests instead of more than a hundred, so Picnic no longer blocks the network halfway through; the old favorites exploration needs `?extended=1`) and reports more about the offers on the home page: the texts next to products and where the "Acties" cards lead.*
+
+### Aangepast in 2.60.1
+
+- **De Picnic-verkenner stuurt veel minder verzoeken.** Het vorige rapport liep halverwege vast op een 403: de verkenning van de favorieten-pagina's stuurde ruim honderd verzoeken achter elkaar en Picnic blokkeert dan tijdelijk. Die verkenning (de favorieten zijn klaar) draait nu alleen met `POST /api/picnic/explore?extended=1`; het gewone rapport blijft ruim onder de veertig verzoeken.
+- **Meer over de Picnic-aanbiedingen in het rapport.** Het rapport van de startpagina liet zien dat de aanbiedingen onder *Acties van de week* kaarten per merk of productgroep zijn (geen producttegels) en dat de producttegels geen korting-teken hebben. Het rapport meldt nu ook welke kortingachtige teksten bij de tegels staan (zoals een percentage of een actieprijs, met cijfers als #, zonder productnamen) en waar de kaarten onder *Acties* naartoe leiden (vorm van hun actie en verwijzing, zonder inhoud).
+
+### Goed om te weten
+
+- Picnic-aanbiedingen worden nog niet gevonden: de herkenning wacht op dit rapport.
+
 ## v2.60.0
 
 *English summary: The Offers tab shows categories with a count ("5x Vegetables & Fruit", "10x Meat") for every store; clicking one shows its offers. Three rows show first and a "More" button adds three rows at a time. The "Fetch offers" button is gone: the offers come from the local copy, refreshed daily or via Settings > Link. Every sync now also writes the offers to a permanent history in the database (when, price, old price, label, validity), available through `GET /api/offers/history`.*

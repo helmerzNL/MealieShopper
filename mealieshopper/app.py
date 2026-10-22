@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-36")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-37")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
@@ -787,7 +787,7 @@ def create_app() -> Flask:
     @app.post("/api/picnic/explore")
     def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
-        return jsonify(picnic_explore.explore())
+        return jsonify(picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
 
     # --- Jumbo --------------------------------------------------------------------------
     # Koppelen werkt zoals bij AH (de beheerder plakt een regel uit de browserconsole); de producten

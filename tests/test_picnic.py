@@ -973,7 +973,7 @@ class FavoritesTest(TempDataDirTest):
                 return response(self.TABS)
             return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
         with mock.patch.object(picnic.requests, "request", side_effect=fake):
-            report = picnic_explore.explore()
+            report = picnic_explore.explore(extended=True)
         names = {p["name"]: p for p in report["probes"]}
         tabs = next(p for n, p in names.items() if n.startswith("tabbalk"))
         self.assertEqual(tabs["info"]["favorietenpagina"], "favorites-root")
@@ -1058,7 +1058,7 @@ class RecipeExploreTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=fake):
-            report = picnic_explore.explore()
+            report = picnic_explore.explore(extended=True)
         names = {probe["name"]: probe for probe in report["probes"]}
         self.assertTrue(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["ok"])
         self.assertEqual(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["info"]["receptonderdelen"], 1)
