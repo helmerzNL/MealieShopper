@@ -438,6 +438,44 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn('"#offers-courses").addEventListener("click"', script)
         self.assertIn("offersState.course = \"all\";\n  try {", script, "een andere winkel zet het filter terug op alles")
 
+    def test_a_matched_product_opens_a_dialog_with_a_link_to_the_store(self):
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        dialog = html[html.index('<dialog id="offer-product-dialog"'):html.index("</dialog>")]
+        for marker in ("offer-product-title", "offer-product-image", "offer-product-price", "offer-product-match", "offer-product-open",
+                       "offer-product-close", "offer-product-nopage"):
+            self.assertIn(f'id="{marker}"', dialog)
+        self.assertIn('aria-labelledby="offer-product-title"', dialog, "het venster heeft een naam voor schermlezers")
+        self.assertNotIn("<dialog", html[html.index("</dialog>"):], "er is maar één productvenster")
+        # De globale afhandeling van data-hide-on-error haalt het plaatje uit de pagina; het venster hergebruikt het plaatje.
+        self.assertNotIn("data-hide-on-error", dialog)
+
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        card = script[script.index("function offerRecipeCard"):script.index("function renderOfferCourses")]
+        self.assertIn('class="offer-match"', card, "het gekoppelde product is een knop")
+        self.assertIn('data-recipe="${index}" data-match="${at}"', card)
+        self.assertNotIn('<span class="muted">→', card, "geen kale tekst meer")
+        self.assertIn("showModal()", script)
+        self.assertIn('$("#offer-product-image").addEventListener("error"', script, "een kapot plaatje wordt verborgen, niet verwijderd")
+        self.assertIn("openProductPopup(", script, "de winkelpagina opent in het bestaande losse venster")
+        self.assertIn('event.target.closest(".offer-match")', script)
+        self.assertIn("offersState.recipes = data.recipes", script)
+        self.assertIsNotNone(re.search(r"hidden = !offer\.url", script), "zonder adres (Picnic) geen knop naar de winkel")
+        self.assertIn('hidden = Boolean(offer.url)', script, "zonder adres staat er waarom")
+
+    def test_the_dialog_follows_the_theme_and_fits_a_phone(self):
+        from pathlib import Path
+
+        css = (Path(__file__).resolve().parent.parent / "static" / "styles.css").read_text(encoding="utf-8")
+        block = css[css.index(".product-dialog {"):css.index(".product-dialog::backdrop")]
+        for token in ("var(--surface)", "var(--text)", "var(--border)"):
+            self.assertIn(token, block)
+        self.assertIn("calc(100vw - 32px)", block, "past op een smal scherm")
+        self.assertIn(".offer-match:focus-visible", css, "het toetsenbord ziet waar je bent")
+
     def test_recipe_cards_say_where_the_recipe_is_from_and_whose_offers_are_used(self):
         from pathlib import Path
 

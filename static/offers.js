@@ -5,7 +5,7 @@
 
 const OFFERS_STORES = ["ah", "picnic", "jumbo"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
-const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", rows: OFFER_ROWS };
+const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS };
 
 function offersStores() {
   return OFFERS_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
@@ -158,9 +158,12 @@ async function showOffers() {
   showOfferRecipes();
 }
 
-function offerRecipeCard(recipe) {
+function offerRecipeCard(recipe, index) {
   const matched = recipe.matched
-    .map((item) => `<li>${escapeHtml(item.ingredient)} <span class="muted">→ ${escapeHtml(item.offer.title)}</span></li>`)
+    .map(
+      (item, at) =>
+        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button></li>`
+    )
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";
   const missing = recipe.missing && recipe.missing.length ? `<p class="muted">${escapeHtml(t("offers.recipe.missing", { list: recipe.missing.join(", ") }))}</p>` : "";
@@ -175,6 +178,28 @@ function offerRecipeCard(recipe) {
       ${saving}
       ${recipe.url ? `<div class="recipe-card__actions"><a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("rsearch.open"))}</a></div>` : ""}
     </article>`;
+}
+
+// Het product dat aan een ingrediënt is gekoppeld, in een venster: zo zie je meteen of de koppeling klopt.
+function openOfferProduct(recipe, item) {
+  const offer = item.offer;
+  $("#offer-product-title").textContent = offer.title;
+  $("#offer-product-meta").textContent = [offer.brand, offer.unitSize].filter(Boolean).join(" \u00b7 ");
+  $("#offer-product-label").textContent = offer.promoLabel || "";
+  const was = offer.priceBefore ? ` <s>${escapeHtml(formatPrice(offer.priceBefore))}</s>` : "";
+  $("#offer-product-price").innerHTML = offer.price ? `<strong>${escapeHtml(formatPrice(offer.price))}</strong>${was}` : "";
+  $("#offer-product-conditions").textContent = offerConditionsText(offer);
+  const image = $("#offer-product-image");
+  image.hidden = !offer.image;
+  if (offer.image) image.src = offer.image;
+  else image.removeAttribute("src");
+  $("#offer-product-match").textContent = t("offers.product.match", { ingredient: item.ingredient, recipe: recipe.title });
+  const open = $("#offer-product-open");
+  open.hidden = !offer.url;
+  open.textContent = t("offers.product.store", { store: STORES[offersState.store].name });
+  open.dataset.url = offer.url || "";
+  $("#offer-product-nopage").hidden = Boolean(offer.url);
+  $("#offer-product-dialog").showModal();
 }
 
 function renderOfferCourses(courses) {
@@ -239,6 +264,7 @@ async function showOfferRecipes() {
         (data.recipes.length ? tn("offers.recipes.count", data.total) : t("offers.recipes.none")) +
         ` · ${t("offers.recipes.indexed", { when: formatSyncTime(data.indexedAt) })} (${offerIndexSummary(data.sources)})`;
     }
+    offersState.recipes = data.recipes;
     list.innerHTML = data.recipes.map(offerRecipeCard).join("");
   } catch (error) {
     message("#offers-recipes-message", error.message);
@@ -260,6 +286,25 @@ async function offersIndexRecipes() {
 }
 
 $("#offers-more").addEventListener("click", offersShowMore);
+$("#offers-recipes").addEventListener("click", (event) => {
+  const button = event.target.closest(".offer-match");
+  if (!button) return;
+  const recipe = offersState.recipes[Number(button.dataset.recipe)];
+  const item = recipe && recipe.matched[Number(button.dataset.match)];
+  if (item) openOfferProduct(recipe, item);
+});
+$("#offer-product-open").addEventListener("click", (event) => {
+  if (event.currentTarget.dataset.url) openProductPopup(event.currentTarget.dataset.url);
+});
+$("#offer-product-close").addEventListener("click", () => $("#offer-product-dialog").close());
+// Een plaatje dat niet laadt verbergen we, en halen we niet weg (zoals data-hide-on-error doet): het venster gebruikt hetzelfde plaatje opnieuw.
+$("#offer-product-image").addEventListener("error", (event) => {
+  event.target.hidden = true;
+});
+// Een klik naast het venster (op de achtergrond) sluit het ook.
+$("#offer-product-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
 $("#offers-courses").addEventListener("click", (event) => {
   const chip = event.target.closest("[data-course]");
   if (chip) offersChooseCourse(chip.dataset.course);
