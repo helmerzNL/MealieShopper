@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS offer_rejections (
   ingredient TEXT NOT NULL,
   title TEXT NOT NULL,
   reported_at TEXT NOT NULL,
+  reason TEXT,
+  source TEXT,
   PRIMARY KEY (store, product_id, head)
 );
 
@@ -129,6 +131,11 @@ def _connect():
     # Een index van vóór de soorten gerecht heeft die kolom nog niet; de soort volgt bij de volgende keer inlezen.
     if "course" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")}:
         conn.execute("ALTER TABLE offer_recipes ADD COLUMN course TEXT")
+    # Een melding van v2.66.0 heeft nog geen reden en bron.
+    rejection_columns = {row["name"] for row in conn.execute("PRAGMA table_info(offer_rejections)")}
+    for column in ("reason", "source"):
+        if column not in rejection_columns:
+            conn.execute(f"ALTER TABLE offer_rejections ADD COLUMN {column} TEXT")
     return conn
 
 
@@ -733,9 +740,11 @@ def _rejection_head(ingredient: Any) -> str:
     return head
 
 
-def report_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
+def report_mismatch(store: Any, ingredient: Any, offer_id: Any, reason: Any = "", source: str = "app") -> dict[str, Any]:
     """Meld dat dit product niet bij dit ingrediënt hoort. De koppeling komt niet meer terug, ook niet bij andere recepten
-    met hetzelfde hoofdwoord in deze winkel; `undo_mismatch` haalt de melding weer weg."""
+    met hetzelfde hoofdwoord in deze winkel; `undo_mismatch` haalt de melding weer weg.
+
+    `reason` is een korte toelichting (van een AI-assistent) en `source` wie meldde: `app` (jij, met de vlag) of `assistant`."""
     store = _valid_store(store)
     head = _rejection_head(ingredient)
     with closing(_connect()) as conn:
@@ -744,8 +753,8 @@ def report_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any
             raise ValueError(tr("Dit product staat niet meer in de aanbiedingen", "This product is no longer in the offers"))
         with conn:
             conn.execute(
-                "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now()),
+                "INSERT OR REPLACE INTO offer_rejections (store, product_id, head, ingredient, title, reported_at, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (store, str(offer_id), head, str(ingredient).strip(), offer["title"], _now(), " ".join(str(reason or "").split())[:300], source),
             )
     return {"store": store, "offerId": str(offer_id), "head": head}
 
@@ -759,13 +768,33 @@ def undo_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str, Any]:
     return {"store": store, "offerId": str(offer_id), "head": head}
 
 
+def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]:
+    """De gemelde koppelingen, de nieuwste eerst: ingrediënt, product, wie meldde en waarom."""
+    store = _valid_store(store) if store else None
+    where, params = ("WHERE store = ?", (store,)) if store else ("", ())
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            f"SELECT store, product_id, head, ingredient, title, reported_at, reason, source FROM offer_rejections {where} ORDER BY reported_at DESC LIMIT ?",
+            (*params, max(1, min(500, int(limit)))),
+        ).fetchall()
+        total = conn.execute(f"SELECT COUNT(*) FROM offer_rejections {where}", params).fetchone()[0]
+    return {
+        "total": total,
+        "reports": [
+            {"store": r["store"], "offerId": r["product_id"], "ingredient": r["ingredient"], "mainWord": r["head"], "product": r["title"],
+             "reportedAt": r["reported_at"], "reason": r["reason"] or "", "source": r["source"] or "app"}
+            for r in rows
+        ],
+    }
+
+
 def _rejections(store: str) -> set[tuple[str, str]]:
     with closing(_connect()) as conn:
         rows = conn.execute("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,)).fetchall()
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
+def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
     Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
@@ -842,13 +871,53 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
     shown = [item for item in results if not course or item["course"] == course]
     return {
         "store": offers["store"],
-        "recipes": shown[: max(1, min(100, int(limit)))],
+        "recipes": shown[: max(1, min(cap, int(limit)))],
         "total": len(shown),
         "courses": courses,
         "course": course or "all",
         "offersSyncedAt": offers["syncedAt"],
         "indexedAt": meta["synced_at"] if meta else None,
         "sources": json.loads(meta["summary"]) if meta else {},
+    }
+
+
+def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
+    """De koppelingen van alle receptvoorstellen als lijst van unieke paren (hoofdwoord van het ingrediënt + product), om te beoordelen.
+
+    Hetzelfde paar komt in veel recepten voor en één oordeel (`report_mismatch`) geldt voor al die recepten, dus elk paar staat één keer in
+    de lijst, het vaakst gebruikte eerst, met het aantal recepten en een paar voorbeelden. Al gemelde paren staan er niet meer in."""
+    suggestions = suggest(store, limit=10**6, cap=10**6)
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    for recipe in suggestions["recipes"]:
+        for item in recipe["matched"]:
+            try:
+                head = _rejection_head(item["ingredient"])
+            except ValueError:
+                continue
+            offer = item["offer"]
+            pair = pairs.setdefault(
+                (str(offer["id"]), head),
+                {
+                    "ingredient": item["ingredient"],
+                    "offerId": str(offer["id"]),
+                    "product": offer["title"],
+                    "brand": offer.get("brand") or "",
+                    "unitSize": offer.get("unitSize") or "",
+                    "category": offer.get("category") or "",
+                    "recipes": 0,
+                    "exampleRecipes": [],
+                },
+            )
+            pair["recipes"] += 1
+            if len(pair["exampleRecipes"]) < 3:
+                pair["exampleRecipes"].append(recipe["title"])
+    ordered = sorted(pairs.values(), key=lambda pair: (-pair["recipes"], pair["product"], pair["ingredient"]))
+    start = max(0, int(offset))
+    return {
+        "store": suggestions["store"],
+        "total": len(ordered),
+        "offset": start,
+        "pairs": ordered[start : start + max(1, min(100, int(limit)))],
     }
 
 

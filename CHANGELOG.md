@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.67.0
+
+*English summary: The recipe suggestions under Offers are hidden for now (set `MEALIESHOPPER_OFFERS_RECIPES=true` to show them again), because the matches are not good enough yet. ChatGPT and Claude can now review the matches through the MCP server: `review_offer_matches` lists the unique ingredient + product pairs of a store, `report_offer_mismatch` reports a wrong one (with a reason, undoable) and `list_offer_mismatches` shows the reports. Reports from the assistant and from the flag in the app share one list and one effect: the match is hidden and the next fitting product takes its place. No AI runs inside MealieShopper itself: your own assistant does the judging, with your own subscription.*
+
+### Aangepast in 2.67.0
+
+- **De receptvoorstellen onder Aanbiedingen zijn verborgen.** Het subtabblad *Recepten* staat standaard uit, zolang de koppelingen niet goed genoeg zijn. Met `MEALIESHOPPER_OFFERS_RECIPES=true` komt het terug. De aanbiedingen zelf en de API (`/api/offers/recipes`) blijven werken.
+
+### Nieuw in 2.67.0
+
+- **ChatGPT en Claude beoordelen de koppelingen, via de MCP-server.** Drie nieuwe tools: `review_offer_matches` (de unieke paren ingrediënt + product van een winkel, het vaakst gebruikte eerst, met het aantal recepten en voorbeelden; `limit` en `offset` om verder te lezen), `report_offer_mismatch` (een paar als onjuist melden, met een korte reden; `undo` haalt de melding weg) en `list_offer_mismatches` (de gemelde koppelingen, met wie meldde en waarom). Vraag het bijvoorbeeld zo: *"Beoordeel met MealieShopper de koppelingen van Jumbo en meld de onjuiste."*
+- **Eén meldlijst.** Meldingen van de assistent en van de vlag in de app (v2.66.0) staan in dezelfde tabel en hebben hetzelfde effect: de koppeling verdwijnt, ook bij andere recepten met hetzelfde hoofdwoord in die winkel, en het volgende passende product neemt de plaats in. De tabel heeft er twee kolommen bij (`reason`, `source`); meldingen van 2.66.0 blijven werken.
+- **Geen AI in MealieShopper zelf.** Er gaat niets automatisch naar een AI-dienst en er zijn geen API-sleutels nodig: je assistent doet het oordelen, met je eigen abonnement, en alleen als jij erom vraagt.
+
+### Goed om te weten
+
+- `report_offer_mismatch` is de enige schrijftool voor aanbiedingen; ze verwijdert niets en is ongedaan te maken. Je kunt haar, net als elke andere tool, uitzetten onder Profiel, AI-apps.
+- De kleine vlag in de app is verborgen samen met het tabblad; dat de melding daar beter in beeld moet komen, wordt opgepakt als het tabblad terugkomt.
+
 ## v2.66.0
 
 *English summary: A wrong match between a recipe ingredient and an offer can now be reported with one click: a small flag (the Material Design Icons "flag-outline") next to every matched product, and a "Not a match" button in the product window. The match does not come back, also not in other recipes with the same main ingredient in that store, and the next best product takes its place. You can undo it right after reporting, and a report survives the daily sync. Still no AI involved.*

@@ -243,6 +243,8 @@ function offerIndexSummary(sources) {
 }
 
 async function showOfferRecipes() {
+  // Het subtabblad Recepten staat standaard verborgen (MEALIESHOPPER_OFFERS_RECIPES); dan is er niets te laden.
+  if (document.querySelector('.subtab[data-subtab="offers-suggestions"]').hidden) return;
   const status = $("#offers-recipes-status");
   const list = $("#offers-recipes");
   message("#offers-recipes-message", "");

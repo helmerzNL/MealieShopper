@@ -1,5 +1,6 @@
 import os
 import tempfile
+from contextlib import closing
 import unittest
 from unittest import mock
 
@@ -306,6 +307,18 @@ class SuggestionsTest(TempDataDirTest):
         with self.assertRaises(ValueError):
             offers.report_mismatch("ah", "kipfilet", "999")
         self.assertEqual(self.matched_ids("r1")["400 g kipfilet"], "1")
+
+    def test_reports_from_before_reason_and_source_still_work(self):
+        self.reported_setup()
+        with closing(offers._connect()) as conn, conn:
+            conn.execute("DROP TABLE offer_rejections")
+            conn.execute("CREATE TABLE offer_rejections (store TEXT NOT NULL, product_id TEXT NOT NULL, head TEXT NOT NULL, ingredient TEXT NOT NULL, "
+                         "title TEXT NOT NULL, reported_at TEXT NOT NULL, PRIMARY KEY (store, product_id, head))")
+            conn.execute("INSERT INTO offer_rejections VALUES ('ah', '1', 'kipfilet', '400 g kipfilet', 'AH Kipfilet', '2026-10-22T20:00:00+00:00')")
+        listed = offers.list_mismatches("ah")
+        self.assertEqual((listed["total"], listed["reports"][0]["source"], listed["reports"][0]["reason"]), (1, "app", ""))
+        offers.report_mismatch("ah", "4 tomaten", "3", "geen tomaat", source="assistant")
+        self.assertEqual(offers.list_mismatches("ah")["total"], 2)
 
     def test_an_english_line_is_reported_under_its_dutch_main_word(self):
         self.reported_setup()
@@ -937,6 +950,18 @@ class OffersRoutesTest(TempDataDirTest):
         self.assertEqual(self.client.delete("/api/offers/rejections", json=body).status_code, 200)
         self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "offerId": "nope"}).status_code, 400)
         self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "ingredient": ""}).status_code, 400)
+
+    def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
+        import re
+
+        def subtab(client):
+            html = client.get("/").get_data(as_text=True)
+            return re.search(r'<button class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
+
+        self.assertIn(" hidden", subtab(self.client))
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_RECIPES": "true"}):
+            self.assertNotIn(" hidden", subtab(create_app().test_client()))
+        self.assertEqual(self.client.get("/api/offers/recipes?store=ah").status_code, 200, "de API blijft werken")
 
     def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
         self.assertEqual(self.client.get("/api/offers?store=lidl").status_code, 400)

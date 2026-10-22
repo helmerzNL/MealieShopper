@@ -365,7 +365,7 @@
             <div class="subtab-menu__list" id="offers-store-list" hidden></div>
           </div>
           <button class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers">Aanbiedingen</button>
-          <button class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes">Recepten</button>
+          <button class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not config.OFFERS_RECIPES %} hidden{% endif %}>Recepten</button>
         </nav>
         <div id="offers-items" class="subpanel is-active">
         <div class="box box--wide">

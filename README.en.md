@@ -414,6 +414,7 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 | `list_jumbo_lists`, `get_jumbo_list` | Your Jumbo lists (shopping list, own lists, Favourites) and the products in them. |
 | `list_jumbo_orders`, `get_jumbo_order` | Your Jumbo orders and their products, from the local copy. |
 | `search_jumbo_recipes`, `get_jumbo_recipe`, `list_jumbo_recipe_lists`, `get_jumbo_recipe_list` | Search and view Jumbo recipes, and your recipe lists (Favourites and own lists). |
+| `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` | Review the matches between recipe ingredients and products on offer: the assistant gets the unique pairs (ingredient + product, with the number of recipes) of one store, reports the wrong ones (`report_offer_mismatch`, with a reason; `undo` removes the report) and can list the reported matches. A report hides the match, also in other recipes with the same ingredient. The only write tool here; nothing is deleted. |
 | `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
 
 There is deliberately **no** tool that fills a basket at a store or deletes anything.
@@ -450,6 +451,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_MCP` | Initial value of the MCP server for AI assistants (on by default, when login is on). The switch under Profile, AI apps takes precedence. |
 | `MEALIESHOPPER_OFFERS_SCHEDULE` | Set to `false` to turn off the daily task that fetches the offers of all stores. The button under Settings, Link keeps working. On by default. |
 | `MEALIESHOPPER_OFFERS_SYNC_HOUR` | The hour of the day (0 to 23, the container's time) at which that task fetches the offers. Default 5. |
+| `MEALIESHOPPER_OFFERS_RECIPES` | With `true` the app shows the **Recipes** subtab under Offers (recipe suggestions from the offers). Off by default: the matches between ingredients and products are not good enough yet. The MCP tools for AI assistants work with this off too. |
 | `MEALIESHOPPER_UPDATE_CHECK` | Set to `false` to turn the update check off (Settings, Updates). By default the app checks GitHub for a newer release and tells the administrator; no information about you or the installation is sent. |
 | `MEALIESHOPPER_AUDIT_LOG` | Set to `false` to turn the audit log off (Settings, Audit log). On by default. |
 | `MEALIESHOPPER_AUDIT_BODIES` | Set to `false` and the audit log stores only who, what, when and the outcome, not the requests and answers themselves. On by default. |
