@@ -3015,3 +3015,43 @@ body.has-onboarding {
 #offers-sync-box .toolbar {
   margin-top: 12px;
 }
+
+/* Aanbiedingen: categorieën als knoppen met het aantal ("5x Groente & Fruit"). */
+.offer-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.offer-cats[hidden] {
+  display: none;
+}
+
+.offer-chip {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.offer-chip:hover:not(.is-active) {
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.offer-chip.is-active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+#offers-more {
+  margin-top: 14px;
+}
