@@ -938,7 +938,7 @@ async function importUrl(url, button = null) {
   }
 }
 
-// Het blok "Inloggen bij ..." onder Beheer > Koppelen is inklapbaar en klapt in zodra de winkel gekoppeld is.
+// De blokken onder Beheer > Koppelen (Mealie en "Inloggen bij ..." per winkel) zijn inklapbaar en klappen in zodra de koppeling er is.
 // Een keuze van de gebruiker blijft staan.
 state.storeFold = {};
 
@@ -951,7 +951,7 @@ function applyStoreFold(store, linked) {
   $(`#${store}-login-body`).hidden = !open;
 }
 
-for (const store of ["ah", "picnic", "jumbo"]) {
+for (const store of ["mealie", "ah", "picnic", "jumbo"]) {
   $(`#${store}-login-toggle`).addEventListener("click", () => {
     const toggle = $(`#${store}-login-toggle`);
     state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
@@ -987,6 +987,7 @@ function renderMealieStatus(data, { verified = false } = {}) {
   if (data.url && document.activeElement !== $("#mealie-url") && !$("#mealie-url").value) {
     $("#mealie-url").value = data.url;
   }
+  applyStoreFold("mealie", Boolean(data.configured));
   if (!data.configured) {
     message("#mealie-status", t("mealie.not_linked"), "error");
   } else if (verified && data.connected) {
@@ -1722,7 +1723,7 @@ function renderAbout() {
     .join("");
 }
 
-function openBeheer(subtab = "beheer-ah") {
+function openBeheer(subtab = "beheer-link") {
   document.querySelector('[data-tab="beheer"]').click();
   const button = document.querySelector(`[data-subtab="${subtab}"]`);
   if (button) button.click();
@@ -1762,7 +1763,11 @@ $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", unlinkMealie);
-$("#open-mealie-setup").addEventListener("click", () => openBeheer("beheer-mealie"));
+$("#open-mealie-setup").addEventListener("click", () => {
+  openBeheer();
+  state.storeFold.mealie = true;
+  applyStoreFold("mealie", false);
+});
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
 $("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
@@ -1828,18 +1833,18 @@ $("#auth-logout").addEventListener("click", async () => {
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("ah_refresh")) {
-  openBeheer("beheer-ah");
+  openBeheer();
   $("#token-input").value = params.get("ah_refresh");
   message("#token-message", t("ah.refresh_received"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_connected")) {
-  openBeheer("beheer-ah");
+  openBeheer();
   message("#token-message", t("ah.saved"), "success");
   history.replaceState({}, "", "/");
 }
 if (params.get("ah_error")) {
-  openBeheer("beheer-ah");
+  openBeheer();
   message("#token-message", t("ah.redirect_failed", { error: params.get("ah_error") }));
   history.replaceState({}, "", "/");
 }

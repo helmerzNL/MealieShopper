@@ -291,9 +291,9 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat **Koppelen**, een uitklapmenu met Albert Heijn, Picnic, Jumbo en Mealie. Per winkel staat bovenaan of het account gekoppeld is (met `Koppeling controleren`), en daaronder het inklapbare blok **Inloggen bij ...** met de stappen, het afronden van de koppeling en de routeverkenner; het klapt in zodra de winkel gekoppeld is. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie koppelen**, **Inloggen bij Albert Heijn**, **Inloggen bij Picnic** en **Inloggen bij Jumbo**. Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
-<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte menu Koppelen: Albert Heijn, Picnic, Jumbo en Mealie" width="900">
+<img src="docs/screenshots/nl/settings-stores.png" alt="Beheer, Koppelen: de meldingen en de blokken voor Mealie, Albert Heijn, Picnic en Jumbo" width="900">
 
 <img src="docs/screenshots/nl/settings-picnic.png" alt="Beheer, Koppelen, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
 
