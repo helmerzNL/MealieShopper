@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.52.0
+
+*English summary: "Week menu to shop" and "Find recipes" are merged into one main tab, **Recipes**, with two subtabs: **Week menu** (renamed from "Week menu to shop") and **Find recipes**, both with an icon. The main menu goes from seven to six tabs.*
+
+### Aangepast in 2.52.0
+
+- **Eén tab Recepten met subtabs.** *Weekmenu naar winkel* en *Recepten zoeken* staan niet meer los in het hoofdmenu, maar als subtabs onder de nieuwe tab **Recepten**. Het hoofdmenu heeft daardoor zes tabs in plaats van zeven. Recepten opent op het weekmenu; het logo brengt je daar nog steeds naartoe.
+- **Weekmenu naar winkel heet nu Weekmenu**, en beide subtabs hebben een Material Design-icoon (een kalender bij Weekmenu, een vergrootglas bij Recepten zoeken). De teksten zijn in het Nederlands en het Engels bijgewerkt en de README's noemen de nieuwe indeling.
+
+### Goed om te weten
+
+- Verder verandert er niets aan wat de koppelingen, de MCP-tools of de API doen.
+
 ## v2.51.2
 
 *English summary: The planner no longer offers "Jumbo (shopping list)": groceries for Jumbo always go in the Jumbo basket. A remembered choice of the removed option falls back to Albert Heijn. The Jumbo shopping list itself is still shown under Stores > Lists. The API route that wrote to that list is unchanged but no longer used by the app.*

@@ -1594,7 +1594,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
 $("#brand-home").addEventListener("click", (event) => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  document.querySelector('.tab[data-tab="planner"]').click();
+  document.querySelector('.tab[data-tab="recipes"]').click();
 });
 
 // Uitklapmenu's in een subtabbalk (Beheer > Winkels en de winkelkeuze in Winkels): de knop opent de lijst; die sluit
