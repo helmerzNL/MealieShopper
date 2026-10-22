@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import ah, ah_lists, deals, offer_categories, offer_courses, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -439,6 +439,13 @@ def tokens(text: Any) -> list[str]:
 INGREDIENT_CONNECTORS = re.compile(r"\b(?:met|in|op|zonder|voor|van)\b")
 # Een theelepel of een snuf is een kruid, geen product om bij de aanbiedingen te zoeken (1 tsp salt, 2 tl kurkuma, een snufje nootmuskaat).
 SEASONING_QUANTITY = re.compile(r"\b(?:tsp|tl|theelepels?|teaspoons?|snuf(?:je)?s?|mespunt(?:je)?s?|pinch(?:es)?)\b")
+# Een eetlepel van een gedroogde specerij ("2 tbsp paprika", "1 el kurkuma") is een kruid. Verse groente in een eetlepel komt nauwelijks voor,
+# dus zo'n regel zoekt geen paprika of kerriesaus bij de aanbiedingen.
+SPOON_QUANTITY = re.compile(r"\b(?:tbsp|el|eetlepels?|tablespoons?)\b")
+DRIED_SPICES = {
+    _stem(word) for word in ("paprika", "kurkuma", "turmeric", "komijn", "cumin", "kaneel", "cinnamon", "cayenne", "nootmuskaat", "nutmeg",
+                             "kerrie", "curry")
+}
 # Een regel die naar een ander deel van het recept verwijst ("Spice mixture (below)") is een kopje en geen ingrediënt.
 HEADING_NOTE = re.compile(r"\((?:see\s+)?(?:below|above|hieronder|hierboven|zie[^)]*)\)")
 
@@ -454,6 +461,8 @@ def head_of(ingredient: Any) -> str | None:
     # Alleen basis- en smaakwoorden ("zout en peper", "verse kruiden"), of een basis als hoofdwoord ("milde olijfolie"). Een smaakwoord
     # aan het eind van een langere regel ("zuivelspread knoflook en kruiden") blijft staan: het ingrediënt telt mee maar zoekt geen product.
     if not words or all(is_basic(word) or word in WEAK_HEADS for word in words) or (is_basic(words[-1]) and words[-1] not in WEAK_HEADS):
+        return None
+    if words[-1] in DRIED_SPICES and SPOON_QUANTITY.search(lowered):
         return None
     return words[-1]
 
@@ -612,7 +621,9 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for row in rows:
         ingredients = json.loads(row["ingredients"])
-        heads = [(text, head_of(text)) for text in ingredients]
+        # Een Engelse regel (veel Mealie-imports) vertalen we eerst naar het Nederlands, met een variant per Nederlandse naam.
+        translated = {text: offer_translate.variants(text) for text in ingredients}
+        heads = [(text, head_of(translated[text][0])) for text in ingredients]
         # Hetzelfde ingrediënt twee keer in een recept ("1 el paprika", "2 el paprika") telt één keer.
         unique: dict[str, str] = {}
         for text, head in heads:
@@ -624,14 +635,16 @@ def suggest(store: Any, limit: int = 30, course: Any = None) -> dict[str, Any]:
         found: list[dict[str, Any]] = []
         used: set[str] = set()
         for text, head in heads:
-            kind = offer_categories.categorize(text)
+            options = [(line, head_of(line), offer_categories.categorize(line)) for line in translated[text]]
+            options = [(line, option_head, kind) for line, option_head, kind in options if option_head]
             best: tuple[int, dict[str, Any]] | None = None
             for offer, core, rest in prepared:
                 if offer["id"] in used:
                     continue
-                extra = link_offer(text, offer, (core, rest), head=head, kind=kind)
-                if extra is not None and (best is None or extra < best[0]):
-                    best = (extra, offer)
+                for line, option_head, kind in options:
+                    extra = link_offer(line, offer, (core, rest), head=option_head, kind=kind)
+                    if extra is not None and (best is None or extra < best[0]):
+                        best = (extra, offer)
             if best:
                 used.add(best[1]["id"])
                 found.append({"ingredient": text, "offer": best[1]})
