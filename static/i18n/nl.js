@@ -29,7 +29,7 @@ I18N.add("nl", {
   "mealie.link": "Mealie koppelen",
   "plan.prev_week": "Vorige week",
   "plan.next_week": "Volgende week",
-  "plan.load": "Weekmenu laden",
+  "plan.sync": "Weekmenu synchroniseren",
   "search.placeholder": "Zoek een recept bij AH, Jumbo en Picnic...",
   "search.submit": "Zoeken",
   "import.title": "Recept importeren via URL",
