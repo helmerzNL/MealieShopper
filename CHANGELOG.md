@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.59.1
+
+*English summary: When Picnic answers the login with a bare "403 Forbidden" page (the gateway in front of the API refusing this network, not a wrong password), MealieShopper now says so and what to try, instead of the generic "Picnic error". Picnic's offers are now looked for on the home page (Discover), because the app has no offers tab; the Picnic explorer reports on those pages first.*
+
+### Aangepast in 2.59.1
+
+- **Duidelijke melding als Picnic het netwerk weert.** Antwoordt Picnic bij het inloggen met een kale *403 Forbidden*-pagina (geen JSON), dan komt dat van de poort vóór de API en niet van de login zelf. MealieShopper meldt nu dat Picnic verbindingen vanaf dit netwerk weigert, dat het niet aan je e-mailadres of wachtwoord ligt, en dat je het later of vanaf een thuisnetwerk kunt proberen (Picnic weert soms server- en datacenter-adressen en blokkeert tijdelijk na veel pogingen). Voorheen stond er alleen *Picnic fout*. Een 403 die de API zelf als JSON geeft blijft een gewone fout.
+
+- **Picnic-aanbiedingen zoeken op de startpagina.** De verkenner liet zien dat de tabbalk van de Picnic-app geen aanbiedingen-tab heeft (alleen Ontdek, Favorieten, Koken, Zoeken en Mandje), dus de eerdere zoektocht naar zo'n tab vond niets. MealieShopper leest nu de startpagina (*Ontdek*) en de pagina's waar die over aanbiedingen naar verwijst, ook de pagina's die ze zelf later laadt, en houdt alleen producten over met een korting-teken (een oude prijs, prijsklassen of een actielabel). Staan er geen aanbiedingen, dan meldt MealieShopper dat en vraagt het rapport van de verkenner.
+- **De Picnic-verkenner begint met de aanbiedingen.** Bovenaan het rapport staat per pagina de opbouw, hoeveel producttegels een korting-teken hebben, welke velden en decorators ze hebben en welke pagina's er later laden. Zonder namen, prijzen of id's.
+
+### Goed om te weten
+
+- Het inloggen zelf is niet veranderd, alleen wat je te zien krijgt als Picnic het netwerk weigert. Dat het inloggen daarna weer lukte past bij een tijdelijke blokkade.
+- Welk veld Picnic bij een productkorting precies gebruikt is nog niet bekend: de verkenner heeft er een tegel zonder korting van laten zien. Draai hem opnieuw als de lijst leeg blijft.
+
 ## v2.59.0
 
 *English summary: The offers of Picnic and Jumbo are now fetched and shown on the Offers tab, next to Albert Heijn. A background task fetches the offers of all stores once a day (default around 5 am; `MEALIESHOPPER_OFFERS_SYNC_HOUR`, switch off with `MEALIESHOPPER_OFFERS_SCHEDULE=false`), and under Settings > Link a new "Sync offers" button fetches them right away. Picnic's offers come from the app's offers tab; Jumbo has no route for all offers, so they are found by searching common terms and keeping products with an action.*
