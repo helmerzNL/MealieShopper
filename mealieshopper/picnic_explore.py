@@ -416,9 +416,9 @@ def offer_probes() -> list[dict[str, Any]]:
         report, page = _probe(f"aanbiedingen: GET pages/{reference}", lambda r=reference: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
         probes.append(report)
         if isinstance(page, dict):
-            linked = list(dict.fromkeys(picnic._LINKED_PAGE.findall(json.dumps(page)))) + picnic.lazy_pages(page)
-            followed.extend(link for link in linked if picnic._OFFER_WORDS.search(link) and link not in followed and picnic._PAGE_REFERENCE.match(link))
-    for link in followed[:6]:
+            linked = picnic.page_references(page) + picnic.lazy_pages(page)
+            followed.extend(link for link in linked if picnic._OFFER_WORDS.search(link.split("?")[0]) and link not in followed and picnic._PAGE_REFERENCE.match(link))
+    for link in followed[:3]:
         report, _ = _probe(f"aanbiedingen: GET pages/{_redact(link)}", lambda r=link: picnic._authed("GET", f"/pages/{r}", text=True), _offer_page_info)
         probes.append(report)
     return probes

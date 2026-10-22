@@ -95,6 +95,9 @@ class PicnicOffersTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
         picnic.save_auth_key("key")
+        patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def serve(self, pages, tabs=()):
         def authed(method, path, **kwargs):
@@ -186,6 +189,109 @@ class PicnicOffersTest(TempDataDirTest):
         auth.set_secret(picnic.AUTH_KEY_SECRET, "")
         with self.assertRaises(RuntimeError):
             picnic.get_offers()
+
+
+def text_tile(unit_id, name, cents, *texts):
+    """Een tegel zoals de startpagina hem toont: de tegel zelf met de teksten ernaast in hetzelfde onderdeel."""
+    children = [{"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": unit_id, "name": name, "display_price": cents, "image_id": "i", "unit_quantity": "1 st", "decorators": []}}]
+    children += [{"type": "RICH_TEXT", "markdown": text} for text in texts]
+    return {"type": "PML", "id": f"tile-{unit_id}", "pml": {"component": {"children": children}}}
+
+
+def promo_card(title, reference):
+    return {"type": "PML", "id": "core-horizontal-card-item_0__3", "pml": {"component": {"children": [
+        {"type": "RICH_TEXT", "markdown": f"#(#123456){title}#(#123456)"},
+        {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": f"nl.picnic-supermarkt://store/page;id={reference}"}}]}}}
+
+
+class PicnicHomePageOffersTest(TempDataDirTest):
+    HOME_TABS = [{"id": "home-tab", "title": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}}]
+
+    def setUp(self):
+        super().setUp()
+        picnic.save_auth_key("key")
+        patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.asked = []
+
+    def serve(self, pages):
+        def authed(method, path, **kwargs):
+            self.asked.append(path)
+            if path == "/bootstrap":
+                return {"tabs": self.HOME_TABS}
+            reference = path.split("/pages/", 1)[1]
+            if reference not in pages:
+                raise RuntimeError("404")
+            return pages[reference]
+
+        return mock.patch.object(picnic, "_authed", side_effect=authed)
+
+    def test_the_discount_text_next_to_a_tile_makes_it_an_offer_with_that_label(self):
+        page = {"body": {"children": [
+            text_tile("s1", "Pasta", 129, "Pasta 500 g", "1+1 gratis"),
+            text_tile("s2", "Kaas", 299, "Kaas 400 g", "25% korting"),
+            text_tile("s3", "Melk", 129, "Melk 1 l"),
+            text_tile("s4", "Cola", 199, "Cola", "2 voor €5"),
+            text_tile("s5", "Brood", 189, "2e = 50% korting"),
+            text_tile("s6", "Thee", 249, "nu €1.99"),
+        ]}}
+        offers_on_page = {o["id"]: o for o in picnic.offers_from_page(page)}
+        self.assertEqual({k: (v["promo"], v["promoLabel"]) for k, v in offers_on_page.items()}, {
+            "s1": (True, "1+1 gratis"), "s2": (True, "25% korting"), "s3": (False, ""), "s4": (True, "2 voor €5"),
+            "s5": (True, "2e = 50% korting"), "s6": (True, "nu €1.99")})
+        self.assertEqual(offers_on_page["s1"]["price"], 1.29)
+
+    def test_color_markup_is_removed_from_texts(self):
+        self.assertEqual(picnic._clean_text("#(#1A2B3C)Appels en peren#(#1A2B3C)"), "Appels en peren")
+        self.assertEqual(picnic._clean_text(None), "")
+
+    def test_references_keep_their_parameters_and_both_app_schemes_are_read(self):
+        page = {"a": "nl.picnic-supermarkt://store/page;id=promo-group-deep-dive,promo_group_id=abc-4",
+                "b": "picnic://store/page;id=product-details-page-root,id=s1&show_category_action=true",
+                "c": "picnic://store/page;id=loyalty-page-root-1-09", "d": "picnic://store/page"}
+        self.assertEqual(picnic.page_references(page), [
+            "promo-group-deep-dive?promo_group_id=abc-4", "product-details-page-root?id=s1&show_category_action=true", "loyalty-page-root-1-09"])
+
+    def test_cards_under_acties_are_followed_and_every_product_there_counts(self):
+        home = {"body": {"children": [
+            text_tile("s1", "Pasta", 129, "1+1 gratis"), text_tile("s2", "Melk", 129, "Melk"),
+            promo_card("Appels en peren", "promo-group-deep-dive,promo_group_id=g1-4"),
+            promo_card("Pringles", "promo-group-deep-dive,promo_group_id=g2-7"),
+            {"type": "PML", "id": "recipe", "pml": {"component": {"children": [{"type": "TOUCHABLE", "onPress": {"target": "picnic://store/page;id=selling-group-details-page,selling_group_id=x"}}]}}},
+        ]}}
+        pages = {
+            "home_page_root": home,
+            "promo-group-deep-dive?promo_group_id=g1-4": {"body": {"children": [text_tile("s3", "Elstar", 199, "Elstar", "20% korting"), text_tile("s4", "Conference", 249, "Conference")]}},
+            "promo-group-deep-dive?promo_group_id=g2-7": {"body": {"children": [text_tile("s5", "Pringles", 199, "Pringles")]}},
+        }
+        with self.serve(pages):
+            found = {o["id"]: o for o in picnic.get_offers()}
+        self.assertEqual(sorted(found), ["s1", "s3", "s4", "s5"], "s2 is een gewoon product op de startpagina")
+        self.assertEqual(found["s1"]["promoLabel"], "1+1 gratis")
+        self.assertEqual(found["s3"]["promoLabel"], "20% korting", "de tekst van de tegel gaat voor")
+        self.assertEqual(found["s4"]["promoLabel"], "Appels en peren", "zonder tekst de titel van de kaart")
+        self.assertEqual(found["s5"]["promoLabel"], "Pringles")
+        self.assertNotIn("promo", found["s1"])
+        self.assertIn("/pages/promo-group-deep-dive?promo_group_id=g1-4", self.asked)
+        self.assertFalse(any("selling-group-details-page" in path for path in self.asked), "recepten volgen we niet")
+
+    def test_lazy_pages_of_an_action_page_are_read_and_a_failing_card_does_not_stop_the_rest(self):
+        group = {"body": {"children": [text_tile("s3", "Elstar", 199, "Elstar")]}, "lazy": {"pageConfig": {"id": "promo-group-content"}}}
+        home = {"body": {"children": [promo_card("Een", "promo-group-deep-dive,promo_group_id=g1-4"), promo_card("Twee", "promo-group-deep-dive,promo_group_id=g2-7")]}}
+        pages = {"home_page_root": home, "promo-group-deep-dive?promo_group_id=g2-7": group, "promo-group-content": {"body": {"children": [text_tile("s9", "Peer", 99, "Peer")]}}}
+        with self.serve(pages):
+            found = picnic.get_offers()
+        self.assertEqual(sorted(o["id"] for o in found), ["s3", "s9"])
+
+    def test_the_number_of_pages_is_capped(self):
+        cards = [promo_card(f"Groep {i}", f"promo-group-deep-dive,promo_group_id=g{i}-1") for i in range(80)]
+        pages = {"home_page_root": {"body": {"children": cards}}}
+        pages.update({f"promo-group-deep-dive?promo_group_id=g{i}-1": {"body": {"children": [text_tile(f"s{i}", "x", 100, "x")]}} for i in range(80)})
+        with self.serve(pages):
+            found = picnic.get_offers()
+        self.assertLessEqual(len([p for p in self.asked if "/pages/" in p and "home_page_root" in p or "promo-group" in p]), picnic.MAX_OFFER_PAGES)
+        self.assertGreater(len(found), 10)
 
 
 class PicnicExplorerTest(TempDataDirTest):

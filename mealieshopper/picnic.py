@@ -625,21 +625,45 @@ def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str,
 
 
 # --- aanbiedingen -------------------------------------------------------------------------------
-# Picnic heeft in de tabbalk geen aanbiedingen-tab: ze staan op de startpagina (de tab Ontdek) en op pagina's waar
-# die naar verwijst. Net als bij de favorieten vragen we `/bootstrap` welke pagina's er zijn, lezen de producten en volgen
-# de verwijzingen die over aanbiedingen gaan. Staan er op een pagina die niet over aanbiedingen gaat producten, dan tellen
-# alleen die met een korting-teken (zie `_offer`). Wat Picnic geeft staat niet vast; de verkenner toont de vorm.
+# Picnic heeft in de tabbalk geen aanbiedingen-tab. Het verkenner-rapport liet zien waar ze wel staan, op de startpagina
+# (de tab Ontdek): bij sommige producttegels staat een kortingtekst ernaast ("1+1 gratis", "20% korting", "2 voor €5"), en onder
+# *Acties van de week* staan kaarten per merk of productgroep die een eigen pagina openen (`promo-group-deep-dive`) met alle
+# producten van die actie. We lezen beide; wat op een pagina staat die niet over aanbiedingen gaat telt alleen met zo'n teken.
 
 _OFFER_WORDS = re.compile(r"aanbied|deal|promo|actie|korting|offer|bonus|sale", re.I)
 _HOME_WORDS = re.compile(r"home|ontdek|discover", re.I)
 OFFER_FALLBACKS = ("deals-page-root", "promotions-page-root", "promotions-page")
 HOME_FALLBACK = "home_page_root"
-MAX_OFFER_PAGES = 12
+MAX_OFFER_PAGES = 40
+OFFER_PAGE_DELAY = 0.15  # seconden tussen de pagina's, zodat we Picnic niet overspoelen
 _PROMO_TYPES = ("PROMO", "DISCOUNT", "SALE", "DEAL", "OFFER", "BONUS")
+# Een tekst bij een producttegel die over een korting gaat, zoals het rapport ze liet zien.
+_PROMO_TEXT = re.compile(
+    r"\d+\s*\+\s*\d+\s*gratis|\d+\s*%\s*korting|\d+e?\s*=\s*\d+\s*%\s*korting|\d+e?\s*=\s*gratis|\d+\s+voor\s+€\s*[\d.,]+|"
+    r"\bnu\s+€\s*[\d.,]+|halve\s+prijs|\bgratis\b|\bkorting\b",
+    re.I,
+)
+# Een verwijzing naar een pagina van de app, met de parameters erachter: `nl.picnic-supermarkt://store/page;id=naam,sleutel=waarde`.
+_STORE_PAGE = re.compile(r"(?:picnic|supermarkt)://store/page;id=([A-Za-z0-9_.-]+)((?:,[A-Za-z0-9_.:=&%,-]+)?)")
+_COLOR_MARKUP = re.compile(r"#\([^)]*\)")
 
 
-def _offer(unit: dict[str, Any]) -> dict[str, Any] | None:
-    """Een product van een pagina als aanbieding. `promoLabel` blijft leeg als Picnic geen tekst bij de actie geeft."""
+def _clean_text(markdown: Any) -> str:
+    """Een tekst uit de app zonder de kleurcodes (`#(KLEUR)tekst#(KLEUR)`)."""
+    return _COLOR_MARKUP.sub("", str(markdown or "")).strip()
+
+
+def page_references(page: Any) -> list[str]:
+    """De pagina's waar een pagina naar verwijst, als verzoekpad: `naam` of `naam?sleutel=waarde&...`."""
+    found = []
+    for name, params in _STORE_PAGE.findall(json.dumps(page)):
+        query = params.lstrip(",").replace(",", "&")
+        found.append(f"{name}?{query}" if query else name)
+    return list(dict.fromkeys(found))
+
+
+def _offer(unit: dict[str, Any], texts: tuple[str, ...] = ()) -> dict[str, Any] | None:
+    """Een product van een pagina als aanbieding. `texts` zijn de teksten bij de tegel; een kortingtekst daarin wordt het label."""
     product = _product(unit)
     if not product:
         return None
@@ -649,6 +673,7 @@ def _offer(unit: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(d, dict) and any(word in str(d.get("type", "")).upper() for word in _PROMO_TYPES)
     ]
     labels = [str(d["text"]).strip() for d in promo_decorators if isinstance(d.get("text"), str) and d["text"].strip()]
+    labels += [text for text in texts if len(text) <= 40 and _PROMO_TEXT.search(text)]
     return {
         "id": product["id"],
         "title": product["title"],
@@ -660,21 +685,49 @@ def _offer(unit: dict[str, Any]) -> dict[str, Any] | None:
         "image": product["image"],
         "url": None,
         "validUntil": None,
-        "promo": bool(promo_decorators or listed is not None or unit.get("price_ranges")),
+        "promo": bool(labels or listed is not None or unit.get("price_ranges")),
     }
 
 
 def offers_from_page(page: Any) -> list[dict[str, Any]]:
-    """De producten op een pagina als aanbiedingen, zonder dubbelen."""
+    """De producten op een pagina als aanbiedingen, zonder dubbelen, met de kortingtekst die bij hun tegel staat."""
+    texts_by_unit: dict[str, tuple[str, ...]] = {}
+    for node in _walk(page):
+        if node.get("type") != "PML":
+            continue
+        inside = list(_walk(node))
+        tiles = [n for n in inside if n.get("type") == "SELLING_UNIT_TILE" and isinstance(n.get("sellingUnit"), dict)]
+        if len(tiles) == 1:
+            texts_by_unit[str(tiles[0]["sellingUnit"].get("id"))] = tuple(
+                text for text in (_clean_text(n.get("markdown")) for n in inside if n.get("type") == "RICH_TEXT") if text
+            )
     seen: set[str] = set()
     offers: list[dict[str, Any]] = []
     for node in _walk(page):
         unit = node.get("sellingUnit") if node.get("type") == "SELLING_UNIT_TILE" else None
-        offer = _offer(unit) if isinstance(unit, dict) else None
+        offer = _offer(unit, texts_by_unit.get(str(unit.get("id")), ())) if isinstance(unit, dict) else None
         if offer and offer["id"] not in seen:
             seen.add(offer["id"])
             offers.append(offer)
     return offers
+
+
+def promo_groups(page: Any) -> dict[str, str]:
+    """De kaarten op een pagina die naar een actiepagina verwijzen: {pagina: titel van de kaart}, bijvoorbeeld *Appels en peren*."""
+    groups: dict[str, str] = {}
+    for node in _walk(page):
+        if node.get("type") != "PML":
+            continue
+        inside = list(_walk(node))
+        if any(n.get("type") == "SELLING_UNIT_TILE" for n in inside):
+            continue
+        references = [ref for ref in page_references(node) if _OFFER_WORDS.search(ref.split("?")[0])]
+        if not references:
+            continue
+        title = next((t for t in (_clean_text(n.get("markdown")) for n in inside if n.get("type") == "RICH_TEXT") if t), "")
+        for reference in references:
+            groups.setdefault(reference, title[:60])
+    return groups
 
 
 def lazy_pages(page: Any) -> list[str]:
@@ -716,12 +769,20 @@ def offer_references() -> list[tuple[str, bool]]:
 
 
 def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[str, dict[str, Any]]:
-    """Lees een pagina en de pagina's waar hij naar verwijst; geef de gevonden producten per id."""
-    queue, visited, found = [reference], set(), {}
+    """Lees een pagina en de actiepagina's waar hij naar verwijst; geef de gevonden aanbiedingen per product-id.
+
+    Op de eerste pagina tellen bij een strenge pagina alleen producten met een kortingteken. Een actiepagina (waar een kaart naartoe
+    leidt) bevat alleen aanbiedingen: alle producten tellen, met de kortingtekst van hun tegel of anders de titel van de kaart.
+    """
+    queue: list[tuple[str, str | None]] = [(reference, None)]
+    visited: set[str] = set()
+    found: dict[str, dict[str, Any]] = {}
     while queue and len(visited) < MAX_OFFER_PAGES:
-        current = queue.pop(0)
+        current, group = queue.pop(0)
         if current in visited:
             continue
+        if visited and OFFER_PAGE_DELAY:
+            time.sleep(OFFER_PAGE_DELAY)
         visited.add(current)
         try:
             page = _page(current)
@@ -732,12 +793,24 @@ def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[s
             continue
         if not isinstance(page, dict):
             continue
+        is_group = group is not None
         for offer in offers_from_page(page):
-            found.setdefault(offer["id"], offer)
-        linked = list(dict.fromkeys(_LINKED_PAGE.findall(json.dumps(page)))) + lazy_pages(page)
-        for link in linked:
-            if link not in visited and _PAGE_REFERENCE.match(link) and (not strict or _OFFER_WORDS.search(link)):
-                queue.append(link)
+            if is_group:
+                offer["promo"] = True
+                offer["promoLabel"] = offer["promoLabel"] or group
+            if offer["id"] not in found or (offer["promo"] and not found[offer["id"]]["promo"]):
+                found[offer["id"]] = offer
+        references = promo_groups(page)
+        for ref in page_references(page):
+            if ref in visited or not _PAGE_REFERENCE.match(ref):
+                continue
+            if ref in references:
+                queue.append((ref, references[ref]))
+            elif _OFFER_WORDS.search(ref.split("?")[0]):
+                queue.append((ref, None))
+        for lazy in lazy_pages(page):
+            if lazy not in visited and (is_group or not strict or _OFFER_WORDS.search(lazy)):
+                queue.append((lazy, group))
     return found
 
 
