@@ -3,7 +3,7 @@
 Aanbiedingen worden bij de winkel opgehaald en in SQLite bewaard; een vernieuwing vervangt de kopie van die
 winkel in een keer, en mislukt het ophalen, dan blijft de vorige kopie staan. Voor de receptvoorstellen bewaren
 we een index met de ingrediënten van je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten). De voorstellen
-komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst.
+komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI-dienst (de optionele AI-beoordeling in `ai_review.py` draait alleen op een knop).
 
 De aanbiedingen van AH (Bonus), Picnic en Jumbo worden elke dag door `offers_schedule` opgehaald, en op verzoek via
 `sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen).
@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS offer_rejections (
   reported_at TEXT NOT NULL,
   reason TEXT,
   source TEXT,
+  PRIMARY KEY (store, product_id, head)
+);
+
+-- Wat een AI (zie ai_review.py) van een koppeling vond: `ok` of `wrong`, per winkel, product en hoofdwoord van het ingrediënt. Zo wordt elk
+-- paar maar een keer beoordeeld, ook als je een melding later ongedaan maakt.
+CREATE TABLE IF NOT EXISTS offer_verdicts (
+  store TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  head TEXT NOT NULL,
+  ingredient TEXT NOT NULL,
+  product_title TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  reason TEXT,
+  provider TEXT,
+  model TEXT,
+  judged_at TEXT NOT NULL,
   PRIMARY KEY (store, product_id, head)
 );
 
@@ -798,6 +814,12 @@ def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]:
     }
 
 
+def _verdicts(store: str) -> dict[tuple[str, str], str]:
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT product_id, head, verdict FROM offer_verdicts WHERE store = ?", (store,)).fetchall()
+    return {(row["product_id"], row["head"]): row["verdict"] for row in rows}
+
+
 def _rejections(store: str) -> set[tuple[str, str]]:
     with closing(_connect()) as conn:
         rows = conn.execute("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,)).fetchall()
@@ -818,6 +840,8 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> 
         raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
     offers = load(store)
     rejected = _rejections(offers["store"])
+    verdicts = _verdicts(offers["store"])
+    pair_judged: dict[tuple[str, str], bool] = {}
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
@@ -837,6 +861,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> 
         if not heads:
             continue
         found: list[dict[str, Any]] = []
+        pair_found: dict[tuple[str, str], bool] = {}
         used: set[str] = set()
         for text, head in heads:
             options = [(line, head_of(line), ingredient_kind(line)) for line in translated[text]]
@@ -851,10 +876,16 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> 
                         best = (extra, offer)
             if best:
                 used.add(best[1]["id"])
-                found.append({"ingredient": text, "offer": best[1]})
+                pair = (str(best[1]["id"]), head)
+                match = {"ingredient": text, "offer": best[1]}
+                if verdicts.get(pair) == "ok":
+                    match["ai"] = "ok"  # een AI heeft deze koppeling goedgekeurd (zie ai_review.py)
+                found.append(match)
+                pair_found[pair] = pair in verdicts
         needed = 1 if len(heads) <= 3 else 2
         if len(found) < needed:
             continue
+        pair_judged.update(pair_found)
         saving = sum(saving_of(item["offer"]) for item in found)
         matched_texts = {item["ingredient"] for item in found}
         results.append(
@@ -886,16 +917,18 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> 
         "courses": courses,
         "course": course or "all",
         "offersSyncedAt": offers["syncedAt"],
+        # Hoeveel van de unieke koppelingen in de voorstellen een AI al beoordeeld heeft (zie ai_review.py).
+        "ai": {"judged": sum(pair_judged.values()), "unjudged": len(pair_judged) - sum(pair_judged.values())},
         "indexedAt": meta["synced_at"] if meta else None,
         "sources": json.loads(meta["summary"]) if meta else {},
     }
 
 
-def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
-    """De koppelingen van alle receptvoorstellen als lijst van unieke paren (hoofdwoord van het ingrediënt + product), om te beoordelen.
+def unique_pairs(store: Any) -> list[dict[str, Any]]:
+    """De koppelingen van alle receptvoorstellen als lijst van unieke paren (hoofdwoord van het ingrediënt + product), het vaakst gebruikte eerst.
 
     Hetzelfde paar komt in veel recepten voor en één oordeel (`report_mismatch`) geldt voor al die recepten, dus elk paar staat één keer in
-    de lijst, het vaakst gebruikte eerst, met het aantal recepten en een paar voorbeelden. Al gemelde paren staan er niet meer in."""
+    de lijst, met het aantal recepten, een paar voorbeelden en het hoofdwoord (`head`). Al gemelde paren staan er niet meer in."""
     suggestions = suggest(store, limit=10**6, cap=10**6)
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
     for recipe in suggestions["recipes"]:
@@ -909,6 +942,7 @@ def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]
                 (str(offer["id"]), head),
                 {
                     "ingredient": item["ingredient"],
+                    "head": head,
                     "offerId": str(offer["id"]),
                     "product": offer["title"],
                     "brand": offer.get("brand") or "",
@@ -921,14 +955,15 @@ def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]
             pair["recipes"] += 1
             if len(pair["exampleRecipes"]) < 3:
                 pair["exampleRecipes"].append(recipe["title"])
-    ordered = sorted(pairs.values(), key=lambda pair: (-pair["recipes"], pair["product"], pair["ingredient"]))
+    return sorted(pairs.values(), key=lambda pair: (-pair["recipes"], pair["product"], pair["ingredient"]))
+
+
+def review_pairs(store: Any, limit: int = 40, offset: int = 0) -> dict[str, Any]:
+    """`unique_pairs` voor de MCP-tool `review_offer_matches`: een stuk van de lijst, zonder het interne hoofdwoord."""
+    ordered = unique_pairs(store)
     start = max(0, int(offset))
-    return {
-        "store": suggestions["store"],
-        "total": len(ordered),
-        "offset": start,
-        "pairs": ordered[start : start + max(1, min(100, int(limit)))],
-    }
+    page = [{key: value for key, value in pair.items() if key != "head"} for pair in ordered[start : start + max(1, min(100, int(limit)))]]
+    return {"store": _valid_store(store), "total": len(ordered), "offset": start, "pairs": page}
 
 
 # --- de receptenindex ---------------------------------------------------------------------------

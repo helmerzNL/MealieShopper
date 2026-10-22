@@ -11,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_review, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -25,6 +25,11 @@ def create_app() -> Flask:
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-39")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+    @app.context_processor
+    def offers_recipes_flag():
+        # Het tabblad Recepten bij Aanbiedingen: aan met de omgevingsvariabele, of zodra er een AI-sleutel is ingesteld (zie ai_review.py).
+        return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or ai_review.configured()}
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
@@ -381,6 +386,36 @@ def create_app() -> Flask:
         return offers_action(
             lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
             tr("Koppeling melden mislukt", "Reporting the match failed"),
+        )
+
+    # --- AI-beoordeling van de koppelingen (optioneel, alleen de beheerder: auth.ADMIN_PATHS) -------------
+
+    def ai_status():
+        data = ai_review.status()
+        # Het tabblad Recepten bij Aanbiedingen is zichtbaar met de omgevingsvariabele of zodra er een AI-sleutel is.
+        data["recipesTab"] = bool(app.config["OFFERS_RECIPES"] or data["active"])
+        return data
+
+    @app.get("/api/offers/ai")
+    def offers_ai_status():
+        return offers_action(ai_status, tr("AI-instellingen laden mislukt", "Loading the AI settings failed"))
+
+    @app.put("/api/offers/ai")
+    def offers_ai_save():
+        body = request.get_json(silent=True) or {}
+        return offers_action(lambda: (ai_review.save(body), ai_status())[1], tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
+
+    @app.post("/api/offers/ai/test")
+    def offers_ai_test():
+        body = request.get_json(silent=True) or {}
+        return offers_action(lambda: ai_review.test(body.get("provider")), tr("De AI testen mislukt", "Testing the AI failed"))
+
+    @app.post("/api/offers/ai/review")
+    def offers_ai_review():
+        body = request.get_json(silent=True) or {}
+        return offers_action(
+            lambda: ai_review.review(body.get("store") or "ah", body.get("max") or ai_review.DEFAULT_MAX_PAIRS),
+            tr("Beoordelen met AI mislukt", "Reviewing with AI failed"),
         )
 
     @app.post("/api/offers/recipes/sync")

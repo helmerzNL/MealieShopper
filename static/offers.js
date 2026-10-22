@@ -196,7 +196,7 @@ function offerRecipeCard(recipe, index) {
   const matched = recipe.matched
     .map(
       (item, at) =>
-        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button><button class="offer-flag" type="button" data-recipe="${index}" data-match="${at}" title="${escapeHtml(t("offers.report.label"))}" aria-label="${escapeHtml(t("offers.report.aria", { product: item.offer.title }))}">${mdiIcon(MDI_FLAG_OUTLINE)}</button></li>`
+        `<li>${escapeHtml(item.ingredient)} <button class="offer-match" type="button" data-recipe="${index}" data-match="${at}" aria-label="${escapeHtml(t("offers.product.open", { product: item.offer.title }))}">→ ${escapeHtml(item.offer.title)}</button>${item.ai === "ok" ? `<span class="offer-ai" title="${escapeHtml(t("aireview.badge"))}" role="img" aria-label="${escapeHtml(t("aireview.badge"))}">${mdiIcon(MDI_CHECK_CIRCLE_OUTLINE)}</span>` : ""}<button class="offer-flag" type="button" data-recipe="${index}" data-match="${at}" title="${escapeHtml(t("offers.report.label"))}" aria-label="${escapeHtml(t("offers.report.aria", { product: item.offer.title }))}">${mdiIcon(MDI_FLAG_OUTLINE)}</button></li>`
     )
     .join("");
   const saving = recipe.saving ? `<p class="bonus">${escapeHtml(t("offers.saving", { amount: formatPrice(recipe.saving) }))}</p>` : "";
@@ -309,6 +309,7 @@ async function showOfferRecipes() {
     }
     offersState.recipes = data.recipes;
     list.innerHTML = data.recipes.map(offerRecipeCard).join("");
+    if (typeof renderOfferAi === "function") renderOfferAi(data.ai);
   } catch (error) {
     message("#offers-recipes-message", error.message);
   }

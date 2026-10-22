@@ -999,6 +999,56 @@ a.product-card strong {
   }
 }
 
+/* AI-beoordeling (optioneel): de balk boven de receptvoorstellen, het vinkje bij een goedgekeurde koppeling en het blok bij Instellingen. */
+.offers-ai {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 8px 0;
+}
+
+.offers-ai[hidden] {
+  display: none;
+}
+
+.offers-ai p {
+  margin: 0;
+}
+
+#offers-ai-run .ai-run__icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: middle;
+  fill: currentColor;
+  animation: spin 1s linear infinite;
+}
+
+.offer-ai {
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: middle;
+  color: var(--success-text);
+}
+
+.offer-ai svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.ai-provider {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ai-provider h3 {
+  margin: 0 0 4px;
+}
+
 .offer-matches {
   margin: 0;
   padding-left: 18px;
@@ -1624,6 +1674,12 @@ a.product-card__main:hover strong {
 
 @media (prefers-reduced-motion: reduce) {
   .offers-loading__icon {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #offers-ai-run .ai-run__icon {
     animation: none;
   }
 }

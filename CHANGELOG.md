@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.68.0
+
+*English summary: Optional AI review of the matches between recipe ingredients and products on offer, with your own API key from Claude (Anthropic) and/or ChatGPT (OpenAI). Enter the key under Settings > Link (administrator only; stored encrypted, never shown again) or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; choose the provider and model and test the key. With a key, the Recipes tab under Offers appears and the administrator gets a "Review with AI" button: each unique ingredient + product pair is sent once (only that text, nothing else), the verdict is kept, a rejected match is hidden like a reported one (source `ai`) and an approved one gets a check mark. It runs only when you press the button, asks for confirmation, and shows the tokens used. Without a key nothing changes.*
+
+### Nieuw in 2.68.0
+
+- **Een Claude- of ChatGPT-sleutel om de koppelingen te laten beoordelen (optioneel).** Onder *Instellingen, Koppelen, AI-beoordeling van koppelingen* vul je een API-sleutel in van Claude (Anthropic) en/of ChatGPT (OpenAI), kies je welke aanbieder gebruikt wordt (of *Automatisch*) en pas je zo nodig het model aan (standaard `claude-haiku-5-5` en `gpt-4o-mini`). `Testen` controleert sleutel en model met een kleine aanroep. De sleutel wordt versleuteld bewaard en nooit meer getoond; als startwaarde werken ook `ANTHROPIC_API_KEY` en `OPENAI_API_KEY`.
+- **Beoordelen met AI.** Met een sleutel verschijnt het subtab *Recepten* bij Aanbiedingen (ook zonder `MEALIESHOPPER_OFFERS_RECIPES`), met voor de beheerder de knop *Beoordelen met AI*. Na een bevestiging worden de nog niet beoordeelde koppelingen beoordeeld, tot 200 per keer, per 40 in een aanvraag. Elk uniek paar (hoofdwoord van het ingrediënt + product, per winkel) wordt één keer beoordeeld; het oordeel wordt bewaard (tabel `offer_verdicts`), ook als je een melding later ongedaan maakt.
+- **Het oordeel werkt zoals de vlag.** Een afgekeurde koppeling verdwijnt (en het volgende passende product neemt de plaats in); de melding staat bij `list_offer_mismatches` met bron `ai` en de reden. Een goedgekeurde koppeling krijgt een vinkje (MDI *check-circle-outline*), en boven de kaarten staat hoeveel koppelingen al beoordeeld zijn. Een melding van jou of van een assistent gaat voor.
+- **Wat er verstuurd wordt.** Alleen de tekst van het ingrediënt en van het product (naam, merk, inhoud, categorie), geen recepttitels, namen of adressen, en alleen als je op de knop drukt. De AI krijgt de opdracht de teksten als gegevens te behandelen en niet te volgen wat erin staat; haar antwoord is beperkt tot een vast schema. Na afloop staat het aantal gebruikte tokens in de melding; een prijs in euro's wordt niet getoond (prijzen veranderen).
+- **Nieuwe routes (alleen de beheerder):** `GET` en `PUT /api/offers/ai`, `POST /api/offers/ai/test` en `POST /api/offers/ai/review`.
+
+### Goed om te weten
+
+- Zonder sleutel verandert er niets: er gaat niets naar een AI-dienst en het tabblad *Recepten* blijft verborgen (tenzij `MEALIESHOPPER_OFFERS_RECIPES=true`).
+- De AI beoordeelt wat het zoeken al vindt; ze zoekt zelf geen nieuwe koppelingen.
+- De aanroepen naar de AI-aanbieders komen niet in het auditlog en de sleutel komt nergens in een log, foutmelding of API-antwoord. Is de sleutel ongeldig, staat het model niet meer bij de aanbieder of is het tegoed op, dan staat dat leesbaar in de melding; wat al beoordeeld was, blijft bewaard.
+
 ## v2.67.2
 
 ### Sinds de vorige stabiele versie (v2.53.0)
