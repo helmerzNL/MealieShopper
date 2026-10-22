@@ -130,7 +130,7 @@ I18N.add("en", {
   "import.help": "Paste an Allerhande link or another recipe site.",
   "import.submit": "Import",
   "ah.nav": "Stores",
-  "ah.tab.recipes": "AH Recipes",
+  "ah.tab.recipes": "Recipes",
   "ah.tab.lists": "Lists",
   "ah.recipes.title": "My saved recipes",
   "ah.recipes.search": "Search your recipes",

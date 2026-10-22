@@ -130,7 +130,7 @@ I18N.add("nl", {
   "import.help": "Plak een Allerhande-link of een andere receptensite.",
   "import.submit": "Importeer",
   "ah.nav": "Winkels",
-  "ah.tab.recipes": "AH Recepten",
+  "ah.tab.recipes": "Recepten",
   "ah.tab.lists": "Lijstjes",
   "ah.recipes.title": "Mijn bewaarde recepten",
   "ah.recipes.search": "Zoek in je recepten",
