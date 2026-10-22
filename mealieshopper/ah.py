@@ -671,6 +671,7 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         "image": (images[0].get("url") if images and isinstance(images[0], dict) else None) or None,
         "url": product_web_url(product_id),
         "validUntil": item.get("bonusEndDate") or None,
+        "categoryHint": item.get("mainCategory") or item.get("subCategory") or None,
     }
 
 

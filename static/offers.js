@@ -1,9 +1,11 @@
-// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (voor nu AH Bonus) en receptvoorstellen waarvan
-// ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; vernieuwen gaat op verzoek.
+// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic en Jumbo) per categorie, en receptvoorstellen
+// waarvan ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; die wordt elke dag ververst en kan de
+// beheerder onder Instellingen > Koppelen meteen synchroniseren.
 // Laadt na basket.js en gebruikt STORES, state, formatPrice en formatSyncTime uit app.js.
 
 const OFFERS_STORES = ["ah", "picnic", "jumbo"];
-const offersState = { store: "ah", supported: true };
+const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
+const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", rows: OFFER_ROWS };
 
 function offersStores() {
   return OFFERS_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
@@ -39,6 +41,7 @@ function renderOffersStore() {
 
 function offersSwitchStore(store) {
   offersState.store = offersStores().includes(store) ? store : "ah";
+  offersState.category = "all";
   try {
     localStorage.setItem("ms-offers-store", offersState.store);
   } catch {
@@ -64,20 +67,68 @@ function offerProductCard(offer) {
     </${tag}>`;
 }
 
+// Hoeveel producten er in een rij van het raster passen; een verborgen raster geeft de ruwe waarde, dan gokken we.
+function offerColumns() {
+  const columns = getComputedStyle($("#offers-products")).gridTemplateColumns;
+  return columns.includes("(") ? 3 : Math.max(1, columns.split(" ").filter(Boolean).length);
+}
+
+function offerCategoryLabel(id) {
+  return t(`offers.cat.${id}`);
+}
+
+function renderOfferCategories() {
+  const total = offersState.offers.length;
+  const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
+    offersState.categories.map((category) => ({
+      id: category.id,
+      label: t("offers.chip", { count: I18N.formatNumber(category.count), category: offerCategoryLabel(category.id) }),
+    }))
+  );
+  $("#offers-categories").hidden = !total;
+  $("#offers-categories").innerHTML = chips
+    .map(
+      (chip) =>
+        `<button class="offer-chip${offersState.category === chip.id ? " is-active" : ""}" type="button" data-cat="${escapeHtml(chip.id)}" aria-pressed="${offersState.category === chip.id}">${escapeHtml(chip.label)}</button>`
+    )
+    .join("");
+}
+
+function renderOfferGrid() {
+  const shown = offersState.category === "all" ? offersState.offers : offersState.offers.filter((offer) => offer.category === offersState.category);
+  const limit = offersState.rows * offerColumns();
+  $("#offers-products").innerHTML = shown.slice(0, limit).map(offerProductCard).join("");
+  $("#offers-more").hidden = shown.length <= limit;
+}
+
 function renderOffers(data) {
   offersState.supported = data.supported;
+  offersState.offers = data.offers || [];
+  offersState.categories = data.categories || [];
+  if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
+  offersState.rows = OFFER_ROWS;
   const status = $("#offers-status");
-  const list = $("#offers-products");
-  $("#offers-refresh").hidden = !data.supported;
   if (!data.supported) {
     status.textContent = t("offers.unsupported", { store: STORES[offersState.store].name });
-    list.innerHTML = "";
-    return;
+    offersState.offers = [];
+    offersState.categories = [];
+  } else {
+    status.textContent = data.syncedAt ? tn("offers.status", data.total, { when: formatSyncTime(data.syncedAt) }) : t("offers.never");
   }
-  status.textContent = data.syncedAt
-    ? tn("offers.status", data.total, { when: formatSyncTime(data.syncedAt) })
-    : t("offers.never");
-  list.innerHTML = data.offers.map(offerProductCard).join("");
+  renderOfferCategories();
+  renderOfferGrid();
+}
+
+function offersChooseCategory(category) {
+  offersState.category = category;
+  offersState.rows = OFFER_ROWS;
+  renderOfferCategories();
+  renderOfferGrid();
+}
+
+function offersShowMore() {
+  offersState.rows += OFFER_ROWS;
+  renderOfferGrid();
 }
 
 async function showOffers() {
@@ -89,26 +140,6 @@ async function showOffers() {
     message("#offers-message", error.message);
   }
   showOfferRecipes();
-}
-
-async function offersRefresh() {
-  const button = $("#offers-refresh");
-  message("#offers-message", "");
-  setBusy(button, true, t("offers.fetching"));
-  try {
-    renderOffers(
-      await jsonFetch("/api/offers/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ store: offersState.store }),
-      })
-    );
-    await showOfferRecipes();
-  } catch (error) {
-    message("#offers-message", error.message);
-  } finally {
-    setBusy(button, false, t("offers.fetching"));
-  }
 }
 
 function offerRecipeCard(recipe) {
@@ -178,7 +209,17 @@ async function offersIndexRecipes() {
   }
 }
 
-$("#offers-refresh").addEventListener("click", offersRefresh);
+$("#offers-more").addEventListener("click", offersShowMore);
+$("#offers-categories").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-cat]");
+  if (chip) offersChooseCategory(chip.dataset.cat);
+});
+let offersResizeFrame = 0;
+window.addEventListener("resize", () => {
+  if (!offersTabActive()) return;
+  cancelAnimationFrame(offersResizeFrame);
+  offersResizeFrame = requestAnimationFrame(renderOfferGrid);
+});
 $("#offers-index").addEventListener("click", offersIndexRecipes);
 $("#offers-store-list").addEventListener("click", (event) => {
   const item = event.target.closest("[data-store]");

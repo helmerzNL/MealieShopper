@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from . import ah, ah_lists, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import ah, ah_lists, offer_categories, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -56,8 +56,34 @@ CREATE TABLE IF NOT EXISTS offers (
   image TEXT,
   url TEXT,
   valid_until TEXT,
+  category TEXT,
   PRIMARY KEY (store, product_id)
 );
+
+-- Elke keer dat een product in de aanbieding was, voor altijd bewaard. Een rij is een aaneengesloten periode met dezelfde
+-- prijs en hetzelfde label; zie `_record_history`. Daaruit volgt hoe vaak iets in de aanbieding was en wat de details waren.
+CREATE TABLE IF NOT EXISTS offer_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  store TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  brand TEXT,
+  unit_size TEXT,
+  category TEXT,
+  price REAL,
+  price_before REAL,
+  promo_label TEXT,
+  image TEXT,
+  url TEXT,
+  valid_until TEXT,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  ended_at TEXT,
+  syncs INTEGER NOT NULL DEFAULT 1,
+  continued INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS offer_history_product ON offer_history (store, product_id);
+CREATE INDEX IF NOT EXISTS offer_history_open ON offer_history (store, ended_at);
 
 CREATE TABLE IF NOT EXISTS offers_meta (
   store TEXT PRIMARY KEY,
@@ -85,6 +111,9 @@ CREATE TABLE IF NOT EXISTS offer_recipes_meta (
 def _connect():
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    # Een database van vóór de categorieën heeft die kolom nog niet.
+    if "category" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
+        conn.execute("ALTER TABLE offers ADD COLUMN category TEXT")
     return conn
 
 
@@ -109,7 +138,7 @@ def load(store: Any) -> dict[str, Any]:
         meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
         rows = conn.execute(
             """
-            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until
+            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until, category
             FROM offers WHERE store = ? ORDER BY position
             """,
             (store,),
@@ -126,6 +155,8 @@ def load(store: Any) -> dict[str, Any]:
             "image": row["image"] or "",
             "url": row["url"] or "",
             "validUntil": row["valid_until"],
+            # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
+            "category": row["category"] or offer_categories.categorize(row["title"]),
         }
         for row in rows
     ]
@@ -133,54 +164,170 @@ def load(store: Any) -> dict[str, Any]:
         "store": store,
         "offers": offers,
         "total": len(offers),
+        "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
     }
 
 
 def sync(store: Any) -> dict[str, Any]:
-    """Haal de aanbiedingen van een winkel op en vervang de lokale kopie."""
+    """Haal de aanbiedingen van een winkel op, vervang de lokale kopie en schrijf ze weg in de geschiedenis.
+
+    Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren.
+    """
     store = _valid_store(store)
     fetch = FETCHERS.get(store)
     if not fetch:
         raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
     offers = fetch()
+    now = _now()
+    items = []
+    seen: set[str] = set()
+    for offer in offers:
+        if not offer.get("id") or not offer.get("title") or str(offer["id"]) in seen:
+            continue
+        seen.add(str(offer["id"]))
+        items.append(
+            {
+                "id": str(offer["id"]),
+                "title": str(offer["title"]),
+                "brand": offer.get("brand"),
+                "unitSize": offer.get("unitSize"),
+                "price": offer.get("price"),
+                "priceBefore": offer.get("priceBefore"),
+                "promoLabel": offer.get("promoLabel") or "",
+                "image": offer.get("image") or "",
+                "url": offer.get("url") or "",
+                "validUntil": offer.get("validUntil"),
+                "category": offer_categories.categorize(offer["title"], offer.get("categoryHint")),
+            }
+        )
     rows = [
         (
-            store,
-            str(offer["id"]),
-            position,
-            str(offer.get("title") or ""),
-            offer.get("brand"),
-            offer.get("unitSize"),
-            offer.get("price"),
-            offer.get("priceBefore"),
-            offer.get("promoLabel") or "",
-            offer.get("image") or "",
-            offer.get("url") or "",
-            offer.get("validUntil"),
+            store, item["id"], position, item["title"], item["brand"], item["unitSize"], item["price"], item["priceBefore"],
+            item["promoLabel"], item["image"], item["url"], item["validUntil"], item["category"],
         )
-        for position, offer in enumerate(offers)
-        if offer.get("id") and offer.get("title")
+        for position, item in enumerate(items)
     ]
     with closing(_connect()) as conn, conn:
         conn.execute("DELETE FROM offers WHERE store = ?", (store,))
         conn.executemany(
             """
             INSERT OR REPLACE INTO offers
-              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
+        _record_history(conn, store, items, now)
         conn.execute(
             """
             INSERT INTO offers_meta (store, synced_at) VALUES (?, ?)
             ON CONFLICT(store) DO UPDATE SET synced_at = excluded.synced_at
             """,
-            (store, _now()),
+            (store, now),
         )
     return load(store)
+
+
+# --- geschiedenis -------------------------------------------------------------------------------
+
+
+def _details(price: Any, price_before: Any, label: Any) -> tuple[Any, Any, str]:
+    return (price, price_before, label or "")
+
+
+def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> None:
+    """Schrijf de aanbiedingen van deze synchronisatie in `offer_history`.
+
+    Per product loopt er hooguit een open rij (`ended_at` leeg). Staat het product nog in de aanbieding met dezelfde prijs en
+    hetzelfde label, dan wordt die rij bijgewerkt. Veranderen prijs of label, dan wordt de rij gesloten en begint een nieuwe die
+    `continued` krijgt: het is dezelfde aanbieding, dus telt hij niet als een nieuwe keer. Is het product weg, dan wordt de rij
+    gesloten en komt het later terug als een nieuwe keer.
+    """
+    current = {item["id"]: item for item in items}
+    handled: set[str] = set()
+    changed: set[str] = set()
+    for row in conn.execute("SELECT id, product_id, price, price_before, promo_label FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)).fetchall():
+        item = current.get(row["product_id"])
+        if item is not None and row["product_id"] not in handled and _details(item["price"], item["priceBefore"], item["promoLabel"]) == _details(row["price"], row["price_before"], row["promo_label"]):
+            handled.add(row["product_id"])
+            conn.execute(
+                """
+                UPDATE offer_history SET last_seen = ?, syncs = syncs + 1, title = ?, brand = ?, unit_size = ?, category = ?,
+                  image = ?, url = ?, valid_until = ? WHERE id = ?
+                """,
+                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validUntil"], row["id"]),
+            )
+            continue
+        if item is not None:
+            changed.add(row["product_id"])
+        conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
+    conn.executemany(
+        """
+        INSERT INTO offer_history
+          (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, image, url, valid_until,
+           first_seen, last_seen, continued)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (store, item["id"], item["title"], item["brand"], item["unitSize"], item["category"], item["price"], item["priceBefore"],
+             item["promoLabel"], item["image"], item["url"], item["validUntil"], now, now, 1 if item["id"] in changed else 0)
+            for item in items
+            if item["id"] not in handled
+        ],
+    )
+
+
+def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, Any]:
+    """Hoe vaak producten in de aanbieding waren en wat de details waren, per product, het laatst gezien bovenaan.
+
+    `store` en `query` (een deel van de titel) zijn optioneel. `timesOnOffer` telt aaneengesloten periodes: een prijswijziging
+    tijdens dezelfde aanbieding telt niet als een nieuwe keer.
+    """
+    stores = [_valid_store(store)] if store else list(STORES)
+    pattern = "%" + str(query or "").strip().replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
+    try:
+        limit = max(1, min(200, int(limit)))
+    except (TypeError, ValueError):
+        limit = 50
+    marks = ",".join("?" * len(stores))
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
+            ORDER BY store, product_id, first_seen, id
+            """,
+            (*stores, pattern),
+        ).fetchall()
+    products: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        product = products.setdefault(
+            (row["store"], row["product_id"]),
+            {"store": row["store"], "productId": row["product_id"], "episodes": [], "timesOnOffer": 0},
+        )
+        product["episodes"].append(
+            {
+                "from": row["first_seen"],
+                "to": None if row["ended_at"] is None else row["ended_at"],
+                "lastSeen": row["last_seen"],
+                "price": row["price"],
+                "priceBefore": row["price_before"],
+                "promoLabel": row["promo_label"] or "",
+                "validUntil": row["valid_until"],
+                "syncs": row["syncs"],
+            }
+        )
+        product["timesOnOffer"] += 0 if row["continued"] else 1
+        # De nieuwste rij geeft titel en plaatje.
+        product.update(title=row["title"], brand=row["brand"], unitSize=row["unit_size"], category=row["category"] or offer_categories.categorize(row["title"]),
+                       image=row["image"] or "", url=row["url"] or "", firstSeen=product.get("firstSeen") or row["first_seen"],
+                       lastSeen=row["last_seen"], onOfferNow=row["ended_at"] is None)
+    for product in products.values():
+        prices = [e["price"] for e in product["episodes"] if isinstance(e["price"], (int, float))]
+        product["lowestPrice"] = min(prices) if prices else None
+    ranked = sorted(products.values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
+    return {"products": ranked[:limit], "total": len(ranked)}
 
 
 def sync_all() -> dict[str, Any]:

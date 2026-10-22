@@ -21,7 +21,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-35")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261023-36")
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
@@ -330,6 +330,13 @@ def create_app() -> Flask:
     @app.get("/api/offers")
     def offers_list():
         return offers_action(lambda: offers.load(request.args.get("store") or "ah"), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+
+    @app.get("/api/offers/history")
+    def offers_history():
+        return offers_action(
+            lambda: offers.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
+            tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
+        )
 
     @app.post("/api/offers/sync")
     def offers_sync():

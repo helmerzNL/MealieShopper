@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.60.0
+
+*English summary: The Offers tab shows categories with a count ("5x Vegetables & Fruit", "10x Meat") for every store; clicking one shows its offers. Three rows show first and a "More" button adds three rows at a time. The "Fetch offers" button is gone: the offers come from the local copy, refreshed daily or via Settings > Link. Every sync now also writes the offers to a permanent history in the database (when, price, old price, label, validity), available through `GET /api/offers/history`.*
+
+### Nieuw in 2.60.0
+
+- **Categorieën bij de aanbiedingen, voor alle winkels.** Boven de aanbiedingen staat per categorie een knop met het aantal ("5x Groente & Fruit", "10x Vlees", "9x Frisdrank & Sap"), plus **Alle**. Een klik toont de aanbiedingen van die categorie. De indeling (negentien categoriën, van Groente & Fruit tot Huisdier en Overig) maakt MealieShopper zelf uit de productnaam, omdat AH, Picnic en Jumbo geen gelijke categorieën geven; een categorie-hint van de winkel telt alleen mee als de naam niets zegt. De categorie wordt bij het synchroniseren bewaard.
+- **Drie rijen, dan Meer.** Er staan eerst drie rijen aanbiedingen (het aantal per rij hangt van de breedte af); de knop **Meer** toont er steeds drie extra.
+- **Geschiedenis van de aanbiedingen.** Elke synchronisatie schrijft de aanbiedingen ook in een geschiedenis in de database, voor altijd bewaard: per product wanneer het in de aanbieding was, met prijs, oude prijs, label, geldigheid, categorie en het aantal synchronisaties dat het erbij stond. Een aaneengesloten periode telt als een keer; een prijswijziging tijdens dezelfde aanbieding niet; komt een product na een onderbreking terug, dan is dat een nieuwe keer. `GET /api/offers/history` (met `store`, `q` en `limit`) toont per product hoe vaak het in de aanbieding was en de details. Het ophalen blijft de lokale kopie vervangen, en mislukt het ophalen dan blijven de kopie en de geschiedenis ongewijzigd.
+
+### Verwijderd in 2.60.0
+
+- **De knop *Aanbiedingen ophalen* op het tabblad Aanbiedingen.** De aanbiedingen komen uit de lokale kopie, die elke dag wordt ververst; de beheerder synchroniseert ze meteen onder **Instellingen > Koppelen**.
+
+### Goed om te weten
+
+- Een database van een eerdere versie wordt vanzelf bijgewerkt (de kolom *categorie* komt erbij); bestaande aanbiedingen krijgen hun categorie uit de naam. De geschiedenis begint bij de eerstvolgende synchronisatie.
+- Jumbo-aanbiedingen worden via zoekopdrachten gevonden; een product dat bij een synchronisatie net niet in die zoekresultaten staat telt als weg en als een nieuwe keer als het terugkomt.
+- De MCP-tools zijn niet veranderd.
+
 ## v2.59.1
 
 *English summary: When Picnic answers the login with a bare "403 Forbidden" page (the gateway in front of the API refusing this network, not a wrong password), MealieShopper now says so and what to try, instead of the generic "Picnic error". Picnic's offers are now looked for on the home page (Discover), because the app has no offers tab; the Picnic explorer reports on those pages first.*
