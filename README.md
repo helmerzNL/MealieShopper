@@ -237,6 +237,8 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 ## Gebruik
 
+De tab **Recepten** bevat twee subtabs: **Weekmenu** (het weekmenu uit Mealie naar je mandje) en **Recepten zoeken**.
+
 ### Weekmenu naar je mandje
 
 `Weekmenu laden` haalt de week uit Mealie, met de plaatjes. Is naast Albert Heijn ook Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke winkel het gaat. De knop draagt de naam van de gekozen winkel, bijvoorbeeld `Voeg toe aan Albert Heijn mandje`. Hij zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die de winkel bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.

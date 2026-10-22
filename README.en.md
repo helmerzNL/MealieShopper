@@ -237,6 +237,8 @@ After the password you can turn on **two-step verification** with an authenticat
 
 ## Usage
 
+The **Recipes** tab has two subtabs: **Week menu** (your Mealie week menu to your basket) and **Find recipes**.
+
 ### Week menu to your basket
 
 `Load week menu` fetches the week from Mealie, with the pictures. If Picnic or Jumbo is linked next to Albert Heijn, you choose next to the button which store it goes to. The button carries the name of the chosen store, for example `Add to Albert Heijn basket`. It looks up the best five products per ingredient and works out how many packs you need, using the pack size the store gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
