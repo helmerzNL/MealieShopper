@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.62.0
+
+*English summary: Settings > Updates is now Settings > System. Under the update check there is a new Clean-up block with a factory reset. It warns about the consequences, asks for the word RESET and for the administrator to prove again who they are (password and, with two-step verification, the code; or a passkey), then deletes the whole database and the secret key, logs everybody out and restarts the app (under gunicorn with a restart policy), which starts at the onboarding again.*
+
+### Nieuw in 2.62.0
+
+- **Fabrieksinstellingen.** Onder *Instellingen > Systeem > Opschonen* zet de beheerder MealieShopper terug naar een nieuwe installatie. Dat verwijdert de database (gebruikers, wachtwoorden, passkeys, koppelingen, lijstjes, bestellingen, aanbiedingen, auditlog) en `secret.key`. De knop opent eerst een waarschuwing met de gevolgen en vraagt daarna om het woord `RESET`, om opnieuw te bewijzen wie je bent (wachtwoord, en bij tweestapsverificatie ook de code of een herstelcode; of een passkey) en om een laatste bevestiging. Foute pogingen tellen mee voor dezelfde begrenzing als inloggen.
+- **Opnieuw starten.** Na het wissen stopt de app zichzelf (onder gunicorn, zoals in de container; de container start door het restart-beleid weer op) en laadt de pagina vanzelf opnieuw zodra de app terug is, bij de onboarding. Draait de app op een andere manier, dan meldt hij dat je hem zelf opnieuw moet starten.
+- **Nieuwe routes** (alleen beheerder): `GET /api/system/factory-reset`, `POST /api/system/factory-reset/options` (de passkey-uitdaging) en `POST /api/system/factory-reset`.
+
+### Aangepast in 2.62.0
+
+- Het tabblad *Updates* in de Instellingen heet nu *Systeem* en bevat de updatecheck en het nieuwe blok *Opschonen*.
+- De passkey-controle van het inloggen staat nu in `auth.check_assertion`, zodat het wissen dezelfde controle gebruikt.
+
 ## v2.61.0
 
 *English summary: Offers now say what they involve and when they stop. Each offer shows from how many items it applies, what an item then costs and until when (AH gives an end date). The offer text is read for the kinds seen in the explorer reports, including Picnic's "2e = 50% korting" (the second item at 50% off, which was read as 50% off everything) and "nu €1,99". Offers whose end date has passed no longer show up in the list or the recipe suggestions between two syncs. The saving in recipe suggestions uses the price per item under the offer's condition instead of the difference between the old and the current price the store names, which can be wrong for "1+1 free" or "2nd half price". Ingredients are also linked to offers more strictly (a product that only contains the ingredient, such as mince with onion or tuna in olive oil, no longer counts). This brings the v2.53.0 work from `main` (the `deals` module, the `promo` fields and the offer part of the explorers) into the offers of `beta`.*

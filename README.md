@@ -292,7 +292,7 @@ Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat d
 - **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
 - **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.
 - **Profiel > AI-apps:** de MCP-koppeling met AI-assistenten, voor iedereen.
-- **Instellingen** (beheerder): **Koppelen** (Mealie en de supermarkten), **Gebruikers**, **Auditlog** en **Updates**.
+- **Instellingen** (beheerder): **Koppelen** (Mealie en de supermarkten), **Gebruikers**, **Auditlog** en **Systeem** (de updatecheck en het opschonen, zie *Data en back-ups*).
 
 ### Taal
 
@@ -472,6 +472,8 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 
 Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, kopieën van je lijstjes, recepten, bestellingen en kassabonnen bij de supermarkten, plaatjes uit Mealie) en `secret.key`. **Neem de hele map mee in je back-ups.** Zonder `secret.key` (of je eigen `MEALIESHOPPER_AUTH_SECRET`) zijn de opgeslagen koppelingen en sessies onleesbaar: je koppelt Mealie en de supermarkten dan opnieuw, en de app laat dat zien als "niet gekoppeld".
 
+**Fabrieksinstellingen.** Onder **Instellingen, Systeem, Opschonen** zet je MealieShopper terug naar een nieuwe installatie. Dat verwijdert de hele database en `secret.key`: alle gebruikers, wachtwoorden, passkeys en tweestapsverificatie (ook die van jou), de koppelingen met Mealie, de supermarkten en AI-assistenten, de bewaarde lijsten, bestellingen en aanbiedingen en het auditlog. Je recepten in Mealie en je accounts bij de supermarkten blijven ongemoeid, net als wat je in omgevingsvariabelen hebt gezet. Omdat het niet terug te draaien is, waarschuwt de app eerst voor de gevolgen en vraagt hij om het woord `RESET` én om opnieuw te bewijzen dat jij het bent: met je wachtwoord (en de code uit je authenticator-app of een herstelcode, als je tweestapsverificatie gebruikt) of met je passkey. Na het wissen start de app zichzelf opnieuw op en kom je weer bij de installatiehulp. Dat herstarten werkt in de container (onder gunicorn) als compose een restart-beleid heeft dat na een gewone stop opnieuw start, zoals `unless-stopped` of `always` in het voorbeeld; start je de app op een andere manier, dan meldt de app dat je hem zelf opnieuw moet starten. Maak eerst een back-up van de data-map als je niet zeker weet of je alles kwijt wilt.
+
 ## Updaten
 
 ```bash
@@ -482,9 +484,9 @@ Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf 
 
 <img src="docs/screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 
-**Updatecheck.** Onder **Instellingen, Updates** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
+**Updatecheck.** Onder **Instellingen, Systeem** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 
-<img src="docs/screenshots/nl/updates.png" alt="Instellingen, Updates: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
+<img src="docs/screenshots/nl/updates.png" alt="Instellingen, Systeem: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
 
 ## Problemen oplossen
 

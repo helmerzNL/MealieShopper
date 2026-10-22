@@ -401,6 +401,32 @@ def _needs_session():
     return None
 
 
+def reauthenticate(user_id: str, body: dict[str, Any]):
+    """Vraagt een ingelogde gebruiker om nog eens te bewijzen wie hij is: wachtwoord (`password`) en, bij
+    tweestapsverificatie, ook de code (`code`, of een herstelcode). None als het klopt; anders het foutantwoord.
+    Telt mee voor dezelfde begrenzing als inloggen."""
+    if not auth.password_configured(user_id):
+        return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
+    if locked_seconds():
+        return _too_many()
+    if not verify_password(str(body.get("password") or ""), _stored_hash(user_id)):
+        register_failure()
+        return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
+    if auth.mfa_enabled(user_id):
+        code = str(body.get("code") or "").strip()
+        if not code:
+            return jsonify({"error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."), "mfaRequired": True}), 400
+        record = _read_totp(user_id, confirmed=True)
+        counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
+        if counter is not None:
+            _save_last_counter(user_id, counter)
+        elif not _use_recovery_code(user_id, code):
+            register_failure()
+            return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 403)
+    reset_failures()
+    return None
+
+
 def register_routes(app: Flask) -> None:
     @app.post("/api/auth/open")
     def auth_open():
