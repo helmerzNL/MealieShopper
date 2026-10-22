@@ -6,7 +6,7 @@
 </picture>
 
 **From recipe to sorted.**
-Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://www.ah.nl) basket, plus searching, saving and importing recipes.
+Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes.
 
 [Nederlands](README.md) · **English**
 
@@ -21,7 +21,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - [Quick start](#quick-start)
 - [First start](#first-start)
 - [Usage](#usage)
-- [Linking Mealie and Albert Heijn](#linking-mealie-and-albert-heijn)
+- [Linking Mealie and supermarkets](#linking-mealie-and-supermarkets)
 - [Security](#security)
 - [Users and invitations](#users-and-invitations)
 - [AI assistants (MCP)](#ai-assistants-mcp)
@@ -35,8 +35,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 
 ## What can it do?
 
-- **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. One button looks up the best AH products for every ingredient, works out how many packs you need and puts them in your AH basket. If the app is unsure, you check that line yourself first.
-- **Picnic and Jumbo too.** Link your Picnic or Jumbo account and you choose in the planner which supermarket the week menu goes to. The products go straight into your basket at that store; you finish the order yourself in the Picnic app or at Jumbo.
+- **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic or Jumbo, as far as linked. One button looks up the best products for every ingredient, works out how many packs you need and puts them in your basket at that store. If the app is unsure, you check that line yourself first. You finish the order yourself, at Albert Heijn, in the Picnic app or at Jumbo.
 - **Search and import recipes.** Search the recipes of Albert Heijn, Jumbo and Picnic at the same time and put them in Mealie with one click, or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
@@ -47,7 +46,7 @@ Your week menu from [Mealie](https://mealie.io) in your [Albert Heijn](https://w
 - **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
-- **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and Albert Heijn and manage the users.
+- **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and the supermarkets and manage the users.
 - **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists and import a recipe into Mealie. OAuth login, with your own account.
 - **Dutch and English.** Switch with the flags; the app remembers your choice.
 - **You stay in control.** Everything runs in your own container; your data lives in a SQLite file in your own data folder.
@@ -238,11 +237,11 @@ After the password you can turn on **two-step verification** with an authenticat
 
 ## Usage
 
-### Week menu to the AH basket
+### Week menu to your basket
 
-`Load week menu` fetches the week from Mealie, with the pictures. If Picnic or Jumbo is linked, you choose next to the button which store it goes to (for Jumbo also: the **basket** or the **list**). `Add to Albert Heijn basket` looks up the best five products per ingredient and works out how many packs you need, using the pack size AH gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
+`Load week menu` fetches the week from Mealie, with the pictures. If Picnic or Jumbo is linked next to Albert Heijn, you choose next to the button which store it goes to. The button carries the name of the chosen store, for example `Add to Albert Heijn basket`. It looks up the best five products per ingredient and works out how many packs you need, using the pack size the store gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
 
-If the app is unsure somewhere (unknown pack size, weight against pieces, or more than 10 packs), a check list appears. There you choose the product and the number of packs per line, tick what should go in and confirm. If there is no doubt anywhere, the basket is filled right away. Next to every product is a link to the product at AH, so you can check that it is right.
+If the app is unsure somewhere (unknown pack size, weight against pieces, or more than 10 packs), a check list appears. There you choose the product and the number of packs per line, tick what should go in and confirm. If there is no doubt anywhere, the basket is filled right away. Next to every product is a link to the product in the web shop (Picnic has none), so you can check that it is right.
 
 MealieShopper fetches the pictures from Mealie itself with your API token and keeps them in the database. That way it also works when your Mealie can't be reached directly from your phone, and next time nothing is asked of Mealie.
 
@@ -279,11 +278,11 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Language
 
-With the flags (top right, on the login page and in the setup guide) you switch between Dutch and English. The choice is kept in your browser; without a choice the app follows your browser language. What Mealie and Albert Heijn return themselves (recipe names, product names and their error messages) stays as they send it.
+With the flags (top right, on the login page and in the setup guide) you switch between Dutch and English. The choice is kept in your browser; without a choice the app follows your browser language. What Mealie and the supermarkets return themselves (recipe names, product names and their error messages) stays as they send it.
 
-## Linking Mealie and Albert Heijn
+## Linking Mealie and supermarkets
 
-This is also in the setup guide, and you can always do it later under **Settings**. There, **Stores** is a drop-down menu with Albert Heijn, Picnic and Jumbo; its button shows the chosen store and you open the link, the settings and the explorer of that store from it. Mealie has a tab of its own. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings**. There, **Stores** is a drop-down menu with Albert Heijn, Picnic and Jumbo; its button shows the chosen store and you open the link, the settings and the explorer of that store from it. Mealie has a tab of its own. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 
@@ -317,7 +316,7 @@ Picnic has no official link. MealieShopper logs in like the Picnic app, with you
 
 1. Enter your email address and password and choose `Log in to Picnic`.
 2. Picnic usually asks for a code. It arrives by SMS (or by email, with the button below). Enter it and choose `Confirm`.
-3. Once it says Picnic is linked, the planner shows a list with **Albert Heijn** and **Picnic**.
+3. Once it says Picnic is linked, Picnic appears in the store choice of the planner.
 
 Your password is not stored, only the session that Picnic returns, encrypted. Picnic may renew that session on every request; MealieShopper always keeps the newest. If it has expired, you link again. Unlike AH, the products go straight into your real Picnic basket; an order is never placed. Picnic only delivers to certain areas. With `Check link` you see whether the session still works. Under **Explore Picnic routes** you see which unofficial routes work and which fields they contain (no personal data, safe to share). Under the **Basket** tab you choose Picnic and change quantities, remove products or empty the basket (after a confirmation); that goes straight to your real basket. Below it are the next available delivery slots; you pick one yourself in the Picnic app. Under **Stores** choose **Picnic** in the list; there are three tabs. **Recipes** shows your recipes from the Picnic app: **Saved** (Cook > Saved), **Order again** and the **Cookbook**, as cards like the AH recipes. Open a recipe for the ingredients and the preparation, or choose `Import` to put it in Mealie. **Favorites** shows the products from the Favorites tab of the Picnic app, with a button to put one in your Picnic basket. MealieShopper finds that tab itself in the app's tab bar. That tab also shows suggested products at Picnic; MealieShopper only takes the products under the *Favorites* heading and keeps those that Picnic marks as a favorite in the product page (the heart button), so your own favorites. That takes one request per product, a few at a time, and the answers are remembered for 30 minutes (the *Load* button forgets them). If Picnic doesn't say, MealieShopper shows none and says why. Your AI assistant can look at Picnic products, your favorites, your basket, your deliveries, the delivery slots and your recipes (with name, id and cooking time), but can't fill the basket. **Orders** (under the same choice) shows your upcoming deliveries (fetched live) and your delivered orders. With *Sync* MealieShopper keeps the latter locally, with their products (at most 25 orders at a time, newest first), so you can view them without a connection to Picnic and your AI assistant can query them; your delivery address is not stored. Open one for its products and put them in your Picnic basket again with one button. Lists and receipts are not available for Picnic.
 
@@ -355,7 +354,7 @@ Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless b
 
 ## Users and invitations
 
-The first user, the one who goes through the setup wizard, is the **administrator**. They link Mealie and Albert Heijn and manage the users. Everyone you invite is a **user**: they can use the week menu, the recipes and the AH lists, put products in the AH basket and import recipes, but cannot link or manage anything. The AH basket is that of the linked AH account, so Mealie and AH are shared.
+The first user, the one who goes through the setup wizard, is the **administrator**. They link Mealie and the supermarkets and manage the users. Everyone you invite is a **user**: they can use the week menu, the recipes and the lists, put products in the basket of a store and import recipes, but cannot link or manage anything. The links and the baskets are the administrator's, so Mealie and the supermarkets are shared.
 
 <img src="docs/screenshots/en/users.png" alt="Settings, Users: the administrator with two users, and a form to invite someone" width="900">
 
@@ -368,7 +367,7 @@ The first user, the one who goes through the setup wizard, is the **administrato
 - **Lost their login?** Choose **New login link** for that user. The old login keeps working until the new one is set up, and stops working after that.
 - **Remove** deletes the account and all its login details. The administrator cannot be removed.
 - Every user has their own login details, two-step verification and passkeys under Settings, Security. A new password only logs that user out.
-- Quantities in a list, and the lists themselves, are shared: they belong to the AH account.
+- Quantities in a list, and the lists themselves, are shared: they belong to the account at the store.
 
 ## AI assistants (MCP)
 
@@ -418,7 +417,7 @@ There is deliberately **no** tool that fills a basket at a store or deletes anyt
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
 - A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Settings, AI apps** you revoke an app's access yourself.
 - The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings. Under **What the assistant can do** the administrator can also switch each tool off individually, for all users. A switched-off tool is hidden from assistants and refused; they see the change on their next connection.
-- What the assistant reads (recipe names, product names) comes from Mealie and AH; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
+- What the assistant reads (recipe names, product names) comes from Mealie and the supermarkets; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
 
 ## Configuration
 
@@ -451,7 +450,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 ## Data and backups
 
-Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your AH lists and recipes, your order history and receipts, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and Albert Heijn again, and the app shows that as "not linked".
+Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, copies of your lists, recipes, orders and receipts at the supermarkets, pictures from Mealie) and `secret.key`. **Include the whole folder in your backups.** Without `secret.key` (or your own `MEALIESHOPPER_AUTH_SECRET`) the stored links and sessions can't be read: you link Mealie and the supermarkets again, and the app shows that as "not linked".
 
 ## Updating
 
@@ -536,7 +535,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Signs sessions. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Encrypts stored links and verifies passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Reads passkey data. |
-| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Talks to Mealie and Albert Heijn. |
+| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Talks to Mealie and the supermarkets. |
 | [SQLite](https://sqlite.org) | Public domain | The database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | The icons. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Draws the QR code for two-step verification in your browser. |
