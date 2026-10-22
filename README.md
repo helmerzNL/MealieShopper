@@ -6,7 +6,7 @@
 </picture>
 
 **Van recept naar geregeld.**
-Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.nl)-mandje, plus recepten zoeken, bewaren en importeren.
+Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) of [Jumbo](https://www.jumbo.com), plus recepten zoeken, bewaren en importeren.
 
 **Nederlands** · [English](README.en.md)
 
@@ -21,7 +21,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 - [Snel starten](#snel-starten)
 - [Eerste start](#eerste-start)
 - [Gebruik](#gebruik)
-- [Mealie en Albert Heijn koppelen](#mealie-en-albert-heijn-koppelen)
+- [Mealie en supermarkten koppelen](#mealie-en-supermarkten-koppelen)
 - [Beveiliging](#beveiliging)
 - [Gebruikers en uitnodigen](#gebruikers-en-uitnodigen)
 - [AI-assistenten (MCP)](#ai-assistenten-mcp)
@@ -35,8 +35,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 
 ## Wat kan het?
 
-- **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Eén knop zoekt voor elk ingrediënt de beste AH-producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je AH-mandje. Twijfelt de app, dan controleer je de regel eerst zelf.
-- **Ook voor Picnic en Jumbo.** Koppel je Picnic- of Jumbo-account, dan kies je in de planner naar welke supermarkt het weekmenu gaat. De producten komen direct in je mandje van die winkel; je rondt de bestelling zelf af in de Picnic-app of bij Jumbo.
+- **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic of Jumbo, voor zover gekoppeld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en zet ze in je mandje bij die winkel. Twijfelt de app, dan controleer je de regel eerst zelf. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app of bij Jumbo.
 - **Recepten zoeken en importeren.** Zoek tegelijk in de recepten van Albert Heijn, Jumbo en Picnic en zet ze met één klik in Mealie, of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic en Jumbo, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
@@ -47,7 +46,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je [Albert Heijn](https://www.ah.
 - **Donker en licht.** Een knop naast de vlaggetjes wisselt van thema; zonder keuze volgt de app je apparaat.
 - **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
-- **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en Albert Heijn en beheert de gebruikers.
+- **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en de supermarkten en beheert de gebruikers.
 - **AI-assistenten.** Een MCP-server, zodat je Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kunt laten bekijken en een recept in Mealie kunt laten importeren. Inloggen met OAuth, met je eigen account.
 - **Nederlands en Engels.** Wissel met de vlaggetjes; de app onthoudt je keuze.
 - **Jij houdt de regie.** Alles draait in je eigen container; je gegevens staan in een SQLite-bestand in je eigen data-map.
@@ -238,11 +237,11 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 ## Gebruik
 
-### Weekmenu naar het AH-mandje
+### Weekmenu naar je mandje
 
-`Weekmenu laden` haalt de week uit Mealie, met de plaatjes. Is Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke winkel het gaat (bij Jumbo ook: het **mandje** of het **lijstje**). `Voeg toe aan Albert Heijn mandje` zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die AH bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
+`Weekmenu laden` haalt de week uit Mealie, met de plaatjes. Is naast Albert Heijn ook Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke winkel het gaat. De knop draagt de naam van de gekozen winkel, bijvoorbeeld `Voeg toe aan Albert Heijn mandje`. Hij zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die de winkel bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
 
-Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan gaat het mandje meteen vol. Naast elk product staat een link naar het product bij AH, zodat je kunt controleren of het klopt.
+Is de app ergens niet zeker van (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen), dan verschijnt een controlelijst. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Is er nergens twijfel, dan gaat het mandje meteen vol. Naast elk product staat een link naar het product in de webwinkel (Picnic heeft er geen), zodat je kunt controleren of het klopt.
 
 De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart ze in de database. Zo werkt het ook als je Mealie niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan Mealie.
 
@@ -279,11 +278,11 @@ Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en
 
 ### Taal
 
-Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wissel je tussen Nederlands en Engels. De keuze blijft in je browser bewaard; zonder keuze volgt de app je browsertaal. Wat Mealie en Albert Heijn zelf teruggeven (receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
+Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wissel je tussen Nederlands en Engels. De keuze blijft in je browser bewaard; zonder keuze volgt de app je browsertaal. Wat Mealie en de supermarkten zelf teruggeven (receptnamen, productnamen en hun foutmeldingen) blijft zoals zij het sturen.
 
-## Mealie en Albert Heijn koppelen
+## Mealie en supermarkten koppelen
 
-Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat bij **Winkels** een uitklapmenu met Albert Heijn, Picnic en Jumbo; de knop toont de gekozen winkel en je opent er de koppeling, de instellingen en de verkenner van die winkel. Mealie heeft een eigen tab. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Beheer**. Daar staat bij **Winkels** een uitklapmenu met Albert Heijn, Picnic en Jumbo; de knop toont de gekozen winkel en je opent er de koppeling, de instellingen en de verkenner van die winkel. Mealie heeft een eigen tab. Alleen de beheerder ziet dit.
 
 <img src="docs/screenshots/nl/settings-stores.png" alt="Beheer met het uitgeklapte winkelmenu: Albert Heijn, Picnic en Jumbo" width="900">
 
@@ -317,7 +316,7 @@ Picnic heeft geen officiële koppeling. MealieShopper logt in zoals de Picnic-ap
 
 1. Vul je e-mailadres en wachtwoord in en kies `Inloggen bij Picnic`.
 2. Picnic vraagt meestal om een code. Die komt per sms (of per e-mail, via de knop eronder). Vul hem in en kies `Bevestigen`.
-3. Zodra er staat dat Picnic gekoppeld is, verschijnt in de planner een keuzelijst met **Albert Heijn** en **Picnic**.
+3. Zodra er staat dat Picnic gekoppeld is, verschijnt Picnic in de winkelkeuze van de planner.
 
 Je wachtwoord wordt niet bewaard, alleen de sessie die Picnic teruggeeft, versleuteld. Picnic kan die sessie bij elk verzoek vernieuwen; MealieShopper bewaart steeds de nieuwste. Is ze verlopen, dan koppel je opnieuw. Anders dan bij AH gaan de producten direct in je echte Picnic-mandje; er wordt nooit een bestelling geplaatst. Picnic bezorgt alleen in bepaalde gebieden. Met `Koppeling controleren` zie je of de sessie nog werkt. Onder **Picnic-routes verkennen** zie je welke onofficiële routes werken en welke velden erin zitten (zonder persoonlijke gegevens, veilig te delen). Onder het tabblad **Mandje** kies je Picnic en pas je aantallen aan, haal je producten weg of leeg je het mandje (na een bevestiging); dat gaat direct naar je echte mandje. Daaronder staan de eerstvolgende beschikbare bezorgmomenten; kiezen doe je zelf in de Picnic-app. Kies bij **Winkels** in de keuzelijst **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app: **Bewaard** (Koken > Bewaard), **Opnieuw bestellen** en het **Kookboek**, als kaarten zoals de AH-recepten. Open een recept voor de ingrediënten en de bereiding, of kies `Importeer` om het in Mealie te zetten. **Favorieten** toont de producten uit de tab Favorieten van de Picnic-app, met een knop om er één in je Picnic-mandje te zetten. MealieShopper zoekt die tab zelf op in de tabbalk van de app. Die tab toont bij Picnic ook voorgestelde producten; MealieShopper neemt alleen de producten onder de kop *Favorieten* en houdt daarvan over wat Picnic in de productpagina als favoriet markeert (de hartjesknop), dus je eigen favorieten. Dat kost een verzoek per product; die gaan een paar tegelijk en worden 30 minuten onthouden (de knop *Laden* vergeet ze). Weet Picnic het niet, dan toont MealieShopper er geen en zegt waarom. Je AI-assistent kan Picnic-producten, je favorieten, je mandje, je leveringen, de bezorgmomenten en je recepten (met naam, id en kooktijd) bekijken, maar het mandje niet vullen. **Bestellingen** (onder dezelfde keuze) toont je aankomende bezorgingen (live opgehaald) en je afgeleverde bestellingen. Met *Synchroniseren* bewaart MealieShopper die laatste lokaal, met hun producten (hooguit 25 bestellingen per keer, de nieuwste eerst), zodat je ze ook zonder verbinding met Picnic kunt bekijken en je AI-assistent ze kan bevragen; je afleveradres wordt niet bewaard. Open er een voor de producten en zet ze met één knop opnieuw in je Picnic-mandje. Kassabonnen en lijstjes zijn er voor Picnic niet.
 
@@ -355,7 +354,7 @@ Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen head
 
 ## Gebruikers en uitnodigen
 
-De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en Albert Heijn en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu, de recepten en de AH-lijstjes gebruiken, producten in het AH-mandje zetten en recepten importeren, maar kan niets koppelen of beheren. Het AH-mandje is dat van het gekoppelde AH-account; Mealie en AH zijn dus gedeeld.
+De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en de supermarkten en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu, de recepten en de lijstjes gebruiken, producten in het mandje van een winkel zetten en recepten importeren, maar kan niets koppelen of beheren. De koppelingen en de mandjes zijn die van de beheerder; Mealie en de supermarkten zijn dus gedeeld.
 
 <img src="docs/screenshots/nl/users.png" alt="Beheer, Gebruikers: de beheerder met twee gebruikers, en een formulier om iemand uit te nodigen" width="900">
 
@@ -368,7 +367,7 @@ De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder*
 - **Inlog kwijt?** Kies bij die gebruiker **Nieuwe inloglink**. De oude inlog blijft werken tot de nieuwe is ingesteld, en werkt daarna niet meer.
 - **Verwijderen** haalt het account en alle inloggegevens weg. De beheerder kan niet worden verwijderd.
 - Elke gebruiker heeft eigen inloggegevens, eigen tweestapsverificatie en eigen passkeys onder Beheer, Beveiliging. Een nieuw wachtwoord logt alleen die gebruiker uit.
-- Wijzigingen in een lijstje (aantallen) en de lijstjes zelf zijn gedeeld: ze horen bij het AH-account.
+- Wijzigingen in een lijstje (aantallen) en de lijstjes zelf zijn gedeeld: ze horen bij het account bij de winkel.
 
 ## AI-assistenten (MCP)
 
@@ -418,7 +417,7 @@ Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert
 - Elk token hoort bij **de gebruiker die toestemming gaf** en geeft alleen die rechten. Toegangstokens gelden een uur, verversingstokens 30 dagen en worden bij elk gebruik vervangen; een verversingstoken dat twee keer wordt gebruikt, trekt de hele reeks in. Tokens staan alleen gehasht in de database.
 - Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Beheer, AI-apps** trek je zelf de toegang van een app in.
 - De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen. Onder **Wat de assistent kan** zet de beheerder ook elke tool afzonderlijk uit, voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en wordt geweigerd; ze zien de wijziging bij hun volgende verbinding.
-- Wat de assistent leest (receptnamen, productnamen) komt van Mealie en AH; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
+- Wat de assistent leest (receptnamen, productnamen) komt van Mealie en de supermarkten; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
 
 ## Configuratie
 
@@ -451,7 +450,7 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 
 ## Data en back-ups
 
-Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, kopieën van je AH-lijstjes en -recepten, je bestelgeschiedenis en kassabonnen, plaatjes uit Mealie) en `secret.key`. **Neem de hele map mee in je back-ups.** Zonder `secret.key` (of je eigen `MEALIESHOPPER_AUTH_SECRET`) zijn de opgeslagen koppelingen en sessies onleesbaar: je koppelt Mealie en Albert Heijn dan opnieuw, en de app laat dat zien als "niet gekoppeld".
+Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, kopieën van je lijstjes, recepten, bestellingen en kassabonnen bij de supermarkten, plaatjes uit Mealie) en `secret.key`. **Neem de hele map mee in je back-ups.** Zonder `secret.key` (of je eigen `MEALIESHOPPER_AUTH_SECRET`) zijn de opgeslagen koppelingen en sessies onleesbaar: je koppelt Mealie en de supermarkten dan opnieuw, en de app laat dat zien als "niet gekoppeld".
 
 ## Updaten
 
@@ -536,7 +535,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Ondertekent sessies. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Versleutelt opgeslagen koppelingen en controleert passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Leest passkey-gegevens. |
-| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en Albert Heijn. |
+| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en de supermarkten. |
 | [SQLite](https://sqlite.org) | Public domain | De database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Tekent in je browser de QR-code voor tweestapsverificatie. |
