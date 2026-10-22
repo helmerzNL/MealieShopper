@@ -222,6 +222,67 @@ class PicnicExplorerTest(TempDataDirTest):
             self.assertNotIn(secret, report)
 
 
+class PicnicExplorerDetailTest(TempDataDirTest):
+    PAGE = {"body": {"children": [
+        {"type": "PML", "id": "h", "pml": {"component": {"type": "RICH_TEXT", "markdown": "#(X)Acties#(X) van de week"}}},
+        {"type": "PML", "id": "card-1", "pml": {"component": {"children": [
+            {"type": "RICH_TEXT", "markdown": "Geheime merknaam"},
+            {"type": "TOUCHABLE", "onPress": {"actionType": "OPEN", "target": "picnic://store/page;id=promo-appels-123"}}]}},
+         "analytics": {"contexts": [{"data": {"campaign_id": "abc", "type": "promo"}, "schema": "iglu:x/promo"}]}},
+        {"type": "PML", "id": "tile", "pml": {"children": [
+            {"type": "SELLING_UNIT_TILE", "sellingUnit": {"id": "s1", "name": "Geheime melk", "display_price": 129}},
+            {"type": "RICH_TEXT", "markdown": "Geheime melk 1 l"}, {"type": "RICH_TEXT", "markdown": "-25%"}, {"type": "RICH_TEXT", "markdown": "€ 1,29"}]}},
+    ]}}
+
+    def test_text_patterns_show_discount_like_texts_without_product_names(self):
+        from mealieshopper import picnic_explore
+
+        report = picnic_explore.tile_text_patterns(self.PAGE)
+        self.assertEqual(report["tegels met precies een tegel in het onderdeel"], 1)
+        self.assertEqual(report["aantal teksten per tegel"], {3: 1})
+        self.assertEqual(set(report["kortingachtige teksten (cijfers als #)"]), {"-##%", "€ #,##"})
+        self.assertNotIn("Geheime", repr(report))
+
+    def test_promo_cards_show_where_a_card_leads_without_its_content(self):
+        from mealieshopper import picnic_explore
+
+        report = picnic_explore.promo_cards(self.PAGE)
+        card = report["kaart 1"]
+        self.assertEqual(report["kaarten gevonden (eerste 2)"], 1)
+        self.assertIn("picnic://store/page;id=promo-appels-<id>", card["teksten die naar een pagina of campagne wijzen"])
+        self.assertIn({"actionType": "str: OPEN", "target": "str"}, card["acties en verwijzingen (vorm)"])
+        self.assertNotIn("Geheime", repr(report))
+        self.assertEqual(picnic_explore.promo_cards({"body": {}}), "geen kop met Acties")
+
+    def test_the_default_report_skips_the_favorites_exploration(self):
+        from mealieshopper import picnic_explore
+
+        asked = []
+
+        def authed(method, path, **kwargs):
+            asked.append(path)
+            return {"tabs": []} if path == "/bootstrap" else {}
+
+        picnic.save_auth_key("key")
+        with mock.patch.object(picnic, "_authed", side_effect=authed):
+            picnic_explore.explore()
+            short = len(asked)
+            asked.clear()
+            picnic_explore.explore(extended=True)
+        self.assertLess(short, 40, "zonder extended geen ruim honderd verzoeken")
+        self.assertGreater(len(asked), short)
+        self.assertFalse(any("liked_sellables" in path for path in asked[:short]))
+
+    def test_the_route_passes_extended_on(self):
+        from mealieshopper import picnic_explore
+
+        client = create_app().test_client()
+        with mock.patch.object(picnic_explore, "explore", return_value={"probes": [], "ok": 0, "linked": True}) as explore:
+            client.post("/api/picnic/explore")
+            client.post("/api/picnic/explore?extended=1")
+        self.assertEqual([call.kwargs for call in explore.call_args_list], [{"extended": False}, {"extended": True}])
+
+
 class SyncAllTest(TempDataDirTest):
     def fetchers(self, **overrides):
         base = {
