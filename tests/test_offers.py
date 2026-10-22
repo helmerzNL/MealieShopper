@@ -1005,6 +1005,8 @@ class OffersRoutesTest(TempDataDirTest):
             return re.search(r'<button class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
 
         self.assertIn(" hidden", subtab(self.client))
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-0123456789abcdef"}):
+            self.assertNotIn(" hidden", subtab(self.client), "met een AI-sleutel verschijnt het tabblad ook zonder de variabele")
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_RECIPES": "true"}):
             self.assertNotIn(" hidden", subtab(create_app().test_client()))
         self.assertEqual(self.client.get("/api/offers/recipes?store=ah").status_code, 200, "de API blijft werken")
