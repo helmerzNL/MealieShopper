@@ -287,7 +287,7 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Profile and settings
 
-At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only) and **Log out**.
+At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only), **About** and **Log out**.
 
 - **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
 - **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.
@@ -300,7 +300,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Link Mealie**, **Log in to Albert Heijn**, **Log in to Picnic** and **Log in to Jumbo**. Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo** and **Picnic**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 

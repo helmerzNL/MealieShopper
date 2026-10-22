@@ -287,7 +287,7 @@ Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en
 
 ### Profiel en instellingen
 
-Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder) en **Uitloggen**.
+Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder), **Over** en **Uitloggen**.
 
 - **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
 - **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.
@@ -300,7 +300,7 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie koppelen**, **Inloggen bij Albert Heijn**, **Inloggen bij Picnic** en **Inloggen bij Jumbo**. Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo** en **Picnic**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
 <img src="docs/screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen en de blokken voor Mealie, Albert Heijn, Picnic en Jumbo" width="900">
 

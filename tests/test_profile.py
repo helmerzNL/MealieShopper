@@ -107,7 +107,7 @@ class ProfileMarkupTest(unittest.TestCase):
 
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings"])
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"])
         settings = re.search(r'<button[^>]*data-user-action="settings"[^>]*>', menu).group(0)
         self.assertIn("data-admin-only", settings, "Instellingen is alleen voor de beheerder")
         profile_item = re.search(r'<button[^>]*data-user-action="profile"[^>]*>', menu).group(0)
@@ -124,6 +124,10 @@ class ProfileMarkupTest(unittest.TestCase):
         self.assertNotIn("data-admin-only", nav, "AI-apps en de rest van het profiel zijn voor iedereen")
         for needle in ('id="profile-avatar-file" accept="image/png,image/jpeg,image/webp"', 'id="profile-name"', 'id="profile-form"'):
             self.assertIn(needle, profile_section, needle)
+
+    def test_about_opens_from_the_menu(self):
+        self.assertIn('item.dataset.userAction === "about"', self.js)
+        self.assertIn('showPanel("about")', self.js)
 
     def test_security_has_one_password_block_with_two_step_inside_and_a_passkey_block(self):
         security = self.html[self.html.index('<div id="profile-security"'):self.html.index('<div id="profile-ai"')]

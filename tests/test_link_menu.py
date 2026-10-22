@@ -10,7 +10,7 @@ APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 
 PAGE = HTML[HTML.index('<div id="settings-link" class="subpanel'):HTML.index('<div id="settings-users" class="subpanel')]
-STORES = ("mealie", "ah", "picnic", "jumbo")
+STORES = ("mealie", "ah", "jumbo", "picnic")
 
 
 def block(name):
@@ -34,6 +34,8 @@ class LinkPageTest(unittest.TestCase):
         self.assertEqual(re.findall(r'id="(\w+)-status"', grid), list(STORES))
         rule = re.search(r"\.link-statuses\s*{(.*?)}", CSS, re.S).group(1)
         self.assertIn("repeat(2", rule)
+        self.assertIn("max-width: 680px", rule, "even breed als .box")
+        self.assertIn("max-width: 680px", re.search(r"^\.box\s*{(.*?)}", CSS, re.S | re.M).group(1))
         for store in STORES:
             self.assertEqual(PAGE.count(f'id="{store}-status"'), 1, store)
 
@@ -53,13 +55,30 @@ class LinkPageTest(unittest.TestCase):
         row = re.search(r'<div class="toolbar">\s*<button[^>]*id="verify-token".*?</div>', block("ah"), re.S).group(0)
         self.assertIn('id="check-ah"', row)
 
-    def test_titles_all_say_log_in_to(self):
-        self.assertIn('"ahlogin.title": "Inloggen bij Albert Heijn"', NL)
-        self.assertIn('"picnic.title": "Inloggen bij Picnic"', NL)
-        self.assertIn('"jumbo.title": "Inloggen bij Jumbo"', NL)
-        self.assertIn('"ahlogin.title": "Log in to Albert Heijn"', EN)
-        for store, title in (("ah", "Inloggen bij Albert Heijn"), ("picnic", "Inloggen bij Picnic"), ("jumbo", "Inloggen bij Jumbo")):
-            self.assertIn(f'<span data-i18n="{"ahlogin" if store == "ah" else store}.title">{title}</span>', block(store))
+    def test_blocks_are_titled_with_just_the_name(self):
+        for key, title in (("ahlogin.title", "Albert Heijn"), ("picnic.title", "Picnic"), ("jumbo.title", "Jumbo"), ("link.mealie", "Mealie")):
+            self.assertIn(f'"{key}": "{title}"', NL, key)
+            self.assertIn(f'"{key}": "{title}"', EN, key)
+        for store, key, title in (("mealie", "link.mealie", "Mealie"), ("ah", "ahlogin.title", "Albert Heijn"), ("jumbo", "jumbo.title", "Jumbo"), ("picnic", "picnic.title", "Picnic")):
+            self.assertIn(f'<span data-i18n="{key}">{title}</span>', block(store))
+
+    def test_status_banners_have_icons_and_colours_for_small_screens(self):
+        self.assertIn('"link.status.linked": "gekoppeld"', NL)
+        self.assertIn('"link.status.unlinked": "nog niet gekoppeld"', NL)
+        self.assertIn('"link.status.working": "gekoppeld en werkt"', NL)
+        self.assertIn('"link.status.linked": "linked"', EN)
+        for needle in ("MDI_LINK", "MDI_LINK_OFF", "MDI_CHECK_CIRCLE", 'classes: "error"', "link-status--working"):
+            self.assertIn(needle, APP_JS, needle)
+        for store, script in (("picnic", "picnic.js"), ("jumbo", "jumbo.js")):
+            self.assertIn(f'renderLinkStatus("#{store}-status"', (ROOT / "static" / script).read_text(encoding="utf-8"))
+        icon = re.search(r"\.link-status__icon\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("display: none", icon, "op een groot scherm de tekst")
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .link-status__icon"):]
+        self.assertIn("display: block", media)
+        self.assertIn(".link-status__text {\n    position: absolute", media, "de tekst blijft voor schermlezers")
+        grid = re.search(r"\.link-statuses\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("repeat(2", grid)
+        self.assertNotRegex(CSS, r"@media \(max-width: 640px\) {\s*\.link-statuses", "ook op een klein scherm twee naast elkaar")
 
     def test_folds_close_when_linked(self):
         self.assertIn("function applyStoreFold(store, linked)", APP_JS)
