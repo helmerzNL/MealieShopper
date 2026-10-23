@@ -28,6 +28,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 - [Configuratie](#configuratie)
 - [Data en back-ups](#data-en-back-ups)
 - [Updaten](#updaten)
+- [De beta-versie](#de-beta-versie)
 - [Problemen oplossen](#problemen-oplossen)
 - [Ontwikkelen](#ontwikkelen)
 - [Integraties en componenten](#integraties-en-componenten)
@@ -488,13 +489,48 @@ docker compose pull && docker compose up -d
 
 Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf aangevuld. Bij Over zie je welke versie en commit er draait.
 
-**Stabiel of beta.** Welke build je installeert, kies je met `MEALIESHOPPER_TAG` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)): `latest` is de stabiele versie en de standaard, `beta` is de ontwikkelversie. Daarna `docker compose pull && docker compose up -d`. Dezelfde waarde gaat naar de app, die bij `beta` een **beta**-badge toont naast het woordmerk. Gebruik voor beta een aparte data-map. Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; gebruik dan `docker compose --env-file .env.unraid up -d`.
+**Stabiel of beta.** Welke build je installeert, kies je met `MEALIESHOPPER_TAG` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)): `latest` is de stabiele versie en de standaard, `beta` is de ontwikkelversie. Daarna `docker compose pull && docker compose up -d`. Dezelfde waarde gaat naar de app, die bij `beta` een **beta**-badge toont naast het woordmerk. Gebruik voor beta een aparte data-map. Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; gebruik dan `docker compose --env-file .env.unraid up -d`. Meer over de beta staat onder [De beta-versie](#de-beta-versie).
 
 <img src="docs/screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 
 **Updatecheck.** Onder **Instellingen, Systeem** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 <img src="docs/screenshots/nl/updates.png" alt="Instellingen, Systeem: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
+
+## De beta-versie
+
+MealieShopper heeft twee lijnen, met elk een eigen branch en container-image:
+
+| | Stabiel | Beta |
+| --- | --- | --- |
+| Branch | `main` | `beta` |
+| Image | `ghcr.io/helmerznl/mealieshopper:latest` (en `X.Y.Z`) | `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`) |
+| GitHub release | `vX.Y.Z` | pre-release `vX.Y.Z-beta` |
+| Voor wie | iedereen; dit is de standaard | wie nieuwe functies eerst wil proberen |
+
+Elke wijziging komt eerst in `beta` binnen. Elke push naar `beta` bouwt direct een nieuwe beta-image en een pre-release op GitHub, zodat de ontwikkeling doorloopt zonder de stabiele versie te raken. Pas als de beta goed bevalt, wordt hij gepromoveerd naar `main`: dat bouwt `latest` en de stabiele release. Een beta kan dus nieuwer zijn dan de stabiele versie, maar ook nog fouten bevatten.
+
+<img src="docs/screenshots/nl/beta.png" alt="De beta-build van MealieShopper op een computer en een telefoon, met de beta-badge naast het woordmerk" width="900">
+
+De beta-build herken je aan de **beta**-badge naast het woordmerk; bij Over staat ook **beta** achter het versienummer.
+
+**Beta draaien.** Zet `MEALIESHOPPER_TAG=beta` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)) en haal de image op:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Bij `docker run` gebruik je `ghcr.io/helmerznl/mealieshopper:beta`. Wil je een bepaalde beta vastzetten, gebruik dan de tag met het versienummer, bijvoorbeeld `2.72.1-beta`.
+
+**Houd je stabiele installatie ongemoeid.**
+
+- Gebruik voor de beta een **aparte data-map**, zodat je stabiele gegevens, koppelingen en inlog niet door een beta worden aangeraakt.
+- Draai je de beta naast de stabiele versie, geef hem dan ook een andere `container_name` en een andere poort dan `5959` in `docker-compose.yml`.
+- Terug naar stabiel kan door `MEALIESHOPPER_TAG=latest` te zetten en opnieuw te pullen, met de data-map van je stabiele installatie.
+
+**Fouten melden.** Loop je in de beta ergens tegenaan, meld het dan als [issue op GitHub](https://github.com/helmerznl/mealieshopper/issues) en noem het versienummer en de commit uit Over.
+
+**Meewerken.** Pull requests gaan naar `beta`, nooit rechtstreeks naar `main`; zie [Ontwikkelen](#ontwikkelen).
 
 ## Problemen oplossen
 
