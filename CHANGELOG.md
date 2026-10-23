@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.72.0
+
+*English summary: Putting the week menu in the basket now always shows the check list first, with the product choices next to every line, even when the app has no doubts. You can untick lines and change the product or number of packs; only after you confirm are the products put in your basket (Albert Heijn, Picnic and Jumbo).*
+
+### Gewijzigd in 2.72.0
+
+- **Het weekmenu gaat nooit meer ongezien in het mandje.** Voorheen verscheen de controlelijst alleen als de app ergens twijfelde; anders werd het mandje meteen gevuld. Nu toont de knop in de planner altijd eerst de lijst: per ingrediënt het gekozen product met de andere keuzes ernaast, het aantal verpakkingen en een vinkje. Haal een vinkje weg als een regel toch niet klopt, of kies een ander product of aantal. Pas met `Voeg … toe aan mandje` gaan de producten erin. Geldt voor Albert Heijn, Picnic en Jumbo.
+- Regels waar de app niet zeker van is blijven gemarkeerd; de uitleg boven de lijst past zich aan als er niets gemarkeerd is.
+
 ## v2.71.0
 
 *English summary: The build you install (`:latest` or `:beta`) is now set in one place: `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`. The compose file pulls `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` and passes the same value to the app, which shows a "beta" badge next to the wordmark (and under About) on a beta build. Without the variable nothing changes: `latest`, no badge. New `.env.example`.*
