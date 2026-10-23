@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.69.1
+
+*English summary: Recipe lines that Mealie did not analyze (quantity 1 with the text "200 ml milk" in the note, shown as "1 200 ml milk") are now split into quantity, unit and ingredient when the recipe is fetched. They show as "200 ml milk" and the store search uses "milk" instead of the whole text, so these lines are found in the cart.*
+
+### Opgelost in 2.69.1
+
+- **Ingrediënten die Mealie niet analyseerde worden nu goed herkend.** Een recept waarvan Mealie de ingrediënten niet had geanalyseerd, bewaart een regel als `200 ml melk` in de notitie, met aantal 1 en zonder eenheid of ingrediënt. Het weekmenu toonde dat als *1 200 ml melk* en het boodschappenmandje zocht in de winkel op die hele tekst, dus "9 niet gevonden". MealieShopper haalt nu bij het ophalen van het recept het aantal, de eenheid en het ingrediënt uit zo'n regel (`200`, `ml`, `melk`), zodat hij zich gedraagt als een regel die Mealie zelf analyseerde: *200 ml melk*, zoeken op *melk* en het aantal verpakkingen op basis van 200 ml.
+- **Wat er wordt herkend:** hele en decimale getallen (`1,5`), breuken (`1/2`, `1 1/2`, `½`), bereiken (`2-3 el`, het hoogste aantal telt), `2x`, een eenheid zonder aantal (`snufje zout` is 1 snufje), en een toevoeging na een komma (`1 ui, fijngesneden`) of tussen haakjes.
+- **Wat ongemoeid blijft:** regels die Mealie al analyseerde (met een ingrediënt of een eenheid), regels met een eigen aantal (`2` + `400 g tomaten`) en regels zonder aantal of ingrediënt (`peper naar smaak`).
+- Dit geldt overal waar MealieShopper Mealie-recepten leest: het weekmenu, de boodschappenmandjes, de receptenindex voor de aanbiedingen en de MCP-tools.
+
 ## v2.69.0
 
 *English summary: The AI now searches recipes for the products on offer, instead of only approving existing matches. The "Review with AI" button became "Search recipes with AI": after a confirmation with a token estimate, a round of up to 120 recipes from all your sources (Mealie, saved AH recipes, Jumbo favorites, Picnic recipes) is sent to Claude or ChatGPT together with the numbered food offers of the chosen store; the AI says which ingredient line fits which product number. Numbers that do not exist or are used twice are dropped, so nothing can be made up. The round runs in the background with visible progress (also after a reload). For the recipes the AI searched, its matches replace those of MealieShopper (check mark "Found by AI"); other recipes keep ours. A recipe is searched again only when the offer or its ingredients changed. Only product and ingredient text is sent, only when you press the button. No live search in the stores' recipe catalogues yet.*

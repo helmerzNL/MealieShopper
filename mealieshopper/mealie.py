@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from . import ah, auth, jumbo, jumbo_recipes
+from . import ah, auth, ingredients, jumbo, jumbo_recipes
 
 log = logging.getLogger(__name__)
 
@@ -317,7 +317,8 @@ def get_recipe(slug: str) -> dict[str, Any]:
     )
     if not response.ok:
         raise RuntimeError(f"Recept ophalen mislukt ({response.status_code})")
-    return response.json()
+    # Regels die Mealie niet analyseerde ("1" + "200 ml melk") krijgen aantal, eenheid en ingrediënt.
+    return ingredients.normalize_recipe(response.json())
 
 
 def _image_path(recipe: dict[str, Any] | None) -> str | None:
