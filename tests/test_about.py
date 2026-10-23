@@ -68,6 +68,35 @@ class VersionTest(unittest.TestCase):
         self.assertIn("docker/setup-buildx-action", workflow)
 
 
+class ChannelTest(unittest.TestCase):
+    def test_tag_decides_the_channel(self):
+        for tag, channel in (("beta", "beta"), ("2.70.0-beta", "beta"), (" Beta ", "beta"), ("latest", "stable"), ("2.70.0", "stable"), ("", "stable")):
+            with mock.patch.dict(os.environ, {"MEALIESHOPPER_TAG": tag}):
+                self.assertEqual(about.build_channel(), channel, tag)
+
+    def test_without_the_variable_the_channel_is_stable(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop("MEALIESHOPPER_TAG", None)
+            self.assertEqual(about.build_channel(), "stable")
+            self.assertEqual(about.about()["channel"], "stable")
+
+    def test_compose_uses_one_tag_for_the_image_and_the_app(self):
+        compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("mealieshopper:${MEALIESHOPPER_TAG:-latest}", compose)
+        self.assertIn("MEALIESHOPPER_TAG: ${MEALIESHOPPER_TAG:-latest}", compose)
+        self.assertIn("MEALIESHOPPER_TAG=latest", (ROOT / ".env.example").read_text(encoding="utf-8"))
+
+    def _index(self, tag):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"MEALIESHOPPER_TAG": tag, "MEALIESHOPPER_DATA_DIR": tmp, "PASSKEY_AUTH_ENABLED": "false"}
+        ):
+            return create_app().test_client().get("/").get_data(as_text=True)
+
+    def test_beta_badge_only_on_a_beta_build(self):
+        self.assertIn('id="beta-badge"', self._index("beta"))
+        self.assertNotIn('id="beta-badge"', self._index("latest"))
+
+
 class ComponentsTest(unittest.TestCase):
     def test_installed_python_packages_report_their_real_version(self):
         data = {c["id"]: c for c in about.about()["components"]}

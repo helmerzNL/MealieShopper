@@ -203,7 +203,10 @@
         <a class="brand-link" id="brand-home" href="/" title="Naar het startscherm" data-i18n-attr="title:brand.home">
           <img class="brand-mark" src="{{ url_for('static', filename='brand/mark.svg') }}" alt="" width="48" height="48">
           <div>
-            <h1 class="wordmark">Mealie<span>Shopper</span></h1>
+            <div class="wordmark-row">
+              <h1 class="wordmark">Mealie<span>Shopper</span></h1>
+              {% if build_channel == "beta" %}<span class="beta-badge" id="beta-badge" title="Dit is een beta-versie: hij kan nog fouten bevatten." data-i18n-attr="title:brand.beta_title">beta</span>{% endif %}
+            </div>
             <p data-i18n="brand.tagline">Van recept naar geregeld.</p>
           </div>
         </a>
@@ -365,7 +368,7 @@
             <div class="subtab-menu__list" id="offers-store-list" hidden></div>
           </div>
           <button class="subtab is-active" data-subtab="offers-items" data-i18n="offers.tab.offers">Aanbiedingen</button>
-          <button class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not config.OFFERS_RECIPES %} hidden{% endif %}>Recepten</button>
+          <button class="subtab" data-subtab="offers-suggestions" data-i18n="offers.tab.recipes"{% if not offers_recipes_visible %} hidden{% endif %}>Recepten</button>
         </nav>
         <div id="offers-items" class="subpanel is-active">
         <div class="box box--wide">
@@ -386,6 +389,10 @@
           </div>
           <h3 id="offers-recipes-heading"></h3>
           <p class="muted" data-i18n="offers.recipes.explain">Basisingrediënten als zout, olie, boter en bloem tellen niet mee. De recepten met de meeste ingrediënten in de aanbieding staan bovenaan.</p>
+          <div class="offers-ai" id="offers-ai-bar" data-admin-only>
+            <p class="muted" id="offers-ai-status"></p>
+            <button class="button button--secondary" id="offers-ai-run" type="button" hidden data-i18n="aireview.run">Recepten zoeken met AI</button>
+          </div>
           <div id="offers-courses" class="offer-cats" role="group" aria-label="Soort gerecht" data-i18n-attr="aria-label:offers.courses.label" hidden></div>
           <p class="muted" id="offers-recipes-status"></p>
           <div id="offers-recipes-message"></div>
@@ -763,6 +770,57 @@
           <ul class="offers-sync-list" id="offers-sync-stores"></ul>
           <p class="muted" id="offers-sync-schedule"></p>
         </div>
+        <div class="box" id="ai-review-box">
+          <h2 data-i18n="aireview.title">AI-beoordeling van koppelingen</h2>
+          <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
+          <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+          <form class="auth-form" id="ai-review-form" autocomplete="off">
+            <label class="field">
+              <span data-i18n="aireview.provider">Gebruik</span>
+              <select class="input" id="ai-provider">
+                <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
+                <option value="anthropic">Claude (Anthropic)</option>
+                <option value="openai">ChatGPT (OpenAI)</option>
+              </select>
+            </label>
+            <div class="ai-provider">
+              <h3>Claude (Anthropic)</h3>
+              <p class="muted" id="ai-status-anthropic"></p>
+              <label class="field">
+                <span data-i18n="aireview.key">API-sleutel</span>
+                <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+              </label>
+              <label class="field">
+                <span data-i18n="aireview.model">Model</span>
+                <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <div class="toolbar">
+                <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
+                <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              </div>
+            </div>
+            <div class="ai-provider">
+              <h3>ChatGPT (OpenAI)</h3>
+              <p class="muted" id="ai-status-openai"></p>
+              <label class="field">
+                <span data-i18n="aireview.key">API-sleutel</span>
+                <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+              </label>
+              <label class="field">
+                <span data-i18n="aireview.model">Model</span>
+                <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <div class="toolbar">
+                <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
+                <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              </div>
+            </div>
+            <div class="toolbar">
+              <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
+            </div>
+          </form>
+          <div id="ai-review-message"></div>
+        </div>
         <div class="box fold" id="mealie-login-box">
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="mealie-login-body">
@@ -1072,6 +1130,7 @@
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>

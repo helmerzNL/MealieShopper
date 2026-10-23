@@ -30,6 +30,7 @@ const MDI_SYNC =
 const MDI_PLUS = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
 const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
+const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
 const MDI_OPEN_IN_NEW =
   "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z";
@@ -849,7 +850,7 @@ function renderCartReview(rows) {
         <button class="button" id="confirm-cart"></button>
         <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
       </div>
-      <p class="muted">${escapeHtml(tn("cart.doubts", doubts))}</p>
+      <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
       <div class="review-list">
         ${rows
           .map((row, index) => {
@@ -962,19 +963,11 @@ async function addToCart() {
       }),
     });
     const rows = preview.items || [];
-    const unsure = rows.some((row) => row.candidates.length && row.candidates[0].doubt);
-    if (unsure) {
-      renderCartReview(rows);
+    // Het mandje gaat nooit zonder controle vol: ook zonder twijfel toont de lijst eerst wat erin komt.
+    if (!rows.some((row) => row.candidates.length)) {
+      $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
     } else {
-      const selection = rows
-        .filter((row) => row.candidates.length)
-        .map((row) => cartSelection(row, row.candidates[0], row.candidates[0].packs));
-      const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
-      if (!selection.length) {
-        $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
-      } else {
-        await submitCart(selection, notFound);
-      }
+      renderCartReview(rows);
     }
   } catch (error) {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
@@ -1801,6 +1794,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+    if (subtab.dataset.subtab === "settings-link" && typeof loadAiReviewSettings === "function") loadAiReviewSettings();
     if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
@@ -1832,7 +1826,7 @@ async function loadAbout() {
 function renderAbout() {
   const about = state.about;
   if (!about) return;
-  $("#about-version").textContent = about.label;
+  $("#about-version").textContent = about.channel === "beta" ? `${about.label} beta` : about.label;
   const groups = ["integrations", "server", "interface"];
   $("#about-components").innerHTML = groups
     .map((group) => {

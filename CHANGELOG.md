@@ -2,6 +2,121 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.72.1
+
+### Sinds de vorige stabiele versie (v2.67.2)
+
+Deze release brengt `main` van v2.67.2 naar v2.72.1. De tussenliggende versies (2.68.0 tot en met 2.72.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.67.2: optional AI help with your own Claude or ChatGPT API key (review the matches between recipe ingredients and offers, and search your recipes for the products on offer; nothing happens without a key); recipe lines are parsed into quantity, unit and ingredient when you import a recipe into Mealie and when Mealie did not analyze them; putting the week menu in the basket now always shows the check list first; and the build you install (`:latest` or `:beta`) is chosen with `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`, with a "beta" badge in the app on a beta build.*
+
+- **Het weekmenu gaat nooit meer ongezien in het mandje (2.72.0 en 2.72.1).** De knop in de planner toont altijd eerst de controlelijst, met per ingrediënt het gekozen product, de andere keuzes, het aantal verpakkingen en een vinkje; pas na het bevestigen gaan de producten in het mandje (Albert Heijn, Picnic en Jumbo). Voorheen werd het mandje meteen gevuld als de app nergens twijfelde. De versie van de statische bestanden is opgehoogd, zodat de browser het nieuwe script laadt.
+- **Optionele AI-hulp met je eigen sleutel (2.68.0 en 2.69.0).** Onder *Instellingen > Koppelen* vul je een API-sleutel in van Claude (Anthropic) en/of ChatGPT (OpenAI), of zet je `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. De sleutel wordt versleuteld bewaard en nooit meer getoond. Met een sleutel verschijnt het subtabblad *Recepten* bij Aanbiedingen en krijgt de beheerder de knop *Recepten zoeken met AI*: na een bevestiging met een schatting van het aantal tokens zoekt de AI in je eigen recepten (Mealie, bewaarde AH-recepten, Jumbo-favorieten, Picnic-recepten) bij de producten in de aanbieding. Alleen de tekst van ingrediënten en producten wordt verstuurd, alleen als je op de knop drukt; de AI kan geen producten of regels verzinnen, want alles gaat op nummer. Zonder sleutel verandert er niets en gaat er niets naar een AI-dienst.
+- **Eenheden en ingrediënten bij het importeren in Mealie (2.69.1 en 2.70.0).** Na een import splitst MealieShopper regels als `200 ml melk` in aantal, eenheid en ingrediënt en koppelt die aan de eenheden en ingrediënten van Mealie (ontbrekende worden aangemaakt), zodat het recept schaalt en de boodschappenlijst optelt. Dat geldt voor Allerhande, Jumbo, Picnic, een gewone receptpagina en de MCP-tool `import_recipe_to_mealie`. Regels die Mealie niet had geanalyseerd worden ook bij het ophalen van het recept herkend, zodat het mandje niet meer "niet gevonden" meldt. Mislukt het analyseren, dan blijft het recept zoals Mealie het importeerde.
+- **De build kies je met `MEALIESHOPPER_TAG` (2.71.0).** `docker-compose.yml` haalt `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` op en geeft dezelfde waarde door aan de app, die op een beta-build een **beta**-badge toont (ook bij Over; `GET /api/about` geeft `channel`). Er is een nieuw voorbeeldbestand `.env.example`. Zonder de variabele blijft het `latest`.
+- **Nieuwe routes (alleen beheerder):** `GET` en `PUT /api/offers/ai`, `POST /api/offers/ai/test`, `POST /api/offers/ai/review`, `GET /api/offers/ai/search/plan`, `POST /api/offers/ai/search` en `GET /api/offers/ai/search/status`. De MCP-tools zijn niet veranderd.
+
+#### Goed om te weten bij het bijwerken
+
+- **Het weekmenu werkt anders:** je ziet nu altijd eerst de controlelijst voordat het mandje wordt gevuld. Ververst een scherm niet vanzelf, laad de pagina dan één keer opnieuw (in de geïnstalleerde app: sluiten en weer openen).
+- **`docker-compose.yml` is veranderd:** de image-tag komt nu uit `MEALIESHOPPER_TAG` (standaard `latest`). Gebruik je een eigen kopie van het compose-bestand, neem die regel dan over of laat alles zoals het was; er verandert dan niets.
+- **De AI-functies zijn optioneel en staan uit zonder sleutel.** De aanroepen naar de AI-aanbieders komen niet in het auditlog en de sleutel komt nergens in een log of API-antwoord. De kwaliteit van de AI-koppelingen en de grootte van de aanvragen bij een groot aanbod zijn nog niet op echte gegevens gecontroleerd: begin met een kleine ronde.
+- De database wordt zo nodig vanzelf aangevuld (nieuwe tabellen `offer_verdicts`, `ai_recipe_matches` en `ai_recipe_runs`); je hoeft niets te migreren.
+
+Pull requests sinds v2.67.2: #118 tot en met #123.
+
+*English summary: Fix for 2.72.0. The static-files version was not raised, so browsers and the installed app kept running the old script, which still filled the basket straight away when the app had no doubts. The version is raised now, so every browser loads the script that always shows the check list first.*
+
+### Opgelost in 2.72.1
+
+- **Het weekmenu ging in sommige situaties nog steeds direct in het mandje.** In 2.72.0 hebben we de controlelijst altijd getoond, maar de versie van de statische bestanden (`MEALIESHOPPER_ASSET_VERSION`) bleef gelijk. Daardoor bleef een browser of de geïnstalleerde app het oude script gebruiken, dat het mandje meteen vulde zodra de app nergens twijfelde. De versie is opgehoogd (20261023-42), zodat het nieuwe script wordt geladen en de controlelijst altijd verschijnt.
+
+### Goed om te weten
+
+- Ververst een scherm nog niet vanzelf, laad de pagina dan één keer opnieuw (in de geïnstalleerde app: sluiten en weer openen).
+
+## v2.72.0
+
+*English summary: Putting the week menu in the basket now always shows the check list first, with the product choices next to every line, even when the app has no doubts. You can untick lines and change the product or number of packs; only after you confirm are the products put in your basket (Albert Heijn, Picnic and Jumbo).*
+
+### Gewijzigd in 2.72.0
+
+- **Het weekmenu gaat nooit meer ongezien in het mandje.** Voorheen verscheen de controlelijst alleen als de app ergens twijfelde; anders werd het mandje meteen gevuld. Nu toont de knop in de planner altijd eerst de lijst: per ingrediënt het gekozen product met de andere keuzes ernaast, het aantal verpakkingen en een vinkje. Haal een vinkje weg als een regel toch niet klopt, of kies een ander product of aantal. Pas met `Voeg … toe aan mandje` gaan de producten erin. Geldt voor Albert Heijn, Picnic en Jumbo.
+- Regels waar de app niet zeker van is blijven gemarkeerd; de uitleg boven de lijst past zich aan als er niets gemarkeerd is.
+
+## v2.71.0
+
+*English summary: The build you install (`:latest` or `:beta`) is now set in one place: `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`. The compose file pulls `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` and passes the same value to the app, which shows a "beta" badge next to the wordmark (and under About) on a beta build. Without the variable nothing changes: `latest`, no badge. New `.env.example`.*
+
+### Nieuw in 2.71.0
+
+- **De build (`:latest` of `:beta`) stel je in via `.env`.** `docker-compose.yml` haalt nu `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` op en geeft dezelfde `MEALIESHOPPER_TAG` door aan de container. Zet `MEALIESHOPPER_TAG=beta` in `.env` naast de compose-file (voorbeeld: `.env.example`), draai `docker compose pull && docker compose up -d` en je draait de beta-build. Zonder de variabele verandert er niets: `latest`.
+- **Een beta-badge in de app.** Bij een beta-build (de tag bevat `beta`, dus ook `2.71.0-beta`) staat er een **beta**-badge naast het woordmerk in de kop, en bij Over staat *beta* achter de versie. `GET /api/about` geeft ook `channel` (`stable` of `beta`).
+
+### Goed om te weten
+
+- Compose leest `.env` zelf voor de image-tag; `.env.unraid` is alleen voor de app. Staat `MEALIESHOPPER_TAG` alleen in `.env.unraid`, dan wint de waarde uit `.env` (of `latest`), zodat image en badge altijd bij elkaar passen. Wil je `.env.unraid` toch gebruiken: `docker compose --env-file .env.unraid up -d`.
+- Draai je de container met `docker run`, zet dan zelf `-e MEALIESHOPPER_TAG=beta` bij de beta-image om de badge te tonen.
+
+## v2.70.0
+
+*English summary: When a recipe is imported into Mealie, its ingredient lines are now parsed into quantity, unit and ingredient. Mealie stores imported lines as plain text ("200 ml milk"); MealieShopper now splits them and links them to Mealie's own units and foods (missing ones are created), so the recipe scales, the shopping list adds up and the display is right. Also includes the 2.69.1 fix for lines Mealie did not analyze.*
+
+### Nieuw in 2.70.0
+
+- **Bij het importeren in Mealie worden de eenheden en ingrediënten goed verwerkt.** Mealie bewaart een geïmporteerde regel als losse tekst (`200 ml melk`, `1 el maïzena`) in de notitie. Direct na de import haalt MealieShopper het aantal, de eenheid en het ingrediënt eruit en koppelt die aan de eenheden en ingrediënten van Mealie. Zo kent Mealie ze zelf: het recept kan schalen, de boodschappenlijst telt hoeveelheden op en de weergave klopt.
+- **Eenheden worden herkend onder hun eigen naam.** `gr` en `gram` zijn de eenheid *gram* (`g`), `el` is *eetlepel*, enzovoort; staat de eenheid al in Mealie (op naam, meervoud, afkorting of alias), dan wordt die gebruikt. Een eenheid of ingrediënt dat Mealie nog niet kent, wordt aangemaakt (zoals ook de ingrediëntenparser van Mealie zelf doet).
+- **Geldt voor elke manier van importeren:** Allerhande, Jumbo, Picnic, een gewone receptpagina en de MCP-tool `import_recipe_to_mealie`. Regels die Mealie al zelf analyseerde, en regels zonder aantal of ingrediënt (`peper naar smaak`), blijven zoals ze zijn.
+- **De import zelf kan hierdoor niet mislukken.** Lukt het analyseren niet (Mealie onbereikbaar, geen rechten), dan blijft het recept zoals Mealie het importeerde en staat er een waarschuwing in het logboek.
+
+## v2.69.1
+
+*English summary: Recipe lines that Mealie did not analyze (quantity 1 with the text "200 ml milk" in the note, shown as "1 200 ml milk") are now split into quantity, unit and ingredient when the recipe is fetched. They show as "200 ml milk" and the store search uses "milk" instead of the whole text, so these lines are found in the cart.*
+
+### Opgelost in 2.69.1
+
+- **Ingrediënten die Mealie niet analyseerde worden nu goed herkend.** Een recept waarvan Mealie de ingrediënten niet had geanalyseerd, bewaart een regel als `200 ml melk` in de notitie, met aantal 1 en zonder eenheid of ingrediënt. Het weekmenu toonde dat als *1 200 ml melk* en het boodschappenmandje zocht in de winkel op die hele tekst, dus "9 niet gevonden". MealieShopper haalt nu bij het ophalen van het recept het aantal, de eenheid en het ingrediënt uit zo'n regel (`200`, `ml`, `melk`), zodat hij zich gedraagt als een regel die Mealie zelf analyseerde: *200 ml melk*, zoeken op *melk* en het aantal verpakkingen op basis van 200 ml.
+- **Wat er wordt herkend:** hele en decimale getallen (`1,5`), breuken (`1/2`, `1 1/2`, `½`), bereiken (`2-3 el`, het hoogste aantal telt), `2x`, een eenheid zonder aantal (`snufje zout` is 1 snufje), en een toevoeging na een komma (`1 ui, fijngesneden`) of tussen haakjes.
+- **Wat ongemoeid blijft:** regels die Mealie al analyseerde (met een ingrediënt of een eenheid), regels met een eigen aantal (`2` + `400 g tomaten`) en regels zonder aantal of ingrediënt (`peper naar smaak`).
+- Dit geldt overal waar MealieShopper Mealie-recepten leest: het weekmenu, de boodschappenmandjes, de receptenindex voor de aanbiedingen en de MCP-tools.
+
+## v2.69.0
+
+*English summary: The AI now searches recipes for the products on offer, instead of only approving existing matches. The "Review with AI" button became "Search recipes with AI": after a confirmation with a token estimate, a round of up to 120 recipes from all your sources (Mealie, saved AH recipes, Jumbo favorites, Picnic recipes) is sent to Claude or ChatGPT together with the numbered food offers of the chosen store; the AI says which ingredient line fits which product number. Numbers that do not exist or are used twice are dropped, so nothing can be made up. The round runs in the background with visible progress (also after a reload). For the recipes the AI searched, its matches replace those of MealieShopper (check mark "Found by AI"); other recipes keep ours. A recipe is searched again only when the offer or its ingredients changed. Only product and ingredient text is sent, only when you press the button. No live search in the stores' recipe catalogues yet.*
+
+### Aangepast in 2.69.0
+
+- **De AI zoekt nu zelf recepten bij de producten in de aanbieding.** De knop *Beoordelen met AI* heet nu *Recepten zoeken met AI*. De AI krijgt het genummerde aanbod van de gekozen winkel (alleen eten) en een groep van 40 recepten met genummerde ingrediëntregels, en zegt per recept welke regel met welk productnummer gekoppeld kan worden. Producten en regels gaan op nummer: onbekende of dubbele nummers en basisingrediënten worden weggelaten, dus er kan niets verzonnen worden.
+- **Bronnen:** alle recepten die MealieShopper al heeft: je Mealie-recepten, bewaarde AH-recepten, Jumbo-favorieten en Picnic-recepten. De AI zoekt niet live in het hele receptenaanbod van de winkels.
+- **De AI vervangt per recept onze koppelingen.** Een recept dat de AI doorzocht toont haar koppelingen (met het vinkje *Gevonden door AI*), ook als dat er geen zijn: dan valt het recept weg. Een recept dat nog niet doorzocht is, houdt de koppelingen van MealieShopper. Producten die uit het aanbod zijn verdwenen en koppelingen die je met de vlag meldde, vallen weg.
+- **Kosten onder controle.** Vooraf zie je een schatting van het aantal tokens en het aantal recepten (maximaal 120 per ronde, 40 per aanvraag; bij Claude staat het aanbod in een blok dat de aanbieder kan cachen); na afloop het gebruikte aantal. Een recept wordt pas opnieuw doorzocht als het aanbod van de winkel of de ingrediënten van het recept veranderd zijn, dus een volgende ronde kost alleen wat nieuw is.
+- **Op de achtergrond.** Een ronde loopt in een eigen draad, één tegelijk, met een voortgangsregel (*12 van 120 recepten doorzocht...*) die ook na het herladen van de pagina weer verschijnt. Een fout (sleutel ongeldig, tegoed op) bewaart wat al klaar was; de volgende ronde gaat verder.
+- **Nieuwe routes (alleen beheerder):** `GET /api/offers/ai/search/plan`, `POST /api/offers/ai/search` en `GET /api/offers/ai/search/status`; `GET /api/offers/ai` geeft ook de stand van een lopende ronde. Nieuwe tabellen `ai_recipe_matches` en `ai_recipe_runs`.
+
+### Goed om te weten
+
+- Het beoordelen van bestaande koppelingen (`POST /api/offers/ai/review`, de oordelen en hun vinkjes) bestaat nog als API, maar heeft geen knop meer.
+- De echte aanbieders zijn niet aangeroepen tijdens de ontwikkeling: de kwaliteit van de koppelingen, de grootte van de aanvragen bij een groot aanbod (bijvoorbeeld Jumbo) en het cachen bij Claude zijn het eerste om op echte gegevens te controleren. Begin met een kleine ronde (de bevestiging toont de schatting).
+- De AI beoordeelt alleen recepten uit de index; eerst *Recepten inlezen* als je nieuwe recepten hebt.
+
+## v2.68.0
+
+*English summary: Optional AI review of the matches between recipe ingredients and products on offer, with your own API key from Claude (Anthropic) and/or ChatGPT (OpenAI). Enter the key under Settings > Link (administrator only; stored encrypted, never shown again) or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; choose the provider and model and test the key. With a key, the Recipes tab under Offers appears and the administrator gets a "Review with AI" button: each unique ingredient + product pair is sent once (only that text, nothing else), the verdict is kept, a rejected match is hidden like a reported one (source `ai`) and an approved one gets a check mark. It runs only when you press the button, asks for confirmation, and shows the tokens used. Without a key nothing changes.*
+
+### Nieuw in 2.68.0
+
+- **Een Claude- of ChatGPT-sleutel om de koppelingen te laten beoordelen (optioneel).** Onder *Instellingen, Koppelen, AI-beoordeling van koppelingen* vul je een API-sleutel in van Claude (Anthropic) en/of ChatGPT (OpenAI), kies je welke aanbieder gebruikt wordt (of *Automatisch*) en pas je zo nodig het model aan (standaard `claude-haiku-5-5` en `gpt-4o-mini`). `Testen` controleert sleutel en model met een kleine aanroep. De sleutel wordt versleuteld bewaard en nooit meer getoond; als startwaarde werken ook `ANTHROPIC_API_KEY` en `OPENAI_API_KEY`.
+- **Beoordelen met AI.** Met een sleutel verschijnt het subtab *Recepten* bij Aanbiedingen (ook zonder `MEALIESHOPPER_OFFERS_RECIPES`), met voor de beheerder de knop *Beoordelen met AI*. Na een bevestiging worden de nog niet beoordeelde koppelingen beoordeeld, tot 200 per keer, per 40 in een aanvraag. Elk uniek paar (hoofdwoord van het ingrediënt + product, per winkel) wordt één keer beoordeeld; het oordeel wordt bewaard (tabel `offer_verdicts`), ook als je een melding later ongedaan maakt.
+- **Het oordeel werkt zoals de vlag.** Een afgekeurde koppeling verdwijnt (en het volgende passende product neemt de plaats in); de melding staat bij `list_offer_mismatches` met bron `ai` en de reden. Een goedgekeurde koppeling krijgt een vinkje (MDI *check-circle-outline*), en boven de kaarten staat hoeveel koppelingen al beoordeeld zijn. Een melding van jou of van een assistent gaat voor.
+- **Wat er verstuurd wordt.** Alleen de tekst van het ingrediënt en van het product (naam, merk, inhoud, categorie), geen recepttitels, namen of adressen, en alleen als je op de knop drukt. De AI krijgt de opdracht de teksten als gegevens te behandelen en niet te volgen wat erin staat; haar antwoord is beperkt tot een vast schema. Na afloop staat het aantal gebruikte tokens in de melding; een prijs in euro's wordt niet getoond (prijzen veranderen).
+- **Nieuwe routes (alleen de beheerder):** `GET` en `PUT /api/offers/ai`, `POST /api/offers/ai/test` en `POST /api/offers/ai/review`.
+
+### Goed om te weten
+
+- Zonder sleutel verandert er niets: er gaat niets naar een AI-dienst en het tabblad *Recepten* blijft verborgen (tenzij `MEALIESHOPPER_OFFERS_RECIPES=true`).
+- De AI beoordeelt wat het zoeken al vindt; ze zoekt zelf geen nieuwe koppelingen.
+- De aanroepen naar de AI-aanbieders komen niet in het auditlog en de sleutel komt nergens in een log, foutmelding of API-antwoord. Is de sleutel ongeldig, staat het model niet meer bij de aanbieder of is het tegoed op, dan staat dat leesbaar in de melding; wat al beoordeeld was, blijft bewaard.
+
 ## v2.67.2
 
 ### Sinds de vorige stabiele versie (v2.53.0)

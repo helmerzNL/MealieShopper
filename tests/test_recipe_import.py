@@ -106,6 +106,10 @@ class ImportFromUrlTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIE_URL": "http://mealie", "MEALIE_API_TOKEN": "t"})
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Het analyseren van de ingrediënten na de import heeft zijn eigen tests (test_ingredients).
+        parser = mock.patch.object(mealie, "parse_imported_ingredients", side_effect=lambda slug: slug)
+        parser.start()
+        self.addCleanup(parser.stop)
 
     def response(self, ok=True, status=200, body="slug"):
         response = mock.Mock(ok=ok, status_code=status, text=str(body))
