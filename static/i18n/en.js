@@ -447,6 +447,7 @@ I18N.add("en", {
   "common.cancel": "Cancel",
   "cart.doubts.one": "{count} line is marked: I'm not sure about it. Choose the product and the number of packs.",
   "cart.doubts.other": "{count} lines are marked: I'm not sure about them. Choose the product and the number of packs.",
+  "cart.review_intro": "This is what goes in your basket. Untick whatever you don't want, or choose another product or number of packs.",
   "cart.not_found": "Not found",
   "cart.include": "Add",
   "cart.product": "Product",

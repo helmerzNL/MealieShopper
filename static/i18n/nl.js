@@ -447,6 +447,7 @@ I18N.add("nl", {
   "common.cancel": "Annuleren",
   "cart.doubts.one": "{count} regel is gemarkeerd: daar ben ik niet zeker van. Kies het product en het aantal verpakkingen.",
   "cart.doubts.other": "{count} regels zijn gemarkeerd: daar ben ik niet zeker van. Kies het product en het aantal verpakkingen.",
+  "cart.review_intro": "Dit komt er in je mandje. Haal een vinkje weg bij wat je niet wilt, of kies een ander product of aantal verpakkingen.",
   "cart.not_found": "Niet gevonden",
   "cart.include": "Toevoegen",
   "cart.product": "Product",

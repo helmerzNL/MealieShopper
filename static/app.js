@@ -850,7 +850,7 @@ function renderCartReview(rows) {
         <button class="button" id="confirm-cart"></button>
         <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
       </div>
-      <p class="muted">${escapeHtml(tn("cart.doubts", doubts))}</p>
+      <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
       <div class="review-list">
         ${rows
           .map((row, index) => {
@@ -963,19 +963,11 @@ async function addToCart() {
       }),
     });
     const rows = preview.items || [];
-    const unsure = rows.some((row) => row.candidates.length && row.candidates[0].doubt);
-    if (unsure) {
-      renderCartReview(rows);
+    // Het mandje gaat nooit zonder controle vol: ook zonder twijfel toont de lijst eerst wat erin komt.
+    if (!rows.some((row) => row.candidates.length)) {
+      $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
     } else {
-      const selection = rows
-        .filter((row) => row.candidates.length)
-        .map((row) => cartSelection(row, row.candidates[0], row.candidates[0].packs));
-      const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
-      if (!selection.length) {
-        $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(t("cart.none_found"))}</div>`;
-      } else {
-        await submitCart(selection, notFound);
-      }
+      renderCartReview(rows);
     }
   } catch (error) {
     $("#cart-result").innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
