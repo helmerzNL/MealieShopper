@@ -1834,7 +1834,7 @@ async function loadAbout() {
 function renderAbout() {
   const about = state.about;
   if (!about) return;
-  $("#about-version").textContent = about.label;
+  $("#about-version").textContent = about.channel === "beta" ? `${about.label} beta` : about.label;
   const groups = ["integrations", "server", "interface"];
   $("#about-components").innerHTML = groups
     .map((group) => {

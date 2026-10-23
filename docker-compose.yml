@@ -1,6 +1,8 @@
 services:
   mealieshopper:
-    image: ghcr.io/helmerznl/mealieshopper:latest
+    # MEALIESHOPPER_TAG kies je in .env naast dit bestand: latest (stabiel, standaard) of beta.
+    # Dezelfde waarde zet de app in de container, zodat een beta-build een beta-badge toont.
+    image: ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}
     container_name: mealieshopper
     restart: unless-stopped
     pull_policy: always
@@ -10,6 +12,8 @@ services:
     env_file:
       - path: .env.unraid
         required: false
+    environment:
+      MEALIESHOPPER_TAG: ${MEALIESHOPPER_TAG:-latest}
     ports:
       - "5959:8000"
     volumes:

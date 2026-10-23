@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.70.0
+
+*English summary: The build you install (`:latest` or `:beta`) is now set in one place: `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`. The compose file pulls `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` and passes the same value to the app, which shows a "beta" badge next to the wordmark (and under About) on a beta build. Without the variable nothing changes: `latest`, no badge. New `.env.example`.*
+
+### Nieuw in 2.70.0
+
+- **De build (`:latest` of `:beta`) stel je in via `.env`.** `docker-compose.yml` haalt nu `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` op en geeft dezelfde `MEALIESHOPPER_TAG` door aan de container. Zet `MEALIESHOPPER_TAG=beta` in `.env` naast de compose-file (voorbeeld: `.env.example`), draai `docker compose pull && docker compose up -d` en je draait de beta-build. Zonder de variabele verandert er niets: `latest`.
+- **Een beta-badge in de app.** Bij een beta-build (de tag bevat `beta`, dus ook `2.70.0-beta`) staat er een **beta**-badge naast het woordmerk in de kop, en bij Over staat *beta* achter de versie. `GET /api/about` geeft ook `channel` (`stable` of `beta`).
+
+### Goed om te weten
+
+- Compose leest `.env` zelf voor de image-tag; `.env.unraid` is alleen voor de app. Staat `MEALIESHOPPER_TAG` alleen in `.env.unraid`, dan wint de waarde uit `.env` (of `latest`), zodat image en badge altijd bij elkaar passen. Wil je `.env.unraid` toch gebruiken: `docker compose --env-file .env.unraid up -d`.
+- Draai je de container met `docker run`, zet dan zelf `-e MEALIESHOPPER_TAG=beta` bij de beta-image om de badge te tonen.
+
 ## v2.69.0
 
 *English summary: The AI now searches recipes for the products on offer, instead of only approving existing matches. The "Review with AI" button became "Search recipes with AI": after a confirmation with a token estimate, a round of up to 120 recipes from all your sources (Mealie, saved AH recipes, Jumbo favorites, Picnic recipes) is sent to Claude or ChatGPT together with the numbered food offers of the chosen store; the AI says which ingredient line fits which product number. Numbers that do not exist or are used twice are dropped, so nothing can be made up. The round runs in the background with visible progress (also after a reload). For the recipes the AI searched, its matches replace those of MealieShopper (check mark "Found by AI"); other recipes keep ours. A recipe is searched again only when the offer or its ingredients changed. Only product and ingredient text is sent, only when you press the button. No live search in the stores' recipe catalogues yet.*

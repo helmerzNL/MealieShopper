@@ -13,6 +13,7 @@ I18N.add("en", {
   "ob.progress_label": "Progress",
   "brand.tagline": "From recipe to sorted.",
   "brand.home": "Go to the start screen",
+  "brand.beta_title": "This is a beta version: it may still contain bugs.",
   "auth.logout": "Log out",
   "nav.collapse": "Collapse menu",
   "nav.expand": "Expand menu",

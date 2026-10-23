@@ -13,6 +13,7 @@ I18N.add("nl", {
   "ob.progress_label": "Voortgang",
   "brand.tagline": "Van recept naar geregeld.",
   "brand.home": "Naar het startscherm",
+  "brand.beta_title": "Dit is een beta-versie: hij kan nog fouten bevatten.",
   "auth.logout": "Uitloggen",
   "nav.collapse": "Menu inklappen",
   "nav.expand": "Menu uitklappen",

@@ -465,6 +465,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `AH_REFRESH_TOKEN` | Starting value for the AH link; you normally link in the app. |
 | `PICNIC_COUNTRY_CODE` | Country of your Picnic account: `NL` (default), `DE` or `FR`. You make the link itself in the app. |
 | `PORT` | Port for `python run.py` (default 8000). |
+| `MEALIESHOPPER_TAG` | Which build is running: `latest` (stable, the default) or `beta`. Set it in `.env` next to `docker-compose.yml`: the compose file uses it to pull the right image (`:latest` or `:beta`) and passes the same value to the app, which shows a **beta** badge next to the wordmark (and under About) on a beta build. See *Updating*. |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Override the version number and commit shown under About. |
 
 **Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
@@ -486,6 +487,8 @@ docker compose pull && docker compose up -d
 ```
 
 With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
+
+**Stable or beta.** You choose which build to install with `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml` (copy [`.env.example`](.env.example)): `latest` is the stable version and the default, `beta` is the development version. Then run `docker compose pull && docker compose up -d`. The same value goes to the app, which shows a **beta** badge next to the wordmark on `beta`. Use a separate data folder for beta. If you put the value in `.env.unraid`, Compose does not see it for the image tag; use `docker compose --env-file .env.unraid up -d` instead.
 
 <img src="docs/screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 
