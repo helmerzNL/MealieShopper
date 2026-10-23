@@ -11,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_review, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -394,6 +394,7 @@ def create_app() -> Flask:
         data = ai_review.status()
         # Het tabblad Recepten bij Aanbiedingen is zichtbaar met de omgevingsvariabele of zodra er een AI-sleutel is.
         data["recipesTab"] = bool(app.config["OFFERS_RECIPES"] or data["active"])
+        data["search"] = ai_match.progress()  # de stand van een lopende ronde "Recepten zoeken met AI", ook na een herlading van de pagina
         return data
 
     @app.get("/api/offers/ai")
@@ -417,6 +418,25 @@ def create_app() -> Flask:
             lambda: ai_review.review(body.get("store") or "ah", body.get("max") or ai_review.DEFAULT_MAX_PAIRS),
             tr("Beoordelen met AI mislukt", "Reviewing with AI failed"),
         )
+
+    @app.get("/api/offers/ai/search/plan")
+    def offers_ai_search_plan():
+        return offers_action(
+            lambda: ai_match.plan(request.args.get("store") or "ah", request.args.get("max") or ai_match.DEFAULT_MAX_RECIPES),
+            tr("De omvang van het zoeken bepalen mislukt", "Determining the size of the search failed"),
+        )
+
+    @app.post("/api/offers/ai/search")
+    def offers_ai_search():
+        body = request.get_json(silent=True) or {}
+        return offers_action(
+            lambda: ai_match.start(body.get("store") or "ah", body.get("max") or ai_match.DEFAULT_MAX_RECIPES),
+            tr("Recepten zoeken met AI mislukt", "Searching recipes with AI failed"),
+        )
+
+    @app.get("/api/offers/ai/search/status")
+    def offers_ai_search_status():
+        return offers_action(ai_match.progress, tr("De stand van het zoeken laden mislukt", "Loading the state of the search failed"))
 
     @app.post("/api/offers/recipes/sync")
     def offers_recipes_sync():

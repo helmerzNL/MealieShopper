@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.69.0
+
+*English summary: The AI now searches recipes for the products on offer, instead of only approving existing matches. The "Review with AI" button became "Search recipes with AI": after a confirmation with a token estimate, a round of up to 120 recipes from all your sources (Mealie, saved AH recipes, Jumbo favorites, Picnic recipes) is sent to Claude or ChatGPT together with the numbered food offers of the chosen store; the AI says which ingredient line fits which product number. Numbers that do not exist or are used twice are dropped, so nothing can be made up. The round runs in the background with visible progress (also after a reload). For the recipes the AI searched, its matches replace those of MealieShopper (check mark "Found by AI"); other recipes keep ours. A recipe is searched again only when the offer or its ingredients changed. Only product and ingredient text is sent, only when you press the button. No live search in the stores' recipe catalogues yet.*
+
+### Aangepast in 2.69.0
+
+- **De AI zoekt nu zelf recepten bij de producten in de aanbieding.** De knop *Beoordelen met AI* heet nu *Recepten zoeken met AI*. De AI krijgt het genummerde aanbod van de gekozen winkel (alleen eten) en een groep van 40 recepten met genummerde ingrediëntregels, en zegt per recept welke regel met welk productnummer gekoppeld kan worden. Producten en regels gaan op nummer: onbekende of dubbele nummers en basisingrediënten worden weggelaten, dus er kan niets verzonnen worden.
+- **Bronnen:** alle recepten die MealieShopper al heeft: je Mealie-recepten, bewaarde AH-recepten, Jumbo-favorieten en Picnic-recepten. De AI zoekt niet live in het hele receptenaanbod van de winkels.
+- **De AI vervangt per recept onze koppelingen.** Een recept dat de AI doorzocht toont haar koppelingen (met het vinkje *Gevonden door AI*), ook als dat er geen zijn: dan valt het recept weg. Een recept dat nog niet doorzocht is, houdt de koppelingen van MealieShopper. Producten die uit het aanbod zijn verdwenen en koppelingen die je met de vlag meldde, vallen weg.
+- **Kosten onder controle.** Vooraf zie je een schatting van het aantal tokens en het aantal recepten (maximaal 120 per ronde, 40 per aanvraag; bij Claude staat het aanbod in een blok dat de aanbieder kan cachen); na afloop het gebruikte aantal. Een recept wordt pas opnieuw doorzocht als het aanbod van de winkel of de ingrediënten van het recept veranderd zijn, dus een volgende ronde kost alleen wat nieuw is.
+- **Op de achtergrond.** Een ronde loopt in een eigen draad, één tegelijk, met een voortgangsregel (*12 van 120 recepten doorzocht...*) die ook na het herladen van de pagina weer verschijnt. Een fout (sleutel ongeldig, tegoed op) bewaart wat al klaar was; de volgende ronde gaat verder.
+- **Nieuwe routes (alleen beheerder):** `GET /api/offers/ai/search/plan`, `POST /api/offers/ai/search` en `GET /api/offers/ai/search/status`; `GET /api/offers/ai` geeft ook de stand van een lopende ronde. Nieuwe tabellen `ai_recipe_matches` en `ai_recipe_runs`.
+
+### Goed om te weten
+
+- Het beoordelen van bestaande koppelingen (`POST /api/offers/ai/review`, de oordelen en hun vinkjes) bestaat nog als API, maar heeft geen knop meer.
+- De echte aanbieders zijn niet aangeroepen tijdens de ontwikkeling: de kwaliteit van de koppelingen, de grootte van de aanvragen bij een groot aanbod (bijvoorbeeld Jumbo) en het cachen bij Claude zijn het eerste om op echte gegevens te controleren. Begin met een kleine ronde (de bevestiging toont de schatting).
+- De AI beoordeelt alleen recepten uit de index; eerst *Recepten inlezen* als je nieuwe recepten hebt.
+
 ## v2.68.0
 
 *English summary: Optional AI review of the matches between recipe ingredients and products on offer, with your own API key from Claude (Anthropic) and/or ChatGPT (OpenAI). Enter the key under Settings > Link (administrator only; stored encrypted, never shown again) or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; choose the provider and model and test the key. With a key, the Recipes tab under Offers appears and the administrator gets a "Review with AI" button: each unique ingredient + product pair is sent once (only that text, nothing else), the verdict is kept, a rejected match is hidden like a reported one (source `ai`) and an approved one gets a check mark. It runs only when you press the button, asks for confirmation, and shows the tokens used. Without a key nothing changes.*

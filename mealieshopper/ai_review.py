@@ -197,20 +197,29 @@ def _error_text(response: requests.Response, key: str) -> str:
     return _clean(message, key)
 
 
-def _request_body(provider: str, model: str, system: str, payload: str) -> dict[str, Any]:
+def _request_body(
+    provider: str, model: str, system: str, payload: str, *,
+    schema: dict[str, Any] | None = None, tool: str = "report_verdicts", prefix: str = "", max_tokens: int = 4096,
+) -> dict[str, Any]:
+    """De aanvraag voor een aanbieder. `prefix` is een vast, groot begin dat bij elke aanvraag van een ronde gelijk is (bij het zoeken naar
+    recepten het aanbod van de winkel): bij Claude staat het in een eigen blok dat de aanbieder kan cachen, bij ChatGPT staat het vooraan."""
+    schema = schema or VERDICT_SCHEMA
     if provider == "anthropic":
+        content: Any = payload
+        if prefix:
+            content = [{"type": "text", "text": prefix, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": payload}]
         return {
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": payload}],
-            "tools": [{"name": "report_verdicts", "description": "Report one verdict per item.", "input_schema": VERDICT_SCHEMA}],
-            "tool_choice": {"type": "tool", "name": "report_verdicts"},
+            "messages": [{"role": "user", "content": content}],
+            "tools": [{"name": tool, "description": "Report the result in the requested structure.", "input_schema": schema}],
+            "tool_choice": {"type": "tool", "name": tool},
         }
     return {
         "model": model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": payload}],
-        "response_format": {"type": "json_schema", "json_schema": {"name": "verdicts", "strict": True, "schema": VERDICT_SCHEMA}},
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": f"{prefix}\n\n{payload}" if prefix else payload}],
+        "response_format": {"type": "json_schema", "json_schema": {"name": tool, "strict": True, "schema": schema}},
     }
 
 
@@ -237,9 +246,9 @@ def _parse(provider: str, data: Any) -> tuple[Any, int]:
         return None, tokens
 
 
-def _call(provider: str, key: str, model: str, system: str, payload: str) -> tuple[Any, int]:
+def _call(provider: str, key: str, model: str, system: str, payload: str, **options: Any) -> tuple[Any, int]:
     info = PROVIDERS[provider]
-    body = _request_body(provider, model, system, payload)
+    body = _request_body(provider, model, system, payload, **options)
     last = ""
     for attempt in range(RETRIES + 1):
         try:
