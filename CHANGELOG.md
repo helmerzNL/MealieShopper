@@ -2,19 +2,41 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.70.0
+## v2.71.0
 
 *English summary: The build you install (`:latest` or `:beta`) is now set in one place: `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`. The compose file pulls `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` and passes the same value to the app, which shows a "beta" badge next to the wordmark (and under About) on a beta build. Without the variable nothing changes: `latest`, no badge. New `.env.example`.*
 
-### Nieuw in 2.70.0
+### Nieuw in 2.71.0
 
 - **De build (`:latest` of `:beta`) stel je in via `.env`.** `docker-compose.yml` haalt nu `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` op en geeft dezelfde `MEALIESHOPPER_TAG` door aan de container. Zet `MEALIESHOPPER_TAG=beta` in `.env` naast de compose-file (voorbeeld: `.env.example`), draai `docker compose pull && docker compose up -d` en je draait de beta-build. Zonder de variabele verandert er niets: `latest`.
-- **Een beta-badge in de app.** Bij een beta-build (de tag bevat `beta`, dus ook `2.70.0-beta`) staat er een **beta**-badge naast het woordmerk in de kop, en bij Over staat *beta* achter de versie. `GET /api/about` geeft ook `channel` (`stable` of `beta`).
+- **Een beta-badge in de app.** Bij een beta-build (de tag bevat `beta`, dus ook `2.71.0-beta`) staat er een **beta**-badge naast het woordmerk in de kop, en bij Over staat *beta* achter de versie. `GET /api/about` geeft ook `channel` (`stable` of `beta`).
 
 ### Goed om te weten
 
 - Compose leest `.env` zelf voor de image-tag; `.env.unraid` is alleen voor de app. Staat `MEALIESHOPPER_TAG` alleen in `.env.unraid`, dan wint de waarde uit `.env` (of `latest`), zodat image en badge altijd bij elkaar passen. Wil je `.env.unraid` toch gebruiken: `docker compose --env-file .env.unraid up -d`.
 - Draai je de container met `docker run`, zet dan zelf `-e MEALIESHOPPER_TAG=beta` bij de beta-image om de badge te tonen.
+
+## v2.70.0
+
+*English summary: When a recipe is imported into Mealie, its ingredient lines are now parsed into quantity, unit and ingredient. Mealie stores imported lines as plain text ("200 ml milk"); MealieShopper now splits them and links them to Mealie's own units and foods (missing ones are created), so the recipe scales, the shopping list adds up and the display is right. Also includes the 2.69.1 fix for lines Mealie did not analyze.*
+
+### Nieuw in 2.70.0
+
+- **Bij het importeren in Mealie worden de eenheden en ingrediënten goed verwerkt.** Mealie bewaart een geïmporteerde regel als losse tekst (`200 ml melk`, `1 el maïzena`) in de notitie. Direct na de import haalt MealieShopper het aantal, de eenheid en het ingrediënt eruit en koppelt die aan de eenheden en ingrediënten van Mealie. Zo kent Mealie ze zelf: het recept kan schalen, de boodschappenlijst telt hoeveelheden op en de weergave klopt.
+- **Eenheden worden herkend onder hun eigen naam.** `gr` en `gram` zijn de eenheid *gram* (`g`), `el` is *eetlepel*, enzovoort; staat de eenheid al in Mealie (op naam, meervoud, afkorting of alias), dan wordt die gebruikt. Een eenheid of ingrediënt dat Mealie nog niet kent, wordt aangemaakt (zoals ook de ingrediëntenparser van Mealie zelf doet).
+- **Geldt voor elke manier van importeren:** Allerhande, Jumbo, Picnic, een gewone receptpagina en de MCP-tool `import_recipe_to_mealie`. Regels die Mealie al zelf analyseerde, en regels zonder aantal of ingrediënt (`peper naar smaak`), blijven zoals ze zijn.
+- **De import zelf kan hierdoor niet mislukken.** Lukt het analyseren niet (Mealie onbereikbaar, geen rechten), dan blijft het recept zoals Mealie het importeerde en staat er een waarschuwing in het logboek.
+
+## v2.69.1
+
+*English summary: Recipe lines that Mealie did not analyze (quantity 1 with the text "200 ml milk" in the note, shown as "1 200 ml milk") are now split into quantity, unit and ingredient when the recipe is fetched. They show as "200 ml milk" and the store search uses "milk" instead of the whole text, so these lines are found in the cart.*
+
+### Opgelost in 2.69.1
+
+- **Ingrediënten die Mealie niet analyseerde worden nu goed herkend.** Een recept waarvan Mealie de ingrediënten niet had geanalyseerd, bewaart een regel als `200 ml melk` in de notitie, met aantal 1 en zonder eenheid of ingrediënt. Het weekmenu toonde dat als *1 200 ml melk* en het boodschappenmandje zocht in de winkel op die hele tekst, dus "9 niet gevonden". MealieShopper haalt nu bij het ophalen van het recept het aantal, de eenheid en het ingrediënt uit zo'n regel (`200`, `ml`, `melk`), zodat hij zich gedraagt als een regel die Mealie zelf analyseerde: *200 ml melk*, zoeken op *melk* en het aantal verpakkingen op basis van 200 ml.
+- **Wat er wordt herkend:** hele en decimale getallen (`1,5`), breuken (`1/2`, `1 1/2`, `½`), bereiken (`2-3 el`, het hoogste aantal telt), `2x`, een eenheid zonder aantal (`snufje zout` is 1 snufje), en een toevoeging na een komma (`1 ui, fijngesneden`) of tussen haakjes.
+- **Wat ongemoeid blijft:** regels die Mealie al analyseerde (met een ingrediënt of een eenheid), regels met een eigen aantal (`2` + `400 g tomaten`) en regels zonder aantal of ingrediënt (`peper naar smaak`).
+- Dit geldt overal waar MealieShopper Mealie-recepten leest: het weekmenu, de boodschappenmandjes, de receptenindex voor de aanbiedingen en de MCP-tools.
 
 ## v2.69.0
 
