@@ -195,7 +195,7 @@ def import_via_url(url: str) -> str:
     )
     if not response.ok:
         raise RuntimeError(f"Mealie kon de pagina niet importeren ({response.status_code}): {response.text[:200]}")
-    return response.json()
+    return parse_imported_ingredients(response.json())
 
 
 def import_via_html(url: str) -> str:
@@ -224,7 +224,7 @@ def _post_html_or_json(url: str, data: str) -> str:
     )
     if not response.ok:
         raise RuntimeError(f"Mealie import mislukt ({response.status_code}): {response.text}")
-    return response.json()
+    return parse_imported_ingredients(response.json())
 
 
 def import_from_url(url: str) -> str:
@@ -257,6 +257,105 @@ def import_from_url(url: str) -> str:
     except Exception as exc:  # noqa: BLE001
         errors.append(f"pagina: {exc}")
     raise RuntimeError("; ".join(errors))
+
+
+def _catalog(kind: str) -> list[dict[str, Any]]:
+    """Alle eenheden (`units`) of ingrediënten (`foods`) die Mealie kent."""
+    items: list[dict[str, Any]] = []
+    page, per_page = 1, 500
+    while True:
+        response = requests.get(
+            f"{mealie_url()}/api/{kind}",
+            headers=auth_headers(),
+            params={"page": page, "perPage": per_page},
+            timeout=30,
+        )
+        if not response.ok:
+            raise RuntimeError(f"{kind} ophalen mislukt ({response.status_code})")
+        data = response.json()
+        batch = data.get("items", []) if isinstance(data, dict) else []
+        items.extend(item for item in batch if isinstance(item, dict))
+        total_pages = data.get("total_pages") if isinstance(data, dict) else None
+        if not batch or len(batch) < per_page or (isinstance(total_pages, int) and page >= total_pages):
+            return items
+        page += 1
+
+
+def _catalog_index(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Naam, meervoud, afkorting en alias (kleine letters) naar het item; de eerste vermelding wint."""
+    index: dict[str, dict[str, Any]] = {}
+    for item in items:
+        names = [item.get(key) for key in ("name", "pluralName", "abbreviation", "pluralAbbreviation")]
+        names += [alias.get("name") for alias in item.get("aliases") or [] if isinstance(alias, dict)]
+        for name in names:
+            key = str(name or "").strip().lower()
+            if key:
+                index.setdefault(key, item)
+    return index
+
+
+def _create_catalog_item(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    response = requests.post(f"{mealie_url()}/api/{kind}", headers=auth_headers(), json=payload, timeout=30)
+    if not response.ok:
+        raise RuntimeError(f"{kind} aanmaken mislukt ({response.status_code}): {response.text[:200]}")
+    return response.json()
+
+
+def _link_to_catalog(parsed: dict[str, Any], units: dict[str, Any], foods: dict[str, Any]) -> dict[str, Any]:
+    """Zet de eenheid en het ingrediënt van een geanalyseerde regel om in de objecten van Mealie (met id).
+
+    `units` en `foods` zijn de indexen uit `_catalog_index`; wat ontbreekt wordt aangemaakt en erin gezet.
+    """
+    unit = None
+    unit_name = parsed["unit"]["name"] if isinstance(parsed.get("unit"), dict) else ""
+    if unit_name:
+        unit = next((units[key] for key in ingredients.unit_lookup_names(unit_name) if key in units), None)
+        if unit is None:
+            unit = _create_catalog_item("units", ingredients.unit_definition(unit_name))
+            units.update(_catalog_index([unit]))
+    food = None
+    food_name = parsed["food"]["name"].strip() if isinstance(parsed.get("food"), dict) else ""
+    if food_name:
+        food = foods.get(food_name.lower())
+        if food is None:
+            food = _create_catalog_item("foods", {"name": food_name})
+            foods.update(_catalog_index([food]))
+    linked = {**parsed, "unit": unit, "food": food, "isFood": bool(food)}
+    linked.pop("analyzedByMealieShopper", None)
+    return linked
+
+
+def parse_imported_ingredients(slug: str) -> str:
+    """Zet de ingrediëntregels van een net geïmporteerd recept om in aantal, eenheid en ingrediënt.
+
+    Mealie bewaart een geïmporteerde regel als losse tekst ("200 ml melk") in de notitie. Hier halen we aantal,
+    eenheid en ingrediënt eruit en koppelen die aan de eenheden en ingrediënten van Mealie (ontbrekende worden
+    aangemaakt), zodat Mealie ze zelf kent: het recept schaalt, de boodschappenlijst telt op en de weergave klopt.
+    Geeft altijd het slug terug: lukt dit niet, dan blijft het recept zoals Mealie het importeerde.
+    """
+    try:
+        recipe = _fetch_recipe(slug)
+        lines = recipe.get("recipeIngredient") if isinstance(recipe, dict) else None
+        parsed_lines = [ingredients.normalize(line) for line in lines or []]
+        if not any(new is not old for new, old in zip(parsed_lines, lines or [])):
+            return slug
+        units = _catalog_index(_catalog("units"))
+        foods = _catalog_index(_catalog("foods"))
+        linked = [
+            _link_to_catalog(new, units, foods) if new is not old else old
+            for new, old in zip(parsed_lines, lines)
+        ]
+        response = requests.patch(
+            f"{mealie_url()}/api/recipes/{slug}",
+            headers=auth_headers(),
+            json={"recipeIngredient": linked},
+            timeout=60,
+        )
+        if not response.ok:
+            raise RuntimeError(f"Recept bijwerken mislukt ({response.status_code}): {response.text[:200]}")
+    except Exception as exc:  # noqa: BLE001 - het recept is al geïmporteerd; analyseren is een extra
+        log.warning("Ingrediënten van %s niet geanalyseerd: %s", slug, exc)
+    return slug
 
 
 GROUP_SLUG_TTL = 3600  # seconden dat we de groep onthouden
@@ -309,7 +408,7 @@ def get_meal_plan(start_date: str, end_date: str) -> list[dict[str, Any]]:
     return response.json().get("items", [])
 
 
-def get_recipe(slug: str) -> dict[str, Any]:
+def _fetch_recipe(slug: str) -> dict[str, Any]:
     response = requests.get(
         f"{mealie_url()}/api/recipes/{slug}",
         headers=auth_headers(),
@@ -317,8 +416,12 @@ def get_recipe(slug: str) -> dict[str, Any]:
     )
     if not response.ok:
         raise RuntimeError(f"Recept ophalen mislukt ({response.status_code})")
+    return response.json()
+
+
+def get_recipe(slug: str) -> dict[str, Any]:
     # Regels die Mealie niet analyseerde ("1" + "200 ml melk") krijgen aantal, eenheid en ingrediënt.
-    return ingredients.normalize_recipe(response.json())
+    return ingredients.normalize_recipe(_fetch_recipe(slug))
 
 
 def _image_path(recipe: dict[str, Any] | None) -> str | None:

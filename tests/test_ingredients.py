@@ -109,5 +109,96 @@ class GetRecipeTest(unittest.TestCase):
         self.assertEqual(recipe["recipeIngredient"][1]["unit"]["name"], "ml")
 
 
+class UnitNamesTest(unittest.TestCase):
+    def test_lookup_names_cover_the_spellings_mealie_may_use(self):
+        self.assertEqual(ingredients.unit_lookup_names("gr"), ["gr", "g", "gram"])
+        self.assertEqual(ingredients.unit_lookup_names("EL"), ["el", "eetlepel"])
+        self.assertEqual(ingredients.unit_lookup_names("snufje"), ["snufje"])
+
+    def test_definition_of_a_new_unit(self):
+        self.assertEqual(ingredients.unit_definition("gr"), {"name": "gram", "abbreviation": "g"})
+        self.assertEqual(ingredients.unit_definition("snufje"), {"name": "snufje", "abbreviation": ""})
+
+
+def page(items):
+    return mock.Mock(ok=True, status_code=200, json=mock.Mock(return_value={"items": items, "total_pages": 1}))
+
+
+class ImportParseTest(unittest.TestCase):
+    """Na de import krijgen de losse tekstregels in Mealie een eenheid en een ingrediënt."""
+
+    UNITS = [{"id": "u-g", "name": "gram", "abbreviation": "g", "aliases": []}]
+    FOODS = [{"id": "f-melk", "name": "melk", "pluralName": "", "aliases": []}]
+
+    def run_parse(self, lines, units=None, foods=None):
+        recipe = mock.Mock(ok=True, status_code=200, json=mock.Mock(return_value={"recipeIngredient": lines}))
+        catalogs = {"units": page(self.UNITS if units is None else units), "foods": page(self.FOODS if foods is None else foods)}
+
+        def get(url, **kwargs):
+            return catalogs[url.rsplit("/", 1)[1]] if url.endswith(("/units", "/foods")) else recipe
+
+        created = []
+
+        def post(url, **kwargs):
+            created.append((url.rsplit("/", 1)[1], kwargs["json"]))
+            return mock.Mock(ok=True, status_code=201, json=mock.Mock(return_value={"id": f"new-{len(created)}", **kwargs["json"]}))
+
+        with mock.patch.object(mealie, "mealie_url", return_value="http://m"), \
+                mock.patch.object(mealie, "auth_headers", return_value={}), \
+                mock.patch.object(mealie.requests, "get", side_effect=get), \
+                mock.patch.object(mealie.requests, "post", side_effect=post), \
+                mock.patch.object(mealie.requests, "patch", return_value=mock.Mock(ok=True, status_code=200)) as patch:
+            slug = mealie.parse_imported_ingredients("stroganoff")
+        return slug, patch, created
+
+    def test_lines_are_linked_to_existing_units_and_foods(self):
+        slug, patch, created = self.run_parse([unparsed("500 gr melk")])
+        self.assertEqual(slug, "stroganoff")
+        self.assertEqual(created, [])
+        self.assertEqual(patch.call_args.args[0], "http://m/api/recipes/stroganoff")
+        line = patch.call_args.kwargs["json"]["recipeIngredient"][0]
+        self.assertEqual((line["quantity"], line["unit"]["id"], line["food"]["id"], line["isFood"]), (500.0, "u-g", "f-melk", True))
+        self.assertNotIn("analyzedByMealieShopper", line)
+
+    def test_missing_units_and_foods_are_created_once(self):
+        _, patch, created = self.run_parse([unparsed("1 snufje zout"), unparsed("2 snufje zout")])
+        self.assertEqual(created, [("units", {"name": "snufje", "abbreviation": ""}), ("foods", {"name": "zout"})])
+        lines = patch.call_args.kwargs["json"]["recipeIngredient"]
+        self.assertEqual([line["unit"]["name"] for line in lines], ["snufje", "snufje"])
+        self.assertEqual([line["food"]["name"] for line in lines], ["zout", "zout"])
+
+    def test_a_recipe_that_needs_nothing_is_not_touched(self):
+        analysed = {"quantity": 200, "unit": {"name": "ml"}, "food": {"name": "melk"}, "note": ""}
+        slug, patch, _ = self.run_parse([analysed, unparsed("peper naar smaak")])
+        self.assertEqual(slug, "stroganoff")
+        patch.assert_not_called()
+
+    def test_untouched_lines_stay_in_the_update(self):
+        analysed = {"quantity": 200, "unit": {"name": "ml"}, "food": {"name": "melk"}, "note": ""}
+        _, patch, _ = self.run_parse([analysed, unparsed("500 g melk")])
+        lines = patch.call_args.kwargs["json"]["recipeIngredient"]
+        self.assertEqual(lines[0], analysed)
+        self.assertEqual(lines[1]["unit"]["id"], "u-g")
+
+    def test_a_failure_never_breaks_the_import(self):
+        with mock.patch.object(mealie, "mealie_url", return_value="http://m"), \
+                mock.patch.object(mealie, "auth_headers", return_value={}), \
+                mock.patch.object(mealie.requests, "get", side_effect=mealie.requests.ConnectionError("weg")):
+            self.assertEqual(mealie.parse_imported_ingredients("stroganoff"), "stroganoff")
+
+
+class ImportHookTest(unittest.TestCase):
+    def test_every_import_path_ends_in_the_parse(self):
+        reply = mock.Mock(ok=True, status_code=200)
+        reply.json.return_value = "slug"
+        with mock.patch.object(mealie, "mealie_url", return_value="http://m"), \
+                mock.patch.object(mealie, "auth_headers", return_value={}), \
+                mock.patch.object(mealie.requests, "post", return_value=reply), \
+                mock.patch.object(mealie, "parse_imported_ingredients", return_value="geparsed") as parse:
+            self.assertEqual(mealie.import_via_url("https://x.nl/r"), "geparsed")
+            self.assertEqual(mealie.import_via_jsonld("https://x.nl/r", {"name": "x"}), "geparsed")
+        self.assertEqual(parse.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

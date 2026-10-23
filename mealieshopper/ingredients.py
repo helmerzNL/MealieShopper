@@ -107,6 +107,34 @@ def parse_line(text: Any) -> dict[str, Any] | None:
     return {"quantity": quantity, "unit": unit, "name": name, "extra": extra}
 
 
+# Hoe Mealie een eenheid noemt: de korte vorm als sleutel, met de volledige naam waaronder hij wordt aangemaakt.
+_UNIT_SHORT = {
+    "gr": "g", "gram": "g", "kilo": "kg", "kilogram": "kg", "milliliter": "ml", "centiliter": "cl",
+    "deciliter": "dl", "liter": "l", "eetlepel": "el", "eetlepels": "el", "theelepel": "tl", "theelepels": "tl",
+    "koffielepel": "kl", "koffielepels": "kl", "stuk": "st", "stuks": "st", "tbsp": "el", "tsp": "tl",
+}
+_UNIT_NAME = {
+    "g": "gram", "kg": "kilogram", "mg": "milligram", "ml": "milliliter", "cl": "centiliter", "dl": "deciliter",
+    "l": "liter", "el": "eetlepel", "tl": "theelepel", "kl": "koffielepel", "st": "stuk",
+}
+
+
+def unit_lookup_names(unit: str) -> list[str]:
+    """Namen waaronder een eenheid in Mealie kan staan, de meest letterlijke eerst: `gr` is ook `g` en `gram`."""
+    typed = str(unit or "").strip().lower()
+    short = _UNIT_SHORT.get(typed, typed)
+    return [name for name in dict.fromkeys((typed, short, _UNIT_NAME.get(short, ""))) if name]
+
+
+def unit_definition(unit: str) -> dict[str, str]:
+    """Eenheid zoals we hem in Mealie aanmaken als die er nog niet is: `gr` wordt gram (g)."""
+    typed = str(unit or "").strip().lower()
+    short = _UNIT_SHORT.get(typed, typed)
+    if short in _UNIT_NAME:
+        return {"name": _UNIT_NAME[short], "abbreviation": short}
+    return {"name": typed, "abbreviation": ""}
+
+
 def format_quantity(value: float) -> str:
     """"200", "1,5" of "0,33"; in het Engels met een punt."""
     rounded = round(float(value), 2)

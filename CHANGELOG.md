@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.70.0
+
+*English summary: When a recipe is imported into Mealie, its ingredient lines are now parsed into quantity, unit and ingredient. Mealie stores imported lines as plain text ("200 ml milk"); MealieShopper now splits them and links them to Mealie's own units and foods (missing ones are created), so the recipe scales, the shopping list adds up and the display is right. Also includes the 2.69.1 fix for lines Mealie did not analyze.*
+
+### Nieuw in 2.70.0
+
+- **Bij het importeren in Mealie worden de eenheden en ingrediënten goed verwerkt.** Mealie bewaart een geïmporteerde regel als losse tekst (`200 ml melk`, `1 el maïzena`) in de notitie. Direct na de import haalt MealieShopper het aantal, de eenheid en het ingrediënt eruit en koppelt die aan de eenheden en ingrediënten van Mealie. Zo kent Mealie ze zelf: het recept kan schalen, de boodschappenlijst telt hoeveelheden op en de weergave klopt.
+- **Eenheden worden herkend onder hun eigen naam.** `gr` en `gram` zijn de eenheid *gram* (`g`), `el` is *eetlepel*, enzovoort; staat de eenheid al in Mealie (op naam, meervoud, afkorting of alias), dan wordt die gebruikt. Een eenheid of ingrediënt dat Mealie nog niet kent, wordt aangemaakt (zoals ook de ingrediëntenparser van Mealie zelf doet).
+- **Geldt voor elke manier van importeren:** Allerhande, Jumbo, Picnic, een gewone receptpagina en de MCP-tool `import_recipe_to_mealie`. Regels die Mealie al zelf analyseerde, en regels zonder aantal of ingrediënt (`peper naar smaak`), blijven zoals ze zijn.
+- **De import zelf kan hierdoor niet mislukken.** Lukt het analyseren niet (Mealie onbereikbaar, geen rechten), dan blijft het recept zoals Mealie het importeerde en staat er een waarschuwing in het logboek.
+
 ## v2.69.1
 
 *English summary: Recipe lines that Mealie did not analyze (quantity 1 with the text "200 ml milk" in the note, shown as "1 200 ml milk") are now split into quantity, unit and ingredient when the recipe is fetched. They show as "200 ml milk" and the store search uses "milk" instead of the whole text, so these lines are found in the cart.*
