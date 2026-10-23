@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.72.1
+
+*English summary: Fix for 2.72.0. The static-files version was not raised, so browsers and the installed app kept running the old script, which still filled the basket straight away when the app had no doubts. The version is raised now, so every browser loads the script that always shows the check list first.*
+
+### Opgelost in 2.72.1
+
+- **Het weekmenu ging in sommige situaties nog steeds direct in het mandje.** In 2.72.0 hebben we de controlelijst altijd getoond, maar de versie van de statische bestanden (`MEALIESHOPPER_ASSET_VERSION`) bleef gelijk. Daardoor bleef een browser of de geïnstalleerde app het oude script gebruiken, dat het mandje meteen vulde zodra de app nergens twijfelde. De versie is opgehoogd (20261023-42), zodat het nieuwe script wordt geladen en de controlelijst altijd verschijnt.
+
+### Goed om te weten
+
+- Ververst een scherm nog niet vanzelf, laad de pagina dan één keer opnieuw (in de geïnstalleerde app: sluiten en weer openen).
+
 ## v2.72.0
 
 *English summary: Putting the week menu in the basket now always shows the check list first, with the product choices next to every line, even when the app has no doubts. You can untick lines and change the product or number of packs; only after you confirm are the products put in your basket (Albert Heijn, Picnic and Jumbo).*
