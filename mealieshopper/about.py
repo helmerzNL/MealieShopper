@@ -2,7 +2,8 @@
 
 Het versienummer (vX.Y.Z) staat in het bestand VERSION in de hoofdmap en wordt bij een release
 verhoogd. De commit komt uit de build van de Docker-image (build-argument GIT_COMMIT, in de
-omgeving als MEALIESHOPPER_COMMIT); bij lokaal draaien uit git zelf. De versies van de Python-pakketten
+omgeving als MEALIESHOPPER_COMMIT); bij lokaal draaien uit git zelf. Het kanaal (stabiel of beta)
+volgt de image-tag uit MEALIESHOPPER_TAG, dezelfde waarde als in docker-compose.yml. De versies van de Python-pakketten
 worden live uit de installatie gelezen, zodat ze altijd kloppen.
 """
 from __future__ import annotations
@@ -69,6 +70,16 @@ def read_commit() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def read_tag() -> str:
+    """De image-tag van deze installatie (MEALIESHOPPER_TAG: latest, beta, 2.70.0-beta, ...)."""
+    return environ.get("MEALIESHOPPER_TAG", "").strip()
+
+
+def build_channel() -> str:
+    """"beta" als de tag een beta-build aanwijst, anders "stable"."""
+    return "beta" if "beta" in read_tag().lower() else "stable"
+
+
 @lru_cache(maxsize=1)
 def build_info() -> dict[str, str]:
     version, commit = read_version(), read_commit()
@@ -93,6 +104,7 @@ def _component_version(package: str | None, fixed: str | None) -> str:
 def about() -> dict[str, Any]:
     return {
         **build_info(),
+        "channel": build_channel(),
         "coffeeUrl": COFFEE_URL,
         "components": [
             {

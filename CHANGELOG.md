@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.71.0
+
+*English summary: The build you install (`:latest` or `:beta`) is now set in one place: `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml`. The compose file pulls `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` and passes the same value to the app, which shows a "beta" badge next to the wordmark (and under About) on a beta build. Without the variable nothing changes: `latest`, no badge. New `.env.example`.*
+
+### Nieuw in 2.71.0
+
+- **De build (`:latest` of `:beta`) stel je in via `.env`.** `docker-compose.yml` haalt nu `ghcr.io/helmerznl/mealieshopper:${MEALIESHOPPER_TAG:-latest}` op en geeft dezelfde `MEALIESHOPPER_TAG` door aan de container. Zet `MEALIESHOPPER_TAG=beta` in `.env` naast de compose-file (voorbeeld: `.env.example`), draai `docker compose pull && docker compose up -d` en je draait de beta-build. Zonder de variabele verandert er niets: `latest`.
+- **Een beta-badge in de app.** Bij een beta-build (de tag bevat `beta`, dus ook `2.71.0-beta`) staat er een **beta**-badge naast het woordmerk in de kop, en bij Over staat *beta* achter de versie. `GET /api/about` geeft ook `channel` (`stable` of `beta`).
+
+### Goed om te weten
+
+- Compose leest `.env` zelf voor de image-tag; `.env.unraid` is alleen voor de app. Staat `MEALIESHOPPER_TAG` alleen in `.env.unraid`, dan wint de waarde uit `.env` (of `latest`), zodat image en badge altijd bij elkaar passen. Wil je `.env.unraid` toch gebruiken: `docker compose --env-file .env.unraid up -d`.
+- Draai je de container met `docker run`, zet dan zelf `-e MEALIESHOPPER_TAG=beta` bij de beta-image om de badge te tonen.
+
 ## v2.70.0
 
 *English summary: When a recipe is imported into Mealie, its ingredient lines are now parsed into quantity, unit and ingredient. Mealie stores imported lines as plain text ("200 ml milk"); MealieShopper now splits them and links them to Mealie's own units and foods (missing ones are created), so the recipe scales, the shopping list adds up and the display is right. Also includes the 2.69.1 fix for lines Mealie did not analyze.*

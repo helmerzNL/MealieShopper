@@ -267,6 +267,25 @@ h2 {
   color: var(--primary);
 }
 
+.wordmark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.beta-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--warning-border);
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
 .topbar p {
   margin-top: 2px;
   color: var(--muted);
