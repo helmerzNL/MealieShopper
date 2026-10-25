@@ -26,3 +26,4 @@ Afspraken voor het werken aan MealieShopper (voor Claude Code en andere AI-hulpe
 - Maak alleen een pull request als de gebruiker erom vraagt (naar `beta`, zie Branches), en merge alleen op verzoek.
 - Houd Nederlands en Engels gelijk: de interface (`static/i18n/`), de README's (`README.md` en `README.en.md`) en de voorbeeld-`.env`-bestanden.
 - Draai de tests met `python -m unittest discover -s tests`.
+- De back-up en het terugzetten in de app (`mealieshopper/backup.py`) volgen [`backup-restore.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/backup-restore.md) van Flux76HQ/App-Guidance. Een nieuwe tabel met gegevens hoort in `backup.DATA_TABLES` (of bewust in `EXCLUDED_TABLES`) en in `tests/test_backup.py`; een test dwingt dat af.

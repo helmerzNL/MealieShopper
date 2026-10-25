@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.74.0
+
+*English summary: Settings > System has a new Backup and restore card. One click makes a single file with everything in the database, including the links with Mealie, Albert Heijn, Picnic, Jumbo and the AI keys (encrypted with a password you choose) and the whole history of the (bonus) offers, and restoring it brings the app back to a working state, also on a new server. The restore is checked completely before anything changes, is all or nothing, shows its progress and keeps running on the server if you leave the page.*
+
+### Nieuw in 2.74.0
+
+- **Back-up maken en terugzetten in de app (Instellingen, Systeem).** Eén bestand (`mealieshopper-backup-….json`) met alles wat in de database zit: de koppelingen met Mealie, Albert Heijn, Picnic, Jumbo en de AI-sleutels, de kopieën van je lijstjes, bewaarde recepten, bestellingen en kassabonnen, de aanbiedingen van nu **en de hele historie van de (bonus)aanbiedingen**, de beoordelingen van aanbiedingen bij recepten, de profielen en de keuzes bij AI en MCP. Terugzetten, ook op een nieuwe server, geeft een werkende app.
+- **De koppelingen gaan versleuteld mee, met een wachtwoord dat je zelf kiest** (scrypt en Fernet). Het wachtwoord wordt nergens bewaard. Zonder het vinkje *Neem de koppelingen mee* bevat het bestand geen koppelingen en is er geen wachtwoord nodig. Op de nieuwe server worden de koppelingen opnieuw versleuteld met de sleutel van die server.
+- **Wat inlogt op MealieShopper zit er nooit in:** passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen, sessies, de toegang van AI-assistenten (MCP) en `secret.key`. Het auditlog, de bewaarde receptafbeeldingen en het webadres van de server blijven buiten de back-up.
+- **Alles of niets.** De server controleert het hele bestand (onderdelen, kolommen, waarden, afbeeldingen) en laat zien wat erin zit voordat er iets verandert; daarna vervangt hij de gegevens in één transactie. Een afgekeurd bestand of een fout halverwege laat alles zoals het was. Een bestand van een nieuwere versie wordt geweigerd met de melding dat je eerst moet bijwerken.
+- **Je ziet wat er gebeurt.** Maken, downloaden, uploaden, controleren en vervangen hebben elk een naam en, waar te tellen, een getal en een balk; daarna staat er hoe lang elk deel duurde. Het terugzetten is werk van de server: de pagina verlaten of sluiten stopt niets, en het scherm pakt de voortgang weer op.
+- Het patroon volgt [`backup-restore.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/backup-restore.md) van App-Guidance, met één bewuste afwijking: de koppelingen mogen mee, versleuteld.
+
+#### Goed om te weten bij het bijwerken
+
+- **Een back-up bevat geen inloggegevens van de app.** Zet je terug op een nieuwe installatie, stel dan eerst het inloggen in en zet daarna de back-up terug.
+- **Een reverse proxy moet een back-up doorlaten.** Een back-upbestand mag tot 200 MB zijn (in de praktijk enkele megabytes). Sta je een kleinere aanvraag toe, dan geeft de proxy een foutmelding bij het terugzetten.
+- **Het scherm Systeem heeft een nieuw script.** Laad de pagina één keer opnieuw als het scherm niet vanzelf ververst.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
 ## v2.73.1
 
 ### Sinds de vorige stabiele versie (v2.72.1)
