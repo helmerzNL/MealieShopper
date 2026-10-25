@@ -1278,7 +1278,30 @@ a.product-card__main:hover strong {
 
 .review-row.is-missing {
   grid-template-columns: auto minmax(120px, 1fr) 2fr;
-  opacity: 0.7;
+  border-style: dashed;
+}
+
+.review-row.is-missing .review-note {
+  color: var(--muted);
+}
+
+.review-search {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.review-search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  padding: 0 8px;
 }
 
 .review-note {
@@ -1356,8 +1379,8 @@ a.product-card__main:hover strong {
     grid-template-columns: auto 1fr;
   }
 
-  .review-row.is-missing .muted {
-    grid-column: 2;
+  .review-row.is-missing .review-search {
+    grid-column: 1 / -1;
   }
 }
 
