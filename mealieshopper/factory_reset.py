@@ -49,6 +49,12 @@ def wipe_data() -> list[str]:
         except FileNotFoundError:
             continue
         removed.append(name)
+    for path in auth.data_dir().glob(".restore-*"):  # een klaargezette back-up bevat ook gegevens
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path.name)
     auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed
 
