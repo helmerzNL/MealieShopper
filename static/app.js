@@ -840,6 +840,17 @@ async function submitCart(selection, notFound) {
   showCartResult(data, notFound);
 }
 
+function reviewSearchHtml(row, extra) {
+  // Zoekveld bij een regel. Bij een niet gevonden regel staat het er direct; bij een gevonden regel klapt het uit
+  // onder "Zoek een ander product", voor als het voorgestelde product niet is wat je zoekt.
+  return `
+    <form class="review-search${extra ? " review-search--extra" : ""}"${extra ? " hidden" : ""}>
+      <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
+      <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
+      <small class="review-search-status" role="status"></small>
+    </form>`;
+}
+
 function reviewRowHtml(row, index) {
   if (!row.candidates.length) {
     // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
@@ -850,10 +861,7 @@ function reviewRowHtml(row, index) {
           <strong>${escapeHtml(row.display)}</strong>
           <small class="review-note">${escapeHtml(row.error || t("cart.not_found"))}</small>
         </div>
-        <form class="review-search">
-          <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
-          <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
-        </form>
+        ${reviewSearchHtml(row, false)}
       </div>`;
   }
   const first = row.candidates[0];
@@ -863,6 +871,7 @@ function reviewRowHtml(row, index) {
       <div class="review-ingredient">
         <strong>${escapeHtml(row.display)}</strong>
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+        <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
       <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
         ${row.candidates
@@ -875,6 +884,7 @@ function reviewRowHtml(row, index) {
           : '<span class="review-link"></span>'
       }
       <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
+      ${reviewSearchHtml(row, true)}
     </div>`;
 }
 
@@ -912,13 +922,18 @@ function renderCartReview(rows) {
 
   const bindRow = (el) => {
     const row = rows[Number(el.dataset.row)];
-    if (!row.candidates.length) {
-      el.querySelector(".review-search").addEventListener("submit", (event) => {
-        event.preventDefault();
-        searchMissingRow(el, row);
-      });
-      return;
-    }
+    el.querySelector(".review-search").addEventListener("submit", (event) => {
+      event.preventDefault();
+      searchRow(el, row);
+    });
+    if (!row.candidates.length) return;
+    const form = el.querySelector(".review-search");
+    const toggle = el.querySelector(".review-search-toggle");
+    toggle.addEventListener("click", () => {
+      form.hidden = !form.hidden;
+      toggle.setAttribute("aria-expanded", String(!form.hidden));
+      if (!form.hidden) el.querySelector(".review-search-input").focus();
+    });
     el.querySelector(".review-product").addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
       el.querySelector(".review-qty").value = candidate.packs;
@@ -934,17 +949,18 @@ function renderCartReview(rows) {
     });
   };
 
-  // Zoekt één niet gevonden regel opnieuw met de zoekterm uit het veld. Alleen deze regel wordt vervangen,
-  // zodat wat je bij de andere regels hebt gekozen blijft staan.
-  async function searchMissingRow(el, row) {
+  // Zoekt één regel opnieuw met de zoekterm uit het veld, voor een niet gevonden regel en voor een gevonden regel
+  // waar je een ander product wilt. Alleen deze regel wordt vervangen, zodat wat je bij de andere regels hebt
+  // gekozen blijft staan. Vindt de zoekopdracht niets, dan houdt de regel zijn huidige producten.
+  async function searchRow(el, row) {
     const input = el.querySelector(".review-search-input");
     const button = el.querySelector(".review-search button");
-    const note = el.querySelector(".review-note");
+    const status = el.querySelector(".review-search-status");
     const term = input.value.trim();
     if (!term) return;
     input.disabled = true;
     button.disabled = true;
-    note.textContent = t("cart.searching");
+    status.textContent = t("cart.searching");
     try {
       const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
         method: "POST",
@@ -962,9 +978,9 @@ function renderCartReview(rows) {
         updateConfirm();
         return;
       }
-      note.textContent = found?.error || t("cart.search_none", { term });
+      status.textContent = found?.error || t("cart.search_none", { term });
     } catch (error) {
-      note.textContent = error.message;
+      status.textContent = error.message;
     }
     input.disabled = false;
     button.disabled = false;
