@@ -29,7 +29,7 @@ def b64(data: bytes) -> str:
 class FakeAuthenticator:
     """Een passkey zoals een telefoon die maakt, genoeg voor de server om te controleren."""
 
-    def __init__(self, rp_id="localhost", origin="http://localhost"):
+    def __init__(self, rp_id="localhost", origin="http://localhost"):  # flags: 0x45 = aanwezig + geverifieerd, 0x41 = alleen aanwezig
         self.key = ec.generate_private_key(ec.SECP256R1())
         self.credential_id = os.urandom(16)
         self.rp_hash = hashlib.sha256(rp_id.encode()).digest()
@@ -38,24 +38,28 @@ class FakeAuthenticator:
     def _client_data(self, kind, challenge):
         return json.dumps({"type": kind, "challenge": challenge, "origin": self.origin}).encode()
 
-    def create(self, challenge):
+    def create(self, challenge, flags=0x45):
         numbers = self.key.public_key().public_numbers()
         cose = cbor2.dumps({1: 2, 3: -7, -1: 1, -2: numbers.x.to_bytes(32, "big"), -3: numbers.y.to_bytes(32, "big")})
-        auth_data = self.rp_hash + b"\x45" + struct.pack(">I", 0) + b"\0" * 16 + struct.pack(">H", len(self.credential_id)) + self.credential_id + cose
+        auth_data = self.rp_hash + bytes([flags]) + struct.pack(">I", 0) + b"\0" * 16 + struct.pack(">H", len(self.credential_id)) + self.credential_id + cose
         return {
             "id": b64(self.credential_id),
+            "rawId": b64(self.credential_id),
+            "type": "public-key",
             "response": {
                 "clientDataJSON": b64(self._client_data("webauthn.create", challenge)),
                 "attestationObject": b64(cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth_data})),
             },
         }
 
-    def get(self, challenge):
+    def get(self, challenge, flags=0x05):
         client_data = self._client_data("webauthn.get", challenge)
-        auth_data = self.rp_hash + b"\x05" + struct.pack(">I", 1)
+        auth_data = self.rp_hash + bytes([flags]) + struct.pack(">I", 1)
         signature = self.key.sign(auth_data + hashlib.sha256(client_data).digest(), ec.ECDSA(SHA256()))
         return {
             "id": b64(self.credential_id),
+            "rawId": b64(self.credential_id),
+            "type": "public-key",
             "response": {"clientDataJSON": b64(client_data), "authenticatorData": b64(auth_data), "signature": b64(signature)},
         }
 
@@ -319,6 +323,36 @@ class PasskeyInviteTest(UsersTestCase):
         self.assertEqual(done.status_code, 200, done.get_json())
         self.assertEqual(done.get_json()["username"], "bob")
         self.assertFalse(other.get("/api/auth/status").get_json()["isOwner"])
+
+    def register_with(self, phone, flags=0x45, challenge=None, name="carol"):
+        token = self.invite(name)["token"]
+        anonymous = self.app.test_client()
+        data = self.post("/api/auth/register/options", {"invite": token}, anonymous).get_json()
+        credential = phone.create(challenge or data["options"]["challenge"], flags=flags)
+        return anonymous, self.post("/api/auth/register/verify", {"invite": token, "userId": data["userId"], "credential": credential}, anonymous)
+
+    def test_a_password_manager_passkey_without_user_verification_is_accepted(self):
+        # Enpass, Bitwarden and friends report user presence only (flags 0x41 / 0x01).
+        phone = FakeAuthenticator()
+        _, verified = self.register_with(phone, flags=0x41)
+        self.assertEqual(verified.status_code, 200, verified.get_json())
+        other = self.app.test_client()
+        login = self.post("/api/auth/login/options", client=other).get_json()["options"]
+        done = self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x01)}, other)
+        self.assertEqual(done.status_code, 200, done.get_json())
+
+    def test_a_passkey_without_user_presence_is_refused(self):
+        _, verified = self.register_with(FakeAuthenticator(), flags=0x44)
+        self.assertEqual(verified.status_code, 400)
+        phone = FakeAuthenticator()
+        self.register_with(phone, name="dave")
+        other = self.app.test_client()
+        login = self.post("/api/auth/login/options", client=other).get_json()["options"]
+        self.assertEqual(self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x04)}, other).status_code, 400)
+
+    def test_a_passkey_from_another_origin_or_for_another_challenge_is_refused(self):
+        self.assertEqual(self.register_with(FakeAuthenticator(origin="https://evil.example"))[1].status_code, 400)
+        self.assertEqual(self.register_with(FakeAuthenticator(), challenge=b64(os.urandom(32)), name="erin")[1].status_code, 400)
 
     def test_a_bad_or_used_invite_gets_no_passkey_options(self):
         self.assertEqual(self.post("/api/auth/register/options", {"invite": "nope"}, self.app.test_client()).status_code, 404)

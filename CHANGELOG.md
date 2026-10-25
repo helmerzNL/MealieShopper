@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.72.2
+
+*English summary: passkeys are now checked by the open-source py_webauthn library instead of our own code; behaviour is the same, and passkeys that were already registered keep working.*
+
+- **Passkeys worden gecontroleerd door py_webauthn (2.72.2).** De eigen controle van de aanmaak- en inlogantwoorden (clientgegevens, uitdaging, origin, RP-ID, vlaggen en handtekening) is vervangen door de open-sourcebibliotheek [py_webauthn](https://github.com/duo-labs/py_webauthn), zoals de bouwregel van Flux76 voorschrijft: een standaard implementeer je met een bestaande module. Het gedrag blijft hetzelfde: alleen ES256, gebruikersaanwezigheid verplicht, verificatie niet (zodat wachtwoordmanagers als Enpass blijven werken) en de tellercontrole blijft uit. Bestaande passkeys blijven werken, de opgeslagen sleutels hebben hetzelfde formaat.
+- **Nieuwe afhankelijkheden.** `requirements.txt` krijgt `webauthn`, `pyasn1`, `pyasn1_modules` en `pyOpenSSL`, en `cbor2` en `cryptography` gaan naar de versies die py_webauthn vraagt (`cbor2` 6.1.5, `cryptography` 50.0.2). Ze staan ook bij *Over* en in de README's. Bouw de container opnieuw bij het bijwerken.
+- **Tests.** Een passkey zonder gebruikersverificatie (zoals Enpass meldt) kan aanmaken en inloggen; een passkey zonder gebruikersaanwezigheid, van een andere origin of voor een andere uitdaging wordt geweigerd. De versie van de statische bestanden is opgehoogd, zodat de browser de nieuwe teksten bij *Over* laadt.
+
 ## v2.72.1
 
 ### Sinds de vorige stabiele versie (v2.67.2)
