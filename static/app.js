@@ -840,8 +840,46 @@ async function submitCart(selection, notFound) {
   showCartResult(data, notFound);
 }
 
+function reviewRowHtml(row, index) {
+  if (!row.candidates.length) {
+    // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
+    return `
+      <div class="review-row is-missing" data-row="${index}">
+        <input type="checkbox" disabled>
+        <div class="review-ingredient">
+          <strong>${escapeHtml(row.display)}</strong>
+          <small class="review-note">${escapeHtml(row.error || t("cart.not_found"))}</small>
+        </div>
+        <form class="review-search">
+          <input type="search" class="review-search-input" value="${escapeHtml(row.query)}" aria-label="${escapeHtml(t("cart.search_label"))}">
+          <button class="button button--secondary" type="submit">${escapeHtml(t("cart.search_button"))}</button>
+        </form>
+      </div>`;
+  }
+  const first = row.candidates[0];
+  return `
+    <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
+      <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
+      <div class="review-ingredient">
+        <strong>${escapeHtml(row.display)}</strong>
+        <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+      </div>
+      <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
+        ${row.candidates
+          .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
+          .join("")}
+      </select>
+      ${
+        first.url
+          ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
+          : '<span class="review-link"></span>'
+      }
+      <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
+    </div>`;
+}
+
 function renderCartReview(rows) {
-  const notFound = rows.filter((row) => !row.candidates.length).map((row) => row.display);
+  const missingCount = rows.filter((row) => !row.candidates.length).length;
   const doubts = rows.filter((row) => row.candidates.length && row.candidates[0].doubt).length;
   $("#cart-result").innerHTML = `
     <div class="box cart-review">
@@ -851,52 +889,36 @@ function renderCartReview(rows) {
         <button class="button button--secondary" id="cancel-cart">${escapeHtml(t("common.cancel"))}</button>
       </div>
       <p class="muted">${escapeHtml(doubts ? tn("cart.doubts", doubts) : t("cart.review_intro"))}</p>
-      <div class="review-list">
-        ${rows
-          .map((row, index) => {
-            if (!row.candidates.length) {
-              return `
-                <div class="review-row is-missing">
-                  <input type="checkbox" disabled>
-                  <div class="review-ingredient"><strong>${escapeHtml(row.display)}</strong></div>
-                  <span class="muted">${row.error ? escapeHtml(row.error) : escapeHtml(t("cart.not_found"))}</span>
-                </div>`;
-            }
-            const first = row.candidates[0];
-            return `
-              <div class="review-row${first.doubt ? " is-doubt" : ""}" data-row="${index}">
-                <input type="checkbox" class="review-include" checked aria-label="${escapeHtml(t("cart.include"))}">
-                <div class="review-ingredient">
-                  <strong>${escapeHtml(row.display)}</strong>
-                  <small class="review-note">${escapeHtml(first.doubt || "")}</small>
-                </div>
-                <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
-                  ${row.candidates
-                    .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
-                    .join("")}
-                </select>
-                ${
-                  first.url
-                    ? `<a class="review-link" href="${escapeHtml(first.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("cart.view_title"))}">${escapeHtml(t("cart.view"))} ${ICON_EXTERNAL}</a>`
-                    : '<span class="review-link"></span>'
-                }
-                <input class="review-qty" type="number" min="1" max="99" value="${first.packs}" aria-label="${escapeHtml(t("cart.packs"))}">
-              </div>`;
-          })
-          .join("")}
-      </div>
+      ${missingCount ? `<p class="muted" id="review-missing-hint">${escapeHtml(tn("cart.missing_hint", missingCount))}</p>` : ""}
+      <div class="review-list">${rows.map((row, index) => reviewRowHtml(row, index)).join("")}</div>
     </div>
   `;
 
-  const rowElements = [...document.querySelectorAll(".review-row[data-row]")];
+  // De regels kunnen veranderen: een niet gevonden regel wordt na zoeken een gewone regel. Daarom steeds opnieuw zoeken.
+  const includable = () => [...document.querySelectorAll(".review-row[data-row]")].filter((el) => el.querySelector(".review-include"));
   const updateConfirm = () => {
-    const count = rowElements.filter((el) => el.querySelector(".review-include").checked).length;
+    const count = includable().filter((el) => el.querySelector(".review-include").checked).length;
     const button = $("#confirm-cart");
     button.disabled = count === 0;
     button.textContent = tn("cart.confirm", count);
   };
-  rowElements.forEach((el) => {
+  const updateMissingHint = () => {
+    const left = rows.filter((row) => !row.candidates.length).length;
+    const hint = $("#review-missing-hint");
+    if (!hint) return;
+    hint.hidden = left === 0;
+    if (left) hint.textContent = tn("cart.missing_hint", left);
+  };
+
+  const bindRow = (el) => {
     const row = rows[Number(el.dataset.row)];
+    if (!row.candidates.length) {
+      el.querySelector(".review-search").addEventListener("submit", (event) => {
+        event.preventDefault();
+        searchMissingRow(el, row);
+      });
+      return;
+    }
     el.querySelector(".review-product").addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
       el.querySelector(".review-qty").value = candidate.packs;
@@ -910,7 +932,46 @@ function renderCartReview(rows) {
       event.preventDefault();
       openProductPopup(event.currentTarget.href);
     });
-  });
+  };
+
+  // Zoekt één niet gevonden regel opnieuw met de zoekterm uit het veld. Alleen deze regel wordt vervangen,
+  // zodat wat je bij de andere regels hebt gekozen blijft staan.
+  async function searchMissingRow(el, row) {
+    const input = el.querySelector(".review-search-input");
+    const button = el.querySelector(".review-search button");
+    const note = el.querySelector(".review-note");
+    const term = input.value.trim();
+    if (!term) return;
+    input.disabled = true;
+    button.disabled = true;
+    note.textContent = t("cart.searching");
+    try {
+      const preview = await jsonFetch(`/api/${currentStore().api}/cart/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [{ query: term, display: row.display, quantity: row.quantity ?? null, unit: row.unit ?? null }] }),
+      });
+      const found = (preview.items || [])[0];
+      if (found?.candidates?.length) {
+        row.query = term;
+        row.candidates = found.candidates;
+        delete row.error;
+        el.outerHTML = reviewRowHtml(row, Number(el.dataset.row));
+        bindRow(document.querySelector(`.review-row[data-row="${el.dataset.row}"]`));
+        updateMissingHint();
+        updateConfirm();
+        return;
+      }
+      note.textContent = found?.error || t("cart.search_none", { term });
+    } catch (error) {
+      note.textContent = error.message;
+    }
+    input.disabled = false;
+    button.disabled = false;
+    input.focus();
+  }
+
+  document.querySelectorAll(".review-row[data-row]").forEach(bindRow);
   updateConfirm();
 
   $("#cancel-cart").addEventListener("click", () => {
@@ -918,7 +979,7 @@ function renderCartReview(rows) {
   });
   $("#confirm-cart").addEventListener("click", async (event) => {
     const button = event.currentTarget;
-    const selection = rowElements
+    const selection = includable()
       .filter((el) => el.querySelector(".review-include").checked)
       .map((el) => {
         const row = rows[Number(el.dataset.row)];
@@ -930,7 +991,10 @@ function renderCartReview(rows) {
     button.disabled = true;
     button.textContent = t("cart.adding");
     try {
-      await submitCart(selection, notFound);
+      await submitCart(
+        selection,
+        rows.filter((row) => !row.candidates.length).map((row) => row.display)
+      );
     } catch (error) {
       $("#cart-result").insertAdjacentHTML(
         "afterbegin",

@@ -2,6 +2,14 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.73.0
+
+*English summary: products that could not be found when filling the basket from the week menu can now be searched for one by one in the check list, under a search term of your own (for example "pak choi" for "paksoi"), and added after all.*
+
+- **Niet gevonden producten zoek je zelf op (2.73.0).** In de controlelijst van het weekmenu heeft elke regel die niet gevonden werd nu een zoekveld met de zoekterm erin (aan te passen) en een knop *Zoeken*. Vind je met je eigen term wel producten, dan wordt de regel een gewone regel met keuzelijst, aantal verpakkingen (berekend uit de oorspronkelijke hoeveelheid) en vinkje, en gaat hij mee in het mandje. Vind je niets, dan staat dat bij de regel en kun je een andere term proberen. Een zoekopdracht die door een storing mislukte (zoals een verbroken verbinding) probeer je op dezelfde manier opnieuw. Wat je bij de andere regels hebt gekozen blijft staan. Dit geldt voor Albert Heijn, Picnic en Jumbo, want ze delen de controlelijst.
+- **Boven de lijst staat hoeveel producten nog niet gevonden zijn**, en de melding na het vullen noemt alleen wat echt ontbreekt. De versie van de statische bestanden is opgehoogd, zodat de browser het nieuwe script en de nieuwe stijlen laadt. Laad de pagina één keer opnieuw als het scherm niet vanzelf ververst.
+- **Test.** Een enkele regel opnieuw zoeken geeft de oorspronkelijke hoeveelheid en eenheid terug en rekent de verpakkingen daarmee uit.
+
 ## v2.72.4
 
 *English summary: AH product searches are retried when AH drops the connection, and a basket fill that AH refuses because an order is open ("Server in order mode", 412) now says so in plain words: close the open order (for example on another device) first.*

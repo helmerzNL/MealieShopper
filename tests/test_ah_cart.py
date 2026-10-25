@@ -293,6 +293,19 @@ class CartPreviewRouteTest(unittest.TestCase):
         self.assertNotIn("error", nothing)
         self.assertEqual(broken["error"], "AH productzoekopdracht mislukt (500)")
 
+    def test_a_single_row_can_be_searched_again_under_another_name(self):
+        # De controlelijst zoekt een niet gevonden regel opnieuw met de zoekterm van de gebruiker. Het antwoord
+        # moet dan de oorspronkelijke hoeveelheid en eenheid meegeven, en de verpakkingen daarvan berekenen.
+        def search(query, limit):
+            return [search_result(9, "AH Pak choi", "250 g")] if query == "pak choi" else []
+
+        response = self.preview(
+            [{"query": "pak choi", "display": "500 g paksoi", "quantity": 500, "unit": "g"}], search
+        )
+        (row,) = response.get_json()["items"]
+        self.assertEqual((row["query"], row["display"], row["quantity"], row["unit"]), ("pak choi", "500 g paksoi", 500, "g"))
+        self.assertEqual([(c["productId"], c["packs"]) for c in row["candidates"]], [("9", 2)])
+
     def test_requires_items(self):
         response = self.client.post("/api/ah/cart/preview", json={"items": []})
         self.assertEqual(response.status_code, 400)
