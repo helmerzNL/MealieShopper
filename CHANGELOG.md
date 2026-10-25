@@ -2,6 +2,13 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.72.3
+
+*English summary: filling the AH basket from the week menu no longer fails with "Grocery items cannot be duplicate" (409) when two recipes need the same product; those lines are now merged into one with the quantities added up.*
+
+- **Weekmenu in het AH-mandje geeft geen 409 meer (2.72.3).** Hadden twee recepten in het weekmenu hetzelfde product nodig (bijvoorbeeld melk), dan stuurde MealieShopper dat product twee keer in één verzoek mee en weigerde AH het met `409 Grocery items cannot be duplicate`. Regels met hetzelfde AH-product worden nu vóór het versturen samengevoegd tot één regel, met de aantallen opgeteld (maximaal 99, de grens van AH). Dat geldt ook voor het mandje vullen vanuit een AH-lijstje en voor de aanroep van `/api/ah/cart`.
+- **Test.** Dubbele producten gaan één keer naar AH, met opgetelde aantallen, ook als het product-ID als tekst binnenkomt.
+
 ## v2.72.2
 
 *English summary: passkeys are now checked by the open-source py_webauthn library instead of our own code; behaviour is the same, and passkeys that were already registered keep working.*
