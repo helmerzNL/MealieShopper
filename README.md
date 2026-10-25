@@ -601,6 +601,10 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Ondertekent sessies. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Versleutelt opgeslagen koppelingen en controleert passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Leest passkey-gegevens. |
+| [py_webauthn](https://github.com/duo-labs/py_webauthn) | BSD-3-Clause | Controleert passkeys bij het aanmaken en inloggen. |
+| [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
+| [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
+| [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Wordt door py_webauthn gebruikt om passkey-certificaten te controleren. |
 | [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en de supermarkten. |
 | [SQLite](https://sqlite.org) | Public domain | De database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |

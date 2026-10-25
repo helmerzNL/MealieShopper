@@ -2,29 +2,21 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import json
 import os
 import secrets
 import sqlite3
-import struct
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import cbor2
 import jwt
-from cryptography.hazmat.primitives.asymmetric.ec import (
-    ECDSA,
-    SECP256R1,
-    EllipticCurvePublicKey,
-    EllipticCurvePublicNumbers,
-)
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.hashes import SHA256
 from flask import Flask, jsonify, make_response, request
+from webauthn import verify_authentication_response, verify_registration_response
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 from .i18n import tr
 
@@ -517,72 +509,39 @@ def pop_challenge(key: str) -> bytes | None:
     return bytes(row["challenge"]) if row else None
 
 
-def parse_cose_key(cose_map: dict[Any, Any]) -> EllipticCurvePublicKey:
-    numbers = EllipticCurvePublicNumbers(
-        x=int.from_bytes(cose_map[-2], "big"),
-        y=int.from_bytes(cose_map[-3], "big"),
-        curve=SECP256R1(),
+def check_registration(credential: dict[str, Any], challenge: bytes) -> tuple[bytes, bytes, int]:
+    """Controleert een nieuwe passkey met py_webauthn; geeft (credential-id, COSE-sleutel, teller) of gooit een fout.
+
+    Alleen ES256 (dat is wat de opties aanbieden). Aanwezigheid is verplicht, verificatie niet: een wachtwoordmanager
+    als Enpass ontgrendelt met zijn eigen hoofdwachtwoord en meldt de verificatievlag niet.
+    """
+    result = verify_registration_response(
+        credential=credential,
+        expected_challenge=challenge,
+        expected_rp_id=rp_id(),
+        expected_origin=rp_origins(),
+        require_user_verification=False,
+        supported_pub_key_algs=[COSEAlgorithmIdentifier.ECDSA_SHA_256],
     )
-    return numbers.public_key()
-
-
-def parse_attestation_object(attestation_object_b64: str) -> tuple[bytes, bytes, bytes, int]:
-    attestation = cbor2.loads(b64url_decode(attestation_object_b64))
-    auth_data = attestation["authData"]
-    sign_count = struct.unpack(">I", auth_data[33:37])[0]
-    credential_id_len = struct.unpack(">H", auth_data[53:55])[0]
-    credential_id = auth_data[55 : 55 + credential_id_len]
-    cose_key_bytes = auth_data[55 + credential_id_len :]
-    cbor2.loads(cose_key_bytes)
-    return credential_id, cose_key_bytes, auth_data, sign_count
-
-
-def parse_auth_data(auth_data: bytes) -> tuple[bytes, int, int]:
-    return auth_data[:32], auth_data[32], struct.unpack(">I", auth_data[33:37])[0]
-
-
-def verify_signature(public_key_bytes: bytes, auth_data: bytes, client_data_hash: bytes, signature: bytes) -> None:
-    public_key = parse_cose_key(cbor2.loads(public_key_bytes))
-    public_key.verify(signature, auth_data + client_data_hash, ECDSA(SHA256()))
-
-
-def validate_client_data(
-    *,
-    client_data_json_b64: str,
-    expected_type: str,
-    expected_challenge: bytes,
-) -> bytes:
-    client_data_raw = b64url_decode(client_data_json_b64)
-    client_data = json.loads(client_data_raw)
-    if client_data.get("type") != expected_type:
-        raise ValueError("Wrong type in clientDataJSON")
-    if not hmac.compare_digest(b64url_decode(client_data["challenge"]), expected_challenge):
-        raise ValueError("Challenge mismatch")
-    incoming_origin = str(client_data.get("origin") or "").rstrip("/")
-    if incoming_origin not in rp_origins():
-        raise ValueError(f"Origin not allowed: {incoming_origin}")
-    return client_data_raw
-
-
-def assert_rp_hash(auth_data: bytes) -> None:
-    expected_rp_hash = hashlib.sha256(rp_id().encode("utf-8")).digest()
-    if auth_data[:32] != expected_rp_hash:
-        raise ValueError("RP ID hash mismatch")
+    return result.credential_id, result.credential_public_key, result.sign_count
 
 
 def check_assertion(credential: dict[str, Any], challenge: bytes, public_key: bytes) -> int:
-    """Controleert de ondertekening van een passkey-aanmelding; geeft de nieuwe teller of gooit een fout."""
-    client_data_raw = validate_client_data(
-        client_data_json_b64=credential["response"]["clientDataJSON"],
-        expected_type="webauthn.get",
+    """Controleert de ondertekening van een passkey-aanmelding met py_webauthn; geeft de nieuwe teller of gooit een fout.
+
+    De tellercontrole staat uit (huidige teller 0): synced passkeys melden 0 en deze app bewaarde de teller nooit
+    om op te weigeren.
+    """
+    result = verify_authentication_response(
+        credential=credential,
         expected_challenge=challenge,
+        expected_rp_id=rp_id(),
+        expected_origin=rp_origins(),
+        credential_public_key=public_key,
+        credential_current_sign_count=0,
+        require_user_verification=False,
     )
-    auth_data = b64url_decode(credential["response"]["authenticatorData"])
-    signature = b64url_decode(credential["response"]["signature"])
-    client_data_hash = hashlib.sha256(client_data_raw).digest()
-    assert_rp_hash(auth_data)
-    verify_signature(public_key, auth_data, client_data_hash, signature)
-    return parse_auth_data(auth_data)[2]
+    return result.new_sign_count
 
 
 def forget_runtime_state() -> None:
@@ -745,15 +704,7 @@ def register_routes(app: Flask) -> None:
             return jsonify({"error": "No pending challenge"}), 400
 
         try:
-            client_data_raw = validate_client_data(
-                client_data_json_b64=credential["response"]["clientDataJSON"],
-                expected_type="webauthn.create",
-                expected_challenge=challenge,
-            )
-            credential_id, cose_key_bytes, auth_data, sign_count = parse_attestation_object(
-                credential["response"]["attestationObject"]
-            )
-            assert_rp_hash(auth_data)
+            credential_id, cose_key_bytes, sign_count = check_registration(credential, challenge)
             credential_id_b64 = b64url_encode(credential_id)
         except Exception as exc:
             return jsonify({"error": f"Verification failed: {exc}"}), 400

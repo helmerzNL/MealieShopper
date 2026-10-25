@@ -601,6 +601,10 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Signs sessions. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Encrypts stored links and verifies passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Reads passkey data. |
+| [py_webauthn](https://github.com/duo-labs/py_webauthn) | BSD-3-Clause | Checks passkeys when you create them and sign in. |
+| [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
+| [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
+| [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Used by py_webauthn to check passkey certificates. |
 | [Requests](https://requests.readthedocs.io) | Apache-2.0 | Talks to Mealie and the supermarkets. |
 | [SQLite](https://sqlite.org) | Public domain | The database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | The icons. |
