@@ -1079,7 +1079,9 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
     token = get_user_token()
-    shopping_items = []
+    # AH weigt hetzelfde product twee keer in één verzoek met een 409 ("Grocery items cannot be
+    # duplicate"). Twee recepten in het weekmenu die dezelfde melk nodig hebben worden dus één regel.
+    by_product: dict[int, dict[str, Any]] = {}
     for item in items:
         product_id_raw = item.get("productId")
         try:
@@ -1089,17 +1091,22 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
 
         quantity = normalize_quantity(item.get("quantity"))
         description = str(item.get("title") or item.get("query") or "").strip()
-        shopping_items.append(
-            {
-                "description": description,
-                "productId": product_id,
-                "quantity": quantity,
-                "type": "SHOPPABLE",
-                "originCode": "PRD",
-                "searchTerm": description,
-                "strikeThrough": False,
-            }
-        )
+        if product_id in by_product:
+            line = by_product[product_id]
+            line["quantity"] = min(MAX_CART_QUANTITY, line["quantity"] + quantity)
+            if not line["description"]:
+                line["description"] = line["searchTerm"] = description
+            continue
+        by_product[product_id] = {
+            "description": description,
+            "productId": product_id,
+            "quantity": quantity,
+            "type": "SHOPPABLE",
+            "originCode": "PRD",
+            "searchTerm": description,
+            "strikeThrough": False,
+        }
+    shopping_items = list(by_product.values())
 
     if not shopping_items:
         raise RuntimeError("Geen geldige producten om toe te voegen")

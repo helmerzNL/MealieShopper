@@ -124,6 +124,21 @@ class AddToShoppingListTest(unittest.TestCase):
         quantities = [item["quantity"] for item in patch.call_args.kwargs["json"]["items"]]
         self.assertEqual(quantities, [99, 1, 4])
 
+    def test_the_same_product_is_sent_once_with_the_quantities_added_up(self):
+        ok = mock.Mock(ok=True)
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=ok) as patch:
+            ah.add_to_shopping_list([
+                {"productId": 7, "quantity": 1, "query": "melk"},
+                {"productId": 8, "quantity": 2, "query": "eieren"},
+                {"productId": "7", "quantity": 2, "title": "AH Halfvolle melk"},
+                {"productId": 8, "quantity": 99, "query": "eieren"},
+            ])
+        items = patch.call_args.kwargs["json"]["items"]
+        self.assertEqual([item["productId"] for item in items], [7, 8])
+        self.assertEqual([item["quantity"] for item in items], [3, 99])
+        self.assertEqual(items[0]["description"], "melk")
+
 
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
