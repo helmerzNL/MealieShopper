@@ -452,6 +452,7 @@ I18N.add("en", {
   "cart.missing_hint.one": "{count} product was not found. Search for it yourself, for example under another name, and add it anyway.",
   "cart.missing_hint.other": "{count} products were not found. Search for them yourself, for example under another name, and add them anyway.",
   "cart.search_label": "Search term",
+  "cart.search_other": "Search for another product",
   "cart.search_button": "Search",
   "cart.search_none": "Nothing found for \"{term}\". Try another search term.",
   "cart.include": "Add",

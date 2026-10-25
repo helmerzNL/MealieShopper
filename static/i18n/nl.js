@@ -452,6 +452,7 @@ I18N.add("nl", {
   "cart.missing_hint.one": "{count} product is niet gevonden. Zoek het zelf op, bijvoorbeeld onder een andere naam, en voeg het alsnog toe.",
   "cart.missing_hint.other": "{count} producten zijn niet gevonden. Zoek ze zelf op, bijvoorbeeld onder een andere naam, en voeg ze alsnog toe.",
   "cart.search_label": "Zoekterm",
+  "cart.search_other": "Zoek een ander product",
   "cart.search_button": "Zoeken",
   "cart.search_none": "Niets gevonden voor \"{term}\". Probeer een andere zoekterm.",
   "cart.include": "Toevoegen",

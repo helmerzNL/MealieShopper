@@ -1287,8 +1287,36 @@ a.product-card__main:hover strong {
 
 .review-search {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+}
+
+.review-search[hidden] {
+  display: none;
+}
+
+.review-search--extra {
+  grid-column: 1 / -1;
+}
+
+.review-search-status {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.review-search-status:empty {
+  display: none;
+}
+
+.review-search-toggle {
+  display: block;
+  min-height: 0;
+  margin-top: 4px;
+  padding: 0;
+  font-size: 13px;
+  text-align: left;
 }
 
 .review-search-input {

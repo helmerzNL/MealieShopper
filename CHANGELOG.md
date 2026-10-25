@@ -2,6 +2,12 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.73.1
+
+*English summary: in the check list of the week menu every line, not only the lines that were not found, now has a "Search for another product" button; searching replaces the options of that line and leaves the other lines alone.*
+
+- **Ook bij een gevonden product zoek je een alternatief (2.73.1).** In de controlelijst van het weekmenu heeft elke regel met producten nu de knop *Zoek een ander product*. Die klapt een zoekveld uit onder de regel, met de zoekterm erin. Zoek je met een eigen term, dan vervangt de lijst met opties van die regel door de nieuwe resultaten (met het aantal verpakkingen opnieuw berekend uit de oorspronkelijke hoeveelheid) en blijft het vinkje aan. Vindt de zoekopdracht niets, dan staat dat bij de regel en houdt de regel zijn huidige producten. De andere regels blijven zoals je ze had ingesteld. Dit geldt voor Albert Heijn, Picnic en Jumbo. De versie van de statische bestanden is opgehoogd, zodat de browser het nieuwe script en de nieuwe stijlen laadt; laad de pagina één keer opnieuw als het scherm niet vanzelf ververst.
+
 ## v2.73.0
 
 *English summary: products that could not be found when filling the basket from the week menu can now be searched for one by one in the check list, under a search term of your own (for example "pak choi" for "paksoi"), and added after all.*
