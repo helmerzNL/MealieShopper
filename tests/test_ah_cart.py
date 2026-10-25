@@ -140,6 +140,52 @@ class AddToShoppingListTest(unittest.TestCase):
         self.assertEqual(items[0]["description"], "melk")
 
 
+    def test_an_open_order_gets_a_readable_message(self):
+        refused = mock.Mock(ok=False, status_code=412, text='{"status":412,"message":"Server in order mode"}')
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=refused):
+            with self.assertRaises(RuntimeError) as caught:
+                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+        self.assertIn("bestelling open", str(caught.exception))
+        self.assertIn("ander apparaat", str(caught.exception))
+        self.assertIn("412", str(caught.exception))
+
+    def test_other_errors_keep_the_raw_answer(self):
+        refused = mock.Mock(ok=False, status_code=500, text="kapot")
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=refused):
+            with self.assertRaisesRegex(RuntimeError, r"\(500\): kapot"):
+                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+
+
+class SearchRetryTest(unittest.TestCase):
+    def search(self, side_effect):
+        with mock.patch.object(ah, "get_token", return_value="tok"), \
+                mock.patch.object(ah.time, "sleep"), \
+                mock.patch.object(ah.requests, "get", side_effect=side_effect) as get:
+            try:
+                return ah.search_products("melk", 1), get
+            except Exception as exc:  # noqa: BLE001
+                return exc, get
+
+    def test_a_dropped_connection_is_tried_again(self):
+        answer = mock.Mock(ok=True)
+        answer.json.return_value = {"products": []}
+        result, get = self.search([ah.requests.ConnectionError("reset"), answer])
+        self.assertEqual(result, [])
+        self.assertEqual(get.call_count, 2)
+
+    def test_it_gives_up_after_three_attempts(self):
+        result, get = self.search(ah.requests.ConnectionError("reset"))
+        self.assertIsInstance(result, ah.requests.ConnectionError)
+        self.assertEqual(get.call_count, 3)
+
+    def test_an_error_answer_is_not_retried(self):
+        result, get = self.search([mock.Mock(ok=False, status_code=500)])
+        self.assertIsInstance(result, RuntimeError)
+        self.assertEqual(get.call_count, 1)
+
+
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

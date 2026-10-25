@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlencode, urlparse
 import requests
 
 from . import auth
+from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
     MAX_CART_QUANTITY,
@@ -595,9 +596,22 @@ def _bonus_promo(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _get_with_retry(url: str, attempts: int = 3, **kwargs: Any) -> requests.Response:
+    """GET die een verbroken verbinding opnieuw probeert. AH verbreekt er af en toe een, vooral bij
+    veel zoekopdrachten kort na elkaar (het weekmenu zoekt elk ingrediënt apart). Alleen voor lezen."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return requests.get(url, **kwargs)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == attempts:
+                raise
+            time.sleep(0.5 * attempt)
+    raise AssertionError("onbereikbaar")  # pragma: no cover
+
+
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     token = get_token()
-    response = requests.get(
+    response = _get_with_retry(
         f"{AH_API_BASE}/mobile-services/product/search/v2",
         headers=_auth_headers(token, include_content_type=False),
         params={"query": query, "page": 0, "size": max(1, int(limit)), "sortOn": "RELEVANCE"},
@@ -627,7 +641,7 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     token = get_token()
     params: list[tuple[str, str]] = [("ids", str(product_id)) for product_id in product_ids]
     params.append(("sortOn", "INPUT_PRODUCT_IDS"))
-    response = requests.get(
+    response = _get_with_retry(
         f"{AH_API_BASE}/mobile-services/product/search/v2/products",
         headers=_auth_headers(token, include_content_type=False),
         params=params,
@@ -721,7 +735,7 @@ def bonus_products_in(node: Any, group: str = "") -> list[dict[str, Any]]:
 
 
 def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
-    response = requests.get(
+    response = _get_with_retry(
         f"{AH_API_BASE}/mobile-services/product/search/v2",
         headers=_auth_headers(token, include_content_type=False),
         params={"query": term, "page": 0, "size": BONUS_PAGE_SIZE, "sortOn": "RELEVANCE"},
@@ -1118,6 +1132,16 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         json=payload,
         timeout=30,
     )
+    if response.status_code == 412 and "order mode" in response.text.lower():
+        # Er staat een bestelling open: dan weigert AH de boodschappenlijst. Zeg dat in gewone woorden.
+        raise RuntimeError(
+            tr(
+                "Er staat een bestelling open bij AH, bijvoorbeeld op een ander apparaat (AH-app of website). "
+                "Sluit die bestelling eerst af en probeer het daarna opnieuw (412, Server in order mode).",
+                "An order is open at AH, for example on another device (AH app or website). "
+                "Close that order first and try again (412, Server in order mode).",
+            )
+        )
     if not response.ok:
         raise RuntimeError(f"AH winkelmandje vullen mislukt ({response.status_code}): {response.text}")
 
