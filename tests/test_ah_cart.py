@@ -124,6 +124,67 @@ class AddToShoppingListTest(unittest.TestCase):
         quantities = [item["quantity"] for item in patch.call_args.kwargs["json"]["items"]]
         self.assertEqual(quantities, [99, 1, 4])
 
+    def test_the_same_product_is_sent_once_with_the_quantities_added_up(self):
+        ok = mock.Mock(ok=True)
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=ok) as patch:
+            ah.add_to_shopping_list([
+                {"productId": 7, "quantity": 1, "query": "melk"},
+                {"productId": 8, "quantity": 2, "query": "eieren"},
+                {"productId": "7", "quantity": 2, "title": "AH Halfvolle melk"},
+                {"productId": 8, "quantity": 99, "query": "eieren"},
+            ])
+        items = patch.call_args.kwargs["json"]["items"]
+        self.assertEqual([item["productId"] for item in items], [7, 8])
+        self.assertEqual([item["quantity"] for item in items], [3, 99])
+        self.assertEqual(items[0]["description"], "melk")
+
+
+    def test_an_open_order_gets_a_readable_message(self):
+        refused = mock.Mock(ok=False, status_code=412, text='{"status":412,"message":"Server in order mode"}')
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=refused):
+            with self.assertRaises(RuntimeError) as caught:
+                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+        self.assertIn("bestelling open", str(caught.exception))
+        self.assertIn("ander apparaat", str(caught.exception))
+        self.assertIn("412", str(caught.exception))
+
+    def test_other_errors_keep_the_raw_answer(self):
+        refused = mock.Mock(ok=False, status_code=500, text="kapot")
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "patch", return_value=refused):
+            with self.assertRaisesRegex(RuntimeError, r"\(500\): kapot"):
+                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+
+
+class SearchRetryTest(unittest.TestCase):
+    def search(self, side_effect):
+        with mock.patch.object(ah, "get_token", return_value="tok"), \
+                mock.patch.object(ah.time, "sleep"), \
+                mock.patch.object(ah.requests, "get", side_effect=side_effect) as get:
+            try:
+                return ah.search_products("melk", 1), get
+            except Exception as exc:  # noqa: BLE001
+                return exc, get
+
+    def test_a_dropped_connection_is_tried_again(self):
+        answer = mock.Mock(ok=True)
+        answer.json.return_value = {"products": []}
+        result, get = self.search([ah.requests.ConnectionError("reset"), answer])
+        self.assertEqual(result, [])
+        self.assertEqual(get.call_count, 2)
+
+    def test_it_gives_up_after_three_attempts(self):
+        result, get = self.search(ah.requests.ConnectionError("reset"))
+        self.assertIsInstance(result, ah.requests.ConnectionError)
+        self.assertEqual(get.call_count, 3)
+
+    def test_an_error_answer_is_not_retried(self):
+        result, get = self.search([mock.Mock(ok=False, status_code=500)])
+        self.assertIsInstance(result, RuntimeError)
+        self.assertEqual(get.call_count, 1)
+
 
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
@@ -231,6 +292,19 @@ class CartPreviewRouteTest(unittest.TestCase):
         self.assertEqual(nothing["candidates"], [])
         self.assertNotIn("error", nothing)
         self.assertEqual(broken["error"], "AH productzoekopdracht mislukt (500)")
+
+    def test_a_single_row_can_be_searched_again_under_another_name(self):
+        # De controlelijst zoekt een niet gevonden regel opnieuw met de zoekterm van de gebruiker. Het antwoord
+        # moet dan de oorspronkelijke hoeveelheid en eenheid meegeven, en de verpakkingen daarvan berekenen.
+        def search(query, limit):
+            return [search_result(9, "AH Pak choi", "250 g")] if query == "pak choi" else []
+
+        response = self.preview(
+            [{"query": "pak choi", "display": "500 g paksoi", "quantity": 500, "unit": "g"}], search
+        )
+        (row,) = response.get_json()["items"]
+        self.assertEqual((row["query"], row["display"], row["quantity"], row["unit"]), ("pak choi", "500 g paksoi", 500, "g"))
+        self.assertEqual([(c["productId"], c["packs"]) for c in row["candidates"]], [("9", 2)])
 
     def test_requires_items(self):
         response = self.client.post("/api/ah/cart/preview", json={"items": []})

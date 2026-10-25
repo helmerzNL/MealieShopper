@@ -28,6 +28,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 - [Configuration](#configuration)
 - [Data and backups](#data-and-backups)
 - [Updating](#updating)
+- [The beta version](#the-beta-version)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Integrations and components](#integrations-and-components)
@@ -244,7 +245,7 @@ The **Recipes** tab has two subtabs: **Week menu** (your Mealie week menu to you
 
 The week menu loads by itself when you open the page, with the pictures, and the two weeks after it are fetched in the background. Each week is remembered for a while, so paging through weeks is instant; the sync button next to the week fetches it again from Mealie. If Picnic or Jumbo is linked next to Albert Heijn, you choose the store in the drop-down menu below the shopping list, next to the button. The button carries the name of the chosen store, for example `Add to Albert Heijn basket`. It looks up the best five products per ingredient and works out how many packs you need, using the pack size the store gives with the product: 6 eggs with "10 pieces" is one box, 500 g with "250 g" is two, and "2 tbsp" of oil is one bottle. The number is always 1 to 99.
 
-You always see a check list first; the basket is never filled without your confirmation. There you choose the product and the number of packs per line, tick what should go in and confirm. Lines the app is unsure about (unknown pack size, weight against pieces, or more than 10 packs) are marked. Next to every product is a link to the product in the web shop (Picnic has none), so you can check that it is right.
+You always see a check list first; the basket is never filled without your confirmation. There you choose the product and the number of packs per line, tick what should go in and confirm. Lines the app is unsure about (unknown pack size, weight against pieces, or more than 10 packs) are marked. Next to every product is a link to the product in the web shop (Picnic has none), so you can check that it is right. An ingredient that was not found you can search for there yourself with a search term of your own (for example "pak choi" for "paksoi"); if you find it, it goes in the basket like the rest. With *Search for another product* you can also look for an alternative on a line that was found.
 
 MealieShopper fetches the pictures from Mealie itself with your API token and keeps them in the database. That way it also works when your Mealie can't be reached directly from your phone, and next time nothing is asked of Mealie.
 
@@ -488,13 +489,48 @@ docker compose pull && docker compose up -d
 
 With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
 
-**Stable or beta.** You choose which build to install with `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml` (copy [`.env.example`](.env.example)): `latest` is the stable version and the default, `beta` is the development version. Then run `docker compose pull && docker compose up -d`. The same value goes to the app, which shows a **beta** badge next to the wordmark on `beta`. Use a separate data folder for beta. If you put the value in `.env.unraid`, Compose does not see it for the image tag; use `docker compose --env-file .env.unraid up -d` instead.
+**Stable or beta.** You choose which build to install with `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml` (copy [`.env.example`](.env.example)): `latest` is the stable version and the default, `beta` is the development version. Then run `docker compose pull && docker compose up -d`. The same value goes to the app, which shows a **beta** badge next to the wordmark on `beta`. Use a separate data folder for beta. If you put the value in `.env.unraid`, Compose does not see it for the image tag; use `docker compose --env-file .env.unraid up -d` instead. More about the beta is under [The beta version](#the-beta-version).
 
 <img src="docs/screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 
 **Update check.** Under **Settings, System** the app checks GitHub for a release newer than the version that is running. If there is one, the administrator gets a notice at the top of the screen and a dot on **Settings**, with a link to the release notes. The app asks GitHub at most every six hours (or right away with **Check now**) and sends no information about you or the installation. Turn it off with `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 <img src="docs/screenshots/en/updates.png" alt="Settings, System: the installed and the latest version, with the notice at the top" width="900">
+
+## The beta version
+
+MealieShopper has two lines, each with its own branch and container image:
+
+| | Stable | Beta |
+| --- | --- | --- |
+| Branch | `main` | `beta` |
+| Image | `ghcr.io/helmerznl/mealieshopper:latest` (and `X.Y.Z`) | `ghcr.io/helmerznl/mealieshopper:beta` (and `X.Y.Z-beta`) |
+| GitHub release | `vX.Y.Z` | pre-release `vX.Y.Z-beta` |
+| For whom | everyone; this is the default | anyone who wants to try new features first |
+
+Every change lands in `beta` first. Every push to `beta` immediately builds a new beta image and a pre-release on GitHub, so development carries on without touching the stable version. Only when the beta proves itself is it promoted to `main`, which builds `latest` and the stable release. A beta can therefore be newer than the stable version, but it can also still contain bugs.
+
+<img src="docs/screenshots/en/beta.png" alt="The beta build of MealieShopper on a computer and a phone, with the beta badge next to the wordmark" width="900">
+
+You recognise the beta build by the **beta** badge next to the wordmark; under About, **beta** also follows the version number.
+
+**Running the beta.** Put `MEALIESHOPPER_TAG=beta` in a `.env` file next to `docker-compose.yml` (copy [`.env.example`](.env.example)) and pull the image:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+With `docker run`, use `ghcr.io/helmerznl/mealieshopper:beta`. To pin a specific beta, use the tag with the version number, for example `2.72.1-beta`.
+
+**Keep your stable installation untouched.**
+
+- Use a **separate data folder** for the beta, so your stable data, connections and login are not touched by a beta.
+- If you run the beta next to the stable version, also give it a different `container_name` and a port other than `5959` in `docker-compose.yml`.
+- To go back to stable, set `MEALIESHOPPER_TAG=latest` and pull again, with the data folder of your stable installation.
+
+**Reporting bugs.** If you run into something in the beta, report it as an [issue on GitHub](https://github.com/helmerznl/mealieshopper/issues) and mention the version number and commit from About.
+
+**Contributing.** Pull requests go to `beta`, never directly to `main`; see [Development](#development).
 
 ## Troubleshooting
 
@@ -565,6 +601,10 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Signs sessions. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Encrypts stored links and verifies passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Reads passkey data. |
+| [py_webauthn](https://github.com/duo-labs/py_webauthn) | BSD-3-Clause | Checks passkeys when you create them and sign in. |
+| [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
+| [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
+| [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Used by py_webauthn to check passkey certificates. |
 | [Requests](https://requests.readthedocs.io) | Apache-2.0 | Talks to Mealie and the supermarkets. |
 | [SQLite](https://sqlite.org) | Public domain | The database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | The icons. |

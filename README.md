@@ -28,6 +28,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 - [Configuratie](#configuratie)
 - [Data en back-ups](#data-en-back-ups)
 - [Updaten](#updaten)
+- [De beta-versie](#de-beta-versie)
 - [Problemen oplossen](#problemen-oplossen)
 - [Ontwikkelen](#ontwikkelen)
 - [Integraties en componenten](#integraties-en-componenten)
@@ -244,7 +245,7 @@ De tab **Recepten** bevat twee subtabs: **Weekmenu** (het weekmenu uit Mealie na
 
 Het weekmenu laadt vanzelf zodra je de pagina opent, met de plaatjes, en de twee weken erna worden alvast op de achtergrond opgehaald. Elke week wordt even onthouden, zodat bladeren direct gaat; met de synchroniseerknop naast de week haal je hem opnieuw op uit Mealie. Is naast Albert Heijn ook Picnic of Jumbo gekoppeld, dan kies je onder de boodschappenlijst met het uitklapmenu naar welke winkel het gaat, naast de knop. De knop draagt de naam van de gekozen winkel, bijvoorbeeld `Voeg toe aan Albert Heijn mandje`. Hij zoekt per ingrediënt de beste vijf producten en rekent uit hoeveel verpakkingen je nodig hebt, met de verpakkingsgrootte die de winkel bij het product geeft: 6 eieren bij "10 stuks" is een doosje, 500 g bij "250 g" zijn er twee, en "2 el" olie is een fles. Het aantal is altijd 1 tot en met 99.
 
-Je ziet altijd eerst een controlelijst; het mandje gaat nooit zonder jouw bevestiging vol. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Regels waar de app niet zeker van is (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen) zijn gemarkeerd. Naast elk product staat een link naar het product in de webwinkel (Picnic heeft er geen), zodat je kunt controleren of het klopt.
+Je ziet altijd eerst een controlelijst; het mandje gaat nooit zonder jouw bevestiging vol. Daar kies je per regel het product en het aantal verpakkingen, vink je aan wat erin moet en bevestig je. Regels waar de app niet zeker van is (onbekende verpakkingsgrootte, gewicht tegen stuks, of meer dan 10 verpakkingen) zijn gemarkeerd. Naast elk product staat een link naar het product in de webwinkel (Picnic heeft er geen), zodat je kunt controleren of het klopt. Een ingrediënt dat niet gevonden werd, zoek je daar zelf op met een eigen zoekterm (bijvoorbeeld "pak choi" voor "paksoi"); vind je het, dan gaat het gewoon mee in het mandje. Met *Zoek een ander product* zoek je ook bij een gevonden regel een alternatief.
 
 De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart ze in de database. Zo werkt het ook als je Mealie niet rechtstreeks vanaf je telefoon bereikbaar is, en vraagt een volgende keer niets meer aan Mealie.
 
@@ -488,13 +489,48 @@ docker compose pull && docker compose up -d
 
 Bij een nieuwe versie hoef je niets te doen; de database wordt zo nodig vanzelf aangevuld. Bij Over zie je welke versie en commit er draait.
 
-**Stabiel of beta.** Welke build je installeert, kies je met `MEALIESHOPPER_TAG` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)): `latest` is de stabiele versie en de standaard, `beta` is de ontwikkelversie. Daarna `docker compose pull && docker compose up -d`. Dezelfde waarde gaat naar de app, die bij `beta` een **beta**-badge toont naast het woordmerk. Gebruik voor beta een aparte data-map. Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; gebruik dan `docker compose --env-file .env.unraid up -d`.
+**Stabiel of beta.** Welke build je installeert, kies je met `MEALIESHOPPER_TAG` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)): `latest` is de stabiele versie en de standaard, `beta` is de ontwikkelversie. Daarna `docker compose pull && docker compose up -d`. Dezelfde waarde gaat naar de app, die bij `beta` een **beta**-badge toont naast het woordmerk. Gebruik voor beta een aparte data-map. Staat de waarde in `.env.unraid`, dan ziet Compose hem niet voor de image-tag; gebruik dan `docker compose --env-file .env.unraid up -d`. Meer over de beta staat onder [De beta-versie](#de-beta-versie).
 
 <img src="docs/screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 
 **Updatecheck.** Onder **Instellingen, Systeem** kijkt de app op GitHub of er een nieuwere release is dan de versie die draait. Is die er, dan krijgt de beheerder een melding bovenaan het scherm en een bolletje bij **Beheer**, met een link naar de release-notes. De app vraagt dit hooguit om de zes uur aan GitHub (of direct met **Nu controleren**) en stuurt daarbij geen informatie over jou of de installatie mee. Uitzetten kan met `MEALIESHOPPER_UPDATE_CHECK=false`.
 
 <img src="docs/screenshots/nl/updates.png" alt="Instellingen, Systeem: de geïnstalleerde en de nieuwste versie, met de melding bovenaan" width="900">
+
+## De beta-versie
+
+MealieShopper heeft twee lijnen, met elk een eigen branch en container-image:
+
+| | Stabiel | Beta |
+| --- | --- | --- |
+| Branch | `main` | `beta` |
+| Image | `ghcr.io/helmerznl/mealieshopper:latest` (en `X.Y.Z`) | `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`) |
+| GitHub release | `vX.Y.Z` | pre-release `vX.Y.Z-beta` |
+| Voor wie | iedereen; dit is de standaard | wie nieuwe functies eerst wil proberen |
+
+Elke wijziging komt eerst in `beta` binnen. Elke push naar `beta` bouwt direct een nieuwe beta-image en een pre-release op GitHub, zodat de ontwikkeling doorloopt zonder de stabiele versie te raken. Pas als de beta goed bevalt, wordt hij gepromoveerd naar `main`: dat bouwt `latest` en de stabiele release. Een beta kan dus nieuwer zijn dan de stabiele versie, maar ook nog fouten bevatten.
+
+<img src="docs/screenshots/nl/beta.png" alt="De beta-build van MealieShopper op een computer en een telefoon, met de beta-badge naast het woordmerk" width="900">
+
+De beta-build herken je aan de **beta**-badge naast het woordmerk; bij Over staat ook **beta** achter het versienummer.
+
+**Beta draaien.** Zet `MEALIESHOPPER_TAG=beta` in een bestand `.env` naast `docker-compose.yml` (kopieer [`.env.example`](.env.example)) en haal de image op:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Bij `docker run` gebruik je `ghcr.io/helmerznl/mealieshopper:beta`. Wil je een bepaalde beta vastzetten, gebruik dan de tag met het versienummer, bijvoorbeeld `2.72.1-beta`.
+
+**Houd je stabiele installatie ongemoeid.**
+
+- Gebruik voor de beta een **aparte data-map**, zodat je stabiele gegevens, koppelingen en inlog niet door een beta worden aangeraakt.
+- Draai je de beta naast de stabiele versie, geef hem dan ook een andere `container_name` en een andere poort dan `5959` in `docker-compose.yml`.
+- Terug naar stabiel kan door `MEALIESHOPPER_TAG=latest` te zetten en opnieuw te pullen, met de data-map van je stabiele installatie.
+
+**Fouten melden.** Loop je in de beta ergens tegenaan, meld het dan als [issue op GitHub](https://github.com/helmerznl/mealieshopper/issues) en noem het versienummer en de commit uit Over.
+
+**Meewerken.** Pull requests gaan naar `beta`, nooit rechtstreeks naar `main`; zie [Ontwikkelen](#ontwikkelen).
 
 ## Problemen oplossen
 
@@ -565,6 +601,10 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Ondertekent sessies. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Versleutelt opgeslagen koppelingen en controleert passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Leest passkey-gegevens. |
+| [py_webauthn](https://github.com/duo-labs/py_webauthn) | BSD-3-Clause | Controleert passkeys bij het aanmaken en inloggen. |
+| [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
+| [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
+| [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Wordt door py_webauthn gebruikt om passkey-certificaten te controleren. |
 | [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en de supermarkten. |
 | [SQLite](https://sqlite.org) | Public domain | De database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |

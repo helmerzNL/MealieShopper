@@ -2,6 +2,60 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.73.1
+
+### Sinds de vorige stabiele versie (v2.72.1)
+
+Deze release brengt `main` van v2.72.1 naar v2.73.1. De tussenliggende versies (2.72.2 tot en met 2.73.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.72.1: filling the AH basket from the week menu no longer fails when two recipes need the same product (409 "Grocery items cannot be duplicate"); AH product searches are retried when AH drops the connection, and an open order at AH ("Server in order mode", 412) is explained in plain words; in the check list of the week menu you can search for products that were not found, and for an alternative to a product that was found, under a search term of your own; and passkeys are now checked by the open-source py_webauthn library (existing passkeys keep working).*
+
+- **Het mandje vullen vanuit het weekmenu geeft geen 409 meer (2.72.3).** Hadden twee recepten hetzelfde product nodig (bijvoorbeeld melk), dan weigerde AH het met `409 Grocery items cannot be duplicate`. Regels met hetzelfde product worden nu samengevoegd, met de aantallen opgeteld (maximaal 99).
+- **Een verbroken verbinding bij AH is niet meer fataal, en een open bestelling wordt uitgelegd (2.72.4).** Zoeken naar producten probeert een verbroken verbinding tot drie keer opnieuw. Weigert AH de boodschappenlijst met `412 Server in order mode`, dan staat er ergens een bestelling open (bijvoorbeeld op een ander apparaat) en zegt MealieShopper dat je die eerst moet afsluiten.
+- **Niet gevonden producten zoek je zelf op, en bij een gevonden product zoek je een alternatief (2.73.0 en 2.73.1).** In de controlelijst van het weekmenu heeft elke regel een zoekveld met een eigen zoekterm (bijvoorbeeld "pak choi" voor "paksoi"). Dat geldt voor Albert Heijn, Picnic en Jumbo.
+- **Passkeys worden gecontroleerd door py_webauthn (2.72.2).** De eigen WebAuthn-controle is vervangen door de open-sourcebibliotheek [py_webauthn](https://github.com/duo-labs/py_webauthn). Het gedrag blijft hetzelfde en bestaande passkeys blijven werken.
+
+#### Goed om te weten bij het bijwerken
+
+- **Bouw de container opnieuw:** `requirements.txt` heeft nieuwe afhankelijkheden voor passkeys (`webauthn`, `pyasn1`, `pyasn1_modules`, `pyOpenSSL`; `cbor2` en `cryptography` zijn nieuwer). Haal je de image `:latest` op, dan zit dat erin; bouw je zelf, bouw dan opnieuw.
+- **Het weekmenu heeft nieuwe knoppen in de controlelijst.** Ververst een scherm niet vanzelf, laad de pagina dan één keer opnieuw (in de geïnstalleerde app: sluiten en weer openen).
+- **Het mandje vullen lukt niet zolang er een AH-bestelling open staat.** Sluit die eerst af (bijvoorbeeld in de AH-app of op de website van een ander apparaat) en probeer het opnieuw.
+
+### Nieuw in 2.73.1
+
+- **Ook bij een gevonden product zoek je een alternatief (2.73.1).** In de controlelijst van het weekmenu heeft elke regel met producten nu de knop *Zoek een ander product*. Die klapt een zoekveld uit onder de regel, met de zoekterm erin. Zoek je met een eigen term, dan vervangt de lijst met opties van die regel door de nieuwe resultaten (met het aantal verpakkingen opnieuw berekend uit de oorspronkelijke hoeveelheid) en blijft het vinkje aan. Vindt de zoekopdracht niets, dan staat dat bij de regel en houdt de regel zijn huidige producten. De andere regels blijven zoals je ze had ingesteld. Dit geldt voor Albert Heijn, Picnic en Jumbo. De versie van de statische bestanden is opgehoogd, zodat de browser het nieuwe script en de nieuwe stijlen laadt; laad de pagina één keer opnieuw als het scherm niet vanzelf ververst.
+
+## v2.73.0
+
+*English summary: products that could not be found when filling the basket from the week menu can now be searched for one by one in the check list, under a search term of your own (for example "pak choi" for "paksoi"), and added after all.*
+
+- **Niet gevonden producten zoek je zelf op (2.73.0).** In de controlelijst van het weekmenu heeft elke regel die niet gevonden werd nu een zoekveld met de zoekterm erin (aan te passen) en een knop *Zoeken*. Vind je met je eigen term wel producten, dan wordt de regel een gewone regel met keuzelijst, aantal verpakkingen (berekend uit de oorspronkelijke hoeveelheid) en vinkje, en gaat hij mee in het mandje. Vind je niets, dan staat dat bij de regel en kun je een andere term proberen. Een zoekopdracht die door een storing mislukte (zoals een verbroken verbinding) probeer je op dezelfde manier opnieuw. Wat je bij de andere regels hebt gekozen blijft staan. Dit geldt voor Albert Heijn, Picnic en Jumbo, want ze delen de controlelijst.
+- **Boven de lijst staat hoeveel producten nog niet gevonden zijn**, en de melding na het vullen noemt alleen wat echt ontbreekt. De versie van de statische bestanden is opgehoogd, zodat de browser het nieuwe script en de nieuwe stijlen laadt. Laad de pagina één keer opnieuw als het scherm niet vanzelf ververst.
+- **Test.** Een enkele regel opnieuw zoeken geeft de oorspronkelijke hoeveelheid en eenheid terug en rekent de verpakkingen daarmee uit.
+
+## v2.72.4
+
+*English summary: AH product searches are retried when AH drops the connection, and a basket fill that AH refuses because an order is open ("Server in order mode", 412) now says so in plain words: close the open order (for example on another device) first.*
+
+- **Een verbroken verbinding bij AH is niet meer fataal (2.72.4).** Het weekmenu zoekt elk ingrediënt apart bij AH, en AH verbrak daarbij af en toe de verbinding (`Connection reset by peer`), waarna dat ingrediënt ontbrak. Zoeken naar producten en bonusproducten probeert het nu tot drie keer, met een korte pauze. Een antwoord van AH met een fout (zoals 500) wordt niet herhaald, en het vullen van het mandje zelf ook niet, zodat er niets dubbel kan binnenkomen.
+- **Duidelijke melding bij een open bestelling.** Weigert AH de boodschappenlijst met `412 Server in order mode`, dan staat er ergens een bestelling open, bijvoorbeeld in de AH-app of op de website van een ander apparaat. MealieShopper zegt dat nu: sluit die bestelling eerst af en probeer het daarna opnieuw, in plaats van de ruwe melding te tonen.
+- **Tests.** Opnieuw proberen na een verbroken verbinding, opgeven na drie pogingen, geen herhaling bij een foutantwoord, en de melding bij 412.
+
+## v2.72.3
+
+*English summary: filling the AH basket from the week menu no longer fails with "Grocery items cannot be duplicate" (409) when two recipes need the same product; those lines are now merged into one with the quantities added up.*
+
+- **Weekmenu in het AH-mandje geeft geen 409 meer (2.72.3).** Hadden twee recepten in het weekmenu hetzelfde product nodig (bijvoorbeeld melk), dan stuurde MealieShopper dat product twee keer in één verzoek mee en weigerde AH het met `409 Grocery items cannot be duplicate`. Regels met hetzelfde AH-product worden nu vóór het versturen samengevoegd tot één regel, met de aantallen opgeteld (maximaal 99, de grens van AH). Dat geldt ook voor het mandje vullen vanuit een AH-lijstje en voor de aanroep van `/api/ah/cart`.
+- **Test.** Dubbele producten gaan één keer naar AH, met opgetelde aantallen, ook als het product-ID als tekst binnenkomt.
+
+## v2.72.2
+
+*English summary: passkeys are now checked by the open-source py_webauthn library instead of our own code; behaviour is the same, and passkeys that were already registered keep working.*
+
+- **Passkeys worden gecontroleerd door py_webauthn (2.72.2).** De eigen controle van de aanmaak- en inlogantwoorden (clientgegevens, uitdaging, origin, RP-ID, vlaggen en handtekening) is vervangen door de open-sourcebibliotheek [py_webauthn](https://github.com/duo-labs/py_webauthn), zoals de bouwregel van Flux76 voorschrijft: een standaard implementeer je met een bestaande module. Het gedrag blijft hetzelfde: alleen ES256, gebruikersaanwezigheid verplicht, verificatie niet (zodat wachtwoordmanagers als Enpass blijven werken) en de tellercontrole blijft uit. Bestaande passkeys blijven werken, de opgeslagen sleutels hebben hetzelfde formaat.
+- **Nieuwe afhankelijkheden.** `requirements.txt` krijgt `webauthn`, `pyasn1`, `pyasn1_modules` en `pyOpenSSL`, en `cbor2` en `cryptography` gaan naar de versies die py_webauthn vraagt (`cbor2` 6.1.5, `cryptography` 50.0.2). Ze staan ook bij *Over* en in de README's. Bouw de container opnieuw bij het bijwerken.
+- **Tests.** Een passkey zonder gebruikersverificatie (zoals Enpass meldt) kan aanmaken en inloggen; een passkey zonder gebruikersaanwezigheid, van een andere origin of voor een andere uitdaging wordt geweigerd. De versie van de statische bestanden is opgehoogd, zodat de browser de nieuwe teksten bij *Over* laadt.
+
 ## v2.72.1
 
 ### Sinds de vorige stabiele versie (v2.67.2)
