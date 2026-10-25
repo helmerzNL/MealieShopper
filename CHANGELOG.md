@@ -4,10 +4,10 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.72.4
 
-*English summary: AH product searches are retried when AH drops the connection, and a basket fill that AH refuses because an order is open ("Server in order mode", 412) now explains that in plain words.*
+*English summary: AH product searches are retried when AH drops the connection, and a basket fill that AH refuses because an order is open ("Server in order mode", 412) now says so in plain words: close the open order (for example on another device) first.*
 
 - **Een verbroken verbinding bij AH is niet meer fataal (2.72.4).** Het weekmenu zoekt elk ingrediënt apart bij AH, en AH verbrak daarbij af en toe de verbinding (`Connection reset by peer`), waarna dat ingrediënt ontbrak. Zoeken naar producten en bonusproducten probeert het nu tot drie keer, met een korte pauze. Een antwoord van AH met een fout (zoals 500) wordt niet herhaald, en het vullen van het mandje zelf ook niet, zodat er niets dubbel kan binnenkomen.
-- **Duidelijke melding bij een open bestelling.** Weigert AH de boodschappenlijst met `412 Server in order mode`, dan zegt MealieShopper dat AH de lijst niet vult zolang er een bestelling in bewerking is, in plaats van de ruwe melding te tonen. Het mandje vullen gaat in dat geval nog niet; dat is een vervolgstap.
+- **Duidelijke melding bij een open bestelling.** Weigert AH de boodschappenlijst met `412 Server in order mode`, dan staat er ergens een bestelling open, bijvoorbeeld in de AH-app of op de website van een ander apparaat. MealieShopper zegt dat nu: sluit die bestelling eerst af en probeer het daarna opnieuw, in plaats van de ruwe melding te tonen.
 - **Tests.** Opnieuw proberen na een verbroken verbinding, opgeven na drie pogingen, geen herhaling bij een foutantwoord, en de melding bij 412.
 
 ## v2.72.3

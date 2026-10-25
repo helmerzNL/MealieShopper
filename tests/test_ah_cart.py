@@ -146,7 +146,8 @@ class AddToShoppingListTest(unittest.TestCase):
                 mock.patch.object(ah.requests, "patch", return_value=refused):
             with self.assertRaises(RuntimeError) as caught:
                 ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
-        self.assertIn("bestelling", str(caught.exception))
+        self.assertIn("bestelling open", str(caught.exception))
+        self.assertIn("ander apparaat", str(caught.exception))
         self.assertIn("412", str(caught.exception))
 
     def test_other_errors_keep_the_raw_answer(self):

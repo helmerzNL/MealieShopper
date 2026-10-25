@@ -1136,10 +1136,10 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
         # Er staat een bestelling open: dan weigert AH de boodschappenlijst. Zeg dat in gewone woorden.
         raise RuntimeError(
             tr(
-                "AH weigert de boodschappenlijst te vullen zolang er een bestelling in bewerking is (412, Server in order mode). "
-                "Rond die bestelling in de AH-app af en probeer het daarna opnieuw.",
-                "AH refuses to fill the shopping list while an order is being edited (412, Server in order mode). "
-                "Finish that order in the AH app and try again.",
+                "Er staat een bestelling open bij AH, bijvoorbeeld op een ander apparaat (AH-app of website). "
+                "Sluit die bestelling eerst af en probeer het daarna opnieuw (412, Server in order mode).",
+                "An order is open at AH, for example on another device (AH app or website). "
+                "Close that order first and try again (412, Server in order mode).",
             )
         )
     if not response.ok:
