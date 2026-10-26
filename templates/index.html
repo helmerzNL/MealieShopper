@@ -1054,6 +1054,61 @@
             <a class="button button--secondary" id="update-notes" href="#" target="_blank" rel="noopener noreferrer" hidden data-i18n="update.notes">Release-notes op GitHub</a>
           </div>
         </div>
+        <div class="box" id="backup-box">
+          <h2 data-i18n="backup.title">Back-up en terugzetten</h2>
+          <p class="muted" data-i18n="backup.intro">Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server: de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.</p>
+          <h3 data-i18n="backup.make_title">Back-up maken</h3>
+          <label class="check">
+            <input type="checkbox" id="backup-links" checked>
+            <span data-i18n="backup.links_label">Neem de koppelingen mee (Mealie, Albert Heijn, Picnic, Jumbo en AI), versleuteld met een wachtwoord</span>
+          </label>
+          <div id="backup-passphrase-fields">
+            <label class="field">
+              <span data-i18n="backup.passphrase_label">Wachtwoord voor het bestand</span>
+              <input class="input" id="backup-passphrase" type="password" autocomplete="new-password">
+            </label>
+            <label class="field">
+              <span data-i18n="backup.passphrase_repeat">Herhaal het wachtwoord</span>
+              <input class="input" id="backup-passphrase-repeat" type="password" autocomplete="new-password">
+            </label>
+            <p class="muted" data-i18n="backup.links_hint">Zonder koppelingen moet je na het terugzetten alles opnieuw koppelen. Het wachtwoord wordt nergens bewaard: raak je het kwijt, dan zijn de koppelingen in dit bestand niet meer te lezen.</p>
+          </div>
+          <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
+          <div class="security-actions">
+            <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
+          </div>
+          <h3 data-i18n="backup.restore_title">Back-up terugzetten</h3>
+          <p class="muted" data-i18n="backup.restore_text">Kies een back-up van MealieShopper. Je ziet eerst wat erin zit; pas na je bevestiging worden de huidige gegevens vervangen.</p>
+          <label class="field">
+            <span data-i18n="backup.file_label">Back-upbestand</span>
+            <input class="input" id="backup-file" type="file" accept=".json,application/json">
+          </label>
+          <div class="backup-confirm" id="backup-confirm" hidden>
+            <h4 data-i18n="backup.confirm_title">Dit staat in de back-up</h4>
+            <p class="muted" id="backup-made"></p>
+            <ul id="backup-summary"></ul>
+            <p id="backup-links-line"></p>
+            <label class="field" id="backup-restore-passphrase-field" hidden>
+              <span data-i18n="backup.restore_passphrase_label">Wachtwoord van dit bestand</span>
+              <input class="input" id="backup-restore-passphrase" type="password" autocomplete="off">
+            </label>
+            <div class="message error" role="alert">
+              <strong data-i18n="backup.confirm_warning">Let op: wat er nu staat aan lijstjes, bestellingen, kassabonnen, aanbiedingen en instellingen wordt vervangen door de inhoud van dit bestand. Dat kan niet ongedaan worden gemaakt.</strong>
+            </div>
+            <p class="muted" data-i18n="backup.keeps">Wat blijft staan: je gebruikers, wachtwoorden, passkeys en tweestapsverificatie, het auditlog en het webadres van deze server. Verlaat je de pagina, dan gaat het terugzetten door op de server.</p>
+            <div class="security-actions">
+              <button class="button button--danger" type="button" id="backup-restore" data-i18n="backup.restore_go">Nu terugzetten</button>
+              <button class="button button--secondary" type="button" id="backup-discard" data-i18n="common.cancel">Annuleren</button>
+            </div>
+          </div>
+          <div class="backup-progress" id="backup-progress" role="status" hidden>
+            <p id="backup-progress-label"></p>
+            <progress id="backup-progress-bar" max="100"></progress>
+            <p class="muted" id="backup-progress-note"></p>
+          </div>
+          <div id="backup-message"></div>
+          <p class="muted" id="backup-timing"></p>
+        </div>
         <div class="box" id="cleanup-box">
           <h2 data-i18n="system.cleanup_title">Opschonen</h2>
           <p class="muted" data-i18n="system.cleanup_intro">Ruim op wat je niet meer nodig hebt.</p>
@@ -1134,6 +1189,7 @@
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='backup.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
   </body>
