@@ -49,6 +49,7 @@ function offersSwitchStore(store) {
     // De keuze geldt dan alleen tot je de pagina herlaadt.
   }
   showOffers();
+  if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
 }
 
 // De voorwaarden van een aanbieding: vanaf hoeveel stuks, wat een stuk dan kost en tot wanneer ze geldt.
@@ -117,6 +118,16 @@ function renderOfferGrid() {
   $("#offers-more").hidden = shown.length <= limit;
 }
 
+// "Geldig ma 26 okt t/m zo 1 nov": de looptijd die de meeste aanbiedingen delen, of niets als de winkel er geen geeft.
+function offersPeriodText(period) {
+  if (!period) return "";
+  const from = new Date(`${String(period.from).slice(0, 10)}T12:00:00`);
+  const until = new Date(`${String(period.until).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(until.getTime())) return "";
+  const day = (date) => `${weekdayShort(date)} ${date.getDate()} ${monthShort(date)}`;
+  return t("offers.period", { from: day(from), until: day(until) });
+}
+
 function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
@@ -131,6 +142,9 @@ function renderOffers(data) {
   } else {
     status.textContent = data.syncedAt ? tn("offers.status", data.total, { when: formatSyncTime(data.syncedAt) }) : t("offers.never");
   }
+  const periodText = data.supported ? offersPeriodText(data.period) : "";
+  $("#offers-period").textContent = periodText;
+  $("#offers-period").hidden = !periodText;
   renderOfferCategories();
   renderOfferGrid();
 }
@@ -150,6 +164,7 @@ function offersShowMore() {
 // De lijst van de vorige winkel maakt plaats voor een draaiend icoon zolang de aanbiedingen van de gekozen winkel binnenkomen.
 function renderOffersLoading() {
   $("#offers-status").textContent = "";
+  $("#offers-period").hidden = true;
   $("#offers-categories").hidden = true;
   $("#offers-products").innerHTML = "";
   $("#offers-products").setAttribute("aria-busy", "true");

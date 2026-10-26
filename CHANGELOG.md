@@ -2,6 +2,83 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.77.1
+
+### Sinds de vorige stabiele versie (v2.74.0)
+
+Deze release brengt `main` van v2.74.0 naar v2.77.1. De tussenliggende versies (2.75.0 tot en met 2.77.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.74.0: the Offers screen shows the period the offers are valid for at the top, for AH Bonus and for Jumbo (for example "Valid Mon 26 Oct to Sun 1 Nov"), and ongoing AH offers such as "5% volume voordeel" no longer show a bogus "until 31 Dec"; there is a new Price history tab where you search for a product and see in a chart how often it was on offer and at what price; and the Python dependencies were updated (Flask 3.1.3, PyJWT 2.15.0, requests 2.33.0). Rebuild the container.*
+
+- **De looptijd van de AH Bonus staat bovenaan de aanbiedingen (2.75.0).** Bijvoorbeeld *Geldig ma 26 okt t/m zo 1 nov*: de looptijd die de meeste aanbiedingen delen, uit de begin- en einddatum die AH per aanbieding meegeeft. Doorlopende aanbiedingen als *5% volume voordeel* (bij AH met einddatum 31-12-2999) hebben geen einddatum meer en stonden eerst ten onrechte met *t/m 31 dec* op de kaart.
+- **De looptijd van de Jumbo-aanbiedingen (2.76.0).** Jumbo geeft per promotie een begin en een einde; die staan nu bovenaan en op elke kaart, en een verlopen Jumbo-aanbieding verdwijnt na de einddatum uit de lijst. Picnic geeft geen datums.
+- **Nieuw subtab Prijsgeschiedenis bij Aanbiedingen (2.77.0 en 2.77.1).** Zoek een product en zie in een grafiek elke keer dat het in de aanbieding was, voor welke prijs en in welke week, met de gewone prijs als stippellijn, de laagste en hoogste actieprijs en een tabel met dezelfde periodes. De geschiedenis bewaart nu ook de begindatum van de winkel, en dezelfde actie in een nieuwe week telt als een nieuwe keer. Prijslabels in de grafiek vallen niet meer over elkaar (2.77.1).
+- **Afhankelijkheden bijgewerkt:** Flask 3.1.3, PyJWT 2.15.0 en requests 2.33.0 (Dependabot).
+
+#### Goed om te weten bij het bijwerken
+
+- **Bouw de container opnieuw:** `requirements.txt` heeft nieuwe versies van Flask, PyJWT en requests. Haal je de image `:latest` op, dan zit dat erin; bouw je zelf, bouw dan opnieuw.
+- **Synchroniseer de aanbiedingen één keer opnieuw** (Instellingen, Koppelen): een kopie en geschiedenis van vóór deze versie hebben de begindatum van de winkel nog niet. De database krijgt de nieuwe kolommen (`offers.valid_from` en `offer_history.valid_from`) vanzelf, en een back-up van een eerdere versie laat zich gewoon terugzetten.
+- **Het scherm Aanbiedingen heeft een nieuw script.** Laad de pagina één keer opnieuw als het tabblad Prijsgeschiedenis niet vanzelf verschijnt (in de geïnstalleerde app: sluiten en weer openen).
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: In the Price history chart the price labels no longer overlap each other, the bars or the "Regular price" text. A label goes above its bar, or else below it, or a line higher or lower; if it fits nowhere it is left out (the price is still in the hover text and the table).*
+
+### Opgelost in 2.77.1
+
+- **Prijslabels in de grafiek van de Prijsgeschiedenis vielen over elkaar**, vooral bij een product dat vaak en kort na elkaar in de aanbieding was en op een smal scherm. Een label staat nu boven zijn balk, anders eronder, anders een regel hoger of lager, en raakt geen ander label, geen balk en niet de tekst *Gewone prijs*. Past het nergens, dan blijft het label weg; de prijs staat altijd nog in de hovertekst van de balk en in de tabel eronder.
+- Compose- of `.env`-bestanden zijn niet gewijzigd. Laad de pagina één keer opnieuw als de grafiek er nog hetzelfde uitziet.
+
+## v2.77.0
+
+*English summary: The Offers screen has a new Price history tab. Search for a product and see in a chart how often it was on offer and at what price: every time is a bar over the store's validity period, with a dashed line for the regular price and an arrow for an offer that is still running. The history now also keeps the start date of each offer, so the bars show the real offer week; the same deal in a new week counts as a new time.*
+
+### Nieuw in 2.77.0
+
+- **Nieuw subtab Prijsgeschiedenis bij Aanbiedingen.** Zoek een product van de gekozen winkel (AH, Picnic of Jumbo) en kies het uit de lijst. De grafiek toont elke keer dat het in de aanbieding was als een balk op de actieprijs, over de looptijd van de aanbieding; een aanbieding die nog loopt eindigt in een pijl, en een stippellijn geeft de gewone prijs. Daarboven staan het aantal keren, de laagste en de hoogste actieprijs, de gewone prijs en wanneer het product voor het laatst is gezien; eronder staat een tabel met dezelfde periodes (ook voor schermlezers). De tab werkt in licht en donker en op een telefoon. Hij gebruikt de bestaande route `GET /api/offers/history`, die ook voor alle ingelogde gebruikers openstaat.
+- **De geschiedenis bewaart nu de begindatum van de aanbieding** (`valid_from` in `offer_history`, wordt vanzelf toegevoegd). De balken tonen daardoor de echte week van de winkel in plaats van het moment dat MealieShopper het product toevallig zag. De route geeft per periode `validFrom`, `start`, `end` en `open`, en per product `regularPrice` en `highestPrice`.
+- **Dezelfde actie in een nieuwe week telt als een nieuwe keer.** Begint de looptijd op een andere dag dan die van de open periode, dan sluit MealieShopper die en begint een nieuwe, ook als prijs en label gelijk zijn. Zo klopt *3 keer in de aanbieding* ook bij een actie die elke week terugkomt.
+
+#### Goed om te weten bij het bijwerken
+
+- **De geschiedenis van vóór deze versie heeft nog geen begindatum van de winkel.** Die rijen tonen de balk van de eerste tot de laatste synchronisatie; nieuwe synchronisaties vullen de begindatum aan zonder iets op te splitsen. Een back-up van een eerdere versie laat zich gewoon terugzetten.
+- De pagina laadt een nieuw script (`offers_history.js`); laad de pagina één keer opnieuw als de tab niet vanzelf verschijnt.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+## v2.76.0
+
+*English summary: Jumbo offers now carry their period too. Jumbo gives each promotion a start and an end, so the Offers screen can show "Valid Wed 21 Oct to Tue 27 Oct" above the Jumbo offers, like it does for AH Bonus. The Jumbo explorer asks for the real fields.*
+
+### Nieuw in 2.76.0
+
+- **De looptijd van de Jumbo-aanbiedingen.** Jumbo geeft per promotie een begin en een einde (`start { iso }` en `end { iso }`, met een echt Jumbo-antwoord bevestigd). Bij de aanbiedingen van Jumbo staat nu dezelfde regel bovenaan als bij AH, bijvoorbeeld *Geldig wo 21 okt t/m di 27 okt*, en elke kaart toont *t/m* de einddatum. Een verlopen Jumbo-aanbieding verdwijnt na de einddatum uit de lijst.
+- Heeft een product meer promoties (een weekactie en een seizoensactie), dan telt de promotie die nu loopt en het eerst eindigt. Jumbo's weekactie loopt van woensdag tot en met dinsdag, niet van maandag tot en met zondag.
+- Kent Jumbo de velden ooit niet meer, dan zoekt de app verder zonder looptijd, in plaats van te stoppen met ophalen.
+- **De Jumbo-verkenner** (Beheer, Winkels) vraagt de looptijd altijd mee en probeert geen veldnamen meer die niet bestaan (`startDate`, `endDate`, `validFrom`, `validUntil`).
+
+#### Goed om te weten bij het bijwerken
+
+- Synchroniseer de Jumbo-aanbiedingen één keer opnieuw: een kopie van vóór deze versie heeft nog geen looptijd.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+## v2.75.0
+
+*English summary: The AH Bonus now shows the period the offers are valid for at the top of the Offers screen (for example "Valid Mon 26 Oct to Sun 1 Nov"), taken from the start and end dates AH gives per offer. Ongoing "volume discount" offers, which AH gives the end date 31 Dec 2999, no longer show a bogus "until 31 Dec".*
+
+### Nieuw in 2.75.0
+
+- **De looptijd van de bonus staat bovenaan de aanbiedingen.** Boven het aantal aanbiedingen staat nu bijvoorbeeld *Geldig ma 26 okt t/m zo 1 nov*: de looptijd die de meeste aanbiedingen delen. Die komt uit de begin- en einddatum die AH per aanbieding meegeeft (`bonusStartDate` en `bonusEndDate`, met een echt AH-antwoord bevestigd). Geeft een winkel geen datums, dan blijft de regel weg.
+- **De begindatum wordt bewaard** (`valid_from` bij de lokale kopie van de aanbiedingen). Een kopie van vóór deze versie krijgt hem bij de volgende synchronisatie; zolang staat er geen periode bovenaan.
+
+### Opgelost in 2.75.0
+
+- **Doorlopende aanbiedingen** ("5% volume voordeel" en dergelijke) hebben bij AH `31-12-2999` als einddatum. Ze stonden daardoor met *t/m 31 dec* op de kaart. Nu hebben ze geen einddatum, en tellen ze niet mee in de looptijd bovenaan.
+
+#### Goed om te weten bij het bijwerken
+
+- Pas de database niet handmatig aan: de nieuwe kolom wordt vanzelf toegevoegd. Een back-up van een eerdere versie laat zich gewoon terugzetten.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
 ## v2.74.0
 
 *English summary: Settings > System has a new Backup and restore card. One click makes a single file with everything in the database, including the links with Mealie, Albert Heijn, Picnic, Jumbo and the AI keys (encrypted with a password you choose) and the whole history of the (bonus) offers, and restoring it brings the app back to a working state, also on a new server. The restore is checked completely before anything changes, is all or nothing, shows its progress and keeps running on the server if you leave the page.*

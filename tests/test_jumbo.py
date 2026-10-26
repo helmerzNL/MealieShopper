@@ -43,6 +43,7 @@ class TempDataDirTest(unittest.TestCase):
         auth.init_db()
         jumbo._access_cache.update(token="", expires_at=0.0)
         jumbo._search_variant = 0
+        jumbo._promo_dates = True
 
     def link(self, refresh="ref"):
         auth.set_secret(jumbo.REFRESH_SECRET, refresh)
@@ -274,6 +275,42 @@ class SearchTest(TempDataDirTest):
         self.assertEqual(jumbo._search_variant, 2)
         self.assertEqual(calls[-1], calls[2])
         self.assertNotIn("subtitle", calls[2])
+
+    def test_promotion_period_comes_from_start_and_end(self):
+        week = {"tags": [{"text": "2 voor 3,99"}], "start": {"iso": "2026-10-21T00:01:00+02:00"}, "end": {"iso": "2026-10-27T23:59:59+01:00"}}
+        found = jumbo.products_from_search(self.data(product("5", "Kaas", promotions=[week])))[0]
+        self.assertEqual((found["promo"]["validFrom"], found["promo"]["validUntil"]), ("2026-10-21", "2026-10-27"))
+
+    def test_the_period_is_the_running_promotion_that_ends_first(self):
+        today = jumbo.datetime.date(2026, 10, 26)
+        season = {"start": {"iso": "2026-01-07T00:00:00+01:00"}, "end": {"iso": "2026-11-17T23:59:59+01:00"}}
+        week = {"start": {"iso": "2026-10-21T00:01:00+02:00"}, "end": {"iso": "2026-10-27T23:59:59+01:00"}}
+        later = {"start": {"iso": "2026-11-01T00:00:00+01:00"}, "end": {"iso": "2026-11-07T23:59:59+01:00"}}
+        expired = {"start": {"iso": "2026-09-01T00:00:00+02:00"}, "end": {"iso": "2026-09-07T23:59:59+02:00"}}
+        self.assertEqual(jumbo._promotion_period({"promotions": [season, week]}, today), ("2026-10-21", "2026-10-27"))
+        self.assertEqual(jumbo._promotion_period({"promotions": [expired, later]}, today), ("2026-11-01", "2026-11-07"))
+        self.assertEqual(jumbo._promotion_period({"promotions": [expired]}, today), ("2026-09-01", "2026-09-07"))
+
+    def test_a_promotion_without_dates_has_no_period(self):
+        self.assertEqual(jumbo._promotion_period({"promotions": [{"tags": [{"text": "x"}]}, {"start": None, "end": None}, "?"]}), (None, None))
+        self.assertEqual(jumbo._promotion_period({}), (None, None))
+
+    def test_the_query_asks_for_the_period_and_drops_it_when_jumbo_does_not_know_it(self):
+        calls = []
+
+        def fake(query, variables, operation, client=jumbo.BASKET_CLIENT):
+            calls.append(query)
+            if "start { iso }" in query:
+                raise jumbo.JumboSchemaError('Cannot query field "start" on type "Promotion".')
+            return self.data(product("1", "Melk"))
+
+        with mock.patch.object(jumbo, "_graphql", side_effect=fake):
+            self.assertEqual(len(jumbo.search_products("melk")), 1)
+            self.assertEqual(len(jumbo.search_products("melk")), 1)
+        self.assertEqual(len(calls), 3)  # met looptijd mislukt, zonder gelukt, daarna direct zonder
+        self.assertIn("start { iso } end { iso }", calls[0])
+        self.assertNotIn("start", calls[1])
+        self.assertEqual((jumbo._search_variant, jumbo._promo_dates), (0, False))
 
     def test_search_sends_a_keyword_search(self):
         with mock.patch.object(jumbo, "_graphql", return_value=self.data()) as graphql:

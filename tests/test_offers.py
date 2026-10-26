@@ -113,6 +113,22 @@ class OffersStoreTest(TempDataDirTest):
         self.assertEqual((data["total"], data["expired"]), (1, 1))
         self.assertEqual(data["offers"][0]["validity"], "valid")
 
+    def test_period_of_the_offers_is_given_for_the_header(self):
+        week = {"validFrom": "2026-10-26", "validUntil": "2999-01-01", "promoLabel": "50% korting", "price": 1.0, "priceBefore": 2.0}
+        items = [
+            {"id": "31", "title": "Pasta", **week},
+            {"id": "32", "title": "Rijst", **week},
+            {"id": "33", "title": "Volume voordeel", "validFrom": "2026-10-26", "validUntil": None, "price": 1.0, "priceBefore": 1.1},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: items}):
+            offers.sync("ah")
+        data = offers.load("ah")
+        self.assertEqual(data["period"], {"from": "2026-10-26", "until": "2999-01-01"})
+        self.assertEqual(data["offers"][0]["validFrom"], "2026-10-26")
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [items[2]]}):
+            offers.sync("ah")
+        self.assertIsNone(offers.load("ah")["period"])
+
     def test_saving_uses_the_unit_price_of_the_condition(self):
         second_half = {"price": 4.0, "priceBefore": 4.0, "unitPrice": 3.0}
         self.assertEqual(offers.saving_of(second_half), 1.0)
@@ -530,10 +546,28 @@ class OffersTabMarkupTest(unittest.TestCase):
         section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
         self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
         self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
-        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions"])
+        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"])
         self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
+        self.assertIn('<div id="offers-history" class="subpanel">', section)
         self.assertNotIn("offers-store-slot", section)
+
+    def test_the_price_history_tab_is_wired_to_the_history_route(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        script = (root / "static" / "offers_history.js").read_text(encoding="utf-8")
+        offers_js = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertLess(html.index("offers.js"), html.index("offers_history.js"))
+        self.assertIn("/api/offers/history?", script)
+        self.assertIn("offersState.store", script)
+        self.assertIn('data-subtab="offers-history"', script)
+        self.assertIn("offerHistoryStoreChanged", offers_js, "wisselen van winkel ververst de geschiedenis")
+        self.assertIn("taken.some(", script, "prijslabels in de grafiek ontwijken elkaar, de balken en de tekst Gewone prijs")
+        for hook in ("offers-history-search", "offers-history-list", "offers-history-detail", "offers-history-status"):
+            self.assertIn(f'id="{hook}"', html)
+            self.assertIn(f"#{hook}", script)
 
     def test_recipes_have_a_heading_and_a_course_filter_above_them(self):
         from pathlib import Path
