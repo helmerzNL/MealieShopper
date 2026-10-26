@@ -49,6 +49,7 @@ function offersSwitchStore(store) {
     // De keuze geldt dan alleen tot je de pagina herlaadt.
   }
   showOffers();
+  if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
 }
 
 // De voorwaarden van een aanbieding: vanaf hoeveel stuks, wat een stuk dan kost en tot wanneer ze geldt.

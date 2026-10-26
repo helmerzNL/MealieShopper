@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS offer_history (
   promo_label TEXT,
   image TEXT,
   url TEXT,
+  valid_from TEXT,
   valid_until TEXT,
   first_seen TEXT NOT NULL,
   last_seen TEXT NOT NULL,
@@ -178,6 +179,9 @@ def _connect():
     # Een kopie van vóór de looptijd heeft geen begindatum; die komt bij de volgende synchronisatie.
     if "valid_from" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
         conn.execute("ALTER TABLE offers ADD COLUMN valid_from TEXT")
+    # Een geschiedenis van vóór de looptijd heeft geen begindatum; oude rijen houden `first_seen` als begin.
+    if "valid_from" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_history)")}:
+        conn.execute("ALTER TABLE offer_history ADD COLUMN valid_from TEXT")
     # Een index van vóór de soorten gerecht heeft die kolom nog niet; de soort volgt bij de volgende keer inlezen.
     if "course" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")}:
         conn.execute("ALTER TABLE offer_recipes ADD COLUMN course TEXT")
@@ -336,21 +340,26 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
     Per product loopt er hooguit een open rij (`ended_at` leeg). Staat het product nog in de aanbieding met dezelfde prijs en
     hetzelfde label, dan wordt die rij bijgewerkt. Veranderen prijs of label, dan wordt de rij gesloten en begint een nieuwe die
     `continued` krijgt: het is dezelfde aanbieding, dus telt hij niet als een nieuwe keer. Is het product weg, dan wordt de rij
-    gesloten en komt het later terug als een nieuwe keer.
+    gesloten en komt het later terug als een nieuwe keer. Begint de looptijd op een andere dag dan die van de open rij (beide
+    bekend), dan is het een nieuwe aanbiedingsperiode: ook dan een nieuwe keer, ook al is de prijs gelijk.
     """
     current = {item["id"]: item for item in items}
     handled: set[str] = set()
     changed: set[str] = set()
-    for row in conn.execute("SELECT id, product_id, price, price_before, promo_label FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)).fetchall():
+    for row in conn.execute("SELECT id, product_id, price, price_before, promo_label, valid_from FROM offer_history WHERE store = ? AND ended_at IS NULL", (store,)).fetchall():
         item = current.get(row["product_id"])
+        new_period = item is not None and bool(row["valid_from"]) and bool(item["validFrom"]) and row["valid_from"] != item["validFrom"]
+        if new_period:
+            conn.execute("UPDATE offer_history SET ended_at = last_seen WHERE id = ?", (row["id"],))
+            continue
         if item is not None and row["product_id"] not in handled and _details(item["price"], item["priceBefore"], item["promoLabel"]) == _details(row["price"], row["price_before"], row["promo_label"]):
             handled.add(row["product_id"])
             conn.execute(
                 """
                 UPDATE offer_history SET last_seen = ?, syncs = syncs + 1, title = ?, brand = ?, unit_size = ?, category = ?,
-                  image = ?, url = ?, valid_until = ? WHERE id = ?
+                  image = ?, url = ?, valid_from = COALESCE(?, valid_from), valid_until = ? WHERE id = ?
                 """,
-                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validUntil"], row["id"]),
+                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validFrom"], item["validUntil"], row["id"]),
             )
             continue
         if item is not None:
@@ -359,17 +368,33 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
     conn.executemany(
         """
         INSERT INTO offer_history
-          (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, image, url, valid_until,
+          (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, image, url, valid_from, valid_until,
            first_seen, last_seen, continued)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (store, item["id"], item["title"], item["brand"], item["unitSize"], item["category"], item["price"], item["priceBefore"],
-             item["promoLabel"], item["image"], item["url"], item["validUntil"], now, now, 1 if item["id"] in changed else 0)
+             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], now, now, 1 if item["id"] in changed else 0)
             for item in items
             if item["id"] not in handled
         ],
     )
+
+
+def _episode_span(row) -> dict[str, Any]:
+    """De dagen waarop een periode in de aanbieding was, als ISO-datums voor de grafiek.
+
+    Het begin is de begindatum van de winkel, of de dag dat wij het product voor het eerst zagen. Het einde is de einddatum van
+    de winkel, of de dag dat we het voor het laatst zagen. Een doorlopende aanbieding die nog loopt heeft geen einde (`open`).
+    """
+    start = deals.parse_date(row["valid_from"]) or deals.parse_date(row["first_seen"])
+    end = deals.parse_date(row["valid_until"])
+    is_open = end is None and row["ended_at"] is None
+    if end is None and not is_open:
+        end = deals.parse_date(row["ended_at"])
+    if start is not None and end is not None and end < start:
+        start = end
+    return {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None, "open": is_open}
 
 
 def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, Any]:
@@ -407,8 +432,10 @@ def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, An
                 "price": row["price"],
                 "priceBefore": row["price_before"],
                 "promoLabel": row["promo_label"] or "",
+                "validFrom": row["valid_from"],
                 "validUntil": row["valid_until"],
                 "syncs": row["syncs"],
+                **_episode_span(row),
             }
         )
         product["timesOnOffer"] += 0 if row["continued"] else 1
@@ -419,6 +446,9 @@ def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, An
     for product in products.values():
         prices = [e["price"] for e in product["episodes"] if isinstance(e["price"], (int, float))]
         product["lowestPrice"] = min(prices) if prices else None
+        product["highestPrice"] = max(prices) if prices else None
+        before = [e["priceBefore"] for e in product["episodes"] if isinstance(e["priceBefore"], (int, float))]
+        product["regularPrice"] = max(before) if before else None
     ranked = sorted(products.values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
     return {"products": ranked[:limit], "total": len(ranked)}
 

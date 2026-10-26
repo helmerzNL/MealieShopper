@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.77.0
+
+*English summary: The Offers screen has a new Price history tab. Search for a product and see in a chart how often it was on offer and at what price: every time is a bar over the store's validity period, with a dashed line for the regular price and an arrow for an offer that is still running. The history now also keeps the start date of each offer, so the bars show the real offer week; the same deal in a new week counts as a new time.*
+
+### Nieuw in 2.77.0
+
+- **Nieuw subtab Prijsgeschiedenis bij Aanbiedingen.** Zoek een product van de gekozen winkel (AH, Picnic of Jumbo) en kies het uit de lijst. De grafiek toont elke keer dat het in de aanbieding was als een balk op de actieprijs, over de looptijd van de aanbieding; een aanbieding die nog loopt eindigt in een pijl, en een stippellijn geeft de gewone prijs. Daarboven staan het aantal keren, de laagste en de hoogste actieprijs, de gewone prijs en wanneer het product voor het laatst is gezien; eronder staat een tabel met dezelfde periodes (ook voor schermlezers). De tab werkt in licht en donker en op een telefoon. Hij gebruikt de bestaande route `GET /api/offers/history`, die ook voor alle ingelogde gebruikers openstaat.
+- **De geschiedenis bewaart nu de begindatum van de aanbieding** (`valid_from` in `offer_history`, wordt vanzelf toegevoegd). De balken tonen daardoor de echte week van de winkel in plaats van het moment dat MealieShopper het product toevallig zag. De route geeft per periode `validFrom`, `start`, `end` en `open`, en per product `regularPrice` en `highestPrice`.
+- **Dezelfde actie in een nieuwe week telt als een nieuwe keer.** Begint de looptijd op een andere dag dan die van de open periode, dan sluit MealieShopper die en begint een nieuwe, ook als prijs en label gelijk zijn. Zo klopt *3 keer in de aanbieding* ook bij een actie die elke week terugkomt.
+
+#### Goed om te weten bij het bijwerken
+
+- **De geschiedenis van vóór deze versie heeft nog geen begindatum van de winkel.** Die rijen tonen de balk van de eerste tot de laatste synchronisatie; nieuwe synchronisaties vullen de begindatum aan zonder iets op te splitsen. Een back-up van een eerdere versie laat zich gewoon terugzetten.
+- De pagina laadt een nieuw script (`offers_history.js`); laad de pagina één keer opnieuw als de tab niet vanzelf verschijnt.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
 ## v2.76.0
 
 *English summary: Jumbo offers now carry their period too. Jumbo gives each promotion a start and an end, so the Offers screen can show "Valid Wed 21 Oct to Tue 27 Oct" above the Jumbo offers, like it does for AH Bonus. The Jumbo explorer asks for the real fields.*

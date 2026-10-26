@@ -110,6 +110,46 @@ class HistoryTest(TempDataDirTest):
                          ("Kipfilet", "AH", "400 g", "vlees", "i.png", "u"))
         self.assertEqual((episode["price"], episode["priceBefore"], episode["promoLabel"], episode["validUntil"]), (3.49, 4.99, "2e halve prijs", "2026-10-07"))
 
+    def test_the_period_of_the_store_is_kept_and_shown_as_start_and_end(self):
+        self.sync(item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", validFrom="2026-10-26", validUntil="2026-11-01"))
+        product = offers.history("ah")["products"][0]
+        episode = product["episodes"][0]
+        self.assertEqual((episode["validFrom"], episode["start"], episode["end"], episode["open"]), ("2026-10-26", "2026-10-26", "2026-11-01", False))
+        self.assertEqual((product["regularPrice"], product["highestPrice"], product["lowestPrice"]), (4.99, 3.49, 3.49))
+
+    def test_without_the_dates_of_the_store_the_span_follows_the_syncs(self):
+        self.sync(item("1", "Kipfilet"))
+        self.sync(item("1", "Kipfilet"))
+        self.sync()
+        episode = offers.history("ah")["products"][0]["episodes"][0]
+        self.assertEqual((episode["start"], episode["end"], episode["open"]), ("2026-10-01", "2026-10-02", False))
+
+    def test_an_ongoing_offer_has_no_end_while_it_runs(self):
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-26", validUntil=None))
+        episode = offers.history("ah")["products"][0]["episodes"][0]
+        self.assertEqual((episode["start"], episode["end"], episode["open"]), ("2026-10-26", None, True))
+
+    def test_the_same_deal_in_a_new_week_is_a_new_time(self):
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-12", validUntil="2026-10-18"))
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
+        product = offers.history("ah")["products"][0]
+        self.assertEqual((product["timesOnOffer"], [(e["start"], e["end"]) for e in product["episodes"]]),
+                         (2, [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")]))
+        self.assertEqual(product["episodes"][1]["syncs"], 2)
+
+    def test_a_row_from_before_the_dates_gets_its_start_without_splitting(self):
+        self.sync(item("1", "Kipfilet"))
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-01", validUntil="2026-10-07"))
+        product = offers.history("ah")["products"][0]
+        self.assertEqual((product["timesOnOffer"], len(product["episodes"]), product["episodes"][0]["validFrom"]), (1, 1, "2026-10-01"))
+
+    def test_an_old_history_table_without_the_column_is_upgraded(self):
+        with auth.connect() as conn:
+            conn.executescript("DROP TABLE IF EXISTS offer_history; CREATE TABLE offer_history (id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT NOT NULL, product_id TEXT NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, category TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, ended_at TEXT, syncs INTEGER NOT NULL DEFAULT 1, continued INTEGER NOT NULL DEFAULT 0);")
+        self.sync(item("1", "Kipfilet", validFrom="2026-10-26", validUntil="2026-11-01"))
+        self.assertEqual(offers.history("ah")["products"][0]["episodes"][0]["start"], "2026-10-26")
+
     def test_a_failed_sync_leaves_the_history_alone(self):
         self.sync(item("1", "Kipfilet"))
 
