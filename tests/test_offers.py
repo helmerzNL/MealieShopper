@@ -564,6 +564,7 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn("offersState.store", script)
         self.assertIn('data-subtab="offers-history"', script)
         self.assertIn("offerHistoryStoreChanged", offers_js, "wisselen van winkel ververst de geschiedenis")
+        self.assertIn("taken.some(", script, "prijslabels in de grafiek ontwijken elkaar, de balken en de tekst Gewone prijs")
         for hook in ("offers-history-search", "offers-history-list", "offers-history-detail", "offers-history-status"):
             self.assertIn(f'id="{hook}"', html)
             self.assertIn(f"#{hook}", script)

@@ -7,6 +7,8 @@ const OFFER_HISTORY_LIMIT = 30;
 const OFFER_HISTORY_MIN_DAYS = 84; // de grafiek toont minstens twaalf weken
 const OFFER_HISTORY_BAR = 12;
 const OFFER_HISTORY_DAY = 86400000;
+const OFFER_HISTORY_LABEL_HEIGHT = 14;
+const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
 const offerHistory = { query: "", products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "" };
 
 function offerHistoryKey(product) {
@@ -99,7 +101,12 @@ function offerHistoryChart(product, width) {
     const nearEdge = x(day) > W - right - 22;
     parts.push(`<text class="ohc-axis" x="${nearEdge ? W - right : x(day)}" y="${H - bottom + 18}" text-anchor="${nearEdge ? "end" : "middle"}">${escapeHtml(offerHistoryDayText(day))}</text>`);
   }
+  // Plekken die al bezet zijn (tekst en balken); een prijslabel gaat alleen op een vrije plek.
+  const taken = [];
+  const take = (x0, x1, y0, y1) => taken.push({ x0: x0 - 2, x1: x1 + 2, y0: y0 - 1, y1: y1 + 1 });
   if (typeof product.regularPrice === "number") {
+    const regularText = t("offers.history.chart.regular", { price: offerHistoryPrice(product.regularPrice) });
+    take(left + 6, left + 6 + regularText.length * 6.2, y(product.regularPrice) - 16, y(product.regularPrice) - 2);
     parts.push(`<line class="ohc-regular" x1="${left}" x2="${W - right}" y1="${y(product.regularPrice)}" y2="${y(product.regularPrice)}"/>`);
     parts.push(`<text class="ohc-regular-label" x="${left + 6}" y="${y(product.regularPrice) - 5}" text-anchor="start">${escapeHtml(t("offers.history.chart.regular", { price: offerHistoryPrice(product.regularPrice) }))}</text>`);
   }
@@ -107,6 +114,7 @@ function offerHistoryChart(product, width) {
     parts.push(`<line class="ohc-today" x1="${x(today + 0.5)}" x2="${x(today + 0.5)}" y1="${top}" y2="${H - bottom}"/>`);
     parts.push(`<text class="ohc-axis ohc-axis--today" x="${x(today + 0.5)}" y="${top - 7}" text-anchor="middle">${escapeHtml(t("offers.history.chart.today"))}</text>`);
   }
+  const drawn = [];
   for (const bar of bars) {
     const price = bar.episode.price;
     if (typeof price !== "number") continue;
@@ -114,13 +122,33 @@ function offerHistoryChart(product, width) {
     const x1 = Math.max(x(bar.end), x0 + 4);
     const cy = y(price);
     const open = bar.episode.open;
+    drawn.push({ x0, x1, cy, price });
+    take(x0, x1 + (open ? 9 : 0), cy - OFFER_HISTORY_BAR / 2, cy + OFFER_HISTORY_BAR / 2);
     parts.push(
       `<g class="ohc-bar${open ? " ohc-bar--open" : ""}" tabindex="0"><title>${escapeHtml(offerHistoryBarTitle(bar.episode))}</title>` +
         `<rect x="${x0}" y="${cy - OFFER_HISTORY_BAR / 2}" width="${x1 - x0}" height="${OFFER_HISTORY_BAR}" rx="3"/>` +
         (open ? `<path d="M${x1 - 1} ${cy - 8}L${x1 + 9} ${cy}L${x1 - 1} ${cy + 8}Z"/>` : "") +
         `</g>`
     );
-    parts.push(`<text class="ohc-price" x="${(x0 + x1) / 2}" y="${cy - OFFER_HISTORY_BAR / 2 - 6}" text-anchor="middle">${escapeHtml(offerHistoryPrice(price))}</text>`);
+  }
+  // De prijs bij een balk: erboven, anders eronder, anders een regel hoger of lager. Past hij nergens zonder een ander label of
+  // een balk te raken, dan blijft hij weg; de prijs staat altijd nog in het hoverlabel en in de tabel. De nieuwste balk gaat voor.
+  for (const bar of drawn.slice().reverse()) {
+    const text = offerHistoryPrice(bar.price);
+    const width = text.length * OFFER_HISTORY_CHAR_WIDTH;
+    const labelX = Math.min(Math.max((bar.x0 + bar.x1) / 2 - width / 2, left), W - right - width);
+    const above = bar.cy - OFFER_HISTORY_BAR / 2 - 5;
+    const below = bar.cy + OFFER_HISTORY_BAR / 2 + OFFER_HISTORY_LABEL_HEIGHT - 1;
+    const step = OFFER_HISTORY_LABEL_HEIGHT + 1;
+    for (const baseline of [above, below, above - step, below + step]) {
+      const y0 = baseline - OFFER_HISTORY_LABEL_HEIGHT + 2;
+      const y1 = baseline + 3;
+      if (y0 < top - 2 || y1 > H - bottom + 2) continue;
+      if (taken.some((box) => labelX < box.x1 && labelX + width > box.x0 && y0 < box.y1 && y1 > box.y0)) continue;
+      take(labelX, labelX + width, y0, y1);
+      parts.push(`<text class="ohc-price" x="${labelX}" y="${baseline}" text-anchor="start">${escapeHtml(text)}</text>`);
+      break;
+    }
   }
   const label = t("offers.history.chart.label", { product: product.title, count: product.timesOnOffer });
   return `<svg class="ohc" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(label)}">${parts.join("")}</svg>`;
