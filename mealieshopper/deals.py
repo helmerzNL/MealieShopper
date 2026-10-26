@@ -157,6 +157,23 @@ def validity(valid_from: Any, valid_until: Any, today: date | None = None) -> st
     return VALID
 
 
+def common_period(offers: list[dict[str, Any]]) -> dict[str, str] | None:
+    """De looptijd die de meeste aanbiedingen delen, als `{"from", "until"}` met ISO-datums; None als er geen is.
+
+    Alleen aanbiedingen met een begin- én einddatum tellen mee: een doorlopende aanbieding heeft geen einde en zegt niets over
+    de week. Bij gelijke aantallen wint de periode die het laatst eindigt.
+    """
+    counts: dict[tuple[date, date], int] = {}
+    for offer in offers:
+        start, end = parse_date(offer.get("validFrom")), parse_date(offer.get("validUntil"))
+        if start is not None and end is not None and start <= end:
+            counts[(start, end)] = counts.get((start, end), 0) + 1
+    if not counts:
+        return None
+    start, end = max(counts, key=lambda period: (counts[period], period[1]))
+    return {"from": start.isoformat(), "until": end.isoformat()}
+
+
 def describe(
     *texts: Any,
     price_now: float | None = None,

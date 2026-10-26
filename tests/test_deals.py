@@ -186,6 +186,22 @@ class DescribeTests(unittest.TestCase):
         self.assertEqual(deals.describe("25% korting", valid_until="2026-10-18", today=self.TODAY)["validity"], "expired")
 
 
+class CommonPeriodTests(unittest.TestCase):
+    def test_most_shared_period_wins(self):
+        week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
+        other = {"validFrom": "2026-10-19", "validUntil": "2026-10-25"}
+        self.assertEqual(deals.common_period([week, other, week]), {"from": "2026-10-26", "until": "2026-11-01"})
+
+    def test_tie_goes_to_the_latest_end(self):
+        week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
+        other = {"validFrom": "2026-10-19", "validUntil": "2026-10-25"}
+        self.assertEqual(deals.common_period([other, week])["until"], "2026-11-01")
+
+    def test_open_ended_and_undated_offers_do_not_count(self):
+        self.assertIsNone(deals.common_period([{"validFrom": "2026-10-26", "validUntil": None}, {}, {"validUntil": "2026-11-01"}]))
+        self.assertIsNone(deals.common_period([]))
+
+
 class AhPromoTests(unittest.TestCase):
     def test_bonus_fields_are_kept(self):
         item = {
@@ -201,6 +217,21 @@ class AhPromoTests(unittest.TestCase):
         )
         deal = deals.make_deal("ah", product, date(2026, 10, 22))
         self.assertEqual((deal["mechanic"], deal["unitPrice"], deal["validity"]), ("percent", 3.0, "valid"))
+
+    def test_open_ended_bonus_has_no_end_date(self):
+        item = {"webshopId": 1, "title": "Kaas", "currentPrice": 2.0, "priceBeforeBonus": 2.5, "isBonus": True,
+                "bonusStartDate": "2026-10-26", "bonusEndDate": "2999-12-31", "bonusMechanism": "5% volume voordeel"}
+        product = ah._bonus_product(item)
+        self.assertEqual((product["validFrom"], product["validUntil"]), ("2026-10-26", None))
+        self.assertIsNone(ah._bonus_promo(item)["validUntil"])
+        self.assertEqual(ah._bonus_promo(item)["validFrom"], "2026-10-26")
+        infinite = {"webshopId": 2, "title": "Melk", "isInfiniteBonus": True, "bonusEndDate": "2026-11-01"}
+        self.assertIsNone(ah._bonus_product(infinite)["validUntil"])
+
+    def test_weekly_bonus_keeps_both_dates(self):
+        item = {"webshopId": 3, "title": "Pasta", "bonusStartDate": "2026-10-26", "bonusEndDate": "2026-11-01"}
+        product = ah._bonus_product(item)
+        self.assertEqual((product["validFrom"], product["validUntil"]), ("2026-10-26", "2026-11-01"))
 
     def test_missing_fields_stay_empty(self):
         product = ah._search_product_dict({"webshopId": 2, "title": "Ei", "currentPrice": 2.0, "isBonus": True}, "ei")

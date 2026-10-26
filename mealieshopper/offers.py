@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS offers (
   promo_label TEXT,
   image TEXT,
   url TEXT,
+  valid_from TEXT,
   valid_until TEXT,
   category TEXT,
   PRIMARY KEY (store, product_id)
@@ -174,6 +175,9 @@ def _connect():
     # Een database van vóór de categorieën heeft die kolom nog niet.
     if "category" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
         conn.execute("ALTER TABLE offers ADD COLUMN category TEXT")
+    # Een kopie van vóór de looptijd heeft geen begindatum; die komt bij de volgende synchronisatie.
+    if "valid_from" not in {row["name"] for row in conn.execute("PRAGMA table_info(offers)")}:
+        conn.execute("ALTER TABLE offers ADD COLUMN valid_from TEXT")
     # Een index van vóór de soorten gerecht heeft die kolom nog niet; de soort volgt bij de volgende keer inlezen.
     if "course" not in {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")}:
         conn.execute("ALTER TABLE offer_recipes ADD COLUMN course TEXT")
@@ -216,7 +220,7 @@ def load(store: Any) -> dict[str, Any]:
         meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
         rows = conn.execute(
             """
-            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until, category
+            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category
             FROM offers WHERE store = ? ORDER BY position
             """,
             (store,),
@@ -232,12 +236,14 @@ def load(store: Any) -> dict[str, Any]:
             "promoLabel": row["promo_label"] or "",
             "image": row["image"] or "",
             "url": row["url"] or "",
+            "validFrom": row["valid_from"],
             "validUntil": row["valid_until"],
             # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
             "category": row["category"] or offer_categories.categorize(row["title"]),
             # Wat de aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
             **deals.describe(
-                row["promo_label"], price_now=row["price"], price_before=row["price_before"], valid_until=row["valid_until"]
+                row["promo_label"], price_now=row["price"], price_before=row["price_before"],
+                valid_from=row["valid_from"], valid_until=row["valid_until"],
             ),
         }
         for row in rows
@@ -250,6 +256,7 @@ def load(store: Any) -> dict[str, Any]:
         "total": len(offers),
         "expired": len(all_offers) - len(offers),
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
+        "period": deals.common_period(offers),
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
     }
@@ -283,6 +290,7 @@ def sync(store: Any) -> dict[str, Any]:
                 "promoLabel": offer.get("promoLabel") or "",
                 "image": offer.get("image") or "",
                 "url": offer.get("url") or "",
+                "validFrom": offer.get("validFrom"),
                 "validUntil": offer.get("validUntil"),
                 "category": offer_categories.categorize(offer["title"], offer.get("categoryHint")),
             }
@@ -290,7 +298,7 @@ def sync(store: Any) -> dict[str, Any]:
     rows = [
         (
             store, item["id"], position, item["title"], item["brand"], item["unitSize"], item["price"], item["priceBefore"],
-            item["promoLabel"], item["image"], item["url"], item["validUntil"], item["category"],
+            item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], item["category"],
         )
         for position, item in enumerate(items)
     ]
@@ -299,8 +307,8 @@ def sync(store: Any) -> dict[str, Any]:
         conn.executemany(
             """
             INSERT OR REPLACE INTO offers
-              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_until, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )

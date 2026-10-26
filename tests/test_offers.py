@@ -113,6 +113,22 @@ class OffersStoreTest(TempDataDirTest):
         self.assertEqual((data["total"], data["expired"]), (1, 1))
         self.assertEqual(data["offers"][0]["validity"], "valid")
 
+    def test_period_of_the_offers_is_given_for_the_header(self):
+        week = {"validFrom": "2026-10-26", "validUntil": "2999-01-01", "promoLabel": "50% korting", "price": 1.0, "priceBefore": 2.0}
+        items = [
+            {"id": "31", "title": "Pasta", **week},
+            {"id": "32", "title": "Rijst", **week},
+            {"id": "33", "title": "Volume voordeel", "validFrom": "2026-10-26", "validUntil": None, "price": 1.0, "priceBefore": 1.1},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: items}):
+            offers.sync("ah")
+        data = offers.load("ah")
+        self.assertEqual(data["period"], {"from": "2026-10-26", "until": "2999-01-01"})
+        self.assertEqual(data["offers"][0]["validFrom"], "2026-10-26")
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [items[2]]}):
+            offers.sync("ah")
+        self.assertIsNone(offers.load("ah")["period"])
+
     def test_saving_uses_the_unit_price_of_the_condition(self):
         second_half = {"price": 4.0, "priceBefore": 4.0, "unitPrice": 3.0}
         self.assertEqual(offers.saving_of(second_half), 1.0)
