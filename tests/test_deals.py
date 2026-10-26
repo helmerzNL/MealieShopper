@@ -299,15 +299,16 @@ class PromoExplorerTests(unittest.TestCase):
 
         def fake_graphql(query, variables, operation, *args):
             calls.append(query)
-            if " description" in query or " endDate" in query:
-                raise jumbo.JumboSchemaError('Cannot query field "description" on type "Promotion"; Cannot query field "endDate" on type "Promotion".')
+            if " description" in query or " maxQuantity" in query:
+                raise jumbo.JumboSchemaError('Cannot query field "description" on type "Promotion"; Cannot query field "maxQuantity" on type "Promotion".')
             return {"searchProducts": {"products": [{"promotions": [{"tags": [{"text": "2 voor 5"}], "id": "p1"}]}]}}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake_graphql):
             report = jumbo_explore._promotion_probe()
         self.assertNotIn("description", report["promotievelden die bestaan"])
-        self.assertNotIn("endDate", report["promotievelden die bestaan"])
-        self.assertIn("startDate", report["promotievelden die bestaan"])
+        self.assertNotIn("maxQuantity", report["promotievelden die bestaan"])
+        self.assertIn("validityPeriod", report["promotievelden die bestaan"])
+        self.assertTrue(all("start { iso } end { iso }" in query for query in calls), "de looptijd gaat altijd mee")
         self.assertEqual(report["teksten"]["text"], ["2 voor 5"])
         self.assertGreaterEqual(len(calls), 2)
 

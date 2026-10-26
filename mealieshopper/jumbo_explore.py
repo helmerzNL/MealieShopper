@@ -37,15 +37,16 @@ def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] |
 # Velden die een Jumbo-promotie kan hebben. Jumbo noemt bij een onbekend veld in zijn foutmelding de naam,
 # zodat we in een paar rondes de bestaande velden vinden zonder het schema te kennen.
 PROMOTION_FIELD_CANDIDATES = (
-    "id", "title", "description", "text", "name", "type", "startDate", "endDate", "validFrom", "validUntil",
-    "validityPeriod", "periodDescription", "maxQuantity", "minQuantity", "group", "campaign",
+    "id", "title", "description", "text", "name", "type", "validityPeriod", "periodDescription", "maxQuantity",
+    "minQuantity", "group", "campaign",
 )
 _FIELD_IN_ERROR = re.compile(r'[Ff]ield "(\w+)"')
 
 
 def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
-    query = jumbo._search_query("").replace(
-        "promotions { tags { text } }", "promotions { tags { text } " + " ".join(fields) + " }"
+    # De looptijd (`start` en `end`) is bevestigd en gaat altijd mee; de kandidaten zijn de rest.
+    query = jumbo._search_query("", dates=False).replace(
+        "promotions { tags { text } }", "promotions { tags { text } " + jumbo.PROMOTION_DATES + " " + " ".join(fields) + " }"
     )
     data = jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
     return [p for p in ((data.get("searchProducts") or {}).get("products") or []) if isinstance(p, dict)]

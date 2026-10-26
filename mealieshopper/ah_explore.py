@@ -65,7 +65,7 @@ def shape(value: Any, key: str = "", depth: int = 0) -> Any:
 PROMO_TERMS = ("kip", "kaas", "pasta", "bier", "ijs", "groente")
 # Velden die met een aanbieding te maken kunnen hebben, en de velden waarvan we de tekst willen zien.
 PROMO_FIELD_RE = re.compile(r"bonus|price|discount|promo|label|mechanic|valid|start|end|period|decorator|unit", re.I)
-PROMO_TEXT_RE = re.compile(r"mechanism|mechanic|label|description|period|date|text|type|start|end|valid", re.I)
+PROMO_TEXT_RE = re.compile(r"mechanism|mechanic|label|description|period|date|text|type|start|end|valid|iso", re.I)
 MAX_PROMO_TEXTS = 40
 
 
