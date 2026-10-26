@@ -1,0 +1,48 @@
+name: Onderhoud / Maintenance
+description: Opruimen, afhankelijkheden bijwerken of de build verbeteren / Cleanup, dependency upgrade or build improvement
+title: "[Chore]: "
+labels:
+- chore
+body:
+- type: dropdown
+  id: kind
+  attributes:
+    label: Wat voor werk is dit? / What kind of work is this?
+    options:
+    - Herstructureren / Refactor
+    - Afhankelijkheid bijwerken / Dependency upgrade
+    - Build, container of CI/CD / Build, container or CI/CD
+    - Tests
+    - Opruimen of dode code weghalen / Cleanup or dead code removal
+    - Ontwikkelgemak / Developer experience
+    - Migratie of afschaffing / Migration or deprecation
+  validations:
+    required: true
+- type: textarea
+  id: description
+  attributes:
+    label: Wat moet er gebeuren? / What needs to happen?
+  validations:
+    required: true
+- type: textarea
+  id: motivation
+  attributes:
+    label: Waarom nu? / Why now?
+    description: Welk risico of welke last haalt dit weg? / What risk or burden does this remove?
+  validations:
+    required: true
+- type: textarea
+  id: scope
+  attributes:
+    label: Wat raakt het? / What does it touch?
+    description: Welke mappen, modules of koppelingen, bijvoorbeeld `mealieshopper/picnic.py` of `.github/workflows/`. / Which folders, modules or links, for example `mealieshopper/picnic.py` or `.github/workflows/`.
+- type: dropdown
+  id: risk
+  attributes:
+    label: Geschat risico / Estimated risk
+    options:
+    - Laag, geen verandering in gedrag verwacht / Low, no behaviour change expected
+    - Middel, raakt bestaande functies / Medium, touches existing functionality
+    - Hoog, brekende wijziging of migratie nodig / High, breaking change or migration required
+  validations:
+    required: true
