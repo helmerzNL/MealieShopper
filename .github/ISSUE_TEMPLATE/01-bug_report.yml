@@ -1,115 +1,113 @@
-name: Bug melden
-description: Er werkt iets niet in MealieShopper
+name: Bug melden / Report a bug
+description: Er werkt iets niet in MealieShopper / Something isn't working in MealieShopper
 title: "[Bug]: "
-labels: ["bug", "triage"]
+labels:
+- bug
+- triage
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Bedankt dat je dit meldt. Kijk eerst of er al een
-        [bestaand issue](https://github.com/helmerzNL/MealieShopper/issues?q=is%3Aissue)
-        over hetzelfde gaat.
+- type: markdown
+  attributes:
+    value: |
+      Bedankt dat je dit meldt. Kijk eerst of er al een
+      [bestaand issue](https://github.com/helmerzNL/MealieShopper/issues?q=is%3Aissue)
+      over hetzelfde gaat.
 
-        Zet nooit wachtwoorden, tokens, AI-sleutels of de inhoud van `secret.key` in een issue.
+      Zet nooit wachtwoorden, tokens, AI-sleutels of de inhoud van `secret.key` in een issue.
 
-  - type: textarea
-    id: summary
-    attributes:
-      label: Wat ging er mis?
-      description: Beschrijf het probleem kort en concreet.
-      placeholder: Na "Zet in de AH-mand" blijft de controlelijst leeg.
-    validations:
+      Thanks for reporting this. Please check first whether an
+      [existing issue](https://github.com/helmerzNL/MealieShopper/issues?q=is%3Aissue)
+      already covers it.
+
+      Never put passwords, tokens, AI keys or the contents of `secret.key` in an issue.
+- type: textarea
+  id: summary
+  attributes:
+    label: Wat ging er mis? / What went wrong?
+    description: Beschrijf het probleem kort en concreet. / Describe the problem briefly and concretely.
+    placeholder: Na "Zet in de AH-mand" blijft de controlelijst leeg. / After "Add to Albert Heijn basket" the check list stays empty.
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Hoe kunnen we het zelf zien gebeuren? / How can we see this happen ourselves?
+    value: |
+      1. Ga naar '...' / Go to '...'
+      2. Klik op '...' / Click on '...'
+      3. Zie de fout / See the error
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: Wat verwachtte je? / What did you expect?
+  validations:
+    required: true
+- type: dropdown
+  id: area
+  attributes:
+    label: Waar gaat het om? / What is it about?
+    multiple: true
+    options:
+    - Weekmenu en boodschappenlijst / Week menu and shopping list
+    - Mand en controlelijst / Basket and check list
+    - Albert Heijn
+    - Picnic
+    - Jumbo
+    - Mealie-koppeling / Mealie link
+    - Aanbiedingen en receptsuggesties / Offers and recipe suggestions
+    - Recepten zoeken of importeren / Searching or importing recipes
+    - Inloggen, passkeys of gebruikers / Logging in, passkeys or users
+    - Back-up en terugzetten / Backup and restore
+    - AI of MCP / AI or MCP
+    - Installatiehulp / Setup guide
+    - Weet ik niet / I don't know
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: Versie en commit / Version and commit
+    description: Te vinden onder Instellingen, Over. Zet er ook bij of het de stabiele of de beta-versie is. / Found under Settings, About. Also say whether it is the stable or the beta version.
+    placeholder: v2.74.0 (a72cd41), stabiel / v2.74.0 (a72cd41), stable
+  validations:
+    required: true
+- type: dropdown
+  id: usage
+  attributes:
+    label: Hoe gebruik je MealieShopper? / How do you use MealieShopper?
+    options:
+    - In de browser op een computer / In the browser on a computer
+    - In de browser op een telefoon of tablet / In the browser on a phone or tablet
+    - Geïnstalleerd als app (PWA) op een computer / Installed as an app (PWA) on a computer
+    - Geïnstalleerd als app (PWA) op een telefoon of tablet / Installed as an app (PWA) on a phone or tablet
+    - Via een AI-assistent (MCP) / Through an AI assistant (MCP)
+  validations:
+    required: true
+- type: input
+  id: browser
+  attributes:
+    label: Browser en besturingssysteem / Browser and operating system
+    placeholder: Chrome 140 op Windows 11, of Safari op iOS 18.5 / Chrome 140 on Windows 11, or Safari on iOS 18.5
+  validations:
+    required: true
+- type: textarea
+  id: logs
+  attributes:
+    label: Foutmeldingen of logs / Error messages or logs
+    description: Een melding uit de app, de browserconsole of `docker logs mealieshopper --tail 100`. Haal geheimen weg. / A message from the app, the browser console or `docker logs mealieshopper --tail 100`. Remove secrets.
+    render: shell
+- type: textarea
+  id: screenshots
+  attributes:
+    label: Schermafbeeldingen / Screenshots
+    description: Sleep afbeeldingen hierheen als ze het probleem duidelijker maken. Let op dat er geen persoonlijke gegevens op staan. / Drag images here if they make the problem clearer. Make sure they show no personal data.
+- type: checkboxes
+  id: confirmation
+  attributes:
+    label: Voor je verstuurt / Before submitting
+    options:
+    - label: Ik heb gezocht naar bestaande meldingen van deze bug / I searched for existing reports of this bug
       required: true
-
-  - type: textarea
-    id: steps
-    attributes:
-      label: Hoe kunnen we het zelf zien gebeuren?
-      value: |
-        1. Ga naar '...'
-        2. Klik op '...'
-        3. Zie de fout
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Wat verwachtte je?
-    validations:
-      required: true
-
-  - type: dropdown
-    id: area
-    attributes:
-      label: Waar gaat het om?
-      multiple: true
-      options:
-        - Weekmenu en boodschappenlijst
-        - Mand en controlelijst
-        - Albert Heijn
-        - Picnic
-        - Jumbo
-        - Mealie-koppeling
-        - Aanbiedingen en receptsuggesties
-        - Recepten zoeken of importeren
-        - Inloggen, passkeys of gebruikers
-        - Back-up en terugzetten
-        - AI of MCP
-        - Installatiehulp
-        - Weet ik niet
-    validations:
-      required: true
-
-  - type: input
-    id: version
-    attributes:
-      label: Versie en commit
-      description: Te vinden onder Instellingen, Over. Zet er ook bij of het de stabiele of de beta-versie is.
-      placeholder: "v2.74.0 (a72cd41), stabiel"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: usage
-    attributes:
-      label: Hoe gebruik je MealieShopper?
-      options:
-        - In de browser op een computer
-        - In de browser op een telefoon of tablet
-        - Geïnstalleerd als app (PWA) op een computer
-        - Geïnstalleerd als app (PWA) op een telefoon of tablet
-        - Via een AI-assistent (MCP)
-    validations:
-      required: true
-
-  - type: input
-    id: browser
-    attributes:
-      label: Browser en besturingssysteem
-      placeholder: "Chrome 140 op Windows 11, of Safari op iOS 18.5"
-    validations:
-      required: true
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: Foutmeldingen of logs
-      description: Een melding uit de app, de browserconsole of `docker logs mealieshopper --tail 100`. Haal geheimen weg.
-      render: shell
-
-  - type: textarea
-    id: screenshots
-    attributes:
-      label: Schermafbeeldingen
-      description: Sleep afbeeldingen hierheen als ze het probleem duidelijker maken. Let op dat er geen persoonlijke gegevens op staan.
-
-  - type: checkboxes
-    id: confirmation
-    attributes:
-      label: Voor je verstuurt
-      options:
-        - label: Ik heb gezocht naar bestaande meldingen van deze bug
-          required: true
-        - label: Ik draai de nieuwste versie van MealieShopper
-          required: false
+    - label: Ik draai de nieuwste versie van MealieShopper / I am running the latest version of MealieShopper
+      required: false

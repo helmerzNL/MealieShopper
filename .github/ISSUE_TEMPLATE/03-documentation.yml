@@ -1,35 +1,34 @@
-name: Documentatie
-description: Er klopt iets niet in de documentatie, of er ontbreekt iets
+name: Documentatie / Documentation
+description: Er klopt iets niet in de documentatie, of er ontbreekt iets / Something in the documentation is wrong or missing
 title: "[Docs]: "
-labels: ["documentation"]
+labels:
+- documentation
 body:
-  - type: input
-    id: location
-    attributes:
-      label: Waar staat het?
-      description: Een link naar de pagina of het bestand.
-      placeholder: "README.md of README.en.md, onderdeel Updaten"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: kind
-    attributes:
-      label: Wat is het probleem?
-      options:
-        - Onjuiste informatie
-        - Ontbrekende informatie
-        - Onduidelijk of verwarrend
-        - Verouderd
-        - Nederlands en Engels komen niet overeen
-        - Typefout of spelling
-    validations:
-      required: true
-
-  - type: textarea
-    id: description
-    attributes:
-      label: Beschrijving
-      description: Wat klopt er niet, en wat zou er moeten staan?
-    validations:
-      required: true
+- type: input
+  id: location
+  attributes:
+    label: Waar staat het? / Where is it?
+    description: Een link naar de pagina of het bestand. / A link to the page or file.
+    placeholder: README.md of README.en.md, onderdeel Updaten / README.md or README.en.md, section Updating
+  validations:
+    required: true
+- type: dropdown
+  id: kind
+  attributes:
+    label: Wat is het probleem? / What's the problem?
+    options:
+    - Onjuiste informatie / Information is incorrect
+    - Ontbrekende informatie / Information is missing
+    - Onduidelijk of verwarrend / Unclear or confusing
+    - Verouderd / Out of date
+    - Nederlands en Engels komen niet overeen / Dutch and English do not match
+    - Typefout of spelling / Typo or spelling
+  validations:
+    required: true
+- type: textarea
+  id: description
+  attributes:
+    label: Beschrijving / Description
+    description: Wat klopt er niet, en wat zou er moeten staan? / What is wrong, and what should it say instead?
+  validations:
+    required: true

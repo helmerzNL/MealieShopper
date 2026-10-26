@@ -1,72 +1,67 @@
-name: Releasechecklist
-description: Standaardchecklist om een nieuwe versie uit te brengen
-title: "Release x.y.z"
-labels: ["release"]
+name: Releasechecklist / Release checklist
+description: Standaardchecklist om een nieuwe versie uit te brengen / Standard checklist for shipping a new version
+title: Release x.y.z
+labels:
+- release
 body:
-  - type: input
-    id: version
-    attributes:
-      label: Versienummer
-      description: Alleen X.Y.Z, zoals in het bestand `VERSION`.
-      placeholder: "2.75.0"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: channel
-    attributes:
-      label: Waar gaat de versie heen?
-      options:
-        - Beta (pull request naar beta)
-        - Stabiel (promotie van beta naar main)
-    validations:
-      required: true
-
-  - type: textarea
-    id: highlights
-    attributes:
-      label: Belangrijkste wijzigingen
-      description: Korte lijst voor de releasetekst.
-    validations:
-      required: true
-
-  - type: checkboxes
-    id: preparation
-    attributes:
-      label: Voorbereiding
-      options:
-        - label: "`VERSION` is verhoogd"
-        - label: "`CHANGELOG.md` heeft bovenaan een kopje `## vX.Y.Z` met features, fixes, verwijderde dingen en pull requests"
-        - label: Interface (`static/i18n/`), README's en voorbeeld-`.env`-bestanden zijn in het Nederlands en Engels gelijk
-        - label: Nieuwe tabellen met gegevens staan in `backup.DATA_TABLES` of bewust in `EXCLUDED_TABLES`
-        - label: Wijzigingen in Compose of `.env.example` zijn in de pull request als instructie voor de beheerder beschreven
-
-  - type: checkboxes
-    id: testing
-    attributes:
-      label: Testen
-      options:
-        - label: "`python -m unittest discover -s tests` slaagt"
-        - label: De pull request richt zich op `beta` en de check `Pull request target` is groen
-        - label: Bijwerken vanaf de vorige versie getest, met bestaande gegevens
-        - label: Back-up maken en terugzetten getest bij wijzigingen aan de database
-        - label: Gebruik op een telefoon (PWA) getest
-
-  - type: checkboxes
-    id: rollout
-    attributes:
-      label: Uitrol
-      options:
-        - label: Gemerged naar `beta`, de workflows `docker.yml` en `release.yml` zijn geslaagd
-        - label: De pre-release `vX.Y.Z-beta` staat op GitHub met de tekst uit het changelog
-        - label: Image `ghcr.io/helmerznl/mealieshopper:beta` is gebouwd
-        - label: Alleen op verzoek van de eigenaar, de promotie van `beta` naar `main`
-        - label: Alleen bij een promotie, de stabiele release `vX.Y.Z` en de image `latest` staan er
-
-  - type: checkboxes
-    id: after
-    attributes:
-      label: Na de release
-      options:
-        - label: Foutmeldingen en nieuwe issues worden in de gaten gehouden
-        - label: Documentatie is bijgewerkt
+- type: input
+  id: version
+  attributes:
+    label: Versienummer / Version number
+    description: Alleen X.Y.Z, zoals in het bestand `VERSION`. / Only X.Y.Z, as in the `VERSION` file.
+    placeholder: 2.75.0
+  validations:
+    required: true
+- type: dropdown
+  id: channel
+  attributes:
+    label: Waar gaat de versie heen? / Where does the version go?
+    options:
+    - Beta (pull request naar beta) / Beta (pull request to beta)
+    - Stabiel (promotie van beta naar main) / Stable (promotion from beta to main)
+  validations:
+    required: true
+- type: textarea
+  id: highlights
+  attributes:
+    label: Belangrijkste wijzigingen / Main changes
+    description: Korte lijst voor de releasetekst. / Short list for the release notes.
+  validations:
+    required: true
+- type: checkboxes
+  id: preparation
+  attributes:
+    label: Voorbereiding / Preparation
+    options:
+    - label: "`VERSION` is verhoogd / `VERSION` is raised"
+    - label: "`CHANGELOG.md` heeft bovenaan een kopje `## vX.Y.Z` met features, fixes, verwijderde dingen en pull requests / `CHANGELOG.md` has a heading `## vX.Y.Z` at the top with features, fixes, removed things and pull requests"
+    - label: Interface (`static/i18n/`), README's en voorbeeld-`.env`-bestanden zijn in het Nederlands en Engels gelijk / Interface (`static/i18n/`), READMEs and example `.env` files are the same in Dutch and English
+    - label: Nieuwe tabellen met gegevens staan in `backup.DATA_TABLES` of bewust in `EXCLUDED_TABLES` / New data tables are in `backup.DATA_TABLES` or deliberately in `EXCLUDED_TABLES`
+    - label: Wijzigingen in Compose of `.env.example` zijn in de pull request als instructie voor de beheerder beschreven / Changes to Compose or `.env.example` are described in the pull request as an instruction for the operator
+- type: checkboxes
+  id: testing
+  attributes:
+    label: Testen / Testing
+    options:
+    - label: "`python -m unittest discover -s tests` slaagt / `python -m unittest discover -s tests` passes"
+    - label: De pull request richt zich op `beta` en de check `Pull request target` is groen / The pull request targets `beta` and the `Pull request target` check is green
+    - label: Bijwerken vanaf de vorige versie getest, met bestaande gegevens / Upgrade from the previous version tested, with existing data
+    - label: Back-up maken en terugzetten getest bij wijzigingen aan de database / Backup and restore tested when the database changed
+    - label: Gebruik op een telefoon (PWA) getest / Use on a phone (PWA) tested
+- type: checkboxes
+  id: rollout
+  attributes:
+    label: Uitrol / Rollout
+    options:
+    - label: Gemerged naar `beta`, de workflows `docker.yml` en `release.yml` zijn geslaagd / Merged to `beta`, the `docker.yml` and `release.yml` workflows succeeded
+    - label: De pre-release `vX.Y.Z-beta` staat op GitHub met de tekst uit het changelog / The pre-release `vX.Y.Z-beta` is on GitHub with the text from the changelog
+    - label: Image `ghcr.io/helmerznl/mealieshopper:beta` is gebouwd / Image `ghcr.io/helmerznl/mealieshopper:beta` is built
+    - label: Alleen op verzoek van de eigenaar, de promotie van `beta` naar `main` / Only at the owner's request, the promotion from `beta` to `main`
+    - label: Alleen bij een promotie, de stabiele release `vX.Y.Z` en de image `latest` staan er / Only for a promotion, the stable release `vX.Y.Z` and the `latest` image are there
+- type: checkboxes
+  id: after
+  attributes:
+    label: Na de release / After the release
+    options:
+    - label: Foutmeldingen en nieuwe issues worden in de gaten gehouden / Error reports and new issues are being monitored
+    - label: Documentatie is bijgewerkt / Documentation is updated
