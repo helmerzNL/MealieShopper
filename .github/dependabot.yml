@@ -1,0 +1,30 @@
+# Dependabot-updates gaan naar beta, net als elke andere pull request (zie CLAUDE.md, Branches).
+# Zonder target-branch richt Dependabot zich op de standaardbranch main, en daar laat
+# pr-target.yml elke pull request die niet uit beta komt falen.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+    groups:
+      pip:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
