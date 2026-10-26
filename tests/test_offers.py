@@ -546,10 +546,27 @@ class OffersTabMarkupTest(unittest.TestCase):
         section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
         self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
         self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
-        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions"])
+        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"])
         self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
+        self.assertIn('<div id="offers-history" class="subpanel">', section)
         self.assertNotIn("offers-store-slot", section)
+
+    def test_the_price_history_tab_is_wired_to_the_history_route(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        script = (root / "static" / "offers_history.js").read_text(encoding="utf-8")
+        offers_js = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        self.assertLess(html.index("offers.js"), html.index("offers_history.js"))
+        self.assertIn("/api/offers/history?", script)
+        self.assertIn("offersState.store", script)
+        self.assertIn('data-subtab="offers-history"', script)
+        self.assertIn("offerHistoryStoreChanged", offers_js, "wisselen van winkel ververst de geschiedenis")
+        for hook in ("offers-history-search", "offers-history-list", "offers-history-detail", "offers-history-status"):
+            self.assertIn(f'id="{hook}"', html)
+            self.assertIn(f"#{hook}", script)
 
     def test_recipes_have_a_heading_and_a_course_filter_above_them(self):
         from pathlib import Path
