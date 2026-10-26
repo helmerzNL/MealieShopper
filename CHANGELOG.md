@@ -4,6 +4,24 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.77.1
 
+### Sinds de vorige stabiele versie (v2.74.0)
+
+Deze release brengt `main` van v2.74.0 naar v2.77.1. De tussenliggende versies (2.75.0 tot en met 2.77.0) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.74.0: the Offers screen shows the period the offers are valid for at the top, for AH Bonus and for Jumbo (for example "Valid Mon 26 Oct to Sun 1 Nov"), and ongoing AH offers such as "5% volume voordeel" no longer show a bogus "until 31 Dec"; there is a new Price history tab where you search for a product and see in a chart how often it was on offer and at what price; and the Python dependencies were updated (Flask 3.1.3, PyJWT 2.15.0, requests 2.33.0). Rebuild the container.*
+
+- **De looptijd van de AH Bonus staat bovenaan de aanbiedingen (2.75.0).** Bijvoorbeeld *Geldig ma 26 okt t/m zo 1 nov*: de looptijd die de meeste aanbiedingen delen, uit de begin- en einddatum die AH per aanbieding meegeeft. Doorlopende aanbiedingen als *5% volume voordeel* (bij AH met einddatum 31-12-2999) hebben geen einddatum meer en stonden eerst ten onrechte met *t/m 31 dec* op de kaart.
+- **De looptijd van de Jumbo-aanbiedingen (2.76.0).** Jumbo geeft per promotie een begin en een einde; die staan nu bovenaan en op elke kaart, en een verlopen Jumbo-aanbieding verdwijnt na de einddatum uit de lijst. Picnic geeft geen datums.
+- **Nieuw subtab Prijsgeschiedenis bij Aanbiedingen (2.77.0 en 2.77.1).** Zoek een product en zie in een grafiek elke keer dat het in de aanbieding was, voor welke prijs en in welke week, met de gewone prijs als stippellijn, de laagste en hoogste actieprijs en een tabel met dezelfde periodes. De geschiedenis bewaart nu ook de begindatum van de winkel, en dezelfde actie in een nieuwe week telt als een nieuwe keer. Prijslabels in de grafiek vallen niet meer over elkaar (2.77.1).
+- **Afhankelijkheden bijgewerkt:** Flask 3.1.3, PyJWT 2.15.0 en requests 2.33.0 (Dependabot).
+
+#### Goed om te weten bij het bijwerken
+
+- **Bouw de container opnieuw:** `requirements.txt` heeft nieuwe versies van Flask, PyJWT en requests. Haal je de image `:latest` op, dan zit dat erin; bouw je zelf, bouw dan opnieuw.
+- **Synchroniseer de aanbiedingen één keer opnieuw** (Instellingen, Koppelen): een kopie en geschiedenis van vóór deze versie hebben de begindatum van de winkel nog niet. De database krijgt de nieuwe kolommen (`offers.valid_from` en `offer_history.valid_from`) vanzelf, en een back-up van een eerdere versie laat zich gewoon terugzetten.
+- **Het scherm Aanbiedingen heeft een nieuw script.** Laad de pagina één keer opnieuw als het tabblad Prijsgeschiedenis niet vanzelf verschijnt (in de geïnstalleerde app: sluiten en weer openen).
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
 *English summary: In the Price history chart the price labels no longer overlap each other, the bars or the "Regular price" text. A label goes above its bar, or else below it, or a line higher or lower; if it fits nowhere it is left out (the price is still in the hover text and the table).*
 
 ### Opgelost in 2.77.1
