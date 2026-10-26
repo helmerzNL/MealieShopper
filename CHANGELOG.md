@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.77.1
+
+*English summary: In the Price history chart the price labels no longer overlap each other, the bars or the "Regular price" text. A label goes above its bar, or else below it, or a line higher or lower; if it fits nowhere it is left out (the price is still in the hover text and the table).*
+
+### Opgelost in 2.77.1
+
+- **Prijslabels in de grafiek van de Prijsgeschiedenis vielen over elkaar**, vooral bij een product dat vaak en kort na elkaar in de aanbieding was en op een smal scherm. Een label staat nu boven zijn balk, anders eronder, anders een regel hoger of lager, en raakt geen ander label, geen balk en niet de tekst *Gewone prijs*. Past het nergens, dan blijft het label weg; de prijs staat altijd nog in de hovertekst van de balk en in de tabel eronder.
+- Compose- of `.env`-bestanden zijn niet gewijzigd. Laad de pagina één keer opnieuw als de grafiek er nog hetzelfde uitziet.
+
 ## v2.77.0
 
 *English summary: The Offers screen has a new Price history tab. Search for a product and see in a chart how often it was on offer and at what price: every time is a bar over the store's validity period, with a dashed line for the regular price and an arrow for an offer that is still running. The history now also keeps the start date of each offer, so the bars show the real offer week; the same deal in a new week counts as a new time.*
