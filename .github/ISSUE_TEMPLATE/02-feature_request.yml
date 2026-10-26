@@ -1,0 +1,70 @@
+name: Functie voorstellen / Suggest a feature
+description: Stel een nieuwe functie of verbetering voor / Suggest a new feature or improvement
+title: "[Feature]: "
+labels:
+- enhancement
+- triage
+body:
+- type: textarea
+  id: problem
+  attributes:
+    label: Welk probleem lost dit op? / What problem does this solve?
+    description: Beschrijf waar je tegenaan loopt, liever dan meteen een oplossing te geven. / Describe the situation you run into, rather than jumping straight to a solution.
+    placeholder: Ik wil de aanbiedingen van deze week zien naast mijn weekmenu, maar moet nu steeds wisselen van tab. / I want to see this week's offers next to my week menu, but now I keep switching tabs.
+  validations:
+    required: true
+- type: textarea
+  id: solution
+  attributes:
+    label: Voorgestelde oplossing / Proposed solution
+    description: Hoe zou het volgens jou moeten werken? / How do you think this should work?
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatieven / Alternatives
+    description: Andere manieren om dit op te lossen? Hoe doe je het nu? / Any other ways to solve this? How do you work around it today?
+- type: dropdown
+  id: area
+  attributes:
+    label: Waar gaat het om? / What is it about?
+    multiple: true
+    options:
+    - Weekmenu en boodschappenlijst / Week menu and shopping list
+    - Mand en controlelijst / Basket and check list
+    - Albert Heijn
+    - Picnic
+    - Jumbo
+    - Een andere supermarkt / Another supermarket
+    - Mealie-koppeling / Mealie link
+    - Aanbiedingen en receptsuggesties / Offers and recipe suggestions
+    - Recepten zoeken of importeren / Searching or importing recipes
+    - Gebruikers en beveiliging / Users and security
+    - AI of MCP / AI or MCP
+    - Uiterlijk en gebruik op een telefoon / Appearance and use on a phone
+    - Anders / Other
+  validations:
+    required: true
+- type: dropdown
+  id: importance
+  attributes:
+    label: Hoe belangrijk is dit voor jou? / How important is this to you?
+    options:
+    - Leuk voor ooit / Nice to have some day
+    - Zou MealieShopper duidelijk beter maken / Would clearly improve MealieShopper
+    - Ik loop er dagelijks tegenaan / I run into this daily
+  validations:
+    required: true
+- type: textarea
+  id: context
+  attributes:
+    label: Meer context / Additional context
+    description: Schetsen, schermafbeeldingen van andere apps, links, alles wat helpt. / Sketches, screenshots from other apps, links, anything that helps.
+- type: checkboxes
+  id: confirmation
+  attributes:
+    label: Voor je verstuurt / Before submitting
+    options:
+    - label: Ik heb gezocht naar bestaande verzoeken voor deze functie / I searched for existing requests for this feature
+      required: true

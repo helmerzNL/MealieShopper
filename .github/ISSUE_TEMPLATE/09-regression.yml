@@ -1,0 +1,76 @@
+name: Regressie / Regression
+description: Iets werkte vroeger en is nu stuk / Something that used to work is now broken
+title: "[Regression]: "
+labels:
+- bug
+- regression
+- priority:high
+body:
+- type: textarea
+  id: summary
+  attributes:
+    label: Wat werkt niet meer? / What stopped working?
+  validations:
+    required: true
+- type: input
+  id: last_good
+  attributes:
+    label: Laatste versie waarin het werkte / Last version where it worked
+    placeholder: 2.73.1
+  validations:
+    required: true
+- type: input
+  id: first_bad
+  attributes:
+    label: Eerste versie waarin het stuk was / First version where it broke
+    placeholder: 2.74.0
+  validations:
+    required: true
+- type: dropdown
+  id: channel
+  attributes:
+    label: Welke lijn draai je? / Which line do you run?
+    options:
+    - Stabiel / Stable
+    - Beta
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Hoe kunnen we het zelf zien gebeuren? / How can we see this happen ourselves?
+    value: |
+      1.
+      2.
+      3.
+  validations:
+    required: true
+- type: dropdown
+  id: area
+  attributes:
+    label: Waar gaat het om? / What is it about?
+    multiple: true
+    options:
+    - Weekmenu en mand / Week menu and basket
+    - Albert Heijn
+    - Picnic
+    - Jumbo
+    - Mealie-koppeling / Mealie link
+    - Aanbiedingen / Offers
+    - Inloggen en gebruikers / Logging in and users
+    - Back-up en terugzetten / Backup and restore
+    - AI of MCP / AI or MCP
+    - Server en container / Server and container
+  validations:
+    required: true
+- type: input
+  id: commit
+  attributes:
+    label: Vermoedelijke commit of pull request / Suspected commit or pull request
+    description: Als je hebt gezocht of een vermoeden hebt. / If you bisected it or have a hunch.
+    placeholder: "#134 of a1b2c3d / #134 or a1b2c3d"
+- type: textarea
+  id: logs
+  attributes:
+    label: Foutmeldingen of logs / Error messages or logs
+    render: shell

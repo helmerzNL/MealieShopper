@@ -1,0 +1,63 @@
+name: Prestaties / Performance
+description: Traagheid of hoog geheugengebruik / Slowness or high memory use
+title: "[Performance]: "
+labels:
+- performance
+body:
+- type: textarea
+  id: summary
+  attributes:
+    label: Wat is traag of zwaar? / What is slow or heavy?
+    placeholder: Het weekmenu laden duurt meer dan 10 seconden. / Loading the week menu takes over 10 seconds.
+  validations:
+    required: true
+- type: dropdown
+  id: kind
+  attributes:
+    label: Soort probleem / Type of problem
+    multiple: true
+    options:
+    - Traag laden / Slow load time
+    - Haperend scrollen of bladeren / Janky scrolling or paging
+    - Hoog geheugengebruik van de server / High memory use on the server
+    - Traag zoeken of opzoeken van producten / Slow searching or product lookup
+    - Traag bijwerken van de aanbiedingen / Slow refresh of the offers
+    - Trage back-up of herstel / Slow backup or restore
+    - Veel dataverkeer / High data usage
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Wanneer gebeurt het? / When does it happen?
+    value: |
+      1.
+      2.
+      3.
+  validations:
+    required: true
+- type: input
+  id: size
+  attributes:
+    label: Omvang van je gegevens / Size of your data
+    description: Aantal recepten in Mealie, ingrediënten in het weekmenu of aanbiedingen in de historie helpt bij het vinden van schaalproblemen. / The number of recipes in Mealie, ingredients in the week menu or offers in the history helps us spot scaling problems.
+    placeholder: ongeveer 1500 recepten / around 1500 recipes
+- type: input
+  id: measurement
+  attributes:
+    label: Gemeten waarde / Measured value
+    description: Bijvoorbeeld laadtijd in seconden of geheugengebruik in MB. / For example load time in seconds or memory use in MB.
+    placeholder: 10,4 s tot het weekmenu staat / 10.4 s until the week menu shows
+- type: input
+  id: device
+  attributes:
+    label: Apparaat, browser en versie / Device, browser and version
+    description: "Bij een probleem op de server: waarop draait de container, bijvoorbeeld een NAS of Raspberry Pi. / For a problem on the server: what the container runs on, for example a NAS or Raspberry Pi."
+    placeholder: Synology DS220+, Chrome 140, MealieShopper v2.74.0
+  validations:
+    required: true
+- type: textarea
+  id: profile
+  attributes:
+    label: Meetgegevens / Profiling data
+    description: Een Lighthouse-score, een prestatieprofiel uit de ontwikkelaarstools of `docker stats`. Niet verplicht, wel welkom. / A Lighthouse score, a performance profile from the developer tools or `docker stats`. Optional but very welcome.

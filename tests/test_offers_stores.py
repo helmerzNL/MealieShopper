@@ -488,7 +488,8 @@ class ScheduleTest(TempDataDirTest):
 
     def test_status_remembers_the_last_run(self):
         self.assertIsNone(offers_schedule.status()["lastRun"])
-        offers_schedule.sync_now()
+        with mock.patch.object(offers_schedule, "_local_now", return_value=datetime(2026, 10, 24, 12, 0).astimezone()):
+            offers_schedule.sync_now()
         status = offers_schedule.status()
         self.assertEqual((status["lastTrigger"], status["lastResult"]["stores"]["ah"]["count"], status["hour"]), ("manual", 1, 5))
         self.assertTrue(status["enabled"] and status["nextRun"])

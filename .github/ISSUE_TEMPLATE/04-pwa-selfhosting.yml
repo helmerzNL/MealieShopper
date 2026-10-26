@@ -1,0 +1,119 @@
+name: Webapp en eigen server / Web app and own server
+description: Een probleem met de webapp, het installeren als app of je eigen installatie / A problem with the web app, installing it as an app or your own installation
+title: "[Install]: "
+labels:
+- bug
+- platform:pwa
+- triage
+body:
+- type: markdown
+  attributes:
+    value: |
+      Gebruik dit voor problemen met de webapp, het installeren als app (PWA) of
+      het draaien van je eigen MealieShopper-container (Docker, Compose, Unraid).
+      Zet nooit wachtwoorden, tokens of AI-sleutels in een issue.
+
+      Use this for problems with the web app, installing it as an app (PWA) or
+      running your own MealieShopper container (Docker, Compose, Unraid).
+      Never put passwords, tokens or AI keys in an issue.
+- type: textarea
+  id: summary
+  attributes:
+    label: Wat ging er mis? / What went wrong?
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Hoe kunnen we het zelf zien gebeuren? / How can we see this happen ourselves?
+    value: |
+      1.
+      2.
+      3.
+  validations:
+    required: true
+- type: dropdown
+  id: hosting
+  attributes:
+    label: Hoe draai je MealieShopper? / How do you run MealieShopper?
+    options:
+    - Docker Compose (bijvoorbeeld op Unraid) / Docker Compose (for example on Unraid)
+    - Docker (docker run)
+    - Lokaal vanuit de broncode / Locally from the source code
+    - Anders / Other
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: Versie of image-tag / Version or image tag
+    description: Onder Instellingen, Over, of de tag in je compose-bestand. / Under Settings, About, or the tag in your compose file.
+    placeholder: v2.74.0 of ghcr.io/helmerznl/mealieshopper:beta / v2.74.0 or ghcr.io/helmerznl/mealieshopper:beta
+  validations:
+    required: true
+- type: dropdown
+  id: channel
+  attributes:
+    label: Welke lijn draai je? / Which line do you run?
+    options:
+    - Stabiel (latest of een versienummer) / Stable (latest or a version number)
+    - Beta
+  validations:
+    required: true
+- type: dropdown
+  id: mode
+  attributes:
+    label: Hoe gebruik je de app? / How do you use the app?
+    options:
+    - In een browsertabblad / In a browser tab
+    - Geïnstalleerd als app (PWA) op een computer / Installed as an app (PWA) on a computer
+    - Geïnstalleerd als app (PWA) op een telefoon of tablet / Installed as an app (PWA) on a phone or tablet
+  validations:
+    required: true
+- type: input
+  id: browser
+  attributes:
+    label: Browser en versie / Browser and version
+    placeholder: Chrome 140 / Safari 18.5 / Firefox 141
+  validations:
+    required: true
+- type: dropdown
+  id: infra
+  attributes:
+    label: Wat staat er tussen je browser en MealieShopper? / What sits between your browser and MealieShopper?
+    multiple: true
+    options:
+    - Reverse proxy (Nginx, Nginx Proxy Manager, Traefik, Caddy)
+    - Cloudflare of een andere CDN / Cloudflare or another CDN
+    - Eigen TLS-certificaat of Let's Encrypt / Own TLS certificate or Let's Encrypt
+    - Een eigen poort of een submap / A custom port or a subpath
+    - Alleen het lokale netwerk, zonder HTTPS / Local network only, without HTTPS
+    - Niets hiervan / None of the above
+- type: input
+  id: datapath
+  attributes:
+    label: Data-map op de host / Data folder on the host
+    description: Het deel voor de dubbele punt in de mount naar `/data`. / The part before the colon in the mount to `/data`.
+    placeholder: /mnt/user/appdata/mealieshopper
+- type: textarea
+  id: console
+  attributes:
+    label: Fouten in de browserconsole en het netwerk / Browser console and network errors
+    description: Open de ontwikkelaarstools (Console en Netwerk) en plak relevante fouten. / Open the developer tools (Console and Network) and paste any relevant errors.
+    render: shell
+- type: textarea
+  id: serverlogs
+  attributes:
+    label: Serverlogs / Server logs
+    description: Bijvoorbeeld `docker logs mealieshopper --tail 100`. Haal geheimen weg. / For example `docker logs mealieshopper --tail 100`. Remove secrets.
+    render: shell
+- type: checkboxes
+  id: tried
+  attributes:
+    label: Al geprobeerd / Already tried
+    options:
+    - label: De pagina geforceerd herladen en de cache geleegd / Hard refresh and cleared the cache
+    - label: Het in een privévenster of een andere browser geprobeerd / Tested in a private window or a different browser
+    - label: De app als PWA verwijderd en opnieuw geïnstalleerd / Removed the PWA and installed it again
+    - label: Ik heb gezocht naar bestaande meldingen van dit probleem / I searched for existing reports of this problem
+      required: true
