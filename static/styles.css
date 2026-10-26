@@ -3337,6 +3337,12 @@ body.has-onboarding {
   margin-top: 12px;
 }
 
+/* Aanbiedingen: de looptijd van de bonus, vet boven het aantal aanbiedingen. */
+.offers-period {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
 /* Aanbiedingen: categorieën als knoppen met het aantal ("5x Groente & Fruit"). */
 .offer-cats {
   display: flex;

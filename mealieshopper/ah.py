@@ -575,6 +575,19 @@ def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
     return product
 
 
+# AH geeft een doorlopende bonus (zoals "5% volume voordeel") als einddatum 2999-12-31. Dat is geen einddatum.
+OPEN_ENDED_YEAR = 2900
+
+
+def _bonus_end(item: dict[str, Any]) -> str | None:
+    """De laatste dag van een bonus, of None als die doorloopt of onbekend is."""
+    end = item.get("bonusEndDate") or None
+    if not end or item.get("isInfiniteBonus"):
+        return None
+    text = str(end)
+    return None if text[:4].isdigit() and int(text[:4]) >= OPEN_ENDED_YEAR else text
+
+
 def _bonus_promo(item: dict[str, Any]) -> dict[str, Any]:
     """Wat AH over de bonus meegeeft: mechaniek, gewone prijs en looptijd.
 
@@ -592,7 +605,7 @@ def _bonus_promo(item: dict[str, Any]) -> dict[str, Any]:
         "mechanism": item.get("bonusMechanism") or None,
         "priceBefore": item.get("priceBeforeBonus") or None,
         "validFrom": item.get("bonusStartDate") or None,
-        "validUntil": item.get("bonusEndDate") or None,
+        "validUntil": _bonus_end(item),
     }
 
 
@@ -708,7 +721,8 @@ def _bonus_product(item: dict[str, Any], group: str = "") -> dict[str, Any] | No
         "promoLabel": _bonus_label(item, group),
         "image": (images[0].get("url") if images and isinstance(images[0], dict) else None) or None,
         "url": product_web_url(product_id),
-        "validUntil": item.get("bonusEndDate") or None,
+        "validFrom": item.get("bonusStartDate") or None,
+        "validUntil": _bonus_end(item),
         "categoryHint": item.get("mainCategory") or item.get("subCategory") or None,
     }
 

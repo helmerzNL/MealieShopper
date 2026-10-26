@@ -357,12 +357,18 @@ _SEARCH_CORE = """
 """
 SEARCH_EXTRA_FIELDS = ("subtitle image", "subtitle", "")
 _search_variant = 0
+# De looptijd van een promotie: `start` en `end` zijn objecten, met de datum en tijd (met tijdzone) in `iso`. Met een echt
+# antwoord van Jumbo bevestigd. Valt dit veld weg, dan zoeken we verder zonder looptijd (`_promo_dates`).
+PROMOTION_DATES = "start { iso } end { iso }"
+_promo_dates = True
+_DATE_FIELD_ERROR = re.compile(r'[Ff]ield "(start|end|iso)"')
 
 
-def _search_query(extra: str) -> str:
+def _search_query(extra: str, dates: bool = True) -> str:
+    core = _SEARCH_CORE.replace("tags { text } }", "tags { text } " + PROMOTION_DATES + " }") if dates else _SEARCH_CORE
     return (
         "query SearchProductsByKeyword($input: ProductSearchInput!) {\n"
-        "  searchProducts(input: $input) {\n    count\n    products {" + _SEARCH_CORE + f"      {extra}\n    }}\n  }}\n}}"
+        "  searchProducts(input: $input) {\n    count\n    products {" + core + f"      {extra}\n    }}\n  }}\n}}"
     )
 
 
@@ -378,6 +384,36 @@ def _image(raw: Any) -> str | None:
 
 def _euros(cents: Any) -> float | None:
     return round(cents / 100, 2) if isinstance(cents, (int, float)) else None
+
+
+def _promotion_period(raw: dict[str, Any], today: datetime.date | None = None) -> tuple[str | None, str | None]:
+    """De looptijd (begin, einde) van een product als ISO-datums; (None, None) als Jumbo er geen noemt.
+
+    Een product kan meerdere promoties hebben, bijvoorbeeld een weekactie en een seizoensactie. We nemen de promotie die nu
+    loopt en het eerst eindigt, dat is de periode waarvoor de aanbieding zeker geldt. Loopt er nog geen, dan de eerstvolgende;
+    zijn ze allemaal voorbij, dan de laatste.
+    """
+    today = today or datetime.date.today()
+    periods = []
+    for promotion in raw.get("promotions") or []:
+        if not isinstance(promotion, dict):
+            continue
+        start = deals.parse_date((promotion.get("start") or {}).get("iso") if isinstance(promotion.get("start"), dict) else None)
+        end = deals.parse_date((promotion.get("end") or {}).get("iso") if isinstance(promotion.get("end"), dict) else None)
+        if start or end:
+            periods.append((start, end))
+    if not periods:
+        return None, None
+    far = datetime.date.max
+    running = [p for p in periods if (p[0] is None or p[0] <= today) and (p[1] is None or p[1] >= today)]
+    upcoming = [p for p in periods if p[0] is not None and p[0] > today]
+    if running:
+        start, end = min(running, key=lambda p: p[1] or far)
+    elif upcoming:
+        start, end = min(upcoming, key=lambda p: p[0])
+    else:
+        start, end = max(periods, key=lambda p: p[1] or datetime.date.min)
+    return (start.isoformat() if start else None), (end.isoformat() if end else None)
 
 
 def _product(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -410,12 +446,12 @@ def _product(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
     if is_bonus:
         # De actietekst ("2 voor 5") en de gewone prijs, zodat `deals` kan uitrekenen wat de aanbieding inhoudt.
-        # Jumbo noemt hier geen looptijd; die blijft leeg tot een echte respons uitwijst waar die staat.
+        valid_from, valid_until = _promotion_period(raw)
         product["promo"] = {
             "label": " | ".join(tags) or None,
             "priceBefore": regular if isinstance(promo, (int, float)) and regular and regular > _euros(promo) else None,
-            "validFrom": None,
-            "validUntil": None,
+            "validFrom": valid_from,
+            "validUntil": valid_until,
         }
     return product
 
@@ -428,17 +464,21 @@ def products_from_search(data: Any) -> list[dict[str, Any]]:
 
 def _search_data(term: str) -> dict[str, Any]:
     """Het ruwe antwoord van een zoekopdracht, met de terugvalstappen van de zoekquery."""
-    global _search_variant
+    global _search_variant, _promo_dates
     variables = {"input": {"searchType": "KEYWORD", "searchTerms": term}}
     last_error: Exception | None = None
     for step in range(_search_variant, len(SEARCH_EXTRA_FIELDS)):
-        try:
-            data = _graphql(_search_query(SEARCH_EXTRA_FIELDS[step]), variables, "SearchProductsByKeyword")
-        except JumboSchemaError as exc:
-            last_error = exc
-            continue
-        _search_variant = step
-        return data
+        while True:
+            try:
+                data = _graphql(_search_query(SEARCH_EXTRA_FIELDS[step], _promo_dates), variables, "SearchProductsByKeyword")
+            except JumboSchemaError as exc:
+                if _promo_dates and _DATE_FIELD_ERROR.search(str(exc)):
+                    _promo_dates = False  # Jumbo kent de looptijd niet (meer): zoek verder zonder
+                    continue
+                last_error = exc
+                break
+            _search_variant = step
+            return data
     raise RuntimeError(str(last_error))
 
 
@@ -481,6 +521,7 @@ def _offer(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
     regular = price.get("price") if isinstance(price.get("price"), (int, float)) else None
     link = raw.get("link")
+    valid_from, valid_until = _promotion_period(raw)
     return {
         "id": str(sku),
         "title": str(title),
@@ -491,7 +532,8 @@ def _offer(raw: dict[str, Any]) -> dict[str, Any] | None:
         "promoLabel": " · ".join(dict.fromkeys(tags)),
         "image": _image(raw.get("image")),
         "url": f"{SITE_URL}{link}" if isinstance(link, str) and link.startswith("/") else None,
-        "validUntil": None,
+        "validFrom": valid_from,
+        "validUntil": valid_until,
     }
 
 

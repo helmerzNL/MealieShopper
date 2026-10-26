@@ -19,6 +19,7 @@ class TempDataDirTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         auth.init_db()
         jumbo._search_variant = 0
+        jumbo._promo_dates = True
 
 
 def jumbo_product(sku, title, price=299, promo=None, tags=(), **extra):
@@ -28,6 +29,12 @@ def jumbo_product(sku, title, price=299, promo=None, tags=(), **extra):
 
 
 class JumboOffersTest(TempDataDirTest):
+    def test_offer_carries_the_period_of_its_promotion(self):
+        raw = jumbo_product("9", "Kaas", tags=("2 voor 3,99",))
+        raw["promotions"][0].update(start={"iso": "2026-10-21T00:01:00+02:00"}, end={"iso": "2026-10-27T23:59:59+01:00"})
+        offer = jumbo.offers_in_search({"searchProducts": {"products": [raw]}})[0]
+        self.assertEqual((offer["validFrom"], offer["validUntil"]), ("2026-10-21", "2026-10-27"))
+
     def test_only_products_with_an_action_are_offers(self):
         data = {"searchProducts": {"products": [
             jumbo_product("1", "Kipfilet", 499, 349, ["2e halve prijs"]),

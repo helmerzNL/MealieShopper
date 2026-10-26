@@ -81,6 +81,7 @@ I18N.add("nl", {
   "offers.min_quantity": "bij {count} stuks",
   "offers.unit_price": "{price} per stuk",
   "offers.valid_until": "t/m {date}",
+  "offers.period": "Geldig {from} t/m {until}",
   "offers.cat.groente_fruit": "Groente & Fruit",
   "offers.cat.vlees": "Vlees",
   "offers.cat.vis": "Vis",

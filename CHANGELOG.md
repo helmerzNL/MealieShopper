@@ -2,6 +2,40 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.76.0
+
+*English summary: Jumbo offers now carry their period too. Jumbo gives each promotion a start and an end, so the Offers screen can show "Valid Wed 21 Oct to Tue 27 Oct" above the Jumbo offers, like it does for AH Bonus. The Jumbo explorer asks for the real fields.*
+
+### Nieuw in 2.76.0
+
+- **De looptijd van de Jumbo-aanbiedingen.** Jumbo geeft per promotie een begin en een einde (`start { iso }` en `end { iso }`, met een echt Jumbo-antwoord bevestigd). Bij de aanbiedingen van Jumbo staat nu dezelfde regel bovenaan als bij AH, bijvoorbeeld *Geldig wo 21 okt t/m di 27 okt*, en elke kaart toont *t/m* de einddatum. Een verlopen Jumbo-aanbieding verdwijnt na de einddatum uit de lijst.
+- Heeft een product meer promoties (een weekactie en een seizoensactie), dan telt de promotie die nu loopt en het eerst eindigt. Jumbo's weekactie loopt van woensdag tot en met dinsdag, niet van maandag tot en met zondag.
+- Kent Jumbo de velden ooit niet meer, dan zoekt de app verder zonder looptijd, in plaats van te stoppen met ophalen.
+- **De Jumbo-verkenner** (Beheer, Winkels) vraagt de looptijd altijd mee en probeert geen veldnamen meer die niet bestaan (`startDate`, `endDate`, `validFrom`, `validUntil`).
+
+#### Goed om te weten bij het bijwerken
+
+- Synchroniseer de Jumbo-aanbiedingen één keer opnieuw: een kopie van vóór deze versie heeft nog geen looptijd.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+## v2.75.0
+
+*English summary: The AH Bonus now shows the period the offers are valid for at the top of the Offers screen (for example "Valid Mon 26 Oct to Sun 1 Nov"), taken from the start and end dates AH gives per offer. Ongoing "volume discount" offers, which AH gives the end date 31 Dec 2999, no longer show a bogus "until 31 Dec".*
+
+### Nieuw in 2.75.0
+
+- **De looptijd van de bonus staat bovenaan de aanbiedingen.** Boven het aantal aanbiedingen staat nu bijvoorbeeld *Geldig ma 26 okt t/m zo 1 nov*: de looptijd die de meeste aanbiedingen delen. Die komt uit de begin- en einddatum die AH per aanbieding meegeeft (`bonusStartDate` en `bonusEndDate`, met een echt AH-antwoord bevestigd). Geeft een winkel geen datums, dan blijft de regel weg.
+- **De begindatum wordt bewaard** (`valid_from` bij de lokale kopie van de aanbiedingen). Een kopie van vóór deze versie krijgt hem bij de volgende synchronisatie; zolang staat er geen periode bovenaan.
+
+### Opgelost in 2.75.0
+
+- **Doorlopende aanbiedingen** ("5% volume voordeel" en dergelijke) hebben bij AH `31-12-2999` als einddatum. Ze stonden daardoor met *t/m 31 dec* op de kaart. Nu hebben ze geen einddatum, en tellen ze niet mee in de looptijd bovenaan.
+
+#### Goed om te weten bij het bijwerken
+
+- Pas de database niet handmatig aan: de nieuwe kolom wordt vanzelf toegevoegd. Een back-up van een eerdere versie laat zich gewoon terugzetten.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
 ## v2.74.0
 
 *English summary: Settings > System has a new Backup and restore card. One click makes a single file with everything in the database, including the links with Mealie, Albert Heijn, Picnic, Jumbo and the AI keys (encrypted with a password you choose) and the whole history of the (bonus) offers, and restoring it brings the app back to a working state, also on a new server. The restore is checked completely before anything changes, is all or nothing, shows its progress and keeps running on the server if you leave the page.*

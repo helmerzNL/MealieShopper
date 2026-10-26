@@ -81,6 +81,7 @@ I18N.add("en", {
   "offers.min_quantity": "when you buy {count}",
   "offers.unit_price": "{price} each",
   "offers.valid_until": "until {date}",
+  "offers.period": "Valid {from} to {until}",
   "offers.cat.groente_fruit": "Vegetables & Fruit",
   "offers.cat.vlees": "Meat",
   "offers.cat.vis": "Fish",
