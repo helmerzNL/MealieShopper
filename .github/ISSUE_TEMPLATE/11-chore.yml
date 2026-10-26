@@ -1,0 +1,51 @@
+name: Onderhoud
+description: Opruimen, afhankelijkheden bijwerken of de build verbeteren
+title: "[Onderhoud]: "
+labels: ["chore"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Wat voor werk is dit?
+      options:
+        - Herstructureren
+        - Afhankelijkheid bijwerken
+        - Build, container of CI/CD
+        - Tests
+        - Opruimen of dode code weghalen
+        - Ontwikkelgemak
+        - Migratie of afschaffing
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Wat moet er gebeuren?
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Waarom nu?
+      description: Welk risico of welke last haalt dit weg?
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Wat raakt het?
+      description: Welke mappen, modules of koppelingen, bijvoorbeeld `mealieshopper/picnic.py` of `.github/workflows/`.
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Geschat risico
+      options:
+        - Laag, geen verandering in gedrag verwacht
+        - Middel, raakt bestaande functies
+        - Hoog, brekende wijziging of migratie nodig
+    validations:
+      required: true

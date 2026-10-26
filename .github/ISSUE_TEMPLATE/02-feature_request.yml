@@ -1,0 +1,74 @@
+name: Functie voorstellen
+description: Stel een nieuwe functie of verbetering voor
+title: "[Functie]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welk probleem lost dit op?
+      description: Beschrijf waar je tegenaan loopt, liever dan meteen een oplossing te geven.
+      placeholder: Ik wil de aanbiedingen van deze week zien naast mijn weekmenu, maar moet nu steeds wisselen van tab.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Voorgestelde oplossing
+      description: Hoe zou het volgens jou moeten werken?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatieven
+      description: Andere manieren om dit op te lossen? Hoe doe je het nu?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Waar gaat het om?
+      multiple: true
+      options:
+        - Weekmenu en boodschappenlijst
+        - Mand en controlelijst
+        - Albert Heijn
+        - Picnic
+        - Jumbo
+        - Een andere supermarkt
+        - Mealie-koppeling
+        - Aanbiedingen en receptsuggesties
+        - Recepten zoeken of importeren
+        - Gebruikers en beveiliging
+        - AI of MCP
+        - Uiterlijk en gebruik op een telefoon
+        - Anders
+    validations:
+      required: true
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: Hoe belangrijk is dit voor jou?
+      options:
+        - Leuk voor ooit
+        - Zou MealieShopper duidelijk beter maken
+        - Ik loop er dagelijks tegenaan
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Meer context
+      description: Schetsen, schermafbeeldingen van andere apps, links, alles wat helpt.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Voor je verstuurt
+      options:
+        - label: Ik heb gezocht naar bestaande verzoeken voor deze functie
+          required: true

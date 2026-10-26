@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Een kwetsbaarheid melden
+    url: https://github.com/helmerzNL/MealieShopper/security/advisories/new
+    about: Meld kwetsbaarheden privé. Open hiervoor nooit een openbaar issue.

@@ -1,0 +1,124 @@
+name: Webapp en eigen server
+description: Een probleem met de webapp, het installeren als app of je eigen installatie
+title: "[Installatie]: "
+labels: ["bug", "platform:pwa", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gebruik dit voor problemen met de webapp, het installeren als app (PWA) of
+        het draaien van je eigen MealieShopper-container (Docker, Compose, Unraid).
+        Zet nooit wachtwoorden, tokens of AI-sleutels in een issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Wat ging er mis?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Hoe kunnen we het zelf zien gebeuren?
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Hoe draai je MealieShopper?
+      options:
+        - Docker Compose (bijvoorbeeld op Unraid)
+        - Docker (docker run)
+        - Lokaal vanuit de broncode
+        - Anders
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Versie of image-tag
+      description: Onder Instellingen, Over, of de tag in je compose-bestand.
+      placeholder: "v2.74.0 of ghcr.io/helmerznl/mealieshopper:beta"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Welke lijn draai je?
+      options:
+        - Stabiel (latest of een versienummer)
+        - Beta
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Hoe gebruik je de app?
+      options:
+        - In een browsertabblad
+        - Geïnstalleerd als app (PWA) op een computer
+        - Geïnstalleerd als app (PWA) op een telefoon of tablet
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser en versie
+      placeholder: "Chrome 140 / Safari 18.5 / Firefox 141"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: infra
+    attributes:
+      label: Wat staat er tussen je browser en MealieShopper?
+      multiple: true
+      options:
+        - Reverse proxy (Nginx, Nginx Proxy Manager, Traefik, Caddy)
+        - Cloudflare of een andere CDN
+        - Eigen TLS-certificaat of Let's Encrypt
+        - Een eigen poort of een submap
+        - Alleen het lokale netwerk, zonder HTTPS
+        - Niets hiervan
+
+  - type: input
+    id: datapath
+    attributes:
+      label: Data-map op de host
+      description: Het deel voor de dubbele punt in de mount naar `/data`.
+      placeholder: "/mnt/user/appdata/mealieshopper"
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Fouten in de browserconsole en het netwerk
+      description: Open de ontwikkelaarstools (Console en Netwerk) en plak relevante fouten.
+      render: shell
+
+  - type: textarea
+    id: serverlogs
+    attributes:
+      label: Serverlogs
+      description: Bijvoorbeeld `docker logs mealieshopper --tail 100`. Haal geheimen weg.
+      render: shell
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: Al geprobeerd
+      options:
+        - label: De pagina geforceerd herladen en de cache geleegd
+        - label: Het in een privévenster of een andere browser geprobeerd
+        - label: De app als PWA verwijderd en opnieuw geïnstalleerd
+        - label: Ik heb gezocht naar bestaande meldingen van dit probleem
+          required: true
