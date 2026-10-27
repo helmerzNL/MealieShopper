@@ -406,8 +406,8 @@ class MarkupTest(unittest.TestCase):
         readme_en = (root / "README.en.md").read_text(encoding="utf-8")
         for name in ("anthropic", "openai"):
             self.assertRegex(html, rf'<input class="input" id="ai-key-{name}" type="password"[^>]*autocomplete="off"')
-        self.assertIn('id="ai-review-box"', html)
-        self.assertLess(html.index('id="offers-sync-box"'), html.index('id="ai-review-box"'), "onder Instellingen > Koppelen, na de aanbiedingen")
+        self.assertIn('id="ai-login-box"', html)
+        self.assertLess(html.index('id="offers-sync-box"'), html.index('id="ai-login-box"'), "onder Instellingen > Koppelen, na de aanbiedingen")
         self.assertIn('id="offers-ai-bar" data-admin-only', html)
         self.assertIn('id="offers-ai-run" type="button" hidden', html, "de knop staat verborgen tot er een sleutel is")
         self.assertLess(html.index("offers.js"), html.index("ai_review.js"))

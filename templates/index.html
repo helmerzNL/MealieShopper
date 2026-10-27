@@ -841,55 +841,57 @@
           <ul class="offers-sync-list" id="offers-sync-stores"></ul>
           <p class="muted" id="offers-sync-schedule"></p>
         </div>
-        <div class="box" id="ai-review-box">
-          <h2 data-i18n="aireview.title">AI-beoordeling van koppelingen</h2>
-          <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
-          <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
-          <form class="auth-form" id="ai-review-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="aireview.provider">Gebruik</span>
-              <select class="input" id="ai-provider">
-                <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
-                <option value="anthropic">Claude (Anthropic)</option>
-                <option value="openai">ChatGPT (OpenAI)</option>
-              </select>
-            </label>
-            <div class="ai-provider">
-              <h3>Claude (Anthropic)</h3>
-              <p class="muted" id="ai-status-anthropic"></p>
+        <div class="box fold" id="ai-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="true" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ai-login-body">
+            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="field">
-                <span data-i18n="aireview.key">API-sleutel</span>
-                <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                <span data-i18n="aireview.provider">Gebruik</span>
+                <select class="input" id="ai-provider">
+                  <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="openai">ChatGPT (OpenAI)</option>
+                </select>
               </label>
-              <label class="field">
-                <span data-i18n="aireview.model">Model</span>
-                <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
-              </label>
-              <div class="toolbar">
-                <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
-                <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              <div class="ai-provider">
+                <h3>Claude (Anthropic)</h3>
+                <p class="muted" id="ai-status-anthropic"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
               </div>
-            </div>
-            <div class="ai-provider">
-              <h3>ChatGPT (OpenAI)</h3>
-              <p class="muted" id="ai-status-openai"></p>
-              <label class="field">
-                <span data-i18n="aireview.key">API-sleutel</span>
-                <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
-              </label>
-              <label class="field">
-                <span data-i18n="aireview.model">Model</span>
-                <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
-              </label>
-              <div class="toolbar">
-                <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
-                <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              <div class="ai-provider">
+                <h3>ChatGPT (OpenAI)</h3>
+                <p class="muted" id="ai-status-openai"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
               </div>
-            </div>
-            <div class="toolbar">
-              <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
-            </div>
-          </form>
+              <div class="toolbar">
+                <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
+              </div>
+            </form>
+          </div>
           <div id="ai-review-message"></div>
         </div>
         <div class="box fold" id="mealie-login-box">
