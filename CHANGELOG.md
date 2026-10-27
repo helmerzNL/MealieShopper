@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.4
+
+### Nieuw in 2.79.4
+
+- **Het blok AI-beoordeling van koppelingen is inklapbaar.** Onder Instellingen > Koppelen heeft het blok nu een kop met een pijltje, net als Mealie en de winkels erna. Staat er al een API-sleutel (in de app of als omgevingsvariabele), dan staat het blok ingeklapt; zonder sleutel staat het open. Een keuze die je zelf maakt blijft staan. De melding na het opslaan blijft zichtbaar ook als het blok dicht is.
+- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe script meteen ophaalt.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen).
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: the "AI review of links" block under Settings > Link can now be collapsed, like Mealie and the stores below it. With an API key already set (in the app or as an environment variable) the block starts collapsed; without a key it starts open. A choice you make yourself stays, and the message after saving stays visible when the block is closed. The scripts have a new address so the browser fetches the new script right away. Reload the page once (installed app: close and reopen).*
+
 ## v2.79.3
 
 ### Nieuw in 2.79.3
