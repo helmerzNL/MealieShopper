@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import re
 import threading
 import time
@@ -25,7 +26,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from . import about, auth
+from . import about, auth, mealie
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -43,6 +44,14 @@ _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 _JSON_LD = re.compile(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', re.S)
 _DURATION = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?$")
 _TAGS = re.compile(r"<[^>]+>")
+
+_IMAGE = re.compile(r"^(https://img\.hellofresh\.com)/[^/]+/(hellofresh_s3/image/[^/?#]+)$")
+NUTRITION_FIELDS = (
+    "calories", "fatContent", "saturatedFatContent", "carbohydrateContent", "sugarContent", "proteinContent",
+    "fiberContent", "sodiumContent",
+)
+
+logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hellofresh_menus (
@@ -312,8 +321,24 @@ def source_url(key: str) -> str:
     return f"{BASE}/recipes/{key}"
 
 
-def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
-    """Het recept als schema.org Recipe; Mealie importeert dat zonder zelf de pagina op te halen."""
+def image_url(url: Any) -> str:
+    """Het foto-adres als vaste JPG: `f_auto` van HelloFresh geeft soms WebP of AVIF, en Mealie bewaart liever een gewone afbeelding."""
+    found = _IMAGE.match(str(url or ""))
+    return f"{found.group(1)}/f_jpg,q_auto,w_1200/{found.group(2)}" if found else str(url or "")
+
+
+def _nutrition(data: Any) -> dict[str, str]:
+    """Alleen de gevulde, bekende velden als tekst: de pagina heeft ook `null`-waarden en een eigen `servingSize`."""
+    if not isinstance(data, dict):
+        return {}
+    return {key: str(data[key]).strip() for key in NUTRITION_FIELDS if data.get(key) not in (None, "")}
+
+
+def jsonld(recipe: dict[str, Any], minimal: bool = False) -> dict[str, Any]:
+    """Het recept als schema.org Recipe; Mealie importeert dat zonder zelf de pagina op te halen.
+
+    Met `minimal` zonder foto en voedingswaarden: de import van het recept zelf hoeft daar niet op stuk te lopen.
+    """
     if not recipe["name"] or not (recipe["ingredients"] or recipe["steps"]):
         raise HelloFreshError(tr("Dit HelloFresh-recept heeft geen ingrediënten of bereiding", "This HelloFresh recipe has no ingredients or steps"))
     data: dict[str, Any] = {
@@ -326,12 +351,42 @@ def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
     }
     if recipe.get("description"):
         data["description"] = recipe["description"]
-    if recipe.get("image"):
-        data["image"] = [recipe["image"]]
     if recipe.get("portions"):
         data["recipeYield"] = recipe["portions"]
     if recipe.get("minutes"):
         data["totalTime"] = f"PT{recipe['minutes']}M"
-    if recipe.get("nutrition"):
-        data["nutrition"] = recipe["nutrition"]
+    if not minimal:
+        if recipe.get("image"):
+            data["image"] = [image_url(recipe["image"])]
+        nutrition = _nutrition(recipe.get("nutrition"))
+        if nutrition:
+            data["nutrition"] = {"@type": "NutritionInformation", **nutrition}
     return data
+
+
+def import_into_mealie(recipe: dict[str, Any]) -> str:
+    """Zet het recept in Mealie en geeft het slug. Weigert Mealie het (een 4xx), dan nog twee pogingen: zonder foto en
+    voedingswaarden, en daarna door Mealie de HelloFresh-pagina zelf te laten lezen. Bij een 5xx stoppen we: Mealie kan
+    het recept dan al hebben aangemaakt en een nieuwe poging zou het dubbel zetten. Het antwoord van Mealie komt alleen
+    in het logboek; de gebruiker krijgt de status."""
+    url = source_url(recipe["key"])
+    attempts = (
+        ("volledig", lambda: mealie.import_via_jsonld(url, jsonld(recipe))),
+        ("zonder foto en voedingswaarden", lambda: mealie.import_via_jsonld(url, jsonld(recipe, minimal=True))),
+        ("via de pagina", lambda: mealie.import_via_url(url)),
+    )
+    last: mealie.MealieImportError | None = None
+    for label, attempt in attempts:
+        try:
+            return attempt()
+        except mealie.MealieImportError as exc:
+            logger.warning("HelloFresh-recept %s: import in Mealie (%s) mislukt: %s", recipe["key"], label, exc)
+            last = exc
+            if exc.status_code >= 500:
+                break
+    raise HelloFreshError(
+        tr(
+            f"Importeren in Mealie mislukt (Mealie antwoordde met status {last.status_code})",
+            f"Importing into Mealie failed (Mealie answered with status {last.status_code})",
+        )
+    ) from last

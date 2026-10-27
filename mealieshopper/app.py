@@ -912,7 +912,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
         try:
             recipe = hellofresh.get_recipe(recipe_key)
-            slug = mealie.import_via_jsonld(hellofresh.source_url(recipe["key"]), hellofresh.jsonld(recipe))
+            slug = hellofresh.import_into_mealie(recipe)
             return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
             app.logger.exception("HelloFresh recipe import error")

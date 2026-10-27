@@ -38,7 +38,7 @@ def recipe_page(**extra):
             {"@type": "HowToStep", "text": "<p><span>Kook de pasta.</span></p>\n<p><em>Tip: zout het water.</em></p>"},
             {"@type": "HowToStep", "text": "<p>Meng alles &amp; serveer.</p>"},
         ],
-        "nutrition": {"@type": "NutritionInformation", "calories": "600 kcal"},
+        "nutrition": {"@type": "NutritionInformation", "calories": "600 kcal", "fatContent": "20.5 g", "cholesterolContent": None, "servingSize": "757"},
     }
     recipe.update(extra)
     crumbs = {"@context": "http://schema.org/", "@type": "BreadcrumbList", "itemListElement": []}
@@ -171,6 +171,22 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual(data["recipeInstructions"][0], {"@type": "HowToStep", "text": "Kook de pasta.\nTip: zout het water."})
         self.assertEqual(data["nutrition"]["calories"], "600 kcal")
 
+    def test_the_payload_for_mealie_is_clean(self):
+        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page(image="https://img.hellofresh.com/f_auto,fl_lossy,h_640,q_auto,w_1200/hellofresh_s3/image/pasta-1.jpg"))):
+            recipe = hellofresh.get_recipe(KEY)
+        data = hellofresh.jsonld(recipe)
+        self.assertEqual(data["nutrition"], {"@type": "NutritionInformation", "calories": "600 kcal", "fatContent": "20.5 g"}, "geen null en geen servingSize")
+        self.assertEqual(data["image"], ["https://img.hellofresh.com/f_jpg,q_auto,w_1200/hellofresh_s3/image/pasta-1.jpg"], "een vaste JPG, geen f_auto")
+        minimal = hellofresh.jsonld(recipe, minimal=True)
+        self.assertNotIn("image", minimal)
+        self.assertNotIn("nutrition", minimal)
+        self.assertEqual(minimal["recipeIngredient"], data["recipeIngredient"])
+        json.dumps(data)
+
+    def test_an_image_address_of_another_shape_is_left_alone(self):
+        for url in ("https://example.com/a.jpg", "", None, "https://img.hellofresh.com/x/other/a.jpg"):
+            self.assertEqual(hellofresh.image_url(url), url or "")
+
     def test_only_a_key_of_our_own_shape_is_ever_requested(self):
         with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
             for key in ("", "6a0472a6b5c58db9dbcf6138", "../../my-account", f"{KEY}/../x", f"{KEY}?page=2", KEY.upper(), None):
@@ -235,6 +251,40 @@ class RoutesTest(TempDataDirTest):
             reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
         self.assertEqual(reply.status_code, 424)
         self.assertNotIn("geheim", reply.get_data(as_text=True))
+
+    def test_when_mealie_refuses_the_recipe_we_try_again_smaller_and_then_by_page(self):
+        refused = mealie.MealieImportError("Mealie import mislukt (400): BAD_RECIPE_DATA", 400)
+        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
+                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                mock.patch.object(mealie, "import_via_jsonld", side_effect=[refused, "slim"]) as send, \
+                mock.patch.object(mealie, "import_via_url") as by_page:
+            body = self.client.post(f"/api/hellofresh/recipes/{KEY}/import").get_json()
+        self.assertEqual(body["slug"], "slim")
+        self.assertIn("image", send.call_args_list[0].args[1])
+        self.assertNotIn("image", send.call_args_list[1].args[1])
+        by_page.assert_not_called()
+        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
+                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                mock.patch.object(mealie, "import_via_jsonld", side_effect=[refused, refused]), \
+                mock.patch.object(mealie, "import_via_url", return_value="viapagina"):
+            self.assertEqual(self.client.post(f"/api/hellofresh/recipes/{KEY}/import").get_json()["slug"], "viapagina")
+
+    def test_a_refusal_shows_the_status_of_mealie_but_not_its_answer(self):
+        refused = mealie.MealieImportError("Mealie import mislukt (400): geheim", 400)
+        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                mock.patch.object(mealie, "import_via_jsonld", side_effect=refused), mock.patch.object(mealie, "import_via_url", side_effect=refused):
+            reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 400)"}))
+        self.assertNotIn("geheim", reply.get_data(as_text=True))
+
+    def test_a_server_error_of_mealie_is_not_retried_because_the_recipe_may_exist_already(self):
+        broken = mealie.MealieImportError("Mealie import mislukt (500): geheim", 500)
+        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                mock.patch.object(mealie, "import_via_jsonld", side_effect=broken) as send, mock.patch.object(mealie, "import_via_url") as by_page:
+            reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
+        self.assertEqual(reply.get_json(), {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 500)"})
+        self.assertEqual(send.call_count, 1)
+        by_page.assert_not_called()
 
     def test_nothing_here_writes_to_hellofresh(self):
         with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
