@@ -917,7 +917,7 @@ def create_app() -> Flask:
             # poging vast in het auditlog; het volledige antwoord staat alleen in het serverlogboek.
             return hellofresh_error(exc)
 
-    # Marley Spoon: alleen het menu (er is geen receptdetail zonder token van de site, dus ook geen import)
+    # Marley Spoon: het menu, en het recept in Mealie zetten (het detail vraagt het bezoekerstoken van de receptpagina)
     def marleyspoon_error(exc: Exception) -> Any:
         if isinstance(exc, marleyspoon.MarleySpoonError):
             app.logger.warning("Marley Spoon: %s", exc, exc_info=exc.__cause__ is not None)
@@ -937,6 +937,18 @@ def create_app() -> Flask:
         try:
             return jsonify(marleyspoon.search(request.args.get("q")))
         except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.post("/api/marleyspoon/recipes/<recipe_key>/import")
+    def marleyspoon_recipe_import(recipe_key: str):
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(marleyspoon.run_import(recipe_key))
+        except Exception as exc:  # noqa: BLE001
+            # run_import zet een tekst van onszelf in de fout en legt de poging vast in het auditlog.
             return marleyspoon_error(exc)
 
     @app.get("/api/jumbo/auth/status")
