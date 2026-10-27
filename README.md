@@ -330,10 +330,6 @@ Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) kop
 
 <img src="docs/screenshots/nl/settings-jumbo.png" alt="Instellingen, Koppelen, Jumbo: inloggen via de browserconsole" width="900">
 
-Ook het blok **AI-beoordeling van koppelingen** (zie *Aanbiedingen*) is inklapbaar, net als de blokken voor de winkels: zonder API-sleutel staat het open, met een sleutel dicht, en een keuze die je zelf maakt blijft staan. De melding na het opslaan blijft zichtbaar, ook als het blok dicht is.
-
-<img src="docs/screenshots/nl/settings-ai.png" alt="Instellingen, Koppelen: links het open blok AI-beoordeling van koppelingen, rechts de ingeklapte blokken voor AI-beoordeling, Mealie, Albert Heijn, Jumbo en Picnic" width="900">
-
 ### Mealie
 
 1. Open Mealie en ga naar je profiel, onderdeel **API-tokens**.

@@ -330,10 +330,6 @@ You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you
 
 <img src="docs/screenshots/en/settings-jumbo.png" alt="Settings, Link, Jumbo: logging in through the browser console" width="900">
 
-The **AI review of links** block (see *Offers*) can be collapsed too, like the blocks for the stores: without an API key it is open, with a key it is closed, and a choice you make yourself stays. The message after saving stays visible when the block is closed.
-
-<img src="docs/screenshots/en/settings-ai.png" alt="Settings, Link: on the left the open AI review of links block, on the right the collapsed blocks for AI review, Mealie, Albert Heijn, Jumbo and Picnic" width="900">
-
 ### Mealie
 
 1. Open Mealie and go to your profile, section **API tokens**.
