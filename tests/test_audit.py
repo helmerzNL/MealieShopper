@@ -52,6 +52,8 @@ class OutboundTest(AuditTestCase):
             ("https://storefront-prod.nl.picnicinternational.com/api/15/cart", "picnic"),
             ("https://www.jumbo.com/api/graphql", "jumbo"),
             ("https://auth.jumbo.com/oauth/token", "jumbo"),
+            ("https://marleyspoon.nl/menu", "marleyspoon"),
+            ("https://api.marleyspoon.com/public/graphql", "marleyspoon"),
         ):
             self.assertEqual(audit.service_for(url), service, url)
         for url in ("https://mealie.example.com/api", "https://evilah.nl/", "https://ah.nl.evil.example/", "https://github.com/x"):

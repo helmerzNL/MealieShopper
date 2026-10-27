@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.0
+
+### Nieuw in 2.79.0
+
+- **Marley Spoon in het tabblad Maaltijdboxen.** Boven in het tabblad staat nu een keuzelijst **Aanbieder** met HelloFresh en Marley Spoon. Van Marley Spoon Nederland zie je het openbare weekmenu: bladeren per week, filteren op naam, kop of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Elke kaart heeft de foto, de kooktijd en de knop **Bij Marley Spoon**, die het recept op hun site opent.
+- **Importeren in Mealie kan bij Marley Spoon niet.** De ingrediënten en stappen staan op hun site niet in de pagina zelf en zijn alleen te lezen met een token dat de pagina per bezoek krijgt. Dat bootsen we niet na, dus er is bij Marley Spoon geen knop **Importeer**. Bij HelloFresh is niets veranderd.
+- **Hoe het menu wordt gelezen.** De menupagina van Marley Spoon vraagt het menu zelf op bij een GraphQL-eindpunt dat zonder inloggen en zonder sleutel antwoordt; MealieShopper doet dezelfde vraag, voor één week tegelijk, met een pauze tussen verzoeken en met `MealieShopper` in de User-Agent. Het menu van een week wordt 6 uur bewaard. Dit is onofficieel: Marley Spoon kan het eindpunt wijzigen, waarna het menu tijdelijk niet laadt. Recepten en foto's blijven van Marley Spoon.
+- **Het verkeer met Marley Spoon staat in het auditlog** (Beheer > Auditlog, filter **Marley Spoon**).
+- **Dinnerly en de Allerhande Box zijn onderzocht en nog niet toegevoegd.** `dinnerly.nl` stuurt door naar Marley Spoon en het Nederlandse Dinnerly-menu is leeg; AH laat geautomatiseerde verzoeken aan zijn Allerhande-pagina's niet toe en de AH-API toont geen box-menu. Zie `docs/onderzoek-marleyspoon.md` en `docs/onderzoek-allerhande-box.md`.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen): het script van het tabblad heet nu `mealkits.js`.
+- De database krijgt de tabel `marleyspoon_menus` vanzelf. Die zit bewust niet in de back-up: het is een herlaadbare kopie van openbare menu's.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: the Meal kits tab now has a Provider list with HelloFresh and Marley Spoon. For Marley Spoon Netherlands you see the public weekly menu (browse per week, filter, search the weeks you have looked at) and an "At Marley Spoon" button; importing into Mealie is not possible because their pages only show ingredients and steps through a per-visit token, which we do not imitate. The menu is read from the same unauthenticated GraphQL endpoint their own menu page uses, one week at a time, sparingly and with its own User-Agent, and cached for 6 hours. It is unofficial and Marley Spoon may change it. Traffic appears in the audit log. Dinnerly (redirects to Marley Spoon, empty Dutch menu) and the Allerhande Box (AH blocks automated page requests, no box menu in its API) were researched and not added. Reload the page once: the tab's script is now mealkits.js.*
+
 ## v2.78.2
 
 ### Gerepareerd in 2.78.2

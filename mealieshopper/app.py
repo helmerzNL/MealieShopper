@@ -11,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -916,6 +916,28 @@ def create_app() -> Flask:
             # run_import zet een tekst van onszelf in de fout (nooit het antwoord van Mealie of HelloFresh) en legt de
             # poging vast in het auditlog; het volledige antwoord staat alleen in het serverlogboek.
             return hellofresh_error(exc)
+
+    # Marley Spoon: alleen het menu (er is geen receptdetail zonder token van de site, dus ook geen import)
+    def marleyspoon_error(exc: Exception) -> Any:
+        if isinstance(exc, marleyspoon.MarleySpoonError):
+            app.logger.warning("Marley Spoon: %s", exc, exc_info=exc.__cause__ is not None)
+            return jsonify({"error": str(exc)}), 424
+        return store_error("Marley Spoon", exc)
+
+    @app.get("/api/marleyspoon/menu")
+    def marleyspoon_menu():
+        refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+        try:
+            return jsonify(marleyspoon.get_menu(request.args.get("week"), refresh=refresh))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.get("/api/marleyspoon/search")
+    def marleyspoon_search():
+        try:
+            return jsonify(marleyspoon.search(request.args.get("q")))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
 
     @app.get("/api/jumbo/auth/status")
     def jumbo_auth_status():

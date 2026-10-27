@@ -140,7 +140,8 @@ def week_code(day: date) -> str:
     return f"{year}-W{week:02d}"
 
 
-def _monday(week: str) -> date:
+def monday(week: str) -> date:
+    """De maandag van een weekcode (`2026-W44`); ook voor de andere maaltijdboxen."""
     found = _WEEK.match(week or "")
     if not found:
         raise ValueError(tr("Geen geldige week", "Not a valid week"))
@@ -151,8 +152,8 @@ def _monday(week: str) -> date:
 
 
 def neighbours(week: str) -> tuple[str, str]:
-    monday = _monday(week)
-    return week_code(monday - timedelta(days=7)), week_code(monday + timedelta(days=7))
+    start = monday(week)
+    return week_code(start - timedelta(days=7)), week_code(start + timedelta(days=7))
 
 
 # --- menu -------------------------------------------------------------------------------------------
@@ -235,7 +236,7 @@ def _store(menu: dict[str, Any]) -> None:
 def get_menu(week: Any = None, refresh: bool = False) -> dict[str, Any]:
     """Het menu van een week (standaard de actuele): uit de kopie als die vers is, anders bij HelloFresh."""
     wanted = str(week or "").strip() or week_code(date.today())
-    _monday(wanted)
+    monday(wanted)
     cached = _stored(wanted)
     if cached and not refresh and _now() - cached[0] < MENU_TTL:
         menu, fetched = cached[1], cached[0]
