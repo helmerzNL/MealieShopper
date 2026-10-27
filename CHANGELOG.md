@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.78.1
+
+### Gerepareerd in 2.78.1
+
+- **Importeren van een HelloFresh-recept in Mealie geeft een bruikbare melding en een tweede kans.** De import kon eindigen op *Importeren in Mealie mislukt*, zonder te zeggen waarom. Nu staat er welke status Mealie gaf (bijvoorbeeld *Mealie antwoordde met status 400*); het antwoord van Mealie zelf blijft alleen in het logboek. Weigert Mealie het recept met een 4xx, dan probeert MealieShopper het nog twee keer: zonder foto en voedingswaarden, en daarna door Mealie de HelloFresh-pagina zelf te laten lezen. Bij een serverfout (5xx) wordt niet opnieuw geprobeerd, omdat Mealie het recept dan al kan hebben aangemaakt.
+- **Schonere gegevens naar Mealie.** De voedingswaarden bevatten alleen nog gevulde, bekende velden (geen lege waarden of `servingSize` uit de HelloFresh-pagina), en de foto gaat als vaste JPG (`f_jpg`) in plaats van `f_auto`, dat soms WebP of AVIF geeft.
+- Staat een recept na een mislukte import toch in Mealie, of blijft de melding terugkomen? Meld dan de status uit de melding en de logregel `HelloFresh-recept ...: import in Mealie ... mislukt`.
+
+*English summary: importing a HelloFresh recipe into Mealie could end in "Importing into Mealie failed" without saying why. The message now shows the status Mealie gave (Mealie's own answer stays in the log only). If Mealie refuses the recipe with a 4xx, MealieShopper tries twice more: without photo and nutrition, then by letting Mealie read the HelloFresh page itself; after a 5xx it does not retry because Mealie may already have created the recipe. Nutrition values are cleaned (only filled, known fields) and the photo is sent as a plain JPG.*
+
 ## v2.78.0
 
 ### Nieuw in 2.78.0

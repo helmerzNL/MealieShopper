@@ -194,7 +194,7 @@ def import_via_url(url: str) -> str:
         timeout=60,
     )
     if not response.ok:
-        raise RuntimeError(f"Mealie kon de pagina niet importeren ({response.status_code}): {response.text[:200]}")
+        raise MealieImportError(f"Mealie kon de pagina niet importeren ({response.status_code}): {response.text[:200]}", response.status_code)
     return parse_imported_ingredients(response.json())
 
 
@@ -203,6 +203,14 @@ def import_via_html(url: str) -> str:
     if not page_response.ok:
         raise RuntimeError(f"Kon de pagina niet ophalen ({page_response.status_code})")
     return _post_html_or_json(url, page_response.text)
+
+
+class MealieImportError(RuntimeError):
+    """Mealie weigerde een import. `status_code` is te tonen; `str(self)` kan het antwoord van Mealie bevatten (alleen in het logboek)."""
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def import_via_jsonld(url: str, recipe: dict[str, Any]) -> str:
@@ -223,7 +231,7 @@ def _post_html_or_json(url: str, data: str) -> str:
         timeout=60,
     )
     if not response.ok:
-        raise RuntimeError(f"Mealie import mislukt ({response.status_code}): {response.text}")
+        raise MealieImportError(f"Mealie import mislukt ({response.status_code}): {response.text}", response.status_code)
     return parse_imported_ingredients(response.json())
 
 
