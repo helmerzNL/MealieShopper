@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.1
+
+### Nieuw in 2.79.1
+
+- **Marley Spoon-recepten importeren in Mealie.** Elke kaart bij Marley Spoon heeft nu naast **Bij Marley Spoon** ook de knop **Importeer**, die het recept met ingrediënten, bereiding en voedingswaarden in Mealie zet (twee personen, zoals de menupagina). Voor een import haalt MealieShopper eerst de receptpagina op en vraagt het recept dan op met het bezoekerstoken dat die pagina aan iedere bezoeker geeft, zoals de site zelf doet. Dat token wordt nergens bewaard of gelogd. Weigert Mealie het recept, dan volgt één tweede poging zonder foto en voedingswaarden; Mealie de pagina zelf laten lezen helpt hier niet, want die heeft geen receptgegevens. Elke poging staat in het auditlog (filter **Marley Spoon**, actie **Mealie import**). Dit is onofficieel: Marley Spoon kan de eindpunten wijzigen, waarna de import tijdelijk niet werkt. Dit vervangt de opmerking bij v2.79.0 dat importeren niet kan.
+- **De aanbiederskeuze is een uitklapmenu in de balk**, zoals de winkelkeuze bij Winkels. De kop **Menu van …** is vervallen en de knop **Verversen** staat nu naast **Deze week**.
+- **Gedeelde importlogica.** De pogingen, foutteksten en auditregel van een import staan nu in `mealieshopper/mealkit_import.py` en worden door HelloFresh en Marley Spoon gedeeld; het gedrag van HelloFresh is ongewijzigd.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen): het tabblad Maaltijdboxen heeft een nieuwe opmaak.
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: Marley Spoon recipes can now be imported into Mealie with an Import button next to "At Marley Spoon". An import first loads the recipe page and then asks for the recipe with the visitor token that page gives every visitor, as the site itself does; the token is never stored or logged. If Mealie refuses the recipe there is one second attempt without photo and nutrition, and every attempt is in the audit log. It is unofficial and Marley Spoon may change it. This replaces the note under v2.79.0 that importing is not possible. The provider choice is now a drop-down in the bar, like the store choice under Stores (the "Menu of …" heading is gone, Refresh sits next to This week). The import logic is shared by HelloFresh and Marley Spoon in `mealieshopper/mealkit_import.py`; HelloFresh behaves as before. Reload the page once.*
+
 ## v2.79.0
 
 ### Nieuw in 2.79.0

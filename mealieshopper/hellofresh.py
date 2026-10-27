@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import html
 import json
-import logging
 import re
 import threading
 import time
@@ -26,7 +25,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from . import about, audit, auth, mealie
+from . import about, auth, mealie, mealkit_import
 from .ah_lists import _fold
 from .i18n import tr
 
@@ -50,8 +49,6 @@ NUTRITION_FIELDS = (
     "calories", "fatContent", "saturatedFatContent", "carbohydrateContent", "sugarContent", "proteinContent",
     "fiberContent", "sodiumContent",
 )
-
-logger = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS hellofresh_menus (
@@ -328,7 +325,7 @@ def image_url(url: Any) -> str:
     return f"{found.group(1)}/f_jpg,q_auto,w_1200/{found.group(2)}" if found else str(url or "")
 
 
-def _nutrition(data: Any) -> dict[str, str]:
+def nutrition_fields(data: Any) -> dict[str, str]:
     """Alleen de gevulde, bekende velden als tekst: de pagina heeft ook `null`-waarden en een eigen `servingSize`."""
     if not isinstance(data, dict):
         return {}
@@ -359,93 +356,30 @@ def jsonld(recipe: dict[str, Any], minimal: bool = False) -> dict[str, Any]:
     if not minimal:
         if recipe.get("image"):
             data["image"] = [image_url(recipe["image"])]
-        nutrition = _nutrition(recipe.get("nutrition"))
+        nutrition = nutrition_fields(recipe.get("nutrition"))
         if nutrition:
             data["nutrition"] = {"@type": "NutritionInformation", **nutrition}
     return data
 
 
-MEALIE_TIMEOUT = 60  # seconden, zoals in mealie._post_html_or_json
+MEALIE_TIMEOUT = mealkit_import.MEALIE_TIMEOUT
 
 
 def import_into_mealie(recipe: dict[str, Any], attempts_log: list[dict[str, Any]] | None = None) -> str:
-    """Zet het recept in Mealie en geeft het slug. Weigert Mealie het (een 4xx), dan nog twee pogingen: zonder foto en
-    voedingswaarden, en daarna door Mealie de HelloFresh-pagina zelf te laten lezen. Bij een 5xx stoppen we: Mealie kan
-    het recept dan al hebben aangemaakt en een nieuwe poging zou het dubbel zetten. Het antwoord van Mealie komt alleen
-    in het logboek; de gebruiker krijgt de status. Elke poging komt ook in `attempts_log` (voor het auditlog)."""
+    """Zet het recept in Mealie en geeft het slug: volledig, dan zonder foto en voedingswaarden, en daarna door Mealie de
+    HelloFresh-pagina zelf te laten lezen. De regels voor het opnieuw proberen staan in `mealkit_import`."""
     url = source_url(recipe["key"])
     attempts = (
         ("volledig", lambda: mealie.import_via_jsonld(url, jsonld(recipe))),
         ("zonder foto en voedingswaarden", lambda: mealie.import_via_jsonld(url, jsonld(recipe, minimal=True))),
         ("via de pagina", lambda: mealie.import_via_url(url)),
     )
-    log = attempts_log if attempts_log is not None else []
-    last: mealie.MealieImportError | None = None
-    for label, attempt in attempts:
-        try:
-            slug = attempt()
-            log.append({"attempt": label, "ok": True})
-            return slug
-        except mealie.MealieImportError as exc:
-            logger.warning("HelloFresh-recept %s: import in Mealie (%s) mislukt: %s", recipe["key"], label, exc)
-            log.append({"attempt": label, "status": exc.status_code, "error": audit.redact_text(str(exc))[:200]})
-            last = exc
-            if exc.status_code >= 500:
-                break
-        except Exception as exc:  # noqa: BLE001 - de aanroeper legt de fout vast; hier alleen de poging
-            log.append({"attempt": label, "error": f"{type(exc).__name__}: {audit.redact_text(str(exc))[:200]}"})
-            raise
-    raise HelloFreshError(
-        tr(
-            f"Importeren in Mealie mislukt (Mealie antwoordde met status {last.status_code})",
-            f"Importing into Mealie failed (Mealie answered with status {last.status_code})",
-        )
-    ) from last
-
-
-def _import_failure(exc: Exception) -> Exception:
-    """De fout die de gebruiker te zien krijgt: een tekst van onszelf, met hooguit de soort fout, nooit het antwoord van Mealie."""
-    if isinstance(exc, (ValueError, HelloFreshError)):
-        return exc
-    if isinstance(exc, requests.Timeout):
-        return HelloFreshError(tr(
-            f"Mealie antwoordde niet binnen {MEALIE_TIMEOUT} seconden. Het recept kan toch zijn aangemaakt: kijk in Mealie voordat je het opnieuw probeert",
-            f"Mealie did not answer within {MEALIE_TIMEOUT} seconds. The recipe may have been created anyway: check Mealie before trying again",
-        ))
-    if isinstance(exc, requests.ConnectionError):
-        return HelloFreshError(tr("Mealie is niet bereikbaar", "Mealie is not reachable"))
-    return HelloFreshError(tr(f"Importeren in Mealie mislukt ({type(exc).__name__})", f"Importing into Mealie failed ({type(exc).__name__})"))
+    return mealkit_import.import_into_mealie("HelloFresh", recipe["key"], attempts, HelloFreshError, attempts_log)
 
 
 def run_import(key: Any) -> dict[str, str]:
-    """Haal het recept op en zet het in Mealie: `{"slug", "mealieUrl"}`. Elke poging, gelukt of niet, komt in het auditlog
-    (dienst HelloFresh, actie "Mealie import"), met de duur en per poging wat er gebeurde. Een fout komt als
-    `ValueError` of `HelloFreshError` terug, met een tekst die de gebruiker mag zien."""
-    started = time.perf_counter()
-    attempts: list[dict[str, Any]] = []
-    recipe_key = str(key or "").strip()
-    error: Exception | None = None
-    status: int | None = None
-    try:
-        recipe = get_recipe(recipe_key)
-        slug = import_into_mealie(recipe, attempts)
-        return {"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)}
-    except Exception as exc:  # noqa: BLE001
-        error = exc
-        status = next((a["status"] for a in reversed(attempts) if a.get("status")), None)
-        logger.exception("HelloFresh-recept %s: importeren mislukt", recipe_key)
-        raise _import_failure(exc) from exc
-    finally:
-        audit.record(
-            kind="outbound",
-            service="hellofresh",
-            action="Mealie import",
-            method="POST",
-            url=source_url(recipe_key) if _KEY.match(recipe_key) else "",
-            status=status,
-            ok=error is None,
-            duration_ms=round((time.perf_counter() - started) * 1000),
-            actor=audit.current_actor(),
-            error=f"{type(error).__name__}: {error}" if error else "",
-            detail={"key": recipe_key[:200], "attempts": attempts} if attempts or error else {"key": recipe_key[:200]},
-        )
+    """Haal het recept op en zet het in Mealie: `{"slug", "mealieUrl"}`; zie `mealkit_import.run_import`."""
+    return mealkit_import.run_import(
+        "hellofresh", "HelloFresh", key, lambda k: bool(_KEY.match(k)), source_url,
+        lambda k, attempts: import_into_mealie(get_recipe(k), attempts), HelloFreshError,
+    )

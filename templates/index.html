@@ -354,21 +354,23 @@
       </section>
 
       <section id="meal-kits" class="panel">
-        <div class="box box--wide">
-          <div class="toolbar">
-            <h2 id="mealkits-title">Menu van HelloFresh</h2>
-            <select id="mealkits-provider" class="store-select" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider">
-              <option value="hellofresh">HelloFresh</option>
-              <option value="marleyspoon">Marley Spoon</option>
-            </select>
-            <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
+        <nav class="subtabs" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider">
+          <div class="subtab-menu" id="mealkits-provider-menu">
+            <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="mealkits-provider-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="mealkits-provider-list" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider"><span id="mealkits-provider-name">HelloFresh</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+            <div class="subtab-menu__list" id="mealkits-provider-list" hidden>
+              <button class="subtab-menu__item is-active" type="button" data-provider="hellofresh">HelloFresh</button>
+              <button class="subtab-menu__item" type="button" data-provider="marleyspoon">Marley Spoon</button>
+            </div>
           </div>
+        </nav>
+        <div class="box box--wide">
           <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Open een recept bij HelloFresh, of importeer het in Mealie om het te bewaren. Er is geen account of koppeling nodig.</p>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <strong id="mealkits-week" aria-live="polite"></strong>
             <button class="icon-button" id="mealkits-next" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:mealkits.next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
             <button class="button button--secondary" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week">Deze week</button>
+            <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
           </div>
           <form class="form-row" id="mealkits-search-form">
             <label class="searchbar">
