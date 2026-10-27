@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.2
+
+### Gerepareerd in 2.79.2
+
+- **Het wisselen van box bij Maaltijdboxen deed niets.** Na de update naar 2.79.1 kon de browser (of de geïnstalleerde app) nog het oude script van het tabblad uit de cache gebruiken, omdat het adres van de scripts niet was veranderd. Dat oude script zocht de vroegere keuzelijst, die er niet meer is, en stopte met een fout: het uitklapmenu ging open, maar een andere aanbieder kiezen liet het menu ongewijzigd. De scripts en stijlen hebben nu een nieuw adres (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser ze opnieuw ophaalt.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Staat het wisselen daarna nog stil, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: switching the provider under Meal kits did nothing after updating to 2.79.1: the browser (or installed app) could still use the old tab script from its cache because the script address had not changed. That old script looked for the former drop-down list, which no longer exists, and stopped with an error, so the menu opened but choosing another provider changed nothing. The scripts and stylesheets now have a new address (`MEALIESHOPPER_ASSET_VERSION`) so the browser fetches them again. Reload the page once (installed app: close and reopen); if it still does not switch, hard-refresh.*
+
 ## v2.79.1
 
 ### Nieuw in 2.79.1
