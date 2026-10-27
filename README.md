@@ -92,11 +92,21 @@ Zijn Jumbo en Picnic gekoppeld, dan zoek je in één keer in alle drie; de resul
 
 <img src="docs/screenshots/nl/search-detail.png" alt="Een Jumbo-recept met ingrediënten, bereiding en de knoppen Importeer en Bekijk op de site" width="900">
 
+De menu's van **HelloFresh** en **Marley Spoon** zoeken altijd mee, zonder koppeling: van deze week en de drie weken erna haalt MealieShopper bij het zoeken de menu's op die er nog niet zijn (de eerste keer duurt dat even; daarna staan ze 6 uur bewaard). Elk recept heeft **Bekijken** (ingrediënten en bereiding) en **Importeer**.
+
+<img src="docs/screenshots/nl/search-meal-kits.png" alt="Zoekresultaten bij HelloFresh en Marley Spoon voor het woord kip, met kaarten en de knoppen Bekijken en Importeer" width="900">
+
 ### Winkels kiezen
 
 Onder **Winkels** staat het winkelmenu als eerste knop in de tabbalk. Het toont de gekozen winkel en klapt open met de gekoppelde winkels: Albert Heijn, Jumbo en Picnic. Met één gekoppelde winkel is het menu verborgen.
 
 <img src="docs/screenshots/nl/stores-menu.png" alt="Het uitgeklapte winkelmenu met Albert Heijn, Jumbo en Picnic" width="900">
+
+### Maaltijdboxen
+
+Het tabblad **Maaltijdboxen** toont de openbare weekmenu's van HelloFresh en Marley Spoon Nederland. Je kiest de aanbieder in het uitklapmenu bovenaan (net als de winkel bij Winkels), bladert per week en opent een recept bij de aanbieder of zet het met één klik in Mealie.
+
+<img src="docs/screenshots/nl/meal-kits.png" alt="Het tabblad Maaltijdboxen: links het uitklapmenu met HelloFresh en Marley Spoon boven het weekmenu, rechts het menu van Marley Spoon op een telefoon" width="900">
 
 ### Winkels: je bewaarde AH-recepten
 
@@ -274,6 +284,14 @@ Het tabblad **Winkels** (voorheen *AH Items*) laat per winkel zien wat MealieSho
 - **Lijstjes**: bij AH je favoriete lijstjes, bij Jumbo je eigen lijstjes, Favorieten en het boodschappenlijstje (zie *Jumbo*). Met het synchroniseer-icoon (per lijstje, of bovenaan voor alle lijstjes) bewaart MealieShopper een kopie, inclusief productnaam, merk, inhoud, prijs en afbeelding. In een gesynchroniseerd lijstje pas je de aantallen aan met de knoppen `−` en `+` of door het getal te typen. Synchroniseren voegt nieuwe items toe en haalt weg wat bij AH is verdwenen, maar laat een aantal dat je hebt aangepast met rust (de melding zegt hoeveel aangepaste aantallen zijn behouden). Het oorspronkelijke aantal staat er als `Op lijstje: 2` naast. Het icoon met de teruggaande pijl zet alle aangepaste aantallen terug naar de waarden van AH, nadat je een waarschuwing hebt bevestigd. `In mandje` zet het hele lijstje met de aantallen zoals ze nu staan in je AH-mandje. Het zoekveld filtert op de naam van het lijstje en op de producten in gesynchroniseerde lijstjes. Werkt de AH-koppeling niet, dan blijven de gesynchroniseerde lijstjes zichtbaar met een melding.
 
 - **Bestellingen** (bij Jumbo: je afgeronde bestellingen met hun producten, zie *Jumbo*): het synchroniseer-icoon haalt in één keer het mandje, de open en afgeronde bestellingen en de kassabonnen op, en bewaart ze. Elke volgende synchronisatie haalt alleen op wat nieuw is. Een open bestelling wordt bijgewerkt zolang hij open is; is hij geleverd, dan bewaart MealieShopper hem als **afgeleverd**. AH geeft per keer 10 afgeronde bestellingen; MealieShopper bladert door tot je oudste bestelling en bewaart wat is afgeleverd (staat er "nog zonder producten", synchroniseer dan opnieuw). Geannuleerde bestellingen slaat MealieShopper over. Een afgeleverde bestelling verandert niet meer en blijft altijd bewaard, ook als AH hem later niet meer toont. Kassabonnen komen er in porties van 40 bij (staat er "nog op te halen", synchroniseer dan opnieuw). Het **AH-mandje** (tabblad Mandje) is de boodschappenlijst waar `In mandje` naartoe schrijft; het wordt bij het openen van het tabblad opgehaald en blijft als kopie staan. Het is iets anders dan de actieve bestelling bij AH (het bestelmandje van de webwinkel), die vaak leeg is. Het afleveradres bewaart MealieShopper niet, alleen datum en tijdvak.
+
+### Maaltijdboxen
+
+Het tabblad **Maaltijdboxen** (tussen Winkels en Mandje) toont de openbare weekmenu's van **HelloFresh** en **Marley Spoon** Nederland. Er is geen account of koppeling nodig. Kies de aanbieder in het uitklapmenu bovenaan; daaronder bladeren de pijltjes per week, **Deze week** brengt je terug naar de actuele week en **Verversen** haalt het menu opnieuw op (anders wordt een menu 6 uur bewaard). Het zoekveld filtert de getoonde week op naam, kop, keuken of label; **Zoek in alle weken** zoekt in de weken die je al hebt bekeken. Zoeken bij Recepten zoeken kijkt ook vooruit, zie *Recepten zoeken en importeren*.
+
+Elke kaart heeft **Bij HelloFresh** of **Bij Marley Spoon** (opent het recept op hun site) en **Importeer**, die het recept met ingrediënten, bereiding en voedingswaarden in Mealie zet (bij Marley Spoon voor twee personen). Weigert Mealie het recept, dan volgt één tweede poging zonder foto en voedingswaarden. Elke importpoging staat in het auditlog.
+
+Dit is onofficieel: beide aanbieders hebben geen openbare API. MealieShopper leest alleen openbare gegevens, zuinig (één verzoek tegelijk, met een pauze en een eigen User-Agent) en kan niet instaan voor de blijvende werking: wijzigt een aanbieder zijn site, dan werken het menu of de import tijdelijk niet. Bij Marley Spoon vraagt de import het recept op met het bezoekerstoken dat elke receptpagina aan iedere bezoeker geeft; dat token wordt nergens bewaard of gelogd. De recepten en foto's blijven van de aanbieders. Het verkeer staat in het auditlog (filters **HelloFresh** en **Marley Spoon**).
 
 ### Installeren als app
 

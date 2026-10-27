@@ -4,17 +4,33 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v2.79.4
 
-### Nieuw in 2.79.4
+### Sinds de vorige stabiele versie (v2.77.1)
 
-- **Het blok AI-beoordeling van koppelingen is inklapbaar.** Onder Instellingen > Koppelen heeft het blok nu een kop met een pijltje, net als Mealie en de winkels erna. Staat er al een API-sleutel (in de app of als omgevingsvariabele), dan staat het blok ingeklapt; zonder sleutel staat het open. Een keuze die je zelf maakt blijft staan. De melding na het opslaan blijft zichtbaar ook als het blok dicht is.
-- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe script meteen ophaalt.
+Deze release brengt `main` van v2.77.1 naar v2.79.4. De tussenliggende versies (2.78.0 tot en met 2.79.3) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.77.1: there is a new Meal kits tab with the public weekly menus of HelloFresh and Marley Spoon Netherlands. You choose the provider in a drop-down menu in the bar (like the store under Stores), browse per week, filter, search the weeks you have looked at, open a recipe at the provider, or import it into Mealie with one click (ingredients, method and nutrition). No account or link is needed. Search recipes now also searches those menus, for this week and the next three weeks. The "AI review of links" block under Settings > Link can be collapsed like the store blocks. Importing from HelloFresh and Marley Spoon gives clearer messages, retries once without photo and nutrition, and every attempt is in the audit log. Everything is unofficial: the providers have no public API and may change their sites. Reload the page once after updating.*
+
+- **Nieuw tabblad Maaltijdboxen (2.78.0, 2.79.0, 2.79.1).** Naast Winkels staat een tabblad met de openbare weekmenu's van **HelloFresh** en **Marley Spoon** Nederland: bladeren per week (vorige, volgende, deze week), filteren op naam, kop, keuken of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Je kiest de aanbieder in een uitklapmenu in de balk bovenaan, zoals de winkelkeuze bij Winkels. Elke kaart heeft de foto, de kooktijd en twee knoppen: **Bij HelloFresh** of **Bij Marley Spoon** opent het recept op hun site, en **Importeer** zet het recept met ingrediënten, bereiding en voedingswaarden in Mealie.
+- **Geen account en geen koppeling.** MealieShopper leest alleen openbare gegevens: bij HelloFresh het weekmenu en de schema.org-gegevens van de receptpagina, bij Marley Spoon het menu uit hetzelfde GraphQL-eindpunt als hun eigen menupagina en voor een import het recept met het bezoekerstoken dat elke receptpagina aan iedere bezoeker geeft (nergens bewaard of gelogd). Verzoeken gaan één voor één, met een pauze ertussen en met `MealieShopper` in de User-Agent; een weekmenu wordt 6 uur bewaard. Dit is onofficieel: een aanbieder kan zijn site wijzigen, waarna het menu of de import tijdelijk niet werkt. De recepten en foto's blijven van de aanbieders.
+- **Recepten zoeken zoekt ook bij HelloFresh en Marley Spoon (2.79.3).** Onder Recepten > Recepten zoeken staan twee extra blokken naast Albert Heijn, Jumbo en Picnic, met dezelfde knoppen **Bekijken** (ingrediënten en bereiding in het scherm) en **Importeer**. Bij het zoeken worden het menu van deze week en van de drie weken erna opgehaald als ze er nog niet zijn; de eerste zoekopdracht duurt daardoor even.
+- **Importeren geeft een bruikbare melding en een tweede kans (2.78.1, 2.78.2).** Bij een mislukte import staat welke status Mealie gaf (het antwoord van Mealie zelf blijft in het logboek), weigert Mealie het recept met een 4xx dan volgt een tweede poging zonder foto en voedingswaarden (bij HelloFresh daarna nog via de pagina), en bij een serverfout (5xx) wordt niet opnieuw geprobeerd omdat het recept dan al kan bestaan. Antwoordt Mealie niet binnen 60 seconden, dan staat dat er, met de waarschuwing dat het recept toch kan zijn aangemaakt. Elke poging staat in het auditlog (Instellingen > Auditlog, filters **HelloFresh** en **Marley Spoon**, actie **Mealie import**).
+- **Het blok AI-beoordeling van koppelingen is inklapbaar (2.79.4).** Onder Instellingen > Koppelen heeft het blok een kop met een pijltje, net als Mealie en de winkels. Staat er al een API-sleutel (in de app of als omgevingsvariabele), dan staat het blok ingeklapt; zonder sleutel staat het open. Een keuze die je zelf maakt blijft staan, en de melding na het opslaan blijft zichtbaar.
+- **Het wisselen van aanbieder werkt met de nieuwste scripts (2.79.2).** De scripts hebben een nieuw adres (`MEALIESHOPPER_ASSET_VERSION`), zodat een browser het oude script uit de cache niet blijft gebruiken.
+- **README's en screenshots bijgewerkt:** nieuwe schermen voor Maaltijdboxen, het zoeken in de menu's van de aanbieders en de inklapbare blokken onder Instellingen, in het Nederlands en het Engels.
 
 #### Goed om te weten bij het bijwerken
 
-- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen).
-- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Zie je het tabblad Maaltijdboxen, het zoekblok van HelloFresh of Marley Spoon of het inklapbare AI-blok niet, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- De database krijgt de tabellen `hellofresh_menus` en `marleyspoon_menus` vanzelf. Die zitten bewust niet in de back-up: het zijn herlaadbare kopieën van openbare menu's, en een back-up van een eerdere versie laat zich gewoon terugzetten.
+- Op een telefoon staan er in de onderste balk nu zes tabs plus je profiel.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
 
-*English summary: the "AI review of links" block under Settings > Link can now be collapsed, like Mealie and the stores below it. With an API key already set (in the app or as an environment variable) the block starts collapsed; without a key it starts open. A choice you make yourself stays, and the message after saving stays visible when the block is closed. The scripts have a new address so the browser fetches the new script right away. Reload the page once (installed app: close and reopen).*
+*English summary: reload the page once after updating (installed app: close and reopen; hard-refresh if a new screen is missing). The database gets the tables `hellofresh_menus` and `marleyspoon_menus` by itself; they are deliberately not in the backup because they are reloadable copies of public menus. On a phone the bottom bar now has six tabs plus your profile. Compose and `.env` files are unchanged.*
+
+### Nieuw in 2.79.4
+
+- **Het blok AI-beoordeling van koppelingen is inklapbaar.** Zie hierboven: open zonder API-sleutel, dicht met een sleutel, en een eigen keuze blijft staan.
+- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe script meteen ophaalt.
 
 ## v2.79.3
 

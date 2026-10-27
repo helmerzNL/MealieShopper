@@ -92,11 +92,21 @@ If Jumbo and Picnic are linked, you search all three at once; the results are gr
 
 <img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Import and View on the site buttons" width="900">
 
+The menus of **HelloFresh** and **Marley Spoon** are always searched too, without a link: for this week and the three weeks after, MealieShopper fetches the menus that are not there yet while you search (the first time that takes a moment; afterwards they are kept for 6 hours). Every recipe has **View** (ingredients and method) and **Import**.
+
+<img src="docs/screenshots/en/search-meal-kits.png" alt="Search results at HelloFresh and Marley Spoon for the word kip, with cards and the View and Import buttons" width="900">
+
 ### Choosing a store
 
 Under **Stores** the store menu is the first button in the tab bar. It shows the chosen store and opens with the linked stores: Albert Heijn, Jumbo and Picnic. With one linked store the menu is hidden.
 
 <img src="docs/screenshots/en/stores-menu.png" alt="The opened store menu with Albert Heijn, Jumbo and Picnic" width="900">
+
+### Meal kits
+
+The **Meal kits** tab shows the public weekly menus of HelloFresh and Marley Spoon Netherlands. You choose the provider in the drop-down menu at the top (like the store under Stores), browse per week and open a recipe at the provider or put it in Mealie with one click.
+
+<img src="docs/screenshots/en/meal-kits.png" alt="The Meal kits tab: on the left the drop-down menu with HelloFresh and Marley Spoon above the week menu, on the right the Marley Spoon menu on a phone" width="900">
 
 ### Stores: your saved AH recipes
 
@@ -274,6 +284,14 @@ The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keep
 - **Lists**: at AH your favourite lists, at Jumbo your own lists, Favourites and the shopping list (see *Jumbo*). With the sync icon (per list, or at the top for all lists) MealieShopper keeps a copy, including product name, brand, size, price and picture. In a synced list you change the quantities with the `−` and `+` buttons or by typing the number. Syncing adds new items and removes what is gone at AH, but leaves a quantity you changed alone (the message says how many changed quantities were kept). The original quantity from AH is shown next to it as `On list: 2`. The icon with the counter-clockwise arrow resets all changed quantities to the values from AH, after you confirm a warning. `Add to basket` puts the whole list in your AH basket with the quantities as they are now. The search field filters on the name of the list and on the products in synced lists. If the AH link doesn't work, the synced lists stay visible with a notice.
 
 - **Orders** (at Jumbo: your completed orders with their products, see *Jumbo*): the sync icon fetches the basket, the open and closed orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper keeps it as **delivered**. AH returns 10 closed orders per request; MealieShopper pages back to your oldest order and keeps what has been delivered (if it says "still without products", sync again). Cancelled orders are skipped. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The **AH basket** (Basket tab) is the shopping list that `Add to basket` writes to; it is fetched when you open the tab and stays as a copy. It is something other than the active order at AH (the web shop's order basket), which is often empty. MealieShopper does not keep the delivery address, only date and time slot.
+
+### Meal kits
+
+The **Meal kits** tab (between Stores and Basket) shows the public weekly menus of **HelloFresh** and **Marley Spoon** Netherlands. No account or link is needed. Choose the provider in the drop-down menu at the top; below it the arrows browse per week, **This week** takes you back to the current week and **Refresh** fetches the menu again (otherwise a menu is kept for 6 hours). The search field filters the week on screen by name, headline, cuisine or label; **Search all weeks** searches the weeks you have already looked at. Find recipes also looks ahead, see *Searching and importing recipes*.
+
+Every card has **At HelloFresh** or **At Marley Spoon** (opens the recipe on their site) and **Import**, which puts the recipe with ingredients, method and nutrition in Mealie (for two people at Marley Spoon). If Mealie refuses the recipe there is one second attempt without photo and nutrition. Every import attempt is in the audit log.
+
+This is unofficial: neither provider has a public API. MealieShopper only reads public data, sparingly (one request at a time, with a pause and its own User-Agent) and cannot promise that it keeps working: if a provider changes its site, the menu or the import stops working for a while. At Marley Spoon the import asks for the recipe with the visitor token that every recipe page gives every visitor; that token is never stored or logged. The recipes and photos remain the providers'. The traffic is in the audit log (filters **HelloFresh** and **Marley Spoon**).
 
 ### Installing as an app
 
