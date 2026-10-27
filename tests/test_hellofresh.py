@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import auth, hellofresh, mealie  # noqa: E402
+from mealieshopper import audit, auth, hellofresh, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 KEY = "pasta-met-pesto-" + "a" * 24
@@ -285,6 +285,59 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(reply.get_json(), {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 500)"})
         self.assertEqual(send.call_count, 1)
         by_page.assert_not_called()
+
+    def audit_rows(self):
+        return audit.list_entries(service="hellofresh", query="Mealie import")["entries"]
+
+    def post_import(self, **patches):
+        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
+                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())):
+            for name, value in patches.items():
+                patcher = mock.patch.object(mealie, name, **value)
+                patcher.start()
+                self.addCleanup(patcher.stop)
+            return self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
+
+    def test_a_successful_import_is_in_the_audit_log(self):
+        reply = self.post_import(import_via_jsonld={"return_value": "pasta"})
+        self.assertEqual(reply.status_code, 200)
+        (entry,) = self.audit_rows()
+        self.assertEqual((entry["service"], entry["action"], entry["method"], entry["ok"], entry["url"]), ("hellofresh", "Mealie import", "POST", True, f"https://www.hellofresh.nl/recipes/{KEY}"))
+
+    def test_a_refused_import_is_in_the_audit_log_with_status_and_attempts(self):
+        refused = mealie.MealieImportError("Mealie import mislukt (400): BAD_RECIPE_DATA", 400)
+        reply = self.post_import(import_via_jsonld={"side_effect": refused}, import_via_url={"side_effect": refused})
+        self.assertEqual(reply.status_code, 424)
+        (entry,) = self.audit_rows()
+        self.assertEqual((entry["ok"], entry["status"]), (False, 400))
+        self.assertIn("HelloFreshError", entry["error"])
+        full = audit.get_entry(entry["id"])
+        self.assertEqual([a["attempt"] for a in full["detail"]["attempts"]], ["volledig", "zonder foto en voedingswaarden", "via de pagina"])
+        self.assertTrue(all(a["status"] == 400 for a in full["detail"]["attempts"]))
+
+    def test_a_timeout_of_mealie_says_so_and_is_in_the_audit_log(self):
+        reply = self.post_import(import_via_jsonld={"side_effect": hellofresh.requests.ReadTimeout("Read timed out")})
+        self.assertEqual(reply.status_code, 424)
+        self.assertIn("niet binnen 60 seconden", reply.get_json()["error"])
+        (entry,) = self.audit_rows()
+        self.assertEqual((entry["ok"], entry["status"]), (False, None))
+        self.assertIn("ReadTimeout", entry["error"])
+
+    def test_mealie_not_reachable_is_said_in_our_words(self):
+        reply = self.post_import(import_via_jsonld={"side_effect": hellofresh.requests.ConnectionError("10.0.0.5 geheim")})
+        self.assertEqual(reply.get_json(), {"error": "Mealie is niet bereikbaar"})
+
+    def test_an_unexpected_error_shows_its_kind_but_not_its_text(self):
+        reply = self.post_import(import_via_jsonld={"side_effect": KeyError("geheim")})
+        self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Importeren in Mealie mislukt (KeyError)"}))
+        (entry,) = self.audit_rows()
+        self.assertIn("KeyError", entry["error"])
+
+    def test_nothing_is_logged_when_the_audit_log_is_off(self):
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_AUDIT_LOG": "false"}):
+            reply = self.post_import(import_via_jsonld={"return_value": "pasta"})
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual(self.audit_rows(), [])
 
     def test_nothing_here_writes_to_hellofresh(self):
         with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
