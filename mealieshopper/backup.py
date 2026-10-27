@@ -42,7 +42,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, hellofresh, jumbo, jumbo_lists, jumbo_orders, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -86,6 +86,7 @@ EXCLUDED_TABLES = frozenset({
     "app_settings",  # staat er wel in, maar apart: zie SECRET_KEYS en PLAIN_SETTINGS
     "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
     "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
+    "marleyspoon_menus",  # idem voor Marley Spoon
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
@@ -119,7 +120,7 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "profiles": ("user_profiles",),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, hellofresh, jumbo_lists, jumbo_orders, offers, offers_schedule, picnic_orders, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (

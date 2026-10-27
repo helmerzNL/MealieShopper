@@ -1,7 +1,18 @@
-// Maaltijdboxen: het weekmenu van HelloFresh (openbare pagina's, geen account) bekijken, doorzoeken en een recept in Mealie importeren.
+// Maaltijdboxen: het weekmenu van een aanbieder (HelloFresh, Marley Spoon; openbare gegevens, geen account) bekijken, doorzoeken
+// en, waar de aanbieder het toelaat, een recept in Mealie importeren.
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, postJson, setBusy, t, matchesWords, ...).
 
-const mealKits = { menu: null, search: null, query: "", loaded: false, run: 0 };
+// Per aanbieder de naam en of we het recept kunnen importeren; de routes staan onder /api/<aanbieder>/.
+const MEALKIT_PROVIDERS = {
+  hellofresh: { name: "HelloFresh", canImport: true },
+  marleyspoon: { name: "Marley Spoon", canImport: false },
+};
+
+const mealKits = { provider: "hellofresh", menu: null, search: null, query: "", loaded: false, run: 0 };
+
+function mealKitProvider() {
+  return MEALKIT_PROVIDERS[mealKits.provider];
+}
 
 function mealKitWeekLabel(code) {
   const found = /^(\d{4})-W(\d{2})$/.exec(code || "");
@@ -21,6 +32,7 @@ function mealKitMeta(recipe) {
 
 function renderMealKitCard(recipe) {
   const meta = mealKitMeta(recipe);
+  const provider = mealKitProvider();
   return `
     <article class="recipe-card" data-mealkit-recipe="${escapeHtml(recipe.key)}">
       ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" referrerpolicy="no-referrer" data-hide-on-error>` : ""}
@@ -28,11 +40,20 @@ function renderMealKitCard(recipe) {
       ${recipe.headline ? `<p class="recipe-card__headline">${escapeHtml(recipe.headline)}</p>` : ""}
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
       <div class="card-actions">
-        <a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("mealkits.open"))}</a>
-        <button class="button" type="button" data-mealkit-import="${escapeHtml(recipe.key)}">${escapeHtml(t("recipe.import"))}</button>
+        <a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("mealkits.open", { provider: provider.name }))}</a>
+        ${provider.canImport ? `<button class="button" type="button" data-mealkit-import="${escapeHtml(recipe.key)}">${escapeHtml(t("recipe.import"))}</button>` : ""}
       </div>
       <div class="recipe-import-result"></div>
     </article>`;
+}
+
+// De teksten die de naam van de aanbieder dragen; ze staan niet in de HTML omdat de aanbieder wisselt.
+function renderMealKitTexts() {
+  const provider = mealKitProvider();
+  $("#mealkits-title").textContent = t("mealkits.title", { provider: provider.name });
+  $("#mealkits-intro").textContent = t(provider.canImport ? "mealkits.intro" : "mealkits.intro_open_only", { provider: provider.name });
+  $("#mealkits-source").textContent = t("mealkits.source", { provider: provider.name });
+  $("#mealkits-provider").value = mealKits.provider;
 }
 
 function renderMealKits() {
@@ -42,6 +63,7 @@ function renderMealKits() {
   const all = searching ? mealKits.search.recipes : menu ? menu.recipes : [];
   const shown = !searching && query ? all.filter((recipe) => matchesWords(`${recipe.name} ${recipe.headline} ${recipe.cuisine} ${recipe.label}`, query)) : all;
 
+  renderMealKitTexts();
   $("#mealkits-week").textContent = menu ? mealKitWeekLabel(menu.week) : "";
   $("#mealkits-previous").disabled = !menu;
   $("#mealkits-next").disabled = !menu;
@@ -67,7 +89,7 @@ async function loadMealKits(week, { refresh = false } = {}) {
     const params = new URLSearchParams();
     if (week) params.set("week", week);
     if (refresh) params.set("refresh", "1");
-    const data = await jsonFetch(`/api/hellofresh/menu?${params}`);
+    const data = await jsonFetch(`/api/${mealKits.provider}/menu?${params}`);
     if (run !== mealKits.run) return;
     mealKits.menu = data;
     mealKits.search = null;
@@ -87,17 +109,29 @@ function showMealKits() {
   if (!mealKits.loaded) loadMealKits();
 }
 
+function changeMealKitProvider(provider) {
+  if (!MEALKIT_PROVIDERS[provider] || provider === mealKits.provider) return;
+  Object.assign(mealKits, { provider, menu: null, search: null, query: "", loaded: false });
+  $("#mealkits-filter").value = "";
+  $("#mealkits-recipes").innerHTML = "";
+  renderMealKits();
+  loadMealKits();
+}
+
 async function searchMealKits() {
   const query = mealKits.query.trim();
   if (!query) return;
+  const run = mealKits.run;
   const button = $("#mealkits-search-all");
   setBusy(button, true);
   message("#mealkits-message", "");
   try {
-    mealKits.search = await jsonFetch(`/api/hellofresh/search?q=${encodeURIComponent(query)}`);
+    const found = await jsonFetch(`/api/${mealKits.provider}/search?q=${encodeURIComponent(query)}`);
+    if (run !== mealKits.run) return;
+    mealKits.search = found;
     renderMealKits();
   } catch (error) {
-    message("#mealkits-message", error.message);
+    if (run === mealKits.run) message("#mealkits-message", error.message);
   } finally {
     setBusy(button, false);
     $("#mealkits-search-all").disabled = !mealKits.query.trim();
@@ -108,7 +142,7 @@ async function importMealKit(key, button, target) {
   button.disabled = true;
   button.textContent = t("recipe.importing");
   try {
-    const data = await postJson(`/api/hellofresh/recipes/${encodeURIComponent(key)}/import`);
+    const data = await postJson(`/api/${mealKits.provider}/recipes/${encodeURIComponent(key)}/import`);
     const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
     target.innerHTML = `<div class="message success">${escapeHtml(t("recipe.imported"))}${link}</div>`;
   } catch (error) {
@@ -119,6 +153,7 @@ async function importMealKit(key, button, target) {
   }
 }
 
+$("#mealkits-provider").addEventListener("change", (event) => changeMealKitProvider(event.target.value));
 $("#mealkits-refresh").addEventListener("click", () => loadMealKits(mealKits.menu?.week, { refresh: true }));
 $("#mealkits-previous").addEventListener("click", () => mealKits.menu && loadMealKits(mealKits.menu.previous));
 $("#mealkits-next").addEventListener("click", () => mealKits.menu && loadMealKits(mealKits.menu.next));

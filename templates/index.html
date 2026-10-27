@@ -356,10 +356,14 @@
       <section id="meal-kits" class="panel">
         <div class="box box--wide">
           <div class="toolbar">
-            <h2 data-i18n="mealkits.title">Menu van HelloFresh</h2>
+            <h2 id="mealkits-title">Menu van HelloFresh</h2>
+            <select id="mealkits-provider" class="store-select" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider">
+              <option value="hellofresh">HelloFresh</option>
+              <option value="marleyspoon">Marley Spoon</option>
+            </select>
             <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
           </div>
-          <p class="muted" data-i18n="mealkits.intro">De openbare weekmenu's van HelloFresh Nederland. Open een recept bij HelloFresh, of importeer het in Mealie om het te bewaren. Er is geen account of koppeling nodig.</p>
+          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Open een recept bij HelloFresh, of importeer het in Mealie om het te bewaren. Er is geen account of koppeling nodig.</p>
           <div class="toolbar" id="mealkits-weeks">
             <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <strong id="mealkits-week" aria-live="polite"></strong>
@@ -377,7 +381,7 @@
           <p class="muted" id="mealkits-status"></p>
           <div id="mealkits-message"></div>
           <div id="mealkits-recipes" class="recipe-grid recipe-grid--compact"></div>
-          <p class="muted" data-i18n="mealkits.source">Recepten en foto's zijn van HelloFresh en blijven van HelloFresh. MealieShopper is niet van HelloFresh en leest alleen openbare pagina's; HelloFresh kan die wijzigen.</p>
+          <p class="muted" id="mealkits-source">Recepten en foto's zijn van HelloFresh en blijven van HelloFresh. MealieShopper is niet van HelloFresh en leest alleen openbare gegevens; HelloFresh kan die wijzigen.</p>
         </div>
       </section>
 
@@ -1064,6 +1068,7 @@
               <option value="picnic" data-i18n="audit.service.picnic">Picnic</option>
               <option value="jumbo" data-i18n="audit.service.jumbo">Jumbo</option>
               <option value="hellofresh" data-i18n="audit.service.hellofresh">HelloFresh</option>
+              <option value="marleyspoon" data-i18n="audit.service.marleyspoon">Marley Spoon</option>
               <option value="mcp" data-i18n="audit.service.mcp">AI-assistenten (MCP)</option>
               <option value="audit" data-i18n="audit.service.audit">Auditlog</option>
             </select>
@@ -1239,7 +1244,7 @@
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
-    <script src="{{ url_for('static', filename='hellofresh.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
