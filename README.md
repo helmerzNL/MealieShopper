@@ -6,7 +6,7 @@
 </picture>
 
 **Van recept naar geregeld.**
-Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) of [Jumbo](https://www.jumbo.com), plus recepten zoeken, bewaren en importeren.
+Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) of [Jumbo](https://www.jumbo.com), plus recepten zoeken, bewaren en importeren, ook uit de weekmenu's van [HelloFresh](https://www.hellofresh.nl).
 
 **Nederlands** · [English](README.en.md)
 
@@ -45,7 +45,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 - **Picnic en Jumbo onder Winkels.** Kies de winkel in het winkelmenu: bij Picnic je recepten, favorieten en bestellingen, bij Jumbo je lijstjes, bestellingen en receptenlijsten. Wat kan, bewaart MealieShopper als lokale kopie, met dezelfde knoppen als bij Albert Heijn.
 - **Maaltijdboxen (HelloFresh).** Een eigen tabblad naast Winkels met de openbare weekmenu's van HelloFresh Nederland, per week te bladeren en te doorzoeken. Open een recept bij HelloFresh of zet het met één klik in Mealie. Er is geen account of koppeling nodig. Dit is onofficieel: MealieShopper leest alleen openbare pagina's, zuinig en met een eigen User-Agent, en de recepten en foto's blijven van HelloFresh.
 - **Installatiehulp.** Op de eerste start loop je in zes stappen langs de beveiliging en de koppelingen met Mealie, Albert Heijn, Jumbo en Picnic.
-- **Auditlog en updatecheck.** De beheerder ziet elk verzoek aan de winkels en van AI-assistenten (met export) en krijgt een melding als er een nieuwe versie is.
+- **Auditlog en updatecheck.** De beheerder ziet elk verzoek aan de winkels, aan HelloFresh en van AI-assistenten (met export) en krijgt een melding als er een nieuwe versie is.
 - **Donker en licht.** Een knop naast de vlaggetjes wisselt van thema; zonder keuze volgt de app je apparaat.
 - **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app. Op een groot scherm staat het menu links en kun je het inklappen tot alleen de pictogrammen.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
@@ -155,6 +155,12 @@ Bij **Recepten** kies je Favorieten of een van je eigen lijstjes; `Bekijken` too
 <img src="docs/screenshots/nl/jumbo-recipes.png" alt="Receptenlijst bij Jumbo met een keuzelijst en kaarten" width="900">
 
 <img src="docs/screenshots/nl/jumbo-recipe.png" alt="Een Jumbo-recept met ingrediënten, bereiding, tip en voedingswaarden" width="900">
+
+### Maaltijdboxen
+
+Het tabblad **Maaltijdboxen** staat naast Winkels en toont de openbare weekmenu's van HelloFresh Nederland. Je bladert per week, filtert op naam of keuken en importeert een recept met één klik in Mealie; er is geen account of koppeling nodig.
+
+<img src="docs/screenshots/nl/mealkits.png" alt="Maaltijdboxen: het weekmenu van HelloFresh als kaarten, met de knoppen Bij HelloFresh en Importeren" width="900">
 
 ### Donker thema
 
@@ -275,6 +281,17 @@ Het tabblad **Winkels** (voorheen *AH Items*) laat per winkel zien wat MealieSho
 
 - **Bestellingen** (bij Jumbo: je afgeronde bestellingen met hun producten, zie *Jumbo*): het synchroniseer-icoon haalt in één keer het mandje, de open en afgeronde bestellingen en de kassabonnen op, en bewaart ze. Elke volgende synchronisatie haalt alleen op wat nieuw is. Een open bestelling wordt bijgewerkt zolang hij open is; is hij geleverd, dan bewaart MealieShopper hem als **afgeleverd**. AH geeft per keer 10 afgeronde bestellingen; MealieShopper bladert door tot je oudste bestelling en bewaart wat is afgeleverd (staat er "nog zonder producten", synchroniseer dan opnieuw). Geannuleerde bestellingen slaat MealieShopper over. Een afgeleverde bestelling verandert niet meer en blijft altijd bewaard, ook als AH hem later niet meer toont. Kassabonnen komen er in porties van 40 bij (staat er "nog op te halen", synchroniseer dan opnieuw). Het **AH-mandje** (tabblad Mandje) is de boodschappenlijst waar `In mandje` naartoe schrijft; het wordt bij het openen van het tabblad opgehaald en blijft als kopie staan. Het is iets anders dan de actieve bestelling bij AH (het bestelmandje van de webwinkel), die vaak leeg is. Het afleveradres bewaart MealieShopper niet, alleen datum en tijdvak.
 
+### Maaltijdboxen (HelloFresh)
+
+Het tabblad **Maaltijdboxen** laat het weekmenu van HelloFresh Nederland zien, ongeveer 80 recepten per week, met foto, kooktijd en keuken. Het gebruikt alleen de pagina's die HelloFresh ook zonder inloggen toont; je hoeft dus niets te koppelen en er komt geen wachtwoord of token in MealieShopper.
+
+- **Bladeren en zoeken.** Met de pijlen ga je een week terug of vooruit, met **Deze week** keer je terug. Het zoekveld filtert de week die je ziet; **Zoek in alle weken** zoekt in de weken die je al hebt bekeken (MealieShopper vraagt HelloFresh daarvoor niets en HelloFresh biedt geen zoekfunctie die we mogen gebruiken).
+- **Recept openen of importeren.** **Bij HelloFresh** opent het recept op hun site. **Importeer** zet het recept met ingrediënten, bereiding, foto en voedingswaarden in Mealie, voor 2 personen. Lukt dat niet, dan zegt de melding wat er misging, en staat de poging in het auditlog (zie *Problemen oplossen*).
+- **Zuinig met HelloFresh.** Een weekmenu wordt 6 uur bewaard; **Verversen** haalt het opnieuw op. Verzoeken gaan één voor één, met een pauze ertussen en met `MealieShopper` in de User-Agent, en alleen naar pagina's die HelloFresh niet uitsluit voor robots.
+- **Wat niet kan.** Een box kiezen, overslaan of bestellen, en het afhandelen van allergenen of andere porties (dat vraagt een account, of is nog niet gebouwd).
+
+Dit is **onofficieel**: HelloFresh heeft geen publieke API en kan zijn pagina's zonder bericht wijzigen, waarna het menu of de import tijdelijk niet werkt. De recepten en foto's blijven van HelloFresh; importeer ze voor eigen gebruik in je eigen Mealie.
+
 ### Installeren als app
 
 MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen.
@@ -304,7 +321,7 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo** en **Picnic**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) koppel je er één, twee of alle drie. Je gebruikt alleen wat je hebt gekoppeld. De maaltijdboxen van HelloFresh vragen geen koppeling en geen account (zie *Maaltijdboxen (HelloFresh)* onder Gebruik). Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de vier meldingen of Mealie, Albert Heijn, Picnic en Jumbo gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo** en **Picnic**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
 <img src="docs/screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen en de blokken voor Mealie, Albert Heijn, Picnic en Jumbo" width="900">
 
@@ -470,7 +487,7 @@ Alles is optioneel. Zet de waarden in je omgeving of in `.env.unraid` ([`.env.un
 | `MEALIESHOPPER_TAG` | Welke build er draait: `latest` (stabiel, standaard) of `beta`. Zet hem in `.env` naast `docker-compose.yml`: de compose-file haalt daarmee de juiste image op (`:latest` of `:beta`) en geeft dezelfde waarde aan de app, die bij een beta-build een **beta**-badge naast het woordmerk toont (en bij Over). Zie *Updaten*. |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Overschrijven het versienummer en de commit die bij Over staan. |
 
-**Auditlog.** Onder **Instellingen, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic en Jumbo bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel, alleen fouten tonen en zoeken. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
+**Auditlog.** Onder **Instellingen, Auditlog** ziet de beheerder wat MealieShopper met Albert Heijn, Picnic, Jumbo en HelloFresh bespreekt: elk verzoek met tijd, uitkomst, duur, het verzoek en het antwoord. Ook de verzoeken van AI-assistenten (MCP) staan erin, met de tool, de invoer en het resultaat; bij zo'n verzoek zie je welke winkelverzoeken eruit volgden, en omgekeerd. Je kunt filteren op winkel of dienst, alleen fouten tonen en zoeken. Elke poging om een HelloFresh-recept in Mealie te importeren staat erin als **Mealie import**, met de status van Mealie, de duur en wat er per poging gebeurde. Met **Exporteren** (JSON of CSV, met de gekozen filters, hooguit de nieuwste 5000 regels) download je de log, en met **Lijst kopiëren** of **Kopiëren** bij één regel zet je de gegevens op het klembord. Wachtwoorden, tokens, codes, cookies en e-mailadressen worden vóór het opslaan vervangen door `[verborgen]`; headers worden niet bewaard. Antwoorden van winkels kunnen wel persoonlijke gegevens bevatten, zoals je bestellingen: alleen de beheerder ziet de log en regels ouder dan 30 dagen worden gewist. Met **Log wissen** wis je alles, en dat zelf blijft als regel in de log staan. De instellingen staan in de tabel hierboven.
 
 <img src="docs/screenshots/nl/audit.png" alt="Instellingen, Auditlog: samenvatting per dienst, filters en de laatste verzoeken" width="900">
 
@@ -483,7 +500,7 @@ Alles staat in de data-map: `auth.sqlite3` (instellingen, passkeys, wachtwoord, 
 **Back-up maken en terugzetten in de app.** Onder **Instellingen, Systeem, Back-up en terugzetten** maakt de beheerder met één klik één bestand (`mealieshopper-backup-….json`) met alle gegevens, en zet die later terug, bijvoorbeeld op een nieuwe server. Er zit in wat je zelf hebt opgebouwd: de koppelingen met Mealie, Albert Heijn, Picnic, Jumbo en de AI-sleutels, de kopieën van je lijstjes, bewaarde recepten, bestellingen en kassabonnen, de aanbiedingen van nu **en de hele historie van de (bonus)aanbiedingen**, de beoordelingen van aanbiedingen bij recepten, de profielen en de keuzes bij AI en MCP. Na het terugzetten werkt de app weer zoals voor de back-up.
 
 - **De koppelingen zijn versleuteld met een wachtwoord dat je zelf kiest** (scrypt en Fernet, minstens 8 tekens). Dat wachtwoord staat nergens opgeslagen: zonder wachtwoord zijn de koppelingen in het bestand niet te lezen. Haal je het vinkje *Neem de koppelingen mee* weg, dan bevat het bestand geen koppelingen en vraagt het geen wachtwoord; je koppelt na het terugzetten dan opnieuw. Het bestand wordt op de nieuwe server opnieuw versleuteld met de sleutel van die server (`secret.key`), dus de koppelingen werken ook als die sleutel anders is.
-- **Wat inlogt op MealieShopper zit er nooit in:** passkeys, wachtwoorden, tweestapsverificatie en herstelcodes, uitnodigingen, sessies, de toegang van AI-assistenten (MCP) en `secret.key` zelf. Een bestand dat je mailt of in een clouddrive bewaart kan dus geen MealieShopper openen. Het gevolg: zet je terug op een nieuwe installatie, stel dan eerst het inloggen in (de installatiehulp) en zet daarna de back-up terug. Het auditlog, de bewaarde receptafbeeldingen (komen vanzelf terug uit Mealie) en het webadres dat je voor de server instelde zitten er ook niet in.
+- **Wat inlogt op MealieShopper zit er nooit in:** passkeys, wachtwoorden, tweestapsverificatie en herstelcodes, uitnodigingen, sessies, de toegang van AI-assistenten (MCP) en `secret.key` zelf. Een bestand dat je mailt of in een clouddrive bewaart kan dus geen MealieShopper openen. Het gevolg: zet je terug op een nieuwe installatie, stel dan eerst het inloggen in (de installatiehulp) en zet daarna de back-up terug. Het auditlog, de bewaarde receptafbeeldingen (komen vanzelf terug uit Mealie), de bewaarde weekmenu's van HelloFresh (je haalt ze opnieuw op in Maaltijdboxen) en het webadres dat je voor de server instelde zitten er ook niet in.
 - **Terugzetten is alles of niets.** Je kiest het bestand, de server controleert het helemaal (elk onderdeel, elke kolom en elke waarde; afbeeldingen worden opnieuw gelezen) en laat zien wat erin zit: aantallen en welke koppelingen. Pas na je bevestiging vervangt de server in één keer wat er nu staat. Een afgekeurd bestand verandert niets en blijft niet staan, en gaat er halverwege iets mis, dan is er niets gewijzigd. Een back-up van een oudere versie werkt; een van een nieuwere versie wordt geweigerd met de melding dat je eerst moet bijwerken. Profielen van gebruikers die op deze installatie niet bestaan worden overgeslagen. Je gebruikers en hun inloggegevens blijven zoals ze zijn.
 - **Je ziet wat er gebeurt.** Elke fase heeft een naam en, waar te tellen, een getal en een balk: het maken, het downloaden (met de grootte), het uploaden, het controleren en het vervangen. Na afloop staat er hoe lang elk deel duurde. Het terugzetten loopt op de server: de pagina verlaten, herladen of sluiten stopt niets, en bij het terugkomen op het scherm zie je de voortgang weer. Het geüploade bestand staat tot dan in de data-map als `.restore-<code>` en wordt na gebruik of na een uur verwijderd. Na een geslaagd terugzetten laadt de pagina opnieuw.
 - **Grenzen:** een back-upbestand mag hoogstens 200 MB zijn (een back-up met jaren aanbiedingen is enkele megabytes). Staat er een reverse proxy voor MealieShopper, laat die dan een aanvraag van minstens die grootte door (bij nginx `client_max_body_size 200m`; Nginx Proxy Manager heeft daar een veld voor). Gunicorn geeft een aanvraag 120 seconden; een heel trage verbinding met een heel groot bestand kan daarover gaan.
@@ -556,6 +573,10 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo weigert het verzoek (403)".** Jumbo weert dit adres of deze server. Probeer het later opnieuw; blijft het gebeuren, dan werkt Jumbo vanaf deze plek niet. Zie **Jumbo-routes verkennen**.
 
+**HelloFresh: "Importeren in Mealie mislukt".** De melding noemt de status die Mealie gaf (bijvoorbeeld *status 400*), of de soort fout. Kijk onder **Instellingen, Auditlog** (filter **HelloFresh**) naar de regel **Mealie import**: daar staan de status, de duur en per poging wat er gebeurde (volledig, zonder foto en voedingswaarden, via de pagina). Antwoordt Mealie niet binnen 60 seconden, dan kan het recept toch zijn aangemaakt: kijk eerst in Mealie voordat je het opnieuw probeert.
+
+**HelloFresh: "HelloFresh gaf de pagina in een onbekend formaat".** HelloFresh heeft zijn pagina's gewijzigd. Probeer het later opnieuw met **Verversen**; blijft het gebeuren, meld het dan als probleem, met de regel uit het auditlog.
+
 **Picnic: "koppeling verlopen of geweigerd".** De sessie van Picnic is niet meer geldig. Ga naar Instellingen > Koppelen > Picnic en log opnieuw in.
 
 **AH: "code verlopen of gebruikt".** De code uit de console werkt maar één keer en verloopt snel. Log opnieuw in en plak de nieuwe regel meteen.
@@ -585,7 +606,7 @@ python -m unittest discover -s tests          # alle tests
 
 ## Integraties en componenten
 
-MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic of Jumbo.
+MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Albert Heijn, Picnic, Jumbo of HelloFresh.
 
 **Integraties**
 
@@ -595,6 +616,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
 | [Jumbo](https://www.jumbo.com) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Jumbo (Auth0 en GraphQL). Jumbo kan die zonder bericht wijzigen of een server weigeren; gebruik het voor persoonlijk gebruik. |
+| [HelloFresh](https://www.hellofresh.nl) | De openbare weekmenu's en receptpagina's van HelloFresh Nederland, zonder account. Er is **geen officiële API**; MealieShopper leest alleen openbare pagina's, zuinig en met een eigen User-Agent. HelloFresh kan die zonder bericht wijzigen. De recepten en foto's blijven van HelloFresh. |
 | [Picnic](https://picnic.app) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Picnic. Picnic kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Inloggen met een passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Tweestapsverificatie met een authenticator-app. |

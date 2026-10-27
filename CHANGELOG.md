@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.78.3
+
+### Documentatie en Over
+
+- **HelloFresh staat nu in de documentatie.** In `README.md` en `README.en.md`: de inleiding, een nieuw onderdeel **Maaltijdboxen** met een schermafbeelding onder *Zo ziet het eruit*, een uitleg **Maaltijdboxen (HelloFresh)** onder *Gebruik* (bladeren, zoeken in de al bekeken weken, openen en importeren, zuinig met HelloFresh, wat niet kan), de opmerking dat HelloFresh geen koppeling vraagt, wat er wel en niet in de back-up zit, de **Problemen oplossen**-meldingen over de import en het auditlog (*Mealie import*), en de tabel met integraties (onofficieel, geen officiële API).
+- **Over toont HelloFresh** bij de integraties, in het Nederlands en het Engels.
+- `docs/onderzoek-hellofresh.md` zegt nu dat de eerste versie werkt en wat nog openstaat (de voorwaarden van HelloFresh lezen, allergenen, andere porties en een account).
+
+*English summary: HelloFresh is now in the documentation: the introduction, a new Meal kits section with a screenshot, a usage section (browsing, searching the weeks already viewed, opening and importing, sparing use of HelloFresh, what it cannot do), the note that no link is needed, what is and is not in the backup, the troubleshooting entries for the import and the audit log ("Mealie import"), and the integrations table (unofficial, no official API). The About screen lists HelloFresh among the integrations in Dutch and English.*
+
 ## v2.78.2
 
 ### Gerepareerd in 2.78.2

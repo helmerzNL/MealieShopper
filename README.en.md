@@ -6,7 +6,7 @@
 </picture>
 
 **From recipe to sorted.**
-Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes.
+Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes, including from the weekly menus of [HelloFresh](https://www.hellofresh.nl).
 
 [Nederlands](README.md) · **English**
 
@@ -45,7 +45,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 - **Picnic and Jumbo under Stores.** Choose the store in the store menu: at Picnic your recipes, favourites and orders, at Jumbo your lists, orders and recipe lists. Where possible MealieShopper keeps a local copy, with the same buttons as at Albert Heijn.
 - **Meal kits (HelloFresh).** A tab of its own next to Stores with the public weekly menus of HelloFresh Netherlands, which you can browse per week and search. Open a recipe at HelloFresh or put it in Mealie with one click. No account or link is needed. This is unofficial: MealieShopper only reads public pages, sparingly and with its own User-Agent, and the recipes and photos remain HelloFresh's.
 - **Setup guide.** On the first start you go through security and the links with Mealie, Albert Heijn, Jumbo and Picnic in six steps.
-- **Audit log and update check.** The administrator sees every request to the stores and from AI assistants (with export) and gets a notice when a new version is available.
+- **Audit log and update check.** The administrator sees every request to the stores, to HelloFresh and from AI assistants (with export) and gets a notice when a new version is available.
 - **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left and can be collapsed to icons only.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
@@ -155,6 +155,12 @@ Under **Recipes** you choose Favourites or one of your own lists; `View` shows t
 <img src="docs/screenshots/en/jumbo-recipes.png" alt="Recipe list at Jumbo with a list picker and cards" width="900">
 
 <img src="docs/screenshots/en/jumbo-recipe.png" alt="A Jumbo recipe with ingredients, method, tip and nutrition values" width="900">
+
+### Meal kits
+
+The **Meal kits** tab sits next to Stores and shows the public weekly menus of HelloFresh Netherlands. You browse per week, filter by name or cuisine and import a recipe into Mealie with one click; no account or link is needed.
+
+<img src="docs/screenshots/en/mealkits.png" alt="Meal kits: the HelloFresh weekly menu as cards, with the At HelloFresh and Import buttons" width="900">
 
 ### Dark theme
 
@@ -275,6 +281,17 @@ The **Stores** tab (formerly *AH Items*) shows per store what MealieShopper keep
 
 - **Orders** (at Jumbo: your completed orders with their products, see *Jumbo*): the sync icon fetches the basket, the open and closed orders and the receipts in one go and keeps them. Every next sync only fetches what is new. An open order is updated while it is open; once it has been delivered, MealieShopper keeps it as **delivered**. AH returns 10 closed orders per request; MealieShopper pages back to your oldest order and keeps what has been delivered (if it says "still without products", sync again). Cancelled orders are skipped. A delivered order no longer changes and is always kept, even if AH stops showing it later. Receipts arrive in batches of 40 (if it says "still to fetch", sync again). The **AH basket** (Basket tab) is the shopping list that `Add to basket` writes to; it is fetched when you open the tab and stays as a copy. It is something other than the active order at AH (the web shop's order basket), which is often empty. MealieShopper does not keep the delivery address, only date and time slot.
 
+### Meal kits (HelloFresh)
+
+The **Meal kits** tab shows the weekly menu of HelloFresh Netherlands, about 80 recipes per week, with photo, cooking time and cuisine. It only uses the pages HelloFresh also shows without logging in, so there is nothing to link and no password or token is stored in MealieShopper.
+
+- **Browsing and searching.** The arrows go a week back or forward, **This week** brings you back. The search field filters the week you see; **Search all weeks** searches the weeks you have already looked at (MealieShopper asks HelloFresh nothing for that, and HelloFresh has no search we may use).
+- **Opening or importing a recipe.** **At HelloFresh** opens the recipe on their site. **Import** puts the recipe with ingredients, method, photo and nutrition values in Mealie, for 2 people. If that fails, the message says what went wrong and the attempt is in the audit log (see *Troubleshooting*).
+- **Sparing with HelloFresh.** A weekly menu is kept for 6 hours; **Refresh** fetches it again. Requests go one at a time, with a pause in between and with `MealieShopper` in the User-Agent, and only to pages HelloFresh does not exclude for robots.
+- **What it cannot do.** Choose, skip or order a box, and handle allergens or other portion sizes (that needs an account, or is not built yet).
+
+This is **unofficial**: HelloFresh has no public API and may change its pages without notice, after which the menu or the import temporarily does not work. The recipes and photos remain HelloFresh's; import them for your own use into your own Mealie.
+
 ### Installing as an app
 
 MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items.
@@ -304,7 +321,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo** and **Picnic**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. The HelloFresh meal kits need no link and no account (see *Meal kits (HelloFresh)* under Usage). This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo** and **Picnic**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 
@@ -470,7 +487,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_TAG` | Which build is running: `latest` (stable, the default) or `beta`. Set it in `.env` next to `docker-compose.yml`: the compose file uses it to pull the right image (`:latest` or `:beta`) and passes the same value to the app, which shows a **beta** badge next to the wordmark (and under About) on a beta build. See *Updating*. |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Override the version number and commit shown under About. |
 
-**Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
+**Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic, Jumbo and HelloFresh: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store or service, show only errors and search. Every attempt to import a HelloFresh recipe into Mealie is in there as **Mealie import**, with Mealie's status, the duration and what happened per attempt. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
 
 <img src="docs/screenshots/en/audit.png" alt="Settings, Audit log: summary per service, filters and the latest requests" width="900">
 
@@ -483,7 +500,7 @@ Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, 
 **Making and restoring a backup in the app.** Under **Settings, System, Backup and restore** the administrator makes one file (`mealieshopper-backup-….json`) with all data in one click, and restores it later, for example on a new server. It holds what you built up yourself: the links with Mealie, Albert Heijn, Picnic, Jumbo and the AI keys, the copies of your lists, saved recipes, orders and receipts, the current offers **and the whole history of the (bonus) offers**, the judgements of offers for recipes, the profiles and the AI and MCP choices. After restoring, the app works as it did before the backup.
 
 - **The links are encrypted with a password you choose** (scrypt and Fernet, at least 8 characters). That password is stored nowhere: without it the links in the file can't be read. Untick *Include the links* and the file holds no links and asks for no password; you then link again after restoring. On the new server the links are encrypted again with that server's key (`secret.key`), so they work even if that key is different.
-- **Whatever logs in to MealieShopper is never included:** passkeys, passwords, two-step verification and recovery codes, invitations, sessions, the access of AI assistants (MCP) and `secret.key` itself. A file you email or keep in a cloud drive therefore can't open MealieShopper. The consequence: if you restore onto a new installation, set up logging in first (the setup assistant) and restore the backup after that. The audit log, the stored recipe images (they come back from Mealie by themselves) and the web address you set for the server are not included either.
+- **Whatever logs in to MealieShopper is never included:** passkeys, passwords, two-step verification and recovery codes, invitations, sessions, the access of AI assistants (MCP) and `secret.key` itself. A file you email or keep in a cloud drive therefore can't open MealieShopper. The consequence: if you restore onto a new installation, set up logging in first (the setup assistant) and restore the backup after that. The audit log, the stored recipe images (they come back from Mealie by themselves), the stored HelloFresh weekly menus (you fetch them again in Meal kits) and the web address you set for the server are not included either.
 - **Restoring is all or nothing.** You choose the file, the server checks all of it (every part, every column and every value; images are read again) and shows what it contains: counts and which links. Only after you confirm does the server replace what is there in one go. A refused file changes nothing and isn't kept, and if something goes wrong halfway, nothing has changed. A backup from an older version works; one from a newer version is refused with the message to update first. Profiles of users that don't exist on this installation are skipped. Your users and their login details stay as they are.
 - **You see what is happening.** Every phase has a name and, where it can be counted, a number and a bar: making, downloading (with the size), uploading, checking and replacing. Afterwards it says how long each part took. The restore runs on the server: leaving, reloading or closing the page stops nothing, and when you come back to the screen you see the progress again. Until then the uploaded file sits in the data folder as `.restore-<code>` and is removed after use or after an hour. After a successful restore the page reloads.
 - **Limits:** a backup file can be 200 MB at most (a backup with years of offers is a few megabytes). If a reverse proxy sits in front of MealieShopper, let it pass a request of at least that size (nginx: `client_max_body_size 200m`; Nginx Proxy Manager has a field for it). Gunicorn gives a request 120 seconds; a very slow connection with a very large file could go over that.
@@ -556,6 +573,10 @@ chmod -R ug+rwX /mnt/user/appdata/mealieshopper
 
 **Jumbo: "Jumbo refuses the request (403)".** Jumbo blocks this address or server. Try again later; if it keeps happening, Jumbo does not work from this location. See **Explore Jumbo routes**.
 
+**HelloFresh: "Importing into Mealie failed".** The message names the status Mealie gave (for example *status 400*), or the kind of error. Look under **Settings, Audit log** (filter **HelloFresh**) for the **Mealie import** entry: it shows the status, the duration and what happened per attempt (full, without photo and nutrition, via the page). If Mealie does not answer within 60 seconds, the recipe may have been created anyway: check Mealie before trying again.
+
+**HelloFresh: "HelloFresh returned the page in an unknown format".** HelloFresh has changed its pages. Try again later with **Refresh**; if it keeps happening, report it as an issue, with the entry from the audit log.
+
 **Picnic: "link expired or refused".** Picnic's session is no longer valid. Go to Settings > Link > Picnic and log in again.
 
 **AH: "code expired or used".** The code from the console works only once and expires quickly. Log in again and paste the new line right away.
@@ -585,7 +606,7 @@ python -m unittest discover -s tests          # all tests
 
 ## Integrations and components
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic or Jumbo.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo or HelloFresh.
 
 **Integrations**
 
@@ -595,6 +616,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
+| [HelloFresh](https://www.hellofresh.nl) | The public weekly menus and recipe pages of HelloFresh Netherlands, without an account. There is **no official API**; MealieShopper only reads public pages, sparingly and with its own User-Agent. HelloFresh may change them without notice. The recipes and photos remain HelloFresh's. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |

@@ -921,6 +921,7 @@ I18N.add("nl", {
   "plan.add_cart_jumbo": "Voeg toe aan Jumbo mandje",
   "cart.ready_jumbo": "Je boodschappen staan klaar: {added} producten in je Jumbo-mandje. Controleer het mandje bij Jumbo voordat je bestelt.{missing}",
   "about.desc.jumbo": "Producten en het winkelmandje, via de niet-officiële app-API van Jumbo.",
+  "about.desc.hellofresh": "Weekmenu's en recepten van HelloFresh Nederland, uit openbare pagina's zonder account (niet-officieel).",
   "update.title": "Updatecheck",
   "update.intro": "MealieShopper kijkt op GitHub of er een nieuwere versie is dan deze installatie. Er gaat geen informatie over jou, je gegevens of deze installatie mee.",
   "update.current": "Geïnstalleerde versie",

@@ -921,6 +921,7 @@ I18N.add("en", {
   "plan.add_cart_jumbo": "Add to Jumbo basket",
   "cart.ready_jumbo": "Your groceries are ready: {added} products in your Jumbo basket. Check the basket at Jumbo before you order.{missing}",
   "about.desc.jumbo": "Products and the basket, through the unofficial Jumbo app API.",
+  "about.desc.hellofresh": "Weekly menus and recipes of HelloFresh Netherlands, from public pages without an account (unofficial).",
   "update.title": "Update check",
   "update.intro": "MealieShopper checks GitHub for a version newer than this installation. No information about you, your data or this installation is sent.",
   "update.current": "Installed version",

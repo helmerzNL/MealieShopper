@@ -6,7 +6,7 @@ onderdeel naast de supermarkten. Dit is een spike van 27 oktober 2026: alleen pu
 
 ## Status
 
-De eerste versie is gebouwd in v2.78.0: hoofdtab **Maaltijdboxen** (`mealieshopper/hellofresh.py`, `static/hellofresh.js`,
+De eerste versie is gebouwd in v2.78.0 en werkt (bevestigd door de eigenaar in een echte Mealie, na de reparaties van de import in 2.78.1 en 2.78.2, waarbij elke importpoging in het auditlog komt als *Mealie import*). Het is de hoofdtab **Maaltijdboxen** (`mealieshopper/hellofresh.py`, `static/hellofresh.js`,
 routes onder `/api/hellofresh/`). Wat erin zit en wat bewust niet:
 
 - Wel: weekmenu per week bladeren, filteren, zoeken in de al bewaarde weken, een recept openen bij HelloFresh of
