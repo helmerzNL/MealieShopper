@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import audit, auth, marleyspoon, mealie  # noqa: E402
+from mealieshopper import audit, auth, hellofresh, marleyspoon, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 SLUG = "710152-bulgurbowl-met-kikkererwten-en-bloemkool-met-tahin-granaatappel-en-amandelen"
@@ -61,6 +61,52 @@ class TempDataDirTest(unittest.TestCase):
         gap = mock.patch.object(marleyspoon, "MIN_GAP", 0)
         gap.start()
         self.addCleanup(gap.stop)
+
+
+class SearchLoadTest(TempDataDirTest):
+    def starts(self, ask):
+        return [call.kwargs["json"]["variables"]["startDate"] for call in ask.call_args_list]
+
+    def test_search_with_load_fetches_the_coming_weeks_once_and_finds_in_them(self):
+        replies = [answer([recipe(SLUG, "Bulgurbowl")], start=day) for day in ("2026-10-26", "2026-11-02", "2026-11-09", "2026-11-16")]
+        with mock.patch.object(hellofresh, "date", wraps=hellofresh.date) as fake:
+            fake.today.return_value = hellofresh.date(2026, 10, 27)
+            with mock.patch.object(marleyspoon.requests, "request", side_effect=replies) as ask:
+                found = marleyspoon.search("bulgur", load=4)
+            self.assertEqual(self.starts(ask), ["2026-10-26", "2026-11-02", "2026-11-09", "2026-11-16"])
+            self.assertEqual((found["weeks"], found["total"]), (4, 1))
+            with mock.patch.object(marleyspoon.requests, "request", side_effect=AssertionError("uit de kopie")):
+                self.assertEqual(marleyspoon.search("bulgur", load=4)["total"], 1)
+
+    def test_search_without_load_asks_marley_spoon_nothing(self):
+        with mock.patch.object(marleyspoon.requests, "request", side_effect=AssertionError("geen verzoek")):
+            self.assertEqual(marleyspoon.search("bulgur")["total"], 0)
+
+    def test_a_week_that_fails_is_skipped_and_all_failing_is_an_error_only_without_a_copy(self):
+        replies = [answer([], status=500), answer([recipe(SLUG, "Bulgurbowl")], start="2026-11-02"), answer([], status=500), answer([], status=500)]
+        with mock.patch.object(hellofresh, "date", wraps=hellofresh.date) as fake:
+            fake.today.return_value = hellofresh.date(2026, 10, 27)
+            with mock.patch.object(marleyspoon.requests, "request", side_effect=replies):
+                self.assertEqual(marleyspoon.search("bulgur", load=4)["total"], 1)
+            with marleyspoon._connect() as conn:
+                conn.execute("DELETE FROM marleyspoon_menus")
+            with mock.patch.object(marleyspoon.requests, "request", return_value=answer([], status=500)):
+                with self.assertRaises(marleyspoon.MarleySpoonError):
+                    marleyspoon.search("bulgur", load=2)
+
+    def test_the_search_route_limits_load_and_the_detail_route_has_the_shape_of_the_other_stores(self):
+        client = create_app().test_client()
+        with mock.patch.object(marleyspoon, "search", return_value={"weeks": 0, "total": 0, "recipes": []}) as search:
+            for raw, expected in (("4", 4), ("99", 4), ("-3", 0), ("x", 0), (None, 0)):
+                client.get("/api/marleyspoon/search?q=a" + (f"&load={raw}" if raw is not None else ""))
+                self.assertEqual(search.call_args.kwargs["load"], expected, raw)
+        with mock.patch.object(marleyspoon.requests, "request", side_effect=detail_requests()):
+            body = client.get(f"/api/marleyspoon/recipes/{SLUG}").get_json()
+        self.assertEqual((body["id"], body["portions"], body["nutrition"], body["url"]), (SLUG, "2", [], f"https://marleyspoon.nl/menu/{SLUG}"))
+        self.assertEqual(body["ingredients"][0], {"line": "150g bulgur"})
+        self.assertEqual(body["steps"][0], "Bulgur koken: Voeg de bulgur toe.\nRoer door.")
+        with mock.patch.object(marleyspoon.requests, "request", side_effect=AssertionError("geen verzoek")):
+            self.assertEqual(client.get("/api/marleyspoon/recipes/zonder-id").status_code, 400)
 
 
 class RecipeTest(TempDataDirTest):

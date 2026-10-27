@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261027-50")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261027-51")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -880,6 +880,13 @@ def create_app() -> Flask:
     def jumbo_error(exc: Exception) -> Any:
         return store_error("Jumbo", exc, jumbo.JumboAuthError)
 
+    def load_weeks() -> int:
+        """`?load=N` bij het zoeken: eerst de komende N weken ophalen (hooguit `hellofresh.MAX_LOAD_WEEKS`); anders alleen de bewaarde menu's."""
+        try:
+            return max(0, min(int(request.args.get("load", "0")), hellofresh.MAX_LOAD_WEEKS))
+        except ValueError:
+            return 0
+
     # --- Maaltijdboxen: de menu's en recepten van HelloFresh, zonder account (alleen gelezen uit openbare pagina's)
     def hellofresh_error(exc: Exception) -> Any:
         # HelloFreshError draagt een tekst van onszelf (nooit het antwoord van HelloFresh): die tonen we, met 424 omdat
@@ -900,7 +907,14 @@ def create_app() -> Flask:
     @app.get("/api/hellofresh/search")
     def hellofresh_search():
         try:
-            return jsonify(hellofresh.search(request.args.get("q")))
+            return jsonify(hellofresh.search(request.args.get("q"), load=load_weeks()))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.get("/api/hellofresh/recipes/<recipe_key>")
+    def hellofresh_recipe_detail(recipe_key: str):
+        try:
+            return jsonify(hellofresh.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
@@ -935,7 +949,14 @@ def create_app() -> Flask:
     @app.get("/api/marleyspoon/search")
     def marleyspoon_search():
         try:
-            return jsonify(marleyspoon.search(request.args.get("q")))
+            return jsonify(marleyspoon.search(request.args.get("q"), load=load_weeks()))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.get("/api/marleyspoon/recipes/<recipe_key>")
+    def marleyspoon_recipe_detail(recipe_key: str):
+        try:
+            return jsonify(marleyspoon.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 

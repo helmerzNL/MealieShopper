@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.3
+
+### Nieuw in 2.79.3
+
+- **Recepten zoeken zoekt nu ook bij HelloFresh en Marley Spoon.** Onder Recepten > Recepten zoeken staan naast Albert Heijn, Jumbo en Picnic twee blokken, **HelloFresh** en **Marley Spoon**, met de recepten uit hun weekmenu's die bij je zoekwoord passen: naam, kop, keuken of label. Er is geen koppeling of account voor nodig. Elke kaart heeft dezelfde knoppen als de andere winkels: **Bekijken** toont de ingrediënten en de bereiding in het scherm, en **Importeer** zet het recept in Mealie.
+- **Welke weken.** Bij het zoeken worden het menu van deze week en van de drie weken erna opgehaald als ze er nog niet zijn (ongeveer vier verzoeken per aanbieder, één voor één en met een pauze; de eerste zoekopdracht duurt daardoor even), en 6 uur bewaard. Daarna zoekt het direct. Lukt het ophalen van een week niet, dan wordt die overgeslagen; lukt het helemaal niet en is er niets bewaard, dan staat er een melding bij die aanbieder en blijven de andere winkels gewoon staan. In het tabblad Maaltijdboxen blijft **Zoek in alle weken** alleen zoeken in de weken die je al hebt bekeken.
+- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe zoekscript meteen ophaalt.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Zie je het zoekblok van HelloFresh of Marley Spoon niet, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: Search recipes now also searches HelloFresh and Marley Spoon. Two new blocks next to Albert Heijn, Jumbo and Picnic show the recipes from their weekly menus that match your search (name, headline, cuisine or label); no link or account is needed. Each card has the same buttons as the other stores: View shows the ingredients and the method on screen, Import puts the recipe in Mealie. While searching, the menus of this week and the next three weeks are fetched if they are not there yet (about four requests per provider, one at a time with a pause, so the first search takes a moment) and kept for 6 hours; a week that fails is skipped, and if nothing at all can be fetched and nothing is stored, that provider shows a message while the other stores stay. "Search all weeks" in the Meal kits tab still only searches the weeks you have looked at. The scripts have a new address so the browser fetches the new search script right away. Reload the page once (installed app: close and reopen).*
+
 ## v2.79.2
 
 ### Gerepareerd in 2.79.2

@@ -1,19 +1,24 @@
-// Recepten zoeken: tegelijk bij Albert Heijn, Jumbo en Picnic (de laatste twee zodra ze gekoppeld zijn).
+// Recepten zoeken: tegelijk bij Albert Heijn, Jumbo en Picnic (de laatste twee zodra ze gekoppeld zijn) en in de menu's van
+// de maaltijdboxen HelloFresh en Marley Spoon (zonder koppeling; de komende weken worden bij het zoeken opgehaald).
 // Elke winkel heeft zijn eigen blok met resultaten; een winkel die faalt, laat de andere gewoon staan.
-// Bij Jumbo en Picnic opent `Bekijken` het recept met ingrediënten en bereiding in dit tabblad.
+// Bij Jumbo, Picnic en de maaltijdboxen opent `Bekijken` het recept met ingrediënten en bereiding in dit tabblad.
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, postJson, setBusy, t, tn, ...).
 
-const SEARCH_STORES = ["ah", "jumbo", "picnic"];
+const SEARCH_STORES = ["ah", "jumbo", "picnic", "hellofresh", "marleyspoon"];
+const MEALKIT_SEARCH = new Set(["hellofresh", "marleyspoon"]); // zoeken in menu's; elke aanbieder heeft eigen routes onder /api/<aanbieder>/
+const MEALKIT_SEARCH_WEEKS = 4; // deze week en de 3 weken erna
 const recipeSearch = {
   query: "",
   ah: { recipes: [], total: 0, page: 0, more: false },
   jumbo: { recipes: [], total: 0, more: false },
   picnic: { recipes: [], total: 0, more: false },
+  hellofresh: { recipes: [], total: 0, more: false },
+  marleyspoon: { recipes: [], total: 0, more: false },
   searched: false,
 };
 
 function searchStoreActive(store) {
-  return store === "ah" || Boolean(state.linkedStores[store]);
+  return store === "ah" || MEALKIT_SEARCH.has(store) || Boolean(state.linkedStores[store]);
 }
 
 // De elementen van een blok; AH behoudt zijn oorspronkelijke id's.
@@ -76,6 +81,18 @@ function renderSearchStore(store) {
   }
 }
 
+// Een recept uit een weekmenu in de vorm van de andere winkelkaarten: de sleutel is het id, label, keuken en week zijn de etiketten.
+function mealKitSearchCard(recipe) {
+  const week = /^(\d{4})-W(\d{2})$/.exec(recipe.week || "");
+  return {
+    id: recipe.key,
+    name: recipe.name,
+    image: recipe.image,
+    minutes: recipe.minutes,
+    tags: [recipe.label, recipe.cuisine, week ? t("mealkits.week", { week: Number(week[2]), year: week[1] }) : ""],
+  };
+}
+
 // Eén pagina van één winkel; `append` voegt de volgende pagina toe aan wat er staat.
 async function fetchSearchStore(store, append) {
   const data = recipeSearch[store];
@@ -92,6 +109,11 @@ async function fetchSearchStore(store, append) {
     } else if (store === "jumbo") {
       const answer = await jsonFetch(`/api/jumbo/recipes?q=${q}&offset=${append ? data.recipes.length : 0}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
+    } else if (MEALKIT_SEARCH.has(store)) {
+      const answer = await jsonFetch(`/api/${store}/search?q=${q}&load=${MEALKIT_SEARCH_WEEKS}`);
+      // Er komen er hooguit 60 terug: bij meer treffers staat er "60 van 101 recepten" (verfijn dan het zoekwoord); er is geen "Meer recepten".
+      const recipes = (answer.recipes || []).map(mealKitSearchCard);
+      found = { recipes, total: answer.total ?? recipes.length, more: Number(answer.total) > recipes.length };
     } else {
       const answer = await jsonFetch(`/api/picnic/recipes?q=${q}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
