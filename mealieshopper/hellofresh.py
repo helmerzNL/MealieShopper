@@ -148,6 +148,29 @@ def monday(week: str) -> date:
         raise ValueError(tr("Geen geldige week", "Not a valid week")) from exc
 
 
+MAX_LOAD_WEEKS = 4  # Recepten zoeken kijkt hooguit zoveel weken vooruit (de actuele week meegerekend)
+
+
+def upcoming_weeks(count: int) -> list[str]:
+    """De actuele week en de weken erna, `count` in totaal."""
+    start = monday(week_code(date.today()))
+    return [week_code(start + timedelta(days=7 * n)) for n in range(max(0, min(int(count), MAX_LOAD_WEEKS)))]
+
+
+def load_upcoming(get: Any, count: int, errors: tuple[type[Exception], ...]) -> Exception | None:
+    """Haal de menu's van de komende weken op met `get(week)`, zodat een zoekopdracht ze vindt. Een week die mislukt of nog
+    geen menu heeft slaan we over. Geeft de laatste fout terug als er geen enkele week gelukt is, anders `None`."""
+    last: Exception | None = None
+    loaded = 0
+    for week in upcoming_weeks(count):
+        try:
+            get(week)
+            loaded += 1
+        except errors as exc:
+            last = exc
+    return None if loaded else last
+
+
 def neighbours(week: str) -> tuple[str, str]:
     start = monday(week)
     return week_code(start - timedelta(days=7)), week_code(start + timedelta(days=7))
@@ -258,13 +281,17 @@ def get_menu(week: Any = None, refresh: bool = False) -> dict[str, Any]:
     }
 
 
-def search(query: Any) -> dict[str, Any]:
-    """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop, keuken of label. Vraagt HelloFresh niets."""
+def search(query: Any, load: int = 0) -> dict[str, Any]:
+    """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop, keuken of label. Zonder `load` vraagt dit
+    HelloFresh niets; met `load` worden eerst de komende weken opgehaald (en bewaard) die er nog niet zijn."""
     words = _fold(query).split()
     if not words:
         raise ValueError(tr("Vul een zoekwoord in", "Enter a search term"))
+    failure = load_upcoming(get_menu, load, (HelloFreshError, ValueError)) if load else None
     with closing(_connect()) as conn:
         rows = conn.execute("SELECT week, payload FROM hellofresh_menus ORDER BY week DESC").fetchall()
+    if failure and not rows:
+        raise failure
     found: dict[str, dict[str, Any]] = {}
     for row in rows:
         try:
@@ -383,3 +410,13 @@ def run_import(key: Any) -> dict[str, str]:
         "hellofresh", "HelloFresh", key, lambda k: bool(_KEY.match(k)), source_url,
         lambda k, attempts: import_into_mealie(get_recipe(k), attempts), HelloFreshError,
     )
+
+
+def detail(key: Any) -> dict[str, Any]:
+    """Het recept in de vorm van het zoekscherm (ingrediënten als regels); zoals Jumbo en Picnic, zonder voedingswaarden."""
+    recipe = get_recipe(key)
+    return {
+        "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
+        "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
+        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"], "nutrition": [],
+    }

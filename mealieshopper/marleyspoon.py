@@ -25,7 +25,7 @@ import requests
 
 from . import about, auth, mealie, mealkit_import
 from .ah_lists import _fold
-from .hellofresh import monday, neighbours, nutrition_fields, week_code
+from .hellofresh import load_upcoming, monday, neighbours, nutrition_fields, week_code
 from .i18n import tr
 
 BASE = "https://marleyspoon.nl"
@@ -260,13 +260,17 @@ def get_menu(week: Any = None, refresh: bool = False) -> dict[str, Any]:
     }
 
 
-def search(query: Any) -> dict[str, Any]:
-    """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop of label. Vraagt Marley Spoon niets."""
+def search(query: Any, load: int = 0) -> dict[str, Any]:
+    """Zoek in alle bewaarde menu's; alle woorden moeten voorkomen in naam, kop of label. Zonder `load` vraagt dit Marley Spoon
+    niets; met `load` worden eerst de komende weken opgehaald (en bewaard) die er nog niet zijn."""
     words = _fold(query).split()
     if not words:
         raise ValueError(tr("Vul een zoekwoord in", "Enter a search term"))
+    failure = load_upcoming(get_menu, load, (MarleySpoonError, ValueError)) if load else None
     with closing(_connect()) as conn:
         rows = conn.execute("SELECT week, payload FROM marleyspoon_menus ORDER BY week DESC").fetchall()
+    if failure and not rows:
+        raise failure
     found: dict[str, dict[str, Any]] = {}
     for row in rows:
         try:
@@ -386,3 +390,13 @@ def run_import(key: Any) -> dict[str, str]:
         "marleyspoon", "Marley Spoon", key, lambda k: bool(_KEY.match(k)), source_url,
         lambda k, attempts: import_into_mealie(get_recipe(k), attempts), MarleySpoonError,
     )
+
+
+def detail(key: Any) -> dict[str, Any]:
+    """Het recept in de vorm van het zoekscherm (ingrediënten als regels); zoals Jumbo en Picnic, zonder voedingswaarden."""
+    recipe = get_recipe(key)
+    return {
+        "id": recipe["key"], "name": recipe["name"], "description": recipe["description"], "image": recipe["image"],
+        "minutes": recipe["minutes"], "portions": recipe["portions"], "url": source_url(recipe["key"]),
+        "ingredients": [{"line": line} for line in recipe["ingredients"]], "steps": recipe["steps"], "nutrition": [],
+    }

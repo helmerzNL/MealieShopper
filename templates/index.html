@@ -317,10 +317,10 @@
       <div id="search" class="subpanel">
         <div id="search-main">
           <form class="form-row" id="search-form">
-            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo en Picnic..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
+            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
-          <p class="muted" data-i18n="search.intro">Zoekt tegelijk bij Albert Heijn, en bij Jumbo en Picnic zodra die gekoppeld zijn. Importeer een recept in Mealie, of open het voor de ingrediënten en de bereiding.</p>
+          <p class="muted" data-i18n="search.intro">Zoekt tegelijk bij Albert Heijn, bij Jumbo en Picnic zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Importeer een recept in Mealie, of open het voor de ingrediënten en de bereiding.</p>
           <div id="search-message"></div>
           <div id="search-sections">
             <section class="search-store" id="search-ah" hidden>
@@ -339,6 +339,16 @@
               <h3><span>Picnic</span> <span class="muted" id="search-picnic-count"></span></h3>
               <div id="search-picnic-message"></div>
               <div id="search-picnic-results" class="recipe-grid recipe-grid--compact"></div>
+            </section>
+            <section class="search-store" id="search-hellofresh" hidden>
+              <h3><span>HelloFresh</span> <span class="muted" id="search-hellofresh-count"></span></h3>
+              <div id="search-hellofresh-message"></div>
+              <div id="search-hellofresh-results" class="recipe-grid recipe-grid--compact"></div>
+            </section>
+            <section class="search-store" id="search-marleyspoon" hidden>
+              <h3><span>Marley Spoon</span> <span class="muted" id="search-marleyspoon-count"></span></h3>
+              <div id="search-marleyspoon-message"></div>
+              <div id="search-marleyspoon-results" class="recipe-grid recipe-grid--compact"></div>
             </section>
           </div>
         </div>
