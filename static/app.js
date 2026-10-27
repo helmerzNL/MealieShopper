@@ -1782,6 +1782,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
   if (panelId === "basket") showBasket();
+  if (panelId === "meal-kits" && typeof showMealKits === "function") showMealKits();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();

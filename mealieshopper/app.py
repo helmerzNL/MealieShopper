@@ -11,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261026-48")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261027-49")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -879,6 +879,47 @@ def create_app() -> Flask:
 
     def jumbo_error(exc: Exception) -> Any:
         return store_error("Jumbo", exc, jumbo.JumboAuthError)
+
+    # --- Maaltijdboxen: de menu's en recepten van HelloFresh, zonder account (alleen gelezen uit openbare pagina's)
+    def hellofresh_error(exc: Exception) -> Any:
+        # HelloFreshError draagt een tekst van onszelf (nooit het antwoord van HelloFresh): die tonen we, met 424 omdat
+        # de fout bij HelloFresh ligt en niet bij de gebruiker.
+        if isinstance(exc, hellofresh.HelloFreshError):
+            app.logger.warning("HelloFresh: %s", exc, exc_info=exc.__cause__ is not None)
+            return jsonify({"error": str(exc)}), 424
+        return store_error("HelloFresh", exc)
+
+    @app.get("/api/hellofresh/menu")
+    def hellofresh_menu():
+        refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+        try:
+            return jsonify(hellofresh.get_menu(request.args.get("week"), refresh=refresh))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.get("/api/hellofresh/search")
+    def hellofresh_search():
+        try:
+            return jsonify(hellofresh.search(request.args.get("q")))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.post("/api/hellofresh/recipes/<recipe_key>/import")
+    def hellofresh_recipe_import(recipe_key: str):
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            recipe = hellofresh.get_recipe(recipe_key)
+            slug = mealie.import_via_jsonld(hellofresh.source_url(recipe["key"]), hellofresh.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("HelloFresh recipe import error")
+            if isinstance(exc, (ValueError, hellofresh.HelloFreshError)):
+                return hellofresh_error(exc)
+            # De melding van Mealie of HelloFresh kan hun antwoord bevatten: alleen in het logboek.
+            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
 
     @app.get("/api/jumbo/auth/status")
     def jumbo_auth_status():

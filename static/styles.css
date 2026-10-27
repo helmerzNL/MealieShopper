@@ -723,6 +723,12 @@ h2 {
   line-height: 1.3;
 }
 
+.recipe-card .recipe-card__headline {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .tags {
   display: flex;
   flex-wrap: wrap;
@@ -2455,7 +2461,7 @@ body.has-onboarding {
     right: max(12px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 2px;
     width: auto;
     margin: 0;
