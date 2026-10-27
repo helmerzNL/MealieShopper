@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.78.2
+
+### Gerepareerd in 2.78.2
+
+- **Elke HelloFresh-import staat in het auditlog.** Onder Beheer > Auditlog (filter **HelloFresh**) komt bij elke poging een regel **Mealie import**, ook als het misgaat: met de status van Mealie, de duur en per poging wat er gebeurde (volledig, zonder foto en voedingswaarden, via de pagina). Verzoeken aan Mealie zelf staan niet los in het log (het adres van Mealie verschilt per installatie); alleen deze importpoging wordt vastgelegd. Het verkeer met hellofresh.nl stond er al in.
+- **De melding zegt wat er misging.** Antwoordt Mealie niet binnen 60 seconden, dan staat er dat, met de waarschuwing dat het recept toch kan zijn aangemaakt (kijk in Mealie voordat je het opnieuw probeert). Is Mealie niet bereikbaar, dan staat dat er. Bij een onverwachte fout noemt de melding alleen de soort fout (bijvoorbeeld *KeyError*), nooit de inhoud van het antwoord van Mealie; die staat in het serverlogboek.
+
+*English summary: every HelloFresh import attempt is now in the audit log (Administration > Audit log, HelloFresh filter) as "Mealie import", also when it fails: with Mealie's status, the duration and what happened per attempt. Requests to Mealie itself are not logged separately because its address differs per installation. The message now says what went wrong: no answer within 60 seconds (the recipe may have been created anyway), Mealie not reachable, or the kind of unexpected error, never the content of Mealie's answer.*
+
 ## v2.78.1
 
 ### Gerepareerd in 2.78.1

@@ -911,15 +911,11 @@ def create_app() -> Flask:
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         try:
-            recipe = hellofresh.get_recipe(recipe_key)
-            slug = hellofresh.import_into_mealie(recipe)
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            return jsonify(hellofresh.run_import(recipe_key))
         except Exception as exc:  # noqa: BLE001
-            app.logger.exception("HelloFresh recipe import error")
-            if isinstance(exc, (ValueError, hellofresh.HelloFreshError)):
-                return hellofresh_error(exc)
-            # De melding van Mealie of HelloFresh kan hun antwoord bevatten: alleen in het logboek.
-            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
+            # run_import zet een tekst van onszelf in de fout (nooit het antwoord van Mealie of HelloFresh) en legt de
+            # poging vast in het auditlog; het volledige antwoord staat alleen in het serverlogboek.
+            return hellofresh_error(exc)
 
     @app.get("/api/jumbo/auth/status")
     def jumbo_auth_status():
