@@ -1,11 +1,11 @@
 // Maaltijdboxen: het weekmenu van een aanbieder (HelloFresh, Marley Spoon; openbare gegevens, geen account) bekijken, doorzoeken
-// en, waar de aanbieder het toelaat, een recept in Mealie importeren.
+// en een recept in Mealie importeren. De aanbieder kies je in het uitklapmenu van de subtabbalk, zoals de winkel bij Winkels.
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, postJson, setBusy, t, matchesWords, ...).
 
-// Per aanbieder de naam en of we het recept kunnen importeren; de routes staan onder /api/<aanbieder>/.
+// Per aanbieder de naam; de routes staan onder /api/<aanbieder>/.
 const MEALKIT_PROVIDERS = {
-  hellofresh: { name: "HelloFresh", canImport: true },
-  marleyspoon: { name: "Marley Spoon", canImport: false },
+  hellofresh: { name: "HelloFresh" },
+  marleyspoon: { name: "Marley Spoon" },
 };
 
 const mealKits = { provider: "hellofresh", menu: null, search: null, query: "", loaded: false, run: 0 };
@@ -41,7 +41,7 @@ function renderMealKitCard(recipe) {
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
       <div class="card-actions">
         <a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("mealkits.open", { provider: provider.name }))}</a>
-        ${provider.canImport ? `<button class="button" type="button" data-mealkit-import="${escapeHtml(recipe.key)}">${escapeHtml(t("recipe.import"))}</button>` : ""}
+        <button class="button" type="button" data-mealkit-import="${escapeHtml(recipe.key)}">${escapeHtml(t("recipe.import"))}</button>
       </div>
       <div class="recipe-import-result"></div>
     </article>`;
@@ -50,10 +50,10 @@ function renderMealKitCard(recipe) {
 // De teksten die de naam van de aanbieder dragen; ze staan niet in de HTML omdat de aanbieder wisselt.
 function renderMealKitTexts() {
   const provider = mealKitProvider();
-  $("#mealkits-title").textContent = t("mealkits.title", { provider: provider.name });
-  $("#mealkits-intro").textContent = t(provider.canImport ? "mealkits.intro" : "mealkits.intro_open_only", { provider: provider.name });
+  $("#mealkits-intro").textContent = t("mealkits.intro", { provider: provider.name });
   $("#mealkits-source").textContent = t("mealkits.source", { provider: provider.name });
-  $("#mealkits-provider").value = mealKits.provider;
+  $("#mealkits-provider-name").textContent = provider.name;
+  document.querySelectorAll("#mealkits-provider-list [data-provider]").forEach((item) => item.classList.toggle("is-active", item.dataset.provider === mealKits.provider));
 }
 
 function renderMealKits() {
@@ -153,7 +153,12 @@ async function importMealKit(key, button, target) {
   }
 }
 
-$("#mealkits-provider").addEventListener("change", (event) => changeMealKitProvider(event.target.value));
+$("#mealkits-provider-list").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-provider]");
+  if (!item) return;
+  setSubtabMenu($("#mealkits-provider-menu"), false);
+  changeMealKitProvider(item.dataset.provider);
+});
 $("#mealkits-refresh").addEventListener("click", () => loadMealKits(mealKits.menu?.week, { refresh: true }));
 $("#mealkits-previous").addEventListener("click", () => mealKits.menu && loadMealKits(mealKits.menu.previous));
 $("#mealkits-next").addEventListener("click", () => mealKits.menu && loadMealKits(mealKits.menu.next));
