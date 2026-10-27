@@ -4,6 +4,19 @@ Doel: vaststellen of MealieShopper recepten van HelloFresh Nederland kan tonen e
 onderdeel naast de supermarkten. Dit is een spike van 27 oktober 2026: alleen publieke pagina's van
 `www.hellofresh.nl` zijn gelezen (een handvol verzoeken, geen login, geen account). Er is niets in de app gebouwd.
 
+## Status
+
+De eerste versie is gebouwd in v2.78.0: hoofdtab **Maaltijdboxen** (`mealieshopper/hellofresh.py`, `static/hellofresh.js`,
+routes onder `/api/hellofresh/`). Wat erin zit en wat bewust niet:
+
+- Wel: weekmenu per week bladeren, filteren, zoeken in de al bewaarde weken, een recept openen bij HelloFresh of
+  importeren in Mealie (JSON-LD naar `mealie.import_via_jsonld`), menu 6 uur bewaard in `hellofresh_menus`, verkeer in
+  het auditlog, een eigen User-Agent en een pauze van een seconde tussen verzoeken.
+- Niet: een account, een box kiezen of overslaan, allergenen, andere porties dan de standaard van 2, en een aanbiederskeuze
+  (er is nu alleen HelloFresh). `hellofresh_menus` staat bewust in `backup.EXCLUDED_TABLES`.
+- De voorwaarden van HelloFresh moeten nog door de eigenaar zijn gelezen voordat dit in een stabiele release komt (zie
+  "Wat niet is vastgesteld").
+
 ## Kort antwoord
 
 Ja, voor het **lezen van recepten en de weekmenu's is geen account en geen onofficiële API nodig**. De publieke

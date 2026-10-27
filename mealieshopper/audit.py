@@ -57,6 +57,7 @@ SERVICE_DOMAINS: dict[str, tuple[str, ...]] = {
     "ah": ("ah.nl",),
     "picnic": ("picnicinternational.com",),
     "jumbo": ("jumbo.com",),
+    "hellofresh": ("hellofresh.nl",),
 }
 SERVICES = tuple(SERVICE_DOMAINS) + ("mcp",)
 

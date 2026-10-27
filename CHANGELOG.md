@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.78.0
+
+### Nieuw in 2.78.0
+
+- **Nieuw tabblad Maaltijdboxen met het menu van HelloFresh.** Naast Winkels staat nu een eigen tabblad met de openbare weekmenu's van HelloFresh Nederland: bladeren per week (vorige, volgende, deze week), filteren op naam, kop, keuken of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Elke kaart heeft de foto, de kooktijd en twee knoppen: **Bij HelloFresh** opent het recept op hun site en **Importeer** zet het recept met ingrediënten, bereiding en voedingswaarden in Mealie.
+- **Geen account en geen koppeling.** MealieShopper leest alleen de pagina's die ook zonder inloggen openstaan: het weekmenu en de receptpagina, via de schema.org-gegevens die HelloFresh er zelf op zet. Er wordt niets geschreven en er staat geen wachtwoord of token in de database.
+- **Zuinig en eerlijk.** Een weekmenu wordt 6 uur bewaard in de database, zodat HelloFresh niet bij elke weergave wordt gevraagd (de knop **Verversen** haalt het opnieuw op). Verzoeken gaan één voor één, met een pauze ertussen en met `MealieShopper` in de User-Agent, en alleen naar paden die `robots.txt` van HelloFresh niet uitsluit. Een receptadres wordt streng gecontroleerd voordat de server er iets naartoe stuurt.
+- **Het verkeer met HelloFresh staat in het auditlog** (Beheer > Auditlog, filter **HelloFresh**).
+- Dit is een onofficiële bron: HelloFresh kan de pagina's wijzigen, waarna het menu of de import tijdelijk niet werkt. De recepten en foto's blijven van HelloFresh. Het onderzoek erachter staat in `docs/onderzoek-hellofresh.md`.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen) als het tabblad Maaltijdboxen niet vanzelf verschijnt; er is een nieuw script.
+- De database krijgt de tabel `hellofresh_menus` vanzelf. Die zit bewust niet in de back-up: het is een herlaadbare kopie van openbare menu's.
+- Op een telefoon staan er in de onderste balk nu zes tabs plus je profiel.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: a new Meal kits tab next to Stores shows the public weekly menus of HelloFresh Netherlands. Browse by week, filter, search the weeks you have looked at, open a recipe at HelloFresh or import it into Mealie with one click. No account or link is needed: only public pages are read, sparingly and with its own User-Agent, and menus are cached for 6 hours. It is unofficial, so HelloFresh may change its pages; recipes and photos remain HelloFresh's. Traffic to HelloFresh appears in the audit log.*
+
 ## v2.77.1
 
 ### Sinds de vorige stabiele versie (v2.74.0)
