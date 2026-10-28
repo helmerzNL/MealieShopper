@@ -888,6 +888,8 @@ h2 {
   display: block;
   margin-top: 2px;
   font-size: 15px;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .meal small {

@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.80.2
+
+### Nieuw in 2.80.2
+
+*English summary: server messages such as "AH account not linked" and the API errors of the app now follow the chosen language (before, many stayed Dutch in the English interface); long recipe names in the week menu wrap instead of being cut off; all README screenshots were made again in the new look, with a script to regenerate them (`scripts/screenshots`). Reload the page once after updating.*
+
+- **Meldingen van de server staan in de gekozen taal.** "AH account niet gekoppeld", "Mealie is niet gekoppeld" en de foutmeldingen van de API (zoals "Zoekterm ontbreekt" of "Importeren in Mealie mislukt") bleven in het Nederlands staan als de interface op Engels stond. Ze volgen nu de taalkeuze, net als de meldingen van Jumbo en Picnic, waarvan de Engelse tekst bovendien naar het goede menu verwijst (**Settings > Link**, niet *Admin*).
+- **Lange receptnamen in het weekmenu** worden afgebroken in plaats van afgesneden.
+- **Alle screenshots in de README's** zijn opnieuw gemaakt in de nieuwe stijl, in het Nederlands en het Engels, met het huidige menu en de nieuwe schermen. Ze komen uit een script met nagebootste gegevens en zelfgetekende illustraties (`scripts/screenshots`, zie de README); zo zijn ze bij een volgende release in één commando te vernieuwen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.80.1
 
 ### Nieuw in 2.80.1

@@ -333,7 +333,10 @@ def get_user_token() -> str:
     refresh_token = configured_refresh_token()
     if not refresh_token:
         raise RuntimeError(
-            "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn."
+            tr(
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn.",
+            )
         )
 
     data = _request_json(
@@ -1099,8 +1102,12 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
     """Bewaarde recepten uit de receptencollectie van het AH-account (GraphQL)."""
     if not configured_refresh_token():
         raise RuntimeError(
-            "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
-            "om bewaarde recepten op te halen."
+            tr(
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
+                "om bewaarde recepten op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
+                "to fetch saved recipes.",
+            )
         )
     return _get_saved_recipes_api(page, size)
 
