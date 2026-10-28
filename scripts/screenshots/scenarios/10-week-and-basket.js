@@ -334,7 +334,7 @@ module.exports = [
     routes: searchRoutes,
     run: async (page) => {
       await search(page);
-      await scrollTo(page, "#search .subtabs", 80);
+      await scrollTo(page, "#recipes > .subtabs", 80);
     },
   },
   {
