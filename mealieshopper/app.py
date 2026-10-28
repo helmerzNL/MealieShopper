@@ -11,7 +11,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261026-48")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261027-52")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -879,6 +879,98 @@ def create_app() -> Flask:
 
     def jumbo_error(exc: Exception) -> Any:
         return store_error("Jumbo", exc, jumbo.JumboAuthError)
+
+    def load_weeks() -> int:
+        """`?load=N` bij het zoeken: eerst de komende N weken ophalen (hooguit `hellofresh.MAX_LOAD_WEEKS`); anders alleen de bewaarde menu's."""
+        try:
+            return max(0, min(int(request.args.get("load", "0")), hellofresh.MAX_LOAD_WEEKS))
+        except ValueError:
+            return 0
+
+    # --- Maaltijdboxen: de menu's en recepten van HelloFresh, zonder account (alleen gelezen uit openbare pagina's)
+    def hellofresh_error(exc: Exception) -> Any:
+        # HelloFreshError draagt een tekst van onszelf (nooit het antwoord van HelloFresh): die tonen we, met 424 omdat
+        # de fout bij HelloFresh ligt en niet bij de gebruiker.
+        if isinstance(exc, hellofresh.HelloFreshError):
+            app.logger.warning("HelloFresh: %s", exc, exc_info=exc.__cause__ is not None)
+            return jsonify({"error": str(exc)}), 424
+        return store_error("HelloFresh", exc)
+
+    @app.get("/api/hellofresh/menu")
+    def hellofresh_menu():
+        refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+        try:
+            return jsonify(hellofresh.get_menu(request.args.get("week"), refresh=refresh))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.get("/api/hellofresh/search")
+    def hellofresh_search():
+        try:
+            return jsonify(hellofresh.search(request.args.get("q"), load=load_weeks()))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.get("/api/hellofresh/recipes/<recipe_key>")
+    def hellofresh_recipe_detail(recipe_key: str):
+        try:
+            return jsonify(hellofresh.detail(recipe_key))
+        except Exception as exc:  # noqa: BLE001
+            return hellofresh_error(exc)
+
+    @app.post("/api/hellofresh/recipes/<recipe_key>/import")
+    def hellofresh_recipe_import(recipe_key: str):
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(hellofresh.run_import(recipe_key))
+        except Exception as exc:  # noqa: BLE001
+            # run_import zet een tekst van onszelf in de fout (nooit het antwoord van Mealie of HelloFresh) en legt de
+            # poging vast in het auditlog; het volledige antwoord staat alleen in het serverlogboek.
+            return hellofresh_error(exc)
+
+    # Marley Spoon: het menu, en het recept in Mealie zetten (het detail vraagt het bezoekerstoken van de receptpagina)
+    def marleyspoon_error(exc: Exception) -> Any:
+        if isinstance(exc, marleyspoon.MarleySpoonError):
+            app.logger.warning("Marley Spoon: %s", exc, exc_info=exc.__cause__ is not None)
+            return jsonify({"error": str(exc)}), 424
+        return store_error("Marley Spoon", exc)
+
+    @app.get("/api/marleyspoon/menu")
+    def marleyspoon_menu():
+        refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
+        try:
+            return jsonify(marleyspoon.get_menu(request.args.get("week"), refresh=refresh))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.get("/api/marleyspoon/search")
+    def marleyspoon_search():
+        try:
+            return jsonify(marleyspoon.search(request.args.get("q"), load=load_weeks()))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.get("/api/marleyspoon/recipes/<recipe_key>")
+    def marleyspoon_recipe_detail(recipe_key: str):
+        try:
+            return jsonify(marleyspoon.detail(recipe_key))
+        except Exception as exc:  # noqa: BLE001
+            return marleyspoon_error(exc)
+
+    @app.post("/api/marleyspoon/recipes/<recipe_key>/import")
+    def marleyspoon_recipe_import(recipe_key: str):
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        try:
+            return jsonify(marleyspoon.run_import(recipe_key))
+        except Exception as exc:  # noqa: BLE001
+            # run_import zet een tekst van onszelf in de fout en legt de poging vast in het auditlog.
+            return marleyspoon_error(exc)
 
     @app.get("/api/jumbo/auth/status")
     def jumbo_auth_status():

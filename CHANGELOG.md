@@ -2,6 +2,135 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.79.4
+
+### Sinds de vorige stabiele versie (v2.77.1)
+
+Deze release brengt `main` van v2.77.1 naar v2.79.4. De tussenliggende versies (2.78.0 tot en met 2.79.3) waren alleen als pre-release (`-beta`) beschikbaar; dit is wat er in totaal verandert. De volledige tekst per versie staat verderop in dit bestand.
+
+*English summary of everything since v2.77.1: there is a new Meal kits tab with the public weekly menus of HelloFresh and Marley Spoon Netherlands. You choose the provider in a drop-down menu in the bar (like the store under Stores), browse per week, filter, search the weeks you have looked at, open a recipe at the provider, or import it into Mealie with one click (ingredients, method and nutrition). No account or link is needed. Search recipes now also searches those menus, for this week and the next three weeks. The "AI review of links" block under Settings > Link can be collapsed like the store blocks. Importing from HelloFresh and Marley Spoon gives clearer messages, retries once without photo and nutrition, and every attempt is in the audit log. Everything is unofficial: the providers have no public API and may change their sites. Reload the page once after updating.*
+
+- **Nieuw tabblad Maaltijdboxen (2.78.0, 2.79.0, 2.79.1).** Naast Winkels staat een tabblad met de openbare weekmenu's van **HelloFresh** en **Marley Spoon** Nederland: bladeren per week (vorige, volgende, deze week), filteren op naam, kop, keuken of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Je kiest de aanbieder in een uitklapmenu in de balk bovenaan, zoals de winkelkeuze bij Winkels. Elke kaart heeft de foto, de kooktijd en twee knoppen: **Bij HelloFresh** of **Bij Marley Spoon** opent het recept op hun site, en **Importeer** zet het recept met ingrediënten, bereiding en voedingswaarden in Mealie.
+- **Geen account en geen koppeling.** MealieShopper leest alleen openbare gegevens: bij HelloFresh het weekmenu en de schema.org-gegevens van de receptpagina, bij Marley Spoon het menu uit hetzelfde GraphQL-eindpunt als hun eigen menupagina en voor een import het recept met het bezoekerstoken dat elke receptpagina aan iedere bezoeker geeft (nergens bewaard of gelogd). Verzoeken gaan één voor één, met een pauze ertussen en met `MealieShopper` in de User-Agent; een weekmenu wordt 6 uur bewaard. Dit is onofficieel: een aanbieder kan zijn site wijzigen, waarna het menu of de import tijdelijk niet werkt. De recepten en foto's blijven van de aanbieders.
+- **Recepten zoeken zoekt ook bij HelloFresh en Marley Spoon (2.79.3).** Onder Recepten > Recepten zoeken staan twee extra blokken naast Albert Heijn, Jumbo en Picnic, met dezelfde knoppen **Bekijken** (ingrediënten en bereiding in het scherm) en **Importeer**. Bij het zoeken worden het menu van deze week en van de drie weken erna opgehaald als ze er nog niet zijn; de eerste zoekopdracht duurt daardoor even.
+- **Importeren geeft een bruikbare melding en een tweede kans (2.78.1, 2.78.2).** Bij een mislukte import staat welke status Mealie gaf (het antwoord van Mealie zelf blijft in het logboek), weigert Mealie het recept met een 4xx dan volgt een tweede poging zonder foto en voedingswaarden (bij HelloFresh daarna nog via de pagina), en bij een serverfout (5xx) wordt niet opnieuw geprobeerd omdat het recept dan al kan bestaan. Antwoordt Mealie niet binnen 60 seconden, dan staat dat er, met de waarschuwing dat het recept toch kan zijn aangemaakt. Elke poging staat in het auditlog (Instellingen > Auditlog, filters **HelloFresh** en **Marley Spoon**, actie **Mealie import**).
+- **Het blok AI-beoordeling van koppelingen is inklapbaar (2.79.4).** Onder Instellingen > Koppelen heeft het blok een kop met een pijltje, net als Mealie en de winkels. Staat er al een API-sleutel (in de app of als omgevingsvariabele), dan staat het blok ingeklapt; zonder sleutel staat het open. Een keuze die je zelf maakt blijft staan, en de melding na het opslaan blijft zichtbaar.
+- **Het wisselen van aanbieder werkt met de nieuwste scripts (2.79.2).** De scripts hebben een nieuw adres (`MEALIESHOPPER_ASSET_VERSION`), zodat een browser het oude script uit de cache niet blijft gebruiken.
+- **README's en screenshots bijgewerkt:** nieuwe schermen voor Maaltijdboxen, het zoeken in de menu's van de aanbieders en de inklapbare blokken onder Instellingen, in het Nederlands en het Engels.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Zie je het tabblad Maaltijdboxen, het zoekblok van HelloFresh of Marley Spoon of het inklapbare AI-blok niet, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- De database krijgt de tabellen `hellofresh_menus` en `marleyspoon_menus` vanzelf. Die zitten bewust niet in de back-up: het zijn herlaadbare kopieën van openbare menu's, en een back-up van een eerdere versie laat zich gewoon terugzetten.
+- Op een telefoon staan er in de onderste balk nu zes tabs plus je profiel.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: reload the page once after updating (installed app: close and reopen; hard-refresh if a new screen is missing). The database gets the tables `hellofresh_menus` and `marleyspoon_menus` by itself; they are deliberately not in the backup because they are reloadable copies of public menus. On a phone the bottom bar now has six tabs plus your profile. Compose and `.env` files are unchanged.*
+
+### Nieuw in 2.79.4
+
+- **Het blok AI-beoordeling van koppelingen is inklapbaar.** Zie hierboven: open zonder API-sleutel, dicht met een sleutel, en een eigen keuze blijft staan.
+- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe script meteen ophaalt.
+
+## v2.79.3
+
+### Nieuw in 2.79.3
+
+- **Recepten zoeken zoekt nu ook bij HelloFresh en Marley Spoon.** Onder Recepten > Recepten zoeken staan naast Albert Heijn, Jumbo en Picnic twee blokken, **HelloFresh** en **Marley Spoon**, met de recepten uit hun weekmenu's die bij je zoekwoord passen: naam, kop, keuken of label. Er is geen koppeling of account voor nodig. Elke kaart heeft dezelfde knoppen als de andere winkels: **Bekijken** toont de ingrediënten en de bereiding in het scherm, en **Importeer** zet het recept in Mealie.
+- **Welke weken.** Bij het zoeken worden het menu van deze week en van de drie weken erna opgehaald als ze er nog niet zijn (ongeveer vier verzoeken per aanbieder, één voor één en met een pauze; de eerste zoekopdracht duurt daardoor even), en 6 uur bewaard. Daarna zoekt het direct. Lukt het ophalen van een week niet, dan wordt die overgeslagen; lukt het helemaal niet en is er niets bewaard, dan staat er een melding bij die aanbieder en blijven de andere winkels gewoon staan. In het tabblad Maaltijdboxen blijft **Zoek in alle weken** alleen zoeken in de weken die je al hebt bekeken.
+- **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser het nieuwe zoekscript meteen ophaalt.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Zie je het zoekblok van HelloFresh of Marley Spoon niet, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: Search recipes now also searches HelloFresh and Marley Spoon. Two new blocks next to Albert Heijn, Jumbo and Picnic show the recipes from their weekly menus that match your search (name, headline, cuisine or label); no link or account is needed. Each card has the same buttons as the other stores: View shows the ingredients and the method on screen, Import puts the recipe in Mealie. While searching, the menus of this week and the next three weeks are fetched if they are not there yet (about four requests per provider, one at a time with a pause, so the first search takes a moment) and kept for 6 hours; a week that fails is skipped, and if nothing at all can be fetched and nothing is stored, that provider shows a message while the other stores stay. "Search all weeks" in the Meal kits tab still only searches the weeks you have looked at. The scripts have a new address so the browser fetches the new search script right away. Reload the page once (installed app: close and reopen).*
+
+## v2.79.2
+
+### Gerepareerd in 2.79.2
+
+- **Het wisselen van box bij Maaltijdboxen deed niets.** Na de update naar 2.79.1 kon de browser (of de geïnstalleerde app) nog het oude script van het tabblad uit de cache gebruiken, omdat het adres van de scripts niet was veranderd. Dat oude script zocht de vroegere keuzelijst, die er niet meer is, en stopte met een fout: het uitklapmenu ging open, maar een andere aanbieder kiezen liet het menu ongewijzigd. De scripts en stijlen hebben nu een nieuw adres (`MEALIESHOPPER_ASSET_VERSION`), zodat de browser ze opnieuw ophaalt.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). Staat het wisselen daarna nog stil, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: switching the provider under Meal kits did nothing after updating to 2.79.1: the browser (or installed app) could still use the old tab script from its cache because the script address had not changed. That old script looked for the former drop-down list, which no longer exists, and stopped with an error, so the menu opened but choosing another provider changed nothing. The scripts and stylesheets now have a new address (`MEALIESHOPPER_ASSET_VERSION`) so the browser fetches them again. Reload the page once (installed app: close and reopen); if it still does not switch, hard-refresh.*
+
+## v2.79.1
+
+### Nieuw in 2.79.1
+
+- **Marley Spoon-recepten importeren in Mealie.** Elke kaart bij Marley Spoon heeft nu naast **Bij Marley Spoon** ook de knop **Importeer**, die het recept met ingrediënten, bereiding en voedingswaarden in Mealie zet (twee personen, zoals de menupagina). Voor een import haalt MealieShopper eerst de receptpagina op en vraagt het recept dan op met het bezoekerstoken dat die pagina aan iedere bezoeker geeft, zoals de site zelf doet. Dat token wordt nergens bewaard of gelogd. Weigert Mealie het recept, dan volgt één tweede poging zonder foto en voedingswaarden; Mealie de pagina zelf laten lezen helpt hier niet, want die heeft geen receptgegevens. Elke poging staat in het auditlog (filter **Marley Spoon**, actie **Mealie import**). Dit is onofficieel: Marley Spoon kan de eindpunten wijzigen, waarna de import tijdelijk niet werkt. Dit vervangt de opmerking bij v2.79.0 dat importeren niet kan.
+- **De aanbiederskeuze is een uitklapmenu in de balk**, zoals de winkelkeuze bij Winkels. De kop **Menu van …** is vervallen en de knop **Verversen** staat nu naast **Deze week**.
+- **Gedeelde importlogica.** De pogingen, foutteksten en auditregel van een import staan nu in `mealieshopper/mealkit_import.py` en worden door HelloFresh en Marley Spoon gedeeld; het gedrag van HelloFresh is ongewijzigd.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen): het tabblad Maaltijdboxen heeft een nieuwe opmaak.
+- Er zijn geen nieuwe tabellen en de Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: Marley Spoon recipes can now be imported into Mealie with an Import button next to "At Marley Spoon". An import first loads the recipe page and then asks for the recipe with the visitor token that page gives every visitor, as the site itself does; the token is never stored or logged. If Mealie refuses the recipe there is one second attempt without photo and nutrition, and every attempt is in the audit log. It is unofficial and Marley Spoon may change it. This replaces the note under v2.79.0 that importing is not possible. The provider choice is now a drop-down in the bar, like the store choice under Stores (the "Menu of …" heading is gone, Refresh sits next to This week). The import logic is shared by HelloFresh and Marley Spoon in `mealieshopper/mealkit_import.py`; HelloFresh behaves as before. Reload the page once.*
+
+## v2.79.0
+
+### Nieuw in 2.79.0
+
+- **Marley Spoon in het tabblad Maaltijdboxen.** Boven in het tabblad staat nu een keuzelijst **Aanbieder** met HelloFresh en Marley Spoon. Van Marley Spoon Nederland zie je het openbare weekmenu: bladeren per week, filteren op naam, kop of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Elke kaart heeft de foto, de kooktijd en de knop **Bij Marley Spoon**, die het recept op hun site opent.
+- **Importeren in Mealie kan bij Marley Spoon niet.** De ingrediënten en stappen staan op hun site niet in de pagina zelf en zijn alleen te lezen met een token dat de pagina per bezoek krijgt. Dat bootsen we niet na, dus er is bij Marley Spoon geen knop **Importeer**. Bij HelloFresh is niets veranderd.
+- **Hoe het menu wordt gelezen.** De menupagina van Marley Spoon vraagt het menu zelf op bij een GraphQL-eindpunt dat zonder inloggen en zonder sleutel antwoordt; MealieShopper doet dezelfde vraag, voor één week tegelijk, met een pauze tussen verzoeken en met `MealieShopper` in de User-Agent. Het menu van een week wordt 6 uur bewaard. Dit is onofficieel: Marley Spoon kan het eindpunt wijzigen, waarna het menu tijdelijk niet laadt. Recepten en foto's blijven van Marley Spoon.
+- **Het verkeer met Marley Spoon staat in het auditlog** (Beheer > Auditlog, filter **Marley Spoon**).
+- **Dinnerly en de Allerhande Box zijn onderzocht en nog niet toegevoegd.** `dinnerly.nl` stuurt door naar Marley Spoon en het Nederlandse Dinnerly-menu is leeg; AH laat geautomatiseerde verzoeken aan zijn Allerhande-pagina's niet toe en de AH-API toont geen box-menu. Zie `docs/onderzoek-marleyspoon.md` en `docs/onderzoek-allerhande-box.md`.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen): het script van het tabblad heet nu `mealkits.js`.
+- De database krijgt de tabel `marleyspoon_menus` vanzelf. Die zit bewust niet in de back-up: het is een herlaadbare kopie van openbare menu's.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: the Meal kits tab now has a Provider list with HelloFresh and Marley Spoon. For Marley Spoon Netherlands you see the public weekly menu (browse per week, filter, search the weeks you have looked at) and an "At Marley Spoon" button; importing into Mealie is not possible because their pages only show ingredients and steps through a per-visit token, which we do not imitate. The menu is read from the same unauthenticated GraphQL endpoint their own menu page uses, one week at a time, sparingly and with its own User-Agent, and cached for 6 hours. It is unofficial and Marley Spoon may change it. Traffic appears in the audit log. Dinnerly (redirects to Marley Spoon, empty Dutch menu) and the Allerhande Box (AH blocks automated page requests, no box menu in its API) were researched and not added. Reload the page once: the tab's script is now mealkits.js.*
+
+## v2.78.2
+
+### Gerepareerd in 2.78.2
+
+- **Elke HelloFresh-import staat in het auditlog.** Onder Beheer > Auditlog (filter **HelloFresh**) komt bij elke poging een regel **Mealie import**, ook als het misgaat: met de status van Mealie, de duur en per poging wat er gebeurde (volledig, zonder foto en voedingswaarden, via de pagina). Verzoeken aan Mealie zelf staan niet los in het log (het adres van Mealie verschilt per installatie); alleen deze importpoging wordt vastgelegd. Het verkeer met hellofresh.nl stond er al in.
+- **De melding zegt wat er misging.** Antwoordt Mealie niet binnen 60 seconden, dan staat er dat, met de waarschuwing dat het recept toch kan zijn aangemaakt (kijk in Mealie voordat je het opnieuw probeert). Is Mealie niet bereikbaar, dan staat dat er. Bij een onverwachte fout noemt de melding alleen de soort fout (bijvoorbeeld *KeyError*), nooit de inhoud van het antwoord van Mealie; die staat in het serverlogboek.
+
+*English summary: every HelloFresh import attempt is now in the audit log (Administration > Audit log, HelloFresh filter) as "Mealie import", also when it fails: with Mealie's status, the duration and what happened per attempt. Requests to Mealie itself are not logged separately because its address differs per installation. The message now says what went wrong: no answer within 60 seconds (the recipe may have been created anyway), Mealie not reachable, or the kind of unexpected error, never the content of Mealie's answer.*
+
+## v2.78.1
+
+### Gerepareerd in 2.78.1
+
+- **Importeren van een HelloFresh-recept in Mealie geeft een bruikbare melding en een tweede kans.** De import kon eindigen op *Importeren in Mealie mislukt*, zonder te zeggen waarom. Nu staat er welke status Mealie gaf (bijvoorbeeld *Mealie antwoordde met status 400*); het antwoord van Mealie zelf blijft alleen in het logboek. Weigert Mealie het recept met een 4xx, dan probeert MealieShopper het nog twee keer: zonder foto en voedingswaarden, en daarna door Mealie de HelloFresh-pagina zelf te laten lezen. Bij een serverfout (5xx) wordt niet opnieuw geprobeerd, omdat Mealie het recept dan al kan hebben aangemaakt.
+- **Schonere gegevens naar Mealie.** De voedingswaarden bevatten alleen nog gevulde, bekende velden (geen lege waarden of `servingSize` uit de HelloFresh-pagina), en de foto gaat als vaste JPG (`f_jpg`) in plaats van `f_auto`, dat soms WebP of AVIF geeft.
+- Staat een recept na een mislukte import toch in Mealie, of blijft de melding terugkomen? Meld dan de status uit de melding en de logregel `HelloFresh-recept ...: import in Mealie ... mislukt`.
+
+*English summary: importing a HelloFresh recipe into Mealie could end in "Importing into Mealie failed" without saying why. The message now shows the status Mealie gave (Mealie's own answer stays in the log only). If Mealie refuses the recipe with a 4xx, MealieShopper tries twice more: without photo and nutrition, then by letting Mealie read the HelloFresh page itself; after a 5xx it does not retry because Mealie may already have created the recipe. Nutrition values are cleaned (only filled, known fields) and the photo is sent as a plain JPG.*
+
+## v2.78.0
+
+### Nieuw in 2.78.0
+
+- **Nieuw tabblad Maaltijdboxen met het menu van HelloFresh.** Naast Winkels staat nu een eigen tabblad met de openbare weekmenu's van HelloFresh Nederland: bladeren per week (vorige, volgende, deze week), filteren op naam, kop, keuken of label, en met **Zoek in alle weken** zoeken in de weken die je al hebt bekeken. Elke kaart heeft de foto, de kooktijd en twee knoppen: **Bij HelloFresh** opent het recept op hun site en **Importeer** zet het recept met ingrediënten, bereiding en voedingswaarden in Mealie.
+- **Geen account en geen koppeling.** MealieShopper leest alleen de pagina's die ook zonder inloggen openstaan: het weekmenu en de receptpagina, via de schema.org-gegevens die HelloFresh er zelf op zet. Er wordt niets geschreven en er staat geen wachtwoord of token in de database.
+- **Zuinig en eerlijk.** Een weekmenu wordt 6 uur bewaard in de database, zodat HelloFresh niet bij elke weergave wordt gevraagd (de knop **Verversen** haalt het opnieuw op). Verzoeken gaan één voor één, met een pauze ertussen en met `MealieShopper` in de User-Agent, en alleen naar paden die `robots.txt` van HelloFresh niet uitsluit. Een receptadres wordt streng gecontroleerd voordat de server er iets naartoe stuurt.
+- **Het verkeer met HelloFresh staat in het auditlog** (Beheer > Auditlog, filter **HelloFresh**).
+- Dit is een onofficiële bron: HelloFresh kan de pagina's wijzigen, waarna het menu of de import tijdelijk niet werkt. De recepten en foto's blijven van HelloFresh. Het onderzoek erachter staat in `docs/onderzoek-hellofresh.md`.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen) als het tabblad Maaltijdboxen niet vanzelf verschijnt; er is een nieuw script.
+- De database krijgt de tabel `hellofresh_menus` vanzelf. Die zit bewust niet in de back-up: het is een herlaadbare kopie van openbare menu's.
+- Op een telefoon staan er in de onderste balk nu zes tabs plus je profiel.
+- Compose- of `.env`-bestanden zijn niet gewijzigd.
+
+*English summary: a new Meal kits tab next to Stores shows the public weekly menus of HelloFresh Netherlands. Browse by week, filter, search the weeks you have looked at, open a recipe at HelloFresh or import it into Mealie with one click. No account or link is needed: only public pages are read, sparingly and with its own User-Agent, and menus are cached for 6 hours. It is unofficial, so HelloFresh may change its pages; recipes and photos remain HelloFresh's. Traffic to HelloFresh appears in the audit log.*
+
 ## v2.77.1
 
 ### Sinds de vorige stabiele versie (v2.74.0)

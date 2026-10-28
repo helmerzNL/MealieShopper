@@ -1,4 +1,4 @@
-// Auditlog (Beheer > Auditlog): het verkeer met AH, Picnic en Jumbo en de verzoeken van AI-assistenten (MCP).
+// Auditlog (Beheer > Auditlog): het verkeer met AH, Picnic, Jumbo, HelloFresh en Marley Spoon en de verzoeken van AI-assistenten (MCP).
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, ...).
 
 const auditState = { entries: [], next: null, total: 0, last24h: {}, settings: null, loading: false, again: false, open: new Set(), details: {} };
@@ -7,6 +7,8 @@ const AUDIT_SERVICE_KEYS = {
   ah: "audit.service.ah",
   picnic: "audit.service.picnic",
   jumbo: "audit.service.jumbo",
+  hellofresh: "audit.service.hellofresh",
+  marleyspoon: "audit.service.marleyspoon",
   mcp: "audit.service.mcp",
   audit: "audit.service.audit",
 };

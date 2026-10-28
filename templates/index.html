@@ -258,6 +258,11 @@
           <span class="tab-text" data-i18n="nav.ah">Winkels</span>
           <span class="tab-short" aria-hidden="true" data-i18n="nav.ah_short">Winkels</span>
         </button>
+        <button class="tab" data-tab="meal-kits">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiPackageVariantClosed"><path d="M21,16.5C21,16.88 20.79,17.21 20.47,17.38L12.57,21.82C12.41,21.94 12.21,22 12,22C11.79,22 11.59,21.94 11.43,21.82L3.53,17.38C3.21,17.21 3,16.88 3,16.5V7.5C3,7.12 3.21,6.79 3.53,6.62L11.43,2.18C11.59,2.06 11.79,2 12,2C12.21,2 12.41,2.06 12.57,2.18L20.47,6.62C20.79,6.79 21,7.12 21,7.5V16.5M12,4.15L6.04,7.5L12,10.85L17.96,7.5L12,4.15M5,15.91L11,19.29V12.58L5,9.21V15.91M19,15.91V9.21L13,12.58V19.29L19,15.91Z"/></svg>
+          <span class="tab-text" data-i18n="nav.mealkits">Maaltijdboxen</span>
+          <span class="tab-short" aria-hidden="true" data-i18n="nav.mealkits_short">Boxen</span>
+        </button>
         <button class="tab" data-tab="basket">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCart"><path d="M17,18C15.89,18 15,18.89 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20C19,18.89 18.1,18 17,18M1,2V4H3L6.6,11.59L5.24,13.96C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42A0.25,0.25 0 0,1 7.17,14.75C7.17,14.7 7.18,14.66 7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.58 17.3,11.97L20.88,5.5C20.95,5.34 21,5.17 21,5A1,1 0 0,0 20,4H5.21L4.27,2M7,18C5.89,18 5,18.89 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20C9,18.89 8.1,18 7,18Z"/></svg>
           <span class="tab-text" data-i18n="nav.basket">Mandje</span>
@@ -312,10 +317,10 @@
       <div id="search" class="subpanel">
         <div id="search-main">
           <form class="form-row" id="search-form">
-            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo en Picnic..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
+            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
-          <p class="muted" data-i18n="search.intro">Zoekt tegelijk bij Albert Heijn, en bij Jumbo en Picnic zodra die gekoppeld zijn. Importeer een recept in Mealie, of open het voor de ingrediënten en de bereiding.</p>
+          <p class="muted" data-i18n="search.intro">Zoekt tegelijk bij Albert Heijn, bij Jumbo en Picnic zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Importeer een recept in Mealie, of open het voor de ingrediënten en de bereiding.</p>
           <div id="search-message"></div>
           <div id="search-sections">
             <section class="search-store" id="search-ah" hidden>
@@ -335,6 +340,16 @@
               <div id="search-picnic-message"></div>
               <div id="search-picnic-results" class="recipe-grid recipe-grid--compact"></div>
             </section>
+            <section class="search-store" id="search-hellofresh" hidden>
+              <h3><span>HelloFresh</span> <span class="muted" id="search-hellofresh-count"></span></h3>
+              <div id="search-hellofresh-message"></div>
+              <div id="search-hellofresh-results" class="recipe-grid recipe-grid--compact"></div>
+            </section>
+            <section class="search-store" id="search-marleyspoon" hidden>
+              <h3><span>Marley Spoon</span> <span class="muted" id="search-marleyspoon-count"></span></h3>
+              <div id="search-marleyspoon-message"></div>
+              <div id="search-marleyspoon-results" class="recipe-grid recipe-grid--compact"></div>
+            </section>
           </div>
         </div>
         <div class="box box--wide" id="search-detail" hidden>
@@ -346,6 +361,40 @@
           <div id="search-detail-body"></div>
         </div>
       </div>
+      </section>
+
+      <section id="meal-kits" class="panel">
+        <nav class="subtabs" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider">
+          <div class="subtab-menu" id="mealkits-provider-menu">
+            <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="mealkits-provider-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="mealkits-provider-list" aria-label="Aanbieder" data-i18n-attr="aria-label:mealkits.provider"><span id="mealkits-provider-name">HelloFresh</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+            <div class="subtab-menu__list" id="mealkits-provider-list" hidden>
+              <button class="subtab-menu__item is-active" type="button" data-provider="hellofresh">HelloFresh</button>
+              <button class="subtab-menu__item" type="button" data-provider="marleyspoon">Marley Spoon</button>
+            </div>
+          </div>
+        </nav>
+        <div class="box box--wide">
+          <p class="muted" id="mealkits-intro">De openbare weekmenu's van HelloFresh Nederland. Open een recept bij HelloFresh, of importeer het in Mealie om het te bewaren. Er is geen account of koppeling nodig.</p>
+          <div class="toolbar" id="mealkits-weeks">
+            <button class="icon-button" id="mealkits-previous" type="button" aria-label="Vorige week" data-i18n-attr="aria-label:mealkits.previous"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
+            <strong id="mealkits-week" aria-live="polite"></strong>
+            <button class="icon-button" id="mealkits-next" type="button" aria-label="Volgende week" data-i18n-attr="aria-label:mealkits.next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/></svg></button>
+            <button class="button button--secondary" id="mealkits-this-week" type="button" data-i18n="mealkits.this_week">Deze week</button>
+            <button class="button button--secondary" id="mealkits-refresh" type="button" data-i18n="mealkits.refresh">Verversen</button>
+          </div>
+          <form class="form-row" id="mealkits-search-form">
+            <label class="searchbar">
+              <span class="visually-hidden" data-i18n="mealkits.search">Zoek in het menu</span>
+              <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
+              <input class="input" id="mealkits-filter" type="search" placeholder="Zoek in het menu" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:mealkits.search">
+            </label>
+            <button class="button button--secondary" id="mealkits-search-all" type="submit" disabled data-i18n="mealkits.search_all">Zoek in alle weken</button>
+          </form>
+          <p class="muted" id="mealkits-status"></p>
+          <div id="mealkits-message"></div>
+          <div id="mealkits-recipes" class="recipe-grid recipe-grid--compact"></div>
+          <p class="muted" id="mealkits-source">Recepten en foto's zijn van HelloFresh en blijven van HelloFresh. MealieShopper is niet van HelloFresh en leest alleen openbare gegevens; HelloFresh kan die wijzigen.</p>
+        </div>
       </section>
 
       <section id="basket" class="panel">
@@ -792,55 +841,57 @@
           <ul class="offers-sync-list" id="offers-sync-stores"></ul>
           <p class="muted" id="offers-sync-schedule"></p>
         </div>
-        <div class="box" id="ai-review-box">
-          <h2 data-i18n="aireview.title">AI-beoordeling van koppelingen</h2>
-          <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
-          <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
-          <form class="auth-form" id="ai-review-form" autocomplete="off">
-            <label class="field">
-              <span data-i18n="aireview.provider">Gebruik</span>
-              <select class="input" id="ai-provider">
-                <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
-                <option value="anthropic">Claude (Anthropic)</option>
-                <option value="openai">ChatGPT (OpenAI)</option>
-              </select>
-            </label>
-            <div class="ai-provider">
-              <h3>Claude (Anthropic)</h3>
-              <p class="muted" id="ai-status-anthropic"></p>
+        <div class="box fold" id="ai-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="ai-login-toggle" aria-expanded="true" aria-controls="ai-login-body"><span data-i18n="aireview.title">AI-beoordeling van koppelingen</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="ai-login-body">
+            <p class="muted" data-i18n="aireview.intro">Heb je een API-sleutel van Claude (Anthropic) of ChatGPT (OpenAI), dan kan een AI recepten zoeken bij de producten in de aanbieding van een winkel. Je start dat zelf met de knop Recepten zoeken met AI bij de receptvoorstellen: de AI koppelt de ingrediënten van je recepten (Mealie, Albert Heijn, Jumbo en Picnic) aan producten uit de aanbieding. Die koppelingen vervangen de koppelingen van MealieShopper voor de recepten die de AI doorzocht heeft. Het is helemaal optioneel: zonder sleutel werkt alles zoals eerst.</p>
+            <p class="muted" data-i18n="aireview.privacy">Er gaat alleen tekst van producten uit de aanbieding en van ingrediënten naar de aanbieder (geen recepttitels, namen of adressen), en alleen als je zelf op de knop drukt. Een ronde doorzoekt maximaal 120 recepten en kost geld bij de aanbieder; je ziet vooraf een schatting en na afloop het aantal gebruikte tokens. De sleutel wordt versleuteld opgeslagen en nooit meer getoond.</p>
+            <form class="auth-form" id="ai-review-form" autocomplete="off">
               <label class="field">
-                <span data-i18n="aireview.key">API-sleutel</span>
-                <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                <span data-i18n="aireview.provider">Gebruik</span>
+                <select class="input" id="ai-provider">
+                  <option value="" data-i18n="aireview.provider_auto">Automatisch (de eerste met een sleutel)</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="openai">ChatGPT (OpenAI)</option>
+                </select>
               </label>
-              <label class="field">
-                <span data-i18n="aireview.model">Model</span>
-                <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
-              </label>
-              <div class="toolbar">
-                <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
-                <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              <div class="ai-provider">
+                <h3>Claude (Anthropic)</h3>
+                <p class="muted" id="ai-status-anthropic"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-anthropic" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-anthropic" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-anthropic" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-anthropic" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
               </div>
-            </div>
-            <div class="ai-provider">
-              <h3>ChatGPT (OpenAI)</h3>
-              <p class="muted" id="ai-status-openai"></p>
-              <label class="field">
-                <span data-i18n="aireview.key">API-sleutel</span>
-                <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
-              </label>
-              <label class="field">
-                <span data-i18n="aireview.model">Model</span>
-                <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
-              </label>
-              <div class="toolbar">
-                <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
-                <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+              <div class="ai-provider">
+                <h3>ChatGPT (OpenAI)</h3>
+                <p class="muted" id="ai-status-openai"></p>
+                <label class="field">
+                  <span data-i18n="aireview.key">API-sleutel</span>
+                  <input class="input" id="ai-key-openai" type="password" placeholder="Plak hier de sleutel" autocomplete="off" spellcheck="false" data-i18n-attr="placeholder:aireview.key_ph">
+                </label>
+                <label class="field">
+                  <span data-i18n="aireview.model">Model</span>
+                  <input class="input" id="ai-model-openai" type="text" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="toolbar">
+                  <button class="button button--secondary" id="ai-test-openai" type="button" data-i18n="aireview.test">Testen</button>
+                  <button class="button button--secondary" id="ai-clear-openai" type="button" hidden data-i18n="aireview.clear">Sleutel verwijderen</button>
+                </div>
               </div>
-            </div>
-            <div class="toolbar">
-              <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
-            </div>
-          </form>
+              <div class="toolbar">
+                <button class="button" id="ai-save" type="submit" data-i18n="aireview.save">Opslaan</button>
+              </div>
+            </form>
+          </div>
           <div id="ai-review-message"></div>
         </div>
         <div class="box fold" id="mealie-login-box">
@@ -1030,6 +1081,8 @@
               <option value="ah" data-i18n="audit.service.ah">Albert Heijn</option>
               <option value="picnic" data-i18n="audit.service.picnic">Picnic</option>
               <option value="jumbo" data-i18n="audit.service.jumbo">Jumbo</option>
+              <option value="hellofresh" data-i18n="audit.service.hellofresh">HelloFresh</option>
+              <option value="marleyspoon" data-i18n="audit.service.marleyspoon">Marley Spoon</option>
               <option value="mcp" data-i18n="audit.service.mcp">AI-assistenten (MCP)</option>
               <option value="audit" data-i18n="audit.service.audit">Auditlog</option>
             </select>
@@ -1205,6 +1258,7 @@
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>

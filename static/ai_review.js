@@ -31,6 +31,7 @@ function applyAiReviewStatus(status) {
     $(`#ai-clear-${provider}`).hidden = info.source !== "app";
   }
   setOffersRecipesTab(status.recipesTab);
+  applyStoreFold("ai", AI_REVIEW_PROVIDERS.some((provider) => status.providers[provider].configured));
 }
 
 async function loadAiReviewSettings() {

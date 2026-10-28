@@ -45,7 +45,7 @@ class LinkPageTest(unittest.TestCase):
         for store in STORES:
             self.assertIn(f'id="{store}-login-toggle" aria-expanded="true" aria-controls="{store}-login-body"', block(store))
             self.assertIn(f'id="{store}-login-body"', block(store))
-        self.assertIn('for (const store of ["mealie", "ah", "picnic", "jumbo"])', APP_JS)
+        self.assertIn('for (const store of ["mealie", "ah", "picnic", "jumbo", "ai"])', APP_JS)
 
     def test_unlink_sits_next_to_the_link_button_in_the_store_block(self):
         for store, link in (("picnic", "picnic-login"), ("jumbo", "jumbo-link"), ("mealie", "mealie-link")):
@@ -86,6 +86,19 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('applyStoreFold("mealie", Boolean(data.configured))', APP_JS)
         self.assertIn('applyStoreFold("picnic", picnicState.connected)', (ROOT / "static" / "picnic.js").read_text(encoding="utf-8"))
         self.assertIn('applyStoreFold("jumbo", jumboState.connected)', (ROOT / "static" / "jumbo.js").read_text(encoding="utf-8"))
+
+    def test_the_ai_review_block_folds_like_the_others_and_closes_once_there_is_a_key(self):
+        box = PAGE[PAGE.index('id="ai-login-box"'):PAGE.index('id="mealie-login-box"')]
+        self.assertIn('<div class="box fold" id="ai-login-box">', PAGE)
+        self.assertIn('id="ai-login-toggle" aria-expanded="true" aria-controls="ai-login-body"', box)
+        body = box[box.index('id="ai-login-body"'):]
+        for needed in ('id="ai-review-form"', 'id="ai-key-anthropic"', 'id="ai-key-openai"', 'id="ai-save"'):
+            self.assertIn(needed, body, f"{needed} hoort in het inklapbare deel")
+        self.assertIn('<div id="ai-review-message"></div>', box)
+        self.assertGreater(box.index('id="ai-review-message"'), box.index("</form>\n          </div>"), "de melding staat buiten het inklapbare deel en blijft zichtbaar als het blok dicht is")
+        self.assertEqual(PAGE.count('id="ai-review-box"'), 0)
+        script = (ROOT / "static" / "ai_review.js").read_text(encoding="utf-8")
+        self.assertIn('applyStoreFold("ai", AI_REVIEW_PROVIDERS.some((provider) => status.providers[provider].configured))', script)
 
     def test_texts_point_to_the_new_place(self):
         for path in ("mealieshopper/ah.py", "mealieshopper/jumbo.py", "mealieshopper/picnic.py", "mealieshopper/mealie.py", "static/i18n/nl.js", "README.md"):

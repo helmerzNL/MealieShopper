@@ -1101,8 +1101,8 @@ async function importUrl(url, button = null) {
   }
 }
 
-// De blokken onder Beheer > Koppelen (Mealie en "Inloggen bij ..." per winkel) zijn inklapbaar en klappen in zodra de koppeling er is.
-// Een keuze van de gebruiker blijft staan.
+// De blokken onder Beheer > Koppelen (Mealie, "Inloggen bij ..." per winkel en de AI-beoordeling) zijn inklapbaar en klappen in zodra de
+// koppeling er is (bij de AI-beoordeling: zodra er een sleutel is). Een keuze van de gebruiker blijft staan.
 state.storeFold = {};
 
 function applyStoreFold(store, linked) {
@@ -1114,7 +1114,7 @@ function applyStoreFold(store, linked) {
   $(`#${store}-login-body`).hidden = !open;
 }
 
-for (const store of ["mealie", "ah", "picnic", "jumbo"]) {
+for (const store of ["mealie", "ah", "picnic", "jumbo", "ai"]) {
   $(`#${store}-login-toggle`).addEventListener("click", () => {
     const toggle = $(`#${store}-login-toggle`);
     state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
@@ -1782,6 +1782,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "ah-items" && !state.ahRecipesLoaded) loadSavedRecipes({ cachedOnly: true });
   if (panelId === "about" && !state.aboutLoaded) loadAbout();
   if (panelId === "basket") showBasket();
+  if (panelId === "meal-kits" && typeof showMealKits === "function") showMealKits();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
