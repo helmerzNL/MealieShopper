@@ -62,3 +62,4 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             GIT_COMMIT=${{ github.sha }}
+            BUILD_TAG=${{ github.ref == 'refs/heads/beta' && 'beta' || 'latest' }}

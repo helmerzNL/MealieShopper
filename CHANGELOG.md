@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.81.0
+
+### Nieuw in 2.81.0
+
+*English summary: MealieShopper can now be installed as a Home Assistant add-on. Add `https://github.com/helmerznl/mealieshopper` as an add-on repository and install **MealieShopper** (stable) or **MealieShopper (beta)**; the options on the Configuration tab are the environment variables of the app, and Home Assistant includes the data folder in its backups. The image has a new entrypoint that turns the add-on options into environment variables (it does nothing outside Home Assistant), and a beta image now knows it is a beta.*
+
+- **MealieShopper als Home Assistant-add-on.** Voeg in Home Assistant onder **Instellingen > Add-ons > Add-on store > Repositories** het adres `https://github.com/helmerznl/mealieshopper` toe en installeer **MealieShopper**. De add-on draait hetzelfde image als de Docker-versie (`linux/amd64` en `linux/arm64`), op poort `5959`, met de data-map `/data`: Home Assistant neemt de database en `secret.key` dus mee in zijn back-ups. De app heeft een eigen inlog, passkeys en een MCP-server en heeft daarom geen ingress. Een `watchdog` op `/healthz` start de add-on weer na een fabrieksreset.
+- **Opties op het tabblad Configuratie**, allemaal optioneel en in het Nederlands en Engels uitgelegd: het Mealie-adres en -token, het publieke adres, het geheim, de API-sleutels van Claude en ChatGPT, het Picnic-land, de dagelijkse aanbiedingenrun, de MCP-server, de updatecheck, het auditlog en de instellingen voor passkeys. Het zijn dezelfde waarden als de omgevingsvariabelen van de app; wat je in de app instelt, gaat nog steeds voor.
+- **Een tweede add-on voor de beta**, **MealieShopper (beta)**, met een eigen data-map en poort `5960`, in de repository `https://github.com/helmerznl/mealieshopper#beta`. `python scripts/ha_addon.py` maakt hem uit de stabiele add-on en zet de versie uit `VERSION` in beide; een test faalt als ze afwijken.
+- **Nieuw startpunt van het image** (`docker-entrypoint.py`): zet de opties van de add-on om in omgevingsvariabelen en start dan gunicorn. Buiten Home Assistant, zonder `/data/options.json`, verandert er niets.
+- **Een beta-image weet dat het beta is.** De workflow geeft de bouw de lijn mee (`BUILD_TAG`: `beta` of `latest`), zodat de **beta**-badge ook zonder `MEALIESHOPPER_TAG` verschijnt, bijvoorbeeld in de beta-add-on. `MEALIESHOPPER_TAG` in `docker-compose.yml` of `docker run -e` gaat nog steeds voor.
+
 ## v2.80.2
 
 ### Nieuw in 2.80.2
