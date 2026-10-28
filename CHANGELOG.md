@@ -2,6 +2,49 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.80.2
+
+### Nieuw in 2.80.2
+
+*English summary: server messages such as "AH account not linked" and the API errors of the app now follow the chosen language (before, many stayed Dutch in the English interface); long recipe names in the week menu wrap instead of being cut off; all README screenshots were made again in the new look, with a script to regenerate them (`scripts/screenshots`). Reload the page once after updating.*
+
+- **Meldingen van de server staan in de gekozen taal.** "AH account niet gekoppeld", "Mealie is niet gekoppeld" en de foutmeldingen van de API (zoals "Zoekterm ontbreekt" of "Importeren in Mealie mislukt") bleven in het Nederlands staan als de interface op Engels stond. Ze volgen nu de taalkeuze, net als de meldingen van Jumbo en Picnic, waarvan de Engelse tekst bovendien naar het goede menu verwijst (**Settings > Link**, niet *Admin*).
+- **Lange receptnamen in het weekmenu** worden afgebroken in plaats van afgesneden.
+- **Alle screenshots in de README's** zijn opnieuw gemaakt in de nieuwe stijl, in het Nederlands en het Engels, met het huidige menu en de nieuwe schermen. Ze komen uit een script met nagebootste gegevens en zelfgetekende illustraties (`scripts/screenshots`, zie de README); zo zijn ze bij een volgende release in één commando te vernieuwen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+## v2.80.1
+
+### Nieuw in 2.80.1
+
+*English summary: the page no longer jumps sideways when a screen is tall enough to need a scrollbar; the space for the scrollbar is always reserved. Reload the page once after updating.*
+
+- **De interface verspringt niet meer als de scrollbalk verschijnt.** Werd een scherm hoger dan het venster, dan kwam de scrollbalk erbij en schoof alles een stukje naar links (bij 15 px). De ruimte voor de scrollbalk blijft nu altijd gereserveerd (`scrollbar-gutter: stable`, in oudere browsers `overflow-y: scroll`), zodat menu, kop en inhoud op hun plek blijven bij het wisselen van scherm.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+## v2.80.0
+
+### Nieuw in 2.80.0
+
+*English summary: a complete visual refresh. The interface keeps the basil-green MealieShopper look but gets depth, softer navigation, a segmented sub-menu, polished buttons and fields, a "Today" marker in the week menu, clearer price and offer labels and calmer motion. No features, data or settings changed. Reload the page once after updating.*
+
+- **Een professionelere, rustigere interface.** Het palet, de lettertypen en de indeling blijven; wat verandert is de afwerking. Kaarten, knoppen en menu's hebben nu subtiele diepte (drie schaduwniveaus), de balk bovenaan is mat glas dat meebeweegt met de pagina, en de hele app gebruikt dezelfde korte, rustige overgangen. Alle bewegingen staan uit bij *minder beweging* in het apparaat.
+- **Navigatie.** Het hoofdmenu links heeft een lichte groene vulling en een streepje bij het actieve onderdeel in plaats van een zwaar groen blok. De tabs eronder (bijvoorbeeld Weekmenu / Recepten zoeken) zijn een segmentbediening: een zacht spoor met een oplichtend actief segment. De onderste menubalk op een telefoon blijft zoals hij was.
+- **Weekmenu.** De dag van vandaag heeft een groene rand en het label **Vandaag**, zodat je in één blik ziet waar je bent. De dagkaarten hebben een rustiger kopje.
+- **Aanbiedingen en lijstjes.** De prijs staat groter en vet, met de oude prijs er klein doorgestreept naast; *Bonus* en kortingen zijn een duidelijke pil. Productfoto's staan op een witte tegel met een dunne rand. Categoriefilters hebben dezelfde afwerking als de knoppen.
+- **Knoppen, velden en meldingen.** Knoppen hebben een fijne rand van licht en geven een indrukeffect; invoervelden krijgen een duidelijke groene focusring met halo; keuzelijsten hebben één eigen pijltje. Meldingen hebben links een gekleurde balk voor het soort melding, en er staat nog steeds altijd uitleg bij.
+- **Inloggen en installatiehulp.** De inlogkaart staat gecentreerd met een zachte groene gloed erachter; de installatiehulp heeft een lijn tussen de stappen, groen voor wat klaar is.
+- **Op een telefoon** is de balk bovenaan compacter (zonder de slogan) en staan de taalkiezer en de knop voor donker en licht op dezelfde regel als het logo.
+- **Donker thema** kreeg eigen, diepere schaduwen en een lichte rand bovenaan kaarten, zodat de lagen ook in het donker te onderscheiden zijn.
+- **Toegankelijkheid blijft gelijk of beter:** alle kleurparen halen nog steeds AA (4,5 : 1), de placeholders hebben een eigen kleur van 4,8 : 1, de focusring blijft zichtbaar en kaarten tillen alleen op bij een muis.
+
+#### Goed om te weten bij het bijwerken
+
+- **Laad de pagina één keer opnieuw** (in de geïnstalleerde app: sluiten en weer openen). De stijlen hebben een nieuw adres (`MEALIESHOPPER_ASSET_VERSION`), dus de browser haalt ze vanzelf op; zie je toch nog het oude uiterlijk, ververs dan hard (Ctrl+Shift+R, op een Mac Cmd+Shift+R).
+- Er zijn geen wijzigingen in gegevens, back-up, Compose- of `.env`-bestanden.
+
+*English summary: reload the page once (installed app: close and reopen; hard-refresh if the old look stays). Nothing changed in data, backup, Compose or `.env` files.*
+
 ## v2.79.4
 
 ### Sinds de vorige stabiele versie (v2.77.1)

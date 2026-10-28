@@ -500,11 +500,13 @@ function renderMealPlan(entries) {
     byDay[entry.date].push(entry);
   }
   const dates = Object.keys(byDay).sort();
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   $("#meal-days").innerHTML = dates
     .map(
       (date) => `
-        <article class="day-card">
-          <h3>${escapeHtml(formatDate(date))}</h3>
+        <article class="day-card${date === today ? " day-card--today" : ""}">
+          <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
           ${byDay[date]
             .map(
               (entry) => `
@@ -1564,7 +1566,7 @@ function renderAhListItem(item, editable = false) {
       <strong>${editable ? "" : `${escapeHtml(item.quantity)}x `}${escapeHtml(title)}</strong>
       ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
       ${product.isBonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
-      ${price ? `<small>${escapeHtml(formatPrice(price))}</small>` : ""}
+      ${price ? `<small class="product-card__price">${escapeHtml(formatPrice(price))}</small>` : ""}
     </div>
   `;
   const main = url
