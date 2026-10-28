@@ -37,6 +37,10 @@ const DISHES = {
 
 const mealieUrl = "https://mealie.example.nl";
 
+// Het versienummer van deze checkout, zodat Over en de updatecheck bij elke release kloppen; "nieuwer" is de volgende minor.
+const VERSION = require("fs").readFileSync(require("path").join(__dirname, "../../VERSION"), "utf8").trim();
+const NEWER = VERSION.replace(/^(\d+)\.(\d+)\..*$/, (all, major, minor) => `${major}.${Number(minor) + 1}.0`);
+
 // Antwoorden die elke pagina bij het laden vraagt: ingelogd als eigenaar, alles gekoppeld, geen update.
 function base(lang) {
   return [
@@ -46,11 +50,11 @@ function base(lang) {
     ["/api/picnic/auth/status*", { connected: true, verified: true, twoFactorPending: false }],
     ["/api/jumbo/auth/status*", { connected: true, verified: true, loginPending: false }],
     ["/api/mealie/status*", { configured: true, url: mealieUrl, source: "app", connected: true, verified: true, version: "v2.8.0", username: "anna" }],
-    ["/api/update", { available: false, current: "2.80.1", latest: "2.80.1" }],
+    ["/api/update", { available: false, current: VERSION, latest: VERSION }],
   ];
 }
 
 // De datum van het weekmenu: maandag van de week van 28 oktober 2026 (woensdag).
 const WEEK = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"];
 
-module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl };
+module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER };

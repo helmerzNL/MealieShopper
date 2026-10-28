@@ -325,7 +325,7 @@ module.exports = [
   {
     // Het Jumbo-mandje, alleen om te bekijken.
     name: "basket-jumbo",
-    routes: { "/api/jumbo/cart": jumboCart },
+    routes: { "/api/ah/basket": ahBasket, "/api/ah/basket/sync": {}, "/api/jumbo/cart": jumboCart },
     run: async (page) => openBasket(page, "jumbo"),
   },
   {

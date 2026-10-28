@@ -1,5 +1,5 @@
 // Instellingen (Koppelen, Auditlog, Systeem), AI-apps, Over, de beta-build en het donkere thema.
-const { DISHES, WEEK } = require("../demo");
+const { DISHES, WEEK, VERSION, NEWER } = require("../demo");
 
 // Open een scherm via de functies van de app (zoals het avatar-menu dat doet) en wacht even op het laden.
 const openSettings = (subtab) => async (page) => {
@@ -203,7 +203,7 @@ const plan = require("./01-plan.js")[0]; // het weekmenu van het voorbeeld, voor
 // De componentenlijst komt van de server zelf; alleen de versie en de commit zetten we vast.
 const about = async (route) => {
   const real = await (await route.fetch()).json();
-  const info = { ...real, version: "2.80.1", commit: "7c3e9a4", label: "v2.80.1 (7c3e9a4)", channel: "stable" };
+  const info = { ...real, version: VERSION, commit: "7c3e9a4", label: `v${VERSION} (7c3e9a4)`, channel: "stable" };
   return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(info) });
 };
 
@@ -211,9 +211,9 @@ const about = async (route) => {
 const UPDATE = {
   enabled: true,
   available: true,
-  current: "2.80.1",
-  latest: "2.81.0",
-  url: "https://github.com/helmerzNL/MealieShopper/releases/tag/v2.81.0",
+  current: VERSION,
+  latest: NEWER,
+  url: `https://github.com/helmerzNL/MealieShopper/releases/tag/v${NEWER}`,
   checkedAt: "2026-10-28T09:55:12Z",
   error: false,
 };

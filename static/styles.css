@@ -76,7 +76,7 @@
   --ring: rgba(23, 107, 69, 0.2);
   --border-strong: #c0ccc5;
   --placeholder: #66756c; /* 4,8 : 1 op wit */
-  --topbar-glass: rgba(255, 255, 255, 0.74);
+  --topbar-glass: rgba(255, 255, 255, 0.9);
   --page-glow: rgba(23, 107, 69, 0.07);
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
@@ -136,7 +136,7 @@
   --ring: rgba(76, 195, 138, 0.28);
   --border-strong: #3d5247;
   --placeholder: #8a9c91;
-  --topbar-glass: rgba(15, 22, 19, 0.74);
+  --topbar-glass: rgba(15, 22, 19, 0.9);
   --page-glow: rgba(76, 195, 138, 0.08);
 }
 
