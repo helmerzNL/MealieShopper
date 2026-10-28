@@ -140,6 +140,17 @@
   --page-glow: rgba(76, 195, 138, 0.08);
 }
 
+/* De ruimte voor de scrollbalk blijft altijd gereserveerd: de pagina verspringt niet als een scherm hoger wordt dan het venster. */
+html {
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html {
+    overflow-y: scroll;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

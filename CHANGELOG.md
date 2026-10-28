@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.80.1
+
+### Nieuw in 2.80.1
+
+*English summary: the page no longer jumps sideways when a screen is tall enough to need a scrollbar; the space for the scrollbar is always reserved. Reload the page once after updating.*
+
+- **De interface verspringt niet meer als de scrollbalk verschijnt.** Werd een scherm hoger dan het venster, dan kwam de scrollbalk erbij en schoof alles een stukje naar links (bij 15 px). De ruimte voor de scrollbalk blijft nu altijd gereserveerd (`scrollbar-gutter: stable`, in oudere browsers `overflow-y: scroll`), zodat menu, kop en inhoud op hun plek blijven bij het wisselen van scherm.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.80.0
 
 ### Nieuw in 2.80.0
