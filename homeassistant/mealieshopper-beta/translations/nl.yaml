@@ -1,0 +1,51 @@
+configuration:
+  mealie_url:
+    name: Mealie-adres
+    description: Waar MealieShopper bij Mealie kan, bijvoorbeeld http://homeassistant.local:9925. Optioneel; je kunt Mealie ook in de app koppelen (Instellingen > Koppelen), en dat gaat voor.
+  mealie_api_token:
+    name: Mealie API-token
+    description: Een token uit Mealie (gebruikersprofiel > API-tokens). Optioneel; zie Mealie-adres.
+  public_base_url:
+    name: Publiek adres
+    description: Het adres waarmee je MealieShopper van buitenaf opent, voor uitnodigingslinks, de voorbeeldafbeelding en de AI-koppeling. Optioneel; de app herkent het zelf.
+  auth_secret:
+    name: Geheim
+    description: Een lange, vaste, willekeurige waarde (bijvoorbeeld uit openssl rand -hex 32) die je koppelingen versleutelt en sessies ondertekent. Optioneel; zonder maakt de app zelf secret.key in de data-map, die Home Assistant meeneemt in back-ups. Verander het niet achteraf.
+  anthropic_api_key:
+    name: Claude API-sleutel
+    description: Optioneel. Laat Claude de matches tussen ingrediënten en aanbiedingen beoordelen.
+  openai_api_key:
+    name: ChatGPT API-sleutel
+    description: Optioneel. Laat ChatGPT de matches tussen ingrediënten en aanbiedingen beoordelen.
+  picnic_country_code:
+    name: Picnic-land
+    description: Het land van je Picnic-account. Standaard NL.
+  offers_schedule:
+    name: Aanbiedingen dagelijks ophalen
+    description: Zet de dagelijkse taak die de aanbiedingen van alle winkels ophaalt uit of aan. Standaard aan.
+  offers_sync_hour:
+    name: Uur van de dagelijkse aanbiedingenrun
+    description: Het uur van de dag (0 tot 23) waarop de aanbiedingen worden opgehaald. Standaard 5.
+  mcp:
+    name: MCP-server voor AI-assistenten
+    description: Beginwaarde van de MCP-server (standaard aan, als inloggen aanstaat). De schakelaar in de app (Profiel > AI-apps) gaat voor.
+  update_check:
+    name: Updatecheck
+    description: Laat de app op GitHub kijken of er een nieuwere release is en de beheerder dat melden. Er gaat niets over jou of de installatie mee. Standaard aan. Home Assistant meldt add-onupdates zelf.
+  audit_log:
+    name: Auditlog
+    description: Bewaar het verkeer met Albert Heijn, Picnic en Jumbo en de verzoeken van AI-assistenten in het auditlog (Instellingen > Auditlog). Standaard aan.
+  audit_retention_days:
+    name: Bewaartijd auditlog (dagen)
+    description: Na hoeveel dagen regels worden gewist. Standaard 30; 0 wist nooit uit zichzelf.
+  rp_id:
+    name: Hostnaam voor passkeys
+    description: Alleen voor passkeys, met een eigen domeinnaam en HTTPS. Alleen de hostnaam, zonder schema of poort.
+  rp_origins:
+    name: Adressen voor passkeys
+    description: Alleen voor passkeys. Het volledige adres in de browser, kommagescheiden bij meerdere adressen.
+  rp_name:
+    name: Naam voor passkeys
+    description: De naam die je ziet bij het maken van een passkey. Standaard MealieShopper.
+network:
+  8000/tcp: Webinterface

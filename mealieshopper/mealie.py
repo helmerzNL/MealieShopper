@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from . import ah, auth, ingredients, jumbo, jumbo_recipes
+from .i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,12 @@ def auth_headers() -> dict[str, str]:
 
 def ensure_configured() -> None:
     if not mealie_url() or not mealie_token():
-        raise RuntimeError("Mealie is niet gekoppeld. Koppel Mealie bij Instellingen > Koppelen > Mealie.")
+        raise RuntimeError(
+            tr(
+                "Mealie is niet gekoppeld. Koppel Mealie bij Instellingen > Koppelen > Mealie.",
+                "Mealie is not linked. Link Mealie under Settings > Link > Mealie.",
+            )
+        )
 
 
 def check_connection(url: str, token: str) -> dict[str, Any]:

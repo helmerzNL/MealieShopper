@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261027-52")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261028-56")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -68,9 +68,9 @@ def create_app() -> Flask:
     @app.errorhandler(OSError)
     def database_error(exc):
         app.logger.exception("Storage error")
-        message = (
-            "Auth database is niet bereikbaar. Controleer MEALIESHOPPER_DATA_DIR "
-            "en de /data volume mount/rechten."
+        message = tr(
+            "Auth database is niet bereikbaar. Controleer MEALIESHOPPER_DATA_DIR en de /data volume mount/rechten.",
+            "The auth database is not reachable. Check MEALIESHOPPER_DATA_DIR and the /data volume mount and permissions.",
         )
         if request.path.startswith("/api/"):
             return jsonify({"error": message, "detail": str(exc)}), 503
@@ -116,26 +116,26 @@ def create_app() -> Flask:
         start = request.args.get("start")
         end = request.args.get("end")
         if not start or not end:
-            return jsonify({"error": "start en end parameters zijn verplicht"}), 400
+            return jsonify({"error": tr("start en end parameters zijn verplicht", "The start and end parameters are required")}), 400
 
         try:
             return jsonify(mealie.get_meal_plan_with_recipes(start, end))
         except Exception as exc:
             app.logger.exception("Mealplan error")
-            return jsonify({"error": str(exc) or "Fout bij ophalen weekmenu"}), 424
+            return jsonify({"error": str(exc) or tr("Fout bij ophalen weekmenu", "Could not load the week menu")}), 424
 
     @app.get("/api/ah/search")
     def ah_search():
         query = (request.args.get("q") or "").strip()
         page = int(request.args.get("page") or 0)
         if not query:
-            return jsonify({"error": "Zoekterm ontbreekt"}), 400
+            return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
 
         try:
             return jsonify(ah.search_recipes(query, page))
         except Exception as exc:
             app.logger.exception("AH search error")
-            return jsonify({"error": str(exc) or "Zoeken mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
 
     @app.get("/api/ah/recipes/saved")
     def ah_saved_recipes():
@@ -147,22 +147,22 @@ def create_app() -> Flask:
             return jsonify(ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
-            return jsonify({"error": str(exc) or "Bewaarde recepten ophalen mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
 
     @app.get("/api/mealie/recipes/<recipe_id>/image")
     def mealie_recipe_image(recipe_id: str):
         if not mealie_images.valid_recipe_id(recipe_id):
-            return jsonify({"error": "Ongeldig recept"}), 400
+            return jsonify({"error": tr("Ongeldig recept", "Invalid recipe")}), 400
         version = (request.args.get("v") or "")[:64]
         try:
             content_type, data = mealie_images.get_image(
                 recipe_id, request.args.get("size") or mealie_images.DEFAULT_SIZE, version
             )
         except mealie_images.ImageNotFound:
-            return jsonify({"error": "Dit recept heeft geen afbeelding"}), 404
+            return jsonify({"error": tr("Dit recept heeft geen afbeelding", "This recipe has no image")}), 404
         except Exception as exc:
             app.logger.exception("Mealie image error")
-            return jsonify({"error": str(exc) or "Afbeelding ophalen mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("Afbeelding ophalen mislukt", "Could not fetch the image")}), 424
         response = Response(data, mimetype=content_type)
         # Met ?v= (de afbeeldingsversie van Mealie) verandert het adres als het plaatje verandert.
         response.headers["Cache-Control"] = (
@@ -186,7 +186,7 @@ def create_app() -> Flask:
             return jsonify({"lists": ah.get_favorite_lists()})
         except Exception as exc:
             app.logger.exception("AH favorite lists error")
-            return jsonify({"error": str(exc) or "AH lijstjes ophalen mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("AH lijstjes ophalen mislukt", "Could not fetch AH lists")}), 424
 
     @app.get("/api/ah/favorite-lists/<list_id>/items")
     def ah_favorite_list_items(list_id: str):
@@ -194,7 +194,7 @@ def create_app() -> Flask:
             return jsonify(ah.get_favorite_list_items(list_id))
         except Exception as exc:
             app.logger.exception("AH favorite list items error")
-            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
 
     @app.get("/api/ah/lists")
     def ah_lists_overview():
@@ -216,7 +216,7 @@ def create_app() -> Flask:
             return jsonify({**ah.get_favorite_list_items(list_id), "source": "ah"})
         except Exception as exc:
             app.logger.exception("AH list detail error")
-            return jsonify({"error": str(exc) or "AH lijstinhoud ophalen mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
 
     @app.post("/api/ah/lists/<list_id>/sync")
     def ah_list_sync(list_id: str):
@@ -224,7 +224,7 @@ def create_app() -> Flask:
             return jsonify(ah_lists.sync_list(list_id))
         except Exception as exc:
             app.logger.exception("AH list sync error")
-            return jsonify({"error": str(exc) or "Synchroniseren mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("Synchroniseren mislukt", "Sync failed")}), 424
 
     @app.patch("/api/ah/lists/<list_id>/items/<int:position>")
     def ah_list_item_quantity(list_id: str, position: int):
@@ -465,14 +465,14 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         url = (body.get("url") or "").strip()
         if not url:
-            return jsonify({"error": "URL ontbreekt"}), 400
+            return jsonify({"error": tr("URL ontbreekt", "URL is missing")}), 400
 
         try:
             slug = mealie.import_from_url(url)
             return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
         except Exception as exc:
             app.logger.exception("Mealie import error")
-            return jsonify({"error": str(exc) or "Import mislukt"}), 424
+            return jsonify({"error": str(exc) or tr("Import mislukt", "Import failed")}), 424
 
     def cart_candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, Any]:
         packs, doubt = ah.assess_packs(quantity, unit, product.get("unitSize"))
@@ -501,7 +501,7 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+            return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
 
         def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
@@ -535,7 +535,7 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+            return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
 
         matched = []
         diagnostics = []
@@ -584,7 +584,7 @@ def create_app() -> Flask:
             return (
                 jsonify(
                     {
-                        "error": "Geen producten gevonden voor de opgegeven ingredienten",
+                        "error": tr("Geen producten gevonden voor de opgegeven ingredienten", "No products found for the given ingredients"),
                         "diagnostics": diagnostics,
                     }
                 ),
@@ -642,7 +642,7 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+            return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
 
         matched: list[dict[str, Any]] = []
         skipped: list[str] = []
@@ -666,7 +666,7 @@ def create_app() -> Flask:
             matched.append({"productId": found["productId"], "quantity": found["packs"], "query": query})
 
         if not matched:
-            return jsonify({"error": "Geen producten gevonden voor de opgegeven ingredienten", "skippedItems": skipped}), 404
+            return jsonify({"error": tr("Geen producten gevonden voor de opgegeven ingredienten", "No products found for the given ingredients"), "skippedItems": skipped}), 404
         try:
             result = store.add_to_cart(matched)
         except Exception as exc:  # noqa: BLE001
@@ -728,7 +728,7 @@ def create_app() -> Flask:
     def picnic_search():
         query = (request.args.get("q") or "").strip()
         if not query:
-            return jsonify({"error": "Zoekterm ontbreekt"}), 400
+            return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
             return jsonify({"products": picnic.search_products(query, 10)})
         except Exception as exc:  # noqa: BLE001
@@ -801,7 +801,7 @@ def create_app() -> Flask:
         # Het hele mandje leegmaken vraagt om een expliciete bevestiging, ook van andere aanroepers.
         body = request.get_json(silent=True) or {}
         if body.get("confirm") is not True:
-            return jsonify({"error": "Bevestiging ontbreekt"}), 400
+            return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
             return jsonify(picnic.clear_cart())
         except Exception as exc:  # noqa: BLE001
@@ -857,7 +857,7 @@ def create_app() -> Flask:
             if isinstance(exc, (ValueError, picnic.PicnicAuthError)):
                 return picnic_error(exc)
             # De melding van Mealie of Picnic kan het antwoord van de dienst bevatten: alleen in het logboek.
-            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
+            return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.get("/api/picnic/slots")
     def picnic_slots():
@@ -997,7 +997,7 @@ def create_app() -> Flask:
     def jumbo_search():
         query = (request.args.get("q") or "").strip()
         if not query:
-            return jsonify({"error": "Zoekterm ontbreekt"}), 400
+            return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
             return jsonify({"products": jumbo.search_products(query, 10)})
         except Exception as exc:  # noqa: BLE001
@@ -1100,7 +1100,7 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
-            return jsonify({"error": "Geen ingredienten opgegeven"}), 400
+            return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
         lines = [
             {"term": item.get("title") or item.get("query") or "", "sku": item.get("productId")}
             for item in items
@@ -1194,7 +1194,7 @@ def create_app() -> Flask:
             if isinstance(exc, (ValueError, jumbo.JumboAuthError)):
                 return jumbo_error(exc)
             # De melding van Mealie of Jumbo kan het antwoord van de dienst bevatten: alleen in het logboek.
-            return jsonify({"error": "Importeren in Mealie mislukt"}), 424
+            return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.post("/api/jumbo/explore")
     def jumbo_explore_routes():
@@ -1206,19 +1206,19 @@ def create_app() -> Flask:
         body = request.get_json(silent=True) or {}
         raw = (body.get("code") or body.get("token") or "").strip()
         if not raw:
-            return jsonify({"error": "Geen code of token opgegeven"}), 400
+            return jsonify({"error": tr("Geen code of token opgegeven", "No code or token given")}), 400
 
         result = ah.link_account(raw)
         if result.get("connected"):
             return jsonify(result)
-        return jsonify({"error": result.get("error") or "Onbekende fout"}), 400
+        return jsonify({"error": result.get("error") or tr("Onbekende fout", "Unknown error")}), 400
 
     @app.post("/api/ah/auth/verify")
     def ah_auth_verify():
         body = request.get_json(silent=True) or {}
         token = (body.get("refreshToken") or "").strip()
         if not token:
-            return jsonify({"error": "Geen token opgegeven"}), 400
+            return jsonify({"error": tr("Geen token opgegeven", "No token given")}), 400
 
         result = ah.verify_token(token)
         if result.get("ok"):

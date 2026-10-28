@@ -202,7 +202,7 @@ class PageTest(unittest.TestCase):
         light = re.search(r":root\s*{(.*?)\n}", css, re.S).group(1)
         dark = re.search(r':root\[data-theme="dark"\]\s*{(.*?)\n}', css, re.S).group(1)
         names = lambda block: set(re.findall(r"(--[\w-]+):", block))
-        unchanged = {"--lemon", "--radius-card", "--radius-control", "--control-height", "--font-body", "--font-heading"}
+        unchanged = {"--lemon", "--radius-card", "--radius-control", "--control-height", "--font-body", "--font-heading", "--ease"}
         self.assertEqual(sorted(names(light) - names(dark) - unchanged), [])
 
     def test_engine_keeps_the_language_and_tells_the_server(self):

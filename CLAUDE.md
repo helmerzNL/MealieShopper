@@ -16,6 +16,7 @@ Afspraken voor het werken aan MealieShopper (voor Claude Code en andere AI-hulpe
 **Bij elke nieuwe versie bouw je een nieuwe GitHub release.** Een versie ophogen zonder release is niet af.
 
 1. Verhoog `VERSION` (alleen `X.Y.Z`).
+   Draai daarna `python scripts/ha_addon.py`: dat zet de versie in de Home Assistant-add-ons (`homeassistant/`). `tests/test_ha_addon.py` faalt als ze afwijken.
 2. Schrijf bovenaan `CHANGELOG.md` een kopje `## vX.Y.Z` met alle features en functies, fixes, verwijderde dingen en de pull requests (en eventuele issues) sinds de vorige versie. Die tekst wordt de release-tekst op GitHub.
 3. Na het mergen naar `beta` maakt `.github/workflows/release.yml` de pre-release `vX.Y.Z-beta`; na de promotie naar `main` de stabiele release `vX.Y.Z`. Controleer dat de release er staat; zo niet, start de workflow dan handmatig (`workflow_dispatch`).
 

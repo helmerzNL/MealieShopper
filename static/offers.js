@@ -79,7 +79,7 @@ function offerProductCard(offer) {
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
         ${offerConditionsText(offer) ? `<small>${escapeHtml(offerConditionsText(offer))}</small>` : ""}
-        ${offer.price ? `<small>${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
+        ${offer.price ? `<small class="product-card__price">${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
       </span>
     </${tag}>`;
 }

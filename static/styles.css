@@ -66,6 +66,20 @@
   --flag-ring: rgba(24, 37, 30, 0.25);
   --shadow-ink: 24, 37, 30; /* rgb-waarden voor schaduwen */
 
+  /* Diepte en verfijning: drie schaduwniveaus, een focushalo, een rand voor het hoverniveau en het glas van de balk bovenaan */
+  --shadow-xs: 0 1px 2px rgba(var(--shadow-ink), 0.06);
+  --shadow-sm: 0 1px 2px rgba(var(--shadow-ink), 0.05), 0 2px 8px rgba(var(--shadow-ink), 0.04);
+  --shadow-md: 0 2px 4px rgba(var(--shadow-ink), 0.04), 0 10px 28px rgba(var(--shadow-ink), 0.09);
+  --shadow-lg: 0 4px 8px rgba(var(--shadow-ink), 0.05), 0 28px 64px rgba(var(--shadow-ink), 0.16);
+  --btn-shadow: 0 1px 2px rgba(16, 82, 53, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --btn-shadow-hover: 0 2px 8px rgba(16, 82, 53, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --ring: rgba(23, 107, 69, 0.2);
+  --border-strong: #c0ccc5;
+  --placeholder: #66756c; /* 4,8 : 1 op wit */
+  --topbar-glass: rgba(255, 255, 255, 0.9);
+  --page-glow: rgba(23, 107, 69, 0.07);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
   --radius-card: 12px;
   --radius-control: 8px;
   --control-height: 44px;
@@ -112,6 +126,29 @@
   --code-on-message: rgba(0, 0, 0, 0.3);
   --flag-ring: rgba(255, 255, 255, 0.35);
   --shadow-ink: 0, 0, 0;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.35), 0 32px 72px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --btn-shadow-hover: 0 2px 10px rgba(76, 195, 138, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --ring: rgba(76, 195, 138, 0.28);
+  --border-strong: #3d5247;
+  --placeholder: #8a9c91;
+  --topbar-glass: rgba(15, 22, 19, 0.9);
+  --page-glow: rgba(76, 195, 138, 0.08);
+}
+
+/* De ruimte voor de scrollbalk blijft altijd gereserveerd: de pagina verspringt niet als een scherm hoger wordt dan het venster. */
+html {
+  scrollbar-gutter: stable;
+}
+
+@supports not (scrollbar-gutter: stable) {
+  html {
+    overflow-y: scroll;
+  }
 }
 
 * {
@@ -124,11 +161,19 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--bg) radial-gradient(1100px 380px at 50% -140px, var(--page-glow), transparent 72%) no-repeat;
   color: var(--text);
   font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--primary-strong);
 }
 
 a {
@@ -146,6 +191,7 @@ a {
 select:focus-visible {
   border-color: var(--primary);
   outline-offset: 0;
+  box-shadow: 0 0 0 5px var(--ring);
 }
 
 .topbar {
@@ -154,6 +200,15 @@ select:focus-visible {
   z-index: 10;
   border-bottom: 1px solid var(--border);
   background: var(--topbar-bg);
+  box-shadow: 0 1px 0 rgba(var(--shadow-ink), 0.02), 0 6px 20px rgba(var(--shadow-ink), 0.04);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--topbar-glass);
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+    backdrop-filter: saturate(180%) blur(18px);
+  }
 }
 
 .brand-link {
@@ -175,9 +230,14 @@ select:focus-visible {
   align-items: center;
   gap: 12px;
   max-width: 1120px;
-  min-height: 68px;
+  min-height: 64px;
   margin: 0 auto;
   padding: 8px 16px;
+}
+
+.topbar .brand-mark {
+  width: 40px;
+  height: 40px;
 }
 
 .auth-gate {
@@ -187,24 +247,40 @@ select:focus-visible {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: var(--gate-bg);
+  background: radial-gradient(900px 520px at 50% -10%, var(--page-glow), transparent 70%), var(--gate-bg);
+  overflow-y: auto;
 }
 
 .auth-card {
   width: min(440px, 100%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  border-radius: 16px;
   background: var(--surface);
-  padding: 24px;
-  box-shadow: 0 24px 80px rgba(var(--shadow-ink), 0.18);
+  padding: 28px;
+  box-shadow: var(--shadow-lg);
+  animation: rise-in 0.4s var(--ease) both;
 }
 
 .auth-card h2 {
-  font-size: 24px;
+  font-size: 26px;
+  letter-spacing: -0.02em;
 }
 
 .auth-card .brand-mark {
-  margin-bottom: 12px;
+  margin: 0 auto 14px;
+}
+
+.auth-card > h2,
+.auth-card > p {
+  text-align: center;
+}
+
+.auth-card > p {
+  margin-top: 6px;
+}
+
+.box > h2 + .profile-avatar {
+  margin-top: 14px;
 }
 
 .auth-form {
@@ -218,6 +294,7 @@ select:focus-visible {
   flex: none;
   width: 48px;
   height: 48px;
+  filter: drop-shadow(0 2px 4px rgba(var(--shadow-ink), 0.14));
 }
 
 .brand-mark--large {
@@ -248,17 +325,20 @@ h1,
 h2,
 h3 {
   font-family: var(--font-heading);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
 h2 {
   font-size: 20px;
   font-weight: 800;
   line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
 .wordmark {
-  font-size: 22px;
+  font-size: 21px;
+  letter-spacing: -0.025em;
   font-weight: 800;
   line-height: 1.1;
 }
@@ -287,9 +367,9 @@ h2 {
 }
 
 .topbar p {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .shell {
@@ -308,6 +388,13 @@ h2 {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--shadow-xs);
+}
+
+/* Tweede niveau als segmentbediening: een ingedeukt spoor met een oplichtend actief segment. */
+.subtabs {
+  background: var(--surface-muted);
+  box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.05);
 }
 
 .tabs {
@@ -328,6 +415,9 @@ h2 {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease),
+    box-shadow 0.2s var(--ease), transform 0.12s var(--ease);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tab,
@@ -345,10 +435,20 @@ h2 {
   color: var(--primary-strong);
 }
 
-.tab.is-active,
+.tab.is-active {
+  background: var(--selection);
+  color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+}
+
 .subtab.is-active {
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--surface);
+  color: var(--primary-strong);
+  box-shadow: 0 1px 2px rgba(var(--shadow-ink), 0.12), 0 0 0 1px var(--border);
+}
+
+.tab.is-active > svg {
+  color: var(--primary);
 }
 
 /* Uitklapmenu in een subtabbalk (Instellingen > Koppelen): de knop opent een lijst met de winkels eronder. */
@@ -394,7 +494,9 @@ h2 {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(var(--shadow-ink), 0.18);
+  box-shadow: var(--shadow-lg);
+  animation: pop-in 0.16s var(--ease) both;
+  transform-origin: top left;
 }
 
 .subtab-menu__list[hidden] {
@@ -462,6 +564,27 @@ h2 {
 .panel.is-active,
 .subpanel.is-active {
   display: block;
+  animation: rise-in 0.28s var(--ease) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.is-active,
+  .subpanel.is-active,
+  .auth-card {
+    animation: none;
+  }
 }
 
 .toolbar,
@@ -494,20 +617,33 @@ h2 {
 
 .button,
 .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: var(--control-height);
   background: var(--primary);
   color: var(--on-primary);
   padding: 0 18px;
+  box-shadow: var(--btn-shadow);
 }
 
 .button:hover,
 .icon-button:hover {
   background: var(--primary-strong);
+  box-shadow: var(--btn-shadow-hover);
+}
+
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+  box-shadow: none;
 }
 
 .button--secondary,
@@ -515,12 +651,15 @@ h2 {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
+  box-shadow: var(--shadow-xs);
 }
 
 .button--secondary:hover,
 .icon-button:hover {
+  border-color: var(--border-strong);
   background: var(--selection);
   color: var(--primary-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 .icon-button {
@@ -558,6 +697,20 @@ h2 {
   color: var(--text);
   font: inherit;
   font-size: 16px;
+  box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.04);
+  transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--placeholder);
+  opacity: 1;
+}
+
+.input:hover:not(:focus-visible),
+.textarea:hover:not(:focus-visible),
+.store-select:hover:not(:focus-visible) {
+  border-color: var(--border-strong);
 }
 
 .input {
@@ -580,14 +733,41 @@ h2 {
   background: var(--surface);
 }
 
+.box,
+.day-card,
+.recipe-card {
+  box-shadow: var(--shadow-sm);
+}
+
 .box {
   max-width: 680px;
   margin-bottom: 16px;
-  padding: 20px;
+  padding: 24px;
 }
 
 .narrow {
   max-width: 620px;
+}
+
+/* Verticaal ritme in een blok: kop, uitleg, invoer en knop krijgen vaste, rustige afstanden. */
+.box > h2 + .muted,
+.box > .toolbar + .muted,
+.box > .list-header + .muted {
+  margin-top: 6px;
+}
+
+.box > .muted + .form-row,
+.box > .muted + form {
+  margin-top: 16px;
+}
+
+.box .muted + .button,
+.box .muted + .inline-button {
+  margin-top: 14px;
+}
+
+.box .button + .muted {
+  margin-top: 10px;
 }
 
 /* Overzichten met kaarten gebruiken de volle breedte, zodat er meer naast elkaar passen */
@@ -597,26 +777,30 @@ h2 {
 
 .message {
   margin: 16px 0;
-  padding: 12px 14px;
+  padding: 12px 16px 12px 18px;
   font-size: 15px;
 }
 
+/* Een gekleurde balk links maakt het soort melding in één oogopslag duidelijk; de tekst legt het altijd uit. */
 .message.success {
   border-color: var(--success-border);
   background: var(--success-bg);
   color: var(--success-text);
+  box-shadow: inset 4px 0 0 var(--primary);
 }
 
 .message.error {
   border-color: var(--danger-border);
   background: var(--danger-bg);
   color: var(--danger);
+  box-shadow: inset 4px 0 0 var(--danger);
 }
 
 .message.warning {
   border-color: var(--warning-border);
   background: var(--warning-bg);
   color: var(--warning-text);
+  box-shadow: inset 4px 0 0 var(--warning-border);
 }
 
 .message.warning code {
@@ -658,12 +842,35 @@ h2 {
 }
 
 .day-card h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* Vandaag valt op: een groene rand en een kleine chip, zonder de andere dagen te dempen. */
+.day-card--today {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), var(--shadow-md);
+}
+
+.day-card--today h3 {
+  color: var(--primary-strong);
+}
+
+.day-card__today {
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  padding: 1px 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
 }
 
 .meal {
@@ -681,6 +888,8 @@ h2 {
   display: block;
   margin-top: 2px;
   font-size: 15px;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .meal small {
@@ -707,6 +916,44 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.recipe-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+/* Het oplichten van kaarten alleen met een muis: op een scherm blijft het na een tik anders hangen. */
+@media (hover: hover) {
+  .recipe-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .list-card:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recipe-card,
+  .list-card,
+  .button,
+  .icon-button,
+  .tab,
+  .subtab,
+  .input,
+  .offer-chip,
+  .product-card {
+    transition: none;
+  }
+
+  .recipe-card:hover,
+  .list-card:hover,
+  .button:active:not(:disabled),
+  .icon-button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .recipe-card img {
@@ -715,6 +962,8 @@ h2 {
   border-radius: var(--radius-control);
   object-fit: cover;
   background: var(--surface-muted);
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
 }
 
 .recipe-card h3 {
@@ -738,6 +987,7 @@ h2 {
 .tag {
   border-radius: 999px;
   background: var(--selection);
+  box-shadow: inset 0 0 0 1px var(--success-border);
   color: var(--primary-strong);
   padding: 3px 10px;
   font-size: 12px;
@@ -841,14 +1091,19 @@ code {
   gap: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
   padding: 10px;
   color: inherit;
   text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
 }
 
 a.product-card:hover {
   border-color: var(--primary);
   background: var(--selection);
+  box-shadow: var(--shadow-sm);
 }
 
 .product-card img {
@@ -857,7 +1112,9 @@ a.product-card:hover {
   flex: none;
   border-radius: var(--radius-control);
   object-fit: contain;
-  background: var(--surface);
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
 }
 
 a.product-card strong {
@@ -872,8 +1129,32 @@ a.product-card strong {
 }
 
 .product-card .bonus {
+  width: fit-content;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: var(--danger-bg);
+  box-shadow: inset 0 0 0 1px var(--danger-border);
   color: var(--danger);
-  font-weight: 600;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* De prijs is het eerste wat je zoekt: groter en vet, met de oude prijs er klein en doorgestreept naast. */
+.product-card .product-card__price {
+  margin-top: 4px;
+  color: var(--text);
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.product-card .product-card__price s {
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .product-card s {
@@ -1376,6 +1657,25 @@ a.product-card__main:hover strong {
   font: inherit;
   font-size: 16px;
   padding: 0 8px;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+/* Keuzelijsten: één eigen pijltje van twee kleurvlakken in plaats van het pijltje van de browser; het volgt --muted, dus ook in het donkere thema. */
+select.input,
+.store-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 20px) calc(50% + 1px), calc(100% - 15px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+select.input {
+  padding-left: 12px;
 }
 
 .review-link {
@@ -1421,7 +1721,21 @@ a.product-card__main:hover strong {
 @media (max-width: 640px) {
   .topbar__inner {
     flex-wrap: wrap;
-    padding: 10px 16px;
+    min-height: 56px;
+    padding: 6px 12px 6px 16px;
+  }
+
+  .topbar p {
+    display: none;
+  }
+
+  .topbar .brand-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+  .wordmark {
+    font-size: 20px;
   }
 
   .toolbar,
@@ -1576,10 +1890,13 @@ a.product-card__main:hover strong {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s var(--ease), box-shadow 0.2s var(--ease), transform 0.2s var(--ease);
 }
 
 .list-card:hover {
   border-color: var(--primary);
+  box-shadow: var(--shadow-md);
 }
 
 .list-card__open {
@@ -1824,7 +2141,7 @@ body.has-onboarding {
   overflow-y: auto;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
     max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  background: var(--bg);
+  background: radial-gradient(900px 420px at 50% -80px, var(--page-glow), transparent 72%), var(--bg);
 }
 
 .onboarding[hidden] {
@@ -1835,9 +2152,17 @@ body.has-onboarding {
   width: min(680px, 100%);
   margin: 0 auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-card);
+  border-radius: 16px;
   background: var(--surface);
-  padding: 24px;
+  box-shadow: var(--shadow-lg);
+  padding: 28px;
+  animation: rise-in 0.4s var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding__card {
+    animation: none;
+  }
 }
 
 .onboarding__head {
@@ -1874,6 +2199,7 @@ body.has-onboarding {
 }
 
 .ob-progress li {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1887,6 +2213,8 @@ body.has-onboarding {
 }
 
 .ob-progress__dot {
+  position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 28px;
@@ -1895,6 +2223,23 @@ body.has-onboarding {
   border-radius: 50%;
   background: var(--surface);
   font-size: 13px;
+  transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+/* Een lijn tussen de stappen: grijs voor wat nog komt, groen voor wat klaar is. */
+.ob-progress li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: calc(50% + 18px);
+  right: calc(-50% + 12px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.ob-progress li.is-done:not(:last-child)::after {
+  background: var(--primary);
 }
 
 .ob-progress li.is-current {
@@ -1904,6 +2249,7 @@ body.has-onboarding {
 .ob-progress li.is-current .ob-progress__dot {
   border-color: var(--primary);
   background: var(--primary);
+  box-shadow: 0 0 0 4px var(--ring);
   color: var(--on-primary);
 }
 
@@ -2530,6 +2876,11 @@ body.has-onboarding {
   html.has-tabbar .tab.is-active {
     background: var(--tabbar-tint);
     color: var(--tabbar-ink-active);
+    box-shadow: none;
+  }
+
+  html.has-tabbar .tab.is-active > svg {
+    color: inherit;
   }
 
   html.has-tabbar .tab:focus-visible {
@@ -3090,8 +3441,15 @@ body.has-onboarding {
   font-weight: 600;
 }
 
+.user-menu__button {
+  box-shadow: var(--shadow-xs);
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+}
+
 .user-menu__button:hover {
+  border-color: var(--border-strong);
   background: var(--selection);
+  box-shadow: var(--shadow-sm);
 }
 
 .user-menu__name {
@@ -3119,8 +3477,29 @@ body.has-onboarding {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-lg);
   padding: 8px;
+  animation: pop-in 0.16s var(--ease) both;
+  transform-origin: top right;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .user-menu__list,
+  .subtab-menu__list {
+    animation: none;
+  }
 }
 
 .user-menu__list[hidden] {
@@ -3245,12 +3624,15 @@ body.has-onboarding {
     grid-column: 1;
     grid-row: 1 / span 12;
     position: sticky;
-    top: 92px;
+    top: 88px;
     flex-direction: column;
     flex-wrap: nowrap;
     gap: 2px;
-    width: 220px;
+    width: 232px;
     margin-bottom: 0;
+    padding: 8px;
+    border-radius: 16px;
+    box-shadow: var(--shadow-sm);
     transition: width 0.2s ease;
   }
 
@@ -3259,6 +3641,18 @@ body.has-onboarding {
     gap: 12px;
     width: 100%;
     text-align: left;
+  }
+
+  /* Het actieve onderdeel krijgt links een groene streep, zoals in een professioneel beheerscherm. */
+  .shell > .tabs .tab.is-active::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    bottom: 10px;
+    left: -7px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--primary);
   }
 
   .tabs__toggle {
@@ -3295,7 +3689,7 @@ body.has-onboarding {
   }
 
   html.nav-collapsed .shell > .tabs {
-    width: 58px;
+    width: 62px;
   }
 
   html.nav-collapsed .tabs .tab,
@@ -3550,14 +3944,18 @@ body.has-onboarding {
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
+  box-shadow: var(--shadow-xs);
   color: var(--muted);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.2s var(--ease);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .offer-chip:hover:not(.is-active) {
+  border-color: var(--border-strong);
   background: var(--selection);
   color: var(--primary-strong);
 }
@@ -3565,6 +3963,7 @@ body.has-onboarding {
 .offer-chip.is-active {
   border-color: var(--primary);
   background: var(--primary);
+  box-shadow: var(--btn-shadow);
   color: var(--on-primary);
 }
 

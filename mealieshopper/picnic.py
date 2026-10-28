@@ -71,7 +71,7 @@ def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
             "Picnic account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Picnic.",
-            "Picnic account not linked. The admin links it under Admin > Picnic.",
+            "Picnic account not linked. The admin links it under Settings > Link > Picnic.",
         )
     )
 
@@ -144,7 +144,7 @@ def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> 
         raise PicnicAuthError(
             tr(
                 "Picnic-koppeling verlopen of geweigerd. Koppel opnieuw bij Instellingen > Koppelen > Picnic.",
-                "Picnic link expired or refused. Link again under Admin > Picnic.",
+                "Picnic link expired or refused. Link again under Settings > Link > Picnic.",
             )
         ) from exc
     if new_token and new_token != token:
@@ -844,7 +844,7 @@ def get_offers() -> list[dict[str, Any]]:
     raise RuntimeError(
         tr(
             "Picnic gaf geen aanbiedingen" + (f" ({errors[0]})" if errors else "") + ". Draai onder Instellingen > Koppelen > Picnic de verkenner en deel het rapport.",
-            "Picnic returned no offers" + (f" ({errors[0]})" if errors else "") + ". Run the explorer under Admin > Picnic and share the report.",
+            "Picnic returned no offers" + (f" ({errors[0]})" if errors else "") + ". Run the explorer under Settings > Link > Picnic and share the report.",
         )
     )
 

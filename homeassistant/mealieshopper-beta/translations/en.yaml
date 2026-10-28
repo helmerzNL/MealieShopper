@@ -1,0 +1,51 @@
+configuration:
+  mealie_url:
+    name: Mealie address
+    description: Where MealieShopper reaches Mealie, for example http://homeassistant.local:9925. Optional; you can also link Mealie in the app (Settings > Link), which takes precedence.
+  mealie_api_token:
+    name: Mealie API token
+    description: A token from Mealie (user profile > API tokens). Optional; see Mealie address.
+  public_base_url:
+    name: Public address
+    description: The address you use to open MealieShopper from outside, for invitation links, the preview image and the AI connection. Optional; the app detects it itself.
+  auth_secret:
+    name: Secret
+    description: A long, fixed, random value (for example from openssl rand -hex 32) that encrypts your links and signs sessions. Optional; without it the app creates secret.key in its data folder, which Home Assistant includes in backups. Do not change it afterwards.
+  anthropic_api_key:
+    name: Claude API key
+    description: Optional. Lets Claude review the matches between ingredients and offers.
+  openai_api_key:
+    name: ChatGPT API key
+    description: Optional. Lets ChatGPT review the matches between ingredients and offers.
+  picnic_country_code:
+    name: Picnic country
+    description: The country of your Picnic account. Default NL.
+  offers_schedule:
+    name: Fetch offers daily
+    description: Turn the daily task that fetches the offers of all stores off or on. On by default.
+  offers_sync_hour:
+    name: Hour of the daily offers run
+    description: The hour of the day (0 to 23) at which the offers are fetched. Default 5.
+  mcp:
+    name: MCP server for AI assistants
+    description: Start value of the MCP server (on by default, when login is on). The switch in the app (Profile > AI apps) takes precedence.
+  update_check:
+    name: Update check
+    description: Let the app check GitHub for a newer release and tell the administrator. Nothing about you or the installation is sent. On by default. Home Assistant shows add-on updates itself.
+  audit_log:
+    name: Audit log
+    description: Store the traffic with Albert Heijn, Picnic and Jumbo and the requests of AI assistants in the audit log (Settings > Audit log). On by default.
+  audit_retention_days:
+    name: Audit log retention (days)
+    description: After how many days entries are deleted. Default 30; 0 never deletes on its own.
+  rp_id:
+    name: Passkey host name
+    description: Only for passkeys, with your own domain name and HTTPS. The host name only, without scheme or port.
+  rp_origins:
+    name: Passkey addresses
+    description: Only for passkeys. The full address in the browser, comma-separated if you use more than one.
+  rp_name:
+    name: Passkey name
+    description: The name shown when creating a passkey. Default MealieShopper.
+network:
+  8000/tcp: Web interface

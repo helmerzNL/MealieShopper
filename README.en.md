@@ -201,6 +201,16 @@ docker run -d --name mealieshopper -p 8000:8000 \
 
 Then open `http://localhost:8000`. To build it yourself: `docker build -t mealieshopper .`.
 
+### Home Assistant add-on
+
+Do you run Home Assistant OS or a Supervised installation? Then you can install MealieShopper as an add-on, without Docker commands:
+
+1. Go to **Settings > Add-ons > Add-on store**, open the menu at the top right (⋮) and choose **Repositories**.
+2. Add `https://github.com/helmerznl/mealieshopper` and install **MealieShopper**.
+3. Click **Start** and open `http://<address of Home Assistant>:5959` (or **Open web UI**). The setup guide does the rest.
+
+It is the same image as the Docker version (`linux/amd64` and `linux/arm64`). The add-on's data folder is `/data`, so Home Assistant includes the database and `secret.key` in its backups. All options (Mealie address and token, public address, AI keys and so on) are optional and sit on the add-on's **Configuration** tab; they are the same values as the environment variables under *Configuration*. There is no ingress: the app has its own login and an MCP server that need their own address, so open it on port `5959` and do not expose that port directly to the internet. For the development version there is a second add-on, **MealieShopper (beta)** (port `5960`, its own data folder), in the repository `https://github.com/helmerznl/mealieshopper#beta`. The add-on files are in [`homeassistant/`](homeassistant/mealieshopper/DOCS.md).
+
 ### Run locally
 
 ```bash
@@ -488,6 +498,8 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 | `MEALIESHOPPER_TAG` | Which build is running: `latest` (stable, the default) or `beta`. Set it in `.env` next to `docker-compose.yml`: the compose file uses it to pull the right image (`:latest` or `:beta`) and passes the same value to the app, which shows a **beta** badge next to the wordmark (and under About) on a beta build. See *Updating*. |
 | `MEALIESHOPPER_VERSION`, `MEALIESHOPPER_COMMIT` | Override the version number and commit shown under About. |
 
+In the Home Assistant add-on you set these on the **Configuration** tab instead; `docker-entrypoint.py` turns them into the variables above when the container starts.
+
 **Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
 
 <img src="docs/screenshots/en/audit.png" alt="Settings, Audit log: summary per service, filters and the latest requests" width="900">
@@ -515,7 +527,7 @@ Everything is in the data folder: `auth.sqlite3` (settings, passkeys, password, 
 docker compose pull && docker compose up -d
 ```
 
-With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running.
+With a new version you don't have to do anything; the database is extended automatically when needed. Under About you can see which version and commit is running. In Home Assistant, the add-on shows the update and you click **Update**.
 
 **Stable or beta.** You choose which build to install with `MEALIESHOPPER_TAG` in a `.env` file next to `docker-compose.yml` (copy [`.env.example`](.env.example)): `latest` is the stable version and the default, `beta` is the development version. Then run `docker compose pull && docker compose up -d`. The same value goes to the app, which shows a **beta** badge next to the wordmark on `beta`. Use a separate data folder for beta. If you put the value in `.env.unraid`, Compose does not see it for the image tag; use `docker compose --env-file .env.unraid up -d` instead. More about the beta is under [The beta version](#the-beta-version).
 
@@ -597,9 +609,9 @@ python -m unittest discover -s tests          # all tests
 - **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `offers_schedule.py`, `offer_categories.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
-- **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
+- **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, run `python scripts/ha_addon.py` (it puts the version in the Home Assistant add-ons under `homeassistant/`; a test fails if you forget), write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`. Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
 - **Branches and container registry:** pull requests go to `beta`, not to `main` (`main` only receives a pull request from `beta`; the check in `.github/workflows/pr-target.yml` enforces it). The workflow builds and pushes on every push to `main` to `ghcr.io/helmerznl/mealieshopper:latest` (and `X.Y.Z`), and on every push to `beta` to `ghcr.io/helmerznl/mealieshopper:beta` (and `X.Y.Z-beta`), for `linux/amd64` and `linux/arm64` (through QEMU and Buildx; also manually through `workflow_dispatch`). To run the development version, use the `beta` tag and a separate data folder.
-- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a demo environment with hand-drawn illustrations (no third-party photos), so they are free to use anywhere.
+- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a running MealieShopper with mocked data and hand-drawn illustrations (no third-party photos), so they are free to use anywhere. Regenerate them with `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optionally `--only plan,login` and `--lang en`); the scenarios are in `scripts/screenshots/scenarios/` and the demo data in `scripts/screenshots/demo.js`. You need Node with Playwright installed.
 
 ## Integrations and components
 

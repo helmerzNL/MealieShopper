@@ -1,0 +1,40 @@
+# Home Assistant-add-on van MealieShopper (stabiele lijn). De map ../mealieshopper-beta is hiervan afgeleid:
+# pas alleen deze map aan en draai `python scripts/ha_addon.py`. De versie hoort gelijk te zijn aan ../../VERSION
+# (een test controleert dat); de Supervisor haalt het image `<image>:<versie>` op, en die tag bouwt docker.yml bij een push naar main.
+name: MealieShopper
+version: "2.81.0"
+slug: mealieshopper
+description: Week menu from Mealie to your supermarket basket (Albert Heijn, Picnic, Jumbo)
+url: https://github.com/helmerznl/mealieshopper
+image: ghcr.io/helmerznl/mealieshopper
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+# Geen ingress: MealieShopper heeft eigen inlog, passkeys en een MCP-server die op een eigen adres moeten bereikbaar zijn.
+ports:
+  8000/tcp: 5959
+ports_description:
+  8000/tcp: Web interface
+webui: "http://[HOST]:[PORT:8000]"
+# De app herstart zichzelf na een fabrieksreset door te stoppen; de watchdog start de add-on dan weer.
+watchdog: "http://[HOST]:[PORT:8000]/healthz"
+options: {}
+schema:
+  mealie_url: str?
+  mealie_api_token: password?
+  public_base_url: url?
+  auth_secret: password?
+  anthropic_api_key: password?
+  openai_api_key: password?
+  picnic_country_code: list(NL|DE|FR)?
+  offers_schedule: bool?
+  offers_sync_hour: int(0,23)?
+  mcp: bool?
+  update_check: bool?
+  audit_log: bool?
+  audit_retention_days: int(0,3650)?
+  rp_id: str?
+  rp_origins: str?
+  rp_name: str?

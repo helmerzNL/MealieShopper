@@ -198,6 +198,7 @@ I18N.add("nl", {
   "mealkits.none_match": "Geen recepten in deze week voor \"{query}\".",
   "plan.mealie_missing": "<strong>Mealie is nog niet gekoppeld.</strong> Zonder koppeling kan MealieShopper geen weekmenu laden en geen recepten importeren.",
   "mealie.link": "Mealie koppelen",
+  "plan.today": "Vandaag",
   "plan.prev_week": "Vorige week",
   "plan.next_week": "Volgende week",
   "plan.sync": "Weekmenu synchroniseren",

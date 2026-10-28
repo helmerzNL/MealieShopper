@@ -68,7 +68,7 @@ def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
             "Jumbo account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
-            "Jumbo account not linked. The admin links it under Admin > Jumbo.",
+            "Jumbo account not linked. The admin links it under Settings > Link > Jumbo.",
         )
     )
 
@@ -329,7 +329,7 @@ def _graphql(
                 raise JumboAuthError(
                     tr(
                         "Jumbo-koppeling verlopen of geweigerd. Koppel opnieuw bij Instellingen > Koppelen > Jumbo.",
-                        "Jumbo link expired or refused. Link again under Admin > Jumbo.",
+                        "Jumbo link expired or refused. Link again under Settings > Link > Jumbo.",
                     )
                 )
             message = "; ".join(str(e.get("message") or e) for e in errors if isinstance(e, dict))[:400]
