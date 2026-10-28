@@ -198,6 +198,7 @@ I18N.add("en", {
   "mealkits.none_match": "No recipes in this week for \"{query}\".",
   "plan.mealie_missing": "<strong>Mealie isn't linked yet.</strong> Without a link MealieShopper can't load your week menu or import recipes.",
   "mealie.link": "Link Mealie",
+  "plan.today": "Today",
   "plan.prev_week": "Previous week",
   "plan.next_week": "Next week",
   "plan.sync": "Sync week menu",

@@ -46,6 +46,30 @@ codevlakken, en melding-tinten voor succes, fout en waarschuwing. `tests/test_br
 bewaakt dat de tokens kloppen en dat alle tekst-/achtergrondparen WCAG AA halen
 (4,5 : 1 voor tekst, 3 : 1 voor het beeldmerk).
 
+## Diepte, beweging en componenten
+
+Het palet verandert niet; de afwerking wel. Aanvullende tokens in `:root` (en in het donkere thema):
+
+| Rol | Token |
+| --- | --- |
+| Schaduwniveaus: rand/veld, kaart, hover/menu, venster | `--shadow-xs`, `--shadow-sm`, `--shadow-md`, `--shadow-lg` |
+| Lichtrand en schaduw van een primaire knop | `--btn-shadow`, `--btn-shadow-hover` |
+| Focushalo naast de ring (velden) | `--ring` |
+| Sterkere rand bij hover | `--border-strong` |
+| Kleur van placeholdertekst (4,8 : 1 op wit) | `--placeholder` |
+| Mat glas van de balk bovenaan, gloed bovenaan de pagina | `--topbar-glass`, `--page-glow` |
+| Eén vloeiende curve voor alle overgangen | `--ease` |
+
+Regels:
+
+- **Dieptelagen.** Pagina (`--bg`), kaart (`--shadow-sm`), oplichtende kaart of menu (`--shadow-md`), venster of inlogkaart (`--shadow-lg`). Gebruik niet meer dan twee niveaus naast elkaar.
+- **Navigatie.** Het hoofdmenu markeert het actieve onderdeel met `--selection` en een groen streepje (groot scherm); het tweede niveau (`.subtabs`) is een segmentbediening met een oplichtend actief segment. Een volledig groen vlak is voorbehouden aan primaire acties, het actieve filter (`.offer-chip`) en de pil van de huidige dag.
+- **Knoppen en velden.** Primair heeft een lichte bovenrand en geeft 1 px indruk bij `:active`; secundair heeft een rand en `--shadow-xs`. Velden krijgen bij focus een rand van 2 px in `--primary` met een halo van `--ring`.
+- **Meldingen.** Een gekleurde balk links (4 px) naast de bestaande kleur en tekst; kleur alleen is nooit de enige aanwijzing.
+- **Prijzen en acties in een lijst.** `.product-card__price` is vet in Manrope; *Bonus* is een pil (`.product-card .bonus`).
+- **Beweging.** Korte overgangen van 150-280 ms met `--ease`; het oplichten van kaarten alleen bij `(hover: hover)`; alles uit bij `prefers-reduced-motion`.
+- **Vandaag.** In het weekmenu krijgt de dag van vandaag `.day-card--today` met het label *Vandaag* (`plan.today`).
+
 ## Typografie en bediening
 
 Manrope voor koppen en het woordmerk, Inter voor de interface. Lettertypen worden
