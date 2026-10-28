@@ -43,6 +43,12 @@ const toActions = async (page, selector = "#ob-body > .ob-actions") => {
   await page.evaluate(() => document.getElementById("onboarding").scrollBy(0, 40)); // wat lucht onder de knoppen
 };
 
+// Scroll een element van de gewone pagina naar boven, net onder de balk die bovenaan blijft staan.
+const toTop = async (page, selector, below = 80) => {
+  await page.$eval(selector, (element) => element.scrollIntoView({ block: "start" }));
+  await page.evaluate((offset) => window.scrollBy(0, -offset), below);
+};
+
 // Profiel openen via het avatar-menu (desktop) of de tab Profiel (telefoon), en daarna een subtab.
 async function openProfile(page, subtab) {
   const trigger = page.locator("[data-user-menu-trigger]:visible").first();
@@ -226,17 +232,14 @@ module.exports = [
     },
     run: async (page) => {
       await openProfile(page, "profile-security");
-      await page.mouse.wheel(0, 0);
+      await toTop(page, ".fold__section"); // tweestapsverificatie en passkeys in beeld
     },
   },
 
   // Instellingen > Gebruikers: de beheerder met twee gebruikers, een openstaande uitnodiging en het uitnodigformulier.
   {
     name: "users",
-    routes: {
-      "/api/users": settingsUsers,
-      "/api/users/invites": { url: `${SERVER}/#invite=demo-uitnodiging`, expiresAt: "2026-11-04T12:00:00" },
-    },
+    routes: { "/api/users": settingsUsers },
     run: async (page, { device }) => {
       const trigger = page.locator("[data-user-menu-trigger]:visible").first();
       await trigger.click();
@@ -245,9 +248,7 @@ module.exports = [
       await page.click('[data-subtab="settings-users"]');
       await page.waitForTimeout(600);
       await page.fill("#invite-name", "mila");
-      await page.click("#invite-create-form button[type=submit]");
-      await page.waitForTimeout(500);
-      await scrollTo(page, "#invite-result", device === "phone" ? "end" : "end");
+      await toTop(page, "#users-list", device === "phone" ? 70 : 90); // de lijst met gebruikers, daaronder het uitnodigformulier
     },
   },
 ];
