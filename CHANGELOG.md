@@ -18,7 +18,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: `PUT /api/crisp/cart/items/<id>`, `POST /api/crisp/cart/clear` (met `{"confirm": true}`), `GET /api/crisp/orders`, `GET /api/crisp/orders/open`, `GET /api/crisp/orders/<id>`, `POST /api/crisp/orders/sync` en `GET /api/crisp/favorites`. `crisp` is een geldige winkel voor `/api/offers`.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Pull request: volgt.
+- Pull request: [#174](https://github.com/helmerzNL/MealieShopper/pull/174).
 
 ## v2.86.1
 
