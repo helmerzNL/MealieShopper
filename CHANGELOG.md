@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.86.0
+
+### Nieuw in 2.86.0
+
+*English summary: Crisp, the Dutch app-only online supermarket, is now a store in MealieShopper. The administrator links it under Settings, Link, Crisp with the email address of the Crisp account and a code that Crisp emails (the Netherlands or Belgium; no password, only the device id is stored, encrypted). The week menu then goes into the real Crisp basket through the same check list as the other stores, Find recipes also searches the recipes in the Crisp app (view them, import them into Mealie or plan them), and the Basket tab shows the Crisp basket read-only. Crisp has no official API: logging in follows the open-source home-assistant-crisp project, search, recipes and the basket follow the public Crisp app. Explore Crisp routes shows which routes work.*
+
+- **Crisp als supermarkt.** Crisp heeft geen webshop en geen officiële API; MealieShopper praat met de app-API zoals de Crisp-app zelf. Inloggen en de headers volgen het open-source project [home-assistant-crisp](https://github.com/NLthijs48/home-assistant-crisp) (MIT); de routes voor zoeken, recepten en het mandje komen uit de broncode in de openbare Crisp-app. Het onderzoek, ook naar de voorwaarden van Crisp naast die van Picnic, Jumbo en Albert Heijn, staat in [docs/onderzoek-crisp.md](docs/onderzoek-crisp.md).
+- **Koppelen met een code per mail** (Instellingen, Koppelen, Crisp; alleen de beheerder). Kies Nederland of België, vul het e-mailadres van je Crisp-account in en daarna de code uit de mail. Er is geen wachtwoord: MealieShopper maakt een apparaat-id zoals de app, Crisp koppelt je account daaraan en MealieShopper bewaart alleen dat id, versleuteld (en in de back-up bij de koppelingen). `Ontkoppelen` meldt het apparaat bij Crisp af en wist het. `Koppeling controleren` vraagt Crisp of het apparaat nog is ingelogd.
+- **Het weekmenu naar het Crisp-mandje.** Crisp staat in de winkelkeuze van de planner zodra het gekoppeld is. Dezelfde controlelijst als bij de andere winkels: per ingrediënt de producten van Crisp, het aantal verpakkingen uit het gewicht dat Crisp noemt, en aanbiedingen (een lagere prijs dan de gewone prijs of een actie). Na je bevestiging gaan ze in één keer in je echte Crisp-mandje; een product dat Crisp niet kan leveren, wordt gemeld. Er wordt nooit een bestelling geplaatst.
+- **Crisp-recepten zoeken, bekijken en in Mealie zetten.** `Recepten zoeken` zoekt ook in de recepten van de Crisp-app (met de zoekfunctie van Crisp), met `Bekijken` (ingrediënten, ook wat je zelf toevoegt, en de bereiding), `Importeer` en `Inplannen`. Een recept dat al uit Crisp in Mealie staat, wordt bij het inplannen hergebruikt.
+- **Het Crisp-mandje in het tabblad Mandje**, alleen om te bekijken: producten, aantallen, gewicht en prijs. Aanpassen, een bezorgmoment kiezen en bestellen doe je in de Crisp-app.
+- **Crisp-routes verkennen** (alleen de beheerder) roept de routes voor gebruiker, zoeken, product, mandje en recepten aan en toont welke werken en welke velden erin zitten, zonder namen, adressen, prijzen of id's.
+- **Auditlog**: het verkeer met `crispapp.nl` staat onder de dienst Crisp. De installatiehulp kent Crisp nog niet; koppel het onder Instellingen.
+- **API**: `/api/crisp/auth` (code aanvragen), `/api/crisp/auth/verify`, `/api/crisp/auth/logout`, `/api/crisp/auth/status`, `/api/crisp/search`, `/api/crisp/cart/preview`, `/api/crisp/cart` (lezen en vullen), `/api/crisp/recipes`, `/api/crisp/recipes/<id>`, `/api/crisp/recipes/<id>/import` en `/api/crisp/explore`.
+
+- Branch `feature/crisp`; de pull request volgt.
+
 ## v2.85.0
 
 ### Nieuw in 2.85.0

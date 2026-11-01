@@ -3,10 +3,36 @@
 Doel: vaststellen of MealieShopper Crisp kan koppelen naast Albert Heijn, Picnic en Jumbo, zodat het weekmenu ook in het
 mandje bij Crisp terechtkomt. Dit is een spike van 1 november 2026. Gelezen zijn de openbare pagina's van `crisp.nl`, de
 voorwaarden van Crisp, Picnic, Jumbo en Albert Heijn, en de broncode van een open-source Home Assistant-integratie voor
-Crisp. Er is niet ingelogd, er is geen account gebruikt en er zijn geen verzoeken gedaan aan de app-API van Crisp. Er is
-niets in de app gebouwd.
+Crisp. Er is niet ingelogd, er is geen account gebruikt en er zijn geen verzoeken gedaan aan de app-API van Crisp.
+Daarna is de openbare Android-app gelezen en is Crisp ingebouwd (zie [Status](#status)).
 
-## Uitkomst: nog niet toegevoegd
+## Status
+
+Gebouwd in v2.86.0 (branch `feature/crisp`). Crisp staat als winkel in MealieShopper (`mealieshopper/crisp.py`,
+`static/crisp.js`, routes onder `/api/crisp/`):
+
+- **Wel**:
+  - koppelen met de code uit de mail (Nederland of België);
+  - het weekmenu via de controlelijst in het echte Crisp-mandje zetten;
+  - Crisp-recepten zoeken, bekijken, importeren en inplannen;
+  - het mandje bekijken in het tabblad Mandje;
+  - een verkenner voor de beheerder;
+  - het verkeer in het auditlog;
+  - het apparaat-id in de back-up.
+- **Niet (nog)**:
+  - het mandje aanpassen;
+  - bestellingen en favorieten onder Winkels;
+  - aanbiedingen in het tabblad Aanbiedingen;
+  - een stap in de installatiehulp;
+  - MCP-tools;
+  - de Weekbox (vervolgstap A).
+
+De eindpunten voor zoeken, product, recepten en het mandje zijn vastgesteld uit de broncode in de openbare Android-app
+(zie [Eindpunten uit de app](#eindpunten-uit-de-app)). Ze zijn nog niet met een echt account geprobeerd. De verkenner
+(Instellingen, Koppelen, Crisp, **Crisp-routes verkennen**) laat na het koppelen zien of ze werken en welke velden de
+antwoorden hebben.
+
+## Uitkomst van de eerste spike
 
 **Technisch kan het waarschijnlijk wel, maar het kan nog niet meteen.**
 
@@ -58,22 +84,54 @@ Wat dit betekent:
   reverse engineering niet, Picnic en Albert Heijn wel.
 - Dit is een vergelijking van teksten, geen juridisch advies.
 
-## Hoe Crisp in de code zou passen
+## Eindpunten uit de app
+
+De eigenaar koos op 1 november 2026 om de openbare Android-app te lezen. Dat is versie 2.99 (versiecode 530), opgehaald
+via Aptoide (`com.freshfoodventures.crisp`, ondertekend met de sleutel van Google Play App Signing). De app is niet
+uitgevoerd en er zijn geen verzoeken aan Crisp gedaan.
+
+De app is in React Native gebouwd. In `assets/` staan de bundel en een sourcemap met de broncode van de app, waaronder
+gegenereerde API-klassen (`types/api/app/...`, "Automatically generated based on backend/app/..."). Wat MealieShopper
+daaruit gebruikt:
+
+| Route | Vorm (uit de broncode) |
+| --- | --- |
+| `POST /user/login {email, country}` | Antwoord `{sent}` (code gemaild), `{id}` (dit apparaat is al ingelogd) of `{error}`. `error: "webLogin"` betekent dat er geen account is. |
+| `POST /user/login {email, code, country}` | Antwoord `{id}` of `{error}`. |
+| `POST /user/login {logout: true}` | Afmelden, zoals de app bij uitloggen doet. |
+| `GET /user` | `id` staat erin als het apparaat is ingelogd (`userIsLoggedIn`). |
+| `POST /search {query, cursor: false, limit}` | `{data: [...], cursor}`. Elk item heeft `itemType` (`product`, `recipe` of `text`). Een product heeft `id`, `title`, `price` en `basePrice` (tekst, `"2.49"`), `weightIndication` (zonder gewicht toont de app "per stuk"), `images[]`, `promotion`, `supplier`, `deliverable` en `label`. |
+| `GET /product/{id}` | Eén product. MealieShopper gebruikt dit alleen in de verkenner. |
+| `GET /basket/main` | Het mandje: `products` is een object met het product-id als sleutel (`count`, `price`, `totalPrice` en de productvelden), plus `recipes`, `payPrice` en `deliverySlot`. |
+| `PUT /basket/main {products: {id: {count, from}}}` | `count` is het nieuwe aantal; een tekst als `"+1"` is een verschil. Het antwoord is het nieuwe mandje, met `_error` als Crisp iets weigert. Met `products: "clear"` leeg je het mandje (MealieShopper doet dat niet). |
+| `POST /search/recipe {query, cursor: false, limit}` | Recepten als items met `itemType: "recipe"`. `type` is `""`, `bundle`, `user` of `mealkit`. |
+| `GET /recipe/{id}` | `title`, `subTitle`, `description`, `portions`, `images[]`, `cookingMethods.short.minutes`, `ingredientGroups[].ingredients[]` (`formattedName`, `formattedQuantity`, `productId`, `product` en `count`), `instructions[].instruction` (met `**vet**`) en `shareUrl`. |
+
+De app stuurt haar versie in `User-Agent` (`crisp/<release>/app/android/<build>`). In de browser gaat die in
+`X-Crisp-Agent`. MealieShopper volgt home-assistant-crisp: `X-Crisp-Agent: crisp/app/android/667` met
+`Origin: https://crispapp.nl`, en een eigen `User-Agent` met de naam MealieShopper. In `from` noemt MealieShopper
+zichzelf (`screenName: "MealieShopper"`).
+
+## Hoe Crisp in de code past
 
 Crisp lijkt het meest op Picnic: een app-API met een token in een header, geen productpagina's (`url: None`) en een
 mandje dat je kunt lezen en wijzigen. Er is geen basisklasse. Een winkel is een module met dezelfde functies (zie het
-commentaar boven `store_error` in `mealieshopper/app.py`). Voor Crisp wordt dat `mealieshopper/crisp.py`:
+commentaar boven `store_error` in `mealieshopper/app.py`). Voor Crisp is dat `mealieshopper/crisp.py`:
 
 - `search_products(query, limit=5)`, `search_product(query)` en `candidate(product, quantity, unit)`. Die gebruiken
-  `packs.assess_packs` en `deals.candidate_deal`. De API moet daarvoor de verpakkingsgrootte als tekst geven (`unitSize`);
-  dat is nog niet vastgesteld.
-- `add_to_cart(items)` en `get_cart()`, en waar het kan `set_quantity` en `clear_cart`, zoals bij Picnic.
-- `status`, `unlink` en een `CrispAuthError`.
+  `packs.assess_packs` en `deals.candidate_deal`. De verpakkingsgrootte (`unitSize`) komt uit `weightIndication`.
+- `add_to_cart(items)` en `get_cart()`. Het mandje aanpassen (`set_quantity` en `clear_cart`, zoals bij Picnic) zit er nog
+  niet in.
+- `status`, `unlink`, een `CrispAuthError` en een `CrispLoginError` (een geweigerd e-mailadres of een geweigerde code).
+- Recepten: `search_recipes`, `get_recipe`, `jsonld` en `source_url`, zoals in `picnic_recipes.py`.
+- `explore` voor de verkenner.
 - Inloggen in twee stappen, zoals de 2FA-stap van Picnic (`picnic.request_2fa_code` en `picnic.verify_2fa`): eerst het
   e-mailadres, dan de code uit de mail. De `client_id` gaat versleuteld in `auth.set_secret`, en het land ook.
 - Routes onder `/api/crisp/` die `cart_preview`, `store_error` en `store_cart` in `app.py` hergebruiken.
 
-Een nieuwe winkel raakt deze plekken:
+Een nieuwe winkel raakt deze plekken. In v2.86.0 zijn ze bijgewerkt, behalve `offers.py`, `mcp.py`, `oauth.html`,
+`onboarding.js` en de subtabs onder Winkels: daar doet Crisp nog niet aan mee. De `.env`-voorbeelden hoefden niet te
+veranderen, want er is geen nieuwe instelling.
 
 - **Backend:**
   - `auth.ADMIN_PREFIXES`
@@ -100,14 +158,17 @@ Een nieuwe winkel raakt deze plekken:
 
 De eigenaar besloot op 1 november 2026 eerst om de bevindingen alleen vast te leggen. Na de vergelijking van de
 voorwaarden (Crisp is niet strenger dan Picnic en Jumbo) besloot hij dezelfde dag om Crisp in te bouwen, met de app-API
-van NLthijs48/home-assistant-crisp als voorbeeld. Dat is vervolgstap B: koppelen met de code uit de mail en de
-bestellingen tonen. Zoeken en het mandje vullen (stap C) wachten op de eindpunten. Er wordt geen app uit elkaar gehaald
-en geen eindpunt geraden. De Weekbox komt later aan bod, als vervolgstap A.
+van NLthijs48/home-assistant-crisp als voorbeeld. Daarna vroeg hij ook om recepten zoeken, ze in Mealie zetten en het
+Crisp-mandje vullen. Voor die eindpunten koos hij route 3: de openbare Android-app lezen (zie
+[Eindpunten uit de app](#eindpunten-uit-de-app)). Er is geen eindpunt geraden. Het werk staat op de branch
+`feature/crisp`. De Weekbox komt later aan bod, als vervolgstap A.
 
 ## Wat niet is vastgesteld
 
-- De eindpunten en de vorm van de antwoorden voor producten zoeken, productdetail, het mandje, aanbiedingen en favorieten.
-- Of producten een verpakkingsgrootte als tekst hebben die `packs.assess_packs` kan lezen.
+- Of de antwoorden met een echt account precies de vorm hebben die de broncode laat zien. De verkenner toont dat.
+- Of `weightIndication` altijd een verpakkingsgrootte is die `packs.assess_packs` kan lezen. Bij twijfel markeert de
+  controlelijst de regel.
+- Of Crisp de `from` met de naam MealieShopper accepteert.
 - Of een `client_id` die niet is ingelogd al producten kan zoeken.
 - Of Crisp verzoeken vanaf servers of datacenters weert, zoals Picnic soms doet (`PicnicBlockedError`).
 - Hoe lang Crisp de app-versie in `X-Crisp-Agent` blijft accepteren.
@@ -115,34 +176,23 @@ en geen eindpunt geraden. De Weekbox komt later aan bod, als vervolgstap A.
 
 ## Vervolg
 
-Om de onbekende eindpunten vast te stellen zijn er drie routes, waarvan er nog geen is gekozen:
-
-1. **Crisp om toestemming of om een API vragen** (service@crisp.nl). Dat is de schoonste route, maar hij kan lang duren.
-2. **Het verkeer van de eigen Crisp-app vastleggen** met HTTP Toolkit of mitmproxy, met het eigen account. Op Android is
-   daarvoor een emulator of een aangepaste app nodig. Tokens en het e-mailadres gaan niet in de repository.
-3. **De openbare Android-app lezen**: in de React Native-bundel zoeken naar de namen van eindpunten, zonder verzoeken aan
-   Crisp. De voorwaarden van Crisp noemen reverse engineering niet; die van Picnic en Albert Heijn wel.
-
-Daarna kan het in aparte stappen, elk met een eigen versie en release:
-
-- **A. Crisp Weekbox in Maaltijdboxen.** Een nieuwe module `crisp_weekbox.py` volgens het patroon van `marleyspoon.py`
-  en `hellofresh.py`:
-  - één pagina per 6 uur, met een pauze en een eigen User-Agent;
-  - een tabel `crisp_weekbox_menus` in `backup.EXCLUDED_TABLES`;
-  - importeren naar Mealie via `mealkit_import`;
-  - een extra aanbieder in `static/mealkits.js`.
-
-  Daarvoor geldt art. 11.3.1 (herhaald en systematisch opvragen). Dat is hetzelfde soort afweging als bij HelloFresh en
-  Marley Spoon.
-- **B. Crisp-winkel, eerste deel.** Inloggen met de code uit de mail en de bestellingen tonen, met de eindpunten die al
-  bekend zijn.
-- **C. Zoeken en het mandje vullen.** Dit kan pas als de eindpunten zijn vastgesteld. Er hoort ook een `crisp_explore`
-  voor de beheerder bij, zoals `picnic_explore`, die de vorm van de antwoorden laat zien.
+- **Na het koppelen:** draai **Crisp-routes verkennen** en vergelijk de velden met de tabel in
+  [Eindpunten uit de app](#eindpunten-uit-de-app). Wijkt er iets af, pas dan `crisp.py` aan.
+- **A. Crisp Weekbox in Maaltijdboxen.** De openbare pagina `crisp.nl/weekbox`, volgens het patroon van `marleyspoon.py` en
+  `hellofresh.py`. Daarvoor geldt art. 11.3.1 (herhaald en systematisch opvragen), net als bij HelloFresh en Marley Spoon.
+- **Verder, als daar vraag naar is:**
+  - het mandje aanpassen (`PUT /basket/main` met een nieuw aantal);
+  - bestellingen onder Winkels (`/order/count`, `/order/{id}` en `/order/history`);
+  - aanbiedingen (`/promo/current`);
+  - favorieten (`/saved`);
+  - een stap in de installatiehulp;
+  - MCP-tools.
 
 ## Bronnen
 
 - [NLthijs48/home-assistant-crisp](https://github.com/NLthijs48/home-assistant-crisp): `custom_components/crisp/api.py`,
   `config_flow.py` en `coordinator.py`
+- De openbare Android-app van Crisp, versie 2.99 (`com.freshfoodventures.crisp`): `assets/bundle.js` en de sourcemap ernaast
 - [crisp.nl/app](https://crisp.nl/app), [crisp.nl/weekbox](https://crisp.nl/weekbox), [crisp.nl/robots.txt](https://crisp.nl/robots.txt)
   en [crisp.nl/sitemap.xml](https://crisp.nl/sitemap.xml)
 - [Algemene voorwaarden Crisp](https://crisp.nl/voorwaarden/algemeen)

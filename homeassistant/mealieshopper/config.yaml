@@ -2,9 +2,9 @@
 # pas alleen deze map aan en draai `python scripts/ha_addon.py`. De versie hoort gelijk te zijn aan ../../VERSION
 # (een test controleert dat); de Supervisor haalt het image `<image>:<versie>` op, en die tag bouwt docker.yml bij een push naar main.
 name: MealieShopper
-version: "2.85.0"
+version: "2.86.0"
 slug: mealieshopper
-description: Week menu from Mealie to your supermarket basket (Albert Heijn, Picnic, Jumbo)
+description: Week menu from Mealie to your supermarket basket (Albert Heijn, Picnic, Jumbo, Crisp)
 url: https://github.com/helmerznl/mealieshopper
 image: ghcr.io/helmerznl/mealieshopper
 arch:

@@ -25,6 +25,8 @@ SECRETS = {
     "AH_REFRESH_TOKEN": "AH-REFRESH-98765432",
     "PICNIC_AUTH_KEY": "PICNIC-KEY-abcdefgh",
     "JUMBO_REFRESH_TOKEN": "JUMBO-REFRESH-zyxwvuts",
+    "CRISP_CLIENT_ID": "CRISPclientID1234567",
+    "CRISP_COUNTRY": "nl",
     "AI_ANTHROPIC_KEY": "sk-ant-0000000000000000000000",
     "AI_OPENAI_KEY": "sk-openai-111111111111111111",
 }
@@ -210,7 +212,7 @@ class RoundTripTest(BackupCase):
         expected["user_profiles"] = [row for row in before["user_profiles"] if row[0] == "owner"]  # "ghost" bestaat hier niet
         self.assertEqual(self.snapshot(), expected)
         self.assertEqual(job["summary"]["skippedProfiles"], 1)
-        self.assertEqual(sorted(job["summary"]["links"]), ["ah", "ai_anthropic", "ai_openai", "jumbo", "mealie", "picnic"])
+        self.assertEqual(sorted(job["summary"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         for key, value in SECRETS.items():
             self.assertEqual(auth.get_secret(key), value, key)
         self.assertEqual(auth.get_setting("AI_PROVIDER"), "anthropic")
@@ -331,7 +333,7 @@ class FileContentTest(BackupCase):
             self.assertNotIn(value, text)
         self.assertNotIn(PASSPHRASE, text)
         document = json.loads(text)
-        self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "jumbo", "mealie", "picnic"])
+        self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         self.assertEqual(document["secrets"]["sealed"]["kdf"], "scrypt")
 
     def test_a_backup_without_links_has_none(self):
