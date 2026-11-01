@@ -6,7 +6,7 @@
 </picture>
 
 **From recipe to sorted.**
-Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes.
+Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes.
 
 [Nederlands](README.md) · **English**
 
@@ -37,8 +37,9 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic or Jumbo, as far as linked. One button looks up the best products for every ingredient, works out how many packs you need and shows them first in a check list. There you untick what you don't want and choose another product or number of packs; only after you confirm are they put in your basket at that store. You finish the order yourself, at Albert Heijn, in the Picnic app or at Jumbo.
+- **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
 - **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus), Picnic and Jumbo, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
-- **Search and import recipes.** Search the recipes of Albert Heijn, Jumbo, Picnic and the menus of HelloFresh and Marley Spoon at the same time and put them in Mealie with one click, or import a recipe from a link.
+- **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic and the menus of HelloFresh and Marley Spoon at the same time and put them in Mealie with one click, or import a recipe from a link. A recipe from Mealie, or one you just imported, you plan straight away.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your AH basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
@@ -50,7 +51,7 @@ Your week menu from [Mealie](https://mealie.io) in your basket at [Albert Heijn]
 - **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left and can be collapsed to icons only.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and the supermarkets and manage the users.
-- **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists and import a recipe into Mealie. OAuth login, with your own account.
+- **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie. OAuth login, with your own account.
 - **Dutch and English.** Switch with the flags; the app remembers your choice.
 - **You stay in control.** Everything runs in your own container; your data lives in a SQLite file in your own data folder.
 
@@ -60,7 +61,7 @@ Every image shows the same page on a computer and on a phone. The recipes and pr
 
 ### Week menu and basket
 
-Load your week menu from Mealie. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled.
+Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled.
 
 <img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient the product and the number of packs, with one marked line" width="900">
 
@@ -86,7 +87,7 @@ At Picnic you change quantities, remove products or empty the basket, and below 
 
 <img src="docs/screenshots/en/search.png" alt="Searching Allerhande recipes, with cards and an import button" width="900">
 
-If Jumbo and Picnic are linked, you search all three at once; the results are grouped per store. At Jumbo and Picnic, **View** opens the recipe in the same place, with the ingredients and the method.
+You also search your own recipes in Mealie; they come first, with **Plan** instead of importing. If Jumbo and Picnic are linked, you search those at once too; the results are grouped per store. At Jumbo and Picnic, **View** opens the recipe in the same place, with the ingredients and the method.
 
 <img src="docs/screenshots/en/search-stores.png" alt="Jumbo search results with cards, time, servings and rating" width="900">
 
@@ -260,7 +261,13 @@ After the password you can turn on **two-step verification** with an authenticat
 
 ## Usage
 
-The **Recipes** tab has two subtabs: **Week menu** (your Mealie week menu to your basket) and **Find recipes**.
+The **Recipes** tab has two subtabs: **Week menu** (planning the week menu and sending it to your basket) and **Find recipes**.
+
+### Planning the week menu
+
+The week menu always shows the whole week, including days without a meal. **Add** on a day opens the *Plan a meal* window: choose the day, the meal (breakfast, lunch, dinner or side; from Mealie 3.7 also snack, drink and dessert) and then **Recipe** or **Note**. With **Recipe** you search your recipes in Mealie and pick one; **Surprise me** lets Mealie pick a recipe itself, following the meal plan rules of your household (in Mealie under the meal plan settings). A **Note** is a meal without a recipe, such as *Eating out* or *Leftovers*, with optional details. Tap a planned meal to change the day, the meal or the recipe, or to take it off the week menu with **Remove**; the recipe stays in Mealie.
+
+Every change goes straight to Mealie (`/api/households/mealplans`) and MealieShopper then fetches the week again. MealieShopper keeps no plan of its own, so what you plan in Mealie shows here too, and the other way round. Everyone who is logged in may plan; in Mealie the meal is in the name of the token's user. After an import (in Find recipes, Meal kits, Stores or Import from URL) the message has **Plan**: it opens the same window with the new recipe already chosen.
 
 ### Week menu to your basket
 
@@ -276,7 +283,7 @@ The **Basket** tab shows the basket of the store you choose at the top (Albert H
 
 ### Searching and importing recipes
 
-`Find recipes` searches **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Choose `Import` to put a recipe in Mealie, or for Jumbo, Picnic, HelloFresh and Marley Spoon `View` for the ingredients and the method. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
+`Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Choose `Import` to put a recipe in Mealie, or for Mealie, Jumbo, Picnic, HelloFresh and Marley Spoon `View` for the ingredients and the method. A recipe from Mealie has `Plan` instead of `Import`, and `Open in Mealie` in the detail. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
 ### Offers
 
@@ -347,7 +354,7 @@ You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you
 3. Copy the token right away: Mealie shows it only once.
 4. Enter the address of your Mealie and the token in MealieShopper and choose **Link**.
 
-The address must be reachable from where MealieShopper runs, not necessarily from your phone. If they run in the same Docker environment it can be an internal name such as `http://mealie:9000`. The token is stored encrypted and never shown again. A link you make in the app takes precedence over `MEALIE_URL` and `MEALIE_API_TOKEN` from the environment.
+The address must be reachable from where MealieShopper runs, not necessarily from your phone. If they run in the same Docker environment it can be an internal name such as `http://mealie:9000`. The token is stored encrypted and never shown again. A link you make in the app takes precedence over `MEALIE_URL` and `MEALIE_API_TOKEN` from the environment. What anyone plans in MealieShopper is in Mealie in the name of this token's user.
 
 ### Albert Heijn
 
@@ -404,7 +411,7 @@ Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless b
 
 ## Users and invitations
 
-The first user, the one who goes through the setup wizard, is the **administrator**. They link Mealie and the supermarkets and manage the users. Everyone you invite is a **user**: they can use the week menu, the recipes and the lists, put products in the basket of a store and import recipes, but cannot link or manage anything. The links and the baskets are the administrator's, so Mealie and the supermarkets are shared.
+The first user, the one who goes through the setup wizard, is the **administrator**. They link Mealie and the supermarkets and manage the users. Everyone you invite is a **user**: they can view and plan the week menu, use the recipes and the lists, put products in the basket of a store and import recipes, but cannot link or manage anything. The links and the baskets are the administrator's, so Mealie and the supermarkets are shared.
 
 <img src="docs/screenshots/en/users.png" alt="Settings, Users: the administrator with two users, and a form to invite someone" width="900">
 
@@ -429,7 +436,10 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 
 | Tool | Does |
 |---|---|
-| `get_week_menu` | The week menu from Mealie, with the ingredients. |
+| `get_week_menu` | The week menu from Mealie, with the id, the ingredients and any note per meal. |
+| `search_mealie_recipes` | Search your own recipes in Mealie; gives the slug that `plan_meal` needs. |
+| `plan_meal` | Put a recipe from Mealie or a note (for example *Eating out*) on a day in the week menu. Only adds. |
+| `remove_planned_meal` | Take a meal off the week menu (the recipe stays in Mealie). Marked as destructive. |
 | `search_allerhande_recipes` | Search recipes at Allerhande. |
 | `list_saved_ah_recipes` | Your saved AH recipes, optionally filtered. |
 | `list_ah_lists`, `get_ah_list`, `search_ah_list_items` | Your AH lists, the products in them (with your quantities) and where a product is. |
@@ -449,7 +459,7 @@ MealieShopper has an [MCP](https://modelcontextprotocol.io) server at `<address 
 | `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` | Review the matches between recipe ingredients and products on offer: the assistant gets the unique pairs (ingredient + product, with the number of recipes) of one store, reports the wrong ones (`report_offer_mismatch`, with a reason; `undo` removes the report) and can list the reported matches. A report hides the match, also in other recipes with the same ingredient. The only write tool here; nothing is deleted. |
 | `import_recipe_to_mealie` | Import a recipe into Mealie. This creates something new and overwrites nothing. |
 
-There is deliberately **no** tool that fills a basket at a store or deletes anything.
+There is deliberately **no** tool that fills a basket at a store or deletes anything at a store. The only tool that removes something is `remove_planned_meal`: it only takes a planned meal off the week menu and is marked as destructive, so assistants that support it ask for confirmation first. If you don't want that, switch the tool off (see below).
 
 **Setting up**
 
@@ -468,7 +478,7 @@ There is deliberately **no** tool that fills a basket at a store or deletes anyt
 - Every token belongs to **the user who gave consent** and gives only that user's rights. Access tokens last an hour, refresh tokens 30 days and are replaced at every use; a refresh token that is used twice revokes the whole chain. Tokens are stored hashed only.
 - A new password, turned-off two-step verification, a new login link or removing the user invalidates that user's tokens. Under **Profile, AI apps** you revoke an app's access yourself.
 - The server only runs when login is on. The administrator turns it on or off with the switch; only the administrator can see and change the settings. Under **What the assistant can do** the administrator can also switch each tool off individually, for all users. A switched-off tool is hidden from assistants and refused; they see the change on their next connection.
-- What the assistant reads (recipe names, product names) comes from Mealie and the supermarkets; treat it as data, not instructions. That is why the assistant can't delete or buy anything.
+- What the assistant reads (recipe names, product names) comes from Mealie and the supermarkets; treat it as data, not instructions. That is why the assistant can't buy anything or delete anything at a store; the only thing it can remove is a planned meal from the week menu (`remove_planned_meal`, which the administrator can switch off).
 
 ## Configuration
 
@@ -621,7 +631,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 
 | Integration | What for |
 |---|---|
-| [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes end up here. Through the API with a token. |
+| [Mealie](https://mealie.io) | Your recipes and week menu; imported recipes and what you plan end up here. Through the API with a token. |
 | [Albert Heijn](https://www.ah.nl) | Lists, saved recipes, products and the basket, through the **unofficial** app API of AH. AH may change it without notice; use it for personal use. |
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |

@@ -21,7 +21,7 @@ const state = {
   store: "ah", // de keuze voor het weekmenu: "ah", "picnic" of "jumbo"
   itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
-  linkedStores: { picnic: false, jumbo: false }, // gezet door picnic.js en jumbo.js; AH is altijd een keuze
+  linkedStores: { picnic: false, jumbo: false, mealie: false }, // gezet door picnic.js, jumbo.js en renderMealieStatus; AH is altijd een keuze
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -32,6 +32,8 @@ const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
 const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
+const MDI_PENCIL_OUTLINE =
+  "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
 const MDI_OPEN_IN_NEW =
   "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z";
 
@@ -447,17 +449,25 @@ async function handlePasskeyLogin() {
   }
 }
 
+// JJJJ-MM-DD in de tijdzone van de gebruiker. toISOString() rekent in UTC en schoof tussen middernacht en 2 uur een dag op.
+function localIsoDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function mondayOf(date) {
+  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dow = monday.getDay();
+  monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1));
+  return monday;
+}
+
 function getWeekBounds(offset = 0) {
   const today = new Date();
   today.setDate(today.getDate() + offset * 7);
-  const dow = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const iso = (d) => d.toISOString().slice(0, 10);
+  const monday = mondayOf(today);
+  const days = Array.from({ length: 7 }, (_, index) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index));
   const label = (d) => `${d.getDate()} ${monthShort(d)}`;
-  return { start: iso(monday), end: iso(sunday), label: `${label(monday)} - ${label(sunday)}` };
+  return { start: localIsoDate(days[0]), end: localIsoDate(days[6]), days: days.map(localIsoDate), label: `${label(days[0])} - ${label(days[6])}` };
 }
 
 function updateWeekLabel() {
@@ -493,42 +503,50 @@ function aggregateIngredients(entries) {
   return result;
 }
 
+// De volgorde van de maaltijden op een dag, zoals Mealie ze ook toont.
+const MEAL_ORDER = ["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"];
+
+function mealName(entry) {
+  return entry.recipeDetail?.name || entry.recipe?.name || entry.title || "-";
+}
+
+function renderMeal(entry) {
+  const note = !entry.recipe && !entry.recipeId;
+  const detail = note
+    ? entry.text ? `<small class="meal__note">${escapeHtml(entry.text)}</small>` : ""
+    : entry.recipeDetail ? `<small>${escapeHtml(tn("plan.ingredients_count", entry.recipeDetail.recipeIngredient.length))}</small>` : "";
+  const content = `
+      ${entry.imageUrl ? `<img class="meal__image" src="${escapeHtml(entry.imageUrl)}" alt="" width="64" height="64" loading="lazy" data-hide-on-error>` : ""}
+      <span class="meal__text">
+        <span class="meal__type">${escapeHtml(mealLabel(entry.entryType))}</span>
+        <strong>${escapeHtml(mealName(entry))}</strong>
+        ${detail}
+      </span>`;
+  const classes = `meal${entry.imageUrl ? " meal--with-image" : ""}${note ? " meal--note" : ""}`;
+  // De hele maaltijd is de knop om haar te wijzigen of te verwijderen: een groot tikvlak en ruimte voor de naam.
+  return entry.id != null
+    ? `<button class="${classes} meal--button" type="button" data-plan-edit="${escapeHtml(entry.id)}" title="${escapeHtml(t("plan.edit"))}">${content}
+        ${mdiIcon(MDI_PENCIL_OUTLINE, "meal__pencil")}<span class="visually-hidden">${escapeHtml(t("plan.edit"))}</span></button>`
+    : `<div class="${classes}">${content}</div>`;
+}
+
 function renderMealPlan(entries) {
   const byDay = {};
   for (const entry of entries) {
     byDay[entry.date] ||= [];
     byDay[entry.date].push(entry);
   }
-  const dates = Object.keys(byDay).sort();
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  // Altijd de hele week, ook dagen zonder maaltijd: daar plan je er een in.
+  const dates = [...new Set([...getWeekBounds(state.weekOffset).days, ...Object.keys(byDay)])].sort();
+  const today = localIsoDate(new Date());
+  const rank = (entry) => (MEAL_ORDER.indexOf(entry.entryType) + 1 || MEAL_ORDER.length + 1);
   $("#meal-days").innerHTML = dates
     .map(
       (date) => `
-        <article class="day-card${date === today ? " day-card--today" : ""}">
+        <article class="day-card${date === today ? " day-card--today" : ""}${byDay[date] ? "" : " day-card--empty"}">
           <h3>${escapeHtml(formatDate(date))}${date === today ? `<span class="day-card__today">${escapeHtml(t("plan.today"))}</span>` : ""}</h3>
-          ${byDay[date]
-            .map(
-              (entry) => `
-                <div class="meal${entry.imageUrl ? " meal--with-image" : ""}">
-                  ${
-                    entry.imageUrl
-                      ? `<img class="meal__image" src="${escapeHtml(entry.imageUrl)}" alt="" width="64" height="64" loading="lazy" data-hide-on-error>`
-                      : ""
-                  }
-                  <div class="meal__text">
-                    <span>${escapeHtml(mealLabel(entry.entryType))}</span>
-                    <strong>${escapeHtml(entry.recipeDetail?.name || entry.recipe?.name || entry.title || "-")}</strong>
-                    ${
-                      entry.recipeDetail
-                        ? `<small>${escapeHtml(tn("plan.ingredients_count", entry.recipeDetail.recipeIngredient.length))}</small>`
-                        : ""
-                    }
-                  </div>
-                </div>
-              `
-            )
-            .join("")}
+          ${(byDay[date] || []).sort((a, b) => rank(a) - rank(b)).map(renderMeal).join("")}
+          <button class="day-card__add" type="button" data-plan-add="${date}" aria-label="${escapeHtml(t("plan.add_on", { day: formatDate(date) }))}">${mdiIcon(MDI_PLUS, "")}<span>${escapeHtml(t("plan.add"))}</span></button>
         </article>
       `
     )
@@ -540,6 +558,7 @@ function renderMealPlan(entries) {
     message("#planner-message", t("plan.none_planned"), "success");
     return;
   }
+  message("#planner-message", "");
   $("#ingredients-panel").innerHTML = ingredients.length
     ? `
       <div class="box ingredients">
@@ -573,15 +592,39 @@ const mealPlanInflight = new Map(); // begin van de week -> lopend verzoek, zoda
 
 function fetchMealPlan(week) {
   if (!mealPlanInflight.has(week.start)) {
+    // Is de week intussen vergeten (er is iets gepland), dan bewaart dit verzoek zijn (oudere) antwoord niet meer.
     const request = jsonFetch(`/api/mealplan?start=${week.start}&end=${week.end}`)
       .then((entries) => {
-        mealPlanCache.set(week.start, { entries, at: Date.now() });
+        if (mealPlanInflight.get(week.start) === request) mealPlanCache.set(week.start, { entries, at: Date.now() });
         return entries;
       })
-      .finally(() => mealPlanInflight.delete(week.start));
+      .finally(() => {
+        if (mealPlanInflight.get(week.start) === request) mealPlanInflight.delete(week.start);
+      });
     mealPlanInflight.set(week.start, request);
   }
   return mealPlanInflight.get(week.start);
+}
+
+// Na een wijziging in het weekmenu: de week van elke geraakte dag opnieuw ophalen, en de getoonde week zonder flikkeren vernieuwen.
+async function refreshMealPlanAfterChange(dates) {
+  for (const date of dates.filter(Boolean)) {
+    const start = localIsoDate(mondayOf(new Date(`${date}T00:00:00`)));
+    mealPlanCache.delete(start);
+    mealPlanInflight.delete(start);
+  }
+  if (!state.planAutoLoaded) return;
+  const week = getWeekBounds(state.weekOffset);
+  if (mealPlanCache.has(week.start)) return;
+  const request = ++mealPlanRequest;
+  try {
+    const entries = await fetchMealPlan(week);
+    if (request !== mealPlanRequest) return;
+    state.entries = entries;
+    renderMealPlan(entries);
+  } catch (error) {
+    if (request === mealPlanRequest) message("#planner-message", error.message);
+  }
 }
 
 // De twee weken na de getoonde week alvast ophalen, een voor een en zonder foutmelding: ze zijn er pas straks nodig.
@@ -633,6 +676,221 @@ async function loadMealPlan({ force = false } = {}) {
     if (request === mealPlanRequest) message("#planner-message", error.message);
   } finally {
     if (request === mealPlanRequest) setBusy(button, false);
+  }
+}
+
+// ---- Het weekmenu plannen: toevoegen, wijzigen, verwijderen en "Verras me". Elke wijziging gaat meteen naar Mealie
+// (zie mealie.py); MealieShopper bewaart zelf geen planning. Daarna wordt de week opnieuw opgehaald.
+const PLAN_BASE_TYPES = ["breakfast", "lunch", "dinner", "side"];
+const MDI_DICE = "M19 5V19H5V5H19M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M7.5 6C6.7 6 6 6.7 6 7.5S6.7 9 7.5 9 9 8.3 9 7.5 8.3 6 7.5 6M16.5 15C15.7 15 15 15.7 15 16.5C15 17.3 15.7 18 16.5 18C17.3 18 18 17.3 18 16.5C18 15.7 17.3 15 16.5 15M16.5 6C15.7 6 15 6.7 15 7.5S15.7 9 16.5 9C17.3 9 18 8.3 18 7.5S17.3 6 16.5 6M12 10.5C11.2 10.5 10.5 11.2 10.5 12S11.2 13.5 12 13.5 13.5 12.8 13.5 12 12.8 10.5 12 10.5M7.5 15C6.7 15 6 15.7 6 16.5C6 17.3 6.7 18 7.5 18S9 17.3 9 16.5C9 15.7 8.3 15 7.5 15Z";
+const planDialog = { entry: null, recipe: null, results: [], types: null, searchTimer: 0, searchSeq: 0, target: null };
+
+// De maaltijden die de gekoppelde Mealie kent (snack, drank en dessert pas vanaf Mealie 3.7); bij een fout de vier vaste.
+async function loadPlanTypes() {
+  if (planDialog.types) return planDialog.types;
+  try {
+    planDialog.types = (await jsonFetch("/api/mealplan/options")).entryTypes || PLAN_BASE_TYPES;
+    return planDialog.types;
+  } catch {
+    return PLAN_BASE_TYPES;
+  }
+}
+
+function renderPlanTypes(types, current) {
+  const options = types.includes(current) ? types : [...types, current];
+  $("#plan-type").innerHTML = options
+    .map((type) => `<option value="${escapeHtml(type)}"${type === current ? " selected" : ""}>${escapeHtml(mealLabel(type))}</option>`)
+    .join("");
+}
+
+function planKind() {
+  return document.querySelector('input[name="plan-kind"]:checked')?.value || "recipe";
+}
+
+function setPlanKind(kind) {
+  document.querySelectorAll('input[name="plan-kind"]').forEach((input) => {
+    input.checked = input.value === kind;
+  });
+  renderPlanKind();
+}
+
+function renderPlanKind() {
+  const note = planKind() === "note";
+  $("#plan-recipe-part").hidden = note;
+  $("#plan-note-part").hidden = !note;
+  if (!note && !planDialog.recipe && !planDialog.results.length) searchPlanRecipes();
+}
+
+function planRecipeRow(recipe) {
+  const meta = [recipe.minutes ? t("rsearch.minutes", { count: recipe.minutes }) : "", ...(recipe.tags || [])].filter(Boolean).join(" · ");
+  return `${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="" width="48" height="48" loading="lazy" data-hide-on-error>` : `<span class="plan-recipe__placeholder" aria-hidden="true">${mdiIcon(MDI_PLUS, "")}</span>`}
+    <span class="plan-recipe__text"><strong>${escapeHtml(recipe.name || recipe.slug)}</strong>${meta ? `<small>${escapeHtml(meta)}</small>` : ""}</span>`;
+}
+
+function renderPlanRecipe() {
+  const chosen = planDialog.recipe;
+  $("#plan-recipe-chosen").hidden = !chosen;
+  $("#plan-recipe-picker").hidden = Boolean(chosen);
+  $("#plan-recipe-chosen").innerHTML = chosen
+    ? `<div class="plan-recipe plan-recipe--chosen">${planRecipeRow(chosen)}</div>
+       <button class="link-button" type="button" id="plan-recipe-change">${escapeHtml(t("plan.other_recipe"))}</button>`
+    : "";
+  $("#plan-surprise").hidden = Boolean(planDialog.entry);
+}
+
+function renderPlanResults() {
+  $("#plan-recipe-results").innerHTML = planDialog.results
+    .map((recipe, index) => `<li><button class="plan-recipe" type="button" data-plan-pick="${index}">${planRecipeRow(recipe)}</button></li>`)
+    .join("");
+}
+
+// Zoeken in de recepten van Mealie; zonder zoekterm de recepten op naam. Een ouder antwoord overschrijft een nieuwer niet.
+async function searchPlanRecipes() {
+  const query = $("#plan-recipe-query").value.trim();
+  const seq = ++planDialog.searchSeq;
+  message("#plan-message", "");
+  try {
+    const data = await jsonFetch(`/api/mealie/recipes?q=${encodeURIComponent(query)}`);
+    if (seq !== planDialog.searchSeq) return;
+    planDialog.results = data.recipes || [];
+    renderPlanResults();
+    if (!planDialog.results.length) message("#plan-message", query ? t("rsearch.none", { query }) : t("plan.no_recipes"), "success");
+  } catch (error) {
+    if (seq === planDialog.searchSeq) message("#plan-message", error.message);
+  }
+}
+
+// Een recept dat alleen als slug bekend is (na een import): naam en plaatje erbij halen.
+async function completePlanRecipe(recipe) {
+  try {
+    const detail = await jsonFetch(`/api/mealie/recipes/${encodeURIComponent(recipe.slug)}`);
+    if (planDialog.recipe !== recipe) return;
+    planDialog.recipe = { slug: detail.slug, recipeId: detail.recipeId, name: detail.name, image: detail.image, minutes: detail.minutes, tags: detail.tags };
+    renderPlanRecipe();
+  } catch (error) {
+    if (planDialog.recipe === recipe) message("#plan-message", error.message);
+  }
+}
+
+// `entry` wijzigt een maaltijd uit het weekmenu; `recipe` ({slug, ...}) kiest alvast een recept; `target` krijgt na het plannen de melding.
+function openPlanDialog({ date = "", entry = null, recipe = null, target = null } = {}) {
+  planDialog.entry = entry;
+  planDialog.target = target;
+  planDialog.results = [];
+  planDialog.recipe = entry
+    ? entry.recipe ? { slug: entry.recipe.slug, recipeId: entry.recipeId || entry.recipe.id, name: mealName(entry), image: entry.imageUrl } : null
+    : recipe;
+  $("#plan-dialog-title").textContent = t(entry ? "plan.edit_title" : "plan.add_title");
+  $("#plan-date").value = entry?.date || date || localIsoDate(new Date());
+  $("#plan-title").value = entry && !entry.recipe ? entry.title || "" : "";
+  $("#plan-text").value = entry?.text || "";
+  $("#plan-recipe-query").value = "";
+  $("#plan-recipe-results").innerHTML = "";
+  $("#plan-delete").hidden = !entry;
+  message("#plan-message", "");
+  const current = entry?.entryType || "dinner";
+  renderPlanTypes(planDialog.types || PLAN_BASE_TYPES, current);
+  renderPlanRecipe();
+  setPlanKind(entry && !entry.recipe && !entry.recipeId ? "note" : "recipe");
+  if (!$("#plan-dialog").open) $("#plan-dialog").showModal();
+  loadPlanTypes().then((types) => {
+    if ($("#plan-dialog").open && planDialog.entry === entry) renderPlanTypes(types, $("#plan-type").value || current);
+  });
+  if (recipe && !recipe.name) completePlanRecipe(recipe);
+}
+
+function planDone(dates, date) {
+  const target = planDialog.target;
+  $("#plan-dialog").close();
+  refreshMealPlanAfterChange(dates);
+  if (target && date) target.innerHTML = `<div class="message success">${escapeHtml(t("plan.planned", { day: formatDate(date) }))}</div>`;
+}
+
+function planRequest(url, method, body) {
+  return jsonFetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+async function savePlanEntry(event) {
+  event.preventDefault();
+  const entry = planDialog.entry;
+  const date = $("#plan-date").value;
+  if (!date) {
+    message("#plan-message", t("plan.need_date"));
+    $("#plan-date").focus();
+    return;
+  }
+  const body = { date, entryType: $("#plan-type").value };
+  if (planKind() === "note") {
+    body.title = $("#plan-title").value.trim();
+    body.text = $("#plan-text").value.trim();
+    body.recipeId = null;
+    if (!body.title) {
+      message("#plan-message", t("plan.need_title"));
+      $("#plan-title").focus();
+      return;
+    }
+  } else {
+    const recipe = planDialog.recipe;
+    if (!recipe) {
+      message("#plan-message", t("plan.need_recipe"));
+      $("#plan-recipe-query").focus();
+      return;
+    }
+    if (recipe.recipeId) body.recipeId = recipe.recipeId;
+    else body.recipeSlug = recipe.slug;
+    // Was het een notitie, dan gaan titel en tekst weg; anders blijft wat er in Mealie bij staat.
+    if (entry && !entry.recipe && !entry.recipeId) Object.assign(body, { title: "", text: "" });
+  }
+  const button = $("#plan-save");
+  setBusy(button, true);
+  try {
+    if (entry) await planRequest(`/api/mealplan/${encodeURIComponent(entry.id)}`, "PATCH", body);
+    else await planRequest("/api/mealplan", "POST", body);
+    planDone([date, entry?.date], date);
+  } catch (error) {
+    message("#plan-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function deletePlanEntry() {
+  const entry = planDialog.entry;
+  if (!entry || !window.confirm(t("plan.delete_confirm", { name: mealName(entry) }))) return;
+  const button = $("#plan-delete");
+  setBusy(button, true);
+  try {
+    await planRequest(`/api/mealplan/${encodeURIComponent(entry.id)}`, "DELETE");
+    planDone([entry.date]);
+  } catch (error) {
+    message("#plan-message", error.message);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+// "Verras me": Mealie kiest zelf een recept volgens de planregels van het huishouden en zet het meteen in het weekmenu.
+async function surprisePlanEntry() {
+  const date = $("#plan-date").value;
+  if (!date) {
+    message("#plan-message", t("plan.need_date"));
+    $("#plan-date").focus();
+    return;
+  }
+  const button = $("#plan-surprise");
+  setBusy(button, true);
+  message("#plan-message", "");
+  try {
+    await planRequest("/api/mealplan/random", "POST", { date, entryType: $("#plan-type").value });
+    planDone([date], date);
+  } catch (error) {
+    message("#plan-message", error.message);
+  } finally {
+    setBusy(button, false);
   }
 }
 
@@ -1080,6 +1338,13 @@ function renderRecipeCard(recipe) {
   `;
 }
 
+// De melding na een import in Mealie, overal hetzelfde: een link naar het recept en de knop Inplannen (zet het in het weekmenu).
+function importedMessage(data) {
+  const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
+  const plan = data.slug ? ` <button class="link-button link-button--inline" type="button" data-plan-slug="${escapeHtml(data.slug)}">${escapeHtml(t("plan.schedule"))}</button>` : "";
+  return `${escapeHtml(t("recipe.imported"))}${link}${plan}`;
+}
+
 async function importUrl(url, button = null) {
   if (button) {
     button.disabled = true;
@@ -1091,8 +1356,7 @@ async function importUrl(url, button = null) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
-    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
-    return { ok: true, html: `${escapeHtml(t("recipe.imported"))}${link}` };
+    return { ok: true, html: importedMessage(data) };
   } catch (error) {
     return { ok: false, html: error.message };
   } finally {
@@ -1138,6 +1402,7 @@ async function refreshAhStatus() {
 function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
+  state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
   // Het weekmenu laadt vanzelf zodra Mealie gekoppeld is; zonder koppeling vervalt wat we onthouden hadden.
   if (!data.configured) {
     mealPlanCache.clear();
@@ -1962,6 +2227,55 @@ $("#next-week").addEventListener("click", () => {
   loadMealPlan();
 });
 $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
+$("#meal-days").addEventListener("click", (event) => {
+  const add = event.target.closest("[data-plan-add]");
+  if (add) return openPlanDialog({ date: add.dataset.planAdd });
+  const edit = event.target.closest("[data-plan-edit]");
+  const entry = edit && (state.entries || []).find((item) => String(item.id) === edit.dataset.planEdit);
+  if (entry) openPlanDialog({ entry });
+});
+// "Inplannen" na een import of bij een recept uit Mealie (Recepten zoeken): de plan-dialoog met het recept al gekozen.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-plan-slug]");
+  if (!button) return;
+  const data = button.dataset;
+  const recipe = { slug: data.planSlug, recipeId: data.planId || "", name: data.planName || "", image: data.planImage || "" };
+  const target =
+    button.closest(".message")?.parentElement ||
+    button.closest(".recipe-card")?.querySelector(".recipe-import-result") ||
+    (data.planTarget ? document.getElementById(data.planTarget) : null);
+  openPlanDialog({ recipe, target });
+});
+$("#plan-form").addEventListener("submit", savePlanEntry);
+$("#plan-cancel").addEventListener("click", () => $("#plan-dialog").close());
+$("#plan-delete").addEventListener("click", deletePlanEntry);
+$("#plan-surprise").addEventListener("click", surprisePlanEntry);
+document.querySelectorAll('input[name="plan-kind"]').forEach((input) => input.addEventListener("change", renderPlanKind));
+$("#plan-recipe-query").addEventListener("input", () => {
+  clearTimeout(planDialog.searchTimer);
+  planDialog.searchTimer = setTimeout(searchPlanRecipes, 250);
+});
+$("#plan-recipe-query").addEventListener("keydown", (event) => {
+  // Enter zoekt meteen in plaats van het formulier te versturen.
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  clearTimeout(planDialog.searchTimer);
+  searchPlanRecipes();
+});
+$("#plan-recipe-results").addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-plan-pick]");
+  if (!pick) return;
+  planDialog.recipe = planDialog.results[Number(pick.dataset.planPick)] || null;
+  message("#plan-message", "");
+  renderPlanRecipe();
+});
+$("#plan-recipe-chosen").addEventListener("click", (event) => {
+  if (!event.target.closest("#plan-recipe-change")) return;
+  planDialog.recipe = null;
+  renderPlanRecipe();
+  $("#plan-recipe-query").focus();
+  if (!planDialog.results.length) searchPlanRecipes();
+});
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await importUrl($("#import-url").value.trim());

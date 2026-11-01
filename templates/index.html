@@ -179,6 +179,40 @@
       </div>
     </dialog>
 
+    <dialog id="plan-dialog" class="product-dialog plan-dialog" aria-labelledby="plan-dialog-title">
+      <form class="product-dialog__inner" id="plan-form" novalidate>
+        <h3 id="plan-dialog-title" tabindex="-1"></h3>
+        <div class="plan-dialog__row">
+          <label class="field"><span data-i18n="plan.day">Dag</span><input class="input" id="plan-date" type="date" required></label>
+          <label class="field"><span data-i18n="plan.meal">Maaltijd</span><select class="input" id="plan-type"></select></label>
+        </div>
+        <div class="plan-kind" role="radiogroup" aria-label="Wat plan je?" data-i18n-attr="aria-label:plan.kind">
+          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="recipe" checked><span data-i18n="plan.kind_recipe">Recept</span></label>
+          <label class="plan-kind__option"><input type="radio" name="plan-kind" value="note"><span data-i18n="plan.kind_note">Notitie</span></label>
+        </div>
+        <div id="plan-recipe-part" class="plan-dialog__part">
+          <div id="plan-recipe-chosen" class="plan-recipe-chosen" hidden></div>
+          <div id="plan-recipe-picker" class="plan-dialog__part">
+            <div class="plan-recipe-search">
+              <input class="input" id="plan-recipe-query" type="search" placeholder="Zoek in je recepten in Mealie..." aria-label="Zoek in je recepten in Mealie..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:plan.recipe_search;aria-label:plan.recipe_search">
+              <button class="button button--secondary" type="button" id="plan-surprise"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiDice5Outline"><path d="M19 5V19H5V5H19M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M7.5 6C6.7 6 6 6.7 6 7.5S6.7 9 7.5 9 9 8.3 9 7.5 8.3 6 7.5 6M16.5 15C15.7 15 15 15.7 15 16.5C15 17.3 15.7 18 16.5 18C17.3 18 18 17.3 18 16.5C18 15.7 17.3 15 16.5 15M16.5 6C15.7 6 15 6.7 15 7.5S15.7 9 16.5 9C17.3 9 18 8.3 18 7.5S17.3 6 16.5 6M12 10.5C11.2 10.5 10.5 11.2 10.5 12S11.2 13.5 12 13.5 13.5 12.8 13.5 12 12.8 10.5 12 10.5M7.5 15C6.7 15 6 15.7 6 16.5C6 17.3 6.7 18 7.5 18S9 17.3 9 16.5C9 15.7 8.3 15 7.5 15Z"/></svg><span data-i18n="plan.surprise">Verras me</span></button>
+            </div>
+            <ul id="plan-recipe-results" class="plan-recipe-results"></ul>
+          </div>
+        </div>
+        <div id="plan-note-part" class="plan-dialog__part" hidden>
+          <label class="field"><span data-i18n="plan.note_title">Titel</span><input class="input" id="plan-title" maxlength="200" placeholder="Bijvoorbeeld: uit eten" autocomplete="off" data-i18n-attr="placeholder:plan.note_placeholder"></label>
+          <label class="field"><span data-i18n="plan.note_text">Toelichting (optioneel)</span><textarea class="textarea" id="plan-text" rows="3" maxlength="1000"></textarea></label>
+        </div>
+        <div id="plan-message" role="status"></div>
+        <div class="product-dialog__actions plan-dialog__actions">
+          <button class="button button--secondary plan-dialog__delete" type="button" id="plan-delete" hidden><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiDeleteOutline"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg><span data-i18n="plan.delete">Verwijderen</span></button>
+          <button class="button button--secondary" type="button" id="plan-cancel" data-i18n="common.cancel">Annuleren</button>
+          <button class="button" type="submit" id="plan-save" data-i18n="plan.save">Opslaan</button>
+        </div>
+      </form>
+    </dialog>
+
     <section id="onboarding" class="onboarding" role="dialog" aria-modal="true" aria-labelledby="ob-title" hidden>
       <div class="onboarding__card">
         <header class="onboarding__head">
@@ -317,12 +351,18 @@
       <div id="search" class="subpanel">
         <div id="search-main">
           <form class="form-row" id="search-form">
-            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
+            <input class="input" id="recipe-query" type="search" placeholder="Zoek een recept in Mealie of bij AH, Jumbo, Picnic, HelloFresh en Marley Spoon..." autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:search.placeholder">
             <button class="button" type="submit" data-i18n="search.submit">Zoeken</button>
           </form>
-          <p class="muted" data-i18n="search.intro">Zoekt tegelijk bij Albert Heijn, bij Jumbo en Picnic zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Importeer een recept in Mealie, of open het voor de ingrediënten en de bereiding.</p>
+          <p class="muted" data-i18n="search.intro">Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo en Picnic zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Plan een recept uit Mealie in je weekmenu, importeer een recept van een winkel in Mealie, of open het voor de ingrediënten en de bereiding.</p>
           <div id="search-message"></div>
           <div id="search-sections">
+            <section class="search-store" id="search-mealie" hidden>
+              <h3><span>Mealie</span> <span class="muted" id="search-mealie-count"></span></h3>
+              <div id="search-mealie-message"></div>
+              <div id="search-mealie-results" class="recipe-grid recipe-grid--compact"></div>
+              <p><button class="button button--secondary" id="search-mealie-more" type="button" hidden data-i18n="rsearch.more">Meer recepten</button></p>
+            </section>
             <section class="search-store" id="search-ah" hidden>
               <h3><span>Albert Heijn</span> <span class="muted" id="search-count"></span></h3>
               <div id="search-ah-message"></div>
@@ -788,7 +828,7 @@
         </div>
         <div class="box">
           <h2 data-i18n="ai.title">AI-assistenten koppelen</h2>
-          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
+          <p class="muted" data-i18n="ai.intro">Laat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes bekijken, een maaltijd plannen en een recept in Mealie importeren. Je logt in met je eigen account en de assistent krijgt alleen jouw rechten.</p>
           <div id="ai-message"></div>
           <div id="ai-body" hidden>
             <label class="field">
@@ -898,7 +938,7 @@
           <h2 class="fold__title"><button type="button" class="fold__toggle" id="mealie-login-toggle" aria-expanded="true" aria-controls="mealie-login-body"><span data-i18n="link.mealie">Mealie</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
           <div class="fold__body" id="mealie-login-body">
             <p class="muted" id="mealie-source" hidden></p>
-            <p class="muted" data-i18n="mealie.intro">MealieShopper haalt je weekmenu en recepten uit Mealie en zet geimporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
+            <p class="muted" data-i18n="mealie.intro">MealieShopper leest en plant je weekmenu in Mealie, haalt je recepten op en zet geïmporteerde recepten daar neer. Vul het adres van je Mealie in en plak een API-token.</p>
   <ol class="steps">
               <li data-i18n-html="mealie.step1">Open Mealie en ga naar je profiel, onderdeel <strong>API-tokens</strong>.</li>
               <li data-i18n-html="mealie.step2">Geef de token een naam, bijvoorbeeld <em>MealieShopper</em>, en kies <strong>Token genereren</strong>.</li>
@@ -1051,7 +1091,7 @@
         <div id="settings-users" class="subpanel">
         <div class="box">
           <h2 data-i18n="users.title">Gebruikers</h2>
-          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
+          <p class="muted" data-i18n="users.intro">Jij bent de beheerder: jij koppelt Mealie en Albert Heijn en beheert de gebruikers. Anderen kunnen het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken en producten in het AH-mandje zetten, maar niets koppelen of beheren.</p>
           <div id="users-list" class="credential-list"></div>
           <div id="users-message"></div>
         </div>
@@ -1231,7 +1271,7 @@
         <div class="box box--wide about-box">
           <h2 data-i18n="about.title">Over MealieShopper</h2>
           <p class="about-version"><span class="muted" data-i18n="about.version_label">Versie</span> <strong id="about-version">-</strong></p>
-          <p class="muted" data-i18n="about.tagline">MealieShopper haalt je weekmenu uit Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.</p>
+          <p class="muted" data-i18n="about.tagline">MealieShopper plant je weekmenu in Mealie en zet de ingrediënten in je Albert Heijn-mandje, en laat je recepten zoeken, bewaren en importeren.</p>
         </div>
         <div class="box box--wide about-box">
           <h2 data-i18n="about.components_title">Componenten en integraties</h2>

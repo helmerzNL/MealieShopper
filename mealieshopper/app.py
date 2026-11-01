@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261028-56")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-57")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -123,6 +123,51 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("Mealplan error")
             return jsonify({"error": str(exc) or tr("Fout bij ophalen weekmenu", "Could not load the week menu")}), 424
+
+    # Het weekmenu plannen: elke wijziging gaat meteen naar Mealie (zie mealie.py). Iedereen die is ingelogd mag dit, net als
+    # recepten importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES.
+    def mealie_action(action, error_text: str, status: int = 200):
+        try:
+            return jsonify(action()), status
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - Mealie is een externe dienst; toon zijn fout
+            app.logger.exception("Mealie error")
+            return jsonify({"error": str(exc) or error_text}), 424
+
+    @app.get("/api/mealplan/options")
+    def mealplan_options():
+        return mealie_action(lambda: {"entryTypes": mealie.entry_types()}, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
+
+    @app.post("/api/mealplan")
+    def mealplan_create():
+        body = request.get_json(silent=True) or {}
+        return mealie_action(lambda: mealie.create_meal_plan_entry(body), tr("Plannen mislukt", "Planning failed"), 201)
+
+    @app.post("/api/mealplan/random")
+    def mealplan_random():
+        body = request.get_json(silent=True) or {}
+        return mealie_action(lambda: mealie.random_meal_plan_entry(body), tr("Verrassen mislukt", "Surprise failed"), 201)
+
+    @app.patch("/api/mealplan/<int:entry_id>")
+    def mealplan_update(entry_id: int):
+        body = request.get_json(silent=True) or {}
+        return mealie_action(lambda: mealie.update_meal_plan_entry(entry_id, body), tr("Wijzigen mislukt", "Changing failed"))
+
+    @app.delete("/api/mealplan/<int:entry_id>")
+    def mealplan_delete(entry_id: int):
+        return mealie_action(lambda: mealie.delete_meal_plan_entry(entry_id), tr("Verwijderen mislukt", "Removing failed"))
+
+    @app.get("/api/mealie/recipes")
+    def mealie_recipes_search():
+        return mealie_action(
+            lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
+            tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
+        )
+
+    @app.get("/api/mealie/recipes/<slug>")
+    def mealie_recipe_detail(slug: str):
+        return mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
 
     @app.get("/api/ah/search")
     def ah_search():

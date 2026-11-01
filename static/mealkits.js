@@ -143,8 +143,7 @@ async function importMealKit(key, button, target) {
   button.textContent = t("recipe.importing");
   try {
     const data = await postJson(`/api/${mealKits.provider}/recipes/${encodeURIComponent(key)}/import`);
-    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
-    target.innerHTML = `<div class="message success">${escapeHtml(t("recipe.imported"))}${link}</div>`;
+    target.innerHTML = `<div class="message success">${importedMessage(data)}</div>`;
   } catch (error) {
     target.innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {
