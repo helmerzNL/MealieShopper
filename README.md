@@ -10,7 +10,7 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 
 **Nederlands** · [English](README.en.md)
 
-<img src="docs/screenshots/nl/plan.png" alt="MealieShopper op een computer en een telefoon: het weekmenu met plaatjes uit Mealie" width="900">
+<img src="docs/screenshots/nl/plan.png" alt="MealieShopper op een computer en een telefoon: het weekmenu met plaatjes uit Mealie, de porties per maaltijd en Toevoegen bij elke dag" width="900">
 
 </div>
 
@@ -61,9 +61,13 @@ Elke afbeelding laat dezelfde pagina zien op een computer en op een telefoon. De
 
 ### Weekmenu en winkelmandje
 
-Je weekmenu uit Mealie, met elke dag van de week: plan er een recept of notitie in met **Toevoegen**, of tik op een maaltijd om haar te verplaatsen of te verwijderen. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld.
+Je weekmenu uit Mealie, met elke dag van de week: plan er een recept of notitie in met **Toevoegen**, of tik op een maaltijd om haar te verplaatsen of te verwijderen. Kies een recept uit Mealie, of laat Mealie er een kiezen met **Verras me**. Elke wijziging gaat meteen naar Mealie.
 
-<img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
+<img src="docs/screenshots/nl/plan-add.png" alt="Maaltijd plannen: de dag, de maaltijd, de keuze tussen Recept en Notitie, je recepten uit Mealie en de knop Verras me" width="900">
+
+De porties die je in de planner van Mealie per maaltijd instelt, rekenen alle hoeveelheden om. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld. Bij elk product staat een foto; tik erop om hem groot te zien.
+
+<img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt een foto van het product, het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
 
 ### Naar Picnic of Jumbo
 
@@ -83,19 +87,25 @@ Bij Picnic pas je aantallen aan, haal je producten weg of leeg je het mandje, en
 
 <img src="docs/screenshots/nl/basket-jumbo.png" alt="Het Jumbo-mandje, alleen om te bekijken" width="900">
 
+### Aanbiedingen
+
+De aanbiedingen van Albert Heijn, Picnic en Jumbo, per week en gelijk met het weekmenu: plan je volgende week, dan zie je de aanbiedingen van volgende week. Bij Albert Heijn is dat de complete bonusweek, van maandag t/m zondag; de bonus van volgende week staat er al zodra AH die in het weekend doorgeeft. Kies een categorie om alleen die aanbiedingen te zien.
+
+<img src="docs/screenshots/nl/offers.png" alt="Het tabblad Aanbiedingen: de week met pijltjes, de looptijd van de bonusweek, hoeveel aanbiedingen er later beginnen, de categorieën en de producten met hun actie" width="900">
+
 ### Recepten zoeken
 
-<img src="docs/screenshots/nl/search.png" alt="Recepten zoeken bij Allerhande, met kaarten en een knop om te importeren" width="900">
+<img src="docs/screenshots/nl/search.png" alt="Recepten zoeken naar kip: bovenaan je eigen recepten in Mealie, als kaarten met tijd, porties en tags" width="900">
 
 Je zoekt ook in je eigen recepten in Mealie; die staan bovenaan. Zijn Jumbo en Picnic gekoppeld, dan zoek je ook daar in één keer; de resultaten staan per winkel bij elkaar. Elke kaart heeft onderaan dezelfde twee knoppen: **Bekijken** opent het recept op dezelfde plek, met de ingrediënten en de bereiding, en **Inplannen** zet het in je weekmenu. In het recept staan ook **Importeer** (alleen in Mealie zetten) en een link naar de winkel of naar Mealie.
 
 <img src="docs/screenshots/nl/search-stores.png" alt="Zoekresultaten van Jumbo met kaarten, tijd, personen en waardering" width="900">
 
-<img src="docs/screenshots/nl/search-detail.png" alt="Een Jumbo-recept met ingrediënten, bereiding en de knoppen Importeer en Bekijk op de site" width="900">
+<img src="docs/screenshots/nl/search-detail.png" alt="Een Jumbo-recept met ingrediënten, bereiding en de knoppen Inplannen, Importeer en Bekijk bij Jumbo" width="900">
 
 De menu's van **HelloFresh** en **Marley Spoon** zoeken altijd mee, zonder koppeling: van deze week en de drie weken erna haalt MealieShopper bij het zoeken de menu's op die er nog niet zijn (de eerste keer duurt dat even; daarna staan ze 6 uur bewaard). Elk recept heeft **Bekijken** (ingrediënten en bereiding) en **Inplannen**.
 
-<img src="docs/screenshots/nl/search-meal-kits.png" alt="Zoekresultaten bij HelloFresh en Marley Spoon voor het woord kip, met kaarten en de knoppen Bekijken en Importeer" width="900">
+<img src="docs/screenshots/nl/search-meal-kits.png" alt="Zoekresultaten bij HelloFresh en Marley Spoon voor het woord kip, met kaarten en de knoppen Bekijken en Inplannen" width="900">
 
 ### Winkels kiezen
 
@@ -113,7 +123,7 @@ Het tabblad **Maaltijdboxen** toont de openbare weekmenu's van HelloFresh en Mar
 
 Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens twee naast elkaar. Bovenaan zoek je in je recepten.
 
-<img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met een zoekbalk en kaarten met een importknop" width="900">
+<img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met een zoekbalk en kaarten met Bekijken en Inplannen" width="900">
 
 ### Winkels: je lijstjes
 
