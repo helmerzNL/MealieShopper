@@ -150,6 +150,57 @@ class WeekTest(MealPlanTestCase):
         entries = answer.get_json()
         self.assertEqual([(e["id"], e["recipeDetail"] and e["recipeDetail"]["name"]) for e in entries], [(1, None), (2, "Pasta")])
         self.assertIsNone(entries[0]["imageUrl"])
+        self.assertIsNone(entries[0]["servings"], "een notitie heeft geen porties")
+
+
+SPAGHETTI = {"quantity": 400, "unit": {"name": "gram", "abbreviation": "g", "useAbbreviation": True}, "food": {"name": "spaghetti"}, "note": "", "display": "400 g spaghetti"}
+
+
+class ServingsTest(MealPlanTestCase):
+    """Issue #159: de porties uit de planner van Mealie (`recipeScale`, sinds v3.29.0) rekenen de hoeveelheden om."""
+
+    def week(self, *scales, servings=2):
+        items = []
+        for number, scale in enumerate(scales, start=1):
+            item = {"id": number, "date": f"2026-11-0{number + 1}", "entryType": "dinner", "recipeId": RECIPE_ID,
+                    "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta", "recipeServings": servings}}
+            if scale is not ...:
+                item["recipeScale"] = scale
+            items.append(item)
+        recipe = {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta", "recipeServings": servings, "recipeIngredient": [dict(SPAGHETTI)]}
+
+        def get(url, **kwargs):
+            return response(body={"items": items} if url.endswith("/mealplans") else recipe)
+
+        with mock.patch.object(mealie.requests, "get", side_effect=get):
+            answer = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")
+        self.assertEqual(answer.status_code, 200)
+        return answer.get_json()
+
+    def test_planned_servings_scale_the_ingredients(self):
+        entry = self.week(2)[0]
+        self.assertEqual(entry["servings"], {"scale": 2.0, "base": 2, "planned": 4})
+        self.assertEqual([(i["quantity"], i["display"]) for i in entry["recipeDetail"]["recipeIngredient"]], [(800, "800 g spaghetti")])
+
+    def test_the_same_recipe_twice_with_another_scale(self):
+        # Mealie haalt het recept één keer op; elke maaltijd krijgt een eigen kopie, met haar eigen schaal.
+        first, second, third = self.week(1.5, 0.5, 1)
+        self.assertEqual([e["servings"]["planned"] for e in (first, second, third)], [3, 1, 2])
+        self.assertEqual([e["recipeDetail"]["recipeIngredient"][0]["quantity"] for e in (first, second, third)], [600, 200, 400])
+
+    def test_older_mealie_or_odd_values_mean_scale_one(self):
+        for scale in (..., 0, -2, "x", True, None):
+            entry = self.week(scale)[0]
+            self.assertEqual(entry["servings"], {"scale": 1.0, "base": 2, "planned": 2}, scale)
+            self.assertEqual(entry["recipeDetail"]["recipeIngredient"][0]["display"], "400 g spaghetti", scale)
+
+    def test_a_recipe_without_servings(self):
+        entry = self.week(1.5, servings=None)[0]
+        self.assertEqual(entry["servings"], {"scale": 1.5, "base": None, "planned": None})
+        self.assertEqual(entry["recipeDetail"]["recipeIngredient"][0]["quantity"], 600)
+
+    def test_odd_servings_are_rounded(self):
+        self.assertEqual(self.week(1 / 3, servings=4)[0]["servings"]["planned"], 1.3)
 
 
 class UpdateDeleteTest(MealPlanTestCase):
@@ -169,6 +220,30 @@ class UpdateDeleteTest(MealPlanTestCase):
         # Mealie wil het hele item terug, met id, groep en gebruiker; wat alleen gelezen wordt, blijft weg.
         self.assertEqual(sent, {"id": 7, "groupId": GROUP_ID, "userId": USER_ID, "date": "2026-11-06", "entryType": "lunch",
                                 "title": "", "text": "", "recipeId": RECIPE_ID})
+
+    def test_the_servings_from_mealie_stay(self):
+        # Mealie v3.29 zet een PUT zonder `recipeScale` terug op 1: de porties moeten dus mee terug.
+        current = {**self.CURRENT, "recipeScale": 2.0}
+        with mock.patch.object(mealie.requests, "get", return_value=response(body=current)), \
+                mock.patch.object(mealie.requests, "put", return_value=response(body=current)) as put:
+            self.client.patch("/api/mealplan/7", json={"date": "2026-11-06"})
+            self.client.patch("/api/mealplan/7", json={"date": "2026-11-06", "recipeId": RECIPE_ID.upper()})
+        self.assertEqual([call.kwargs["json"]["recipeScale"] for call in put.call_args_list], [2.0, 2.0], "zelfde recept: zelfde porties")
+
+    def test_another_recipe_or_a_note_starts_at_scale_one(self):
+        current = {**self.CURRENT, "recipeScale": 2.0}
+        other = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        with mock.patch.object(mealie.requests, "get", return_value=response(body=current)), \
+                mock.patch.object(mealie.requests, "put", return_value=response(body=current)) as put:
+            self.client.patch("/api/mealplan/7", json={"recipeId": other})
+            self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
+        self.assertEqual([call.kwargs["json"]["recipeScale"] for call in put.call_args_list], [1.0, 1.0])
+
+    def test_an_older_mealie_gets_no_scale_field(self):
+        with mock.patch.object(mealie.requests, "get", return_value=response(body=dict(self.CURRENT))), \
+                mock.patch.object(mealie.requests, "put", return_value=response(body={})) as put:
+            self.client.patch("/api/mealplan/7", json={"recipeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+        self.assertNotIn("recipeScale", put.call_args.kwargs["json"])
 
     def test_a_recipe_becomes_a_note(self):
         with mock.patch.object(mealie.requests, "get", return_value=response(body=dict(self.CURRENT))), \

@@ -17,6 +17,16 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 2.84.0
 
+*English summary: the servings you set for a meal in Mealie's meal planner (Mealie v3.29.0 or newer) now carry over. The week menu shows them ("4 servings") and every amount is scaled to match: the ingredient list, the review list, the basket and the MCP tool `get_week_menu`. Fixed: the same ingredient in two recipes of the week is now added up (2× 400 g spaghetti is 800 g) instead of counting only the first. Reload the page once after updating.*
+
+- **Porties uit de planner van Mealie.** Sinds Mealie v3.29.0 heeft elke geplande maaltijd een eigen aantal porties. MealieShopper leest dat in (`recipeScale`) en rekent de hoeveelheden van die maaltijd om: in de lijst met ingrediënten, de controlelijst, het mandje en bij de MCP-tool `get_week_menu`, die per maaltijd ook de porties meegeeft. Het weekmenu toont onder elke maaltijd het aantal porties, bijvoorbeeld *4 porties · 9 ingrediënten*. Weet Mealie de porties van het recept niet, dan staat er alleen de schaal (*×1,5*). Een oudere Mealie geeft geen porties mee; dan blijft alles zoals het was. Wijzig je een maaltijd in MealieShopper, dan blijven de porties staan; kies je een ander recept, dan begint het, net als in Mealie, weer bij 1. Let op: de porties-knop op de receptpagina van Mealie verandert alleen wat je daar ziet en wordt niet bewaard; stel de porties in bij de maaltijd in de planner.
+
+### Opgelost in 2.84.0
+
+- **Gelijke ingrediënten werden niet opgeteld.** Kwam hetzelfde ingrediënt in twee recepten van de week voor, dan telde alleen de eerste regel mee: 2× 400 g spaghetti werd 400 g. Nu worden regels met hetzelfde ingrediënt en dezelfde eenheid opgeteld; met een andere eenheid (*1 ui* en *100 g ui*) blijven het aparte regels. Een regel zonder hoeveelheid (*peper*) staat er één keer in, en wijkt voor een regel van hetzelfde ingrediënt met een hoeveelheid.
+
+- Pull request: [#164](https://github.com/helmerzNL/MealieShopper/pull/164), lost issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159) op.
+
 *English summary: the check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo. Pick another product in the list and the photo changes with it; tap the photo to see it large. This matters most for Picnic, which has no product page to look at. Reload the page once after updating.*
 
 - **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
@@ -24,7 +34,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Pull request: [#163](https://github.com/helmerzNL/MealieShopper/pull/163). Issue: [#158](https://github.com/helmerzNL/MealieShopper/issues/158).
+- Pull requests: [#163](https://github.com/helmerzNL/MealieShopper/pull/163) (issue [#158](https://github.com/helmerzNL/MealieShopper/issues/158)) en [#164](https://github.com/helmerzNL/MealieShopper/pull/164) (issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159)).
 
 ## v2.83.0
 

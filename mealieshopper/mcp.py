@@ -74,6 +74,8 @@ def tool_week_menu(args: dict[str, Any]) -> Any:
                 "recipe": recipe.get("name") or entry.get("title") or "",
                 "note": _text(entry.get("text"), 500) or None,
                 "url": mealie.recipe_page_url(slug) if slug else None,
+                # De porties uit de planner van Mealie; de ingrediënten hieronder zijn daarvoor al omgerekend.
+                "servings": (entry.get("servings") or {}).get("planned"),
                 "ingredients": [
                     _text(item.get("display") or item.get("note"))
                     for item in detail.get("recipeIngredient") or []
@@ -583,7 +585,7 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 
 TOOLS: dict[str, dict[str, Any]] = {
     "get_week_menu": {
-        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de link en de ingrediënten. Standaard de huidige week (maandag t/m zondag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
+        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week (maandag t/m zondag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
                 "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de maandag van deze week."},

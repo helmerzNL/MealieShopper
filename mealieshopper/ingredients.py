@@ -9,6 +9,7 @@ Een regel die Mealie al wel analyseerde (met een ingrediënt of een eenheid) bli
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -148,6 +149,77 @@ def _blank(value: Any) -> bool:
     return not value
 
 
+def _line_text(quantity: float | None, unit: str, name: str, note: str) -> str:
+    """"200 g bloem, gezeefd": aantal, eenheid en ingrediënt, met de notitie na een komma.
+
+    Zonder ingrediënt is de notitie zelf het ingrediënt ("4 uien" uit een regel die Mealie niet analyseerde).
+    """
+    head = " ".join(part for part in (format_quantity(quantity) if quantity else "", unit, name) if part)
+    note = " ".join(str(note or "").split())
+    if not note:
+        return head
+    return f"{head}, {note}" if name else f"{head} {note}".strip()
+
+
+def _unit_label(unit: Any, plural: bool) -> str:
+    """De eenheid zoals Mealie haar toont: de afkorting als die aanstaat, en het meervoud als Mealie dat kent."""
+    if not isinstance(unit, dict):
+        return str(unit or "").strip()
+    abbreviation = str(unit.get("abbreviation") or "").strip()
+    if unit.get("useAbbreviation") and abbreviation:
+        return str(unit.get("pluralAbbreviation") or "").strip() if plural and unit.get("pluralAbbreviation") else abbreviation
+    name = str(unit.get("name") or "").strip()
+    return str(unit.get("pluralName") or "").strip() if plural and unit.get("pluralName") else name or abbreviation
+
+
+def _food_label(food: Any, plural: bool) -> str:
+    if not isinstance(food, dict):
+        return str(food or "").strip()
+    name = str(food.get("name") or "").strip()
+    return str(food.get("pluralName") or "").strip() if plural and food.get("pluralName") else name
+
+
+def _amount(value: Any) -> float | None:
+    """Het aantal van een regel als het een echt getal boven nul is; anders None (ook voor True en False)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and value > 0 else None
+
+
+def scale_ingredient(ingredient: Any, factor: float) -> Any:
+    """Een kopie van een regel met het aantal maal `factor` en een nieuwe weergave ("200 g bloem" x 2 = "400 g bloem").
+
+    Een regel zonder aantal ("zout naar smaak") of een factor van 1 komt ongewijzigd terug.
+    """
+    if not isinstance(ingredient, dict) or factor == 1:
+        return ingredient
+    quantity = _amount(ingredient.get("quantity"))
+    if quantity is None:
+        return ingredient
+    scaled = round(quantity * factor, 4)
+    unit = _unit_label(ingredient.get("unit"), scaled > 1)
+    food = _food_label(ingredient.get("food"), scaled > 1 and not unit)
+    return {
+        **ingredient,
+        "quantity": scaled,
+        "display": _line_text(scaled, unit, food, ingredient.get("note") or ""),
+        "unscaledQuantity": quantity,
+    }
+
+
+def scale_recipe(recipe: Any, factor: float) -> Any:
+    """Een kopie van een recept met alle regels omgerekend, voor de porties van een maaltijd in het weekmenu.
+
+    Het recept zelf verandert niet: hetzelfde recept kan twee keer in de week staan, met een andere schaal. Staan de
+    hoeveelheden in Mealie uit (`disableAmount`), dan rekent Mealie ook niets om, en wij dus ook niet.
+    """
+    if not isinstance(recipe, dict) or factor == 1 or not isinstance(recipe.get("recipeIngredient"), list):
+        return recipe
+    if (recipe.get("settings") or {}).get("disableAmount"):
+        return recipe
+    return {**recipe, "recipeIngredient": [scale_ingredient(item, factor) for item in recipe["recipeIngredient"]]}
+
+
 def normalize(ingredient: Any) -> Any:
     """Geef een regel die Mealie niet analyseerde dezelfde vorm als een geanalyseerde regel.
 
@@ -167,16 +239,13 @@ def normalize(ingredient: Any) -> Any:
         return ingredient
 
     unit = {"name": parsed["unit"], "abbreviation": parsed["unit"]} if parsed["unit"] else None
-    display = " ".join(
-        part for part in (format_quantity(parsed["quantity"]), parsed["unit"], parsed["name"]) if part
-    )
     return {
         **ingredient,
         "quantity": parsed["quantity"],
         "unit": unit,
         "food": {"name": parsed["name"]},
         "note": parsed["extra"],
-        "display": f"{display}, {parsed['extra']}" if parsed["extra"] else display,
+        "display": _line_text(parsed["quantity"], parsed["unit"], parsed["name"], parsed["extra"]),
         "analyzedByMealieShopper": True,
     }
 

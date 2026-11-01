@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import math
 import re
 import sqlite3
 import time
@@ -496,10 +497,34 @@ def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str,
         recipe = entry.get("recipe") or {}
         enriched = dict(entry)
         detail = recipe_map.get(recipe.get("slug"))
-        enriched["recipeDetail"] = detail
+        scale = recipe_scale(entry)
+        # Een kopie per maaltijd: hetzelfde recept kan twee keer in de week staan, met een andere schaal.
+        enriched["recipeDetail"] = ingredients.scale_recipe(detail, scale) if detail else detail
+        enriched["servings"] = _servings(detail or recipe, scale) if recipe else None
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         result.append(enriched)
     return result
+
+
+def recipe_scale(entry: dict[str, Any]) -> float:
+    """De schaal van een maaltijd in het weekmenu (`recipeScale`, sinds Mealie v3.29.0); 1 als Mealie die niet kent.
+
+    De planner van Mealie toont de schaal als porties: de porties van het recept maal de schaal. De hoeveelheden in het
+    recept zelf blijven staan; Mealie rekent ze pas bij het tonen om, en dat doen wij hier ook.
+    """
+    value = entry.get("recipeScale") if isinstance(entry, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return 1.0
+    return float(value)
+
+
+def _servings(recipe: dict[str, Any], scale: float) -> dict[str, Any]:
+    """Porties van een maaltijd: `base` uit het recept (None als Mealie het niet weet), `planned` = `base` x `scale`."""
+    base = _portions(recipe)
+    planned = round(base * scale, 1) if base else None
+    if planned is not None and float(planned).is_integer():
+        planned = int(planned)
+    return {"scale": scale, "base": base, "planned": planned}
 
 
 # --- Het weekmenu plannen ------------------------------------------------------------------------
@@ -675,15 +700,22 @@ def _get_entry(entry_id: int) -> dict[str, Any]:
     return data
 
 
+def _same_recipe(new: Any, old: Any) -> bool:
+    return str(new or "").strip().lower() == str(old or "").strip().lower()
+
+
 def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[str, Any]:
     """Verplaats of wijzig een maaltijd. Mealie wil bij wijzigen het hele item, dus eerst ophalen en dan samenvoegen."""
     ensure_configured()
     number = _entry_id(entry_id)
     changes = _clean_entry(values, partial=True)
     current = _get_entry(number)
+    # `recipeScale` (Mealie v3.29+) gaat zo mee terug; zonder dat veld zet Mealie de porties weer op 1.
     merged = {key: value for key, value in current.items() if key not in _READ_ONLY_ENTRY_FIELDS}
     merged.update(changes)
     merged["id"] = number
+    if "recipeScale" in current and "recipeId" in changes and not _same_recipe(changes["recipeId"], current.get("recipeId")):
+        merged["recipeScale"] = 1.0  # een ander recept (of een notitie): de porties van het oude gelden niet, net als in Mealie
     _require_recipe_or_title(merged)
     response = requests.put(
         f"{mealie_url()}/api/households/mealplans/{number}", headers=auth_headers(), json=merged, timeout=30

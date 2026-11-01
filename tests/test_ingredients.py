@@ -96,6 +96,69 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(ingredients.normalize_recipe({"name": "x"}), {"name": "x"})
 
 
+def parsed(quantity, food, unit=None, note="", **food_extra):
+    """Een regel die Mealie analyseerde, met eenheid en ingrediënt als object."""
+    return {"quantity": quantity, "unit": unit, "food": {"name": food, **food_extra}, "note": note, "display": f"{quantity} {food}" if quantity else food}
+
+
+GRAM = {"name": "gram", "abbreviation": "g", "useAbbreviation": True}
+
+
+class ScaleTest(unittest.TestCase):
+    """Porties uit de planner van Mealie (`recipeScale`): de hoeveelheden gaan maal de schaal."""
+
+    def test_amount_unit_food_and_note(self):
+        line = parsed(200, "bloem", GRAM, "gezeefd")
+        scaled = ingredients.scale_ingredient(line, 2)
+        self.assertEqual((scaled["quantity"], scaled["display"], scaled["unscaledQuantity"]), (400, "400 g bloem, gezeefd", 200))
+        self.assertEqual(line["quantity"], 200, "de regel zelf verandert niet")
+        self.assertEqual(scaled["food"], line["food"])
+
+    def test_decimals_follow_the_language(self):
+        line = parsed(0.75, "melk", {"name": "liter", "abbreviation": "l", "useAbbreviation": False})
+        self.assertEqual(ingredients.scale_ingredient(line, 2)["display"], "1,5 liter melk")
+        with mock.patch.object(ingredients, "current_lang", return_value="en"):
+            self.assertEqual(ingredients.scale_ingredient(line, 2)["display"], "1.5 liter melk")
+
+    def test_plurals_when_mealie_knows_them(self):
+        self.assertEqual(ingredients.scale_ingredient(parsed(1, "ui", pluralName="uien"), 2)["display"], "2 uien")
+        clove = {"name": "teen", "pluralName": "tenen", "abbreviation": ""}
+        self.assertEqual(ingredients.scale_ingredient(parsed(1, "knoflook", clove, pluralName="knoflook"), 3)["display"], "3 tenen knoflook")
+        self.assertEqual(ingredients.scale_ingredient(parsed(1, "ei"), 2)["display"], "2 ei", "zonder meervoud de naam zelf")
+
+    def test_a_line_mealie_did_not_analyse(self):
+        # Mealie bewaart zo'n regel met de tekst in de notitie; die is dan het ingrediënt, zonder komma.
+        line = {"quantity": 2, "unit": None, "food": None, "note": "uien", "display": "2 uien"}
+        self.assertEqual(ingredients.scale_ingredient(line, 2)["display"], "4 uien")
+        normalized = ingredients.normalize(unparsed("200 ml melk"))
+        self.assertEqual(ingredients.scale_ingredient(normalized, 1.5)["display"], "300 ml melk")
+
+    def test_lines_without_an_amount_and_scale_one_stay_as_they_are(self):
+        for quantity in (None, 0, -1, True, "2", float("nan")):
+            line = parsed(quantity, "zout", note="naar smaak")
+            self.assertIs(ingredients.scale_ingredient(line, 2), line, quantity)
+        line = parsed(200, "bloem", GRAM)
+        self.assertIs(ingredients.scale_ingredient(line, 1), line)
+        self.assertEqual(ingredients.scale_ingredient("geen dict", 2), "geen dict")
+
+    def test_recipe_is_copied(self):
+        recipe = {"name": "Pasta", "recipeIngredient": [parsed(400, "spaghetti", GRAM), parsed(None, "peper")]}
+        scaled = ingredients.scale_recipe(recipe, 1.5)
+        self.assertEqual([i["display"] for i in scaled["recipeIngredient"]], ["600 g spaghetti", "peper"])
+        self.assertEqual(recipe["recipeIngredient"][0]["quantity"], 400, "het recept zelf verandert niet")
+        self.assertIs(ingredients.scale_recipe(recipe, 1), recipe)
+        self.assertEqual(ingredients.scale_recipe({"name": "x"}, 2), {"name": "x"})
+        self.assertIsNone(ingredients.scale_recipe(None, 2))
+
+    def test_no_scaling_when_amounts_are_off_in_mealie(self):
+        recipe = {"settings": {"disableAmount": True}, "recipeIngredient": [parsed(400, "spaghetti", GRAM)]}
+        self.assertIs(ingredients.scale_recipe(recipe, 2), recipe)
+
+    def test_normalize_display_is_unchanged(self):
+        self.assertEqual(ingredients.normalize(unparsed("1 ui, fijngesneden"))["display"], "1 ui, fijngesneden")
+        self.assertEqual(ingredients.normalize(unparsed("1,5 l water"))["display"], "1,5 l water")
+
+
 class GetRecipeTest(unittest.TestCase):
     def test_get_recipe_normalises_the_ingredients(self):
         body = {"name": "Stroganoff", "recipeIngredient": [unparsed("1 ui"), unparsed("200 ml melk")]}
