@@ -544,6 +544,8 @@ I18N.add("nl", {
   "cart.product": "Product",
   "cart.view_title": "Bekijk dit product om te controleren of het klopt",
   "cart.view": "Bekijk product",
+  "cart.photo_open": "Foto van {title} groot bekijken",
+  "common.close": "Sluiten",
   "cart.deal_until": "t/m {date}",
   "cart.deal_expired": "aanbieding verlopen",
   "cart.packs": "Aantal verpakkingen",

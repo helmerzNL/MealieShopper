@@ -276,7 +276,24 @@ class CartPreviewRouteTest(unittest.TestCase):
                          [("1", 1, None), ("2", 2, None)])
         self.assertEqual(eggs["candidates"][0]["url"], "https://www.ah.nl/producten/product/wi1")
         self.assertEqual(eggs["candidates"][0]["image"], "https://img/1.jpg")
+        self.assertEqual(eggs["candidates"][0]["imageLarge"], "https://img/1.jpg")
         self.assertEqual(cheese["candidates"][0]["doubt"], "Verpakkingsgrootte onbekend")
+
+    def test_large_photo_is_the_size_closest_to_800_pixels(self):
+        # De foto in het groot (het venster bij de controlelijst) neemt het formaat van AH dat het best past.
+        found = search_result(1, "AH Eieren 10", "10 stuks")
+        found["images"] = [{"url": f"https://img/1-{width}.jpg", "width": width} for width in (48, 200, 400, 800, 1600)]
+        response = self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
+        candidate = response.get_json()["items"][0]["candidates"][0]
+        self.assertEqual(candidate["imageLarge"], "https://img/1-800.jpg")
+
+    def test_no_photos_means_no_large_photo(self):
+        found = search_result(1, "AH Eieren 10", "10 stuks")
+        found["images"] = []
+        response = self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
+        candidate = response.get_json()["items"][0]["candidates"][0]
+        self.assertIsNone(candidate["image"])
+        self.assertIsNone(candidate["imageLarge"])
 
     def test_not_found_and_errors_are_per_row(self):
         def search(query, limit):

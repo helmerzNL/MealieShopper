@@ -562,6 +562,7 @@ def create_app() -> Flask:
             "unitSize": product.get("unitSize"),
             "price": product["price"]["now"],
             "image": images[0].get("url") if images and isinstance(images[0], dict) else None,
+            "imageLarge": ah.product_photo(images),
             "isBonus": bool(product.get("isBonus")),
             "deal": deals.candidate_deal("ah", product),
             "url": ah.product_web_url(product["webshopId"]),
