@@ -15,7 +15,7 @@ verkeerde prijs.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 # Soorten aanbieding.
@@ -41,7 +41,8 @@ _NTH_FREE_RE = re.compile(r"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?gratis\b")
 _SECOND_HALF_RE = re.compile(r"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?(?:voor\s*)?(?:de\s*)?halve\s*prijs\b")
 _X_FOR_Y_RE = re.compile(rf"\b(\d+)\s*(?:stuks?\s*)?voor\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)")
 _NTH_PERCENT_RE = re.compile(rf"\b(\d+)\s*(?:e|de|ste)\s*(?:stuk\s*)?(?:=|:|-)?\s*{_NUMBER}\s*%")
-_NOW_PRICE_RE = re.compile(rf"\bnu\s*{_EURO}{_NUMBER}")
+# "nu 1,99", en AH's schildje "voor 1.99" (een aantal ervoor, "2 voor 5", is al eerder als x voor y gelezen).
+_NOW_PRICE_RE = re.compile(rf"\b(?:nu|voor)\s*{_EURO}{_NUMBER}(?![\d%])(?!\s*%)")
 _PERCENT_RE = re.compile(rf"{_NUMBER}\s*%")
 _AMOUNT_OFF_RE = re.compile(rf"{_EURO}{_NUMBER}\s*(?:euro\s*)?korting|korting\s*{_EURO}{_NUMBER}")
 _FROM_QUANTITY_RE = re.compile(r"\bvanaf\s*(\d+)\s*(?:stuks?|st)\b")
@@ -161,17 +162,36 @@ def common_period(offers: list[dict[str, Any]]) -> dict[str, str] | None:
     """De looptijd die de meeste aanbiedingen delen, als `{"from", "until"}` met ISO-datums; None als er geen is.
 
     Alleen aanbiedingen met een begin- én einddatum tellen mee: een doorlopende aanbieding heeft geen einde en zegt niets over
-    de week. Bij gelijke aantallen wint de periode die het laatst eindigt.
+    de week. Een looptijd van één dag telt alleen als er geen langere is: AH geeft zijn pakketkortingen en volumevoordelen
+    elke dag opnieuw met een looptijd van alleen die dag, en dat zijn er zoveel dat de kop anders "zo 1 nov t/m zo 1 nov"
+    zei terwijl de bonusweek van ma t/m zo liep. Bij gelijke aantallen wint de periode die het laatst eindigt.
     """
     counts: dict[tuple[date, date], int] = {}
     for offer in offers:
         start, end = parse_date(offer.get("validFrom")), parse_date(offer.get("validUntil"))
         if start is not None and end is not None and start <= end:
             counts[(start, end)] = counts.get((start, end), 0) + 1
+    longer = {period: count for period, count in counts.items() if period[0] < period[1]}
+    counts = longer or counts
     if not counts:
         return None
     start, end = max(counts, key=lambda period: (counts[period], period[1]))
     return {"from": start.isoformat(), "until": end.isoformat()}
+
+
+def week_of(day: Any) -> tuple[date, date] | None:
+    """De maandag en de zondag van de week waarin `day` valt (een datum of ISO-tekst); None als het geen datum is."""
+    parsed = parse_date(day)
+    if parsed is None:
+        return None
+    monday = parsed - timedelta(days=parsed.weekday())
+    return monday, monday + timedelta(days=6)
+
+
+def in_week(valid_from: Any, valid_until: Any, monday: date, sunday: date) -> bool:
+    """Of een aanbieding met deze looptijd op een of meer dagen van de week geldt. Een ontbrekende datum is open aan die kant."""
+    start, end = parse_date(valid_from), parse_date(valid_until)
+    return (start is None or start <= sunday) and (end is None or end >= monday)
 
 
 def describe(
