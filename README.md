@@ -6,7 +6,7 @@
 </picture>
 
 **Van recept naar geregeld.**
-Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) of [Jumbo](https://www.jumbo.com), plus recepten zoeken, bewaren en importeren.
+Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) of [Jumbo](https://www.jumbo.com), plus recepten zoeken, bewaren en importeren.
 
 **Nederlands** · [English](README.en.md)
 
@@ -37,8 +37,9 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic of Jumbo, voor zover gekoppeld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en toont ze eerst in een controlelijst. Daar vink je weg wat je niet wilt en kies je een ander product of aantal; pas na je bevestiging gaan ze in je mandje bij die winkel. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app of bij Jumbo.
+- **Het weekmenu plannen.** Zet een recept uit Mealie of een notitie ("Uit eten") op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** een recept kiezen volgens je planregels. Elke wijziging gaat meteen naar Mealie; MealieShopper bewaart zelf geen planning.
 - **Aanbiedingen en receptvoorstellen.** Het tabblad Aanbiedingen toont de aanbiedingen van Albert Heijn (Bonus), Picnic en Jumbo, elke dag automatisch bijgewerkt, en zoekt in je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten) naar gerechten waarvan ingrediënten in de aanbieding zijn.
-- **Recepten zoeken en importeren.** Zoek tegelijk in de recepten van Albert Heijn, Jumbo, Picnic en de menu's van HelloFresh en Marley Spoon en zet ze met één klik in Mealie, of importeer een recept via een link.
+- **Recepten zoeken en importeren.** Zoek tegelijk in je eigen recepten in Mealie, de recepten van Albert Heijn, Jumbo, Picnic en de menu's van HelloFresh en Marley Spoon en zet ze met één klik in Mealie, of importeer een recept via een link. Een recept uit Mealie, of een net geïmporteerd recept, plan je meteen in.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic en Jumbo, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
 - **Bestellingen en kassabonnen.** Je AH-mandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel, bewaard in een eigen kopie zodat je ze ook zonder verbinding met AH kunt bekijken en doorzoeken ("wanneer kocht ik voor het laatst koffie?"). Ook je AI-assistent kan ze bevragen.
@@ -50,7 +51,7 @@ Je weekmenu uit [Mealie](https://mealie.io) in je mandje bij [Albert Heijn](http
 - **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app. Op een groot scherm staat het menu links en kun je het inklappen tot alleen de pictogrammen.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
 - **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en de supermarkten en beheert de gebruikers.
-- **AI-assistenten.** Een MCP-server, zodat je Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kunt laten bekijken en een recept in Mealie kunt laten importeren. Inloggen met OAuth, met je eigen account.
+- **AI-assistenten.** Een MCP-server, zodat je Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kunt laten bekijken, een maaltijd kunt laten plannen en een recept in Mealie kunt laten importeren. Inloggen met OAuth, met je eigen account.
 - **Nederlands en Engels.** Wissel met de vlaggetjes; de app onthoudt je keuze.
 - **Jij houdt de regie.** Alles draait in je eigen container; je gegevens staan in een SQLite-bestand in je eigen data-map.
 
@@ -60,7 +61,7 @@ Elke afbeelding laat dezelfde pagina zien op een computer en op een telefoon. De
 
 ### Weekmenu en winkelmandje
 
-Laad je weekmenu uit Mealie. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld.
+Je weekmenu uit Mealie, met elke dag van de week: plan er een recept of notitie in met **Toevoegen**, of tik op een maaltijd om haar te verplaatsen of te verwijderen. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld.
 
 <img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
 
@@ -86,7 +87,7 @@ Bij Picnic pas je aantallen aan, haal je producten weg of leeg je het mandje, en
 
 <img src="docs/screenshots/nl/search.png" alt="Recepten zoeken bij Allerhande, met kaarten en een knop om te importeren" width="900">
 
-Zijn Jumbo en Picnic gekoppeld, dan zoek je in één keer in alle drie; de resultaten staan per winkel bij elkaar. Bij Jumbo en Picnic opent **Bekijken** het recept op dezelfde plek, met de ingrediënten en de bereiding.
+Je zoekt ook in je eigen recepten in Mealie; die staan bovenaan, met **Inplannen** in plaats van importeren. Zijn Jumbo en Picnic gekoppeld, dan zoek je ook daar in één keer; de resultaten staan per winkel bij elkaar. Bij Jumbo en Picnic opent **Bekijken** het recept op dezelfde plek, met de ingrediënten en de bereiding.
 
 <img src="docs/screenshots/nl/search-stores.png" alt="Zoekresultaten van Jumbo met kaarten, tijd, personen en waardering" width="900">
 
@@ -260,7 +261,13 @@ Na het wachtwoord kun je **tweestapsverificatie** aanzetten met een authenticato
 
 ## Gebruik
 
-De tab **Recepten** bevat twee subtabs: **Weekmenu** (het weekmenu uit Mealie naar je mandje) en **Recepten zoeken**.
+De tab **Recepten** bevat twee subtabs: **Weekmenu** (het weekmenu plannen en naar je mandje) en **Recepten zoeken**.
+
+### Het weekmenu plannen
+
+Het weekmenu toont altijd de hele week, ook dagen zonder maaltijd. Met **Toevoegen** bij een dag open je het venster *Maaltijd plannen*: kies de dag, de maaltijd (ontbijt, lunch, diner of bijgerecht; vanaf Mealie 3.7 ook snack, drankje en nagerecht) en dan **Recept** of **Notitie**. Bij **Recept** zoek je in je recepten in Mealie en kies je er een; **Verras me** laat Mealie zelf een recept kiezen volgens de planregels van je huishouden (in Mealie onder de instellingen van het weekmenu). Een **Notitie** is een maaltijd zonder recept, zoals *Uit eten* of *Restjes*, met een optionele toelichting. Tik op een geplande maaltijd om de dag, de maaltijd of het recept te wijzigen, of om haar met **Verwijderen** uit het weekmenu te halen; het recept blijft in Mealie staan.
+
+Elke wijziging gaat meteen naar Mealie (`/api/households/mealplans`) en daarna haalt MealieShopper de week opnieuw op. MealieShopper bewaart zelf geen planning, dus wat je in Mealie plant staat ook hier, en andersom. Iedereen die is ingelogd mag plannen; in Mealie staat de maaltijd op naam van de gebruiker van de token. Na een import (bij Recepten zoeken, Maaltijdboxen, Winkels of URL importeren) staat in de melding **Inplannen**: dan opent hetzelfde venster met het nieuwe recept al gekozen.
 
 ### Weekmenu naar je mandje
 
@@ -276,7 +283,7 @@ Het tabblad **Mandje** toont het mandje van de winkel die je bovenaan kiest (Alb
 
 ### Recepten zoeken en importeren
 
-`Recepten zoeken` zoekt tegelijk bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) en **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie), en altijd in de menu's van **HelloFresh** en **Marley Spoon** van deze week en de drie weken erna (daar is geen koppeling voor nodig; ontbrekende menu's worden bij het zoeken opgehaald en 6 uur bewaard). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Kies `Importeer` om een recept in Mealie te zetten, of bij Jumbo, Picnic, HelloFresh en Marley Spoon `Bekijken` voor de ingrediënten en de bereiding. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
+`Recepten zoeken` zoekt tegelijk in je eigen recepten in **Mealie** (zodra Mealie gekoppeld is; bovenaan, met `Meer recepten` voor de volgende pagina), bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) en **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie), en altijd in de menu's van **HelloFresh** en **Marley Spoon** van deze week en de drie weken erna (daar is geen koppeling voor nodig; ontbrekende menu's worden bij het zoeken opgehaald en 6 uur bewaard). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Kies `Importeer` om een recept in Mealie te zetten, of bij Mealie, Jumbo, Picnic, HelloFresh en Marley Spoon `Bekijken` voor de ingrediënten en de bereiding. Een recept uit Mealie heeft `Inplannen` in plaats van `Importeer`, en in het detail `Open in Mealie`. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
 
 ### Aanbiedingen
 
@@ -347,7 +354,7 @@ Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic en Jumbo) kop
 3. Kopieer de token meteen: Mealie toont hem maar één keer.
 4. Vul in MealieShopper het adres van je Mealie en de token in en kies **Koppelen**.
 
-Het adres moet bereikbaar zijn vanaf de plek waar MealieShopper draait, niet per se vanaf je telefoon. Draaien ze in dezelfde Docker-omgeving, dan kan het een interne naam zijn zoals `http://mealie:9000`. De token wordt versleuteld bewaard en nooit meer getoond. Een koppeling die je in de app maakt gaat voor op `MEALIE_URL` en `MEALIE_API_TOKEN` uit de omgeving.
+Het adres moet bereikbaar zijn vanaf de plek waar MealieShopper draait, niet per se vanaf je telefoon. Draaien ze in dezelfde Docker-omgeving, dan kan het een interne naam zijn zoals `http://mealie:9000`. De token wordt versleuteld bewaard en nooit meer getoond. Een koppeling die je in de app maakt gaat voor op `MEALIE_URL` en `MEALIE_API_TOKEN` uit de omgeving. Wat iemand in MealieShopper plant, staat in Mealie op naam van de gebruiker van deze token.
 
 ### Albert Heijn
 
@@ -404,7 +411,7 @@ Jouw browser lost de bot-controle van Jumbo op; MealieShopper gebruikt geen head
 
 ## Gebruikers en uitnodigen
 
-De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en de supermarkten en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu, de recepten en de lijstjes gebruiken, producten in het mandje van een winkel zetten en recepten importeren, maar kan niets koppelen of beheren. De koppelingen en de mandjes zijn die van de beheerder; Mealie en de supermarkten zijn dus gedeeld.
+De eerste gebruiker, degene die de installatiehulp doorloopt, is de **beheerder**. Die koppelt Mealie en de supermarkten en beheert de gebruikers. Iedereen die je uitnodigt is een **gebruiker**: die kan het weekmenu bekijken en plannen, de recepten en de lijstjes gebruiken, producten in het mandje van een winkel zetten en recepten importeren, maar kan niets koppelen of beheren. De koppelingen en de mandjes zijn die van de beheerder; Mealie en de supermarkten zijn dus gedeeld.
 
 <img src="docs/screenshots/nl/users.png" alt="Instellingen, Gebruikers: de beheerder met twee gebruikers, en een formulier om iemand uit te nodigen" width="900">
 
@@ -429,7 +436,10 @@ MealieShopper heeft een [MCP](https://modelcontextprotocol.io)-server op `<adres
 
 | Tool | Doet |
 |---|---|
-| `get_week_menu` | Het weekmenu uit Mealie, met de ingrediënten. |
+| `get_week_menu` | Het weekmenu uit Mealie, met per maaltijd het id, de ingrediënten en een eventuele notitie. |
+| `search_mealie_recipes` | Zoeken in je eigen recepten in Mealie; geeft de slug die `plan_meal` nodig heeft. |
+| `plan_meal` | Een recept uit Mealie of een notitie (bijvoorbeeld *Uit eten*) op een dag in het weekmenu zetten. Voegt alleen toe. |
+| `remove_planned_meal` | Een maaltijd uit het weekmenu halen (het recept blijft in Mealie staan). Gemarkeerd als destructief. |
 | `search_allerhande_recipes` | Recepten zoeken bij Allerhande. |
 | `list_saved_ah_recipes` | Je bewaarde AH-recepten, eventueel gefilterd. |
 | `list_ah_lists`, `get_ah_list`, `search_ah_list_items` | Je AH-lijstjes, de producten erin (met jouw aantallen) en waar een product in staat. |
@@ -449,7 +459,7 @@ MealieShopper heeft een [MCP](https://modelcontextprotocol.io)-server op `<adres
 | `review_offer_matches`, `report_offer_mismatch`, `list_offer_mismatches` | Koppelingen tussen recept-ingrediënten en producten in de aanbieding beoordelen: de assistent krijgt de unieke paren (ingrediënt + product, met het aantal recepten) van één winkel, meldt de onjuiste (`report_offer_mismatch`, met een reden; `undo` haalt de melding weg) en kan de gemelde koppelingen bekijken. Een melding verbergt de koppeling, ook bij andere recepten met hetzelfde ingrediënt. De enige schrijftool hier; er wordt niets verwijderd. |
 | `import_recipe_to_mealie` | Een recept in Mealie importeren. Dit maakt iets nieuws aan en overschrijft niets. |
 
-Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert.
+Er is bewust **geen** tool die een mandje bij een winkel vult of iets bij een winkel verwijdert. De enige tool die iets weghaalt is `remove_planned_meal`: die haalt alleen een geplande maaltijd uit het weekmenu en is gemarkeerd als destructief, zodat assistenten die dat ondersteunen eerst om bevestiging vragen. Wil je dat niet, zet de tool dan uit (zie hieronder).
 
 **Instellen**
 
@@ -468,7 +478,7 @@ Er is bewust **geen** tool die een mandje bij een winkel vult of iets verwijdert
 - Elk token hoort bij **de gebruiker die toestemming gaf** en geeft alleen die rechten. Toegangstokens gelden een uur, verversingstokens 30 dagen en worden bij elk gebruik vervangen; een verversingstoken dat twee keer wordt gebruikt, trekt de hele reeks in. Tokens staan alleen gehasht in de database.
 - Een nieuw wachtwoord, een uitgezette tweestapsverificatie, een nieuwe inloglink of het verwijderen van de gebruiker maakt de tokens van die gebruiker ongeldig. Onder **Profiel, AI-apps** trek je zelf de toegang van een app in.
 - De server staat alleen aan als inloggen aanstaat. De beheerder zet hem met de schakelaar aan of uit; alleen de beheerder kan de instellingen zien en wijzigen. Onder **Wat de assistent kan** zet de beheerder ook elke tool afzonderlijk uit, voor alle gebruikers. Een uitgezette tool is voor assistenten onzichtbaar en wordt geweigerd; ze zien de wijziging bij hun volgende verbinding.
-- Wat de assistent leest (receptnamen, productnamen) komt van Mealie en de supermarkten; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets verwijderen of kopen.
+- Wat de assistent leest (receptnamen, productnamen) komt van Mealie en de supermarkten; behandel het als gegevens, niet als opdrachten. Daarom kan de assistent niets kopen en niets bij een winkel verwijderen; alleen een geplande maaltijd kan hij uit het weekmenu halen (`remove_planned_meal`, uit te zetten door de beheerder).
 
 ## Configuratie
 
@@ -621,7 +631,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 
 | Integratie | Waarvoor |
 |---|---|
-| [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten komen hier terecht. Via de API met een token. |
+| [Mealie](https://mealie.io) | Je recepten en weekmenu; geïmporteerde recepten en wat je plant komen hier terecht. Via de API met een token. |
 | [Albert Heijn](https://www.ah.nl) | Lijstjes, bewaarde recepten, producten en het winkelmandje, via de **niet-officiële** app-API van AH. AH kan die zonder bericht wijzigen; gebruik het voor persoonlijk gebruik. |
 | [Allerhande](https://www.ah.nl/allerhande) | Recepten zoeken en importeren. |
 | [Jumbo](https://www.jumbo.com) | Producten zoeken en het winkelmandje vullen, via de **niet-officiële** app-API van Jumbo (Auth0 en GraphQL). Jumbo kan die zonder bericht wijzigen of een server weigeren; gebruik het voor persoonlijk gebruik. |

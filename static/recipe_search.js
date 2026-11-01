@@ -1,14 +1,16 @@
-// Recepten zoeken: tegelijk bij Albert Heijn, Jumbo en Picnic (de laatste twee zodra ze gekoppeld zijn) en in de menu's van
-// de maaltijdboxen HelloFresh en Marley Spoon (zonder koppeling; de komende weken worden bij het zoeken opgehaald).
+// Recepten zoeken: in je eigen recepten in Mealie (zodra Mealie gekoppeld is), tegelijk bij Albert Heijn, Jumbo en Picnic (de laatste
+// twee zodra ze gekoppeld zijn) en in de menu's van de maaltijdboxen HelloFresh en Marley Spoon (zonder koppeling; de komende weken
+// worden bij het zoeken opgehaald). Een recept uit Mealie importeer je niet, dat plan je meteen in het weekmenu.
 // Elke winkel heeft zijn eigen blok met resultaten; een winkel die faalt, laat de andere gewoon staan.
-// Bij Jumbo, Picnic en de maaltijdboxen opent `Bekijken` het recept met ingrediënten en bereiding in dit tabblad.
+// Bij Mealie, Jumbo, Picnic en de maaltijdboxen opent `Bekijken` het recept met ingrediënten en bereiding in dit tabblad.
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, postJson, setBusy, t, tn, ...).
 
-const SEARCH_STORES = ["ah", "jumbo", "picnic", "hellofresh", "marleyspoon"];
+const SEARCH_STORES = ["mealie", "ah", "jumbo", "picnic", "hellofresh", "marleyspoon"];
 const MEALKIT_SEARCH = new Set(["hellofresh", "marleyspoon"]); // zoeken in menu's; elke aanbieder heeft eigen routes onder /api/<aanbieder>/
 const MEALKIT_SEARCH_WEEKS = 4; // deze week en de 3 weken erna
 const recipeSearch = {
   query: "",
+  mealie: { recipes: [], total: 0, page: 1, more: false },
   ah: { recipes: [], total: 0, page: 0, more: false },
   jumbo: { recipes: [], total: 0, more: false },
   picnic: { recipes: [], total: 0, more: false },
@@ -44,8 +46,18 @@ function storeRecipeMeta(recipe) {
     .join(" · ");
 }
 
+// De knop Inplannen bij een recept dat al in Mealie staat; de globale klikhandler in app.js opent de plan-dialoog.
+function planButtonAttrs(recipe) {
+  return `data-plan-slug="${escapeHtml(recipe.slug || recipe.id)}" data-plan-id="${escapeHtml(recipe.recipeId || "")}" data-plan-name="${escapeHtml(recipe.name || "")}" data-plan-image="${escapeHtml(recipe.image || "")}"`;
+}
+
 function renderStoreRecipeCard(store, recipe) {
   const meta = storeRecipeMeta(recipe);
+  // Een recept uit Mealie staat er al: geen Importeer, maar Inplannen.
+  const action =
+    store === "mealie"
+      ? `<button class="button" type="button" ${planButtonAttrs(recipe)}>${escapeHtml(t("plan.schedule"))}</button>`
+      : `<button class="button" type="button" data-store-import="${store}:${escapeHtml(recipe.id)}">${escapeHtml(t("recipe.import"))}</button>`;
   return `
     <article class="recipe-card" data-store-recipe="${store}:${escapeHtml(recipe.id)}">
       ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
@@ -53,7 +65,7 @@ function renderStoreRecipeCard(store, recipe) {
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
       <div class="recipe-card__actions">
         <button class="button button--secondary" type="button" data-store-open="${store}:${escapeHtml(recipe.id)}">${escapeHtml(t("rsearch.open"))}</button>
-        <button class="button" type="button" data-store-import="${store}:${escapeHtml(recipe.id)}">${escapeHtml(t("recipe.import"))}</button>
+        ${action}
       </div>
       <div class="recipe-import-result"></div>
     </article>`;
@@ -75,7 +87,7 @@ function renderSearchStore(store) {
   } else {
     parts.count.textContent = data.recipes.length ? (data.more ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : tn("search.count", data.total, { limit: "" })) : "";
   }
-  if (parts.more) parts.more.hidden = !data.more; // Picnic heeft maar één pagina
+  if (parts.more) parts.more.hidden = !data.more; // Picnic en de maaltijdboxen hebben maar één pagina
   if (recipeSearch.searched && !data.recipes.length && !parts.message.textContent) {
     message(`#${parts.message.id}`, t("rsearch.none", { query: recipeSearch.query }), "success");
   }
@@ -102,7 +114,11 @@ async function fetchSearchStore(store, append) {
   message(`#${parts.message.id}`, "");
   try {
     let found;
-    if (store === "ah") {
+    if (store === "mealie") {
+      const page = append ? data.page + 1 : 1;
+      const answer = await jsonFetch(`/api/mealie/recipes?q=${q}&page=${page}`);
+      found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.more) };
+    } else if (store === "ah") {
       const page = append ? data.page + 1 : 0;
       const answer = await jsonFetch(`/api/ah/search?q=${q}&page=${page}`);
       found = { recipes: answer.recipes || [], total: Number(answer.total) || 0, page, more: Boolean(answer.hasNextPage ?? Number(answer.total) > (page + 1) * 12) };
@@ -124,8 +140,9 @@ async function fetchSearchStore(store, append) {
     data.recipes = append ? [...data.recipes, ...fresh] : fresh;
     data.total = found.total;
     data.page = found.page ?? 0;
+    // Bij Mealie en AH geldt "Meer recepten" alleen als de volgende pagina ook echt iets nieuws bracht.
     // Jumbo geeft per pagina 24 recepten; een pagina zonder nieuwe recepten of het totaal bereikt: geen "Meer recepten".
-    data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (store !== "ah" || Boolean(fresh.length));
+    data.more = store === "jumbo" ? Boolean(fresh.length) && data.recipes.length < data.total : found.more && (!["ah", "mealie"].includes(store) || Boolean(fresh.length));
   } catch (error) {
     if (query !== recipeSearch.query) return;
     if (!append) data.recipes = [];
@@ -144,7 +161,7 @@ async function runRecipeSearch(event) {
   message("#search-message", "");
   const active = SEARCH_STORES.filter(searchStoreActive);
   SEARCH_STORES.forEach((store) => {
-    Object.assign(recipeSearch[store], { recipes: [], total: 0, page: 0, more: false });
+    Object.assign(recipeSearch[store], { recipes: [], total: 0, page: store === "mealie" ? 1 : 0, more: false });
     const parts = searchParts(store);
     message(`#${parts.message.id}`, "");
     parts.section.hidden = !active.includes(store);
@@ -164,8 +181,7 @@ async function importStoreRecipe(store, id, button, target) {
   button.textContent = t("recipe.importing");
   try {
     const data = await postJson(`/api/${store}/recipes/${encodeURIComponent(id)}/import`);
-    const link = data.mealieUrl ? ` <a href="${escapeHtml(data.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
-    target.innerHTML = `<div class="message success">${escapeHtml(t("recipe.imported"))}${link}</div>`;
+    target.innerHTML = `<div class="message success">${importedMessage(data)}</div>`;
   } catch (error) {
     target.innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
   } finally {
@@ -211,29 +227,39 @@ function renderStoreRecipeDetail(store, recipe, host) {
   const ingredients = (recipe.ingredients || []).map((item) => `<li>${escapeHtml(item.line)}</li>`).join("");
   const steps = (recipe.steps || []).map((text) => `<li>${escapeHtml(text)}</li>`).join("");
   const nutrition = (recipe.nutrition || []).map((item) => `${item.name} ${I18N.formatNumber(item.quantity)} ${item.unit}`.trim()).join(" \u00b7 ");
+  const fromMealie = store === "mealie";
+  const action = fromMealie
+    ? `<button class="button" type="button" ${planButtonAttrs(recipe)} data-plan-target="${prefix}-import-result">${escapeHtml(t("plan.schedule"))}</button>`
+    : `<button class="button" type="button" id="${prefix}-import">${escapeHtml(t("recipe.import"))}</button>`;
+  const source = fromMealie ? "rsearch.in_mealie" : "rsearch.on_site";
   $(`#${prefix}-body`).innerHTML = `
     <div class="picnic-recipe">
       ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(recipe.image)}" alt="" data-hide-on-error>` : ""}
       ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" \u00b7 "))}</p>` : ""}
       ${recipe.description ? `<p>${escapeHtml(recipe.description)}</p>` : ""}
       <p>
-        <button class="button" type="button" id="${prefix}-import">${escapeHtml(t("recipe.import"))}</button>
-        ${recipe.url ? `<a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("rsearch.on_site"))}</a>` : ""}
+        ${action}
+        ${recipe.url ? `<a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t(source))}</a>` : ""}
       </p>
       <div id="${prefix}-import-result"></div>
       <h3>${escapeHtml(t("rsearch.ingredients"))}</h3>
-      ${ingredients ? `<ul class="picnic-recipe__list">${ingredients}</ul>` : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients"))}</p>`}
+      ${ingredients ? `<ul class="picnic-recipe__list">${ingredients}</ul>` : `<p class="muted">${escapeHtml(t(fromMealie ? "rsearch.no_ingredients_mealie" : "rsearch.no_ingredients"))}</p>`}
       <h3>${escapeHtml(t("rsearch.steps"))}</h3>
-      ${steps ? `<ol class="picnic-recipe__list">${steps}</ol>` : `<p class="muted">${escapeHtml(t("rsearch.no_steps"))}</p>`}
+      ${steps ? `<ol class="picnic-recipe__list">${steps}</ol>` : `<p class="muted">${escapeHtml(t(fromMealie ? "rsearch.no_steps_mealie" : "rsearch.no_steps"))}</p>`}
       ${recipe.stepsPortions && recipe.stepsPortions !== recipe.portions ? `<p class="muted">${escapeHtml(t("picnic.recipes.steps_for", { count: recipe.stepsPortions }))}</p>` : ""}
       ${recipe.tip ? `<h3>${escapeHtml(t("rsearch.tip"))}</h3><p>${escapeHtml(recipe.tip)}</p>` : ""}
       ${nutrition ? `<p class="muted">${escapeHtml(t("rsearch.nutrition", { values: nutrition }))}</p>` : ""}
     </div>`;
-  $(`#${prefix}-import`).addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $(`#${prefix}-import-result`)));
+  if (!fromMealie) $(`#${prefix}-import`).addEventListener("click", (event) => importStoreRecipe(store, recipe.id, event.currentTarget, $(`#${prefix}-import-result`)));
 }
 
 $("#search-form").addEventListener("submit", runRecipeSearch);
 $("#search-detail-back").addEventListener("click", () => showRecipeList(SEARCH_HOST));
+$("#search-mealie-more").addEventListener("click", async (event) => {
+  setBusy(event.currentTarget, true);
+  await fetchSearchStore("mealie", true);
+  setBusy(event.currentTarget, false);
+});
 $("#search-ah-more").addEventListener("click", async (event) => {
   setBusy(event.currentTarget, true);
   await fetchSearchStore("ah", true);

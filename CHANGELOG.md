@@ -2,6 +2,31 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.82.0
+
+### Nieuw in 2.82.0
+
+*English summary: you can now plan the week menu in MealieShopper. Every day of the week has **Add**: put a recipe from Mealie or a note ("Eating out") on a day, or let Mealie pick one with **Surprise me** following your meal plan rules. Tap a planned meal to move, change or remove it. Every change goes straight to Mealie; MealieShopper keeps no plan of its own. **Find recipes** now also searches your own recipes in Mealie (at the top, with **Plan**), and after every import the message has **Plan** too. The MCP server gets `search_mealie_recipes`, `plan_meal` and `remove_planned_meal`. Fixed: a week with a note without a recipe no longer breaks the week menu. Reload the page once after updating.*
+
+- **Het weekmenu plannen in MealieShopper.** Het weekmenu toont altijd de hele week, met bij elke dag **Toevoegen**. Kies de dag, de maaltijd en een **Recept** (zoeken in je recepten in Mealie) of een **Notitie** zonder recept, zoals *Uit eten* of *Restjes*, met een optionele toelichting. Tik op een geplande maaltijd om de dag, de maaltijd of het recept te wijzigen, of om haar te verwijderen (het recept blijft in Mealie staan).
+- **Verras me.** Laat Mealie zelf een recept kiezen volgens de planregels van je huishouden; het staat meteen in het weekmenu. Past er geen recept, dan zegt de app dat.
+- **Alles gaat meteen naar Mealie.** MealieShopper bewaart zelf geen planning: elke wijziging gaat direct naar de API van Mealie (`/api/households/mealplans`) en daarna wordt de week opnieuw opgehaald. Wat je in Mealie plant staat hier, en andersom. Er is geen nieuwe tabel; de back-up verandert niet.
+- **Iedereen die is ingelogd mag plannen**, net als recepten importeren. In Mealie staat de maaltijd op naam van de gebruiker van de token.
+- **Snack, drankje en nagerecht** kun je kiezen zodra je Mealie 3.7 of nieuwer hebt; MealieShopper vraagt de versie aan Mealie en toont bij een oudere Mealie alleen ontbijt, lunch, diner en bijgerecht.
+- **Recepten zoeken zoekt ook in Mealie.** Je eigen recepten staan als eerste blok, met **Bekijken** (ingrediënten en bereiding, en **Open in Mealie**) en **Inplannen** in plaats van **Importeer**, en `Meer recepten` voor de volgende pagina.
+- **Inplannen na een import.** Bij Recepten zoeken, Maaltijdboxen, Winkels en URL importeren staat in de melding na een import nu **Inplannen**; het venster opent met het nieuwe recept al gekozen.
+- **AI-assistenten (MCP)** kunnen zoeken in je recepten in Mealie (`search_mealie_recipes`), een maaltijd plannen (`plan_meal`) en een geplande maaltijd weghalen (`remove_planned_meal`). `get_week_menu` geeft per maaltijd het id en een eventuele notitie. `remove_planned_meal` is de enige tool die iets weghaalt en is gemarkeerd als destructief; de beheerder kan elke tool uitzetten onder **Profiel, AI-apps**.
+- **Nieuwe API's**: `GET /api/mealplan/options`, `POST /api/mealplan`, `PATCH` en `DELETE /api/mealplan/<id>`, `POST /api/mealplan/random`, `GET /api/mealie/recipes?q=&page=` en `GET /api/mealie/recipes/<slug>`.
+- **Onderzoek** naar wat de API van Mealie toelaat en waarom MealieShopper geen eigen planning bijhoudt: [`docs/onderzoek-weekmenu-plannen.md`](docs/onderzoek-weekmenu-plannen.md).
+
+### Opgelost in 2.82.0
+
+- **Een notitie zonder recept liet het hele weekmenu mislukken.** Mealie geeft bij zo'n maaltijd `"recipe": null`; MealieShopper las dat als een recept en gaf `'NoneType' object has no attribute 'get'`. Zo'n week laadt nu gewoon.
+- **Net na middernacht begon de week een dag te vroeg** (tot 1 uur, met zomertijd tot 2 uur). De datums werden in UTC berekend; nu in je eigen tijdzone. Bij plannen telt elke dag.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
+
 ## v2.81.0
 
 ### Nieuw in 2.81.0

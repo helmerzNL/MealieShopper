@@ -594,7 +594,7 @@ class OffersTabMarkupTest(unittest.TestCase):
                        "offer-product-close", "offer-product-nopage"):
             self.assertIn(f'id="{marker}"', dialog)
         self.assertIn('aria-labelledby="offer-product-title"', dialog, "het venster heeft een naam voor schermlezers")
-        self.assertNotIn("<dialog", html[html.index("</dialog>"):], "er is maar één productvenster")
+        self.assertEqual(html.count('id="offer-product-dialog"'), 1, "er is maar één productvenster")
         # De globale afhandeling van data-hide-on-error haalt het plaatje uit de pagina; het venster hergebruikt het plaatje.
         self.assertNotIn("data-hide-on-error", dialog)
 

@@ -68,9 +68,11 @@ def tool_week_menu(args: dict[str, Any]) -> Any:
         slug = recipe.get("slug")
         meals.append(
             {
+                "id": entry.get("id"),
                 "date": entry.get("date"),
                 "meal": entry.get("entryType"),
                 "recipe": recipe.get("name") or entry.get("title") or "",
+                "note": _text(entry.get("text"), 500) or None,
                 "url": mealie.recipe_page_url(slug) if slug else None,
                 "ingredients": [
                     _text(item.get("display") or item.get("note"))
@@ -80,6 +82,50 @@ def tool_week_menu(args: dict[str, Any]) -> Any:
             }
         )
     return {"from": start.isoformat(), "to": end.isoformat(), "meals": meals}
+
+
+def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
+    query = _text(args.get("query"), 200)
+    if not query:
+        raise ToolError("Geef een zoekterm op")
+    limit = _int_arg(args, "limit", 20, 1, 50)
+    data = mealie.search_recipes(query, 1, limit)
+    return {
+        "total": data["total"],
+        "recipes": [
+            {"slug": r["slug"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "tags": r["tags"],
+             "url": mealie.recipe_page_url(r["slug"])}
+            for r in data["recipes"]
+        ],
+    }
+
+
+def tool_plan_meal(args: dict[str, Any]) -> Any:
+    slug = _text(args.get("recipe_slug"), 200)
+    title = _text(args.get("title"), mealie.TITLE_MAX)
+    if not slug and not title:
+        raise ToolError("Geef een recept (recipe_slug, zie search_mealie_recipes) of een titel voor een notitie op")
+    if not args.get("date"):
+        raise ToolError("Geef een datum op, JJJJ-MM-DD")
+    _parse_date(args.get("date"), datetime.date.today())
+    values = {"date": args.get("date"), "entryType": args.get("meal") or "dinner", "title": title, "text": _text(args.get("note"), mealie.TEXT_MAX)}
+    if slug:
+        values["recipeSlug"] = slug
+    entry = mealie.create_meal_plan_entry(values)
+    recipe = entry.get("recipe") or {}
+    return {
+        "id": entry.get("id"),
+        "date": entry.get("date"),
+        "meal": entry.get("entryType"),
+        "recipe": recipe.get("name") or entry.get("title") or "",
+        "url": mealie.recipe_page_url(recipe["slug"]) if recipe.get("slug") else None,
+    }
+
+
+def tool_remove_planned_meal(args: dict[str, Any]) -> Any:
+    if args.get("id") in (None, ""):
+        raise ToolError("Geef het id van de maaltijd op (zie get_week_menu)")
+    return mealie.delete_meal_plan_entry(args.get("id"))
 
 
 def tool_search_recipes(args: dict[str, Any]) -> Any:
@@ -537,7 +583,7 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 
 TOOLS: dict[str, dict[str, Any]] = {
     "get_week_menu": {
-        "description": "Het weekmenu uit Mealie: per dag en maaltijd het recept, de link en de ingrediënten. Standaard de huidige week (maandag t/m zondag).",
+        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de link en de ingrediënten. Standaard de huidige week (maandag t/m zondag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
                 "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de maandag van deze week."},
@@ -546,6 +592,36 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "title": "Weekmenu"},
         "handler": tool_week_menu,
+    },
+    "search_mealie_recipes": {
+        "description": "Zoek in de eigen recepten in Mealie. Geeft per recept de slug (nodig voor plan_meal), naam, bereidingstijd, personen, tags en link.",
+        "inputSchema": _schema(
+            {"query": {"type": "string", "description": "Zoekterm, bijvoorbeeld 'curry'."}, "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal recepten, standaard 20."}},
+            ["query"],
+        ),
+        "annotations": {**READ_ONLY, "title": "Recepten in Mealie zoeken"},
+        "handler": tool_search_mealie_recipes,
+    },
+    "plan_meal": {
+        "description": "Zet een recept uit Mealie (recipe_slug, zie search_mealie_recipes) of een notitie (title, bijvoorbeeld 'Uit eten') op een dag in het weekmenu van Mealie. Voegt alleen toe; er wordt niets overschreven.",
+        "inputSchema": _schema(
+            {
+                "date": {"type": "string", "description": "De dag, JJJJ-MM-DD."},
+                "meal": {"type": "string", "enum": list(mealie.ENTRY_TYPES + mealie.EXTRA_ENTRY_TYPES), "description": "De maaltijd, standaard dinner. snack, drink en dessert pas vanaf Mealie 3.7."},
+                "recipe_slug": {"type": "string", "description": "De slug van het recept in Mealie."},
+                "title": {"type": "string", "description": "Titel van een notitie zonder recept."},
+                "note": {"type": "string", "description": "Optionele toelichting."},
+            },
+            ["date"],
+        ),
+        "annotations": {"title": "Maaltijd plannen", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+        "handler": tool_plan_meal,
+    },
+    "remove_planned_meal": {
+        "description": "Haal een maaltijd uit het weekmenu van Mealie (het id staat bij get_week_menu). Het recept zelf blijft in Mealie staan.",
+        "inputSchema": _schema({"id": {"type": "integer", "minimum": 1, "description": "Het id van de maaltijd uit get_week_menu."}}, ["id"]),
+        "annotations": {"title": "Maaltijd uit het weekmenu halen", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
+        "handler": tool_remove_planned_meal,
     },
     "search_allerhande_recipes": {
         "description": "Zoek recepten bij Allerhande (Albert Heijn). Geeft titel, link, bereidingstijd en aantal personen. Importeren in Mealie gaat met import_recipe_to_mealie.",

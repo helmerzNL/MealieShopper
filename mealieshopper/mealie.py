@@ -1,8 +1,10 @@
+import datetime
 import json
 import logging
 import re
 import sqlite3
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from typing import Any
@@ -447,13 +449,8 @@ def _image_path(recipe: dict[str, Any] | None) -> str | None:
 
 def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str, Any]]:
     entries = get_meal_plan(start_date, end_date)
-    slugs = sorted(
-        {
-            entry.get("recipe", {}).get("slug")
-            for entry in entries
-            if entry.get("recipe", {}).get("slug")
-        }
-    )
+    # Een notitie zonder recept ("Uit eten") heeft "recipe": null, niet een ontbrekend veld.
+    slugs = sorted({(entry.get("recipe") or {}).get("slug") for entry in entries if (entry.get("recipe") or {}).get("slug")})
 
     recipe_map: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -473,6 +470,322 @@ def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str,
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
         result.append(enriched)
     return result
+
+
+# --- Het weekmenu plannen ------------------------------------------------------------------------
+# MealieShopper bewaart zelf geen planning: elke wijziging gaat meteen naar Mealie (write-through) en daarna wordt de week
+# opnieuw gelezen. Zie docs/onderzoek-weekmenu-plannen.md.
+
+ENTRY_TYPES = ("breakfast", "lunch", "dinner", "side")
+EXTRA_ENTRY_TYPES = ("snack", "drink", "dessert")  # Mealie kent deze pas vanaf v3.7.0; een ouder Mealie geeft 422
+EXTRA_ENTRY_TYPES_SINCE = (3, 7, 0)
+TITLE_MAX = 200
+TEXT_MAX = 1000
+SEARCH_PAGE = 24
+SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,199}")
+# Velden die Mealie bij het lezen meegeeft maar bij het wijzigen niet terug wil (of negeert).
+_READ_ONLY_ENTRY_FIELDS = ("recipe", "householdId", "updatedAt", "createdAt", "user")
+
+_version_cache: dict[str, tuple[float, str | None]] = {}
+
+
+def version() -> str | None:
+    """De versie van de gekoppelde Mealie ("v3.7.0"), een uur onthouden zoals `group_slug`. None als Mealie het niet zegt."""
+    base = mealie_url()
+    if not base:
+        return None
+    now = time.time()
+    cached = _version_cache.get(base)
+    if cached and now < cached[0]:
+        return cached[1]
+    value: str | None = None
+    try:
+        response = requests.get(f"{base}/api/app/about", timeout=10, allow_redirects=False)
+        if response.ok:
+            value = str((response.json() or {}).get("version") or "").strip() or None
+    except (requests.RequestException, ValueError, AttributeError):
+        value = None
+    _version_cache[base] = (now + (GROUP_SLUG_TTL if value else GROUP_SLUG_RETRY), value)
+    return value
+
+
+def _version_tuple(text: Any) -> tuple[int, ...] | None:
+    match = re.match(r"v?(\d+)\.(\d+)(?:\.(\d+))?", str(text or "").strip())
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def entry_types() -> list[str]:
+    """De maaltijden die de gekoppelde Mealie kent; bij een onbekende versie alleen de vier die elke versie kent."""
+    parsed = _version_tuple(version())
+    extra = parsed is not None and parsed >= EXTRA_ENTRY_TYPES_SINCE
+    return list(ENTRY_TYPES + (EXTRA_ENTRY_TYPES if extra else ()))
+
+
+def _mealie_error(response: Any, nl: str, en: str) -> RuntimeError:
+    """Een leesbare fout uit een weigering van Mealie; het volledige antwoord gaat alleen naar het logboek."""
+    detail = ""
+    try:
+        body = response.json()
+        found = body.get("detail") if isinstance(body, dict) else None
+        if isinstance(found, dict):
+            detail = str(found.get("message") or "")
+        elif isinstance(found, list) and found and isinstance(found[0], dict):
+            detail = str(found[0].get("msg") or "")  # een 422 van FastAPI: [{loc, msg, type}]
+        elif isinstance(found, str):
+            detail = found
+    except (ValueError, AttributeError):
+        detail = ""
+    log.warning("%s (%s): %s", en, response.status_code, str(response.text)[:300])
+    if response.status_code in (401, 403):
+        detail = tr("Mealie weigert de token; koppel Mealie opnieuw", "Mealie refuses the token; link Mealie again")
+    detail = " ".join(detail.split())[:200]
+    return RuntimeError(f"{tr(nl, en)} ({response.status_code}){': ' + detail if detail else ''}")
+
+
+def _plan_date(value: Any) -> str:
+    try:
+        return datetime.date.fromisoformat(str(value or "").strip()).isoformat()
+    except ValueError:
+        raise ValueError(tr("Kies een geldige datum (JJJJ-MM-DD).", "Choose a valid date (YYYY-MM-DD).")) from None
+
+
+def _entry_type(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in ENTRY_TYPES:
+        return text
+    if text in EXTRA_ENTRY_TYPES:
+        if text in entry_types():
+            return text
+        raise ValueError(
+            tr(
+                "Deze maaltijd kent je Mealie nog niet; die komt met Mealie 3.7. Kies ontbijt, lunch, diner of bijgerecht.",
+                "Your Mealie does not know this meal yet; it arrived in Mealie 3.7. Choose breakfast, lunch, dinner or side.",
+            )
+        )
+    raise ValueError(tr("Onbekende maaltijd. Kies bijvoorbeeld diner.", "Unknown meal. Choose dinner, for example."))
+
+
+def _entry_id(value: Any) -> int:
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        number = 0
+    if number <= 0:
+        raise ValueError(tr("Ongeldige maaltijd in het weekmenu.", "Invalid meal in the week menu."))
+    return number
+
+
+def valid_slug(value: Any) -> str:
+    text = str(value or "").strip()
+    if not SLUG.fullmatch(text):
+        raise ValueError(tr("Ongeldig recept.", "Invalid recipe."))
+    return text
+
+
+def _recipe_uuid(value: Any) -> str:
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (TypeError, ValueError, AttributeError):
+        raise ValueError(tr("Ongeldig recept.", "Invalid recipe.")) from None
+
+
+def _clean_entry(values: dict[str, Any], partial: bool = False) -> dict[str, Any]:
+    """Controleer de velden van een maaltijd en geef ze zoals Mealie ze wil.
+
+    `values` kent `date`, `entryType`, `recipeId`, `recipeSlug` (wordt een `recipeId`), `title` en `text`. Bij `partial`
+    (wijzigen) alleen wat is meegegeven; een lege `recipeId` haalt het recept weg (de maaltijd wordt een notitie).
+    """
+    if not isinstance(values, dict):
+        raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
+    fields: dict[str, Any] = {}
+    if not partial or "date" in values:
+        fields["date"] = _plan_date(values.get("date"))
+    if not partial or "entryType" in values:
+        fields["entryType"] = _entry_type(values.get("entryType") or ("" if partial else "dinner"))
+    if not partial or "title" in values:
+        fields["title"] = " ".join(str(values.get("title") or "").split())[:TITLE_MAX]
+    if not partial or "text" in values:
+        fields["text"] = str(values.get("text") or "").strip()[:TEXT_MAX]
+    if values.get("recipeId"):
+        fields["recipeId"] = _recipe_uuid(values["recipeId"])
+    elif values.get("recipeSlug"):
+        fields["recipeId"] = _recipe_uuid(_fetch_recipe(valid_slug(values["recipeSlug"])).get("id"))
+    elif "recipeId" in values or not partial:
+        fields["recipeId"] = None
+    return fields
+
+
+def _require_recipe_or_title(fields: dict[str, Any]) -> None:
+    if not fields.get("recipeId") and not fields.get("title"):
+        raise ValueError(tr("Kies een recept of schrijf een notitie.", "Choose a recipe or write a note."))
+
+
+def create_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
+    """Zet een recept of een notitie op een dag in het weekmenu van Mealie."""
+    ensure_configured()
+    fields = _clean_entry(values)
+    _require_recipe_or_title(fields)
+    response = requests.post(
+        f"{mealie_url()}/api/households/mealplans", headers=auth_headers(), json=fields, timeout=30
+    )
+    if not response.ok:
+        raise _mealie_error(response, "Mealie kon de maaltijd niet plannen", "Mealie could not plan the meal")
+    return response.json()
+
+
+def _get_entry(entry_id: int) -> dict[str, Any]:
+    response = requests.get(
+        f"{mealie_url()}/api/households/mealplans/{entry_id}", headers=auth_headers(), timeout=30
+    )
+    if not response.ok:
+        raise _mealie_error(response, "Maaltijd ophalen uit Mealie mislukt", "Could not fetch the meal from Mealie")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise RuntimeError(tr("Mealie gaf een onverwacht antwoord", "Mealie gave an unexpected answer"))
+    return data
+
+
+def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[str, Any]:
+    """Verplaats of wijzig een maaltijd. Mealie wil bij wijzigen het hele item, dus eerst ophalen en dan samenvoegen."""
+    ensure_configured()
+    number = _entry_id(entry_id)
+    changes = _clean_entry(values, partial=True)
+    current = _get_entry(number)
+    merged = {key: value for key, value in current.items() if key not in _READ_ONLY_ENTRY_FIELDS}
+    merged.update(changes)
+    merged["id"] = number
+    _require_recipe_or_title(merged)
+    response = requests.put(
+        f"{mealie_url()}/api/households/mealplans/{number}", headers=auth_headers(), json=merged, timeout=30
+    )
+    if not response.ok:
+        raise _mealie_error(response, "Mealie kon de maaltijd niet wijzigen", "Mealie could not change the meal")
+    return response.json()
+
+
+def delete_meal_plan_entry(entry_id: Any) -> dict[str, Any]:
+    """Haal een maaltijd uit het weekmenu. Het recept zelf blijft in Mealie staan."""
+    ensure_configured()
+    number = _entry_id(entry_id)
+    response = requests.delete(
+        f"{mealie_url()}/api/households/mealplans/{number}", headers=auth_headers(), timeout=30
+    )
+    if not response.ok:
+        raise _mealie_error(response, "Mealie kon de maaltijd niet verwijderen", "Mealie could not remove the meal")
+    return {"id": number, "deleted": True}
+
+
+def random_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
+    """Laat Mealie een recept kiezen volgens de planregels van het huishouden en zet het meteen in het weekmenu."""
+    ensure_configured()
+    if not isinstance(values, dict):
+        raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
+    payload = {"date": _plan_date(values.get("date")), "entryType": _entry_type(values.get("entryType") or "dinner")}
+    response = requests.post(
+        f"{mealie_url()}/api/households/mealplans/random", headers=auth_headers(), json=payload, timeout=30
+    )
+    if response.status_code == 404:
+        raise RuntimeError(
+            tr(
+                "Mealie vond geen recept dat bij je planregels past. Kies zelf een recept, of pas de regels aan in Mealie.",
+                "Mealie found no recipe that matches your meal plan rules. Choose a recipe yourself, or change the rules in Mealie.",
+            )
+        )
+    if not response.ok:
+        raise _mealie_error(response, "Mealie kon geen recept kiezen", "Mealie could not pick a recipe")
+    return response.json()
+
+
+def _minutes(value: Any) -> int | None:
+    """Minuten uit de bereidingstijd van Mealie, die vrije tekst is ("1 hour 30 minutes", "45 min", "PT30M")."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    iso = re.fullmatch(r"pt?(?:(\d+)h)?(?:(\d+)m)?(?:\d+s)?", text)
+    if iso and (iso.group(1) or iso.group(2)):
+        return int(iso.group(1) or 0) * 60 + int(iso.group(2) or 0) or None
+    hours = re.search(r"(\d+)\s*(?:h|hr|hrs|hour|hours|uur|u)\b", text)
+    minutes = re.search(r"(\d+)\s*(?:m|min|mins|minute|minutes|minuut|minuten)\b", text)
+    if hours or minutes:
+        return int(hours.group(1) if hours else 0) * 60 + int(minutes.group(1) if minutes else 0) or None
+    return (int(text) or None) if text.isdigit() else None
+
+
+def _portions(recipe: dict[str, Any]) -> int | None:
+    for key in ("recipeServings", "recipeYieldQuantity"):
+        value = recipe.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value) if float(value).is_integer() else round(value, 1)
+    match = re.match(r"\s*(\d+)", str(recipe.get("recipeYield") or ""))
+    return (int(match.group(1)) or None) if match else None
+
+
+def recipe_card(recipe: dict[str, Any]) -> dict[str, Any]:
+    """Een Mealie-recept in de vorm van de receptkaarten van de winkels (Recepten zoeken en de receptkiezer)."""
+    slug = str(recipe.get("slug") or "")
+    tags = [str(tag["name"]) for tag in recipe.get("tags") or [] if isinstance(tag, dict) and tag.get("name")]
+    rating = recipe.get("rating")
+    return {
+        "id": slug,
+        "slug": slug,
+        "recipeId": recipe.get("id"),
+        "name": str(recipe.get("name") or slug),
+        "image": _image_path(recipe),
+        "minutes": _minutes(recipe.get("totalTime")),
+        "portions": _portions(recipe),
+        "rating": rating if isinstance(rating, (int, float)) and rating > 0 else None,
+        "tags": tags[:3],
+    }
+
+
+def search_recipes(query: Any, page: Any = 1, per_page: int = SEARCH_PAGE) -> dict[str, Any]:
+    """Zoek in de recepten van Mealie. Zonder zoekterm alle recepten op naam."""
+    ensure_configured()
+    try:
+        number = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        number = 1
+    size = max(1, min(100, int(per_page)))
+    text = " ".join(str(query or "").split())[:200]
+    params: dict[str, Any] = {"page": number, "perPage": size}
+    if text:
+        params["search"] = text  # Mealie sorteert dan zelf op relevantie
+    else:
+        params.update({"orderBy": "name", "orderDirection": "asc"})
+    response = requests.get(f"{mealie_url()}/api/recipes", headers=auth_headers(), params=params, timeout=30)
+    if not response.ok:
+        raise _mealie_error(response, "Zoeken in Mealie mislukt", "Searching Mealie failed")
+    data = response.json()
+    items = [item for item in (data.get("items") if isinstance(data, dict) else None) or [] if isinstance(item, dict) and item.get("slug")]
+    total = data.get("total") if isinstance(data, dict) and isinstance(data.get("total"), int) else len(items)
+    total_pages = data.get("total_pages") if isinstance(data, dict) else None
+    more = number < total_pages if isinstance(total_pages, int) else len(items) >= size
+    return {"recipes": [recipe_card(item) for item in items], "total": total, "page": number, "more": bool(more)}
+
+
+def recipe_detail(slug: Any) -> dict[str, Any]:
+    """Een Mealie-recept met ingrediënten en bereiding, in de vorm van het detailscherm bij Recepten zoeken."""
+    ensure_configured()
+    clean = valid_slug(slug)
+    recipe = get_recipe(clean)
+    ingredients = []
+    for item in recipe.get("recipeIngredient") or []:
+        if isinstance(item, dict):
+            line = " ".join(str(item.get("display") or item.get("note") or "").split())
+            if line:
+                ingredients.append({"line": line})
+    steps = [
+        str(step.get("text")).strip()
+        for step in recipe.get("recipeInstructions") or []
+        if isinstance(step, dict) and str(step.get("text") or "").strip()
+    ]
+    return {
+        **recipe_card(recipe),
+        "description": str(recipe.get("description") or "").strip(),
+        "ingredients": ingredients,
+        "steps": steps,
+        "url": recipe_page_url(clean),
+    }
 
 
 def list_recipes(limit: int = 500) -> list[dict[str, Any]]:

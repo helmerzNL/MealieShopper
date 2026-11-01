@@ -503,26 +503,29 @@ class ProtocolTest(McpTestCase):
 
     def test_tools_list_has_schemas_and_honest_annotations(self):
         tools = {t["name"]: t for t in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
-        self.assertEqual(set(tools), {"get_week_menu", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
+        self.assertEqual(set(tools), {"get_week_menu", "search_mealie_recipes", "plan_meal", "remove_planned_meal", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe",
                          "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches"})
+        # De enige tool die iets weghaalt, haalt een maaltijd uit het weekmenu (het recept blijft); die zegt dat eerlijk.
+        destructive = {"remove_planned_meal"}
         for name, tool in tools.items():
             self.assertEqual(tool["inputSchema"]["type"], "object", name)
             self.assertFalse(tool["inputSchema"]["additionalProperties"], name)
             self.assertTrue(tool["description"], name)
-            self.assertIs(tool["annotations"]["destructiveHint"], False, name)
-        self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["report_offer_mismatch", "import_recipe_to_mealie"])
+            self.assertIs(tool["annotations"]["destructiveHint"], name in destructive, name)
+        self.assertEqual([n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]], ["plan_meal", "remove_planned_meal", "report_offer_mismatch", "import_recipe_to_mealie"])
         self.assertIs(tools["report_offer_mismatch"]["annotations"]["idempotentHint"], True, "dezelfde melding twee keer is dezelfde melding")
-        # Geen enkele tool vult het mandje of verwijdert iets.
-        # De tools die over het mandje of bestellingen gaan, lezen alleen; er is geen tool die iets toevoegt, wijzigt of verwijdert.
+        self.assertIs(tools["plan_meal"]["annotations"]["idempotentHint"], False, "twee keer plannen geeft twee maaltijden")
+        # Geen enkele tool vult het mandje of verwijdert iets bij een winkel.
+        # De tools die over het mandje of bestellingen gaan, lezen alleen; er is geen tool die daar iets toevoegt, wijzigt of verwijdert.
         for name, tool in tools.items():
-            if any(word in name for word in ("cart", "basket", "order", "receipt", "delete", "remove", "clear")):
+            if any(word in name for word in ("cart", "basket", "order", "receipt", "delete", "remove", "clear")) and name not in destructive:
                 self.assertTrue(name.startswith(("get_", "list_", "search_")), name)
                 self.assertTrue(tool["annotations"]["readOnlyHint"], name)
-        self.assertFalse(any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in tools))
+        self.assertFalse(any(name.startswith(("add_", "fill_", "place_", "delete_", "remove_", "clear_", "update_")) for name in set(tools) - destructive))
 
 
 class OfferReviewToolsTest(McpTestCase):
@@ -697,8 +700,8 @@ class ToolsTest(McpTestCase):
 
     def test_week_menu(self):
         entries = [
-            {"date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]}},
-            {"date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "recipe": None, "recipeDetail": None},
+            {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]}},
+            {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
                 mock.patch.object(mealie, "group_slug", return_value="home"):
@@ -708,6 +711,43 @@ class ToolsTest(McpTestCase):
         self.assertEqual(data["meals"][0]["recipe"], "Restjes")
         self.assertEqual(data["meals"][1]["url"], "https://mealie.example/g/home/r/pasta")
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
+        # Het id is nodig om een maaltijd met remove_planned_meal weg te halen.
+        self.assertEqual([(m["id"], m["note"]) for m in data["meals"]], [(4, "Van zondag"), (5, None)])
+
+    def test_search_mealie_recipes(self):
+        found = {"recipes": [{"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": "/api/mealie/recipes/r1/image?v=1",
+                              "minutes": 20, "portions": 4, "rating": None, "tags": ["Snel"]}], "total": 1, "page": 1, "more": False}
+        with mock.patch.object(mealie, "search_recipes", return_value=found) as search, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
+            data = self.data("search_mealie_recipes", {"query": "pasta", "limit": 5})
+        search.assert_called_once_with("pasta", 1, 5)
+        self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
+        self.assertTrue(self.call(self.token, "search_mealie_recipes", {"query": " "})["isError"])
+
+    def test_plan_meal(self):
+        created = {"id": 12, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}}
+        with mock.patch.object(mealie, "create_meal_plan_entry", return_value=created) as create, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", return_value="home"):
+            data = self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta"})
+            note = self.data("plan_meal", {"date": "2026-11-04", "meal": "lunch", "title": "Uit eten", "note": "Bij oma"})
+        self.assertEqual(data, {"id": 12, "date": "2026-11-03", "meal": "dinner", "recipe": "Pasta", "url": "https://mealie.example/g/home/r/pasta"})
+        self.assertEqual(create.call_args_list[0].args[0], {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeSlug": "pasta"})
+        self.assertEqual(create.call_args_list[1].args[0], {"date": "2026-11-04", "entryType": "lunch", "title": "Uit eten", "text": "Bij oma"})
+        self.assertEqual(note["id"], 12)
+
+    def test_plan_meal_validates_before_writing(self):
+        with mock.patch.object(mealie, "create_meal_plan_entry") as create:
+            for args in ({"date": "2026-11-03"}, {"recipe_slug": "pasta"}, {"date": "morgen", "recipe_slug": "pasta"}):
+                self.assertTrue(self.call(self.token, "plan_meal", args)["isError"], args)
+        create.assert_not_called()
+
+    def test_remove_planned_meal(self):
+        with mock.patch.object(mealie, "delete_meal_plan_entry", return_value={"id": 7, "deleted": True}) as delete:
+            self.assertEqual(self.data("remove_planned_meal", {"id": 7}), {"id": 7, "deleted": True})
+        delete.assert_called_once_with(7)
+        with mock.patch.object(mealie, "delete_meal_plan_entry") as delete:
+            self.assertTrue(self.call(self.token, "remove_planned_meal", {})["isError"])
+        delete.assert_not_called()
 
     def test_week_menu_defaults_to_this_week_and_validates(self):
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
