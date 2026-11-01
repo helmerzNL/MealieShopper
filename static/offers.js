@@ -1,11 +1,40 @@
 // Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic en Jumbo) per categorie, en receptvoorstellen
 // waarvan ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; die wordt elke dag ververst en kan de
 // beheerder onder Instellingen > Koppelen meteen synchroniseren.
-// Laadt na basket.js en gebruikt STORES, state, formatPrice en formatSyncTime uit app.js.
+// Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekOffsetText en setPlanWeek uit app.js.
+//
+// De week is die van het weekmenu (state.weekOffset): plan je volgende week, dan staan hier de aanbiedingen van volgende week, en kies
+// je hier een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet: verlopen aanbiedingen staan in de Prijsgeschiedenis.
 
 const OFFERS_STORES = ["ah", "picnic", "jumbo"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
-const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS };
+const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "" };
+
+// De week van de aanbiedingen: die van het weekmenu, maar nooit een eerdere dan deze (staat het weekmenu op vorige week, dan deze week).
+function offersWeekOffset() {
+  return Math.max(0, state.weekOffset);
+}
+
+function offersWeek() {
+  return getWeekBounds(offersWeekOffset());
+}
+
+function renderOffersWeek() {
+  const offset = offersWeekOffset();
+  const week = getWeekBounds(offset);
+  document.querySelectorAll(".offers-week").forEach((bar) => {
+    bar.querySelector(".offers-week__range").textContent = week.label;
+    bar.querySelector(".offers-week__offset").textContent = weekOffsetText(offset);
+    bar.querySelector('[data-offers-week="-1"]').disabled = offset === 0;
+  });
+}
+
+function offersChangeWeek(step) {
+  const offset = Math.max(0, offersWeekOffset() + step);
+  if (offset === state.weekOffset) return;
+  setPlanWeek(offset);
+  showOffers();
+}
 
 function offersStores() {
   return OFFERS_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
@@ -55,6 +84,12 @@ function offersSwitchStore(store) {
 // De voorwaarden van een aanbieding: vanaf hoeveel stuks, wat een stuk dan kost en tot wanneer ze geldt.
 function offerConditionsText(offer) {
   const parts = [];
+  // Moet de aanbieding nog beginnen, en dat pas na de maandag van de gekozen week (Jumbo wisselt op woensdag), dan staat erbij vanaf wanneer.
+  const from = offer.validFrom ? new Date(`${String(offer.validFrom).slice(0, 10)}T12:00:00`) : null;
+  const startsLater = offer.validity === "upcoming" && offersState.weekStart && String(offer.validFrom).slice(0, 10) > offersState.weekStart;
+  if (from && !Number.isNaN(from.getTime()) && startsLater) {
+    parts.push(t("offers.valid_from", { date: `${weekdayShort(from)} ${from.getDate()} ${monthShort(from)}` }));
+  }
   if (offer.minQuantity > 1) parts.push(t("offers.min_quantity", { count: offer.minQuantity }));
   if (offer.unitPrice && offer.mechanic !== "fixed" && offer.unitPrice !== offer.price) {
     parts.push(t("offers.unit_price", { price: formatPrice(offer.unitPrice) }));
@@ -145,8 +180,23 @@ function renderOffers(data) {
   const periodText = data.supported ? offersPeriodText(data.period) : "";
   $("#offers-period").textContent = periodText;
   $("#offers-period").hidden = !periodText;
+  renderOffersWeekNotes(data);
   renderOfferCategories();
   renderOfferGrid();
+}
+
+// Onder het aantal: wat er buiten de gekozen week valt. Aanbiedingen die pas later beginnen (de bonus van volgende week, die AH in het
+// weekend al doorgeeft) met een knop naar de week erna; voor een andere week dan deze de aanbiedingen zonder looptijd, die de winkel
+// alleen voor vandaag doorgeeft; en een lege week die nog niet bekend is.
+function renderOffersWeekNotes(data) {
+  const later = data.supported && data.syncedAt ? data.later || 0 : 0;
+  $("#offers-later").hidden = !later;
+  $("#offers-later-text").textContent = later ? tn("offers.later", later) : "";
+  if (!data.supported || !data.syncedAt || !data.week || data.week.current) return;
+  const notes = [];
+  if (!data.total) notes.push(t("offers.week.empty"));
+  if (data.undated) notes.push(tn("offers.undated", data.undated, { store: STORES[offersState.store].name }));
+  if (notes.length) $("#offers-status").textContent += ` ${notes.join(" ")}`;
 }
 
 function offersChooseCategory(category) {
@@ -165,6 +215,7 @@ function offersShowMore() {
 function renderOffersLoading() {
   $("#offers-status").textContent = "";
   $("#offers-period").hidden = true;
+  $("#offers-later").hidden = true;
   $("#offers-categories").hidden = true;
   $("#offers-products").innerHTML = "";
   $("#offers-products").setAttribute("aria-busy", "true");
@@ -181,24 +232,28 @@ function endOffersLoading() {
 
 // Wisselt iemand tijdens het laden van winkel, dan telt alleen de laatste aanvraag; een traag antwoord van de vorige winkel wordt genegeerd.
 let offersLoadId = 0;
-// De laatst geladen lijst per winkel. Wissel je terug naar een winkel die je al zag, dan staat die lijst er meteen en controleren we op de
-// achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd. De browser doet hetzelfde met een ETag (304).
+// De laatst geladen lijst per winkel en week. Wissel je terug naar een winkel of week die je al zag, dan staat die lijst er meteen en controleren
+// we op de achtergrond of er iets veranderd is; alleen bij een andere lijst wordt het scherm vernieuwd. De browser doet hetzelfde met een ETag (304).
 const offersCache = {};
 
 async function showOffers() {
   const loadId = ++offersLoadId;
   const store = offersState.store;
+  const week = offersWeek().start;
+  const key = `${store}|${week}`;
+  offersState.weekStart = week;
   renderOffersStore();
+  renderOffersWeek();
   message("#offers-message", "");
-  const cached = offersCache[store];
+  const cached = offersCache[key];
   if (cached) renderOffers(cached);
   else renderOffersLoading();
   try {
-    const data = await jsonFetch(`/api/offers?store=${encodeURIComponent(store)}`);
+    const data = await jsonFetch(`/api/offers?store=${encodeURIComponent(store)}&week=${encodeURIComponent(week)}`);
     if (loadId !== offersLoadId) return;
     endOffersLoading();
     if (!cached || JSON.stringify(cached) !== JSON.stringify(data)) renderOffers(data);
-    offersCache[store] = data;
+    offersCache[key] = data;
   } catch (error) {
     if (loadId !== offersLoadId) return;
     endOffersLoading();
@@ -312,7 +367,8 @@ async function showOfferRecipes() {
   }
   try {
     const course = offersState.course === "all" ? "" : `&course=${encodeURIComponent(offersState.course)}`;
-    const data = await jsonFetch(`/api/offers/recipes?store=${encodeURIComponent(offersState.store)}${course}`);
+    const week = `&week=${encodeURIComponent(offersWeek().start)}`;
+    const data = await jsonFetch(`/api/offers/recipes?store=${encodeURIComponent(offersState.store)}${course}${week}`);
     // Staat de gekozen soort er na het opnieuw inlezen niet meer bij, dan tonen we weer alles.
     if (offersState.course !== "all" && !(data.courses || []).some((item) => item.id === offersState.course)) {
       offersState.course = "all";
@@ -412,6 +468,13 @@ window.addEventListener("resize", () => {
   offersResizeFrame = requestAnimationFrame(renderOfferGrid);
 });
 $("#offers-index").addEventListener("click", offersIndexRecipes);
+document.querySelectorAll(".offers-week").forEach((bar) =>
+  bar.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-offers-week]");
+    if (button && !button.disabled) offersChangeWeek(Number(button.dataset.offersWeek));
+  })
+);
+$("#offers-later-show").addEventListener("click", () => offersChangeWeek(1));
 $("#offers-store-list").addEventListener("click", (event) => {
   const item = event.target.closest("[data-store]");
   if (!item) return;
@@ -420,9 +483,11 @@ $("#offers-store-list").addEventListener("click", (event) => {
 });
 window.addEventListener("ms:languagechange", () => {
   renderOffersStore();
+  renderOffersWeek();
   if (offersTabActive()) showOffers();
 });
 renderOffersStore();
+renderOffersWeek();
 
 // ---- Instellingen > Koppelen: de aanbiedingen van alle winkels synchroniseren, en wat de dagelijkse taak deed.
 const offersSync = { status: null, result: null };

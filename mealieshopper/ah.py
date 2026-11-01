@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 
-from . import auth
+from . import auth, deals
 from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
@@ -694,9 +694,126 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
 
 
 # --- Bonus (aanbiedingen) -----------------------------------------------------------------------
-# De bonuspagina van de AH-app is een onofficiële route die we niet kunnen garanderen. Daarom lezen we het
-# antwoord op vorm (elk object met een `webshopId` en een `title` is een product) en vallen we terug op
-# zoekopdrachten met de bonusvlag als de pagina niets teruggeeft. De verkenner (`ah_explore`) toont wat AH geeft.
+# De bonus komt uit de GraphQL van de AH-app, per bonusperiode: AH's bonusweek loopt van maandag t/m zondag, net als het
+# weekmenu. Eén aanvraag geeft de periodes die AH kent (deze week en, vanaf het weekend, volgende week) en alle acties
+# daarin, met hun producten, de normale prijs en de actietekst ("2e halve prijs", "2 voor 2.99"). Zo staat de bonus
+# van volgende week er al compleet in terwijl deze week nog loopt. Lukt dat niet, dan valt `get_bonus_products` terug
+# op de bonuspagina en daarna op zoekopdrachten met de bonusvlag (die vinden alleen een deel, en van volgende week weinig).
+# Het zijn onofficiële routes die we niet kunnen garanderen; de verkenner (`ah_explore`) toont wat AH geeft.
+BONUS_PROMOTIONS_QUERY = """
+query BonusPromotions {
+  bonusPeriods { startDate endDate weekNumber }
+  bonusPromotions {
+    id
+    title
+    periodStart
+    periodEnd
+    promotionType
+    category
+    promotionLabels { title topText centerText bottomText }
+    products {
+      id
+      title
+      brand
+      salesUnitSize
+      price { now { amount } was { amount } }
+      imagePack { small { url } }
+    }
+  }
+}
+"""
+# De acties die bij de Bonus horen: de landelijke bonus en de online bonus. INCENTIVE is bezorgkorting ("gratis bezorging bij
+# 12 euro"), ETOS en GALL zijn andere winkels.
+BONUS_PROMOTION_TYPES = frozenset({"NATIONAL", "AHONLINE"})
+# Soorten actie met een lagere prijs per stuk, zonder minimumaantal: daar is de actieprijs uit te rekenen.
+_SINGLE_UNIT_MECHANICS = (deals.PERCENT, deals.AMOUNT_OFF, deals.FIXED)
+
+
+def _promotion_label(promotion: dict[str, Any]) -> str:
+    """De actietekst zoals AH hem op het schildje zet: "50% korting", "2 voor 2.99", "voor 1.99", "online Bonus"."""
+    labels = promotion.get("promotionLabels") or []
+    first = labels[0] if labels and isinstance(labels[0], dict) else {}
+    parts = (first.get(key) for key in ("title", "topText", "centerText", "bottomText"))
+    return " ".join(str(part).strip() for part in parts if part and str(part).strip())
+
+
+def _amount(node: Any) -> float | None:
+    value = node.get("amount") if isinstance(node, dict) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
+    """De producten van een actie, in de vorm van `_bonus_product`, met de looptijd van de actie.
+
+    AH geeft per product de normale prijs (ook voor volgende week, als de actie nog niet loopt). De actieprijs rekenen we uit de
+    actietekst uit als dat zonder voorwaarde kan (25% korting, €1 korting, voor 1.99); bij een actie met een minimumaantal
+    (2 voor 3, 2e halve prijs) blijft de prijs de normale prijs, zoals AH hem ook toont, en rekent `deals` de prijs per stuk uit.
+    """
+    label = _promotion_label(promotion)
+    mechanic = deals.parse_mechanic(label)
+    valid_from = promotion.get("periodStart") or None
+    valid_until = _bonus_end({"bonusEndDate": promotion.get("periodEnd")})
+    products = []
+    for item in promotion.get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        product_id, title = item.get("id"), str(item.get("title") or "").strip()
+        if not product_id or not title:
+            continue
+        price = item.get("price") if isinstance(item.get("price"), dict) else {}
+        now, regular = _amount(price.get("now")), _amount(price.get("was"))
+        regular = regular if regular is not None else now
+        unit = None
+        if mechanic["type"] in _SINGLE_UNIT_MECHANICS and mechanic["minQuantity"] == 1:
+            unit = deals.effective_unit_price(mechanic, regular, now)
+        on_offer = unit is not None and regular is not None and unit < regular
+        images = item.get("imagePack") or []
+        small = images[0].get("small") if images and isinstance(images[0], dict) else None
+        products.append(
+            {
+                "id": str(product_id),
+                "title": title,
+                "brand": item.get("brand") or None,
+                "unitSize": item.get("salesUnitSize") or None,
+                "price": unit if on_offer else regular,
+                "priceBefore": regular if on_offer else None,
+                "promoLabel": label,
+                "image": (small.get("url") if isinstance(small, dict) else None) or None,
+                "url": product_web_url(product_id),
+                "validFrom": valid_from,
+                "validUntil": valid_until,
+                "categoryHint": promotion.get("category") or None,
+            }
+        )
+    return products
+
+
+def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
+    """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
+    (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login."""
+    data = _graphql(get_token(), BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen")
+    periods = [
+        (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
+        for period in data.get("bonusPeriods") or []
+        if isinstance(period, dict)
+    ]
+    periods = [(start, end) for start, end in periods if start and end]
+    today = today or date.today()
+    found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
+    for promotion in data.get("bonusPromotions") or []:
+        if not isinstance(promotion, dict) or promotion.get("promotionType") not in BONUS_PROMOTION_TYPES:
+            continue
+        start, end = deals.parse_date(promotion.get("periodStart")), deals.parse_date(promotion.get("periodEnd"))
+        if end is not None and end < today:
+            continue  # al afgelopen
+        # Alleen acties in een bonusperiode die AH zelf noemt; zonder periodes houden we alles.
+        if periods and not any(deals.in_week(start, end, first, last) for first, last in periods):
+            continue
+        for product in _promotion_products(promotion):
+            found.setdefault((product["id"], product["validFrom"], product["validUntil"]), product)
+    return list(found.values())
+
+
 BONUS_SECTION_PATH = "/mobile-services/bonuspage/v2/section"
 BONUS_FALLBACK_TERMS = (
     "kip", "gehakt", "vis", "zalm", "worst", "spek", "rundvlees", "varkensvlees", "pasta", "rijst", "aardappel",
@@ -775,9 +892,16 @@ def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
 
 
 def get_bonus_products() -> list[dict[str, Any]]:
-    """De aanbiedingen (AH Bonus): eerst de bonuspagina, anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
-    token = get_token()
+    """De aanbiedingen (AH Bonus): eerst de bonus per bonusperiode (GraphQL, deze en volgende week), anders de bonuspagina,
+    anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
     errors: list[str] = []
+    try:
+        promotions = get_bonus_promotions()
+        if promotions:
+            return promotions
+    except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de bonuspagina en zoeken
+        errors.append(str(exc)[:200])
+    token = get_token()
     found: dict[str, dict[str, Any]] = {}
     try:
         data = _request_json(

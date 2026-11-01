@@ -186,6 +186,15 @@ class DescribeTests(unittest.TestCase):
         self.assertEqual(deals.describe("25% korting", valid_until="2026-10-18", today=self.TODAY)["validity"], "expired")
 
 
+class AhShieldTests(unittest.TestCase):
+    def test_a_price_on_the_shield_is_a_fixed_price(self):
+        self.assertEqual(deals.parse_mechanic("voor 1.99"), {"type": "fixed", "minQuantity": 1, "fixedPrice": 1.99})
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("voor 1.99"), 2.49, 2.49), 1.99)
+        self.assertEqual(deals.parse_mechanic("2 voor 2.99")["type"], "x_for_y", "met een aantal ervoor blijft het x voor y")
+        self.assertEqual(deals.parse_mechanic("voor 50% korting")["type"], "percent")
+        self.assertEqual(deals.parse_mechanic("online Bonus")["type"], "unknown")
+
+
 class CommonPeriodTests(unittest.TestCase):
     def test_most_shared_period_wins(self):
         week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
@@ -196,6 +205,13 @@ class CommonPeriodTests(unittest.TestCase):
         week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
         other = {"validFrom": "2026-10-19", "validUntil": "2026-10-25"}
         self.assertEqual(deals.common_period([other, week])["until"], "2026-11-01")
+
+    def test_a_period_of_one_day_only_counts_without_a_longer_one(self):
+        week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
+        today = {"validFrom": "2026-11-01", "validUntil": "2026-11-01"}
+        self.assertEqual(deals.common_period([today, today, today, week]), {"from": "2026-10-26", "until": "2026-11-01"},
+                         "AH's pakketkortingen gelden steeds een dag; de kop noemt de bonusweek")
+        self.assertEqual(deals.common_period([today]), {"from": "2026-11-01", "until": "2026-11-01"})
 
     def test_open_ended_and_undated_offers_do_not_count(self):
         self.assertIsNone(deals.common_period([{"validFrom": "2026-10-26", "validUntil": None}, {}, {"validUntil": "2026-11-01"}]))
@@ -320,3 +336,18 @@ class PromoExplorerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WeekTests(unittest.TestCase):
+    def test_every_day_points_at_its_monday_and_sunday(self):
+        for day in ("2026-11-02", "2026-11-05", "2026-11-08", "2026-11-05T10:00:00Z"):
+            self.assertEqual(deals.week_of(day), (date(2026, 11, 2), date(2026, 11, 8)), day)
+        self.assertIsNone(deals.week_of("volgende week"))
+
+    def test_an_offer_belongs_to_every_week_it_touches(self):
+        monday, sunday = date(2026, 11, 2), date(2026, 11, 8)
+        self.assertTrue(deals.in_week("2026-11-02", "2026-11-08", monday, sunday))
+        self.assertTrue(deals.in_week("2026-10-28", "2026-11-03", monday, sunday), "Jumbo: wo t/m di loopt de week in")
+        self.assertTrue(deals.in_week("2026-10-01", None, monday, sunday), "doorlopend")
+        self.assertFalse(deals.in_week("2026-10-26", "2026-11-01", monday, sunday))
+        self.assertFalse(deals.in_week("2026-11-09", "2026-11-15", monday, sunday))

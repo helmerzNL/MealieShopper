@@ -2,14 +2,38 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.84.2
+## v2.85.1
 
-### Opgelost in 2.84.2
+### Opgelost in 2.85.1
 
 *English summary: Find recipes has more breathing room: the explanation no longer sticks to the search field, each store (Mealie, Albert Heijn, Jumbo and so on) starts with space above its heading, and **More recipes** no longer touches the cards above it. Reload the page once after updating.*
 
 - **Meer ruimte in Recepten zoeken.** De uitleg onder het zoekvak stond er direct tegenaan; er zit nu 10 px tussen. Elke winkel in de resultaten (Mealie, Albert Heijn, Jumbo, Picnic, HelloFresh, Marley Spoon) begint met 24 px ruimte boven het kopje, zodat het kopje niet meer aan de uitleg of aan de kaarten van de winkel erboven plakt. **Meer recepten** staat 14 px onder de kaarten in plaats van ertegenaan.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+## v2.85.0
+
+### Nieuw in 2.85.0
+
+*English summary: the Offers tab now shows the offers of the week you are planning ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). The week is at the top with the same arrows as the week menu, and both share one week: plan next week and you see next week's offers, pick a week in Offers and the week menu follows. The AH Bonus now comes per Bonus period from the GraphQL of the AH app: AH's Bonus week runs Monday to Sunday like the week menu, and next week's complete Bonus is there as soon as AH gives it at the weekend (about 3,000 products a week, where searching found a few hundred and only some 80 of next week). A product on Bonus in both weeks keeps both deals. The recipe suggestions use the same week and are about 40 times faster. The header names the Bonus week again instead of "Valid Sun 1 Nov to Sun 1 Nov".*
+
+- **Aanbiedingen per week, gelijk met het weekmenu** ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). Bovenaan het tabblad Aanbiedingen (en bij Recepten) staat de week, met dezelfde pijltjes als in het weekmenu. Het weekmenu en Aanbiedingen delen de week: plan je volgende week, dan zie je de aanbiedingen van volgende week, en kies je bij Aanbiedingen een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet; verlopen aanbiedingen staan in de Prijsgeschiedenis.
+- **De AH Bonus per bonusperiode, compleet, ook van volgende week.** MealieShopper haalt de bonus nu uit de GraphQL van de AH-app (`bonusPeriods` en `bonusPromotions`): AH's bonusweek loopt van maandag t/m zondag, net als het weekmenu, en de bonus van volgende week staat erin zodra AH die in het weekend doorgeeft. Eén aanvraag van een paar seconden geeft per actie de producten, hun normale prijs en de actietekst (*2e halve prijs*, *2 voor 2.99*, *voor 1.99*). Dat zijn zo'n 3.000 producten per week; het zoeken met de bonusvlag vond er een paar honderd, en van volgende week zo'n 80. De landelijke en de online bonus doen mee, bezorgkorting en de acties van Etos en Gall niet. Lukt de aanvraag niet, dan valt MealieShopper terug op de bonuspagina en het zoeken.
+- **Een product kan in twee weken een eigen actie hebben.** Is gehakt deze week 25% korting en volgende week *2 voor 5*, dan staat het bij elke week met die actie. De tabel `offers` heeft daarvoor geen sleutel meer op winkel en product; een bestaande tabel wordt bij de eerste start een keer omgebouwd, met dezelfde rijen. Een back-up van een eerdere versie is gewoon terug te zetten.
+- **Bij deze week staat wat er al voor later bekend is**: *Er zijn al … aanbiedingen bekend die later beginnen*, met **Bekijk de week erna**.
+- **Een aanbieding hoort bij elke week waarin ze geldt.** Een doorlopende korting zonder einddatum (zoals AH's *volume voordeel*) staat in elke week, na de aanbiedingen met een einddatum, zodat de bonus van de week bovenaan staat. Staat een product twee keer in dezelfde week, dan wint de meest specifieke actie (een weekactie gaat voor een actie die tot de feestdagen loopt). Een aanbieding zonder looptijd (Picnic geeft er geen) staat alleen bij de huidige week; bij een andere week staat erbij hoeveel dat er zijn. Begint een aanbieding nog en pas later in de gekozen week (Jumbo wisselt op woensdag), dan staat er *vanaf …* bij.
+- **De receptvoorstellen gebruiken de aanbiedingen van dezelfde week, en zijn zo'n 40 keer sneller.** Er werd elk ingrediënt met elke aanbieding vergeleken; nu alleen met de aanbiedingen die het hoofdwoord in hun naam kunnen hebben, met precies dezelfde uitkomst. 400 recepten tegen de hele bonus van een week kost ongeveer een seconde. *Recepten zoeken met AI* krijgt het aanbod van deze week.
+- **De AH-verkenner** toont per bonusperiode hoeveel acties en producten AH geeft, zodat te zien is of de bonus van volgende week er al staat.
+- **API**: `GET /api/offers` en `GET /api/offers/recipes` nemen `week` (een datum in de week, zoals `2026-11-02`); zonder `week` is het de week van vandaag. Het antwoord meldt `week`, `later` (aanbiedingen die pas na die week beginnen) en `undated` (aanbiedingen zonder looptijd die voor een andere week zijn weggelaten). Elke week heeft een eigen `ETag`.
+
+### Opgelost in 2.85.0
+
+- **"Geldig zo 1 nov t/m zo 1 nov".** De regel boven de aanbiedingen noemt de looptijd die de meeste aanbiedingen delen. AH geeft zijn pakketkortingen en volumevoordelen elke dag opnieuw door met een looptijd van alleen die dag, en dat waren er meer dan de bonus van de week; op zondag stond er daardoor alleen vandaag. Een looptijd van één dag telt nu alleen als er geen langere is, zodat er weer *Geldig ma 26 okt t/m zo 1 nov* staat.
+- **De bonus van volgende week stond tussen die van vandaag**, en kwam al in de prijsgeschiedenis voordat hij begon. De geschiedenis schrijft een aanbieding nu pas als ze begint.
+- **"voor 1.99"** (AH's schildje voor een vaste actieprijs) wordt gelezen als een vaste prijs.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#166](https://github.com/helmerzNL/MealieShopper/pull/166); issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
 
 ## v2.84.1
 

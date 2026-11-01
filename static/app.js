@@ -470,17 +470,27 @@ function getWeekBounds(offset = 0) {
   return { start: localIsoDate(days[0]), end: localIsoDate(days[6]), days: days.map(localIsoDate), label: `${label(days[0])} - ${label(days[6])}` };
 }
 
+// "Deze week", "Volgende week", "+2 weken": hoe ver een week van de huidige af ligt. Het weekmenu en Aanbiedingen gebruiken dezelfde tekst.
+function weekOffsetText(offset) {
+  if (offset === 0) return t("week.this");
+  if (offset === 1) return t("week.next");
+  if (offset === -1) return t("week.prev");
+  return t("week.weeks", { n: `${offset > 0 ? "+" : ""}${offset}` });
+}
+
 function updateWeekLabel() {
   const week = getWeekBounds(state.weekOffset);
   $("#week-range").textContent = week.label;
-  $("#week-offset").textContent =
-    state.weekOffset === 0
-      ? t("week.this")
-      : state.weekOffset === 1
-        ? t("week.next")
-        : state.weekOffset === -1
-          ? t("week.prev")
-          : t("week.weeks", { n: `${state.weekOffset > 0 ? "+" : ""}${state.weekOffset}` });
+  $("#week-offset").textContent = weekOffsetText(state.weekOffset);
+}
+
+// Een andere week kiezen. Het weekmenu en het tabblad Aanbiedingen delen de week: plan je volgende week, dan zie je de aanbiedingen
+// van volgende week, en andersom. Het weekmenu laadt de week meteen (uit de cache als die er is), ook als je in Aanbiedingen wisselt,
+// zodat er bij terugkomen geen menu van de vorige week staat.
+function setPlanWeek(offset) {
+  state.weekOffset = offset;
+  updateWeekLabel();
+  if (state.planAutoLoaded) loadMealPlan();
 }
 
 function formatDate(dateStr) {
