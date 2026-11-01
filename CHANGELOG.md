@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.86.1
+
+### Opgelost in 2.86.1
+
+*English summary: Crisp recipes and products now show their photos. Crisp gives a photo as a blob id, not as an address; MealieShopper now builds the address the way the Crisp app does (`https://crispapp.nl/blob/<id>?thumb=<size>`), in Find recipes, in the recipe view and in the check list.*
+
+- **Foto's bij Crisp-recepten en -producten.** Bij Recepten zoeken, in het recept en in de controlelijst ontbrak de foto. Crisp geeft een foto als blob-id, niet als adres; MealieShopper liet die weg. Nu maakt het het adres zoals de Crisp-app (`https://crispapp.nl/blob/<id>?thumb=<maat>`): 512 voor de kaarten, 1024 voor het recept en de foto in het groot.
+
+- Pull request: [#173](https://github.com/helmerzNL/MealieShopper/pull/173).
+
 ## v2.86.0
 
 ### Nieuw in 2.86.0

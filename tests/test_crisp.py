@@ -25,7 +25,7 @@ def response(data=None, *, status=200):
 def product(product_id=101, title="Volle melk", price="1.89", **extra):
     """Een product zoals Crisp het in zoekresultaten en het mandje zet."""
     return {"itemType": "product", "id": product_id, "title": title, "price": price, "basePrice": price,
-            "weightIndication": "1 liter", "images": ["https://crispapp.nl/asset/abc"], "deliverable": True, **extra}
+            "weightIndication": "1 liter", "images": ["prodBlob123"], "deliverable": True, **extra}
 
 
 def recipe(recipe_id=55, **extra):
@@ -35,7 +35,7 @@ def recipe(recipe_id=55, **extra):
         "subTitle": "met zilvervliesrijst",
         "description": "Een **romige** curry.",
         "portions": 2,
-        "images": ["/asset/recept"],
+        "images": ["recipeBlob456"],
         "cookingMethods": {"short": {"minutes": 30, "text": "30 min"}},
         "ingredientGroups": [
             {"title": None, "groupType": "default", "ingredients": [
@@ -201,13 +201,29 @@ class ProductTest(unittest.TestCase):
         summary = crisp.product_summary(product(supplier={"name": "Weidemelk"}))
         self.assertEqual(summary, {
             "id": "101", "title": "Volle melk", "brand": "Weidemelk", "unitSize": "1 liter", "price": 1.89,
-            "image": "https://crispapp.nl/asset/abc", "isBonus": False, "url": None, "available": True,
+            "image": "https://crispapp.nl/blob/prodBlob123?thumb=512", "isBonus": False, "url": None, "available": True,
         })
 
     def test_without_weight_it_is_per_piece_and_paths_become_addresses(self):
         summary = crisp.product_summary(product(weightIndication=None, images=["/asset/xyz"]))
         self.assertEqual((summary["unitSize"], summary["image"]), ("per stuk", "https://crispapp.nl/asset/xyz"))
         self.assertIsNone(crisp.product_summary(product(images=["javascript:x"]))["image"])
+
+    def test_blob_ids_become_addresses_like_in_the_app(self):
+        self.assertEqual(crisp._image(["abc-DEF_1.2"]), "https://crispapp.nl/blob/abc-DEF_1.2?thumb=512")
+        self.assertEqual(crisp._image("abc", crisp.THUMB_LARGE), "https://crispapp.nl/blob/abc?thumb=1024")
+        self.assertEqual(crisp._image([{"legacyParse": "oud123"}]), "https://crispapp.nl/blob/oud123?thumb=512")
+        self.assertEqual(crisp._image(["", None, "tweede"]), "https://crispapp.nl/blob/tweede?thumb=512")
+        self.assertEqual(crisp._image("https://cdn.example/x.jpg"), "https://cdn.example/x.jpg")
+        for bad in ("javascript:x", "a b", "x?y", "x#y", "", "  ", None, [], {}, 5):
+            self.assertIsNone(crisp._image(bad), bad)
+
+    def test_the_large_photo_is_a_bigger_thumb(self):
+        result = crisp.candidate(crisp.product_summary(product()), 1, None)
+        self.assertEqual(result["image"], "https://crispapp.nl/blob/prodBlob123?thumb=512")
+        self.assertEqual(result["imageLarge"], "https://crispapp.nl/blob/prodBlob123?thumb=1024")
+        outside = crisp.candidate(crisp.product_summary(product(images=["https://cdn.example/x.jpg"])), 1, None)
+        self.assertEqual(outside["imageLarge"], "https://cdn.example/x.jpg")
 
     def test_a_lower_price_or_a_promotion_is_a_deal(self):
         summary = crisp.product_summary(product(price="1.49", basePrice="1.89", promotion={"label": "Tijdelijk goedkoper"}))
@@ -312,7 +328,7 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual(call.call_args.args[3]["query"], "curry")
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["recipes"][0], {
-            "id": "1", "name": "Curry met pompoen", "image": "https://crispapp.nl/asset/recept", "minutes": 30,
+            "id": "1", "name": "Curry met pompoen", "image": "https://crispapp.nl/blob/recipeBlob456?thumb=512", "minutes": 30,
             "portions": 2, "tags": ["met zilvervliesrijst"],
         })
         with self.assertRaises(ValueError):
@@ -326,6 +342,7 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual([i["addSelf"] for i in detail["ingredients"]], [False, False, True])
         self.assertEqual(detail["steps"], ["Zet 15 min de rijst op.", "Snijd de pompoen."])
         self.assertEqual((detail["description"], detail["minutes"], detail["url"]), ("Een romige curry.", 30, "https://crisp.nl/r/abc"))
+        self.assertEqual(detail["image"], "https://crispapp.nl/blob/recipeBlob456?thumb=1024")
 
     def test_invalid_ids_never_reach_crisp(self):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
