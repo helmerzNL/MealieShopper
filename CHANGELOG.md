@@ -25,6 +25,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Net na middernacht begon de week een dag te vroeg** (tot 1 uur, met zomertijd tot 2 uur). De datums werden in UTC berekend; nu in je eigen tijdzone. Bij plannen telt elke dag.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
+- Pull request: [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
+
 ## v2.81.0
 
 ### Nieuw in 2.81.0
