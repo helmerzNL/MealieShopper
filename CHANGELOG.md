@@ -19,7 +19,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Branch `feature/crisp`; de pull request volgt.
+- Pull request: [#170](https://github.com/helmerzNL/MealieShopper/pull/170).
 
 ## v2.85.1
 
