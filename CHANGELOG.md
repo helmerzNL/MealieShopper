@@ -10,7 +10,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Foto's bij Crisp-recepten en -producten.** Bij Recepten zoeken, in het recept en in de controlelijst ontbrak de foto. Crisp geeft een foto als blob-id, niet als adres; MealieShopper liet die weg. Nu maakt het het adres zoals de Crisp-app (`https://crispapp.nl/blob/<id>?thumb=<maat>`): 512 voor de kaarten, 1024 voor het recept en de foto in het groot.
 
-- Pull request: volgt.
+- Pull request: [#173](https://github.com/helmerzNL/MealieShopper/pull/173).
 
 ## v2.86.0
 
