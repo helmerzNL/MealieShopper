@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import auth, crisp, mealie  # noqa: E402
+from mealieshopper import auth, crisp, crisp_orders, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 
@@ -50,6 +50,39 @@ def recipe(recipe_id=55, **extra):
         "shareUrl": "https://crisp.nl/r/abc",
         **extra,
     }
+
+
+def order_item(order_id=55501, status="done", date="2026-10-20"):
+    """Een bestelling zoals `/order/history` die geeft: geen prijzen, wel producten met foto."""
+    return {"id": order_id, "fulfillStatus": status,
+            "deliverySlot": {"date": date, "tsStart": f"{date}T17:00:00+02:00", "tsEnd": f"{date}T19:00:00+02:00"},
+            "products": [{"id": 101, "title": "Volle melk", "images": ["prodBlob123"]}]}
+
+
+def order_detail(order_id=55501, status="done"):
+    """Een bestelling zoals `/order/{id}` die geeft, met persoonsgegevens die we niet mogen bewaren."""
+    return {
+        **order_item(order_id, status),
+        "products": [
+            {**product(101, "Volle melk"), "count": 2, "totalPrice": "3.78", "totalBasePrice": "3.78"},
+            {**product(93, "Pompoen", price="2.00"), "count": 1, "totalPrice": "2.00", "totalBasePrice": "2.50"},
+        ],
+        "paidPrice": "12.34", "payPrice": "12.34",
+        "address": {"street": "Dorpsstraat", "nr": "1", "postal": "1234AB", "city": "Ergens"},
+        "mandateIban": "NL00BANK0123456789", "payMethod": "ideal", "invoiceUrl": "https://crispapp.nl/factuur/geheim",
+        "deliveryLink": "https://crispapp.nl/volg/geheim",
+    }
+
+
+def promo_page():
+    """De promopagina (`/promo/current`): een los product, een groep en een actie met producten zonder prijs."""
+    return {"id": 1, "promo": {"blocks": [
+        {"type": "header", "text": "Deze week"},
+        {"type": "product", "product": product(1, "Kaas", price="3.00", basePrice="4.00", promotion={"title": "25% korting"})},
+        {"type": "productGroup", "products": [product(2, "Brood", price="2.00", basePrice="2.50"), product(1, "Kaas dubbel")]},
+        {"type": "promotion", "promotion": {"id": 7, "title": "2e halve prijs", "details": {"descr": "x"},
+                                            "products": [{"id": 3, "title": "Yoghurt", "weightIndication": "500 g", "image": "yogBlob"}]}},
+    ]}}
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -377,15 +410,24 @@ class ExploreTest(TempDataDirTest):
             "/basket/main": {"products": {"98765": {**product(98765), "count": 1}}},
             "/search/recipe": {"data": [{**recipe(31337), "itemType": "recipe"}]},
             "/recipe/31337": recipe(31337),
+            "/order/history": {"data": [{"type": "order", "item": order_item(55501)}], "cursor": "volgende"},
+            "/order/55501": {"data": order_detail(55501)},
+            "/order/count": {"openOrderIds": [55502]},
+            "/saved/list": {"items": [{"type": "product", "item": product(98765, "Geheime melk")}]},
+            "/promo/current": promo_page(),
         }
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
             report = crisp.explore()
-        self.assertEqual((report["working"], len(report["checks"])), (6, 6))
+        self.assertEqual((report["working"], len(report["checks"])), (11, 11))
         dumped = json.dumps(report)
-        for secret in ("98765", "31337", "4242", "Geheime", "iemand@example.com", "1.89"):
+        for secret in ("98765", "31337", "4242", "55501", "55502", "Geheime", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
             self.assertNotIn(secret, dumped)
         self.assertIn("weightIndication", dumped)
         self.assertIn("formattedQuantity", dumped)
+        by_name = {entry["name"]: entry for entry in report["checks"]}
+        self.assertEqual(by_name["orderHistory"]["statuses"], ["done"])
+        self.assertIn("address", by_name["order"]["orderFields"])  # alleen de veldnaam, niet het adres
+        self.assertEqual(by_name["offers"]["blockKinds"], {"header": 1, "product": 1, "productGroup": 1, "promotion": 1})
 
     def test_failures_show_our_text_or_the_status_only(self):
         self.link()
@@ -460,6 +502,185 @@ class CrispRoutesTest(TempDataDirTest):
             self.assertTrue(auth.admin_only(path), path)
         self.assertFalse(auth.admin_only("/api/crisp/auth/status"))
         self.assertFalse(auth.admin_only("/api/crisp/cart"))
+
+
+class BasketEditingTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        self.link()
+
+    def test_set_quantity_sends_the_new_count(self):
+        basket = {"products": {"101": {**product(101), "count": 3}}}
+        with mock.patch.object(crisp, "_call", return_value=basket) as call:
+            cart = crisp.set_quantity("101", 3)
+        self.assertEqual(call.call_args.args[:2], ("PUT", "/basket/main"))
+        self.assertEqual(call.call_args.args[3], {"products": {"101": {"count": 3, "from": crisp.FROM}}})
+        self.assertEqual(cart["items"][0]["quantity"], 3)
+
+    def test_zero_removes_and_bad_input_never_reaches_crisp(self):
+        with mock.patch.object(crisp, "_call", return_value={"products": {}}) as call:
+            self.assertEqual(crisp.set_quantity("101", "0")["items"], [])
+        self.assertEqual(call.call_args.args[3]["products"]["101"]["count"], 0)
+        with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
+            for product_id, quantity in (("101", -1), ("101", 100), ("101", 1.5), ("101", "x"), ("101", None), ("101", True), ("../x", 1)):
+                with self.assertRaises(ValueError):
+                    crisp.set_quantity(product_id, quantity)
+
+    def test_a_refused_change_is_our_own_message(self):
+        with mock.patch.object(crisp, "_call", return_value={"_error": {"content": "Ruwe tekst van Crisp", "type": "error"}}):
+            with self.assertRaises(crisp.CrispBasketError) as raised:
+                crisp.set_quantity("101", 2)
+        self.assertNotIn("Ruwe tekst", str(raised.exception))
+
+    def test_clear_sets_every_product_to_zero_in_one_request(self):
+        current = {"products": {"101": {**product(101), "count": 2}, "93": {**product(93), "count": 1}, "7": {**product(7), "count": 0}}}
+        calls = []
+
+        def fake(method, path, client_id, body=None):
+            calls.append((method, body))
+            return current if method == "GET" else {"products": {}}
+
+        with mock.patch.object(crisp, "_call", side_effect=fake):
+            result = crisp.clear_cart()
+        self.assertEqual(calls[1], ("PUT", {"products": {"101": {"count": 0, "from": crisp.FROM}, "93": {"count": 0, "from": crisp.FROM}}}))
+        self.assertEqual((result["removed"], result["cart"]["items"]), (2, []))
+        with mock.patch.object(crisp, "_call", return_value={"products": {}}) as call:
+            self.assertEqual(crisp.clear_cart()["removed"], 0)
+        self.assertEqual(call.call_count, 1, "een leeg mandje: geen PUT")
+
+    def test_add_to_cart_reports_a_refused_change_as_failed(self):
+        def fake(method, path, client_id, body=None):
+            return {"products": {}} if method == "GET" else {"_error": {"content": "nee"}}
+
+        with mock.patch.object(crisp, "_call", side_effect=fake):
+            result = crisp.add_to_cart([{"productId": "5", "quantity": 1}, {"productId": "6", "quantity": 2}])
+        self.assertEqual(result["added"], [])
+        self.assertEqual([entry["productId"] for entry in result["failed"]], ["5", "6"])
+
+    def test_summary_has_list_price_maximum_and_minimum_order(self):
+        basket = {
+            "products": {"93": {**product(93, price="2.00"), "count": 1, "totalPrice": "2.00", "totalBasePrice": "2.50",
+                                "available": {"2026-11-02": 4, "2026-11-03": 6}}},
+            "payPrice": "9.50", "mov": "40.00", "neededForMOV": "38.00",
+        }
+        summary = crisp.cart_summary(basket)
+        line = summary["items"][0]
+        self.assertEqual((line["listPrice"], line["maxCount"]), (2.5, 6))
+        self.assertEqual((summary["checkoutTotal"], summary["minimumOrder"], summary["stillNeeded"]), (9.5, 40.0, 38.0))
+        enough = crisp.cart_summary({**basket, "neededForMOV": "0.00", "payPrice": None, "finalPrice": "45.00"})
+        self.assertEqual((enough["stillNeeded"], enough["checkoutTotal"]), (None, 45.0))
+
+
+class OrdersAndFavoritesTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        self.link()
+
+    def test_history_page_and_cursor(self):
+        page = {"data": [{"type": "order", "item": order_item(1)}, {"type": "subscriptionOrder", "item": {"id": 2}}], "cursor": "a/b"}
+        with mock.patch.object(crisp, "_call", return_value=page) as call:
+            orders, cursor = crisp.order_history_page("x y")
+        self.assertEqual(call.call_args.args[1], "/order/history?cursor=x%20y")
+        self.assertEqual([order["id"] for order in orders], ["1"])
+        self.assertEqual((orders[0]["status"], orders[0]["deliveryDate"], cursor), ("done", "2026-10-20", "a/b"))
+        with mock.patch.object(crisp, "_call", return_value={"data": []}) as call:
+            self.assertEqual(crisp.order_history_page(None), ([], None))
+        self.assertEqual(call.call_args.args[1], "/order/history")
+
+    def test_order_detail_keeps_no_personal_data(self):
+        with mock.patch.object(crisp, "_call", return_value={"data": order_detail(55501)}) as call:
+            order = crisp.get_order("55501")
+        self.assertEqual(call.call_args.args[1], "/order/55501")
+        self.assertEqual((order["total"], order["itemCount"]), (12.34, 3))
+        self.assertEqual(order["items"][1]["listPrice"], 2.5)
+        dumped = json.dumps(order)
+        for secret in ("Dorpsstraat", "1234AB", "NL00BANK", "ideal", "factuur", "volg"):
+            self.assertNotIn(secret, dumped)
+        with self.assertRaises(ValueError):
+            crisp.get_order("../user")
+
+    def test_open_orders_come_from_the_count(self):
+        answers = {"/order/count": {"openOrderIds": [9, "x"]}, "/order/9": {"data": order_detail(9, status="ready")}}
+        with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
+            orders = crisp.get_open_orders()
+        self.assertEqual([(order["id"], order["status"], order["itemCount"]) for order in orders], [("9", "ready", 3)])
+        self.assertNotIn("items", orders[0])
+
+    def test_favorites_are_the_saved_products(self):
+        saved = {"items": [
+            {"type": "product", "item": product(1, "Kaas")}, {"type": "recipe", "item": recipe(2)},
+            {"type": "product", "item": product(1, "Kaas")}, {"type": "product", "item": {"id": 3}},
+        ]}
+        with mock.patch.object(crisp, "_call", return_value=saved) as call:
+            result = crisp.get_favorites()
+        self.assertEqual(call.call_args.args[1], "/saved/list")
+        self.assertEqual(([p["id"] for p in result["products"]], result["total"]), (["1"], 1))
+
+
+class OffersTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        self.link()
+
+    def test_offers_from_all_kinds_of_blocks(self):
+        with mock.patch.object(crisp, "_call", return_value=promo_page()) as call:
+            offers = crisp.get_offers()
+        self.assertEqual(call.call_args.args[1], "/promo/current")
+        by_id = {offer["id"]: offer for offer in offers}
+        self.assertEqual(sorted(by_id), ["1", "2", "3"], "ontdubbeld op id")
+        self.assertEqual((by_id["1"]["price"], by_id["1"]["priceBefore"], by_id["1"]["promoLabel"]), (3.0, 4.0, "25% korting"))
+        self.assertEqual((by_id["2"]["priceBefore"], by_id["2"]["promoLabel"]), (2.5, None))
+        self.assertEqual((by_id["3"]["price"], by_id["3"]["promoLabel"], by_id["3"]["unitSize"]), (None, "2e halve prijs", "500 g"))
+        self.assertEqual(by_id["3"]["image"], "https://crispapp.nl/blob/yogBlob?thumb=512")
+        self.assertTrue(all(offer["validFrom"] is None and offer["validUntil"] is None for offer in offers))
+
+    def test_an_empty_page_is_an_error_not_an_empty_week(self):
+        with mock.patch.object(crisp, "_call", return_value={"promo": {"blocks": []}}):
+            with self.assertRaises(RuntimeError):
+                crisp.get_offers()
+
+
+class CrispNewRoutesTest(TempDataDirTest):
+    def setUp(self):
+        super().setUp()
+        self.client = create_app().test_client()
+
+    def test_quantity_and_clear_routes(self):
+        with mock.patch.object(crisp, "set_quantity", return_value={"items": []}) as setter:
+            self.assertEqual(self.client.put("/api/crisp/cart/items/101", json={"quantity": 2}).status_code, 200)
+        self.assertEqual(setter.call_args.args, ("101", 2))
+        with mock.patch.object(crisp, "set_quantity", side_effect=crisp.CrispBasketError("Crisp paste het mandje niet aan")):
+            reply = self.client.put("/api/crisp/cart/items/101", json={"quantity": 2})
+        self.assertEqual((reply.status_code, reply.get_json()["error"]), (400, "Crisp paste het mandje niet aan"))
+        with mock.patch.object(crisp, "clear_cart", side_effect=AssertionError("niet zonder bevestiging")):
+            self.assertEqual(self.client.post("/api/crisp/cart/clear", json={}).status_code, 400)
+        with mock.patch.object(crisp, "clear_cart", return_value={"removed": 2, "cart": {"items": []}}):
+            self.assertEqual(self.client.post("/api/crisp/cart/clear", json={"confirm": True}).get_json()["removed"], 2)
+
+    def test_order_routes_use_the_local_copy_first(self):
+        stored = {"id": "1", "itemsSynced": True, "items": [{"id": "101"}]}
+        with mock.patch.object(crisp_orders, "get_order", return_value=stored), \
+                mock.patch.object(crisp, "get_order", side_effect=AssertionError("niet live")):
+            self.assertEqual(self.client.get("/api/crisp/orders/1").get_json(), stored)
+        live = {"id": "2", "itemsSynced": True, "items": []}
+        with mock.patch.object(crisp_orders, "get_order", return_value=None), mock.patch.object(crisp, "get_order", return_value=live):
+            self.assertEqual(self.client.get("/api/crisp/orders/2").get_json(), live)
+        pending = {"id": "3", "itemsSynced": False, "items": []}
+        with mock.patch.object(crisp_orders, "get_order", return_value=pending), \
+                mock.patch.object(crisp, "get_order", side_effect=RuntimeError("offline")):
+            self.assertEqual(self.client.get("/api/crisp/orders/3").get_json(), pending)
+        with mock.patch.object(crisp, "get_open_orders", return_value=[{"id": "9"}]):
+            self.assertEqual(self.client.get("/api/crisp/orders/open").get_json(), {"orders": [{"id": "9"}]})
+        with mock.patch.object(crisp_orders, "sync_orders", return_value={"orders": 1, "new": 1, "remaining": 0}):
+            self.assertEqual(self.client.post("/api/crisp/orders/sync").get_json()["new"], 1)
+        self.assertEqual(self.client.get("/api/crisp/orders").get_json(), {"syncedAt": None, "orders": []})
+
+    def test_favorites_route(self):
+        with mock.patch.object(crisp, "get_favorites", return_value={"products": [], "total": 0}):
+            self.assertEqual(self.client.get("/api/crisp/favorites").get_json(), {"products": [], "total": 0})
+        with mock.patch.object(crisp, "get_favorites", side_effect=RuntimeError("500: ruwe tekst")):
+            reply = self.client.get("/api/crisp/favorites")
+        self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
 
 
 if __name__ == "__main__":

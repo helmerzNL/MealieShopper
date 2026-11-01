@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import auth, jumbo, offers, offers_schedule, picnic  # noqa: E402
+from mealieshopper import auth, crisp, jumbo, offers, offers_schedule, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 
@@ -402,6 +402,7 @@ class SyncAllTest(TempDataDirTest):
             "ah": lambda: [{"id": "1", "title": "Kip", "price": 3.0, "priceBefore": 4.0}],
             "picnic": lambda: [{"id": "p1", "title": "Melk"}],
             "jumbo": lambda: [{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}],
+            "crisp": lambda: [{"id": "c1", "title": "Eieren"}],
         }
         base.update(overrides)
         return mock.patch.dict(offers.FETCHERS, base)
@@ -434,12 +435,16 @@ class SyncAllTest(TempDataDirTest):
         picnic.save_auth_key("key")
         auth.set_secret(jumbo.REFRESH_SECRET, "ref")
         self.assertTrue(offers.linked("picnic") and offers.linked("jumbo"))
+        self.assertFalse(offers.linked("crisp"))
+        auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
+        self.assertTrue(offers.linked("crisp"))
 
     def test_overview_lists_every_store(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
             offers.sync_all()
         overview = offers.overview()
-        self.assertEqual(sorted(overview), ["ah", "jumbo", "picnic"])
+        self.assertEqual(sorted(overview), ["ah", "crisp", "jumbo", "picnic"])
+        self.assertEqual(overview["crisp"]["total"], 1)
         self.assertEqual((overview["jumbo"]["total"], bool(overview["jumbo"]["syncedAt"])), (2, True))
 
 
@@ -516,7 +521,7 @@ class RoutesTest(TempDataDirTest):
 
     def test_status_and_sync_all(self):
         status = self.client.get("/api/offers/status").get_json()
-        self.assertEqual(sorted(status["stores"]), ["ah", "jumbo", "picnic"])
+        self.assertEqual(sorted(status["stores"]), ["ah", "crisp", "jumbo", "picnic"])
         with mock.patch.object(offers, "sync_all", return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
             response = self.client.post("/api/offers/sync-all")
         self.assertEqual((response.status_code, response.get_json()["stores"]["ah"]["count"]), (200, 2))

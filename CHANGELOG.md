@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.87.0
+
+### Nieuw in 2.87.0
+
+*English summary: Crisp gets the same treatment as Picnic. In the Basket tab you can change the Crisp basket: quantities with `−` and `+` or by typing, remove a product, or empty the basket after a confirmation; below it are what you pay and how much more you need to reach Crisp's minimum order. Under Stores, Crisp has Favorites (the products you saved in the Crisp app, each with an "In basket" button) and Orders: upcoming orders live, delivered orders in a local copy you update with Sync, with "Add all to basket" per order. The address, IBAN and payment details of an order are never stored. Crisp's offers of this week are in the Offers tab and in the daily sync; Crisp gives no validity period in its promo overview, so they are shown in the current week, like Picnic's. As before, the routes come from the source code in the public Crisp app; Explore Crisp routes now also checks orders, favorites and offers.*
+
+- **Het Crisp-mandje aanpassen** (tabblad Mandje). Net als bij Picnic: aantallen met `−` en `+` of door te typen, een product weghalen, of het mandje legen na een bevestiging. Het gaat direct naar je echte Crisp-mandje, in één verzoek per wijziging (`PUT /basket/main` met het nieuwe aantal; 0 haalt het product weg, zoals in de app). Legen haalt alle losse producten weg; recepten die je in de Crisp-app in het mandje zette, blijven staan. Eronder staan het totaal, wat je betaalt (met bezorg- en servicekosten) en hoeveel er nog bij moet tot het minimumbedrag. Weigert Crisp een wijziging, dan zegt MealieShopper dat in eigen woorden en blijft het mandje zoals het was. Er wordt nooit een bestelling geplaatst.
+- **Crisp onder Winkels: Favorieten en Bestellingen.**
+  - **Favorieten** zijn de producten die je in de Crisp-app hebt bewaard ("Door jou bewaard"), met een zoekveld en per product een knop **In mandje**.
+  - **Bestellingen** toont je aankomende bestellingen live en je bezorgde bestellingen uit een lokale kopie (`crisp_orders`, ook in de back-up). **Synchroniseren** bladert door je bestelgeschiedenis bij Crisp tot een pagina die al bekend is en haalt per keer de producten van hooguit 25 bestellingen op. Open een bestelling voor de producten en zet ze met **Alles in mandje** opnieuw in je Crisp-mandje.
+  - Het adres, het IBAN, de betaalwijze, de factuur en de track-and-trace van een bestelling bewaart en toont MealieShopper niet.
+- **Crisp-aanbiedingen** in het tabblad Aanbiedingen, ook in de dagelijkse synchronisatie en in **Aanbiedingen synchroniseren**. MealieShopper leest de promopagina van de app: losse producten en groepen (met actieprijs, gewone prijs en actietekst) en acties met hun producten (de titel van de actie is dan het label). Crisp geeft daar geen looptijd bij; de aanbiedingen staan daarom bij de huidige week, zoals die van Picnic.
+- **Crisp-routes verkennen** controleert ook de bestelgeschiedenis, één bestelling, de open bestellingen, de favorieten en de promopagina, met alleen soorten, aantallen en veldnamen (geen id's, adressen of prijzen).
+- **API**: `PUT /api/crisp/cart/items/<id>`, `POST /api/crisp/cart/clear` (met `{"confirm": true}`), `GET /api/crisp/orders`, `GET /api/crisp/orders/open`, `GET /api/crisp/orders/<id>`, `POST /api/crisp/orders/sync` en `GET /api/crisp/favorites`. `crisp` is een geldige winkel voor `/api/offers`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#174](https://github.com/helmerzNL/MealieShopper/pull/174).
+
 ## v2.86.1
 
 ### Opgelost in 2.86.1

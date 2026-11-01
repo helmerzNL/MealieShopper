@@ -19,7 +19,7 @@ const state = {
   about: null,
   aboutLoaded: false,
   store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
-  itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
+  itemsStore: "ah", // de winkel in de tab Winkels: "ah", "jumbo", "picnic" of "crisp"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
   linkedStores: { picnic: false, jumbo: false, crisp: false, mealie: false }, // gezet door picnic.js, jumbo.js, crisp.js en renderMealieStatus; AH is altijd een keuze
 };
@@ -1091,13 +1091,14 @@ function itemsStoreName() {
   return STORES[state.itemsStore].name;
 }
 
-// De winkels die in de tab Winkels te kiezen zijn: AH altijd, Jumbo en Picnic zodra ze gekoppeld zijn.
+// De winkels die in de tab Winkels te kiezen zijn: AH altijd, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn.
 function itemsStores() {
-  return ["ah", ...["jumbo", "picnic"].filter((key) => state.linkedStores[key])];
+  return ["ah", ...["jumbo", "picnic", "crisp"].filter((key) => state.linkedStores[key])];
 }
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];
 const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
+const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 function renderItemsStore() {
   const stores = itemsStores();
@@ -1111,17 +1112,21 @@ function renderItemsStore() {
         `<button class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
     )
     .join("");
-  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen.
+  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
+  const crisp = state.itemsStore === "crisp";
+  // Picnic en Crisp hebben eigen tabs voor hun bestellingen; de lijstjes en bestellingen van AH en Jumbo horen daar niet bij.
+  const ownTabs = picnic || crisp;
   const hide = (subtab, hidden) =>
     document.querySelectorAll(`[data-subtab="${subtab}"]`).forEach((button) => {
       button.hidden = hidden;
     });
   hide("ah-items-recepten", state.itemsStore !== "ah");
-  hide("ah-items-lijstjes", picnic);
-  hide("ah-items-bestellingen", picnic);
+  hide("ah-items-lijstjes", ownTabs);
+  hide("ah-items-bestellingen", ownTabs);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
   JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
+  CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
   if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
@@ -2300,6 +2305,8 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
     if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof loadJumboFavorites === "function" && !jumboFavorites.loaded) loadJumboFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-favorieten" && typeof loadCrispFavorites === "function" && !crispFavorites.loaded) loadCrispFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-bestellingen" && typeof loadCrispOrders === "function" && !crispOrders.loaded) loadCrispOrders();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

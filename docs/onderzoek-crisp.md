@@ -8,29 +8,29 @@ Daarna is de openbare Android-app gelezen en is Crisp ingebouwd (zie [Status](#s
 
 ## Status
 
-Gebouwd in v2.86.0 (branch `feature/crisp`). Crisp staat als winkel in MealieShopper (`mealieshopper/crisp.py`,
-`static/crisp.js`, routes onder `/api/crisp/`):
+Gebouwd in v2.86.0 en uitgebreid in v2.87.0 (branch `feature/crisp`). Crisp staat als winkel in MealieShopper
+(`mealieshopper/crisp.py`, `mealieshopper/crisp_orders.py`, `static/crisp.js`, routes onder `/api/crisp/`).
 
 - **Wel**:
   - koppelen met de code uit de mail (Nederland of België);
   - het weekmenu via de controlelijst in het echte Crisp-mandje zetten;
-  - Crisp-recepten zoeken, bekijken, importeren en inplannen;
-  - het mandje bekijken in het tabblad Mandje;
+  - Crisp-recepten zoeken, bekijken, importeren en inplannen, met foto's (v2.86.1);
+  - het mandje in het tabblad Mandje bekijken en aanpassen: aantal, weghalen en legen (v2.87.0);
+  - onder Winkels de favorieten en de bestellingen, met een lokale kopie van de bezorgde bestellingen (v2.87.0);
+  - de aanbiedingen in het tabblad Aanbiedingen, ook in de dagelijkse synchronisatie (v2.87.0);
   - een verkenner voor de beheerder;
   - het verkeer in het auditlog;
-  - het apparaat-id in de back-up.
+  - het apparaat-id en de bewaarde bestellingen in de back-up.
 - **Niet (nog)**:
-  - het mandje aanpassen;
-  - bestellingen en favorieten onder Winkels;
-  - aanbiedingen in het tabblad Aanbiedingen;
   - een stap in de installatiehulp;
   - MCP-tools;
-  - de Weekbox (vervolgstap A).
+  - de Weekbox (vervolgstap A);
+  - een looptijd bij de aanbiedingen (zie hieronder).
 
-De eindpunten voor zoeken, product, recepten en het mandje zijn vastgesteld uit de broncode in de openbare Android-app
-(zie [Eindpunten uit de app](#eindpunten-uit-de-app)). Ze zijn nog niet met een echt account geprobeerd. De verkenner
-(Instellingen, Koppelen, Crisp, **Crisp-routes verkennen**) laat na het koppelen zien of ze werken en welke velden de
-antwoorden hebben.
+Koppelen, zoeken, het mandje vullen, recepten en foto's zijn met een echt account bevestigd. De eindpunten van v2.87.0
+(het mandje aanpassen, bestellingen, favorieten en aanbiedingen) komen uit de broncode van de app en zijn nog niet met een
+echt account geprobeerd. **Crisp-routes verkennen** laat zien of ze werken en welke velden ze hebben, zonder id's,
+adressen of prijzen.
 
 ## Uitkomst van de eerste spike
 
@@ -106,6 +106,13 @@ daaruit gebruikt:
 | `PUT /basket/main {products: {id: {count, from}}}` | `count` is het nieuwe aantal; een tekst als `"+1"` is een verschil. Het antwoord is het nieuwe mandje, met `_error` als Crisp iets weigert. Met `products: "clear"` leeg je het mandje (MealieShopper doet dat niet). |
 | `POST /search/recipe {query, cursor: false, limit}` | Recepten als items met `itemType: "recipe"`. `type` is `""`, `bundle`, `user` of `mealkit`. |
 | `GET /recipe/{id}` | `title`, `subTitle`, `description`, `portions`, `images[]`, `cookingMethods.short.minutes`, `ingredientGroups[].ingredients[]` (`formattedName`, `formattedQuantity`, `productId`, `product` en `count`), `instructions[].instruction` (met `**vet**`) en `shareUrl`. |
+| `PUT /basket/main {products: {id: {count: 0}}}` | `0` haalt een product weg (`ProductQuantitySection.tsx`). MealieShopper leegt het mandje met `count: 0` per product in één `PUT`: de app stuurt `products: "clear"` alleen samen met `recipes`, `userRecipes`, `freeProductOptOuts` en `mealkits`. Een `_error` in het antwoord (status 200) betekent dat Crisp niets heeft bewaard. |
+| Totalen in het mandje | `payPrice` (te betalen, met bezorg- en servicekosten en statiegeld), `finalPrice`, `productsTotalPrice`/`productsTotalBasePrice`, `mov` (minimumbedrag) en `neededForMOV` (wat er nog bij moet). Per regel: `totalPrice`, `totalBasePrice` en `available` (`{dag: hoogste aantal}`). |
+| `GET /order/history` | `{data: [{type: "order", item}, {type: "subscriptionOrder", ...}], cursor}`; de volgende pagina komt met `?cursor=`. Een bestelling heeft `id`, `deliverySlot.{date,tsStart,tsEnd}`, `fulfillStatus` (`ready`, `picked`, `delivery`, `done`, `manual` of `cancel`) en `products[]`, maar geen prijzen. |
+| `GET /order/{id}` | `{data: order}` met `products[]` (`id`, `title`, `images`, `count`, `totalPrice`, `totalBasePrice`), `deliverySlot` en de totalen `paidPrice`, `payPrice` en `finalPrice`. Er staan ook persoonsgegevens in (`address`, `mandateIban`, `payMethod`, `invoiceUrl`, `deliveryLink`); MealieShopper bewaart en toont die niet. |
+| `GET /order/count` | `openOrderIds`: de bestellingen die nog bezorgd worden. |
+| `GET /saved/list` | "Door jou bewaard": `{items: [{type, item}]}`, met `type` `product` of `recipe` en met volledige producten. In de app hangt het hartje van een experiment af; voor wie dat niet heeft, kan de lijst leeg zijn. |
+| `GET /promo/current` | `{promo: {blocks: [...]}}`, met blokken `product` (`{product}`), `productGroup` (`{products[]}`) en `promotion` (`{promotion: {title, details, products[{id, title, weightIndication, image}]}}`, zonder prijzen). Een looptijd staat alleen in `GET /promo/{id}` (`expiration`, één verzoek per actie; de app toont "Geldig t/m" die datum plus een dag). Daarom heeft MealieShopper geen looptijd bij Crisp: de aanbiedingen staan bij de huidige week, zoals bij Picnic. |
 
 **Foto's** (`images[]` bij producten en recepten) zijn blob-id's, geen adressen. De app maakt er
 `https://crispapp.nl/blob/<id>?thumb=<maat>` van (`app/ui/BlobImage.tsx` en `resolveBlobUrl` in
@@ -126,17 +133,19 @@ commentaar boven `store_error` in `mealieshopper/app.py`). Voor Crisp is dat `me
 
 - `search_products(query, limit=5)`, `search_product(query)` en `candidate(product, quantity, unit)`. Die gebruiken
   `packs.assess_packs` en `deals.candidate_deal`. De verpakkingsgrootte (`unitSize`) komt uit `weightIndication`.
-- `add_to_cart(items)` en `get_cart()`. Het mandje aanpassen (`set_quantity` en `clear_cart`, zoals bij Picnic) zit er nog
-  niet in.
-- `status`, `unlink`, een `CrispAuthError` en een `CrispLoginError` (een geweigerd e-mailadres of een geweigerde code).
+- `add_to_cart(items)`, `get_cart()`, `set_quantity` en `clear_cart`, zoals bij Picnic (sinds v2.87.0).
+- `status`, `unlink`, een `CrispAuthError`, een `CrispLoginError` (een geweigerd e-mailadres of een geweigerde code) en
+  een `CrispBasketError` (een `_error` bij een wijziging in het mandje).
+- Bestellingen en favorieten: `order_history_page`, `get_order`, `get_open_orders` en `get_favorites`, met de lokale kopie
+  in `crisp_orders.py` (zoals `picnic_orders.py`). Aanbiedingen: `get_offers` voor `offers.FETCHERS`.
 - Recepten: `search_recipes`, `get_recipe`, `jsonld` en `source_url`, zoals in `picnic_recipes.py`.
 - `explore` voor de verkenner.
 - Inloggen in twee stappen, zoals de 2FA-stap van Picnic (`picnic.request_2fa_code` en `picnic.verify_2fa`): eerst het
   e-mailadres, dan de code uit de mail. De `client_id` gaat versleuteld in `auth.set_secret`, en het land ook.
 - Routes onder `/api/crisp/` die `cart_preview`, `store_error` en `store_cart` in `app.py` hergebruiken.
 
-Een nieuwe winkel raakt deze plekken. In v2.86.0 zijn ze bijgewerkt, behalve `offers.py`, `mcp.py`, `oauth.html`,
-`onboarding.js` en de subtabs onder Winkels: daar doet Crisp nog niet aan mee. De `.env`-voorbeelden hoefden niet te
+Een nieuwe winkel raakt deze plekken. In v2.86.0 en v2.87.0 zijn ze bijgewerkt, behalve de MCP-tools in `mcp.py` (alleen
+de winkelkeuze van de aanbiedingen kent Crisp), `oauth.html` en `onboarding.js`: daar doet Crisp nog niet aan mee. De `.env`-voorbeelden hoefden niet te
 veranderen, want er is geen nieuwe instelling.
 
 - **Backend:**
@@ -171,7 +180,10 @@ Crisp-mandje vullen. Voor die eindpunten koos hij route 3: de openbare Android-a
 
 ## Wat niet is vastgesteld
 
-- Of de antwoorden met een echt account precies de vorm hebben die de broncode laat zien. De verkenner toont dat.
+- Of de antwoorden van v2.87.0 (bestellingen, favorieten, aanbiedingen, het mandje aanpassen) met een echt account
+  precies de vorm hebben die de broncode laat zien. De verkenner toont dat.
+- De precieze vorm van `_error` (de app maakt er een melding van) en of Crisp een aantal boven het leverbare weigert.
+- Wat `expiration` van een actie precies betekent; daarom staat er geen looptijd bij de aanbiedingen.
 - Of `weightIndication` altijd een verpakkingsgrootte is die `packs.assess_packs` kan lezen. Bij twijfel markeert de
   controlelijst de regel.
 - Of Crisp de `from` met de naam MealieShopper accepteert.
@@ -182,17 +194,15 @@ Crisp-mandje vullen. Voor die eindpunten koos hij route 3: de openbare Android-a
 
 ## Vervolg
 
-- **Na het koppelen:** draai **Crisp-routes verkennen** en vergelijk de velden met de tabel in
-  [Eindpunten uit de app](#eindpunten-uit-de-app). Wijkt er iets af, pas dan `crisp.py` aan.
+- **Na het bijwerken naar v2.87.0:** draai **Crisp-routes verkennen** en vergelijk de nieuwe checks (`orderHistory`,
+  `order`, `openOrders`, `favorites` en `offers`) met de tabel in [Eindpunten uit de app](#eindpunten-uit-de-app). Wijkt
+  er iets af, pas dan `crisp.py` aan.
 - **A. Crisp Weekbox in Maaltijdboxen.** De openbare pagina `crisp.nl/weekbox`, volgens het patroon van `marleyspoon.py` en
   `hellofresh.py`. Daarvoor geldt art. 11.3.1 (herhaald en systematisch opvragen), net als bij HelloFresh en Marley Spoon.
 - **Verder, als daar vraag naar is:**
-  - het mandje aanpassen (`PUT /basket/main` met een nieuw aantal);
-  - bestellingen onder Winkels (`/order/count`, `/order/{id}` en `/order/history`);
-  - aanbiedingen (`/promo/current`);
-  - favorieten (`/saved`);
+  - een looptijd bij de aanbiedingen (`/promo/{id}` per actie);
   - een stap in de installatiehulp;
-  - MCP-tools.
+  - MCP-tools, bijvoorbeeld zoeken in je Crisp-aankopen (`crisp_orders.search_purchases` bestaat al).
 
 ## Bronnen
 
