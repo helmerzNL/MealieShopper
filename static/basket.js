@@ -1,8 +1,8 @@
-// Het tabblad Mandje: het echte winkelmandje van AH, Picnic of Jumbo, voor zover gekoppeld.
-// Laadt na picnic.js, jumbo.js en orders.js; elk van die scripts weet zelf hoe zijn mandje eruitziet
-// (showPicnicBasket, showJumboBasket, showAhBasket). Dit script kiest alleen de winkel.
+// Het tabblad Mandje: het echte winkelmandje van AH, Picnic, Jumbo of Crisp, voor zover gekoppeld.
+// Laadt na picnic.js, jumbo.js, crisp.js en orders.js; elk van die scripts weet zelf hoe zijn mandje eruitziet
+// (showPicnicBasket, showJumboBasket, showCrispBasket, showAhBasket). Dit script kiest alleen de winkel.
 
-const BASKET_STORES = ["ah", "picnic", "jumbo"];
+const BASKET_STORES = ["ah", "picnic", "jumbo", "crisp"];
 const basketState = { store: "ah" };
 
 function basketStores() {
@@ -50,7 +50,7 @@ async function showBasket() {
   message("#basket-message", "");
   const content = $("#basket-content");
   content.innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
-  const stores = { ah: showAhBasket, picnic: showPicnicBasket, jumbo: showJumboBasket };
+  const stores = { ah: showAhBasket, picnic: showPicnicBasket, jumbo: showJumboBasket, crisp: showCrispBasket };
   try {
     await stores[basketState.store]();
   } catch (error) {

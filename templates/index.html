@@ -393,6 +393,11 @@
               <div id="search-picnic-message"></div>
               <div id="search-picnic-results" class="recipe-grid recipe-grid--compact"></div>
             </section>
+            <section class="search-store" id="search-crisp" hidden>
+              <h3><span>Crisp</span> <span class="muted" id="search-crisp-count"></span></h3>
+              <div id="search-crisp-message"></div>
+              <div id="search-crisp-results" class="recipe-grid recipe-grid--compact"></div>
+            </section>
             <section class="search-store" id="search-hellofresh" hidden>
               <h3><span>HelloFresh</span> <span class="muted" id="search-hellofresh-count"></span></h3>
               <div id="search-hellofresh-message"></div>
@@ -916,6 +921,7 @@
           <div id="ah-status"></div>
           <div id="jumbo-status"></div>
           <div id="picnic-status"></div>
+          <div id="crisp-status"></div>
         </div>
         <div class="box" id="offers-sync-box">
           <h2 data-i18n="offers.sync.title">Aanbiedingen</h2>
@@ -1132,6 +1138,54 @@
             </div>
           </div>
         </div>
+        <div class="box fold" id="crisp-login-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="crisp-login-toggle" aria-expanded="true" aria-controls="crisp-login-body"><span data-i18n="crisp.title">Crisp</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="crisp-login-body">
+            <p class="muted" data-i18n="crisp.intro">Crisp heeft geen officiële koppeling. MealieShopper logt in zoals de Crisp-app: met je e-mailadres en een code die Crisp je mailt. Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld.</p>
+            <form class="auth-form" id="crisp-form" autocomplete="off">
+              <label class="field">
+                <span data-i18n="crisp.country">Land</span>
+                <select class="input" id="crisp-country">
+                  <option value="nl" data-i18n="crisp.country_nl">Nederland</option>
+                  <option value="be" data-i18n="crisp.country_be">België</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="picnic.email">E-mailadres</span>
+                <input class="input" id="crisp-email" type="email" autocomplete="off" required>
+              </label>
+              <div class="toolbar">
+                <button class="button" id="crisp-login" type="submit" data-i18n="crisp.request_code">Code aanvragen</button>
+                <button class="button button--secondary" id="crisp-unlink" type="button" data-i18n="crisp.unlink">Ontkoppelen</button>
+                <button class="button button--secondary" id="crisp-check" type="button" data-i18n="common.check_link">Koppeling controleren</button>
+              </div>
+            </form>
+            <div id="crisp-message"></div>
+            <div class="fold__section" id="crisp-code-box" hidden>
+              <h3 data-i18n="crisp.code_title">Code uit de mail</h3>
+              <p class="muted" data-i18n="crisp.code_intro">Crisp heeft je een mail met een code gestuurd. Vul hem hieronder in en bevestig. Geen mail gekregen? Vraag hierboven een nieuwe code aan.</p>
+              <form class="auth-form" id="crisp-code-form" autocomplete="off">
+                <label class="field">
+                  <span data-i18n="picnic.code_label">Code</span>
+                  <input class="input" id="crisp-code" type="text" autocomplete="one-time-code" required>
+                </label>
+                <button class="button" id="crisp-verify" type="submit" data-i18n="picnic.confirm">Bevestigen</button>
+              </form>
+              <div id="crisp-code-message"></div>
+            </div>
+            <div class="fold__section">
+              <h3 data-i18n="crisp.explore_title">Crisp-routes verkennen</h3>
+              <p class="muted" data-i18n="crisp.explore_intro">Roept de onofficiële Crisp-routes voor zoeken, producten, het winkelmandje en recepten aan en laat zien welke werken en welke velden erin zitten. Er wordt niets gewijzigd of bewaard. Het rapport bevat geen namen, adressen, prijzen of id's en is veilig te delen.</p>
+              <button class="button" id="crisp-explore-run" type="button" data-i18n="explore.run">Verkennen</button>
+              <div id="crisp-explore-message"></div>
+              <div id="crisp-explore-report" hidden>
+                <p class="muted" id="crisp-explore-summary"></p>
+                <pre class="ai-code" id="crisp-explore-output"></pre>
+                <button class="button button--secondary" id="crisp-explore-copy" type="button" data-i18n="users.copy">Kopiëren</button>
+              </div>
+            </div>
+          </div>
+        </div>
         </div>
 
         <div id="settings-users" class="subpanel">
@@ -1344,6 +1398,7 @@
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>

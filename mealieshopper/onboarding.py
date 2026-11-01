@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
-from . import ah, auth, jumbo, mealie, picnic
+from . import ah, auth, crisp, jumbo, mealie, picnic
 from .i18n import tr
 
 SETTING_ACTIVE = "ONBOARDING_ACTIVE"
@@ -81,6 +81,7 @@ def _integrations_configured() -> bool:
             or bool(ah.configured_refresh_token())
             or bool(jumbo.configured_refresh_token())
             or bool(picnic.configured_auth_key())
+            or bool(crisp.configured_client_id())
         )
     except Exception:  # noqa: BLE001 - een onleesbare database telt niet als "al ingesteld"
         return False

@@ -4,7 +4,7 @@
 
 ## Nederlands
 
-MealieShopper zet je weekmenu uit [Mealie](https://mealie.io) om in een boodschappenmandje bij Albert Heijn, Picnic of Jumbo. Deze add-on draait dezelfde app als de Docker-versie.
+MealieShopper zet je weekmenu uit [Mealie](https://mealie.io) om in een boodschappenmandje bij Albert Heijn, Picnic, Jumbo of Crisp. Deze add-on draait dezelfde app als de Docker-versie.
 
 ### Installeren
 
@@ -38,7 +38,7 @@ Voor de ontwikkelversie is er een tweede add-on, **MealieShopper (beta)**, met e
 
 ## English
 
-MealieShopper turns your week menu from [Mealie](https://mealie.io) into a basket at Albert Heijn, Picnic or Jumbo. This add-on runs the same app as the Docker version.
+MealieShopper turns your week menu from [Mealie](https://mealie.io) into a basket at Albert Heijn, Picnic, Jumbo or Crisp. This add-on runs the same app as the Docker version.
 
 ### Installing
 
