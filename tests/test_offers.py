@@ -1,6 +1,7 @@
 import os
 import tempfile
 from contextlib import closing
+from datetime import date, timedelta
 import unittest
 from unittest import mock
 
@@ -156,6 +157,79 @@ class OffersStoreTest(TempDataDirTest):
             offers.sync("lidl")
         with self.assertRaises(ValueError):
             offers.load("lidl")
+
+
+class OffersWeekTest(TempDataDirTest):
+    """De aanbiedingen van de week die je plant (issue #160): op zondag stond de bonus van volgende week tussen die van vandaag."""
+
+    def setUp(self):
+        super().setUp()
+        today = date.today()
+        self.monday = today - timedelta(days=today.weekday())
+        self.next_monday = self.monday + timedelta(days=7)
+        sunday, next_sunday = self.monday + timedelta(days=6), self.next_monday + timedelta(days=6)
+        deal = {"price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting"}
+        self.items = [
+            {"id": "deze", "title": "Bonus deze week", "validFrom": self.monday.isoformat(), "validUntil": sunday.isoformat(), **deal},
+            {"id": "volgende", "title": "AH Kipfilet", "validFrom": self.next_monday.isoformat(), "validUntil": next_sunday.isoformat(), **deal},
+            {"id": "doorlopend", "title": "Volume voordeel", "validFrom": (self.monday - timedelta(days=14)).isoformat(), "validUntil": None, **deal},
+            {"id": "vandaag", "title": "Pakketkorting", "validFrom": today.isoformat(), "validUntil": today.isoformat(), **deal},
+            {"id": "zonder", "title": "Picnic-achtige aanbieding", **deal},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.items}):
+            offers.sync("ah")
+
+    def test_this_week_leaves_out_next_weeks_bonus_and_counts_it(self):
+        data = offers.load("ah", self.monday.isoformat())
+        self.assertEqual([o["id"] for o in data["offers"]], ["deze", "vandaag", "zonder", "doorlopend"], "de bonus van de week voor de doorlopende kortingen")
+        self.assertEqual((data["total"], data["later"], data["undated"]), (4, 1, 0))
+        self.assertEqual(data["week"], {"from": self.monday.isoformat(), "until": (self.monday + timedelta(days=6)).isoformat(), "current": True})
+        self.assertEqual(data["period"], {"from": self.monday.isoformat(), "until": (self.monday + timedelta(days=6)).isoformat()},
+                         "de bonusweek, niet de looptijd van één dag van de pakketkortingen")
+
+    def test_next_week_shows_its_bonus_and_what_keeps_running(self):
+        data = offers.load("ah", (self.next_monday + timedelta(days=3)).isoformat())
+        self.assertEqual([o["id"] for o in data["offers"]], ["volgende", "doorlopend"], "elke dag van de week wijst dezelfde week aan")
+        self.assertEqual((data["later"], data["undated"]), (0, 1), "zonder looptijd is alleen vandaag bekend")
+        self.assertEqual(data["week"]["from"], self.next_monday.isoformat())
+        self.assertFalse(data["week"]["current"])
+        self.assertEqual(data["period"]["from"], self.next_monday.isoformat())
+
+    def test_without_a_week_everything_that_has_not_expired_is_given(self):
+        data = offers.load("ah")
+        self.assertEqual(data["total"], 5, "zo blijft de AI in alles zoeken wat bekend is")
+        self.assertIsNone(data["week"])
+
+    def test_a_week_that_is_not_a_date_is_refused(self):
+        for week in ("volgende", "2026-13-01", ""):
+            with self.assertRaises(ValueError, msg=week):
+                offers.load("ah", week)
+
+    def test_each_week_has_its_own_signature(self):
+        this_week = offers.signature("ah", self.monday.isoformat())
+        self.assertEqual(this_week, offers.signature("ah", (self.monday + timedelta(days=2)).isoformat()))
+        self.assertNotEqual(this_week, offers.signature("ah", self.next_monday.isoformat()))
+
+    def test_recipe_suggestions_use_the_offers_of_the_week(self):
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: [
+                {"id": "r1", "title": "Pasta", "image": "", "url": "", "ingredients": ["400 g kipfilet"], "course": "hoofdgerecht"}]),)):
+            offers.sync_recipes()
+        later = offers.suggest("ah", week=self.next_monday.isoformat())
+        self.assertEqual([r["id"] for r in later["recipes"]], ["r1"])
+        self.assertEqual(later["week"]["from"], self.next_monday.isoformat())
+        self.assertEqual(offers.suggest("ah", week=self.monday.isoformat())["recipes"], [], "dat product is deze week niet in de aanbieding")
+
+    def test_the_routes_take_the_week_and_default_to_this_week(self):
+        client = create_app().test_client()
+        default = client.get("/api/offers?store=ah")
+        self.assertTrue(default.get_json()["week"]["current"])
+        self.assertEqual(default.get_json()["later"], 1)
+        later = client.get(f"/api/offers?store=ah&week={self.next_monday.isoformat()}")
+        self.assertEqual({o["id"] for o in later.get_json()["offers"]}, {"volgende", "doorlopend"})
+        self.assertNotEqual(later.headers["ETag"], default.headers["ETag"], "elke week heeft een eigen ETag")
+        self.assertEqual(client.get("/api/offers?store=ah&week=morgen").status_code, 400)
+        self.assertEqual(client.get("/api/offers/recipes?store=ah&week=morgen").status_code, 400)
+        self.assertEqual(client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}").status_code, 200)
 
 
 class LinkingTest(unittest.TestCase):
@@ -568,6 +642,25 @@ class OffersTabMarkupTest(unittest.TestCase):
         for hook in ("offers-history-search", "offers-history-list", "offers-history-detail", "offers-history-status"):
             self.assertIn(f'id="{hook}"', html)
             self.assertIn(f"#{hook}", script)
+
+    def test_the_offers_follow_the_week_of_the_week_menu(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
+        self.assertEqual(section.count('<div class="toolbar offers-week"'), 2, "een weekkeuze bij Aanbiedingen en bij Recepten")
+        self.assertEqual(section.count('data-offers-week="-1"'), 2)
+        self.assertIn('id="offers-later-show"', section)
+        self.assertIn("&week=${encodeURIComponent(week)}", script, "de aanbiedingen worden per week opgehaald")
+        self.assertIn("const week = `&week=${encodeURIComponent(offersWeek().start)}`;", script, "de receptvoorstellen ook")
+        self.assertIn("const key = `${store}|${week}`;", script, "de cache houdt de weken uit elkaar")
+        self.assertIn("return Math.max(0, state.weekOffset);", script, "dezelfde week als het weekmenu, en nooit een eerdere dan deze")
+        self.assertIn("setPlanWeek(offset);", script, "een andere week hier zet het weekmenu op dezelfde week")
+        self.assertIn("function setPlanWeek(offset) {\n  state.weekOffset = offset;", app_js)
+        self.assertIn("$(\"#week-offset\").textContent = weekOffsetText(state.weekOffset);", app_js, "dezelfde tekst als in het weekmenu")
 
     def test_recipes_have_a_heading_and_a_course_filter_above_them(self):
         from pathlib import Path

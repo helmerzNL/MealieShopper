@@ -1,6 +1,7 @@
 import hashlib
 import mimetypes
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from os import environ
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-58")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-59")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -415,19 +416,24 @@ def create_app() -> Flask:
             app.logger.exception("Offers error")
             return jsonify({"error": str(exc) or error_text}), 424
 
+    def offers_week() -> str:
+        """De week van de aanbiedingen: `?week=` (een datum in de week die het weekmenu toont), anders de week van vandaag."""
+        return request.args.get("week") or date.today().isoformat()
+
     @app.get("/api/offers")
     def offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
-        # (geen nieuwe synchronisatie, nog dezelfde dag), dan volgt een 304 zonder de lijst te laden of te versturen.
+        # (geen nieuwe synchronisatie, nog dezelfde dag, dezelfde week), dan volgt een 304 zonder de lijst te laden of te versturen.
         store = request.args.get("store") or "ah"
+        week = offers_week()
         try:
-            etag = hashlib.sha1(offers.signature(store).encode("utf-8")).hexdigest()
+            etag = hashlib.sha1(offers.signature(store, week).encode("utf-8")).hexdigest()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
-        response = offers_action(lambda: offers.load(store), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        response = offers_action(lambda: offers.load(store, week), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -455,7 +461,10 @@ def create_app() -> Flask:
 
     @app.get("/api/offers/recipes")
     def offers_recipes():
-        return offers_action(lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course")), tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"))
+        return offers_action(
+            lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week()),
+            tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"),
+        )
 
     @app.route("/api/offers/rejections", methods=["POST", "DELETE"])
     def offers_rejections():

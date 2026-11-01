@@ -4229,6 +4229,15 @@ body.has-onboarding {
   font-weight: 600;
 }
 
+/* Aanbiedingen: de week, dezelfde als die van het weekmenu, en wat er al voor later bekend is. */
+.offers-week {
+  margin: 8px 0 12px;
+}
+
+.offers-later {
+  margin: 4px 0 0;
+}
+
 /* Aanbiedingen: categorieën als knoppen met het aantal ("5x Groente & Fruit"). */
 .offer-cats {
   display: flex;

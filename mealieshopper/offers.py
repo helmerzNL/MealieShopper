@@ -207,18 +207,59 @@ def _valid_store(store: Any) -> str:
 # --- aanbiedingen -------------------------------------------------------------------------------
 
 
-def signature(store: Any) -> str:
-    """Verandert precies dan als `load(store)` een ander antwoord geeft: bij een nieuwe synchronisatie, op een nieuwe dag (aanbiedingen
-    lopen af) en bij een nieuwe versie van de app (de indeling en de voorwaarden worden bij het laden uit de bewaarde tekst afgeleid).
-    Goedkoop: een rij uit de database. Dient als ETag, zodat een browser met de lijst al in de cache geen nieuwe hoeft te krijgen."""
+def week_bounds(week: Any) -> tuple[date, date]:
+    """De maandag en de zondag van de week waarin `week` valt (een ISO-datum, elke dag van de week mag). Geen datum: ValueError."""
+    bounds = deals.week_of(week)
+    if bounds is None:
+        raise ValueError(tr("Onbekende week (geef een datum, zoals 2026-11-02)", "Unknown week (give a date, such as 2026-11-02)"))
+    return bounds
+
+
+def signature(store: Any, week: Any = None) -> str:
+    """Verandert precies dan als `load(store, week)` een ander antwoord geeft: bij een nieuwe synchronisatie, op een nieuwe dag (aanbiedingen
+    lopen af), voor een andere week en bij een nieuwe versie van de app (de indeling en de voorwaarden worden bij het laden uit de bewaarde
+    tekst afgeleid). Goedkoop: een rij uit de database. Dient als ETag, zodat een browser met de lijst al in de cache geen nieuwe hoeft te krijgen."""
     store = _valid_store(store)
+    monday = week_bounds(week)[0].isoformat() if week is not None else ""
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), about.read_version()))
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, about.read_version()))
 
 
-def load(store: Any) -> dict[str, Any]:
-    """De lokale kopie van de aanbiedingen van een winkel; `syncedAt` is None zolang er nooit is opgehaald."""
+def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """De aanbiedingen die in de week van `week` gelden, en wat daarbuiten valt.
+
+    Een aanbieding hoort bij de week als haar looptijd er een of meer dagen in valt; een ontbrekende datum is open aan die kant (een
+    doorlopende aanbieding loopt dus door in elke week). Een aanbieding zonder enige datum (Picnic) is alleen vandaag gezien: die staat bij
+    de week van vandaag, en voor een andere week telt ze in `undated`. `later` telt de aanbiedingen die pas na de week beginnen, zoals de
+    bonus van volgende week die AH in het weekend al doorgeeft. Aanbiedingen met een einddatum (de bonus van de week) staan voor de
+    doorlopende (zoals AH's volumevoordelen, die elke week gelden), zodat de bonus van de week niet onder honderden vaste kortingen verdwijnt.
+    """
+    monday, sunday = week_bounds(week)
+    current = monday <= date.today() <= sunday
+    chosen: list[dict[str, Any]] = []
+    later = undated = 0
+    for offer in offers:
+        start, end = deals.parse_date(offer["validFrom"]), deals.parse_date(offer["validUntil"])
+        if start is None and end is None:
+            if current:
+                chosen.append(offer)
+            else:
+                undated += 1
+        elif start is not None and start > sunday:
+            later += 1
+        elif deals.in_week(start, end, monday, sunday):
+            chosen.append(offer)
+    chosen.sort(key=lambda offer: offer["validUntil"] is None and offer["validFrom"] is not None)
+    return chosen, {"week": {"from": monday.isoformat(), "until": sunday.isoformat(), "current": current}, "later": later, "undated": undated}
+
+
+def load(store: Any, week: Any = None) -> dict[str, Any]:
+    """De lokale kopie van de aanbiedingen van een winkel; `syncedAt` is None zolang er nooit is opgehaald.
+
+    Met `week` (een datum in de week van het weekmenu) alleen de aanbiedingen die in die week gelden, zie `_for_week`; zonder `week` alle
+    aanbiedingen die nog niet verlopen zijn, ook die van volgende week (zo zoekt de AI in `ai_match` in alles wat er bekend is).
+    """
     store = _valid_store(store)
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
@@ -254,13 +295,18 @@ def load(store: Any) -> dict[str, Any]:
     ]
     # Tussen twee synchronisaties kan een aanbieding aflopen; die laten we niet meer zien.
     offers = [offer for offer in all_offers if offer["validity"] != deals.EXPIRED]
+    expired = len(all_offers) - len(offers)
+    selection: dict[str, Any] = {"week": None, "later": 0, "undated": 0}
+    if week is not None:
+        offers, selection = _for_week(offers, week)
     return {
         "store": store,
         "offers": offers,
         "total": len(offers),
-        "expired": len(all_offers) - len(offers),
+        "expired": expired,
         "categories": offer_categories.summarize([offer["category"] for offer in offers]),
         "period": deals.common_period(offers),
+        **selection,
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
     }
@@ -913,19 +959,20 @@ def _rejections(store: str) -> set[tuple[str, str]]:
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> dict[str, Any]:
+def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, week: Any = None) -> dict[str, Any]:
     """Recepten uit de index die zoveel mogelijk met de aanbiedingen van deze winkel te maken zijn, de beste eerst.
 
     Basisingrediënten (zout, olie, boter ...) tellen niet mee. De volgorde is: het grootste deel van de ingrediënten in de aanbieding,
     dan het grootste aantal, dan de grootste besparing. `course` beperkt de lijst tot één soort gerecht (zie `offer_courses`); de
-    aantallen per soort in `courses` gelden voor alle voorstellen, zodat je ziet wat er bij een andere keuze zou staan.
+    aantallen per soort in `courses` gelden voor alle voorstellen, zodat je ziet wat er bij een andere keuze zou staan. Met `week`
+    tellen alleen de aanbiedingen van die week mee (zie `load`), zodat de voorstellen passen bij de week die je plant.
     """
     course = str(course or "").strip().lower()
     if course in ("", "all"):
         course = ""
     elif course not in offer_courses.COURSES:
         raise ValueError(tr("Onbekende soort gerecht", "Unknown kind of dish"))
-    offers = load(store)
+    offers = load(store, week)
     rejected = _rejections(offers["store"])
     verdicts = _verdicts(offers["store"])
     pair_judged: dict[tuple[str, str], bool] = {}
@@ -1028,6 +1075,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100) -> 
         "courses": courses,
         "course": course or "all",
         "offersSyncedAt": offers["syncedAt"],
+        "week": offers["week"],
         # Hoeveel van de unieke koppelingen in de voorstellen een AI al beoordeeld heeft (zie ai_review.py).
         "ai": {
             "judged": sum(pair_judged.values()), "unjudged": len(pair_judged) - sum(pair_judged.values()),

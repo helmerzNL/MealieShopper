@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.84.0
+
+### Nieuw in 2.84.0
+
+*English summary: the Offers tab now shows the offers of the week you are planning ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). The week is at the top with the same arrows as the week menu, and both share one week: plan next week and you see next week's offers, pick a week in Offers and the week menu follows. AH already gives next week's Bonus at the weekend; until now it was mixed in with today's offers, and the header said "Valid Sun 1 Nov to Sun 1 Nov". This week now only shows this week's offers, with "… more offers are already known that start later" and a link to the week after; next week shows next week's Bonus, with ongoing discounts after it. The recipe suggestions use the same week. The header names the Bonus week again instead of the one-day period of AH's package discounts.*
+
+- **Aanbiedingen per week, gelijk met het weekmenu** ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). Bovenaan het tabblad Aanbiedingen (en bij Recepten) staat de week, met dezelfde pijltjes als in het weekmenu. Het weekmenu en Aanbiedingen delen de week: plan je volgende week, dan zie je de aanbiedingen van volgende week, en kies je bij Aanbiedingen een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet; verlopen aanbiedingen staan in de Prijsgeschiedenis.
+- **De bonus van volgende week staat apart.** AH geeft de bonus van volgende week in het weekend al door. Die stond tot nu toe tussen de aanbiedingen van vandaag, zodat je op zondag niet zag wat er volgende week in de aanbieding is. Bij deze week staan nu alleen de aanbiedingen van deze week, met *Er zijn al … aanbiedingen bekend die later beginnen* en **Bekijk de week erna**; bij volgende week de bonus van volgende week.
+- **Een aanbieding hoort bij elke week waarin ze geldt.** Een doorlopende korting zonder einddatum (zoals AH's *volume voordeel*) staat in elke week, na de aanbiedingen met een einddatum, zodat de bonus van de week bovenaan staat. Een aanbieding zonder looptijd (Picnic geeft er geen) staat alleen bij de huidige week; bij een andere week staat erbij hoeveel dat er zijn. Begint een aanbieding nog en pas later in de gekozen week (Jumbo wisselt op woensdag), dan staat er *vanaf …* bij.
+- **De receptvoorstellen gebruiken de aanbiedingen van dezelfde week.**
+- **API**: `GET /api/offers` en `GET /api/offers/recipes` nemen `week` (een datum in de week, zoals `2026-11-02`); zonder `week` is het de week van vandaag. Het antwoord meldt `week`, `later` (aanbiedingen die pas na die week beginnen) en `undated` (aanbiedingen zonder looptijd die voor een andere week zijn weggelaten). Elke week heeft een eigen `ETag`.
+
+### Opgelost in 2.84.0
+
+- **"Geldig zo 1 nov t/m zo 1 nov".** De regel boven de aanbiedingen noemt de looptijd die de meeste aanbiedingen delen. AH geeft zijn pakketkortingen en volumevoordelen elke dag opnieuw door met een looptijd van alleen die dag, en dat waren er meer dan de bonus van de week; op zondag stond er daardoor alleen vandaag. Een looptijd van één dag telt nu alleen als er geen langere is, zodat er weer *Geldig ma 26 okt t/m zo 1 nov* staat.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
+
 ## v2.83.0
 
 ### Nieuw in 2.83.0
