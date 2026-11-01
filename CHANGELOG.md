@@ -1,17 +1,18 @@
 # Changelog
 
-Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
+Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
 ## v2.85.1
 
 ### Opgelost in 2.85.1
 
-*English summary: Find recipes has more breathing room: the explanation no longer sticks to the search field, each store (Mealie, Albert Heijn, Jumbo and so on) starts with space above its heading, and **More recipes** no longer touches the cards above it. Reload the page once after updating.*
+*English summary: Find recipes has more breathing room: the explanation no longer sticks to the search field, each store (Mealie, Albert Heijn, Jumbo and so on) starts with space above its heading, and **More recipes** no longer touches the cards above it. A stable release now carries the release notes of every version since the previous stable release, so features that only came out as a beta are in it too. Reload the page once after updating.*
 
 - **Meer ruimte in Recepten zoeken.** De uitleg onder het zoekvak stond er direct tegenaan; er zit nu 10 px tussen. Elke winkel in de resultaten (Mealie, Albert Heijn, Jumbo, Picnic, HelloFresh, Marley Spoon) begint met 24 px ruimte boven het kopje, zodat het kopje niet meer aan de uitleg of aan de kaarten van de winkel erboven plakt. **Meer recepten** staat 14 px onder de kaarten in plaats van ertegenaan.
+- **De stabiele release bevat alle versies sinds de vorige stabiele release.** Bij de promotie van `beta` naar `main` kreeg de stabiele release alleen de tekst van de laatste versie; wat ertussen alleen als beta uitkwam, stond er niet in. `release.yml` zoekt nu de vorige stabiele release op en `scripts/release_notes.py --since` zet de teksten van alle versies daarna onder elkaar, nieuwste eerst. Een pre-release krijgt nog steeds alleen zijn eigen versie. De sectie van 2.84.0 is daarbij opgeschoond: de porties (#164) en de productfoto's (#163) staan er nu samen in.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Pull request: [#167](https://github.com/helmerzNL/MealieShopper/pull/167).
+- Pull requests: [#167](https://github.com/helmerzNL/MealieShopper/pull/167) en [#168](https://github.com/helmerzNL/MealieShopper/pull/168).
 
 ## v2.85.0
 
@@ -52,21 +53,16 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Nieuw in 2.84.0
 
-*English summary: the servings you set for a meal in Mealie's meal planner (Mealie v3.29.0 or newer) now carry over. The week menu shows them ("4 servings") and every amount is scaled to match: the ingredient list, the review list, the basket and the MCP tool `get_week_menu`. Fixed: the same ingredient in two recipes of the week is now added up (2× 400 g spaghetti is 800 g) instead of counting only the first. Reload the page once after updating.*
+*English summary: the servings you set for a meal in Mealie's meal planner (Mealie v3.29.0 or newer) now carry over. The week menu shows them ("4 servings") and every amount is scaled to match: the ingredient list, the review list, the basket and the MCP tool `get_week_menu`. The check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo; pick another product and the photo changes with it, tap the photo to see it large. Fixed: the same ingredient in two recipes of the week is now added up (2× 400 g spaghetti is 800 g) instead of counting only the first. Reload the page once after updating.*
 
 - **Porties uit de planner van Mealie.** Sinds Mealie v3.29.0 heeft elke geplande maaltijd een eigen aantal porties. MealieShopper leest dat in (`recipeScale`) en rekent de hoeveelheden van die maaltijd om: in de lijst met ingrediënten, de controlelijst, het mandje en bij de MCP-tool `get_week_menu`, die per maaltijd ook de porties meegeeft. Het weekmenu toont onder elke maaltijd het aantal porties, bijvoorbeeld *4 porties · 9 ingrediënten*. Weet Mealie de porties van het recept niet, dan staat er alleen de schaal (*×1,5*). Een oudere Mealie geeft geen porties mee; dan blijft alles zoals het was. Wijzig je een maaltijd in MealieShopper, dan blijven de porties staan; kies je een ander recept, dan begint het, net als in Mealie, weer bij 1. Let op: de porties-knop op de receptpagina van Mealie verandert alleen wat je daar ziet en wordt niet bewaard; stel de porties in bij de maaltijd in de planner.
+- **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
+- **Tik op de foto voor de foto in het groot.** Een venster toont de foto zo groot als het scherm toelaat, met de naam, de verpakking en de prijs. Sluiten doe je met **Sluiten**, met Esc of door naast het venster te tikken. Albert Heijn en Picnic geven daarvoor een groter formaat mee (bij AH het formaat rond 800 beeldpunten, bij Picnic `large`), zodat de foto scherp blijft; bij Jumbo, of als het grote formaat niet laadt, toont het venster de gewone foto. Een product zonder foto kun je niet aantikken.
+- **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
 
 ### Opgelost in 2.84.0
 
 - **Gelijke ingrediënten werden niet opgeteld.** Kwam hetzelfde ingrediënt in twee recepten van de week voor, dan telde alleen de eerste regel mee: 2× 400 g spaghetti werd 400 g. Nu worden regels met hetzelfde ingrediënt en dezelfde eenheid opgeteld; met een andere eenheid (*1 ui* en *100 g ui*) blijven het aparte regels. Een regel zonder hoeveelheid (*peper*) staat er één keer in, en wijkt voor een regel van hetzelfde ingrediënt met een hoeveelheid.
-
-- Pull request: [#164](https://github.com/helmerzNL/MealieShopper/pull/164), lost issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159) op.
-
-*English summary: the check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo. Pick another product in the list and the photo changes with it; tap the photo to see it large. This matters most for Picnic, which has no product page to look at. Reload the page once after updating.*
-
-- **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
-- **Tik op de foto voor de foto in het groot.** Een venster toont de foto zo groot als het scherm toelaat, met de naam, de verpakking en de prijs. Sluiten doe je met **Sluiten**, met Esc of door naast het venster te tikken. Albert Heijn en Picnic geven daarvoor een groter formaat mee (bij AH het formaat rond 800 beeldpunten, bij Picnic `large`), zodat de foto scherp blijft; bij Jumbo, of als het grote formaat niet laadt, toont het venster de gewone foto. Een product zonder foto kun je niet aantikken.
-- **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
 - Pull requests: [#163](https://github.com/helmerzNL/MealieShopper/pull/163) (issue [#158](https://github.com/helmerzNL/MealieShopper/issues/158)) en [#164](https://github.com/helmerzNL/MealieShopper/pull/164) (issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159)).
