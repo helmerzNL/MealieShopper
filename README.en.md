@@ -149,7 +149,7 @@ Your **receipts** from the shop, shown the way they look on paper: quantity, des
 
 ### Stores: Picnic
 
-Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; open a recipe for the ingredients and the method, or import it into Mealie.
+Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; `View` shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie).
 
 <img src="docs/screenshots/en/picnic-recipes.png" alt="Picnic recipes as cards, with a choice between Saved, Order again and Cookbook" width="900">
 

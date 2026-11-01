@@ -149,7 +149,7 @@ Je **kassabonnen** uit de winkel, weergegeven zoals op papier: aantal, omschrijv
 
 ### Winkels: Picnic
 
-Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; open een recept voor de ingrediënten en de bereiding, of importeer het in Mealie.
+Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; `Bekijken` toont de ingrediënten en de bereiding, en `Inplannen` zet het recept in je weekmenu (en in Mealie).
 
 <img src="docs/screenshots/nl/picnic-recipes.png" alt="Picnic-recepten als kaarten, met een keuze tussen Bewaard, Opnieuw bestellen en Kookboek" width="900">
 
