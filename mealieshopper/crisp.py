@@ -25,7 +25,7 @@ import requests
 
 from . import about, auth, deals
 from .i18n import tr
-from .packs import assess_packs, normalize_quantity
+from .packs import MAX_CART_QUANTITY, assess_packs, normalize_quantity
 
 API = "https://crispapp.nl/v1"
 ORIGIN = "https://crispapp.nl"
@@ -63,6 +63,10 @@ class CrispAuthError(RuntimeError):
 
 class CrispLoginError(RuntimeError):
     """Crisp weigerde het e-mailadres of de code; de tekst is van onszelf en zegt wat te doen."""
+
+
+class CrispBasketError(RuntimeError):
+    """Crisp weigerde een wijziging in het mandje (een `_error` in het antwoord); de tekst is van onszelf."""
 
 
 def _not_linked() -> RuntimeError:
@@ -374,8 +378,17 @@ def _count(line: dict[str, Any]) -> int:
         return 0
 
 
+def _max_count(line: dict[str, Any]) -> int | None:
+    """Hoeveel Crisp er hooguit van kan leveren: de hoogste waarde in `available` (`{dag: aantal}`), zoals de app."""
+    available = line.get("available")
+    if not isinstance(available, dict):
+        return None
+    counts = [value for value in available.values() if isinstance(value, int) and not isinstance(value, bool)]
+    return max(counts) if counts else None
+
+
 def cart_summary(basket: Any) -> dict[str, Any]:
-    """Het Crisp-mandje in een compacte vorm, zoals het mandje van Jumbo."""
+    """Het Crisp-mandje in een compacte vorm, zoals het mandje van Picnic."""
     items = []
     for product_id, line in _basket_products(basket):
         quantity = _count(line)
@@ -384,6 +397,7 @@ def cart_summary(basket: Any) -> dict[str, Any]:
         price = _money(line.get("totalPrice"))
         if price is None and _money(line.get("price")) is not None:
             price = round(_money(line.get("price")) * quantity, 2)
+        listed = _money(line.get("totalBasePrice"))
         items.append(
             {
                 "id": product_id,
@@ -391,16 +405,23 @@ def cart_summary(basket: Any) -> dict[str, Any]:
                 "quantity": quantity,
                 "unitSize": _text(line.get("weightIndication")) or None,
                 "price": price,
+                # De prijs zonder korting, alleen als die hoger is: dan toont het mandje hem doorgestreept.
+                "listPrice": listed if listed is not None and price is not None and listed > price else None,
+                "maxCount": _max_count(line),
                 "image": _image(line.get("images")) or _image(line.get("image")),
             }
         )
     prices = [item["price"] for item in items if item["price"] is not None]
     basket = basket if isinstance(basket, dict) else {}
+    needed = _money(basket.get("neededForMOV"))
     return {
         "items": items,
         "totalCount": sum(item["quantity"] for item in items),
         "totalPrice": round(sum(prices), 2) if prices else None,
-        "checkoutTotal": _money(basket.get("payPrice")),  # wat je in de app betaalt, met bezorgkosten
+        # Wat je in de app betaalt, met bezorg- en servicekosten en statiegeld.
+        "checkoutTotal": _money(basket.get("payPrice")) or _money(basket.get("finalPrice")),
+        "minimumOrder": _money(basket.get("mov")),
+        "stillNeeded": needed if needed is not None and needed > 0 else None,
     }
 
 
@@ -410,6 +431,20 @@ def _counts(basket: Any) -> dict[str, int]:
 
 def get_cart() -> dict[str, Any]:
     return cart_summary(_authed("GET", "/basket/main"))
+
+
+def _put_basket(products: dict[str, Any]) -> Any:
+    """Eén wijziging in het mandje. Weigert Crisp die (`_error`), dan bewaart Crisp niets en melden we dat."""
+    basket = _authed("PUT", "/basket/main", {"products": products})
+    if isinstance(basket, dict) and basket.get("_error"):
+        # De tekst van Crisp (bedoeld voor de app) geven we niet door; de reden staat ook niet vast.
+        raise CrispBasketError(
+            tr(
+                "Crisp paste het mandje niet aan. Misschien is het product (zoveel) niet leverbaar; kijk in de Crisp-app.",
+                "Crisp did not change the basket. The product may not be available (in that number); check the Crisp app.",
+            )
+        )
+    return basket
 
 
 def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -426,9 +461,15 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
             wanted[product_id] = wanted.get(product_id, 0) + normalize_quantity(item.get("quantity"))
     if not wanted:
         return {"added": [], "failed": [], "cart": None}
-    before = _counts(_authed("GET", "/basket/main"))
+    current = _authed("GET", "/basket/main")
+    before = _counts(current)
     changes = {product_id: {"count": before.get(product_id, 0) + count, "from": FROM} for product_id, count in wanted.items()}
-    basket = _authed("PUT", "/basket/main", {"products": changes})
+    try:
+        basket = _put_basket(changes)
+    except CrispBasketError as exc:
+        # Crisp nam de hele wijziging niet aan: niets is toegevoegd.
+        failed = [{"productId": product_id, "error": str(exc)} for product_id in wanted]
+        return {"added": [], "failed": failed, "cart": cart_summary(current)}
     after = _counts(basket)
     added: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -439,6 +480,178 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             failed.append({"productId": product_id, "error": tr("Crisp zette dit product niet in het mandje (niet leverbaar?)", "Crisp did not put this product in the basket (not available?)")})
     return {"added": added, "failed": failed, "cart": cart_summary(basket)}
+
+
+def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
+    """Zet een product op een exact aantal; 0 haalt het weg. Zoals de app: het nieuwe aantal in één `PUT`."""
+    product_id = str(product_id or "").strip()
+    if not _ID.match(product_id):
+        raise ValueError(tr("Geen geldig product", "Not a valid product"))
+    if isinstance(quantity, bool) or not isinstance(quantity, (int, float, str)):
+        raise ValueError(tr("Geen geldig aantal", "Not a valid number"))
+    try:
+        number = float(quantity)
+    except ValueError as exc:
+        raise ValueError(tr("Geen geldig aantal", "Not a valid number")) from exc
+    if number != int(number) or not 0 <= number <= MAX_CART_QUANTITY:
+        raise ValueError(tr(f"Kies een aantal van 0 tot {MAX_CART_QUANTITY}", f"Choose a number from 0 to {MAX_CART_QUANTITY}"))
+    return cart_summary(_put_basket({product_id: {"count": int(number), "from": FROM}}))
+
+
+def clear_cart() -> dict[str, Any]:
+    """Haal alle losse producten uit het mandje, in één `PUT` met aantal 0 per product.
+
+    De app leegt het mandje met `products: "clear"`, maar alleen samen met recepten en maaltijdboxen; aantal 0 is de
+    vorm die de app per product gebruikt. Recepten die je in de Crisp-app in het mandje zette, blijven staan.
+    """
+    current = _authed("GET", "/basket/main")
+    ids = [product_id for product_id, line in _basket_products(current) if _count(line) and _ID.match(product_id)]
+    if not ids:
+        return {"removed": 0, "cart": cart_summary(current)}
+    basket = _put_basket({product_id: {"count": 0, "from": FROM} for product_id in ids})
+    return {"removed": len(ids), "cart": cart_summary(basket)}
+
+
+# --- bestellingen en favorieten ---------------------------------------------------------
+
+MAX_OPEN_ORDERS = 5  # zoveel aankomende bestellingen halen we live op
+# `fulfillStatus` van een bestelling (app/types/interfaces.ts): nog niet bezorgd, bezorgd, of geannuleerd.
+OPEN_STATUSES = {"ready", "picked", "delivery"}
+CANCELLED_STATUSES = {"cancel"}
+
+
+def _order_header(order: dict[str, Any]) -> dict[str, Any]:
+    """Wat we van een bestelling tonen en bewaren: dag, tijdvak, status en totaal. Geen adres, IBAN of betaalwijze."""
+    slot = order.get("deliverySlot") if isinstance(order.get("deliverySlot"), dict) else {}
+    total = next((_money(order.get(key)) for key in ("paidPrice", "payPrice", "finalPrice") if _money(order.get(key)) is not None), None)
+    return {
+        "id": str(order.get("id") or ""),
+        "status": str(order.get("fulfillStatus") or "").strip().lower() or None,
+        "deliveryDate": str(slot.get("date") or "")[:10] or None,
+        "windowStart": slot.get("tsStart") if isinstance(slot.get("tsStart"), str) else None,
+        "windowEnd": slot.get("tsEnd") if isinstance(slot.get("tsEnd"), str) else None,
+        "total": total,
+    }
+
+
+def _order_items(order: dict[str, Any]) -> list[dict[str, Any]]:
+    """De producten van een bestelling, in de vorm van het mandje."""
+    return cart_summary({"products": order.get("products")})["items"]
+
+
+def order_history_page(cursor: Any = None) -> tuple[list[dict[str, Any]], str | None]:
+    """Eén pagina van je bestelgeschiedenis (nieuwste eerst) en de cursor voor de volgende; zonder cursor is dit de laatste."""
+    path = "/order/history" + (f"?cursor={quote(str(cursor), safe='')}" if cursor else "")
+    data = _authed("GET", path)
+    orders = []
+    for entry in data.get("data") or [] if isinstance(data, dict) else []:
+        # Abonnementsbestellingen (maaltijdboxen) hebben een andere vorm; die tonen we niet.
+        item = entry.get("item") if isinstance(entry, dict) and entry.get("type", "order") == "order" else None
+        if isinstance(item, dict) and item.get("id"):
+            orders.append(_order_header(item))
+    next_cursor = data.get("cursor") if isinstance(data, dict) else None
+    return orders, (str(next_cursor) if next_cursor else None)
+
+
+def _order_id(value: Any) -> str:
+    order_id = str(value or "").strip()
+    if not _ID.match(order_id):
+        raise ValueError(tr("Ongeldige bestelling", "Invalid order"))
+    return order_id
+
+
+def get_order(order_id: Any) -> dict[str, Any]:
+    """Eén bestelling met de producten, live bij Crisp."""
+    data = _authed("GET", f"/order/{_order_id(order_id)}")
+    order = data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else data
+    if not isinstance(order, dict) or not order.get("id"):
+        raise RuntimeError(tr("Crisp gaf de bestelling in een onbekend formaat", "Crisp returned the order in an unknown format"))
+    items = _order_items(order)
+    return {**_order_header(order), "items": items, "itemCount": sum(item["quantity"] for item in items), "itemsSynced": True}
+
+
+def get_open_orders() -> list[dict[str, Any]]:
+    """De bestellingen die nog bezorgd worden (`/order/count` geeft hun id's), met het aantal producten."""
+    data = _authed("GET", "/order/count")
+    ids = [str(value) for value in (data.get("openOrderIds") or [] if isinstance(data, dict) else []) if _ID.match(str(value))]
+    orders = []
+    for order_id in ids[:MAX_OPEN_ORDERS]:
+        order = get_order(order_id)
+        orders.append({key: value for key, value in order.items() if key != "items"})
+    return sorted(orders, key=lambda order: str(order.get("windowStart") or order.get("deliveryDate") or ""))
+
+
+def get_favorites() -> dict[str, Any]:
+    """Je bewaarde producten ("Door jou bewaard" in de app). Recepten in die lijst laten we weg."""
+    data = _authed("GET", "/saved/list")
+    entries = data.get("items") if isinstance(data, dict) else None
+    products = []
+    seen: set[str] = set()
+    for entry in entries or []:
+        item = entry.get("item") if isinstance(entry, dict) and entry.get("type") == "product" else None
+        if isinstance(item, dict) and item.get("id") and item.get("title"):
+            product = product_summary(item)
+            if product["id"] not in seen:
+                seen.add(product["id"])
+                products.append(product)
+    return {"products": products, "total": len(products)}
+
+
+# --- aanbiedingen ------------------------------------------------------------------------
+
+
+def _offer(product: dict[str, Any], label: str = "") -> dict[str, Any] | None:
+    """Een product uit de aanbiedingen in de vorm van `offers.sync` (zoals Picnic en Jumbo)."""
+    summary = product_summary(product)
+    if not summary["id"] or not summary["title"]:
+        return None
+    promo = summary.get("promo") or {}
+    return {
+        "id": summary["id"],
+        "title": summary["title"],
+        "brand": summary["brand"],
+        "unitSize": summary["unitSize"],
+        "price": summary["price"],
+        "priceBefore": promo.get("priceBefore"),
+        "promoLabel": promo.get("label") or label or None,
+        "image": summary["image"],
+        "url": None,
+        # De looptijd staat alleen per actie (`/promo/{id}`); zonder datum staat de aanbieding bij de huidige week.
+        "validFrom": None,
+        "validUntil": None,
+    }
+
+
+def get_offers() -> list[dict[str, Any]]:
+    """De aanbiedingen van deze week, zoals het tabblad Promo van de app ze toont (`/promo/current`).
+
+    De pagina bestaat uit blokken: losse producten en groepen producten (met prijs en actie), en acties met hun producten
+    (zonder prijs; de titel van de actie is dan het label).
+    """
+    data = _authed("GET", "/promo/current")
+    section = data.get("promo") if isinstance(data, dict) and isinstance(data.get("promo"), dict) else {}
+    found: dict[str, dict[str, Any]] = {}
+
+    def add(product: Any, label: str = "") -> None:
+        if isinstance(product, dict):
+            offer = _offer(product, label)
+            if offer and offer["id"] not in found:
+                found[offer["id"]] = offer
+
+    for block in section.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        add(block.get("product"))
+        for product in block.get("products") or []:
+            add(product)
+        promotion = block.get("promotion") if isinstance(block.get("promotion"), dict) else None
+        if promotion:
+            label = _text(promotion.get("title")) or _text(promotion.get("descrShort"))
+            for product in promotion.get("products") or []:
+                add(product, label)
+    if not found:
+        raise RuntimeError(tr("Crisp gaf geen aanbiedingen (de promopagina is leeg of anders van vorm)", "Crisp returned no offers (the promo page is empty or has a different shape)"))
+    return list(found.values())
 
 
 # --- recepten ----------------------------------------------------------------------------
@@ -639,5 +852,57 @@ def explore() -> dict[str, Any]:
                 "instructionFields": _keys(steps[0]) if isinstance(steps, list) and steps else [],
             }
         check("recipe", "GET /recipe/:id", f"/recipe/{recipe['id']}", inspect=recipe_shape)
+
+    # Bestellingen, favorieten en aanbiedingen: alleen soorten, aantallen en veldnamen.
+    def history_shape(data: Any) -> dict[str, Any]:
+        entries = [entry for entry in (data.get("data") or [] if isinstance(data, dict) else []) if isinstance(entry, dict)]
+        order = next((entry.get("item") for entry in entries if entry.get("type") == "order" and isinstance(entry.get("item"), dict)), {})
+        return {
+            "count": len(entries),
+            "types": sorted({str(entry.get("type")) for entry in entries}),
+            "orderFields": _keys(order),
+            "slotFields": _keys(order.get("deliverySlot")),
+            "statuses": sorted({str(entry["item"].get("fulfillStatus")) for entry in entries if isinstance(entry.get("item"), dict)}),
+            "hasCursor": bool(isinstance(data, dict) and data.get("cursor")),
+        }
+
+    history = check("orderHistory", "GET /order/history", "/order/history", inspect=history_shape)
+    order = next((entry.get("item") for entry in ((history or {}).get("data") or []) if isinstance(entry, dict) and entry.get("type") == "order"), None)
+    if isinstance(order, dict) and order.get("id"):
+        def order_shape(data: Any) -> dict[str, Any]:
+            inner = data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else data
+            products = inner.get("products") if isinstance(inner, dict) else None
+            line = products[0] if isinstance(products, list) and products and isinstance(products[0], dict) else {}
+            return {"orderFields": _keys(inner), "productFields": _keys(line)}
+        check("order", "GET /order/:id", f"/order/{order['id']}", inspect=order_shape)
+    check("openOrders", "GET /order/count", "/order/count", inspect=lambda data: {
+        "openCount": len(data.get("openOrderIds") or []) if isinstance(data, dict) else 0,
+    })
+
+    def saved_shape(data: Any) -> dict[str, Any]:
+        items = [entry for entry in (data.get("items") or [] if isinstance(data, dict) else []) if isinstance(entry, dict)]
+        product_entry = next((entry.get("item") for entry in items if entry.get("type") == "product"), {})
+        return {"count": len(items), "types": sorted({str(entry.get("type")) for entry in items}), "productFields": _keys(product_entry)}
+
+    check("favorites", "GET /saved/list", "/saved/list", inspect=saved_shape)
+
+    def promo_shape(data: Any) -> dict[str, Any]:
+        section = data.get("promo") if isinstance(data, dict) and isinstance(data.get("promo"), dict) else {}
+        blocks = [block for block in section.get("blocks") or [] if isinstance(block, dict)]
+        kinds: dict[str, int] = {}
+        for block in blocks:
+            kind = str(block.get("type") or "+".join(sorted(key for key in ("product", "products", "promotion") if key in block)) or "?")
+            kinds[kind] = kinds.get(kind, 0) + 1
+        promotion = next((block["promotion"] for block in blocks if isinstance(block.get("promotion"), dict)), {})
+        product_block = next((block["product"] for block in blocks if isinstance(block.get("product"), dict)), {})
+        return {
+            "blockKinds": kinds,
+            "blockFields": sorted({key for block in blocks for key in block}),
+            "promotionFields": _keys(promotion),
+            "productFields": _keys(product_block),
+            "productPromotionFields": _keys(product_block.get("promotion")),
+        }
+
+    check("offers", "GET /promo/current", "/promo/current", inspect=promo_shape)
     report["working"] = sum(1 for entry in report["checks"] if entry.get("ok"))
     return report

@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-64")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-65")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -969,7 +969,7 @@ def create_app() -> Flask:
     # mandje. Recepten van Crisp zijn te zoeken, te bekijken en in Mealie te zetten.
 
     def crisp_error(exc: Exception) -> Any:
-        return store_error("Crisp", exc, crisp.CrispAuthError, crisp.CrispLoginError)
+        return store_error("Crisp", exc, crisp.CrispAuthError, crisp.CrispLoginError, crisp.CrispBasketError)
 
     @app.get("/api/crisp/auth/status")
     def crisp_auth_status():
@@ -1020,6 +1020,66 @@ def create_app() -> Flask:
     @app.post("/api/crisp/cart")
     def crisp_cart():
         return store_cart(crisp, crisp_error, crisp.CrispAuthError)
+
+    @app.put("/api/crisp/cart/items/<product_id>")
+    def crisp_cart_set_quantity(product_id: str):
+        # Het aantal van één product in het echte Crisp-mandje; 0 haalt het weg. Nooit een bestelling.
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(crisp.set_quantity(product_id, body.get("quantity")))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/cart/clear")
+    def crisp_cart_clear():
+        # Het mandje leegmaken vraagt om een expliciete bevestiging, zoals bij Picnic.
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") is not True:
+            return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
+        try:
+            return jsonify(crisp.clear_cart())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    # Bestellingen: de bezorgde uit de lokale kopie (crisp_orders), de aankomende live.
+    @app.get("/api/crisp/orders")
+    def crisp_orders_list():
+        return jsonify(crisp_orders.list_orders())
+
+    @app.get("/api/crisp/orders/open")
+    def crisp_orders_open():
+        try:
+            return jsonify({"orders": crisp.get_open_orders()})
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/orders/sync")
+    def crisp_orders_sync():
+        try:
+            return jsonify(crisp_orders.sync_orders())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/orders/<order_id>")
+    def crisp_order_detail(order_id: str):
+        # Uit de lokale kopie als de producten er al in staan; anders (een aankomende bestelling, of nog niet
+        # gesynchroniseerd) live bij Crisp. Lukt dat niet, dan wat we hebben.
+        local = crisp_orders.get_order(order_id)
+        if local and local["itemsSynced"]:
+            return jsonify(local)
+        try:
+            return jsonify(crisp.get_order(order_id))
+        except Exception as exc:  # noqa: BLE001
+            if local:
+                return jsonify(local)
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/favorites")
+    def crisp_favorites():
+        try:
+            return jsonify(crisp.get_favorites())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
 
     @app.get("/api/crisp/recipes")
     def crisp_recipe_search():

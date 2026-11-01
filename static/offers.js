@@ -1,4 +1,4 @@
-// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic en Jumbo) per categorie, en receptvoorstellen
+// Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic, Jumbo en Crisp) per categorie, en receptvoorstellen
 // waarvan ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; die wordt elke dag ververst en kan de
 // beheerder onder Instellingen > Koppelen meteen synchroniseren.
 // Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekOffsetText en setPlanWeek uit app.js.
@@ -6,7 +6,7 @@
 // De week is die van het weekmenu (state.weekOffset): plan je volgende week, dan staan hier de aanbiedingen van volgende week, en kies
 // je hier een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet: verlopen aanbiedingen staan in de Prijsgeschiedenis.
 
-const OFFERS_STORES = ["ah", "picnic", "jumbo"];
+const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
 const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "" };
 

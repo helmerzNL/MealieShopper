@@ -18,7 +18,7 @@ from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Iterable
 
-from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
+from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer_translate, ah_recipes, auth, crisp, jumbo, jumbo_recipes, mealie, mealie_images, picnic, picnic_recipes
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
@@ -26,16 +26,19 @@ FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "ah": ah.get_bonus_products,
     "picnic": picnic.get_offers,
     "jumbo": jumbo.get_offers,
+    "crisp": crisp.get_offers,
 }
-STORES = ("ah", "picnic", "jumbo")
+STORES = ("ah", "picnic", "jumbo", "crisp")
 
 
 def linked(store: str) -> bool:
-    """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic en Jumbo vragen een koppeling."""
+    """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
     if store == "picnic":
         return bool(picnic.configured_auth_key())
     if store == "jumbo":
         return bool(jumbo.configured_refresh_token())
+    if store == "crisp":
+        return bool(crisp.configured_client_id())
     return True
 
 MEALIE_RECIPE_LIMIT = 300
@@ -230,7 +233,7 @@ def _now() -> str:
 def _valid_store(store: Any) -> str:
     store = str(store or "").strip().lower()
     if store not in STORES:
-        raise ValueError(tr("Onbekende winkel (kies ah, picnic of jumbo)", "Unknown store (choose ah, picnic or jumbo)"))
+        raise ValueError(tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)"))
     return store
 
 
