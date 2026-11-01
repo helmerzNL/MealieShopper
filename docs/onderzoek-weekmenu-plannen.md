@@ -5,7 +5,7 @@ naar Mealie hoeft om te plannen, en dat het in Mealie terechtkomt. Onderzocht op
 Mealie (`mealie/routes/households/controller_mealplan.py` en `mealie/schema/meal_plan/new_meal.py`, tags `v2.8.0` tot en
 met `v3.12.0` en `mealie-next`).
 
-## Uitkomst: gebouwd in 2.82.0
+## Uitkomst: gebouwd in 2.82.0 (recepten van winkels en maaltijdboxen inplannen in 2.83.0)
 
 | Onderdeel | Bevinding |
 | --- | --- |
