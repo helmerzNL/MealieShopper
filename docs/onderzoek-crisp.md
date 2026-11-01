@@ -107,6 +107,12 @@ daaruit gebruikt:
 | `POST /search/recipe {query, cursor: false, limit}` | Recepten als items met `itemType: "recipe"`. `type` is `""`, `bundle`, `user` of `mealkit`. |
 | `GET /recipe/{id}` | `title`, `subTitle`, `description`, `portions`, `images[]`, `cookingMethods.short.minutes`, `ingredientGroups[].ingredients[]` (`formattedName`, `formattedQuantity`, `productId`, `product` en `count`), `instructions[].instruction` (met `**vet**`) en `shareUrl`. |
 
+**Foto's** (`images[]` bij producten en recepten) zijn blob-id's, geen adressen. De app maakt er
+`https://crispapp.nl/blob/<id>?thumb=<maat>` van (`app/ui/BlobImage.tsx` en `resolveBlobUrl` in
+`app/react-native/Image.tsx`). `thumb` is verplicht: een macht van 2 tot 1024, daarboven een veelvoud van 512. Het
+plaatje laadt zonder `Authorization`. v2.86.0 zag dit over het hoofd en toonde geen foto's; v2.86.1 maakt de adressen
+zoals de app (512 voor kaarten, 1024 voor het receptdetail en de foto in het groot).
+
 De app stuurt haar versie in `User-Agent` (`crisp/<release>/app/android/<build>`). In de browser gaat die in
 `X-Crisp-Agent`. MealieShopper volgt home-assistant-crisp: `X-Crisp-Agent: crisp/app/android/667` met
 `Origin: https://crispapp.nl`, en een eigen `User-Agent` met de naam MealieShopper. In `from` noemt MealieShopper

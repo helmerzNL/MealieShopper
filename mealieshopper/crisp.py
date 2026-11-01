@@ -19,6 +19,7 @@ import secrets
 import string
 import time
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
@@ -40,6 +41,11 @@ SEARCH_LIMIT = 10  # zoveel vraagt de app per zoekopdracht
 RECIPE_SEARCH_LIMIT = 30
 SOURCE_URL = "https://crisp.nl/"
 FROM = {"screenName": "MealieShopper"}  # waar een wijziging in het mandje vandaan komt (de app geeft hier haar scherm)
+# Foto's zijn blobs op dezelfde host als de API: `https://crispapp.nl/blob/<id>?thumb=<maat>`. De app vraagt altijd een
+# `thumb` (een macht van 2 tot 1024, daarboven een veelvoud van 512), anders komt het volledige origineel.
+BLOB_PATH = "/blob/"
+THUMB = 512  # kaarten en lijsten
+THUMB_LARGE = 1024  # het receptdetail en de foto in het groot in de controlelijst
 
 CLIENT_SECRET = "CRISP_CLIENT_ID"
 COUNTRY_SECRET = "CRISP_COUNTRY"
@@ -47,6 +53,8 @@ PENDING_SECRET = "CRISP_PENDING_LOGIN"
 
 _ID = re.compile(r"^\d{1,12}$")
 _MARKUP = re.compile(r"\*\*|__")
+_BLOB = re.compile(r"^[^\s:/?#]{1,200}$")  # een blob-id: geen adres, geen pad, geen schema
+_THUMB = re.compile(r"([?&]thumb=)\d+")
 
 
 class CrispAuthError(RuntimeError):
@@ -235,17 +243,33 @@ def _money(value: Any) -> float | None:
         return None
 
 
-def _image(value: Any) -> str | None:
-    """De eerste foto: een adres, of een pad op crispapp.nl."""
+def _image(value: Any, thumb: int = THUMB) -> str | None:
+    """Het adres van de eerste foto, zoals de app het maakt (`BlobImage` en `resolveBlobUrl`).
+
+    Crisp geeft meestal een blob-id; daar hoort `https://crispapp.nl/blob/<id>?thumb=<maat>` bij. Een volledig adres blijft
+    zoals het is en een pad (`/asset/...`) komt op crispapp.nl. Al het andere (zoals `javascript:`) geeft geen foto.
+    """
     if isinstance(value, list):
-        value = next((v for v in value if isinstance(v, str) and v), None)
-    if not isinstance(value, str) or not value:
+        value = next((v for v in value if v), None)
+    if isinstance(value, dict):
+        value = value.get("legacyParse")  # oudere vorm van een blob in de app (`blobParse`)
+    if not isinstance(value, str) or not value.strip():
         return None
+    value = value.strip()
     if value.startswith("https://"):
         return value
     if value.startswith("/"):
         return ORIGIN + value
+    if _BLOB.match(value):
+        return f"{ORIGIN}{BLOB_PATH}{quote(value, safe='')}?thumb={thumb}"
     return None
+
+
+def _resized(url: Any, thumb: int) -> Any:
+    """Dezelfde blob-foto in een andere maat; een ander adres blijft zoals het is."""
+    if isinstance(url, str) and url.startswith(ORIGIN + BLOB_PATH):
+        return _THUMB.sub(lambda match: f"{match.group(1)}{thumb}", url)
+    return url
 
 
 def _text(value: Any) -> str:
@@ -320,7 +344,8 @@ def candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, An
         "unitSize": product.get("unitSize"),
         "price": product.get("price"),
         "image": product.get("image"),
-        "imageLarge": product.get("image"),  # Crisp heeft geen productpagina, dus de foto is wat je ziet
+        # Crisp heeft geen productpagina, dus de foto is wat je ziet; in het groot in een grotere maat.
+        "imageLarge": _resized(product.get("image"), THUMB_LARGE),
         "isBonus": bool(product.get("isBonus")),
         "deal": deals.candidate_deal("crisp", product),
         "url": None,
@@ -499,7 +524,7 @@ def recipe_details(recipe: dict[str, Any]) -> dict[str, Any]:
         "id": str(recipe.get("id") or ""),
         "name": _text(recipe.get("title")),
         "description": _plain(recipe.get("description")) or _text(recipe.get("subTitle")),
-        "image": _image(recipe.get("images")) or _image(recipe.get("image")),
+        "image": _image(recipe.get("images"), THUMB_LARGE) or _image(recipe.get("image"), THUMB_LARGE),
         "portions": _portions(recipe),
         "minutes": _minutes(recipe),
         "ingredients": ingredients,
