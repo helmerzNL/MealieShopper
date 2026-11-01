@@ -10,7 +10,7 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 
 [Nederlands](README.md) · **English**
 
-<img src="docs/screenshots/en/plan.png" alt="MealieShopper on a computer and a phone: the week menu with pictures from Mealie" width="900">
+<img src="docs/screenshots/en/plan.png" alt="MealieShopper on a computer and a phone: the week menu with pictures from Mealie, the servings per meal and Add on every day" width="900">
 
 </div>
 
@@ -61,9 +61,13 @@ Every image shows the same page on a computer and on a phone. The recipes and pr
 
 ### Week menu and basket
 
-Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled.
+Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. Pick a recipe from Mealie, or let Mealie pick one with **Surprise me**. Every change goes straight to Mealie.
 
-<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient the product and the number of packs, with one marked line" width="900">
+<img src="docs/screenshots/en/plan-add.png" alt="Plan a meal: the day, the meal, the choice between Recipe and Note, your recipes from Mealie and the Surprise me button" width="900">
+
+The servings you set per meal in Mealie's planner scale every amount. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled. Every product has a photo; tap it to see it large.
+
+<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient a photo of the product, the product and the number of packs, with one marked line" width="900">
 
 ### To Picnic or Jumbo
 
@@ -83,19 +87,25 @@ At Picnic you change quantities, remove products or empty the basket, and below 
 
 <img src="docs/screenshots/en/basket-jumbo.png" alt="The Jumbo basket, read-only" width="900">
 
+### Offers
+
+The offers of Albert Heijn, Picnic and Jumbo, per week and in step with the week menu: plan next week and you see next week's offers. At Albert Heijn that is the complete Bonus week, Monday to Sunday; next week's Bonus is there as soon as AH gives it at the weekend. Pick a category to see only those offers.
+
+<img src="docs/screenshots/en/offers.png" alt="The Offers tab: the week with arrows, the run of the Bonus week, how many offers start later, the categories and the products with their deal" width="900">
+
 ### Find recipes
 
-<img src="docs/screenshots/en/search.png" alt="Searching Allerhande recipes, with cards and an import button" width="900">
+<img src="docs/screenshots/en/search.png" alt="Searching recipes for kip: your own recipes in Mealie first, as cards with time, servings and tags" width="900">
 
 You also search your own recipes in Mealie; they come first. If Jumbo and Picnic are linked, you search those at once too; the results are grouped per store. Every card has the same two buttons at the bottom: **View** opens the recipe in the same place, with the ingredients and the method, and **Plan** puts it in your week menu. The recipe also has **Import** (only put it in Mealie) and a link to the store or to Mealie.
 
 <img src="docs/screenshots/en/search-stores.png" alt="Jumbo search results with cards, time, servings and rating" width="900">
 
-<img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Import and View on the site buttons" width="900">
+<img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Plan, Import and View at Jumbo buttons" width="900">
 
 The menus of **HelloFresh** and **Marley Spoon** are always searched too, without a link: for this week and the three weeks after, MealieShopper fetches the menus that are not there yet while you search (the first time that takes a moment; afterwards they are kept for 6 hours). Every recipe has **View** (ingredients and method) and **Plan**.
 
-<img src="docs/screenshots/en/search-meal-kits.png" alt="Search results at HelloFresh and Marley Spoon for the word kip, with cards and the View and Import buttons" width="900">
+<img src="docs/screenshots/en/search-meal-kits.png" alt="Search results at HelloFresh and Marley Spoon for the word kip, with cards and the View and Plan buttons" width="900">
 
 ### Choosing a store
 
@@ -113,7 +123,7 @@ The **Meal kits** tab shows the public weekly menus of HelloFresh and Marley Spo
 
 Your saved Allerhande recipes live in MealieShopper, at least two side by side on a phone. Search your recipes at the top.
 
-<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with an import button" width="900">
+<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with View and Plan" width="900">
 
 ### Stores: your lists
 
