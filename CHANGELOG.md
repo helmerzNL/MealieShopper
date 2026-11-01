@@ -11,6 +11,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Ruimte tussen de kop en de foto in een recept.** Open je een recept bij **Recepten zoeken**, bij een winkel (Albert Heijn, Jumbo, Picnic) of bij **Maaltijdboxen**, dan stond de foto direct onder de terugknop en de titel. Er zit nu 16 px ruimte tussen, net als bij een melding onder de kop.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
+- Pull request: [#165](https://github.com/helmerzNL/MealieShopper/pull/165).
+
 ## v2.84.0
 
 ### Nieuw in 2.84.0
