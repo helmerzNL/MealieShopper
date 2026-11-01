@@ -1511,6 +1511,11 @@ a.product-card__main:hover strong {
   columns: 2 260px;
 }
 
+/* Het receptdetail staat onder een kop met de terugknop; zonder deze ruimte plakt de foto aan de kop. */
+.picnic-recipe {
+  margin-top: 16px;
+}
+
 .picnic-recipe__image {
   display: block;
   width: 100%;

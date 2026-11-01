@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.84.1
+
+### Opgelost in 2.84.1
+
+*English summary: in a recipe opened from Find recipes (and from the stores and meal kits), the photo no longer sticks to the back button and title; there is space between them now. Reload the page once after updating.*
+
+- **Ruimte tussen de kop en de foto in een recept.** Open je een recept bij **Recepten zoeken**, bij een winkel (Albert Heijn, Jumbo, Picnic) of bij **Maaltijdboxen**, dan stond de foto direct onder de terugknop en de titel. Er zit nu 16 px ruimte tussen, net als bij een melding onder de kop.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#165](https://github.com/helmerzNL/MealieShopper/pull/165).
+
 ## v2.84.0
 
 ### Nieuw in 2.84.0
