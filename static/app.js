@@ -1124,6 +1124,20 @@ function reviewSearchHtml(row, extra) {
     </form>`;
 }
 
+function reviewThumbHtml(candidate) {
+  // De foto van het gekozen product, zodat je ziet wat er in het mandje komt; Picnic heeft geen productpagina, dus daar
+  // is dit de enige manier om het product te zien. De houder blijft altijd staan, zodat de kolommen gelijk blijven als
+  // er geen foto is of hij niet laadt. De tekst staat al in de keuzelijst, dus alt is leeg.
+  const src = candidate.image ? ` src="${escapeHtml(candidate.image)}"` : " hidden";
+  return `<span class="review-thumb"><img${src} alt="" width="56" height="56" loading="lazy"></span>`;
+}
+
+function showReviewThumb(img, candidate) {
+  img.hidden = !candidate.image;
+  if (candidate.image) img.src = candidate.image;
+  else img.removeAttribute("src");
+}
+
 function reviewRowHtml(row, index) {
   if (!row.candidates.length) {
     // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
@@ -1146,6 +1160,7 @@ function reviewRowHtml(row, index) {
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
+      ${reviewThumbHtml(first)}
       <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
         ${row.candidates
           .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
@@ -1207,8 +1222,14 @@ function renderCartReview(rows) {
       toggle.setAttribute("aria-expanded", String(!form.hidden));
       if (!form.hidden) el.querySelector(".review-search-input").focus();
     });
+    const thumb = el.querySelector(".review-thumb img");
+    // Laadt de foto niet, dan verbergen we hem (en halen we hem niet weg): een ander product kiezen gebruikt hem opnieuw.
+    thumb.addEventListener("error", () => {
+      thumb.hidden = true;
+    });
     el.querySelector(".review-product").addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
+      showReviewThumb(thumb, candidate);
       el.querySelector(".review-qty").value = candidate.packs;
       const link = el.querySelector("a.review-link");
       if (link && candidate.url) link.href = candidate.url;

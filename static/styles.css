@@ -1575,7 +1575,7 @@ a.product-card__main:hover strong {
 
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(180px, 2fr) auto 72px;
+  grid-template-columns: auto minmax(120px, 1fr) 56px minmax(180px, 2fr) auto 72px;
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
@@ -1673,6 +1673,24 @@ a.product-card__main:hover strong {
   width: 100%;
 }
 
+/* De foto van het gekozen product; zelfde tegel als bij .product-card. */
+.review-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+}
+
+.review-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
 .store-select {
   min-height: var(--control-height);
   border: 1px solid var(--border);
@@ -1723,6 +1741,17 @@ select.input {
   .review-row .review-ingredient,
   .review-row .review-product {
     grid-column: 2 / 4;
+  }
+
+  /* De foto staat onder het vinkje, naast de keuzelijst en het aantal. */
+  .review-row .review-include {
+    justify-self: center;
+  }
+
+  .review-row .review-thumb {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    align-self: center;
   }
 
   .review-row .review-link {
