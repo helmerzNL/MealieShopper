@@ -15,7 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Gelijke ingrediënten werden niet opgeteld.** Kwam hetzelfde ingrediënt in twee recepten van de week voor, dan telde alleen de eerste regel mee: 2× 400 g spaghetti werd 400 g. Nu worden regels met hetzelfde ingrediënt en dezelfde eenheid opgeteld; met een andere eenheid (*1 ui* en *100 g ui*) blijven het aparte regels. Een regel zonder hoeveelheid (*peper*) staat er één keer in, en wijkt voor een regel van hetzelfde ingrediënt met een hoeveelheid.
 - **Nieuw adres voor de scripts** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Issue: [#159](https://github.com/helmerzNL/MealieShopper/issues/159).
+- Pull request: [#164](https://github.com/helmerzNL/MealieShopper/pull/164), lost issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159) op.
 
 ## v2.83.0
 
