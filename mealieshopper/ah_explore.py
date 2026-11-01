@@ -129,6 +129,11 @@ def _raw_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
     return ah._graphql(ah.get_user_token(), query, variables or {}, "AH")
 
 
+def _anonymous_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
+    """Zoals `_raw_graphql`, met het anonieme token: voor wat ook zonder AH-koppeling werkt, zoals de bonus."""
+    return ah._graphql(ah.get_token(), query, variables or {}, "AH")
+
+
 def explore() -> dict[str, Any]:
     """Roep alle leesroutes aan en geef een rapport met de vorm van de antwoorden."""
     probes: list[dict[str, Any]] = []
@@ -185,7 +190,26 @@ def explore() -> dict[str, Any]:
     else:
         probes.append({"name": "een kassabon: GraphQL posReceiptDetails", "ok": False, "error": "overgeslagen: er zijn geen kassabonnen om te proberen"})
 
-    # Aanbiedingen (Bonus): werkt met het anonieme token, dus ook zonder AH-koppeling.
+    # Aanbiedingen (Bonus): werkt met het anonieme token, dus ook zonder AH-koppeling. Eerst de bonus per bonusperiode (GraphQL), die
+    # MealieShopper gebruikt; per periode hoeveel acties en producten er zijn, zodat te zien is of de bonus van volgende week er al staat.
+    def bonus_periods(data: Any) -> dict[str, Any]:
+        promotions = [p for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict) and p.get("promotionType") in ah.BONUS_PROMOTION_TYPES]
+        return {
+            "periodes": [
+                {
+                    "week": period.get("weekNumber"), "van": period.get("startDate"), "tot": period.get("endDate"),
+                    "acties": sum(1 for p in promotions if p.get("periodStart") == period.get("startDate")),
+                    "producten": sum(len(p.get("products") or []) for p in promotions if p.get("periodStart") == period.get("startDate")),
+                }
+                for period in (data or {}).get("bonusPeriods") or [] if isinstance(period, dict)
+            ],
+            "soorten": sorted({str(p.get("promotionType")) for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict)}),
+        }
+
+    report, _ = _probe("aanbiedingen: GraphQL bonusPeriods en bonusPromotions",
+                       lambda: _anonymous_graphql(ah.BONUS_PROMOTIONS_QUERY), bonus_periods)
+    probes.append(report)
+
     def bonus_page() -> Any:
         return ah._request_json(
             "GET",

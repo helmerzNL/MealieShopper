@@ -202,9 +202,7 @@ $("#jumbo-favorites-more").addEventListener("click", () => loadJumboFavorites(tr
 $("#jumbo-recipe-back").addEventListener("click", () => showRecipeList(FAVORITES_HOST));
 $("#jumbo-favorites").addEventListener("click", (event) => {
   const open = event.target.closest("[data-store-open]");
-  const importButton = event.target.closest("[data-store-import]");
   if (open) openStoreRecipe("jumbo", open.dataset.storeOpen.split(":", 2)[1], FAVORITES_HOST);
-  if (importButton) importStoreRecipe("jumbo", importButton.dataset.storeImport.split(":", 2)[1], importButton, importButton.closest(".recipe-card").querySelector(".recipe-import-result"));
 });
 
 window.addEventListener("ms:languagechange", () => {

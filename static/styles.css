@@ -770,6 +770,20 @@ h2 {
   margin-top: 10px;
 }
 
+/* Recepten zoeken: de uitleg staat los van het zoekvak, elke winkel is een eigen groep onder de uitleg, en
+   Meer recepten plakt niet aan de kaarten. */
+#search-form + .muted {
+  margin-top: 10px;
+}
+
+.search-store {
+  margin-top: 24px;
+}
+
+.search-store .recipe-grid + p {
+  margin-top: 14px;
+}
+
 /* Overzichten met kaarten gebruiken de volle breedte, zodat er meer naast elkaar passen */
 .box--wide {
   max-width: none;
@@ -874,10 +888,14 @@ h2 {
 }
 
 .meal {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
-.meal span {
+.meal__type {
+  display: block;
   color: var(--primary);
   font-size: 12px;
   font-weight: 700;
@@ -994,17 +1012,38 @@ h2 {
   font-weight: 600;
 }
 
+/* Bekijken en Inplannen onderaan elke receptkaart: even breed, en in een rij kaarten op dezelfde hoogte (de kaart is een
+   flexkolom en de knoppen duwen zich met margin-top: auto naar onderen). Is de kaart te smal voor twee naast elkaar
+   (een telefoon), dan staan ze onder elkaar, nog steeds even breed. */
 .card-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
   margin-top: auto;
 }
 
-.card-actions a {
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 600;
+.card-actions .button {
+  width: 100%;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.recipe-import-result:empty {
+  display: none;
+}
+
+/* De knoppen in het detail van een recept: Inplannen, Importeer en de link naar de winkel of Mealie. */
+.recipe-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.recipe-detail__actions .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .pager {
@@ -1305,6 +1344,30 @@ a.product-card strong {
   }
 }
 
+/* De productfoto in het groot, vanuit de controlelijst van het mandje. Vierkant, maar nooit hoger dan het scherm toelaat. */
+.photo-dialog__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: max(160px, calc(100vh - 220px));
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-thumb {
+    transition: none;
+  }
+
+  .review-thumb:not(:disabled):hover,
+  .review-thumb:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* AI-beoordeling (optioneel): de balk boven de receptvoorstellen, het vinkje bij een goedgekeurde koppeling en het blok bij Instellingen. */
 .offers-ai {
   display: flex;
@@ -1462,6 +1525,11 @@ a.product-card__main:hover strong {
   columns: 2 260px;
 }
 
+/* Het receptdetail staat onder een kop met de terugknop; zonder deze ruimte plakt de foto aan de kop. */
+.picnic-recipe {
+  margin-top: 16px;
+}
+
 .picnic-recipe__image {
   display: block;
   width: 100%;
@@ -1550,7 +1618,7 @@ a.product-card__main:hover strong {
 
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(180px, 2fr) auto 72px;
+  grid-template-columns: auto minmax(120px, 1fr) 56px minmax(180px, 2fr) auto 72px;
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
@@ -1648,6 +1716,50 @@ a.product-card__main:hover strong {
   width: 100%;
 }
 
+/* De foto van het gekozen product; zelfde tegel als bij .product-card. Een knop: tikken toont hem groot (#photo-dialog). */
+.review-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: zoom-in;
+  transition: transform 0.15s var(--ease);
+}
+
+.review-thumb:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .review-thumb:not(:disabled):hover {
+    transform: scale(1.05);
+  }
+}
+
+.review-thumb:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.review-thumb:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.review-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
 .store-select {
   min-height: var(--control-height);
   border: 1px solid var(--border);
@@ -1698,6 +1810,17 @@ select.input {
   .review-row .review-ingredient,
   .review-row .review-product {
     grid-column: 2 / 4;
+  }
+
+  /* De foto staat onder het vinkje, naast de keuzelijst en het aantal. */
+  .review-row .review-include {
+    justify-self: center;
+  }
+
+  .review-row .review-thumb {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    align-self: center;
   }
 
   .review-row .review-link {
@@ -1810,7 +1933,322 @@ select.input {
 }
 
 .meal__text {
+  flex: 1;
   min-width: 0;
+}
+
+/* Een notitie zonder recept ("Uit eten"): de toelichting houdt haar regels. */
+.meal__note {
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+/* Een geplande maaltijd is een knop (wijzigen of verwijderen); ze ziet eruit als tekst, met een klein potlood. */
+.meal--button {
+  width: calc(100% + 16px);
+  margin: 0 -8px 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+
+.meal--button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.meal__pencil {
+  flex: none;
+  align-self: flex-start;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  fill: var(--muted);
+}
+
+
+/* De weekplanner: elke dag een kaart, met onderaan een rustige knop om een maaltijd toe te voegen. */
+.day-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.day-card__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--control-height);
+  margin-top: auto;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+
+.day-card__add:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.day-card__add svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* De plan-dialoog: dag en maaltijd naast elkaar, een segmentbediening voor recept of notitie en een lijst recepten uit Mealie. */
+.plan-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.plan-dialog h3 {
+  margin: 0;
+}
+
+.plan-dialog__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.plan-dialog__part {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-kind {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-muted);
+  box-shadow: inset 0 1px 2px rgba(var(--shadow-ink), 0.05);
+}
+
+.plan-kind__option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.plan-kind__option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+
+.plan-kind__option:has(input:checked) {
+  background: var(--surface);
+  color: var(--primary-strong);
+  box-shadow: 0 1px 2px rgba(var(--shadow-ink), 0.12), 0 0 0 1px var(--border);
+}
+
+.plan-kind__option:has(input:focus-visible) {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.plan-recipe-search {
+  display: flex;
+  gap: 8px;
+}
+
+.plan-recipe-search .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-recipe-search .mdi,
+.plan-dialog__actions .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.plan-recipe-results {
+  display: grid;
+  gap: 4px;
+  max-height: min(320px, 40vh);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.plan-recipe-results:empty {
+  display: none;
+}
+
+.plan-recipe {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+button.plan-recipe {
+  cursor: pointer;
+}
+
+button.plan-recipe:focus-visible {
+  border-color: var(--border);
+  background: var(--selection);
+}
+
+button.plan-recipe:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.plan-recipe img,
+.plan-recipe__placeholder {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-control);
+  object-fit: cover;
+  background: var(--surface-muted);
+}
+
+.plan-recipe__placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.plan-recipe__placeholder svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.plan-recipe__text {
+  display: grid;
+  min-width: 0;
+}
+
+.plan-recipe__text strong {
+  overflow-wrap: break-word;
+}
+
+.plan-recipe__text small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.plan-recipe-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 0;
+}
+
+.plan-recipe--chosen {
+  flex: 1;
+  width: auto;
+  min-width: 200px;
+  padding: 0;
+}
+
+.plan-recipe-chosen[hidden],
+.plan-dialog [hidden] {
+  display: none;
+}
+
+.plan-dialog .textarea {
+  margin: 0;
+}
+
+/* Oplichten alleen met een muis: op een telefoon blijft een hover na een tik anders hangen. */
+@media (hover: hover) {
+  .meal--button:hover,
+  button.plan-recipe:hover {
+    border-color: var(--border);
+    background: var(--selection);
+  }
+
+  .meal--button:hover .meal__pencil {
+    fill: var(--primary-strong);
+  }
+
+  .day-card__add:hover {
+    border-color: var(--primary);
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+
+  .plan-kind__option:hover {
+    color: var(--primary-strong);
+  }
+}
+
+.plan-dialog__delete {
+  margin-right: auto;
+  color: var(--danger);
+}
+
+/* Inplannen in een melding na een import: een link-knop midden in de tekst. */
+.link-button--inline {
+  min-height: 0;
+  padding: 0;
+  margin-left: 4px;
+}
+
+@media (max-width: 480px) {
+  .plan-dialog__row {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-recipe-search {
+    flex-wrap: wrap;
+  }
+
+  .plan-recipe-search .button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-card__add,
+  .meal--button {
+    transition: none;
+  }
 }
 
 /* Receptkaarten: op een telefoon minstens twee naast elkaar, op een groter scherm zoveel als er passen */
@@ -1830,43 +2268,6 @@ select.input {
   overflow: hidden;
   overflow-wrap: break-word;
   hyphens: auto;
-}
-
-/* Importeren en "Open bij AH" onder elkaar, zodat de knop ook in een smalle kaart past */
-.recipe-grid--compact .card-actions {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-}
-
-.recipe-grid--compact .card-actions .button {
-  width: 100%;
-  padding: 0 12px;
-}
-
-.card-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  border-radius: var(--radius-control);
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.card-link:hover {
-  background: var(--selection);
-  color: var(--primary-strong);
-}
-
-.card-link svg {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  fill: currentColor;
 }
 
 .recipe-import-result .message {
@@ -3924,6 +4325,15 @@ body.has-onboarding {
 .offers-period {
   margin: 4px 0 0;
   font-weight: 600;
+}
+
+/* Aanbiedingen: de week, dezelfde als die van het weekmenu, en wat er al voor later bekend is. */
+.offers-week {
+  margin: 8px 0 12px;
+}
+
+.offers-later {
+  margin: 4px 0 0;
 }
 
 /* Aanbiedingen: categorieën als knoppen met het aantal ("5x Groente & Fruit"). */

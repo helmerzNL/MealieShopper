@@ -1,6 +1,7 @@
 import os
 import tempfile
 from contextlib import closing
+from datetime import date, timedelta
 import unittest
 from unittest import mock
 
@@ -19,6 +20,34 @@ BONUS_PAGE = {
                      "discountLabels": [{"defaultDescription": "1+1 gratis"}]}},
         {"product": {"webshopId": 13, "title": "Tomatenpuree", "currentPrice": 0.9, "priceBeforeBonus": 1.2}},
     ]
+}
+
+
+def _promotion(pid, label, start, end, products, kind="NATIONAL", category="Vlees"):
+    top, _, bottom = label.partition(" ")
+    return {"id": pid, "title": f"Actie {pid}", "periodStart": start, "periodEnd": end, "promotionType": kind, "category": category,
+            "promotionLabels": [{"title": None, "topText": top, "centerText": None, "bottomText": bottom}], "products": products}
+
+
+def _gql_product(pid, title, price, image=True):
+    return {"id": pid, "title": title, "brand": "AH", "salesUnitSize": "300 g", "price": {"now": {"amount": price}, "was": {"amount": price}},
+            "imagePack": [{"small": {"url": f"https://img/{pid}.webp"}}] if image else []}
+
+
+# Zoals de GraphQL van de AH-app de bonus geeft (bonusPeriods en bonusPromotions, met een echt antwoord bevestigd op 1 nov 2026).
+BONUS_PROMOTIONS = {
+    "bonusPeriods": [{"startDate": "2026-10-26", "endDate": "2026-11-01", "weekNumber": 44},
+                     {"startDate": "2026-11-02", "endDate": "2026-11-08", "weekNumber": 45}],
+    "bonusPromotions": [
+        _promotion("1", "25% korting", "2026-10-26", "2026-11-01", [_gql_product(4004, "AH Rundergehakt", 4.0)]),
+        _promotion("2", "2 voor 2.99", "2026-11-02", "2026-11-08", [_gql_product(4004, "AH Rundergehakt", 4.0), _gql_product(4164, "AH Courgette", 0.89)]),
+        _promotion("3", "voor 1.99", "2026-11-02", "2026-11-08", [_gql_product(171425, "AH Prei", 2.49, image=False)], category="Groente, aardappelen"),
+        _promotion("4", "5% volume", "2026-11-02", "2999-12-31", [_gql_product(5, "AH Kip 4-pack", 20.0)]),
+        _promotion("FREE4526_A", "gratis bezorging", "2026-11-02", "2026-11-08", [_gql_product(6, "Maggi", 1.0)], kind="INCENTIVE"),
+        _promotion("5", "2e halve prijs", "2026-11-02", "2026-11-15", [_gql_product(7, "Etos Shampoo", 3.0)], kind="ETOS"),
+        _promotion("6", "50% korting", "2026-10-12", "2026-10-25", [_gql_product(8, "Oude actie", 2.0)]),
+        _promotion("7", "1+1 gratis", "2026-11-16", "2026-11-22", [_gql_product(9, "Buiten de periodes", 2.0)]),
+    ],
 }
 
 
@@ -74,11 +103,38 @@ class BonusParsingTest(unittest.TestCase):
         response = mock.Mock(ok=True)
         response.json.return_value = search
         with mock.patch.object(ah, "get_token", return_value="t"), \
+                mock.patch.object(ah, "get_bonus_promotions", side_effect=RuntimeError("AH bonus ophalen mislukt (500)")), \
                 mock.patch.object(ah, "_request_json", side_effect=fake_request), \
                 mock.patch.object(ah.requests, "get", return_value=response), \
                 mock.patch.object(ah, "BONUS_FALLBACK_TERMS", ("pasta",)):
             products = ah.get_bonus_products()
         self.assertEqual([p["id"] for p in products], ["5"])
+
+    def test_the_bonus_comes_per_bonus_period_from_graphql(self):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS) as graphql:
+            products = ah.get_bonus_promotions(today=date(2026, 11, 1))
+        self.assertIn("bonusPeriods", graphql.call_args.args[1])
+        by_key = {(p["id"], p["validFrom"]): p for p in products}
+        self.assertEqual(sorted(by_key), [("171425", "2026-11-02"), ("4004", "2026-10-26"), ("4004", "2026-11-02"), ("4164", "2026-11-02"), ("5", "2026-11-02")],
+                         "bezorgkorting, Etos, afgelopen acties en acties buiten AH's bonusperiodes doen niet mee; gehakt staat in beide weken")
+        this_week = by_key[("4004", "2026-10-26")]
+        self.assertEqual((this_week["price"], this_week["priceBefore"], this_week["promoLabel"], this_week["validUntil"]), (3.0, 4.0, "25% korting", "2026-11-01"))
+        next_week = by_key[("4004", "2026-11-02")]
+        self.assertEqual((next_week["price"], next_week["priceBefore"], next_week["promoLabel"]), (4.0, None, "2 voor 2.99"),
+                         "met een minimumaantal blijft de normale prijs staan, zoals bij AH")
+        prei = by_key[("171425", "2026-11-02")]
+        self.assertEqual((prei["price"], prei["priceBefore"], prei["image"], prei["categoryHint"]), (1.99, 2.49, None, "Groente, aardappelen"))
+        self.assertEqual(next_week["image"], "https://img/4004.webp")
+        self.assertEqual(next_week["url"], "https://www.ah.nl/producten/product/wi4004")
+        self.assertIsNone(by_key[("5", "2026-11-02")]["validUntil"], "AH's einddatum 2999 is doorlopend")
+
+    def test_graphql_comes_first_and_the_old_routes_are_the_fallback(self):
+        with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS), \
+                mock.patch.object(ah, "_request_json") as bonus_page, mock.patch.object(ah, "date") as fake_date:
+            fake_date.today.return_value = date(2026, 11, 1)
+            products = ah.get_bonus_products()
+        self.assertEqual(len(products), 5)
+        bonus_page.assert_not_called()
 
 
 class OffersStoreTest(TempDataDirTest):
@@ -156,6 +212,123 @@ class OffersStoreTest(TempDataDirTest):
             offers.sync("lidl")
         with self.assertRaises(ValueError):
             offers.load("lidl")
+
+
+class OffersWeekTest(TempDataDirTest):
+    """De aanbiedingen van de week die je plant (issue #160): op zondag stond de bonus van volgende week tussen die van vandaag."""
+
+    def setUp(self):
+        super().setUp()
+        today = date.today()
+        self.monday = today - timedelta(days=today.weekday())
+        self.next_monday = self.monday + timedelta(days=7)
+        sunday, next_sunday = self.monday + timedelta(days=6), self.next_monday + timedelta(days=6)
+        deal = {"price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting"}
+        self.items = [
+            {"id": "deze", "title": "Bonus deze week", "validFrom": self.monday.isoformat(), "validUntil": sunday.isoformat(), **deal},
+            {"id": "volgende", "title": "AH Kipfilet", "validFrom": self.next_monday.isoformat(), "validUntil": next_sunday.isoformat(), **deal},
+            {"id": "doorlopend", "title": "Volume voordeel", "validFrom": (self.monday - timedelta(days=14)).isoformat(), "validUntil": None, **deal},
+            {"id": "vandaag", "title": "Pakketkorting", "validFrom": today.isoformat(), "validUntil": today.isoformat(), **deal},
+            {"id": "zonder", "title": "Picnic-achtige aanbieding", **deal},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.items}):
+            offers.sync("ah")
+
+    def test_this_week_leaves_out_next_weeks_bonus_and_counts_it(self):
+        data = offers.load("ah", self.monday.isoformat())
+        self.assertEqual([o["id"] for o in data["offers"]], ["deze", "vandaag", "zonder", "doorlopend"], "de bonus van de week voor de doorlopende kortingen")
+        self.assertEqual((data["total"], data["later"], data["undated"]), (4, 1, 0))
+        self.assertEqual(data["week"], {"from": self.monday.isoformat(), "until": (self.monday + timedelta(days=6)).isoformat(), "current": True})
+        self.assertEqual(data["period"], {"from": self.monday.isoformat(), "until": (self.monday + timedelta(days=6)).isoformat()},
+                         "de bonusweek, niet de looptijd van één dag van de pakketkortingen")
+
+    def test_next_week_shows_its_bonus_and_what_keeps_running(self):
+        data = offers.load("ah", (self.next_monday + timedelta(days=3)).isoformat())
+        self.assertEqual([o["id"] for o in data["offers"]], ["volgende", "doorlopend"], "elke dag van de week wijst dezelfde week aan")
+        self.assertEqual((data["later"], data["undated"]), (0, 1), "zonder looptijd is alleen vandaag bekend")
+        self.assertEqual(data["week"]["from"], self.next_monday.isoformat())
+        self.assertFalse(data["week"]["current"])
+        self.assertEqual(data["period"]["from"], self.next_monday.isoformat())
+
+    def test_without_a_week_everything_that_has_not_expired_is_given(self):
+        data = offers.load("ah")
+        self.assertEqual(data["total"], 5, "zo blijft de AI in alles zoeken wat bekend is")
+        self.assertIsNone(data["week"])
+
+    def test_a_week_that_is_not_a_date_is_refused(self):
+        for week in ("volgende", "2026-13-01", ""):
+            with self.assertRaises(ValueError, msg=week):
+                offers.load("ah", week)
+
+    def test_each_week_has_its_own_signature(self):
+        this_week = offers.signature("ah", self.monday.isoformat())
+        self.assertEqual(this_week, offers.signature("ah", (self.monday + timedelta(days=2)).isoformat()))
+        self.assertNotEqual(this_week, offers.signature("ah", self.next_monday.isoformat()))
+
+    def test_recipe_suggestions_use_the_offers_of_the_week(self):
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: [
+                {"id": "r1", "title": "Pasta", "image": "", "url": "", "ingredients": ["400 g kipfilet"], "course": "hoofdgerecht"}]),)):
+            offers.sync_recipes()
+        later = offers.suggest("ah", week=self.next_monday.isoformat())
+        self.assertEqual([r["id"] for r in later["recipes"]], ["r1"])
+        self.assertEqual(later["week"]["from"], self.next_monday.isoformat())
+        self.assertEqual(offers.suggest("ah", week=self.monday.isoformat())["recipes"], [], "dat product is deze week niet in de aanbieding")
+
+    def test_a_product_on_offer_this_week_and_next_week_keeps_both_deals(self):
+        sunday = self.monday + timedelta(days=6)
+        twice = [
+            {"id": "4004", "title": "AH Rundergehakt", "price": 3.0, "priceBefore": 4.0, "promoLabel": "25% korting",
+             "validFrom": self.monday.isoformat(), "validUntil": sunday.isoformat()},
+            {"id": "4004", "title": "AH Rundergehakt", "price": 4.0, "priceBefore": None, "promoLabel": "2 voor 5.00",
+             "validFrom": self.next_monday.isoformat(), "validUntil": (self.next_monday + timedelta(days=6)).isoformat()},
+        ]
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: twice + twice[:1]}):
+            offers.sync("ah")
+        self.assertEqual([o["promoLabel"] for o in offers.load("ah", self.monday.isoformat())["offers"]], ["25% korting"])
+        self.assertEqual(offers.load("ah", self.monday.isoformat())["later"], 1)
+        self.assertEqual([o["promoLabel"] for o in offers.load("ah", self.next_monday.isoformat())["offers"]], ["2 voor 5.00"])
+        self.assertEqual([o["promoLabel"] for o in offers.load("ah")["offers"]], ["25% korting"], "zonder week: elk product een keer, de actie van nu")
+        with closing(offers._connect()) as conn:
+            history = conn.execute("SELECT promo_label FROM offer_history WHERE product_id = '4004'").fetchall()
+        self.assertEqual([row["promo_label"] for row in history], ["25% korting"], "de actie van volgende week komt in de geschiedenis als hij begint")
+
+    def test_two_deals_in_the_same_week_show_the_most_specific_one(self):
+        long_running = {"id": "9", "title": "Kerstkoekjes", "price": 2.0, "promoLabel": "Feestfavoriet",
+                        "validFrom": (self.monday - timedelta(days=14)).isoformat(), "validUntil": (self.monday + timedelta(days=40)).isoformat()}
+        weekly = {**long_running, "promoLabel": "2e halve prijs", "validFrom": self.next_monday.isoformat(),
+                  "validUntil": (self.next_monday + timedelta(days=6)).isoformat()}
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [long_running, weekly]}):
+            offers.sync("ah")
+        self.assertEqual([o["promoLabel"] for o in offers.load("ah", self.next_monday.isoformat())["offers"]], ["2e halve prijs"])
+        self.assertEqual([o["promoLabel"] for o in offers.load("ah", self.monday.isoformat())["offers"]], ["Feestfavoriet"])
+
+    def test_the_routes_take_the_week_and_default_to_this_week(self):
+        client = create_app().test_client()
+        default = client.get("/api/offers?store=ah")
+        self.assertTrue(default.get_json()["week"]["current"])
+        self.assertEqual(default.get_json()["later"], 1)
+        later = client.get(f"/api/offers?store=ah&week={self.next_monday.isoformat()}")
+        self.assertEqual({o["id"] for o in later.get_json()["offers"]}, {"volgende", "doorlopend"})
+        self.assertNotEqual(later.headers["ETag"], default.headers["ETag"], "elke week heeft een eigen ETag")
+        self.assertEqual(client.get("/api/offers?store=ah&week=morgen").status_code, 400)
+        self.assertEqual(client.get("/api/offers/recipes?store=ah&week=morgen").status_code, 400)
+        self.assertEqual(client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}").status_code, 200)
+
+
+class OffersTableMigrationTest(TempDataDirTest):
+    def test_a_table_from_before_2_84_loses_its_key_and_keeps_its_rows(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute(
+                "CREATE TABLE offers (store TEXT NOT NULL, product_id TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, brand TEXT, "
+                "unit_size TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, PRIMARY KEY (store, product_id))"
+            )
+            conn.execute("INSERT INTO offers (store, product_id, position, title, price, promo_label) VALUES ('ah', '1', 0, 'AH Kipfilet', 3.0, '1+1 gratis')")
+        data = offers.load("ah")
+        self.assertEqual([(o["id"], o["title"], o["promoLabel"]) for o in data["offers"]], [("1", "AH Kipfilet", "1+1 gratis")])
+        with closing(offers._connect()) as conn:
+            self.assertFalse(any(row["pk"] for row in conn.execute("PRAGMA table_info(offers)")))
+            conn.execute("INSERT INTO offers (store, product_id, position, title) VALUES ('ah', '1', 1, 'AH Kipfilet')")
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM offers WHERE product_id = '1'").fetchone()[0], 2, "een product mag er nu twee keer in")
 
 
 class LinkingTest(unittest.TestCase):
@@ -569,6 +742,25 @@ class OffersTabMarkupTest(unittest.TestCase):
             self.assertIn(f'id="{hook}"', html)
             self.assertIn(f"#{hook}", script)
 
+    def test_the_offers_follow_the_week_of_the_week_menu(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        script = (root / "static" / "offers.js").read_text(encoding="utf-8")
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
+        self.assertEqual(section.count('<div class="toolbar offers-week"'), 2, "een weekkeuze bij Aanbiedingen en bij Recepten")
+        self.assertEqual(section.count('data-offers-week="-1"'), 2)
+        self.assertIn('id="offers-later-show"', section)
+        self.assertIn("&week=${encodeURIComponent(week)}", script, "de aanbiedingen worden per week opgehaald")
+        self.assertIn("const week = `&week=${encodeURIComponent(offersWeek().start)}`;", script, "de receptvoorstellen ook")
+        self.assertIn("const key = `${store}|${week}`;", script, "de cache houdt de weken uit elkaar")
+        self.assertIn("return Math.max(0, state.weekOffset);", script, "dezelfde week als het weekmenu, en nooit een eerdere dan deze")
+        self.assertIn("setPlanWeek(offset);", script, "een andere week hier zet het weekmenu op dezelfde week")
+        self.assertIn("function setPlanWeek(offset) {\n  state.weekOffset = offset;", app_js)
+        self.assertIn("$(\"#week-offset\").textContent = weekOffsetText(state.weekOffset);", app_js, "dezelfde tekst als in het weekmenu")
+
     def test_recipes_have_a_heading_and_a_course_filter_above_them(self):
         from pathlib import Path
 
@@ -594,7 +786,7 @@ class OffersTabMarkupTest(unittest.TestCase):
                        "offer-product-close", "offer-product-nopage"):
             self.assertIn(f'id="{marker}"', dialog)
         self.assertIn('aria-labelledby="offer-product-title"', dialog, "het venster heeft een naam voor schermlezers")
-        self.assertNotIn("<dialog", html[html.index("</dialog>"):], "er is maar één productvenster")
+        self.assertEqual(html.count('id="offer-product-dialog"'), 1, "er is maar één productvenster")
         # De globale afhandeling van data-hide-on-error haalt het plaatje uit de pagina; het venster hergebruikt het plaatje.
         self.assertNotIn("data-hide-on-error", dialog)
 

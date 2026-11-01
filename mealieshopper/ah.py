@@ -9,7 +9,7 @@ from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 
-from . import auth
+from . import auth, deals
 from .i18n import tr
 from .packs import (  # noqa: F401 - blijft hier bereikbaar voor bestaande aanroepers
     LARGE_PACK_COUNT,
@@ -517,6 +517,16 @@ def _pick_image(images: list[dict[str, Any]], target: int = RECIPE_CARD_IMAGE_WI
     return best["url"]
 
 
+# De productfoto in het groot (het venster bij de controlelijst van het mandje): rond 400 css-pixels breed, dus 800
+# beeldpunten voor een scherm met dubbele dichtheid.
+PRODUCT_PHOTO_WIDTH = 800
+
+
+def product_photo(images: list[dict[str, Any]]) -> str | None:
+    """De productfoto in het groot: het formaat van AH dat het dichtst bij PRODUCT_PHOTO_WIDTH ligt."""
+    return _pick_image(images, PRODUCT_PHOTO_WIDTH) or None
+
+
 def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
     recipe_id = item.get("id")
     slug = str(item.get("slug") or "").strip()
@@ -684,9 +694,126 @@ def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
 
 
 # --- Bonus (aanbiedingen) -----------------------------------------------------------------------
-# De bonuspagina van de AH-app is een onofficiële route die we niet kunnen garanderen. Daarom lezen we het
-# antwoord op vorm (elk object met een `webshopId` en een `title` is een product) en vallen we terug op
-# zoekopdrachten met de bonusvlag als de pagina niets teruggeeft. De verkenner (`ah_explore`) toont wat AH geeft.
+# De bonus komt uit de GraphQL van de AH-app, per bonusperiode: AH's bonusweek loopt van maandag t/m zondag, net als het
+# weekmenu. Eén aanvraag geeft de periodes die AH kent (deze week en, vanaf het weekend, volgende week) en alle acties
+# daarin, met hun producten, de normale prijs en de actietekst ("2e halve prijs", "2 voor 2.99"). Zo staat de bonus
+# van volgende week er al compleet in terwijl deze week nog loopt. Lukt dat niet, dan valt `get_bonus_products` terug
+# op de bonuspagina en daarna op zoekopdrachten met de bonusvlag (die vinden alleen een deel, en van volgende week weinig).
+# Het zijn onofficiële routes die we niet kunnen garanderen; de verkenner (`ah_explore`) toont wat AH geeft.
+BONUS_PROMOTIONS_QUERY = """
+query BonusPromotions {
+  bonusPeriods { startDate endDate weekNumber }
+  bonusPromotions {
+    id
+    title
+    periodStart
+    periodEnd
+    promotionType
+    category
+    promotionLabels { title topText centerText bottomText }
+    products {
+      id
+      title
+      brand
+      salesUnitSize
+      price { now { amount } was { amount } }
+      imagePack { small { url } }
+    }
+  }
+}
+"""
+# De acties die bij de Bonus horen: de landelijke bonus en de online bonus. INCENTIVE is bezorgkorting ("gratis bezorging bij
+# 12 euro"), ETOS en GALL zijn andere winkels.
+BONUS_PROMOTION_TYPES = frozenset({"NATIONAL", "AHONLINE"})
+# Soorten actie met een lagere prijs per stuk, zonder minimumaantal: daar is de actieprijs uit te rekenen.
+_SINGLE_UNIT_MECHANICS = (deals.PERCENT, deals.AMOUNT_OFF, deals.FIXED)
+
+
+def _promotion_label(promotion: dict[str, Any]) -> str:
+    """De actietekst zoals AH hem op het schildje zet: "50% korting", "2 voor 2.99", "voor 1.99", "online Bonus"."""
+    labels = promotion.get("promotionLabels") or []
+    first = labels[0] if labels and isinstance(labels[0], dict) else {}
+    parts = (first.get(key) for key in ("title", "topText", "centerText", "bottomText"))
+    return " ".join(str(part).strip() for part in parts if part and str(part).strip())
+
+
+def _amount(node: Any) -> float | None:
+    value = node.get("amount") if isinstance(node, dict) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
+    """De producten van een actie, in de vorm van `_bonus_product`, met de looptijd van de actie.
+
+    AH geeft per product de normale prijs (ook voor volgende week, als de actie nog niet loopt). De actieprijs rekenen we uit de
+    actietekst uit als dat zonder voorwaarde kan (25% korting, €1 korting, voor 1.99); bij een actie met een minimumaantal
+    (2 voor 3, 2e halve prijs) blijft de prijs de normale prijs, zoals AH hem ook toont, en rekent `deals` de prijs per stuk uit.
+    """
+    label = _promotion_label(promotion)
+    mechanic = deals.parse_mechanic(label)
+    valid_from = promotion.get("periodStart") or None
+    valid_until = _bonus_end({"bonusEndDate": promotion.get("periodEnd")})
+    products = []
+    for item in promotion.get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        product_id, title = item.get("id"), str(item.get("title") or "").strip()
+        if not product_id or not title:
+            continue
+        price = item.get("price") if isinstance(item.get("price"), dict) else {}
+        now, regular = _amount(price.get("now")), _amount(price.get("was"))
+        regular = regular if regular is not None else now
+        unit = None
+        if mechanic["type"] in _SINGLE_UNIT_MECHANICS and mechanic["minQuantity"] == 1:
+            unit = deals.effective_unit_price(mechanic, regular, now)
+        on_offer = unit is not None and regular is not None and unit < regular
+        images = item.get("imagePack") or []
+        small = images[0].get("small") if images and isinstance(images[0], dict) else None
+        products.append(
+            {
+                "id": str(product_id),
+                "title": title,
+                "brand": item.get("brand") or None,
+                "unitSize": item.get("salesUnitSize") or None,
+                "price": unit if on_offer else regular,
+                "priceBefore": regular if on_offer else None,
+                "promoLabel": label,
+                "image": (small.get("url") if isinstance(small, dict) else None) or None,
+                "url": product_web_url(product_id),
+                "validFrom": valid_from,
+                "validUntil": valid_until,
+                "categoryHint": promotion.get("category") or None,
+            }
+        )
+    return products
+
+
+def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
+    """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
+    (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login."""
+    data = _graphql(get_token(), BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen")
+    periods = [
+        (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
+        for period in data.get("bonusPeriods") or []
+        if isinstance(period, dict)
+    ]
+    periods = [(start, end) for start, end in periods if start and end]
+    today = today or date.today()
+    found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
+    for promotion in data.get("bonusPromotions") or []:
+        if not isinstance(promotion, dict) or promotion.get("promotionType") not in BONUS_PROMOTION_TYPES:
+            continue
+        start, end = deals.parse_date(promotion.get("periodStart")), deals.parse_date(promotion.get("periodEnd"))
+        if end is not None and end < today:
+            continue  # al afgelopen
+        # Alleen acties in een bonusperiode die AH zelf noemt; zonder periodes houden we alles.
+        if periods and not any(deals.in_week(start, end, first, last) for first, last in periods):
+            continue
+        for product in _promotion_products(promotion):
+            found.setdefault((product["id"], product["validFrom"], product["validUntil"]), product)
+    return list(found.values())
+
+
 BONUS_SECTION_PATH = "/mobile-services/bonuspage/v2/section"
 BONUS_FALLBACK_TERMS = (
     "kip", "gehakt", "vis", "zalm", "worst", "spek", "rundvlees", "varkensvlees", "pasta", "rijst", "aardappel",
@@ -765,9 +892,16 @@ def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
 
 
 def get_bonus_products() -> list[dict[str, Any]]:
-    """De aanbiedingen (AH Bonus): eerst de bonuspagina, anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
-    token = get_token()
+    """De aanbiedingen (AH Bonus): eerst de bonus per bonusperiode (GraphQL, deze en volgende week), anders de bonuspagina,
+    anders zoekopdrachten met de bonusvlag. Werkt zonder AH-login."""
     errors: list[str] = []
+    try:
+        promotions = get_bonus_promotions()
+        if promotions:
+            return promotions
+    except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de bonuspagina en zoeken
+        errors.append(str(exc)[:200])
+    token = get_token()
     found: dict[str, dict[str, Any]] = {}
     try:
         data = _request_json(
@@ -1471,3 +1605,28 @@ def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
     if iso := _iso_minutes(sum(int(t) for t in times if isinstance(t, (int, float)))):
         ld["totalTime"] = iso
     return ld
+
+
+def recipe_url(recipe_id: int) -> str:
+    """De pagina van een Allerhande-recept; Mealie bewaart die als bron."""
+    return f"https://www.ah.nl/allerhande/recept/R-R{int(recipe_id)}"
+
+
+def recipe_detail(recipe_id: int) -> dict[str, Any]:
+    """Een Allerhande-recept in de vorm van het detailscherm (zoals Jumbo, Picnic en de maaltijdboxen)."""
+    ld = get_recipe_jsonld(recipe_id)
+    images = ld.get("image") or []
+    portions = re.match(r"\s*(\d+)", str(ld.get("recipeYield") or ""))
+    minutes = re.fullmatch(r"PT(\d+)M", str(ld.get("totalTime") or ""))
+    return {
+        "id": str(int(recipe_id)),
+        "name": ld.get("name") or "",
+        "description": ld.get("description") or "",
+        "image": images[0] if images else None,
+        "portions": int(portions.group(1)) if portions else None,
+        "minutes": int(minutes.group(1)) if minutes else None,
+        "url": ld.get("url") or recipe_url(recipe_id),
+        "ingredients": [{"line": line} for line in ld.get("recipeIngredient") or []],
+        "steps": [step["text"] for step in ld.get("recipeInstructions") or [] if isinstance(step, dict) and step.get("text")],
+        "nutrition": [],
+    }

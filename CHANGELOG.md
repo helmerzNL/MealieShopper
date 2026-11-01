@@ -1,6 +1,114 @@
 # Changelog
 
-Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
+Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
+
+## v2.85.1
+
+### Opgelost in 2.85.1
+
+*English summary: Find recipes has more breathing room: the explanation no longer sticks to the search field, each store (Mealie, Albert Heijn, Jumbo and so on) starts with space above its heading, and **More recipes** no longer touches the cards above it. A stable release now carries the release notes of every version since the previous stable release, so features that only came out as a beta are in it too. Reload the page once after updating.*
+
+- **Meer ruimte in Recepten zoeken.** De uitleg onder het zoekvak stond er direct tegenaan; er zit nu 10 px tussen. Elke winkel in de resultaten (Mealie, Albert Heijn, Jumbo, Picnic, HelloFresh, Marley Spoon) begint met 24 px ruimte boven het kopje, zodat het kopje niet meer aan de uitleg of aan de kaarten van de winkel erboven plakt. **Meer recepten** staat 14 px onder de kaarten in plaats van ertegenaan.
+- **De stabiele release bevat alle versies sinds de vorige stabiele release.** Bij de promotie van `beta` naar `main` kreeg de stabiele release alleen de tekst van de laatste versie; wat ertussen alleen als beta uitkwam, stond er niet in. `release.yml` zoekt nu de vorige stabiele release op en `scripts/release_notes.py --since` zet de teksten van alle versies daarna onder elkaar, nieuwste eerst. Een pre-release krijgt nog steeds alleen zijn eigen versie. De sectie van 2.84.0 is daarbij opgeschoond: de porties (#164) en de productfoto's (#163) staan er nu samen in.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull requests: [#167](https://github.com/helmerzNL/MealieShopper/pull/167) en [#168](https://github.com/helmerzNL/MealieShopper/pull/168).
+
+## v2.85.0
+
+### Nieuw in 2.85.0
+
+*English summary: the Offers tab now shows the offers of the week you are planning ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). The week is at the top with the same arrows as the week menu, and both share one week: plan next week and you see next week's offers, pick a week in Offers and the week menu follows. The AH Bonus now comes per Bonus period from the GraphQL of the AH app: AH's Bonus week runs Monday to Sunday like the week menu, and next week's complete Bonus is there as soon as AH gives it at the weekend (about 3,000 products a week, where searching found a few hundred and only some 80 of next week). A product on Bonus in both weeks keeps both deals. The recipe suggestions use the same week and are about 40 times faster. The header names the Bonus week again instead of "Valid Sun 1 Nov to Sun 1 Nov".*
+
+- **Aanbiedingen per week, gelijk met het weekmenu** ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). Bovenaan het tabblad Aanbiedingen (en bij Recepten) staat de week, met dezelfde pijltjes als in het weekmenu. Het weekmenu en Aanbiedingen delen de week: plan je volgende week, dan zie je de aanbiedingen van volgende week, en kies je bij Aanbiedingen een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet; verlopen aanbiedingen staan in de Prijsgeschiedenis.
+- **De AH Bonus per bonusperiode, compleet, ook van volgende week.** MealieShopper haalt de bonus nu uit de GraphQL van de AH-app (`bonusPeriods` en `bonusPromotions`): AH's bonusweek loopt van maandag t/m zondag, net als het weekmenu, en de bonus van volgende week staat erin zodra AH die in het weekend doorgeeft. Eén aanvraag van een paar seconden geeft per actie de producten, hun normale prijs en de actietekst (*2e halve prijs*, *2 voor 2.99*, *voor 1.99*). Dat zijn zo'n 3.000 producten per week; het zoeken met de bonusvlag vond er een paar honderd, en van volgende week zo'n 80. De landelijke en de online bonus doen mee, bezorgkorting en de acties van Etos en Gall niet. Lukt de aanvraag niet, dan valt MealieShopper terug op de bonuspagina en het zoeken.
+- **Een product kan in twee weken een eigen actie hebben.** Is gehakt deze week 25% korting en volgende week *2 voor 5*, dan staat het bij elke week met die actie. De tabel `offers` heeft daarvoor geen sleutel meer op winkel en product; een bestaande tabel wordt bij de eerste start een keer omgebouwd, met dezelfde rijen. Een back-up van een eerdere versie is gewoon terug te zetten.
+- **Bij deze week staat wat er al voor later bekend is**: *Er zijn al … aanbiedingen bekend die later beginnen*, met **Bekijk de week erna**.
+- **Een aanbieding hoort bij elke week waarin ze geldt.** Een doorlopende korting zonder einddatum (zoals AH's *volume voordeel*) staat in elke week, na de aanbiedingen met een einddatum, zodat de bonus van de week bovenaan staat. Staat een product twee keer in dezelfde week, dan wint de meest specifieke actie (een weekactie gaat voor een actie die tot de feestdagen loopt). Een aanbieding zonder looptijd (Picnic geeft er geen) staat alleen bij de huidige week; bij een andere week staat erbij hoeveel dat er zijn. Begint een aanbieding nog en pas later in de gekozen week (Jumbo wisselt op woensdag), dan staat er *vanaf …* bij.
+- **De receptvoorstellen gebruiken de aanbiedingen van dezelfde week, en zijn zo'n 40 keer sneller.** Er werd elk ingrediënt met elke aanbieding vergeleken; nu alleen met de aanbiedingen die het hoofdwoord in hun naam kunnen hebben, met precies dezelfde uitkomst. 400 recepten tegen de hele bonus van een week kost ongeveer een seconde. *Recepten zoeken met AI* krijgt het aanbod van deze week.
+- **De AH-verkenner** toont per bonusperiode hoeveel acties en producten AH geeft, zodat te zien is of de bonus van volgende week er al staat.
+- **API**: `GET /api/offers` en `GET /api/offers/recipes` nemen `week` (een datum in de week, zoals `2026-11-02`); zonder `week` is het de week van vandaag. Het antwoord meldt `week`, `later` (aanbiedingen die pas na die week beginnen) en `undated` (aanbiedingen zonder looptijd die voor een andere week zijn weggelaten). Elke week heeft een eigen `ETag`.
+
+### Opgelost in 2.85.0
+
+- **"Geldig zo 1 nov t/m zo 1 nov".** De regel boven de aanbiedingen noemt de looptijd die de meeste aanbiedingen delen. AH geeft zijn pakketkortingen en volumevoordelen elke dag opnieuw door met een looptijd van alleen die dag, en dat waren er meer dan de bonus van de week; op zondag stond er daardoor alleen vandaag. Een looptijd van één dag telt nu alleen als er geen langere is, zodat er weer *Geldig ma 26 okt t/m zo 1 nov* staat.
+- **De bonus van volgende week stond tussen die van vandaag**, en kwam al in de prijsgeschiedenis voordat hij begon. De geschiedenis schrijft een aanbieding nu pas als ze begint.
+- **"voor 1.99"** (AH's schildje voor een vaste actieprijs) wordt gelezen als een vaste prijs.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#166](https://github.com/helmerzNL/MealieShopper/pull/166); issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
+
+## v2.84.1
+
+### Opgelost in 2.84.1
+
+*English summary: in a recipe opened from Find recipes (and from the stores and meal kits), the photo no longer sticks to the back button and title; there is space between them now. Reload the page once after updating.*
+
+- **Ruimte tussen de kop en de foto in een recept.** Open je een recept bij **Recepten zoeken**, bij een winkel (Albert Heijn, Jumbo, Picnic) of bij **Maaltijdboxen**, dan stond de foto direct onder de terugknop en de titel. Er zit nu 16 px ruimte tussen, net als bij een melding onder de kop.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#165](https://github.com/helmerzNL/MealieShopper/pull/165).
+
+## v2.84.0
+
+### Nieuw in 2.84.0
+
+*English summary: the servings you set for a meal in Mealie's meal planner (Mealie v3.29.0 or newer) now carry over. The week menu shows them ("4 servings") and every amount is scaled to match: the ingredient list, the review list, the basket and the MCP tool `get_week_menu`. The check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo; pick another product and the photo changes with it, tap the photo to see it large. Fixed: the same ingredient in two recipes of the week is now added up (2× 400 g spaghetti is 800 g) instead of counting only the first. Reload the page once after updating.*
+
+- **Porties uit de planner van Mealie.** Sinds Mealie v3.29.0 heeft elke geplande maaltijd een eigen aantal porties. MealieShopper leest dat in (`recipeScale`) en rekent de hoeveelheden van die maaltijd om: in de lijst met ingrediënten, de controlelijst, het mandje en bij de MCP-tool `get_week_menu`, die per maaltijd ook de porties meegeeft. Het weekmenu toont onder elke maaltijd het aantal porties, bijvoorbeeld *4 porties · 9 ingrediënten*. Weet Mealie de porties van het recept niet, dan staat er alleen de schaal (*×1,5*). Een oudere Mealie geeft geen porties mee; dan blijft alles zoals het was. Wijzig je een maaltijd in MealieShopper, dan blijven de porties staan; kies je een ander recept, dan begint het, net als in Mealie, weer bij 1. Let op: de porties-knop op de receptpagina van Mealie verandert alleen wat je daar ziet en wordt niet bewaard; stel de porties in bij de maaltijd in de planner.
+- **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
+- **Tik op de foto voor de foto in het groot.** Een venster toont de foto zo groot als het scherm toelaat, met de naam, de verpakking en de prijs. Sluiten doe je met **Sluiten**, met Esc of door naast het venster te tikken. Albert Heijn en Picnic geven daarvoor een groter formaat mee (bij AH het formaat rond 800 beeldpunten, bij Picnic `large`), zodat de foto scherp blijft; bij Jumbo, of als het grote formaat niet laadt, toont het venster de gewone foto. Een product zonder foto kun je niet aantikken.
+- **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
+
+### Opgelost in 2.84.0
+
+- **Gelijke ingrediënten werden niet opgeteld.** Kwam hetzelfde ingrediënt in twee recepten van de week voor, dan telde alleen de eerste regel mee: 2× 400 g spaghetti werd 400 g. Nu worden regels met hetzelfde ingrediënt en dezelfde eenheid opgeteld; met een andere eenheid (*1 ui* en *100 g ui*) blijven het aparte regels. Een regel zonder hoeveelheid (*peper*) staat er één keer in, en wijkt voor een regel van hetzelfde ingrediënt met een hoeveelheid.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull requests: [#163](https://github.com/helmerzNL/MealieShopper/pull/163) (issue [#158](https://github.com/helmerzNL/MealieShopper/issues/158)) en [#164](https://github.com/helmerzNL/MealieShopper/pull/164) (issue [#159](https://github.com/helmerzNL/MealieShopper/issues/159)).
+
+## v2.83.0
+
+### Nieuw in 2.83.0
+
+*English summary: every recipe can now be planned, also from Albert Heijn, Jumbo, Picnic, HelloFresh and Marley Spoon: planning imports it into Mealie first, or reuses the recipe if Mealie already has it from the same source. Every recipe card, in Find recipes, Stores and Meal kits, has the same two buttons at the bottom: **View** and **Plan**, equally wide and lined up per row. **View** opens the recipe inside MealieShopper (this replaces "Open at AH"), with **Plan**, **Import** and a link to the store or to Mealie. Fixed: switching the language redraws everything again. Reload the page once after updating.*
+
+- **Elk recept is in te plannen, ook van een winkel of maaltijdbox.** **Inplannen** bij een recept van Albert Heijn, Jumbo, Picnic, HelloFresh of Marley Spoon zet het recept bij het opslaan eerst in Mealie en dan in het weekmenu. Staat het al in Mealie, dan gebruikt MealieShopper dat recept in plaats van een tweede import: Mealie bewaart van elke import de bronlink, en daarop zoekt MealieShopper eerst (Allerhande op receptnummer, omdat de link met of zonder naam kan zijn opgeslagen). Lukt dat zoeken niet (een oudere Mealie), dan wordt er gewoon geïmporteerd. **Importeer** (zonder plannen) importeert zoals voorheen altijd.
+- **Overal dezelfde knoppen op een receptkaart.** Bij Recepten zoeken, Winkels (Albert Heijn, Jumbo, Picnic) en Maaltijdboxen heeft elke kaart onderaan **Bekijken** en **Inplannen**, even breed en in een rij kaarten op dezelfde hoogte; op een smal scherm staan ze onder elkaar. Voorheen stonden de knoppen per bron anders (bij Mealie onder elkaar, bij AH een brede Importeer-knop en een losse link).
+- **Bekijken binnen MealieShopper, ook bij Albert Heijn.** "Open bij AH" (en "Bij HelloFresh" of "Bij Marley Spoon" bij Maaltijdboxen) is **Bekijken** geworden: het recept met ingrediënten en bereiding opent in de app, met daar **Inplannen**, **Importeer** en de link **Bekijk bij Albert Heijn** (of de andere winkel), of **Open in Mealie** bij een eigen recept. Picnic heeft geen webpagina en dus geen link. Picnic, de bewaarde AH-recepten en Maaltijdboxen gebruiken nu hetzelfde detailscherm als Recepten zoeken.
+- **Nieuwe API's**: `GET /api/ah/recipes/<id>` en `POST /api/ah/recipes/<id>/import` (Allerhande met dezelfde routes als de andere winkels), en `?reuse=1` op de importroutes van AH, Jumbo, Picnic, HelloFresh en Marley Spoon.
+
+### Opgelost in 2.83.0
+
+- **Een taalwissel tekende niet alles opnieuw.** De taalwissel riep een functie aan die sinds 2.8.0 niet meer bestond (`renderSearchResults`); de rest van de handler werd daardoor overgeslagen, zodat onder meer de inlogstatus, de AH-lijstjes en de bewaarde recepten in de oude taal bleven staan. Een test controleert nu dat de handler alleen bestaande functies aanroept.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#162](https://github.com/helmerzNL/MealieShopper/pull/162), vervolg op [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
+
+## v2.82.0
+
+### Nieuw in 2.82.0
+
+*English summary: you can now plan the week menu in MealieShopper. Every day of the week has **Add**: put a recipe from Mealie or a note ("Eating out") on a day, or let Mealie pick one with **Surprise me** following your meal plan rules. Tap a planned meal to move, change or remove it. Every change goes straight to Mealie; MealieShopper keeps no plan of its own. **Find recipes** now also searches your own recipes in Mealie (at the top, with **Plan**), and after every import the message has **Plan** too. The MCP server gets `search_mealie_recipes`, `plan_meal` and `remove_planned_meal`. Fixed: a week with a note without a recipe no longer breaks the week menu. Reload the page once after updating.*
+
+- **Het weekmenu plannen in MealieShopper.** Het weekmenu toont altijd de hele week, met bij elke dag **Toevoegen**. Kies de dag, de maaltijd en een **Recept** (zoeken in je recepten in Mealie) of een **Notitie** zonder recept, zoals *Uit eten* of *Restjes*, met een optionele toelichting. Tik op een geplande maaltijd om de dag, de maaltijd of het recept te wijzigen, of om haar te verwijderen (het recept blijft in Mealie staan).
+- **Verras me.** Laat Mealie zelf een recept kiezen volgens de planregels van je huishouden; het staat meteen in het weekmenu. Past er geen recept, dan zegt de app dat.
+- **Alles gaat meteen naar Mealie.** MealieShopper bewaart zelf geen planning: elke wijziging gaat direct naar de API van Mealie (`/api/households/mealplans`) en daarna wordt de week opnieuw opgehaald. Wat je in Mealie plant staat hier, en andersom. Er is geen nieuwe tabel; de back-up verandert niet.
+- **Iedereen die is ingelogd mag plannen**, net als recepten importeren. In Mealie staat de maaltijd op naam van de gebruiker van de token.
+- **Snack, drankje en nagerecht** kun je kiezen zodra je Mealie 3.7 of nieuwer hebt; MealieShopper vraagt de versie aan Mealie en toont bij een oudere Mealie alleen ontbijt, lunch, diner en bijgerecht.
+- **Recepten zoeken zoekt ook in Mealie.** Je eigen recepten staan als eerste blok, met **Bekijken** (ingrediënten en bereiding, en **Open in Mealie**) en **Inplannen** in plaats van **Importeer**, en `Meer recepten` voor de volgende pagina.
+- **Inplannen na een import.** Bij Recepten zoeken, Maaltijdboxen, Winkels en URL importeren staat in de melding na een import nu **Inplannen**; het venster opent met het nieuwe recept al gekozen.
+- **AI-assistenten (MCP)** kunnen zoeken in je recepten in Mealie (`search_mealie_recipes`), een maaltijd plannen (`plan_meal`) en een geplande maaltijd weghalen (`remove_planned_meal`). `get_week_menu` geeft per maaltijd het id en een eventuele notitie. `remove_planned_meal` is de enige tool die iets weghaalt en is gemarkeerd als destructief; de beheerder kan elke tool uitzetten onder **Profiel, AI-apps**.
+- **Nieuwe API's**: `GET /api/mealplan/options`, `POST /api/mealplan`, `PATCH` en `DELETE /api/mealplan/<id>`, `POST /api/mealplan/random`, `GET /api/mealie/recipes?q=&page=` en `GET /api/mealie/recipes/<slug>`.
+- **Onderzoek** naar wat de API van Mealie toelaat en waarom MealieShopper geen eigen planning bijhoudt: [`docs/onderzoek-weekmenu-plannen.md`](docs/onderzoek-weekmenu-plannen.md).
+
+### Opgelost in 2.82.0
+
+- **Een notitie zonder recept liet het hele weekmenu mislukken.** Mealie geeft bij zo'n maaltijd `"recipe": null`; MealieShopper las dat als een recept en gaf `'NoneType' object has no attribute 'get'`. Zo'n week laadt nu gewoon.
+- **Net na middernacht begon de week een dag te vroeg** (tot 1 uur, met zomertijd tot 2 uur). De datums werden in UTC berekend; nu in je eigen tijdzone. Bij plannen telt elke dag.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
 
 ## v2.81.0
 

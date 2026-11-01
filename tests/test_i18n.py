@@ -213,9 +213,23 @@ class PageTest(unittest.TestCase):
 
     def test_app_redraws_data_driven_parts_on_a_language_change(self):
         handler = SOURCES["app.js"][SOURCES["app.js"].index('addEventListener("ms:languagechange"'):]
-        for call in ("updateWeekLabel()", "renderMealPlan(", "renderSearchResults()", "renderAhLists()", "renderSavedRecipes()",
+        for call in ("updateWeekLabel()", "renderMealPlan(", "renderAhLists()", "renderSavedRecipes()",
                      "renderAuthState()", "refreshSavedRecipesStatus()"):
             self.assertIn(call, handler, call)
+        # Recepten zoeken tekent zijn eigen resultaten opnieuw.
+        search = SOURCES["recipe_search.js"]
+        self.assertIn("SEARCH_STORES.forEach(renderSearchStore)", search[search.index('addEventListener("ms:languagechange"'):])
+
+    def test_the_language_handler_only_calls_functions_that_exist(self):
+        # Een aanroep van een functie die niet (meer) bestaat, breekt de rest van de handler af: zo bleven na een taalwissel
+        # de inlogstatus, de lijstjes en de bewaarde recepten in de oude taal staan (renderSearchResults, weg sinds 2.8.0).
+        source = SOURCES["app.js"]
+        start = source.index('window.addEventListener("ms:languagechange", () => {')
+        handler = source[start:source.index("\n});", start)]
+        defined = set(re.findall(r"^(?:async\s+)?function\s+(\w+)\s*\(", JS, re.M))
+        called = set(re.findall(r"^\s*(?:if \(.*?\) )?(\w+)\(", handler, re.M)) - {"if", "window"}
+        self.assertTrue(called)
+        self.assertEqual(sorted(called - defined), [])
 
     def test_changing_language_mid_mfa_setup_does_not_restart_it(self):
         handler = SOURCES["onboarding.js"][SOURCES["onboarding.js"].index('addEventListener("ms:languagechange"'):]
