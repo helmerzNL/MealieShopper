@@ -498,19 +498,76 @@ function formatDate(dateStr) {
   return `${weekdayShort(date)} ${date.getDate()} ${monthShort(date)}`;
 }
 
+// De eenheid en het ingrediënt zoals Mealie ze toont: de afkorting als die aanstaat, en het meervoud als Mealie het kent.
+// Zelfde regels als `_unit_label` en `_food_label` in mealieshopper/ingredients.py.
+function ingredientUnitLabel(unit, plural) {
+  if (!unit || typeof unit !== "object") return String(unit || "").trim();
+  const abbreviation = String(unit.abbreviation || "").trim();
+  if (unit.useAbbreviation && abbreviation) return String((plural && unit.pluralAbbreviation) || abbreviation).trim();
+  return String((plural && unit.pluralName) || unit.name || abbreviation).trim();
+}
+
+function ingredientFoodLabel(food, plural) {
+  if (!food || typeof food !== "object") return String(food || "").trim();
+  return String((plural && food.pluralName) || food.name || "").trim();
+}
+
+// Alle ingrediënten van de week, voor de lijst en het mandje. De hoeveelheden zijn al omgerekend naar de porties van
+// elke maaltijd (mealie.py). Hetzelfde ingrediënt met dezelfde eenheid telt op (2x 400 g spaghetti = 800 g); met een
+// andere eenheid blijft het een eigen regel. Een regel zonder aantal ("peper") staat er alleen in als het ingrediënt er
+// nog niet met een aantal in staat. Een regel zonder ingrediënt (alleen tekst) staat er één keer in.
 function aggregateIngredients(entries) {
-  const seen = new Set();
-  const result = [];
+  const rows = [];
+  const byFood = new Map(); // ingrediënt -> zijn regels
   for (const entry of entries || []) {
     for (const ingredient of entry.recipeDetail?.recipeIngredient || []) {
-      const key = ingredient.food?.name || ingredient.display;
-      if (key && !seen.has(key.toLowerCase())) {
-        seen.add(key.toLowerCase());
-        result.push(ingredient);
+      const name = String(ingredient.food?.name || ingredient.display || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const amount = ingredient.food?.name && typeof ingredient.quantity === "number" && Number.isFinite(ingredient.quantity) && ingredient.quantity > 0
+        ? ingredient.quantity : null;
+      const unit = String(ingredient.unit?.abbreviation || ingredient.unit?.name || "").trim().toLowerCase();
+      const group = byFood.get(key) || [];
+      if (!byFood.has(key)) byFood.set(key, group);
+      if (amount === null) {
+        if (!group.length) {
+          const row = { ingredient, unit, total: null, count: 1 };
+          group.push(row);
+          rows.push(row);
+        }
+        continue;
+      }
+      const same = group.find((row) => row.total !== null && row.unit === unit);
+      if (same) {
+        same.total += amount;
+        same.count += 1;
+      } else if (group.length === 1 && group[0].total === null) {
+        Object.assign(group[0], { ingredient, unit, total: amount, count: 1 }); // een aantal zegt meer dan geen aantal
+      } else {
+        const row = { ingredient, unit, total: amount, count: 1 };
+        group.push(row);
+        rows.push(row);
       }
     }
   }
-  return result;
+  return rows.map(({ ingredient, total, count }) => {
+    if (count < 2) return ingredient;
+    const quantity = Math.round(total * 10000) / 10000;
+    const unitLabel = ingredientUnitLabel(ingredient.unit, quantity > 1);
+    const food = ingredientFoodLabel(ingredient.food, quantity > 1 && !unitLabel);
+    const display = [I18N.formatNumber(Math.round(quantity * 100) / 100), unitLabel, food].filter(Boolean).join(" ");
+    // De notitie ("fijngesneden") hoort bij één recept; bij het optellen valt ze weg.
+    return { ...ingredient, quantity, note: "", display };
+  });
+}
+
+// "4 porties" uit de planner van Mealie (recipeScale, zie mealie.py). Weet Mealie de porties van het recept niet, dan
+// alleen de schaal ("×1,5"), en die alleen als hij niet 1 is.
+function mealServings(entry) {
+  const servings = entry.servings;
+  if (!servings) return "";
+  if (servings.planned) return tn("plan.servings", servings.planned);
+  return servings.scale && servings.scale !== 1 ? t("plan.scale", { n: I18N.formatNumber(servings.scale) }) : "";
 }
 
 // De volgorde van de maaltijden op een dag, zoals Mealie ze ook toont.
@@ -522,9 +579,13 @@ function mealName(entry) {
 
 function renderMeal(entry) {
   const note = !entry.recipe && !entry.recipeId;
+  const facts = [
+    mealServings(entry),
+    entry.recipeDetail ? tn("plan.ingredients_count", (entry.recipeDetail.recipeIngredient || []).length) : "",
+  ].filter(Boolean).join(" · ");
   const detail = note
     ? entry.text ? `<small class="meal__note">${escapeHtml(entry.text)}</small>` : ""
-    : entry.recipeDetail ? `<small>${escapeHtml(tn("plan.ingredients_count", entry.recipeDetail.recipeIngredient.length))}</small>` : "";
+    : facts ? `<small>${escapeHtml(facts)}</small>` : "";
   const content = `
       ${entry.imageUrl ? `<img class="meal__image" src="${escapeHtml(entry.imageUrl)}" alt="" width="64" height="64" loading="lazy" data-hide-on-error>` : ""}
       <span class="meal__text">

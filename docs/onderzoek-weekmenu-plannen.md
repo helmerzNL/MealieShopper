@@ -18,7 +18,12 @@ met `v3.12.0` en `mealie-next`).
 | Maaltijden | `breakfast`, `lunch`, `dinner` en `side` in elke versie; `snack`, `drink` en `dessert` pas vanaf **Mealie v3.7.0**. Een ouder Mealie weigert die drie met 422. |
 | Recepten zoeken | `GET /api/recipes?search=&page=&perPage=`; met een zoekterm sorteert Mealie zelf op relevantie. `totalTime` is vrije tekst ("1 hour 30 minutes"). |
 | Al geïmporteerd? | Bij elke import bewaart Mealie de meegegeven link als `org_url` (`scraper_strategies.py`). `GET /api/recipes?queryFilter=org_url LIKE "…"` vindt het recept terug; `LIKE` is hoofdletterongevoelig en bestaat al in v1.12 (met `OR`). |
-| Nog niet uitgebracht | `mealie-next` kent weekitems (`endDate`, een maaltijd voor een hele week) en `recipeScale`. Nog in geen release; standaard leest de API ze niet mee (`include_week_entries`). |
+| Porties (`recipeScale`) | Sinds **Mealie v3.29.0** (PR mealie-recipes/mealie#8701) heeft elke maaltijd een schaal: `recipeScale`, een getal > 0, standaard 1. De planner van Mealie toont het als porties (de porties van het recept maal de schaal) en rekent de hoeveelheden pas bij het tonen om; het recept zelf verandert niet. Een PUT zonder het veld zet het terug op 1. De servings-knop op de receptpagina bewaart niets. |
+| Weekitems | Sinds **Mealie v3.30.0** kan een maaltijd een hele week duren (`endDate`). In `mealie-next` gaf de lijst ze alleen met `include_week_entries` mee; nog niet nagegaan voor v3.30. |
+
+## Porties uit Mealie (2.84.0, issue #159)
+
+MealieShopper leest `recipeScale` bij elke maaltijd en rekent de ingrediënten van die maaltijd om, voor de lijst, de controlelijst, het mandje en de MCP-tool `get_week_menu`. Elke maaltijd krijgt `servings` (`scale`, `base`, `planned`); de weekplanner toont "4 porties". Een Mealie ouder dan v3.29 geeft geen `recipeScale` mee en rekent dus met schaal 1. Bij wijzigen gaat `recipeScale` mee terug naar Mealie; een ander recept begint, net als in Mealie, weer bij 1. Gelijke ingrediënten met dezelfde eenheid worden over de week opgeteld (voorheen telde alleen de eerste regel).
 
 ## Besluit: write-through, geen eigen planning
 
@@ -50,6 +55,6 @@ Onderweg gevonden en opgelost: bevatte een week een notitie zonder recept, dan f
 
 ## Buiten scope
 
-- Weekitems en `recipeScale` uit `mealie-next`: opnieuw bekijken zodra ze in een release staan.
+- Weekitems (`endDate`, Mealie v3.30.0): nagaan of het weekmenu ze meekrijgt. De porties (`recipeScale`) leest MealieShopper sinds 2.84.0; instellen gaat (nog) in Mealie.
 - Slepen tussen dagen: verplaatsen gaat via de dialoog (dag kiezen), wat ook op een telefoon werkt.
 - De planregels van Mealie beheren (`/api/households/mealplans/rules`): dat blijft in Mealie.

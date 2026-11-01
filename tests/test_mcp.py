@@ -700,7 +700,8 @@ class ToolsTest(McpTestCase):
 
     def test_week_menu(self):
         entries = [
-            {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]}},
+            {"id": 5, "date": "2026-10-20", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}, "recipeDetail": {"recipeIngredient": [{"display": "400 g  spaghetti"}, {"note": "peper"}, {}]},
+             "servings": {"scale": 2.0, "base": 2, "planned": 4}},
             {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
         with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
@@ -711,6 +712,8 @@ class ToolsTest(McpTestCase):
         self.assertEqual(data["meals"][0]["recipe"], "Restjes")
         self.assertEqual(data["meals"][1]["url"], "https://mealie.example/g/home/r/pasta")
         self.assertEqual(data["meals"][1]["ingredients"], ["400 g spaghetti", "peper"])
+        # De porties uit de planner van Mealie (issue #159); een notitie heeft er geen.
+        self.assertEqual([m["servings"] for m in data["meals"]], [None, 4])
         # Het id is nodig om een maaltijd met remove_planned_meal weg te halen.
         self.assertEqual([(m["id"], m["note"]) for m in data["meals"]], [(4, "Van zondag"), (5, None)])
 
