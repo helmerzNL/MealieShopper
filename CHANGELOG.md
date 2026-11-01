@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.85.2
+
+### Opgelost in 2.85.2
+
+*English summary: the explanation above the recipes under Stores > Picnic and Stores > Jumbo still said "open a recipe, or import it into Mealie". Since 2.83.0 every card has **View** and **Plan**, and importing without planning only happens from the recipe itself; the text now says so, like Find recipes and Meal kits. Reload the page once after updating.*
+
+- **De uitleg boven de recepten bij Winkels > Picnic en Winkels > Jumbo klopt weer.** Er stond nog *Open een recept voor de ingrediënten en de bereiding, of importeer het in Mealie*. Sinds 2.83.0 ([#162](https://github.com/helmerzNL/MealieShopper/pull/162)) heeft elke kaart **Bekijken** en **Inplannen**, en importeren zonder in te plannen doe je alleen in het recept zelf. Er staat nu, net als bij Recepten zoeken en Maaltijdboxen: *Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.* De README (Winkels: Picnic) is op dezelfde manier bijgewerkt, in het Nederlands en het Engels, en de screenshots `picnic-recipes` en `jumbo-recipes` zijn opnieuw gemaakt.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.85.1
 
 ### Opgelost in 2.85.1
