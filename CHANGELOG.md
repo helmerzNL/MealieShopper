@@ -11,6 +11,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Meer ruimte in Recepten zoeken.** De uitleg onder het zoekvak stond er direct tegenaan; er zit nu 10 px tussen. Elke winkel in de resultaten (Mealie, Albert Heijn, Jumbo, Picnic, HelloFresh, Marley Spoon) begint met 24 px ruimte boven het kopje, zodat het kopje niet meer aan de uitleg of aan de kaarten van de winkel erboven plakt. **Meer recepten** staat 14 px onder de kaarten in plaats van ertegenaan.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
+- Pull request: [#167](https://github.com/helmerzNL/MealieShopper/pull/167).
+
 ## v2.85.0
 
 ### Nieuw in 2.85.0
