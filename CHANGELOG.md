@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.84.2
+
+### Opgelost in 2.84.2
+
+*English summary: Find recipes has more breathing room: the explanation no longer sticks to the search field, each store (Mealie, Albert Heijn, Jumbo and so on) starts with space above its heading, and **More recipes** no longer touches the cards above it. Reload the page once after updating.*
+
+- **Meer ruimte in Recepten zoeken.** De uitleg onder het zoekvak stond er direct tegenaan; er zit nu 10 px tussen. Elke winkel in de resultaten (Mealie, Albert Heijn, Jumbo, Picnic, HelloFresh, Marley Spoon) begint met 24 px ruimte boven het kopje, zodat het kopje niet meer aan de uitleg of aan de kaarten van de winkel erboven plakt. **Meer recepten** staat 14 px onder de kaarten in plaats van ertegenaan.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.84.1
 
 ### Opgelost in 2.84.1
