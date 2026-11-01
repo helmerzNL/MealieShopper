@@ -2,6 +2,24 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.83.0
+
+### Nieuw in 2.83.0
+
+*English summary: every recipe can now be planned, also from Albert Heijn, Jumbo, Picnic, HelloFresh and Marley Spoon: planning imports it into Mealie first, or reuses the recipe if Mealie already has it from the same source. Every recipe card, in Find recipes, Stores and Meal kits, has the same two buttons at the bottom: **View** and **Plan**, equally wide and lined up per row. **View** opens the recipe inside MealieShopper (this replaces "Open at AH"), with **Plan**, **Import** and a link to the store or to Mealie. Fixed: switching the language redraws everything again. Reload the page once after updating.*
+
+- **Elk recept is in te plannen, ook van een winkel of maaltijdbox.** **Inplannen** bij een recept van Albert Heijn, Jumbo, Picnic, HelloFresh of Marley Spoon zet het recept bij het opslaan eerst in Mealie en dan in het weekmenu. Staat het al in Mealie, dan gebruikt MealieShopper dat recept in plaats van een tweede import: Mealie bewaart van elke import de bronlink, en daarop zoekt MealieShopper eerst (Allerhande op receptnummer, omdat de link met of zonder naam kan zijn opgeslagen). Lukt dat zoeken niet (een oudere Mealie), dan wordt er gewoon geïmporteerd. **Importeer** (zonder plannen) importeert zoals voorheen altijd.
+- **Overal dezelfde knoppen op een receptkaart.** Bij Recepten zoeken, Winkels (Albert Heijn, Jumbo, Picnic) en Maaltijdboxen heeft elke kaart onderaan **Bekijken** en **Inplannen**, even breed en in een rij kaarten op dezelfde hoogte; op een smal scherm staan ze onder elkaar. Voorheen stonden de knoppen per bron anders (bij Mealie onder elkaar, bij AH een brede Importeer-knop en een losse link).
+- **Bekijken binnen MealieShopper, ook bij Albert Heijn.** "Open bij AH" (en "Bij HelloFresh" of "Bij Marley Spoon" bij Maaltijdboxen) is **Bekijken** geworden: het recept met ingrediënten en bereiding opent in de app, met daar **Inplannen**, **Importeer** en de link **Bekijk bij Albert Heijn** (of de andere winkel), of **Open in Mealie** bij een eigen recept. Picnic heeft geen webpagina en dus geen link. Picnic, de bewaarde AH-recepten en Maaltijdboxen gebruiken nu hetzelfde detailscherm als Recepten zoeken.
+- **Nieuwe API's**: `GET /api/ah/recipes/<id>` en `POST /api/ah/recipes/<id>/import` (Allerhande met dezelfde routes als de andere winkels), en `?reuse=1` op de importroutes van AH, Jumbo, Picnic, HelloFresh en Marley Spoon.
+
+### Opgelost in 2.83.0
+
+- **Een taalwissel tekende niet alles opnieuw.** De taalwissel riep een functie aan die sinds 2.8.0 niet meer bestond (`renderSearchResults`); de rest van de handler werd daardoor overgeslagen, zodat onder meer de inlogstatus, de AH-lijstjes en de bewaarde recepten in de oude taal bleven staan. Een test controleert nu dat de handler alleen bestaande functies aanroept.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#162](https://github.com/helmerzNL/MealieShopper/pull/162), vervolg op [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
+
 ## v2.82.0
 
 ### Nieuw in 2.82.0

@@ -22,7 +22,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-57")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-58")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -135,6 +135,13 @@ def create_app() -> Flask:
             app.logger.exception("Mealie error")
             return jsonify({"error": str(exc) or error_text}), 424
 
+    def reused_recipe(source_url: str) -> Any:
+        """Bij `?reuse=1` (Inplannen): staat het recept al in Mealie (zelfde bron), dan dat recept in plaats van een nieuwe import."""
+        if (request.args.get("reuse") or "").strip().lower() not in {"1", "true", "yes"}:
+            return None
+        slug = mealie.find_recipe_by_source(source_url)
+        return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug), "reused": True}) if slug else None
+
     @app.get("/api/mealplan/options")
     def mealplan_options():
         return mealie_action(lambda: {"entryTypes": mealie.entry_types()}, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
@@ -193,6 +200,32 @@ def create_app() -> Flask:
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
+
+    # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
+    @app.get("/api/ah/recipes/<int:recipe_id>")
+    def ah_recipe_detail(recipe_id: int):
+        try:
+            return jsonify(ah.recipe_detail(recipe_id))
+        except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
+            app.logger.exception("AH recipe error")
+            return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424
+
+    @app.post("/api/ah/recipes/<int:recipe_id>/import")
+    def ah_recipe_import(recipe_id: int):
+        try:
+            mealie.ensure_configured()
+        except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
+            return jsonify({"error": str(exc)}), 400
+        url = ah.recipe_url(recipe_id)
+        found = reused_recipe(url)
+        if found:
+            return found
+        try:
+            slug = mealie.import_from_url(url)
+            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+        except Exception:  # noqa: BLE001 - de melding van Mealie of AH kan hun antwoord bevatten: alleen in het logboek
+            app.logger.exception("AH recipe import error")
+            return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.get("/api/mealie/recipes/<recipe_id>/image")
     def mealie_recipe_image(recipe_id: str):
@@ -893,6 +926,9 @@ def create_app() -> Flask:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
+        found = reused_recipe(picnic_recipes.source_url(recipe_id))
+        if found:
+            return found
         try:
             recipe = picnic_recipes.get_recipe(recipe_id)
             slug = mealie.import_via_jsonld(picnic_recipes.source_url(recipe_id), picnic_recipes.jsonld(recipe))
@@ -969,6 +1005,10 @@ def create_app() -> Flask:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
+        if hellofresh.recipe_key(hellofresh.source_url(recipe_key)):
+            found = reused_recipe(hellofresh.source_url(recipe_key))
+            if found:
+                return found
         try:
             return jsonify(hellofresh.run_import(recipe_key))
         except Exception as exc:  # noqa: BLE001
@@ -1011,6 +1051,10 @@ def create_app() -> Flask:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
+        if marleyspoon.recipe_key(recipe_key):
+            found = reused_recipe(marleyspoon.source_url(recipe_key))
+            if found:
+                return found
         try:
             return jsonify(marleyspoon.run_import(recipe_key))
         except Exception as exc:  # noqa: BLE001
@@ -1232,6 +1276,9 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
         try:
             recipe = jumbo_recipes.get_recipe(recipe_id)
+            found = reused_recipe(jumbo_recipes.source_url(recipe))
+            if found:
+                return found
             slug = mealie.import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))
             return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001

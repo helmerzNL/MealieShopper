@@ -796,14 +796,17 @@ function openPlanDialog({ date = "", entry = null, recipe = null, target = null 
   loadPlanTypes().then((types) => {
     if ($("#plan-dialog").open && planDialog.entry === entry) renderPlanTypes(types, $("#plan-type").value || current);
   });
-  if (recipe && !recipe.name) completePlanRecipe(recipe);
+  if (recipe?.slug && !recipe.name) completePlanRecipe(recipe);
 }
 
-function planDone(dates, date) {
+// `imported` is het antwoord van de import bij een winkelrecept: dan staat er ook een link naar het recept in Mealie bij.
+function planDone(dates, date, imported = null) {
   const target = planDialog.target;
   $("#plan-dialog").close();
   refreshMealPlanAfterChange(dates);
-  if (target && date) target.innerHTML = `<div class="message success">${escapeHtml(t("plan.planned", { day: formatDate(date) }))}</div>`;
+  if (!target || !date) return;
+  const link = imported?.mealieUrl ? ` <a href="${escapeHtml(imported.mealieUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("recipe.view_mealie"))}</a>` : "";
+  target.innerHTML = `<div class="message success">${escapeHtml(t("plan.planned", { day: formatDate(date) }))}${link}</div>`;
 }
 
 function planRequest(url, method, body) {
@@ -841,20 +844,30 @@ async function savePlanEntry(event) {
       return;
     }
     if (recipe.recipeId) body.recipeId = recipe.recipeId;
-    else body.recipeSlug = recipe.slug;
+    else if (recipe.slug) body.recipeSlug = recipe.slug;
     // Was het een notitie, dan gaan titel en tekst weg; anders blijft wat er in Mealie bij staat.
     if (entry && !entry.recipe && !entry.recipeId) Object.assign(body, { title: "", text: "" });
   }
   const button = $("#plan-save");
-  setBusy(button, true);
+  // Een recept van een winkel staat nog niet in Mealie: eerst importeren (of het recept nemen dat er al staat).
+  const source = planKind() === "recipe" && !body.recipeId && !body.recipeSlug ? planDialog.recipe?.source : null;
+  const busyText = source ? t("plan.importing") : undefined;
+  let imported = null;
+  setBusy(button, true, busyText);
   try {
+    if (source) {
+      imported = await planRequest(`/api/${encodeURIComponent(source.store)}/recipes/${encodeURIComponent(source.id)}/import?reuse=1`, "POST");
+      body.recipeSlug = imported.slug;
+      // Mislukt het plannen hierna, dan importeert een tweede poging niet opnieuw.
+      planDialog.recipe = { ...planDialog.recipe, slug: imported.slug, source: null };
+    }
     if (entry) await planRequest(`/api/mealplan/${encodeURIComponent(entry.id)}`, "PATCH", body);
     else await planRequest("/api/mealplan", "POST", body);
-    planDone([date, entry?.date], date);
+    planDone([date, entry?.date], date, imported);
   } catch (error) {
     message("#plan-message", error.message);
   } finally {
-    setBusy(button, false);
+    setBusy(button, false, busyText);
   }
 }
 
@@ -1317,23 +1330,48 @@ async function addToCart() {
   }
 }
 
+// De knoppen onderaan elke receptkaart, overal gelijk: Bekijken (het recept in MealieShopper, zie openStoreRecipe) en
+// Inplannen (de plan-dialoog). `open` is `winkel:id`; `plan` zijn de data-attributen van planButtonAttrs of planSourceAttrs.
+// Importeren zonder plannen en de link naar de winkel staan in het detail.
+function recipeCardActions(open, plan) {
+  return `
+      <div class="card-actions">
+        <button class="button button--secondary" type="button" data-store-open="${escapeHtml(open)}">${escapeHtml(t("rsearch.open"))}</button>
+        <button class="button" type="button" ${plan}>${escapeHtml(t("plan.schedule"))}</button>
+      </div>
+      <div class="recipe-import-result"></div>`;
+}
+
+// Inplannen bij een recept dat al in Mealie staat.
+function planButtonAttrs(recipe) {
+  return `data-plan-slug="${escapeHtml(recipe.slug || recipe.id)}" data-plan-id="${escapeHtml(recipe.recipeId || "")}" data-plan-name="${escapeHtml(recipe.name || "")}" data-plan-image="${escapeHtml(recipe.image || "")}"`;
+}
+
+// Inplannen bij een recept van een winkel of maaltijdbox: de plan-dialoog zet het eerst in Mealie, of gebruikt het recept
+// dat er al staat (zelfde bron).
+function planSourceAttrs(store, id, name, image) {
+  return `data-plan-source="${escapeHtml(`${store}:${id}`)}" data-plan-name="${escapeHtml(name || "")}" data-plan-image="${escapeHtml(image || "")}"`;
+}
+
+// Het nummer van een Allerhande-recept: het id, of anders uit de link (R-R123).
+function ahRecipeNumber(recipe) {
+  const id = String(recipe.id ?? "");
+  return /^\d+$/.test(id) ? id : /R-R(\d+)/i.exec(recipe.url || recipe.webPath || "")?.[1] || "";
+}
+
 function renderRecipeCard(recipe) {
-  const ahUrl = `https://www.ah.nl${recipe.webPath}`;
   const imageUrl = recipe.images?.[0]?.url;
   const totalTime = Number(recipe.totalTime ?? (Number(recipe.cookTime || 0) + Number(recipe.preparationTime || 0)));
   const tags = [...(recipe.courses || []), ...(recipe.keywords || [])].slice(0, 3);
+  const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card">
       ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(recipe.title)}" loading="lazy">` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       ${recipe.description ? `<p class="muted">${escapeHtml(recipe.description)}</p>` : ""}
       ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
-      <div class="tags">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
-      <div class="card-actions">
-        <button class="button" data-import-url="${escapeHtml(ahUrl)}">${escapeHtml(t("recipe.import"))}</button>
-        <a href="${escapeHtml(ahUrl)}" target="_blank" rel="noreferrer">${escapeHtml(t("recipe.open_ah"))}</a>
-      </div>
-      <div class="recipe-import-result"></div>
+      ${tags.length ? `<div class="tags">${tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, imageUrl)) : ""}
     </article>
   `;
 }
@@ -1944,21 +1982,13 @@ async function addOpenAhListToCart() {
 }
 
 function renderSavedRecipeCard(recipe) {
-  const url = recipe.url || "";
   const image = recipe.image || "";
+  const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card">
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
       <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
-      <div class="card-actions">
-        <button class="button" data-import-url="${escapeHtml(url)}">${escapeHtml(t("recipe.import"))}</button>
-        ${
-          url
-            ? `<a class="card-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener" aria-label="${escapeHtml(t("recipe.open_label", { title: recipe.title || "" }))}">${mdiIcon(MDI_OPEN_IN_NEW)}<span>${escapeHtml(t("recipe.open_ah"))}</span></a>`
-            : ""
-        }
-      </div>
-      <div class="recipe-import-result"></div>
+      ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image)) : ""}
     </article>
   `;
 }
@@ -2234,12 +2264,16 @@ $("#meal-days").addEventListener("click", (event) => {
   const entry = edit && (state.entries || []).find((item) => String(item.id) === edit.dataset.planEdit);
   if (entry) openPlanDialog({ entry });
 });
-// "Inplannen" na een import of bij een recept uit Mealie (Recepten zoeken): de plan-dialoog met het recept al gekozen.
+// "Inplannen" bij een recept uit Mealie of na een import (`data-plan-slug`), of bij een recept van een winkel of maaltijdbox
+// (`data-plan-source`, dat bij het opslaan eerst in Mealie komt): de plan-dialoog met het recept al gekozen.
 document.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-plan-slug]");
+  const button = event.target.closest("[data-plan-slug], [data-plan-source]");
   if (!button) return;
   const data = button.dataset;
-  const recipe = { slug: data.planSlug, recipeId: data.planId || "", name: data.planName || "", image: data.planImage || "" };
+  const [store, ...rest] = (data.planSource || "").split(":");
+  const recipe = data.planSource
+    ? { source: { store, id: rest.join(":") }, name: data.planName || "", image: data.planImage || "" }
+    : { slug: data.planSlug, recipeId: data.planId || "", name: data.planName || "", image: data.planImage || "" };
   const target =
     button.closest(".message")?.parentElement ||
     button.closest(".recipe-card")?.querySelector(".recipe-import-result") ||
@@ -2334,12 +2368,9 @@ $("#ah-lists").addEventListener("click", (event) => {
   const open = event.target.closest("[data-ah-list-id]");
   if (open) openAhList(open.dataset.ahListId);
 });
-$("#ah-recipes").addEventListener("click", async (event) => {
-  const btn = event.target.closest("[data-import-url]");
-  if (!btn) return;
-  const result = await importUrl(btn.dataset.importUrl, btn);
-  const target = btn.closest(".recipe-card")?.querySelector(".recipe-import-result");
-  if (target) target.innerHTML = `<div class="message ${result.ok ? "success" : "error"}">${result.html}</div>`;
+$("#ah-recipes").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-store-open]");
+  if (open) openStoreRecipe("ah", open.dataset.storeOpen.split(":", 2)[1], AH_SAVED_HOST);
 });
 // De browser zou bij terug zelf een scrollstand kiezen; wij zetten hem terug op de plek in het overzicht.
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
@@ -2391,7 +2422,6 @@ if (params.get("ah_error")) {
 window.addEventListener("ms:languagechange", () => {
   updateWeekLabel();
   if (state.entries) renderMealPlan(state.entries);
-  renderSearchResults();
   renderAuthState();
   renderCredentials();
   renderAhLists();

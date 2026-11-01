@@ -275,6 +275,36 @@ def import_from_url(url: str) -> str:
     raise RuntimeError("; ".join(errors))
 
 
+def find_recipe_by_source(source_url: Any) -> str | None:
+    """De slug van een recept dat al uit deze bron in Mealie staat, of None.
+
+    Mealie bewaart bij elke import de meegegeven link als `org_url` en kan daarop zoeken (`queryFilter` met `LIKE`,
+    hoofdletterongevoelig). Allerhande zoeken we op het receptnummer, want de link staat er met of zonder naam in.
+    Best effort: lukt het zoeken niet (een oudere Mealie, een vreemde link), dan None en wordt er gewoon geïmporteerd.
+    """
+    url = str(source_url or "").strip()
+    if not url or '"' in url or len(url) > 1000 or not mealie_url() or not mealie_token():
+        return None
+    recipe_id = ah.allerhande_recipe_id(url)
+    query = f'org_url LIKE "%/r-r{recipe_id}/%" OR org_url LIKE "%/r-r{recipe_id}"' if recipe_id else f'org_url LIKE "{url}"'
+    try:
+        response = requests.get(
+            f"{mealie_url()}/api/recipes",
+            headers=auth_headers(),
+            params={"queryFilter": query, "page": 1, "perPage": 1},
+            timeout=15,
+        )
+        if not response.ok:
+            log.info("Mealie kon niet zoeken op bron (%s); er wordt geïmporteerd.", response.status_code)
+            return None
+        items = (response.json() or {}).get("items") or []
+    except (requests.RequestException, ValueError, AttributeError) as exc:
+        log.info("Zoeken op bron in Mealie mislukt (%s); er wordt geïmporteerd.", exc)
+        return None
+    slug = items[0].get("slug") if items and isinstance(items[0], dict) else None
+    return str(slug) if slug else None
+
+
 def _catalog(kind: str) -> list[dict[str, Any]]:
     """Alle eenheden (`units`) of ingrediënten (`foods`) die Mealie kent."""
     items: list[dict[str, Any]] = []

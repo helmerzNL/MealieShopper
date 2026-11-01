@@ -998,17 +998,38 @@ h2 {
   font-weight: 600;
 }
 
+/* Bekijken en Inplannen onderaan elke receptkaart: even breed, en in een rij kaarten op dezelfde hoogte (de kaart is een
+   flexkolom en de knoppen duwen zich met margin-top: auto naar onderen). Is de kaart te smal voor twee naast elkaar
+   (een telefoon), dan staan ze onder elkaar, nog steeds even breed. */
 .card-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
   margin-top: auto;
 }
 
-.card-actions a {
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 600;
+.card-actions .button {
+  width: 100%;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.recipe-import-result:empty {
+  display: none;
+}
+
+/* De knoppen in het detail van een recept: Inplannen, Importeer en de link naar de winkel of Mealie. */
+.recipe-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.recipe-detail__actions .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .pager {
@@ -2149,43 +2170,6 @@ button.plan-recipe:focus-visible {
   overflow: hidden;
   overflow-wrap: break-word;
   hyphens: auto;
-}
-
-/* Importeren en "Open bij AH" onder elkaar, zodat de knop ook in een smalle kaart past */
-.recipe-grid--compact .card-actions {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-}
-
-.recipe-grid--compact .card-actions .button {
-  width: 100%;
-  padding: 0 12px;
-}
-
-.card-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 36px;
-  border-radius: var(--radius-control);
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.card-link:hover {
-  background: var(--selection);
-  color: var(--primary-strong);
-}
-
-.card-link svg {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  fill: currentColor;
 }
 
 .recipe-import-result .message {
