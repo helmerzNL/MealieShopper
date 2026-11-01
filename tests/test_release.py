@@ -1,5 +1,6 @@
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,11 +31,52 @@ class ReleaseTest(unittest.TestCase):
         self.assertNotIn("## v1.0.0", notes)
         self.assertNotIn("eerste genummerde versie", notes)
 
+    def _changelog(self, text):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        path = Path(folder.name) / "CHANGELOG.md"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    SAMPLE = (
+        "# Changelog\n\nIntro.\n\n"
+        "## v2.10.0\n\nTien.\n\n"
+        "## v2.9.1\n\nNegen-een.\n\n"
+        "## v2.9.0\n\nNegen.\n\n"
+        "## v2.8.0\n\nAcht.\n"
+    )
+
+    def test_stable_release_collects_every_version_since_the_previous_one(self):
+        changelog = self._changelog(self.SAMPLE)
+        self.assertEqual(release_notes.versions_since("v2.10.0", "v2.8.0", changelog), ["v2.10.0", "v2.9.1", "v2.9.0"])
+        notes = release_notes.notes_since("v2.10.0", "v2.8.0", changelog)
+        for heading, body in (("## v2.10.0", "Tien."), ("## v2.9.1", "Negen-een."), ("## v2.9.0", "Negen.")):
+            self.assertIn(f"{heading}\n\n{body}", notes)
+        self.assertNotIn("## v2.8.0", notes)
+        self.assertNotIn("Acht.", notes)
+        self.assertLess(notes.index("## v2.10.0"), notes.index("## v2.9.0"))
+        self.assertTrue(notes.startswith("Alles sinds de vorige stabiele versie v2.8.0: v2.9.0, v2.9.1, v2.10.0."))
+
+    def test_single_version_or_no_previous_release_gives_just_that_section(self):
+        changelog = self._changelog(self.SAMPLE)
+        own = release_notes.notes_for("v2.10.0", changelog)
+        self.assertEqual(own, "Tien.")
+        self.assertEqual(release_notes.notes_since("v2.10.0", "", changelog), own)
+        self.assertEqual(release_notes.notes_since("v2.10.0", "v2.9.1", changelog), own)
+        self.assertEqual(release_notes.notes_since("v3.0.0", "v2.8.0", changelog), "")
+
+    def test_versions_compare_as_numbers(self):
+        changelog = self._changelog(self.SAMPLE)
+        self.assertEqual(release_notes.versions_since("v2.10.0", "v2.9.0", changelog), ["v2.10.0", "v2.9.1"])
+
     def test_release_workflow_builds_the_release_from_the_changelog(self):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.assertIn("gh release create", workflow)
         self.assertIn("release_notes.py", workflow)
         self.assertIn("contents: write", workflow)
+        # De stabiele release krijgt alle versies sinds de vorige stabiele release.
+        self.assertIn('--since "$previous"', workflow)
+        self.assertIn("gh release view --json tagName", workflow)
 
     def test_beta_builds_get_their_own_tags_and_a_prerelease(self):
         docker = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")

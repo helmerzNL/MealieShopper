@@ -2,7 +2,8 @@ name: GitHub release
 
 # Elke versie in VERSION krijgt een GitHub release, met de tekst uit CHANGELOG.md:
 # - push naar beta: een pre-release `vX.Y.Z-beta` (eenmalig per versie, niet "latest");
-# - push naar main (alleen vanuit beta): de stabiele release `vX.Y.Z`, als "latest".
+# - push naar main (alleen vanuit beta): de stabiele release `vX.Y.Z`, als "latest", met de tekst van alle versies
+#   sinds de vorige stabiele release.
 on:
   push:
     branches:
@@ -38,7 +39,14 @@ jobs:
             echo "Release $tag bestaat al."
             exit 0
           fi
-          python3 scripts/release_notes.py "$version" > notes.md
+          # Een stabiele release krijgt alle versies sinds de vorige stabiele release (de huidige "latest"),
+          # zodat wat alleen als beta is uitgekomen er ook in staat. Een pre-release krijgt alleen zijn eigen versie.
+          previous=""
+          if [ "$GITHUB_REF_NAME" != "beta" ]; then
+            previous="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+            echo "Vorige stabiele release: ${previous:-geen}"
+          fi
+          python3 scripts/release_notes.py "$version" --since "$previous" > notes.md
           gh release create "$tag" \
             --target "$GITHUB_SHA" \
             --title "$title" \
