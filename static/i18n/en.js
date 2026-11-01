@@ -541,6 +541,8 @@ I18N.add("en", {
   "cart.product": "Product",
   "cart.view_title": "View this product to check that it is right",
   "cart.view": "View product",
+  "cart.photo_open": "View larger photo of {title}",
+  "common.close": "Close",
   "cart.deal_until": "until {date}",
   "cart.deal_expired": "offer expired",
   "cart.packs": "Number of packs",

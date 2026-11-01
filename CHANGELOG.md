@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
+## v2.84.0
+
+### Nieuw in 2.84.0
+
+*English summary: the check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo. Pick another product in the list and the photo changes with it; tap the photo to see it large. This matters most for Picnic, which has no product page to look at. Reload the page once after updating.*
+
+- **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
+- **Tik op de foto voor de foto in het groot.** Een venster toont de foto zo groot als het scherm toelaat, met de naam, de verpakking en de prijs. Sluiten doe je met **Sluiten**, met Esc of door naast het venster te tikken. Albert Heijn en Picnic geven daarvoor een groter formaat mee (bij AH het formaat rond 800 beeldpunten, bij Picnic `large`), zodat de foto scherp blijft; bij Jumbo, of als het grote formaat niet laadt, toont het venster de gewone foto. Een product zonder foto kun je niet aantikken.
+- **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#163](https://github.com/helmerzNL/MealieShopper/pull/163). Issue: [#158](https://github.com/helmerzNL/MealieShopper/issues/158).
+
 ## v2.83.0
 
 ### Nieuw in 2.83.0
