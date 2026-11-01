@@ -17,6 +17,7 @@ met `v3.12.0` en `mealie-next`).
 | Rechten | Een gewone CRUD-controller: elk lid van het huishouden mag dit met zijn eigen token. Er is geen extra recht nodig. |
 | Maaltijden | `breakfast`, `lunch`, `dinner` en `side` in elke versie; `snack`, `drink` en `dessert` pas vanaf **Mealie v3.7.0**. Een ouder Mealie weigert die drie met 422. |
 | Recepten zoeken | `GET /api/recipes?search=&page=&perPage=`; met een zoekterm sorteert Mealie zelf op relevantie. `totalTime` is vrije tekst ("1 hour 30 minutes"). |
+| Al geïmporteerd? | Bij elke import bewaart Mealie de meegegeven link als `org_url` (`scraper_strategies.py`). `GET /api/recipes?queryFilter=org_url LIKE "…"` vindt het recept terug; `LIKE` is hoofdletterongevoelig en bestaat al in v1.12 (met `OR`). |
 | Nog niet uitgebracht | `mealie-next` kent weekitems (`endDate`, een maaltijd voor een hele week) en `recipeScale`. Nog in geen release; standaard leest de API ze niet mee (`include_week_entries`). |
 
 ## Besluit: write-through, geen eigen planning
@@ -34,8 +35,11 @@ Wat er gebouwd is:
   **Notitie**. **Verras me** laat Mealie kiezen volgens de planregels.
 - **Inplannen na een import.** Elke melding "Recept geïmporteerd" heeft nu **Inplannen**; de dialoog opent met het nieuwe
   recept al gekozen (de app kent dan alleen de slug; de server zoekt het id op).
-- **Recepten zoeken** zoekt ook in Mealie, als eerste blok. Een recept uit Mealie heeft **Bekijken** en **Inplannen**
-  in plaats van **Importeer**.
+- **Recepten zoeken** zoekt ook in Mealie, als eerste blok.
+- **Elk recept is in te plannen.** Overal (Recepten zoeken, Winkels, Maaltijdboxen) heeft een receptkaart **Bekijken** en
+  **Inplannen**. Een recept van een winkel of maaltijdbox gaat bij het opslaan eerst naar Mealie (de bestaande
+  importroute, met `?reuse=1`); staat het er al met dezelfde bronlink, dan gebruikt MealieShopper dat recept. Allerhande
+  zoekt op het receptnummer, omdat de link met of zonder naam kan zijn opgeslagen.
 - **MCP.** `search_mealie_recipes`, `plan_meal` en `remove_planned_meal`; `get_week_menu` geeft per maaltijd het id.
   `remove_planned_meal` is als enige tool gemarkeerd als destructief; de beheerder kan elke tool uitzetten.
 - **Rechten.** Iedereen die is ingelogd mag plannen, net als recepten importeren. Mealie ziet altijd de gekoppelde

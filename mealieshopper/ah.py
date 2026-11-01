@@ -1471,3 +1471,28 @@ def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
     if iso := _iso_minutes(sum(int(t) for t in times if isinstance(t, (int, float)))):
         ld["totalTime"] = iso
     return ld
+
+
+def recipe_url(recipe_id: int) -> str:
+    """De pagina van een Allerhande-recept; Mealie bewaart die als bron."""
+    return f"https://www.ah.nl/allerhande/recept/R-R{int(recipe_id)}"
+
+
+def recipe_detail(recipe_id: int) -> dict[str, Any]:
+    """Een Allerhande-recept in de vorm van het detailscherm (zoals Jumbo, Picnic en de maaltijdboxen)."""
+    ld = get_recipe_jsonld(recipe_id)
+    images = ld.get("image") or []
+    portions = re.match(r"\s*(\d+)", str(ld.get("recipeYield") or ""))
+    minutes = re.fullmatch(r"PT(\d+)M", str(ld.get("totalTime") or ""))
+    return {
+        "id": str(int(recipe_id)),
+        "name": ld.get("name") or "",
+        "description": ld.get("description") or "",
+        "image": images[0] if images else None,
+        "portions": int(portions.group(1)) if portions else None,
+        "minutes": int(minutes.group(1)) if minutes else None,
+        "url": ld.get("url") or recipe_url(recipe_id),
+        "ingredients": [{"line": line} for line in ld.get("recipeIngredient") or []],
+        "steps": [step["text"] for step in ld.get("recipeInstructions") or [] if isinstance(step, dict) and step.get("text")],
+        "nutrition": [],
+    }

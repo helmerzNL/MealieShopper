@@ -1,5 +1,5 @@
-// Maaltijdboxen: het weekmenu van een aanbieder (HelloFresh, Marley Spoon; openbare gegevens, geen account) bekijken, doorzoeken
-// en een recept in Mealie importeren. De aanbieder kies je in het uitklapmenu van de subtabbalk, zoals de winkel bij Winkels.
+// Maaltijdboxen: het weekmenu van een aanbieder (HelloFresh, Marley Spoon; openbare gegevens, geen account) bekijken, doorzoeken,
+// een recept bekijken en inplannen (en zo in Mealie zetten). De aanbieder kies je in het uitklapmenu van de subtabbalk, zoals de winkel bij Winkels.
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, postJson, setBusy, t, matchesWords, ...).
 
 // Per aanbieder de naam; de routes staan onder /api/<aanbieder>/.
@@ -30,20 +30,17 @@ function mealKitMeta(recipe) {
     .join(" · ");
 }
 
+// Dezelfde knoppen als elke receptkaart: Bekijken (in MealieShopper, met de link naar de aanbieder) en Inplannen.
 function renderMealKitCard(recipe) {
   const meta = mealKitMeta(recipe);
-  const provider = mealKitProvider();
+  const store = mealKits.provider;
   return `
     <article class="recipe-card" data-mealkit-recipe="${escapeHtml(recipe.key)}">
       ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" referrerpolicy="no-referrer" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.name)}</h3>
       ${recipe.headline ? `<p class="recipe-card__headline">${escapeHtml(recipe.headline)}</p>` : ""}
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-      <div class="card-actions">
-        <a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(t("mealkits.open", { provider: provider.name }))}</a>
-        <button class="button" type="button" data-mealkit-import="${escapeHtml(recipe.key)}">${escapeHtml(t("recipe.import"))}</button>
-      </div>
-      <div class="recipe-import-result"></div>
+      ${recipeCardActions(`${store}:${recipe.key}`, planSourceAttrs(store, recipe.key, recipe.name, recipe.image))}
     </article>`;
 }
 
@@ -112,6 +109,7 @@ function showMealKits() {
 function changeMealKitProvider(provider) {
   if (!MEALKIT_PROVIDERS[provider] || provider === mealKits.provider) return;
   Object.assign(mealKits, { provider, menu: null, search: null, query: "", loaded: false });
+  showRecipeList(MEALKIT_HOST);
   $("#mealkits-filter").value = "";
   $("#mealkits-recipes").innerHTML = "";
   renderMealKits();
@@ -138,20 +136,6 @@ async function searchMealKits() {
   }
 }
 
-async function importMealKit(key, button, target) {
-  button.disabled = true;
-  button.textContent = t("recipe.importing");
-  try {
-    const data = await postJson(`/api/${mealKits.provider}/recipes/${encodeURIComponent(key)}/import`);
-    target.innerHTML = `<div class="message success">${importedMessage(data)}</div>`;
-  } catch (error) {
-    target.innerHTML = `<div class="message error">${escapeHtml(error.message)}</div>`;
-  } finally {
-    button.disabled = false;
-    button.textContent = t("recipe.import");
-  }
-}
-
 $("#mealkits-provider-list").addEventListener("click", (event) => {
   const item = event.target.closest("[data-provider]");
   if (!item) return;
@@ -172,7 +156,7 @@ $("#mealkits-search-form").addEventListener("submit", (event) => {
   searchMealKits();
 });
 $("#mealkits-recipes").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-mealkit-import]");
-  if (button) importMealKit(button.dataset.mealkitImport, button, button.closest(".recipe-card").querySelector(".recipe-import-result"));
+  const open = event.target.closest("[data-store-open]");
+  if (open) openStoreRecipe(mealKits.provider, open.dataset.storeOpen.split(":", 2)[1], MEALKIT_HOST);
 });
 window.addEventListener("ms:languagechange", renderMealKits);
