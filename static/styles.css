@@ -770,6 +770,20 @@ h2 {
   margin-top: 10px;
 }
 
+/* Recepten zoeken: de uitleg staat los van het zoekvak, elke winkel is een eigen groep onder de uitleg, en
+   Meer recepten plakt niet aan de kaarten. */
+#search-form + .muted {
+  margin-top: 10px;
+}
+
+.search-store {
+  margin-top: 24px;
+}
+
+.search-store .recipe-grid + p {
+  margin-top: 14px;
+}
+
 /* Overzichten met kaarten gebruiken de volle breedte, zodat er meer naast elkaar passen */
 .box--wide {
   max-width: none;
