@@ -43,8 +43,10 @@ OTHER_RECIPE_LIMIT = 60
 AH_NEW_RECIPES_PER_SYNC = 60
 WORKERS = 8
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS offers (
+# De aanbiedingen van nu, per winkel in een keer vervangen. Geen sleutel op (winkel, product): bij AH staat een product vaak twee keer,
+# met de actie van deze week en die van volgende week (zie `ah.get_bonus_promotions`). `sync` haalt dubbele rijen weg.
+OFFERS_TABLE = """
+CREATE TABLE IF NOT EXISTS {name} (
   store TEXT NOT NULL,
   product_id TEXT NOT NULL,
   position INTEGER NOT NULL,
@@ -58,9 +60,11 @@ CREATE TABLE IF NOT EXISTS offers (
   url TEXT,
   valid_from TEXT,
   valid_until TEXT,
-  category TEXT,
-  PRIMARY KEY (store, product_id)
-);
+  category TEXT
+)
+"""
+
+SCHEMA = OFFERS_TABLE.format(name="offers") + """;
 
 -- Elke keer dat een product in de aanbieding was, voor altijd bewaard. Een rij is een aaneengesloten periode met dezelfde
 -- prijs en hetzelfde label; zie `_record_history`. Daaruit volgt hoe vaak iets in de aanbieding was en wat de details waren.
@@ -190,7 +194,33 @@ def _connect():
     for column in ("reason", "source"):
         if column not in rejection_columns:
             conn.execute(f"ALTER TABLE offer_rejections ADD COLUMN {column} TEXT")
+    _drop_offers_key(conn)
+    conn.execute("CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)")
     return conn
+
+
+def _offers_keyed(conn) -> bool:
+    return any(row["pk"] for row in conn.execute("PRAGMA table_info(offers)"))
+
+
+def _drop_offers_key(conn) -> None:
+    """Een tabel van vóór 2.84.0 heeft een sleutel op (winkel, product), en dan past de bonus van volgende week er niet naast die van
+    deze week. SQLite kan een sleutel niet weghalen, dus bouwen we de tabel een keer opnieuw op, met dezelfde rijen."""
+    if not _offers_keyed(conn):
+        return
+    conn.commit()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _offers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
+            columns = ", ".join(row["name"] for row in conn.execute("PRAGMA table_info(offers)"))
+            conn.execute(OFFERS_TABLE.format(name="offers_rebuilt"))
+            conn.execute(f"INSERT INTO offers_rebuilt ({columns}) SELECT {columns} FROM offers")
+            conn.execute("DROP TABLE offers")
+            conn.execute("ALTER TABLE offers_rebuilt RENAME TO offers")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def _now() -> str:
@@ -238,27 +268,54 @@ def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, A
     monday, sunday = week_bounds(week)
     current = monday <= date.today() <= sunday
     chosen: list[dict[str, Any]] = []
-    later = undated = 0
+    later: set[str] = set()
+    undated: set[str] = set()
     for offer in offers:
         start, end = deals.parse_date(offer["validFrom"]), deals.parse_date(offer["validUntil"])
         if start is None and end is None:
             if current:
                 chosen.append(offer)
             else:
-                undated += 1
+                undated.add(offer["id"])
         elif start is not None and start > sunday:
-            later += 1
+            later.add(offer["id"])
         elif deals.in_week(start, end, monday, sunday):
             chosen.append(offer)
+    chosen = _one_per_product(chosen)
     chosen.sort(key=lambda offer: offer["validUntil"] is None and offer["validFrom"] is not None)
-    return chosen, {"week": {"from": monday.isoformat(), "until": sunday.isoformat(), "current": current}, "later": later, "undated": undated}
+    selection = {"week": {"from": monday.isoformat(), "until": sunday.isoformat(), "current": current}, "later": len(later), "undated": len(undated)}
+    return chosen, selection
+
+
+def _one_per_product(offers: list[dict[str, Any]], prefer_current: bool = False) -> list[dict[str, Any]]:
+    """Elk product een keer, op de plaats waar het het eerst staat. Staat een product er twee keer (twee acties tegelijk, of deze
+    en volgende week), dan wint de meest specifieke actie: die het laatst begint, en bij gelijk begin die het eerst eindigt (een
+    weekactie gaat voor een actie die tot de feestdagen loopt). Met `prefer_current` gaat een actie die nu loopt voor een die nog moet
+    beginnen; zo krijgt de AI van `ai_match` bij elk product de actie van nu."""
+    def rank(offer: dict[str, Any]) -> tuple[bool, int, int]:
+        start = deals.parse_date(offer["validFrom"]) or date.min
+        end = deals.parse_date(offer["validUntil"]) or date.max
+        running = not (prefer_current and offer["validity"] == deals.UPCOMING)
+        return (running, start.toordinal(), -end.toordinal())
+
+    best: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for offer in offers:
+        known = best.get(offer["id"])
+        if known is None:
+            order.append(offer["id"])
+            best[offer["id"]] = offer
+        elif rank(offer) > rank(known):
+            best[offer["id"]] = offer
+    return [best[product_id] for product_id in order]
 
 
 def load(store: Any, week: Any = None) -> dict[str, Any]:
     """De lokale kopie van de aanbiedingen van een winkel; `syncedAt` is None zolang er nooit is opgehaald.
 
     Met `week` (een datum in de week van het weekmenu) alleen de aanbiedingen die in die week gelden, zie `_for_week`; zonder `week` alle
-    aanbiedingen die nog niet verlopen zijn, ook die van volgende week (zo zoekt de AI in `ai_match` in alles wat er bekend is).
+    aanbiedingen die nog niet verlopen zijn, ook die van volgende week, elk product een keer (zo beoordeelt de AI in `ai_review` alle
+    koppelingen die er bekend zijn).
     """
     store = _valid_store(store)
     with closing(_connect()) as conn:
@@ -299,6 +356,8 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
     selection: dict[str, Any] = {"week": None, "later": 0, "undated": 0}
     if week is not None:
         offers, selection = _for_week(offers, week)
+    else:
+        offers = _one_per_product(offers, prefer_current=True)
     return {
         "store": store,
         "offers": offers,
@@ -324,11 +383,13 @@ def sync(store: Any) -> dict[str, Any]:
     offers = fetch()
     now = _now()
     items = []
-    seen: set[str] = set()
+    # Een product mag er vaker in staan, met een andere looptijd (de bonus van deze en van volgende week); dezelfde rij twee keer niet.
+    seen: set[tuple[str, Any, Any]] = set()
     for offer in offers:
-        if not offer.get("id") or not offer.get("title") or str(offer["id"]) in seen:
+        key = (str(offer.get("id")), offer.get("validFrom"), offer.get("validUntil"))
+        if not offer.get("id") or not offer.get("title") or key in seen:
             continue
-        seen.add(str(offer["id"]))
+        seen.add(key)
         items.append(
             {
                 "id": str(offer["id"]),
@@ -362,7 +423,7 @@ def sync(store: Any) -> dict[str, Any]:
             """,
             rows,
         )
-        _record_history(conn, store, items, now)
+        _record_history(conn, store, _started(items), now)
         conn.execute(
             """
             INSERT INTO offers_meta (store, synced_at) VALUES (?, ?)
@@ -374,6 +435,18 @@ def sync(store: Any) -> dict[str, Any]:
 
 
 # --- geschiedenis -------------------------------------------------------------------------------
+
+
+def _started(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De aanbiedingen die vandaag gelden, elk product een keer: alleen die komen in de geschiedenis. De bonus van volgende week
+    komt er pas in als hij begint, zodat de geschiedenis zegt wanneer iets echt in de aanbieding was."""
+    today = date.today()
+    found: dict[str, dict[str, Any]] = {}
+    for item in items:
+        start = deals.parse_date(item["validFrom"])
+        if start is None or start <= today:
+            found.setdefault(item["id"], item)
+    return list(found.values())
 
 
 def _details(price: Any, price_before: Any, label: Any) -> tuple[Any, Any, str]:
@@ -643,6 +716,20 @@ def matches(head: str, offer_stems: set[str]) -> bool:
             if not any(part in rest or part in linked for part in DERIVED_STEMS):
                 return True
     return False
+
+
+def head_index(cores: Iterable[list[str]]) -> dict[str, list[int]]:
+    """Per hoofdwoord de plaatsen van de aanbiedingen waar het in kan passen: precies een woord uit de naam, of (vanaf drie letters)
+    het begin van een langer woord, zoals "kip" in "kipfilet". Dat is wat `matches` minimaal vraagt; een aanbieding die hier niet
+    bij een hoofdwoord staat, past er dus nooit bij. Zo hoeft `suggest` niet elk ingrediënt met elke aanbieding te vergelijken: met de
+    hele AH-bonus (duizenden producten per week) duurde dat minuten."""
+    index: dict[str, set[int]] = {}
+    for position, core in enumerate(cores):
+        for stem in core:
+            index.setdefault(stem, set()).add(position)
+            for size in range(3, len(stem)):
+                index.setdefault(stem[:size], set()).add(position)
+    return {key: sorted(positions) for key, positions in index.items()}
 
 
 def saving_of(offer: dict[str, Any]) -> float:
@@ -980,6 +1067,7 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, wee
     ai_searched = 0
     offers_by_id = {str(offer["id"]): offer for offer in offers["offers"]}
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
+    offer_index = head_index(core for _, core, _ in prepared)
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1").fetchone()
         rows = conn.execute("SELECT source, recipe_id, title, image, url, ingredients, course FROM offer_recipes").fetchall()
@@ -1025,7 +1113,10 @@ def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 100, wee
                 options = [(line, head_of(line), ingredient_kind(line)) for line in translated[text]]
                 options = [(line, option_head, kind) for line, option_head, kind in options if option_head]
                 best: tuple[int, dict[str, Any]] | None = None
-                for offer, core, rest in prepared:
+                # Alleen de aanbiedingen die het hoofdwoord in hun naam kunnen hebben, in de volgorde van de lijst (bij gelijke stand wint de eerste).
+                candidates = sorted({position for _, option_head, _ in options for position in offer_index.get(option_head, ())})
+                for position in candidates:
+                    offer, core, rest = prepared[position]
                     if offer["id"] in used or (str(offer["id"]), head) in rejected:
                         continue
                     for line, option_head, kind in options:

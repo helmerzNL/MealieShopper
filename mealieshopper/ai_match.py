@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import threading
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable
 
 from . import ai_review, offers
@@ -84,8 +84,11 @@ def _now() -> str:
 
 
 def food_offers(store: str) -> tuple[list[dict[str, Any]], str | None]:
-    """De producten die naar de AI gaan (alleen eten, hoogstens `MAX_OFFERS`) en het tijdstip van de laatste synchronisatie."""
-    data = offers.load(store)
+    """De producten die naar de AI gaan (alleen eten, hoogstens `MAX_OFFERS`) en het tijdstip van de laatste synchronisatie.
+
+    Het aanbod van deze week: AH geeft de hele bonus van deze én volgende week (samen duizenden producten), en dat zou bij
+    `MAX_OFFERS` willekeurig worden afgekapt."""
+    data = offers.load(store, date.today().isoformat())
     items = [offer for offer in data["offers"] if offer.get("category") not in offers.NOT_FOOD]
     return items[:MAX_OFFERS], data["syncedAt"]
 

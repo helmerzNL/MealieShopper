@@ -186,6 +186,15 @@ class DescribeTests(unittest.TestCase):
         self.assertEqual(deals.describe("25% korting", valid_until="2026-10-18", today=self.TODAY)["validity"], "expired")
 
 
+class AhShieldTests(unittest.TestCase):
+    def test_a_price_on_the_shield_is_a_fixed_price(self):
+        self.assertEqual(deals.parse_mechanic("voor 1.99"), {"type": "fixed", "minQuantity": 1, "fixedPrice": 1.99})
+        self.assertEqual(deals.effective_unit_price(deals.parse_mechanic("voor 1.99"), 2.49, 2.49), 1.99)
+        self.assertEqual(deals.parse_mechanic("2 voor 2.99")["type"], "x_for_y", "met een aantal ervoor blijft het x voor y")
+        self.assertEqual(deals.parse_mechanic("voor 50% korting")["type"], "percent")
+        self.assertEqual(deals.parse_mechanic("online Bonus")["type"], "unknown")
+
+
 class CommonPeriodTests(unittest.TestCase):
     def test_most_shared_period_wins(self):
         week = {"validFrom": "2026-10-26", "validUntil": "2026-11-01"}
