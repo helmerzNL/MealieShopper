@@ -18,6 +18,8 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Een taalwissel tekende niet alles opnieuw.** De taalwissel riep een functie aan die sinds 2.8.0 niet meer bestond (`renderSearchResults`); de rest van de handler werd daardoor overgeslagen, zodat onder meer de inlogstatus, de AH-lijstjes en de bewaarde recepten in de oude taal bleven staan. Een test controleert nu dat de handler alleen bestaande functies aanroept.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
+- Pull request: [#162](https://github.com/helmerzNL/MealieShopper/pull/162), vervolg op [#161](https://github.com/helmerzNL/MealieShopper/pull/161).
+
 ## v2.82.0
 
 ### Nieuw in 2.82.0
