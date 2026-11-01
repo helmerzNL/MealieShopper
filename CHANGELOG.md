@@ -12,7 +12,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **De stabiele release bevat alle versies sinds de vorige stabiele release.** Bij de promotie van `beta` naar `main` kreeg de stabiele release alleen de tekst van de laatste versie; wat ertussen alleen als beta uitkwam, stond er niet in. `release.yml` zoekt nu de vorige stabiele release op en `scripts/release_notes.py --since` zet de teksten van alle versies daarna onder elkaar, nieuwste eerst. Een pre-release krijgt nog steeds alleen zijn eigen versie. De sectie van 2.84.0 is daarbij opgeschoond: de porties (#164) en de productfoto's (#163) staan er nu samen in.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Pull request: [#167](https://github.com/helmerzNL/MealieShopper/pull/167).
+- Pull requests: [#167](https://github.com/helmerzNL/MealieShopper/pull/167) en [#168](https://github.com/helmerzNL/MealieShopper/pull/168).
 
 ## v2.85.0
 
