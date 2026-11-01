@@ -13,7 +13,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Issue: [#158](https://github.com/helmerzNL/MealieShopper/issues/158).
+- Pull request: [#163](https://github.com/helmerzNL/MealieShopper/pull/163). Issue: [#158](https://github.com/helmerzNL/MealieShopper/issues/158).
 
 ## v2.83.0
 
