@@ -179,6 +179,19 @@
       </div>
     </dialog>
 
+    <dialog id="photo-dialog" class="product-dialog photo-dialog" aria-labelledby="photo-dialog-title">
+      <div class="product-dialog__inner">
+        <img id="photo-dialog-image" class="photo-dialog__image" alt="">
+        <div>
+          <h3 id="photo-dialog-title"></h3>
+          <p class="muted" id="photo-dialog-meta"></p>
+        </div>
+        <div class="product-dialog__actions">
+          <button class="button button--secondary" type="button" id="photo-dialog-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="plan-dialog" class="product-dialog plan-dialog" aria-labelledby="plan-dialog-title">
       <form class="product-dialog__inner" id="plan-form" novalidate>
         <h3 id="plan-dialog-title" tabindex="-1"></h3>

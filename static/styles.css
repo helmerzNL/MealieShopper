@@ -1330,6 +1330,30 @@ a.product-card strong {
   }
 }
 
+/* De productfoto in het groot, vanuit de controlelijst van het mandje. Vierkant, maar nooit hoger dan het scherm toelaat. */
+.photo-dialog__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: max(160px, calc(100vh - 220px));
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-thumb {
+    transition: none;
+  }
+
+  .review-thumb:not(:disabled):hover,
+  .review-thumb:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* AI-beoordeling (optioneel): de balk boven de receptvoorstellen, het vinkje bij een goedgekeurde koppeling en het blok bij Instellingen. */
 .offers-ai {
   display: flex;
@@ -1673,11 +1697,37 @@ a.product-card__main:hover strong {
   width: 100%;
 }
 
-/* De foto van het gekozen product; zelfde tegel als bij .product-card. */
+/* De foto van het gekozen product; zelfde tegel als bij .product-card. Een knop: tikken toont hem groot (#photo-dialog). */
 .review-thumb {
   display: block;
   width: 56px;
   height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: zoom-in;
+  transition: transform 0.15s var(--ease);
+}
+
+.review-thumb:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .review-thumb:not(:disabled):hover {
+    transform: scale(1.05);
+  }
+}
+
+.review-thumb:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.review-thumb:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .review-thumb img {
