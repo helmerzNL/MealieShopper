@@ -42,7 +42,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -96,6 +96,8 @@ SECRET_KEYS: dict[str, str] = {
     "AH_REFRESH_TOKEN": "ah",
     picnic.AUTH_KEY_SECRET: "picnic",
     jumbo.REFRESH_SECRET: "jumbo",
+    crisp.CLIENT_SECRET: "crisp",
+    crisp.COUNTRY_SECRET: "crisp",
     **{info["secret"]: f"ai_{name}" for name, info in ai_review.PROVIDERS.items()},
 }
 # Keuzes zonder geheim die mee teruggaan. Alles wat hier niet staat (AUTH_MODE, SESSION_EPOCH, ONBOARDING_*,

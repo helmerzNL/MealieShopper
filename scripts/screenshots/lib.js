@@ -79,15 +79,21 @@ async function run(scenarios, base) {
   const arg = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : null; };
   const only = arg("only") ? arg("only").split(",") : null;
   const langs = arg("lang") ? arg("lang").split(",") : ["nl", "en"];
-  const browser = await chromium.launch();
-  const framer = await (await browser.newContext({ viewport: { width: 1376, height: 700 } })).newPage();
+  // Per taal een eigen browser: een datumveld toont de datum in de taal van de browser (30-10-2026 of 30/10/2026), niet in die van
+  // de pagina. Headless Chromium neemt die taal uit LANG; de vlag --lang werkt daar niet.
+  const browsers = {};
+  for (const lang of langs) {
+    const locale = lang === "nl" ? "nl_NL.UTF-8" : "en_GB.UTF-8";
+    browsers[lang] = await chromium.launch({ env: { ...process.env, LANG: locale, LANGUAGE: locale.slice(0, 5), LC_ALL: locale } });
+  }
+  const framer = await (await browsers[langs[0]].newContext({ viewport: { width: 1376, height: 700 } })).newPage();
   let made = 0;
   for (const scenario of scenarios) {
     if (only && !only.includes(scenario.name)) continue;
     for (const lang of langs) {
       try {
-        const desktop = await shoot(browser, scenario, lang, "desktop", base);
-        const phone = await shoot(browser, scenario, lang, scenario.desktopOnly ? "desktop" : "phone", base);
+        const desktop = await shoot(browsers[lang], scenario, lang, "desktop", base);
+        const phone = await shoot(browsers[lang], scenario, lang, scenario.desktopOnly ? "desktop" : "phone", base);
         await framer.setContent(frameHtml(desktop, scenario.desktopOnly ? desktop : phone, scenario.theme || "light"));
         const dir = path.join(OUT, lang);
         fs.mkdirSync(dir, { recursive: true });
@@ -100,7 +106,7 @@ async function run(scenarios, base) {
       }
     }
   }
-  await browser.close();
+  for (const browser of Object.values(browsers)) await browser.close();
   console.log(`${made} afbeeldingen gemaakt in ${OUT}`);
 }
 

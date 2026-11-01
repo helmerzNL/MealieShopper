@@ -6,11 +6,11 @@
 </picture>
 
 **From recipe to sorted.**
-Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app) or [Jumbo](https://www.jumbo.com), plus searching, saving and importing recipes.
+Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at [Albert Heijn](https://www.ah.nl), [Picnic](https://picnic.app), [Jumbo](https://www.jumbo.com) or [Crisp](https://crisp.nl), plus searching, saving and importing recipes.
 
 [Nederlands](README.md) · **English**
 
-<img src="docs/screenshots/en/plan.png" alt="MealieShopper on a computer and a phone: the week menu with pictures from Mealie" width="900">
+<img src="docs/screenshots/en/plan.png" alt="MealieShopper on a computer and a phone: the week menu with pictures from Mealie, the servings per meal and Add on every day" width="900">
 
 </div>
 
@@ -36,12 +36,12 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 
 ## What can it do?
 
-- **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic or Jumbo, as far as linked. The servings you set per meal in Mealie's planner carry over: the amounts are scaled and the same ingredient from several recipes is added up. One button looks up the best products for every ingredient, works out how many packs you need and shows them first in a check list. There you untick what you don't want and choose another product or number of packs; only after you confirm are they put in your basket at that store. You finish the order yourself, at Albert Heijn, in the Picnic app or at Jumbo.
+- **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic, Jumbo or Crisp, as far as linked. The servings you set per meal in Mealie's planner carry over: the amounts are scaled and the same ingredient from several recipes is added up. One button looks up the best products for every ingredient, works out how many packs you need and shows them first in a check list. There you untick what you don't want and choose another product or number of packs; only after you confirm are they put in your basket at that store. You finish the order yourself, at Albert Heijn, in the Picnic app, at Jumbo or in the Crisp app.
 - **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
 - **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus), Picnic and Jumbo, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
-- **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link.
+- **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic, Crisp and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
-- **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic and Jumbo, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
+- **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic, Jumbo and Crisp, with a list for the stores you linked. At Picnic you change quantities or empty the basket; Jumbo and Crisp show it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your AH basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
 - **Picnic and Jumbo under Stores.** Choose the store in the store menu: at Picnic your recipes, favourites and orders, at Jumbo your lists, orders and recipe lists. Where possible MealieShopper keeps a local copy, with the same buttons as at Albert Heijn.
 - **Meal kits (HelloFresh and Marley Spoon).** A tab of its own next to Stores with the public weekly menus of HelloFresh and Marley Spoon Netherlands, which you can browse per week and search. You pick the provider in the drop-down menu at the top, view a recipe or plan it with one click (which puts it in Mealie too). No account or link is needed. This is unofficial: MealieShopper only reads public data, sparingly and with its own User-Agent, and the recipes and photos remain the providers'.
@@ -61,9 +61,13 @@ Every image shows the same page on a computer and on a phone. The recipes and pr
 
 ### Week menu and basket
 
-Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled.
+Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. Pick a recipe from Mealie, or let Mealie pick one with **Surprise me**. Every change goes straight to Mealie.
 
-<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient the product and the number of packs, with one marked line" width="900">
+<img src="docs/screenshots/en/plan-add.png" alt="Plan a meal: the day, the meal, the choice between Recipe and Note, your recipes from Mealie and the Surprise me button" width="900">
+
+The servings you set per meal in Mealie's planner scale every amount. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled. Every product has a photo; tap it to see it large.
+
+<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient a photo of the product, the product and the number of packs, with one marked line" width="900">
 
 ### To Picnic or Jumbo
 
@@ -83,19 +87,25 @@ At Picnic you change quantities, remove products or empty the basket, and below 
 
 <img src="docs/screenshots/en/basket-jumbo.png" alt="The Jumbo basket, read-only" width="900">
 
+### Offers
+
+The offers of Albert Heijn, Picnic and Jumbo, per week and in step with the week menu: plan next week and you see next week's offers. At Albert Heijn that is the complete Bonus week, Monday to Sunday; next week's Bonus is there as soon as AH gives it at the weekend. Pick a category to see only those offers.
+
+<img src="docs/screenshots/en/offers.png" alt="The Offers tab: the week with arrows, the run of the Bonus week, how many offers start later, the categories and the products with their deal" width="900">
+
 ### Find recipes
 
-<img src="docs/screenshots/en/search.png" alt="Searching Allerhande recipes, with cards and an import button" width="900">
+<img src="docs/screenshots/en/search.png" alt="Searching recipes for kip: your own recipes in Mealie first, as cards with time, servings and tags" width="900">
 
 You also search your own recipes in Mealie; they come first. If Jumbo and Picnic are linked, you search those at once too; the results are grouped per store. Every card has the same two buttons at the bottom: **View** opens the recipe in the same place, with the ingredients and the method, and **Plan** puts it in your week menu. The recipe also has **Import** (only put it in Mealie) and a link to the store or to Mealie.
 
 <img src="docs/screenshots/en/search-stores.png" alt="Jumbo search results with cards, time, servings and rating" width="900">
 
-<img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Import and View on the site buttons" width="900">
+<img src="docs/screenshots/en/search-detail.png" alt="A Jumbo recipe with ingredients, method and the Plan, Import and View at Jumbo buttons" width="900">
 
 The menus of **HelloFresh** and **Marley Spoon** are always searched too, without a link: for this week and the three weeks after, MealieShopper fetches the menus that are not there yet while you search (the first time that takes a moment; afterwards they are kept for 6 hours). Every recipe has **View** (ingredients and method) and **Plan**.
 
-<img src="docs/screenshots/en/search-meal-kits.png" alt="Search results at HelloFresh and Marley Spoon for the word kip, with cards and the View and Import buttons" width="900">
+<img src="docs/screenshots/en/search-meal-kits.png" alt="Search results at HelloFresh and Marley Spoon for the word kip, with cards and the View and Plan buttons" width="900">
 
 ### Choosing a store
 
@@ -113,7 +123,7 @@ The **Meal kits** tab shows the public weekly menus of HelloFresh and Marley Spo
 
 Your saved Allerhande recipes live in MealieShopper, at least two side by side on a phone. Search your recipes at the top.
 
-<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with an import button" width="900">
+<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with View and Plan" width="900">
 
 ### Stores: your lists
 
@@ -279,11 +289,11 @@ MealieShopper fetches the pictures from Mealie itself with your API token and ke
 
 ### Basket
 
-The **Basket** tab shows the basket of the store you choose at the top (Albert Heijn, Picnic and Jumbo, as far as linked). At Albert Heijn that is the shopping list the week menu writes to, from a local copy that you refresh with **Sync**. At Picnic you change quantities (with `−` and `+` or by typing), remove a product or empty the basket after a confirmation; that goes straight to your real basket. Below it are the amount you pay, what your membership saves and the next available delivery slots (you choose one in the Picnic app). Jumbo shows the basket read-only. After filling from the week menu, **View basket** takes you there.
+The **Basket** tab shows the basket of the store you choose at the top (Albert Heijn, Picnic, Jumbo and Crisp, as far as linked). At Albert Heijn that is the shopping list the week menu writes to, from a local copy that you refresh with **Sync**. At Picnic you change quantities (with `−` and `+` or by typing), remove a product or empty the basket after a confirmation; that goes straight to your real basket. Below it are the amount you pay, what your membership saves and the next available delivery slots (you choose one in the Picnic app). Jumbo and Crisp show the basket read-only. After filling from the week menu, **View basket** takes you there.
 
 ### Searching and importing recipes
 
-`Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) and **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Every card has `View` and `Plan`, lined up at the bottom. `View` shows the recipe in MealieShopper, with the ingredients and the method, `Import` (put it in Mealie without planning; not for a recipe that already comes from Mealie) and a link to the source: `View at Albert Heijn` (or the other store) or `Open in Mealie`. Picnic has no web page, so there is no link there. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
+`Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) and **Crisp** (the recipes in the Crisp app, with Crisp's own search) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Every card has `View` and `Plan`, lined up at the bottom. `View` shows the recipe in MealieShopper, with the ingredients and the method, `Import` (put it in Mealie without planning; not for a recipe that already comes from Mealie) and a link to the source: `View at Albert Heijn` (or the other store) or `Open in Mealie`. Picnic and Crisp have no web page, so there is no link there. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
 ### Offers
 
@@ -341,7 +351,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic and Jumbo) you link one, two or all three. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the four banners saying whether Mealie, Albert Heijn, Picnic and Jumbo are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo** and **Picnic**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic, Jumbo and Crisp) you link one or more. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the banners saying whether Mealie, Albert Heijn, Picnic, Jumbo and Crisp are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** and **Crisp**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
 <img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
 
@@ -391,6 +401,18 @@ Jumbo has no official link. MealieShopper logs in like the Jumbo app, in your ow
 Your browser solves Jumbo's bot check; MealieShopper no longer uses a headless browser. Your password is not stored, only the refresh token that Jumbo returns, encrypted; Jumbo may replace it on every refresh and MealieShopper always keeps the newest. So run one instance and keep the data folder on persistent storage. Once Jumbo is linked, it appears in the list in the planner. Like Picnic, the products go straight into your real basket and an order is never placed. Under **Stores > Lists**, after choosing *Jumbo*, you find all your Jumbo lists: **My lists** (your own lists and Favourites) and the **shopping list** (the loose lines you put on your list in the Jumbo app). They work like the AH lists: sync, search, change a quantity and put everything in your Jumbo basket with `Add to basket`. My lists hold products with pack size, price and the quantity Jumbo keeps; that quantity is the starting point and your change stays through the next sync. The shopping list consists of text and sometimes a product; Jumbo has no quantities on it, so those are local (default 1). MealieShopper skips ticked-off lines, and with `Add to basket` it first looks up text-only lines in Jumbo's range. In the planner the ingredients always go in the Jumbo basket (not on the shopping list). MealieShopper fetches your own lists and Favourites with the same stored requests as jumbo.com; if Jumbo changes those with a new version of the site, **Explore Jumbo routes** reports `PersistedQueryNotFound` and the code needs a new hash (see `PERSISTED_QUERIES` in `mealieshopper/jumbo.py`: copy the `sha256Hash` of `GetCustomerProductLists` and `GetProductList` from the Network tab of your browser). Under **Stores > Orders** (choice *Jumbo*) you find your completed Jumbo orders: date, delivery time, total and the products (name, brand, quantity, amount, offer), with a search field over everything you bought. MealieShopper fetches the list with the stored request `OnlineOrdersAndStoreReceipts` of jumbo.com (newest first, 10 at a time); the products of an order are fetched per sync for the 25 newest orders that still miss them, so with many orders you repeat the sync until nothing is missing. A completed order stays saved. MealieShopper does not keep your delivery address, customer number or reservation number. Products Jumbo no longer knows are shown with brand and article number. MealieShopper does not show store receipts or running orders for Jumbo yet; if Jumbo has store receipts for you, the sync reports how many. For the products of an order MealieShopper does not yet know the website's stored request and therefore tries ordinary requests; if Jumbo refuses those, the list stays and the sync reports why. You search Jumbo recipes under **Find recipes**, together with Albert Heijn and Picnic (see *Searching and importing recipes*). `View` shows the ingredients (with the recipe's amounts), the method, the tip and the nutrition values; `Import` there and `Plan` on the card put the recipe in Mealie as a schema.org recipe with the link to jumbo.com as its source, so Mealie does not have to fetch the Jumbo page (jumbo.com blocks servers). If you paste a recipe link from jumbo.com (`jumbo.com/recepten/...`) at `Import from URL` and Jumbo is linked, that also goes through the Jumbo API. Your **recipe lists** at Jumbo are under **Stores > Recipes** (choice *Jumbo*): pick *Favourites* or one of your own lists (such as *Kerst*) in the list, 24 at a time with `More recipes`, with the same `View` and `Plan` buttons. Your AI assistant can look at Jumbo products, your basket, your lists, your orders, your recipe lists and the recipes, but can't fill anything.
 
 **Jumbo may refuse a server.** Jumbo sometimes blocks server and datacenter addresses; that is why an earlier Jumbo link was removed in v1.2.0. Under **Explore Jumbo routes** (administrator only) MealieShopper first checks whether Jumbo lets your server in and then calls the unofficial routes (filling the basket only with an empty list). The report contains no names, prices or ids and is safe to share. If the explorer says Jumbo refuses your server, the link does not work from that location.
+
+### Crisp
+
+Crisp has no official integration and no web shop: you order in the Crisp app only. MealieShopper logs in like the app, with your email address and a code that Crisp emails you (administrator only):
+
+1. Choose the country (the Netherlands or Belgium), enter the email address of your Crisp account and choose `Request code`.
+2. Enter the code from Crisp's email and choose `Confirm`.
+3. As soon as it says Crisp is linked, Crisp appears in the store choice of the planner, in `Find recipes` and in the **Basket** tab.
+
+There is no password. MealieShopper only stores the device id that Crisp links your account to, encrypted; `Unlink` logs the device out at Crisp and deletes it. The week menu goes into your real Crisp basket; you view the basket in MealieShopper, and change it, pick a delivery time and order in the Crisp app. You find Crisp recipes under `Find recipes`, view them in MealieShopper and put them in Mealie with `Import` or `Plan`.
+
+The routes come from the open-source project [home-assistant-crisp](https://github.com/NLthijs48/home-assistant-crisp) (logging in) and from the public Crisp app (search, recipes and the basket); see [docs/onderzoek-crisp.md](docs/onderzoek-crisp.md) (in Dutch). They may change without notice. Under **Explore Crisp routes** (administrator only) you see which routes work and which fields they contain; the report contains no names, addresses, prices or ids and is safe to share. Like those of Picnic and Jumbo, Crisp's terms forbid tools that fetch data; use it for personal use.
 
 ## Security
 
@@ -512,7 +534,7 @@ Everything is optional. Set the values in your environment or in `.env.unraid` (
 
 In the Home Assistant add-on you set these on the **Configuration** tab instead; `docker-entrypoint.py` turns them into the variables above when the container starts.
 
-**Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic and Jumbo: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
+**Audit log.** Under **Settings, Audit log** the administrator sees what MealieShopper exchanges with Albert Heijn, Picnic, Jumbo and Crisp: every request with time, outcome, duration, the request and the answer. Requests from AI assistants (MCP) are in there too, with the tool, its input and the result; for such a request you see which store requests followed from it, and the other way round. You can filter by store, show only errors and search. **Export** (JSON or CSV, with the chosen filters, at most the newest 5000 entries) downloads the log, and **Copy list** or **Copy** on a single entry puts the data on the clipboard. Passwords, tokens, codes, cookies and email addresses are replaced by `[verborgen]` before storing; headers are not stored. Answers from the stores can contain personal data, such as your orders: only the administrator sees the log and entries older than 30 days are deleted. **Clear log** deletes everything, and that action itself stays in the log as an entry. The settings are in the table above.
 
 <img src="docs/screenshots/en/audit.png" alt="Settings, Audit log: summary per service, filters and the latest requests" width="900">
 
@@ -627,7 +649,7 @@ python -m unittest discover -s tests          # all tests
 
 ## Integrations and components
 
-MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic or Jumbo.
+MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert Heijn, Picnic, Jumbo or Crisp.
 
 **Integrations**
 
@@ -638,6 +660,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [Allerhande](https://www.ah.nl/allerhande) | Searching and importing recipes. |
 | [Jumbo](https://www.jumbo.com) | Searching products and filling the cart, through the **unofficial** app API of Jumbo (Auth0 and GraphQL). Jumbo may change it without notice or refuse a server; use it for personal use. |
 | [Picnic](https://picnic.app) | Searching products and filling the cart, through the **unofficial** app API of Picnic. Picnic may change it without notice; use it for personal use. |
+| [Crisp](https://crisp.nl) | Searching products, filling the basket and searching recipes, through the **unofficial** app API of Crisp. Crisp may change it without notice; use it for personal use. |
 | [WebAuthn](https://www.w3.org/TR/webauthn-2/) | Logging in with a passkey. |
 | [TOTP (RFC 6238)](https://www.rfc-editor.org/rfc/rfc6238) | Two-step verification with an authenticator app. |
 | [MCP](https://modelcontextprotocol.io) and [OAuth 2.1](https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/) | The link with AI assistants such as Claude, ChatGPT and Copilot. |

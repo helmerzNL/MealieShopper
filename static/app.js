@@ -18,10 +18,10 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
-  store: "ah", // de keuze voor het weekmenu: "ah", "picnic" of "jumbo"
+  store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
   itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
-  linkedStores: { picnic: false, jumbo: false, mealie: false }, // gezet door picnic.js, jumbo.js en renderMealieStatus; AH is altijd een keuze
+  linkedStores: { picnic: false, jumbo: false, crisp: false, mealie: false }, // gezet door picnic.js, jumbo.js, crisp.js en renderMealieStatus; AH is altijd een keuze
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -286,6 +286,7 @@ async function refreshAuthStatus() {
     refreshMealieStatus();
     if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
     if (typeof refreshJumboStatus === "function") refreshJumboStatus();
+    if (typeof refreshCrispStatus === "function") refreshCrispStatus();
     if (typeof startUpdateCheck === "function") startUpdateCheck();
   }
   return state.auth;
@@ -1030,6 +1031,7 @@ const STORES = {
   ah: { name: "Albert Heijn", api: "ah", linked: "ah", button: "plan.add_cart", ready: "cart.ready" },
   picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
   jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
+  crisp: { name: "Crisp", api: "crisp", linked: "crisp", button: "plan.add_cart_crisp", ready: "cart.ready_crisp" },
 };
 
 function currentStore() {
@@ -1155,7 +1157,7 @@ function showCartResult(data, notFound) {
       return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
     })
     .join("");
-  // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
+  // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
   const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
     ? th("cart.missing", { count: names.length, names: names.join(", ") })
@@ -1165,8 +1167,8 @@ function showCartResult(data, notFound) {
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
-  // Picnic en Jumbo vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
-  if (state.store === "picnic" || state.store === "jumbo") {
+  // Picnic, Jumbo en Crisp vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
+  if (["picnic", "jumbo", "crisp"].includes(state.store)) {
     $("#cart-result").insertAdjacentHTML(
       "beforeend",
       `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
@@ -1534,7 +1536,7 @@ function applyStoreFold(store, linked) {
   $(`#${store}-login-body`).hidden = !open;
 }
 
-for (const store of ["mealie", "ah", "picnic", "jumbo", "ai"]) {
+for (const store of ["mealie", "ah", "picnic", "jumbo", "crisp", "ai"]) {
   $(`#${store}-login-toggle`).addEventListener("click", () => {
     const toggle = $(`#${store}-login-toggle`);
     state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";

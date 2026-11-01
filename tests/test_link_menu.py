@@ -10,7 +10,7 @@ APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 
 PAGE = HTML[HTML.index('<div id="settings-link" class="subpanel'):HTML.index('<div id="settings-users" class="subpanel')]
-STORES = ("mealie", "ah", "jumbo", "picnic")
+STORES = ("mealie", "ah", "jumbo", "picnic", "crisp")
 
 
 def block(name):
@@ -45,10 +45,10 @@ class LinkPageTest(unittest.TestCase):
         for store in STORES:
             self.assertIn(f'id="{store}-login-toggle" aria-expanded="true" aria-controls="{store}-login-body"', block(store))
             self.assertIn(f'id="{store}-login-body"', block(store))
-        self.assertIn('for (const store of ["mealie", "ah", "picnic", "jumbo", "ai"])', APP_JS)
+        self.assertIn('for (const store of ["mealie", "ah", "picnic", "jumbo", "crisp", "ai"])', APP_JS)
 
     def test_unlink_sits_next_to_the_link_button_in_the_store_block(self):
-        for store, link in (("picnic", "picnic-login"), ("jumbo", "jumbo-link"), ("mealie", "mealie-link")):
+        for store, link in (("picnic", "picnic-login"), ("jumbo", "jumbo-link"), ("crisp", "crisp-login"), ("mealie", "mealie-link")):
             row = re.search(r'<div class="toolbar">\s*<button[^>]*id="%s".*?</div>' % link, block(store), re.S).group(0)
             self.assertIn(f'id="{store}-unlink"', row, store)
             self.assertIn("common.check_link", row, store)
@@ -56,10 +56,10 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('id="check-ah"', row)
 
     def test_blocks_are_titled_with_just_the_name(self):
-        for key, title in (("ahlogin.title", "Albert Heijn"), ("picnic.title", "Picnic"), ("jumbo.title", "Jumbo"), ("link.mealie", "Mealie")):
+        for key, title in (("ahlogin.title", "Albert Heijn"), ("picnic.title", "Picnic"), ("jumbo.title", "Jumbo"), ("crisp.title", "Crisp"), ("link.mealie", "Mealie")):
             self.assertIn(f'"{key}": "{title}"', NL, key)
             self.assertIn(f'"{key}": "{title}"', EN, key)
-        for store, key, title in (("mealie", "link.mealie", "Mealie"), ("ah", "ahlogin.title", "Albert Heijn"), ("jumbo", "jumbo.title", "Jumbo"), ("picnic", "picnic.title", "Picnic")):
+        for store, key, title in (("mealie", "link.mealie", "Mealie"), ("ah", "ahlogin.title", "Albert Heijn"), ("jumbo", "jumbo.title", "Jumbo"), ("picnic", "picnic.title", "Picnic"), ("crisp", "crisp.title", "Crisp")):
             self.assertIn(f'<span data-i18n="{key}">{title}</span>', block(store))
 
     def test_status_banners_have_icons_and_colours_for_small_screens(self):
@@ -69,7 +69,7 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('"link.status.linked": "linked"', EN)
         for needle in ("MDI_LINK", "MDI_LINK_OFF", "MDI_CHECK_CIRCLE", 'classes: "error"', "link-status--working"):
             self.assertIn(needle, APP_JS, needle)
-        for store, script in (("picnic", "picnic.js"), ("jumbo", "jumbo.js")):
+        for store, script in (("picnic", "picnic.js"), ("jumbo", "jumbo.js"), ("crisp", "crisp.js")):
             self.assertIn(f'renderLinkStatus("#{store}-status"', (ROOT / "static" / script).read_text(encoding="utf-8"))
         icon = re.search(r"\.link-status__icon\s*{(.*?)}", CSS, re.S).group(1)
         self.assertIn("display: none", icon, "op een groot scherm de tekst")
