@@ -24,7 +24,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **"voor 1.99"** (AH's schildje voor een vaste actieprijs) wordt gelezen als een vaste prijs.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
-- Issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
+- Pull request: [#166](https://github.com/helmerzNL/MealieShopper/pull/166); issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
 
 ## v2.84.0
 
