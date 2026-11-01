@@ -1134,6 +1134,41 @@ function reviewSearchHtml(row, extra) {
     </form>`;
 }
 
+function reviewThumbHtml(candidate) {
+  // De foto van het gekozen product, zodat je ziet wat er in het mandje komt; Picnic heeft geen productpagina, dus daar
+  // is dit de enige manier om het product te zien. Tikken opent hem in het groot (openReviewPhoto). De knop blijft
+  // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
+  // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
+  const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
+  const src = candidate.image ? ` src="${escapeHtml(candidate.image)}"` : " hidden";
+  return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
+}
+
+function showReviewThumb(button, candidate) {
+  const img = button.querySelector("img");
+  const label = t("cart.photo_open", { title: candidate.title });
+  button.disabled = !candidate.image;
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  img.hidden = !candidate.image;
+  if (candidate.image) img.src = candidate.image;
+  else img.removeAttribute("src");
+}
+
+function openReviewPhoto(candidate) {
+  // De foto in het groot. Het grote formaat (imageLarge) geven AH en Picnic mee; laadt dat niet, of is er geen, dan
+  // valt het venster terug op de gewone foto.
+  const image = $("#photo-dialog-image");
+  const large = candidate.imageLarge || candidate.image;
+  if (!large) return;
+  image.dataset.fallback = large !== candidate.image ? candidate.image : "";
+  image.hidden = false;
+  image.src = large;
+  $("#photo-dialog-title").textContent = candidate.title;
+  $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
+  $("#photo-dialog").showModal();
+}
+
 function reviewRowHtml(row, index) {
   if (!row.candidates.length) {
     // Niet gevonden: de gebruiker zoekt zelf verder, bijvoorbeeld onder een andere naam (paksoi heet bij AH pak choi).
@@ -1156,6 +1191,7 @@ function reviewRowHtml(row, index) {
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
+      ${reviewThumbHtml(first)}
       <select class="review-product" aria-label="${escapeHtml(t("cart.product"))}">
         ${row.candidates
           .map((candidate, at) => `<option value="${at}">${escapeHtml(cartCandidateLabel(candidate))}</option>`)
@@ -1217,8 +1253,17 @@ function renderCartReview(rows) {
       toggle.setAttribute("aria-expanded", String(!form.hidden));
       if (!form.hidden) el.querySelector(".review-search-input").focus();
     });
-    el.querySelector(".review-product").addEventListener("change", (event) => {
+    const thumb = el.querySelector(".review-thumb");
+    const product = el.querySelector(".review-product");
+    // Laadt de foto niet, dan verbergen we hem (en halen we hem niet weg): een ander product kiezen gebruikt hem opnieuw.
+    thumb.querySelector("img").addEventListener("error", (event) => {
+      event.target.hidden = true;
+      thumb.disabled = true;
+    });
+    thumb.addEventListener("click", () => openReviewPhoto(row.candidates[Number(product.value)]));
+    product.addEventListener("change", (event) => {
       const candidate = row.candidates[Number(event.target.value)];
+      showReviewThumb(thumb, candidate);
       el.querySelector(".review-qty").value = candidate.packs;
       const link = el.querySelector("a.review-link");
       if (link && candidate.url) link.href = candidate.url;
@@ -2292,6 +2337,20 @@ document.addEventListener("click", (event) => {
 });
 $("#plan-form").addEventListener("submit", savePlanEntry);
 $("#plan-cancel").addEventListener("click", () => $("#plan-dialog").close());
+// Het venster met de productfoto in het groot (openReviewPhoto): Sluiten, Esc (van de browser) of een tik naast het venster.
+$("#photo-dialog-close").addEventListener("click", () => $("#photo-dialog").close());
+$("#photo-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+$("#photo-dialog-image").addEventListener("error", (event) => {
+  const image = event.target;
+  if (image.dataset.fallback) {
+    image.src = image.dataset.fallback;
+    image.dataset.fallback = "";
+  } else {
+    image.hidden = true;
+  }
+});
 $("#plan-delete").addEventListener("click", deletePlanEntry);
 $("#plan-surprise").addEventListener("click", surprisePlanEntry);
 document.querySelectorAll('input[name="plan-kind"]').forEach((input) => input.addEventListener("change", renderPlanKind));

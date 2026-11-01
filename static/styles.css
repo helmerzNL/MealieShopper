@@ -1330,6 +1330,30 @@ a.product-card strong {
   }
 }
 
+/* De productfoto in het groot, vanuit de controlelijst van het mandje. Vierkant, maar nooit hoger dan het scherm toelaat. */
+.photo-dialog__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: max(160px, calc(100vh - 220px));
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-thumb {
+    transition: none;
+  }
+
+  .review-thumb:not(:disabled):hover,
+  .review-thumb:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* AI-beoordeling (optioneel): de balk boven de receptvoorstellen, het vinkje bij een goedgekeurde koppeling en het blok bij Instellingen. */
 .offers-ai {
   display: flex;
@@ -1575,7 +1599,7 @@ a.product-card__main:hover strong {
 
 .review-row {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) minmax(180px, 2fr) auto 72px;
+  grid-template-columns: auto minmax(120px, 1fr) 56px minmax(180px, 2fr) auto 72px;
   align-items: center;
   gap: 12px;
   border: 1px solid var(--border);
@@ -1673,6 +1697,50 @@ a.product-card__main:hover strong {
   width: 100%;
 }
 
+/* De foto van het gekozen product; zelfde tegel als bij .product-card. Een knop: tikken toont hem groot (#photo-dialog). */
+.review-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  cursor: zoom-in;
+  transition: transform 0.15s var(--ease);
+}
+
+.review-thumb:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .review-thumb:not(:disabled):hover {
+    transform: scale(1.05);
+  }
+}
+
+.review-thumb:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.review-thumb:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.review-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
 .store-select {
   min-height: var(--control-height);
   border: 1px solid var(--border);
@@ -1723,6 +1791,17 @@ select.input {
   .review-row .review-ingredient,
   .review-row .review-product {
     grid-column: 2 / 4;
+  }
+
+  /* De foto staat onder het vinkje, naast de keuzelijst en het aantal. */
+  .review-row .review-include {
+    justify-self: center;
+  }
+
+  .review-row .review-thumb {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+    align-self: center;
   }
 
   .review-row .review-link {

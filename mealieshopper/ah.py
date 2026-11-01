@@ -517,6 +517,16 @@ def _pick_image(images: list[dict[str, Any]], target: int = RECIPE_CARD_IMAGE_WI
     return best["url"]
 
 
+# De productfoto in het groot (het venster bij de controlelijst van het mandje): rond 400 css-pixels breed, dus 800
+# beeldpunten voor een scherm met dubbele dichtheid.
+PRODUCT_PHOTO_WIDTH = 800
+
+
+def product_photo(images: list[dict[str, Any]]) -> str | None:
+    """De productfoto in het groot: het formaat van AH dat het dichtst bij PRODUCT_PHOTO_WIDTH ligt."""
+    return _pick_image(images, PRODUCT_PHOTO_WIDTH) or None
+
+
 def _recipe_card(item: dict[str, Any]) -> dict[str, Any]:
     recipe_id = item.get("id")
     slug = str(item.get("slug") or "").strip()

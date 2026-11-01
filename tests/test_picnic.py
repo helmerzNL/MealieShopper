@@ -103,6 +103,20 @@ class CandidateTest(unittest.TestCase):
         for key in ("title", "brand", "unitSize", "price", "image", "isBonus", "doubt"):
             self.assertIn(key, found)
 
+    def test_large_photo_is_the_same_image_in_the_large_size(self):
+        # Het venster met de foto in het groot gebruikt `imageLarge`; Picnic kent dezelfde afbeelding in meer formaten.
+        image = "https://storefront-prod.nl.picnicinternational.com/static/images/abc123/medium.png"
+        product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": image}
+        self.assertEqual(
+            picnic.candidate(product, 1, "stuks")["imageLarge"],
+            "https://storefront-prod.nl.picnicinternational.com/static/images/abc123/large.png",
+        )
+
+    def test_no_photo_means_no_large_photo(self):
+        for image in (None, "", "https://elders.example/foto.png"):
+            product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": image}
+            self.assertIsNone(picnic.candidate(product, 1, "stuks")["imageLarge"])
+
     def test_unknown_pack_size_is_a_doubt(self):
         found = picnic.candidate({"id": "s1", "title": "Zout", "unitSize": None, "price": 1.0}, 500, "g")
         self.assertEqual(found["packs"], 1)

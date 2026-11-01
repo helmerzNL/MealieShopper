@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub.
 
-## v2.84.0
+## v2.85.0
 
-### Nieuw in 2.84.0
+### Nieuw in 2.85.0
 
 *English summary: the Offers tab now shows the offers of the week you are planning ([#160](https://github.com/helmerzNL/MealieShopper/issues/160)). The week is at the top with the same arrows as the week menu, and both share one week: plan next week and you see next week's offers, pick a week in Offers and the week menu follows. The AH Bonus now comes per Bonus period from the GraphQL of the AH app: AH's Bonus week runs Monday to Sunday like the week menu, and next week's complete Bonus is there as soon as AH gives it at the weekend (about 3,000 products a week, where searching found a few hundred and only some 80 of next week). A product on Bonus in both weeks keeps both deals. The recipe suggestions use the same week and are about 40 times faster. The header names the Bonus week again instead of "Valid Sun 1 Nov to Sun 1 Nov".*
 
@@ -17,7 +17,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **De AH-verkenner** toont per bonusperiode hoeveel acties en producten AH geeft, zodat te zien is of de bonus van volgende week er al staat.
 - **API**: `GET /api/offers` en `GET /api/offers/recipes` nemen `week` (een datum in de week, zoals `2026-11-02`); zonder `week` is het de week van vandaag. Het antwoord meldt `week`, `later` (aanbiedingen die pas na die week beginnen) en `undated` (aanbiedingen zonder looptijd die voor een andere week zijn weggelaten). Elke week heeft een eigen `ETag`.
 
-### Opgelost in 2.84.0
+### Opgelost in 2.85.0
 
 - **"Geldig zo 1 nov t/m zo 1 nov".** De regel boven de aanbiedingen noemt de looptijd die de meeste aanbiedingen delen. AH geeft zijn pakketkortingen en volumevoordelen elke dag opnieuw door met een looptijd van alleen die dag, en dat waren er meer dan de bonus van de week; op zondag stond er daardoor alleen vandaag. Een looptijd van één dag telt nu alleen als er geen langere is, zodat er weer *Geldig ma 26 okt t/m zo 1 nov* staat.
 - **De bonus van volgende week stond tussen die van vandaag**, en kwam al in de prijsgeschiedenis voordat hij begon. De geschiedenis schrijft een aanbieding nu pas als ze begint.
@@ -25,6 +25,19 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
 - Issue: [#160](https://github.com/helmerzNL/MealieShopper/issues/160).
+
+## v2.84.0
+
+### Nieuw in 2.84.0
+
+*English summary: the check list you see before the basket is filled now shows a photo of the chosen product on every line, for Albert Heijn, Picnic and Jumbo. Pick another product in the list and the photo changes with it; tap the photo to see it large. This matters most for Picnic, which has no product page to look at. Reload the page once after updating.*
+
+- **Een foto bij elk product in de controlelijst.** Na **Voeg toe aan … mandje** (Albert Heijn, Picnic of Jumbo) staat in **Controleer je mandje** bij elke regel de foto van het gekozen product, naast de keuzelijst, zodat je ziet of het het goede product is voordat het in je mandje gaat. Kies je een ander product, dan wisselt de foto mee; na *Zoek een ander product* ook. Bij Picnic is dit de enige manier om het product te zien, want Picnic heeft geen webpagina met het product (en dus geen link **Bekijk product**). Op een smal scherm staat de foto onder het vinkje, naast de keuzelijst en het aantal. Heeft een product geen foto of laadt hij niet, dan blijft het vak leeg en blijven de kolommen gelijk. De winkels gaven de foto al mee; de back-up verandert niet.
+- **Tik op de foto voor de foto in het groot.** Een venster toont de foto zo groot als het scherm toelaat, met de naam, de verpakking en de prijs. Sluiten doe je met **Sluiten**, met Esc of door naast het venster te tikken. Albert Heijn en Picnic geven daarvoor een groter formaat mee (bij AH het formaat rond 800 beeldpunten, bij Picnic `large`), zodat de foto scherp blijft; bij Jumbo, of als het grote formaat niet laadt, toont het venster de gewone foto. Een product zonder foto kun je niet aantikken.
+- **API**: de kandidaten van `POST /api/ah/cart/preview` en `POST /api/picnic/cart/preview` hebben een nieuw veld `imageLarge` (of `null`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#163](https://github.com/helmerzNL/MealieShopper/pull/163). Issue: [#158](https://github.com/helmerzNL/MealieShopper/issues/158).
 
 ## v2.83.0
 

@@ -286,6 +286,13 @@ def image_url(image_id: Any, size: str = "medium") -> str | None:
     )
 
 
+def resized_image(url: Any, size: str) -> str | None:
+    """Hetzelfde plaatje van `image_url` in een ander formaat; het formaat is het laatste deel van het adres."""
+    if not isinstance(url, str) or "/static/images/" not in url:
+        return None
+    return f"{url.rpartition('/')[0]}/{quote(size, safe='')}.png"
+
+
 def _euros(cents: Any) -> float | None:
     return round(cents / 100, 2) if isinstance(cents, (int, float)) else None
 
@@ -874,6 +881,8 @@ def candidate(product: dict[str, Any], quantity: Any, unit: Any) -> dict[str, An
         "unitSize": product.get("unitSize"),
         "price": product.get("price"),
         "image": product.get("image"),
+        # Voor de foto in het groot in de controlelijst; Picnic heeft geen productpagina, dus de foto is wat je ziet.
+        "imageLarge": resized_image(product.get("image"), "large"),
         "isBonus": bool(product.get("isBonus")),
         "deal": deals.candidate_deal("picnic", product),
         "url": None,  # Picnic heeft geen webwinkel waar een product op staat
