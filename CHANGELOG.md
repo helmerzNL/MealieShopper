@@ -13,6 +13,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - Een notitie (zoals *Uit eten*) heeft geen recept: een tik daarop opent nog steeds meteen *Maaltijd wijzigen*.
 - Het venster vraagt niets nieuws aan Mealie: de week haalt elk recept al op. `GET /api/mealplan` geeft per maaltijd ook `recipeMinutes` (de bereidingstijd) en `recipeUrl` (het recept in Mealie).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#184](https://github.com/helmerzNL/MealieShopper/pull/184).
 
 ## v2.90.0
 
