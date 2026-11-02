@@ -192,6 +192,21 @@
       </div>
     </dialog>
 
+    <dialog id="compare-dialog" class="product-dialog compare-dialog" aria-labelledby="compare-dialog-title">
+      <div class="product-dialog__inner">
+        <div>
+          <h3 id="compare-dialog-title" data-i18n="offers.compare.title">Verpakkingen vergelijken</h3>
+          <p class="muted" id="compare-dialog-meta"></p>
+        </div>
+        <div id="compare-dialog-message" role="status" aria-live="polite"></div>
+        <ol class="compare-list" id="compare-dialog-list"></ol>
+        <p class="muted compare-dialog__note" data-i18n="offers.compare.note">Prijs per kilo, liter of stuk; wat je met een aanbieding per stuk betaalt. De goedkoopste staat bovenaan.</p>
+        <div class="product-dialog__actions">
+          <button class="button button--secondary" type="button" id="compare-dialog-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="plan-dialog" class="product-dialog plan-dialog" aria-labelledby="plan-dialog-title">
       <form class="product-dialog__inner" id="plan-form" novalidate>
         <h3 id="plan-dialog-title" tabindex="-1"></h3>

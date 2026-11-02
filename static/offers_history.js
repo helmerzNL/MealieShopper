@@ -10,7 +10,7 @@ const OFFER_HISTORY_BAR = 12;
 const OFFER_HISTORY_DAY = 86400000;
 const OFFER_HISTORY_LABEL_HEIGHT = 14;
 const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
-const offerHistory = { query: "", products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "" };
+const offerHistory = { query: "", products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -238,6 +238,7 @@ function offerHistoryDetail(product) {
       ? offerHistoryStat(t("offers.history.stat.highest"), offerHistoryPrice(product.highestPrice))
       : "",
     number(product.regularPrice) ? offerHistoryStat(t("offers.history.stat.regular"), offerHistoryPrice(product.regularPrice)) : "",
+    product.regularPerUnit ? offerHistoryStat(t("offers.history.stat.regular_per_unit"), offerPerUnitText(product.regularPerUnit)) : "",
     number(product.lowestRegular) && number(product.highestRegular) && product.lowestRegular !== product.highestRegular
       ? offerHistoryStat(t("offers.history.stat.regular_range"), `${offerHistoryPrice(product.lowestRegular)} – ${offerHistoryPrice(product.highestRegular)}`)
       : "",
@@ -272,6 +273,7 @@ function offerHistoryDetail(product) {
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
         <p class="${product.onOfferNow ? "bonus" : "muted"}">${escapeHtml(t(product.onOfferNow ? "offers.history.now" : "offers.history.not_now"))}${link ? ` · ${link}` : ""}</p>
+        ${product.regularPerUnit ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
       </div>
     </div>
     <dl class="ohc-stats">${stats}</dl>
@@ -303,18 +305,29 @@ function offerHistoryChartWidth() {
   return box && box.clientWidth ? box.clientWidth : 640;
 }
 
+// Van hoeveel bestellingen en kassabonnen de producten nog niet zijn opgehaald: die aankopen ontbreken nog in de geschiedenis.
+function offerHistoryUnsyncedText() {
+  const counts = offerHistory.unsynced || {};
+  const parts = [
+    counts.orders ? tn("offers.history.unsynced_orders", counts.orders) : "",
+    counts.receipts ? tn("offers.history.unsynced_receipts", counts.receipts) : "",
+  ].filter(Boolean);
+  return parts.length ? t("offers.history.unsynced_note", { what: parts.join(` ${t("offers.history.unsynced_and")} `) }) : "";
+}
+
 function renderOfferHistory() {
   const list = $("#offers-history-list");
   const detail = $("#offers-history-detail");
   const status = $("#offers-history-status");
   const products = offerHistory.products;
+  const unsynced = offerHistoryUnsyncedText();
   if (!products.length) {
     list.innerHTML = "";
     detail.innerHTML = "";
-    status.textContent = offerHistory.query ? t("offers.history.none", { query: offerHistory.query }) : t("offers.history.empty");
+    status.textContent = [offerHistory.query ? t("offers.history.none", { query: offerHistory.query }) : t("offers.history.empty"), unsynced].filter(Boolean).join(" ");
     return;
   }
-  status.textContent = tn("offers.history.count", offerHistory.total, { shown: products.length });
+  status.textContent = [tn("offers.history.count", offerHistory.total, { shown: products.length }), unsynced].filter(Boolean).join(" ");
   list.innerHTML = products
     .map((product) => {
       const key = offerHistoryKey(product);
@@ -348,6 +361,7 @@ async function loadOfferHistory() {
     if (loadId !== offerHistory.loadId) return;
     offerHistory.products = data.products || [];
     offerHistory.total = data.total || 0;
+    offerHistory.unsynced = (data.unsynced || {})[store] || null;
     offerHistory.loadedStore = store;
     if (!offerHistory.products.some((product) => offerHistoryKey(product) === offerHistory.selected)) {
       offerHistory.selected = offerHistory.products.length ? offerHistoryKey(offerHistory.products[0]) : "";
@@ -394,4 +408,67 @@ window.addEventListener("resize", () => {
   if (!document.querySelector("#offers-history.is-active")) return;
   cancelAnimationFrame(offerHistoryResizeFrame);
   offerHistoryResizeFrame = requestAnimationFrame(renderOfferHistory);
+});
+
+// Vergelijk verpakkingen (#178): één zoekopdracht bij de winkel naar hetzelfde product in andere maten, op prijs per kilo, liter of stuk.
+// Kleur naar plek in de lijst (goedkoopste groen, duurste rood), zoals in het userscript van wolph. Geopend vanaf een aanbieding
+// (offers.js) of vanaf de prijsgeschiedenis.
+const packCompare = { loadId: 0 };
+
+function packCompareRankClass(rank) {
+  if (rank <= 0.2) return "rank-1";
+  if (rank <= 0.4) return "rank-2";
+  if (rank <= 0.6) return "rank-3";
+  if (rank <= 0.8) return "rank-4";
+  return "rank-5";
+}
+
+function packCompareItem(candidate) {
+  const tags = [
+    candidate.self ? t("offers.compare.this") : "",
+    !candidate.self && candidate.same ? t("offers.compare.same") : "",
+    candidate.cheaper ? t("offers.compare.cheaper") : "",
+    candidate.onOffer ? t("offers.compare.on_offer") : "",
+  ].filter(Boolean);
+  const name = escapeHtml([candidate.title, candidate.unitSize].filter(Boolean).join(" · "));
+  const title = candidate.url ? `<a href="${escapeHtml(candidate.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
+  return `<li class="compare-item${candidate.self ? " is-self" : ""}${candidate.same ? " is-same" : ""}">
+    <span class="compare-item__unit ${packCompareRankClass(candidate.rank)}">${escapeHtml(offerPerUnitText(candidate.unitPrice))}</span>
+    <span class="compare-item__body"><span>${title}</span>
+      <small class="muted">${escapeHtml([formatPrice(candidate.price), ...tags].filter(Boolean).join(" · "))}</small></span>
+  </li>`;
+}
+
+async function openPackCompare(store, productId) {
+  const loadId = ++packCompare.loadId;
+  const dialog = $("#compare-dialog");
+  $("#compare-dialog-title").textContent = t("offers.compare.title");
+  $("#compare-dialog-meta").textContent = "";
+  $("#compare-dialog-list").innerHTML = "";
+  message("#compare-dialog-message", t("offers.compare.loading"));
+  if (!dialog.open) dialog.showModal();
+  try {
+    const data = await jsonFetch(`/api/prices/compare?${new URLSearchParams({ store, id: productId })}`);
+    if (loadId !== packCompare.loadId) return;
+    const product = data.product || {};
+    $("#compare-dialog-title").textContent = product.title || t("offers.compare.title");
+    $("#compare-dialog-meta").textContent = [product.unitSize, offerPerUnitText(product.unitPrice), t("offers.compare.searched", { query: data.query })]
+      .filter(Boolean)
+      .join(" · ");
+    const candidates = data.candidates || [];
+    message("#compare-dialog-message", candidates.length > 1 ? "" : t("offers.compare.none"));
+    $("#compare-dialog-list").innerHTML = candidates.map(packCompareItem).join("");
+  } catch (error) {
+    if (loadId !== packCompare.loadId) return;
+    message("#compare-dialog-message", error.message);
+  }
+}
+
+$("#compare-dialog-close").addEventListener("click", () => $("#compare-dialog").close());
+$("#compare-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+$("#offers-history-detail").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-compare]");
+  if (button) openPackCompare(button.dataset.store, button.dataset.compare);
 });
