@@ -198,6 +198,13 @@
           <h3 id="compare-dialog-title" data-i18n="offers.compare.title">Verpakkingen vergelijken</h3>
           <p class="muted" id="compare-dialog-meta"></p>
         </div>
+        <div class="compare-filters" id="compare-dialog-filters" role="group" aria-label="Filters" data-i18n-attr="aria-label:offers.compare.filters" hidden>
+          <label class="compare-filter"><input type="checkbox" id="compare-filter-kind" checked> <span data-i18n="offers.compare.filter_kind">Zelfde soort</span></label>
+          <label class="compare-filter"><input type="checkbox" id="compare-filter-brand"> <span data-i18n="offers.compare.filter_brand">Zelfde merk</span></label>
+          <label class="compare-filter"><input type="checkbox" id="compare-filter-offer"> <span data-i18n="offers.compare.filter_offer">In de aanbieding</span></label>
+          <input class="input compare-filters__text" id="compare-filter-text" type="search" placeholder="Filter op naam" aria-label="Filter op naam" autocomplete="off" data-i18n-attr="placeholder:offers.compare.filter_text;aria-label:offers.compare.filter_text">
+        </div>
+        <p class="compare-summary" id="compare-dialog-summary" role="status" aria-live="polite"></p>
         <div id="compare-dialog-message" role="status" aria-live="polite"></div>
         <ol class="compare-list" id="compare-dialog-list"></ol>
         <p class="muted compare-dialog__note" data-i18n="offers.compare.note">Prijs per kilo, liter of stuk; wat je met een aanbieding per stuk betaalt. De goedkoopste staat bovenaan.</p>

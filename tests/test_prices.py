@@ -326,6 +326,25 @@ class VerdictTest(PricesCase):
         for label, expected in (("2e halve prijs", 25), ("1+1 gratis", 50)):
             self.assertEqual(self.annotate(deal("2", "AH Soep", 2.00, 2.00, label))["2"]["verdict"]["percent"], expected, label)
 
+    def test_ah_gives_the_regular_price_for_one_plus_one_free(self):
+        # Zo staat "1+1 gratis" in de aanbiedingen van AH: de prijs is de gewone prijs, zonder prijs ervoor (wolph: 300 g rundergehakt).
+        offer = self.annotate(deal("1", "AH Rundergehakt", 3.49, None, "1+1 gratis", size="300 g"))["1"]
+        self.assertEqual((offer["unitPrice"], offer["unitPricePer"]), (1.75, {"value": 5.83, "unit": "kg"}))
+        self.assertEqual((offer["verdict"]["kind"], offer["verdict"]["percent"], offer["verdict"]["lowestRegular"]), ("good", 50, 3.49))
+        half = self.annotate(deal("2", "AH Soep", 2.00, None, "2e halve prijs"))["2"]
+        self.assertEqual((half["unitPrice"], half["verdict"]["percent"]), (1.5, 25))
+        unknown = self.annotate(deal("3", "AH Kaas", 2.00, None, "25% korting"))["3"]  # is 2,00 al verlaagd? Dat weten we niet.
+        self.assertEqual((unknown["unitPrice"], unknown["verdict"]["kind"]), (None, "unknown"))
+
+    def test_the_bulk_pack_is_compared_with_the_price_per_item_of_one_plus_one(self):
+        self.observe("2026-10-15", "bulk", "AH Rundergehakt", 9.99, size="1000 g")  # €9,99/kg
+        verdict = self.annotate(deal("1", "AH Rundergehakt", 3.49, None, "1+1 gratis", size="300 g"))["1"]["verdict"]  # €5,83/kg
+        self.assertIsNone(verdict["cheaperPack"])
+        verdict = self.annotate(deal("1", "AH Rundergehakt", 3.49, None, "2e halve prijs", size="300 g"))["1"]["verdict"]  # €8,73/kg
+        self.assertIsNone(verdict["cheaperPack"])
+        verdict = self.annotate(deal("1", "AH Rundergehakt", 3.49, 3.69, "nu 3,49", size="300 g"))["1"]["verdict"]  # €11,63/kg
+        self.assertEqual(verdict["cheaperPack"]["productId"], "bulk")
+
     def test_without_a_regular_price_or_a_price_per_item_there_is_no_verdict(self):
         verdict = self.annotate(deal("p1", "Picnic yoghurt", 1.20, None, "20% korting"), store="picnic")["p1"]["verdict"]
         self.assertEqual((verdict["kind"], verdict["percent"]), ("unknown", None))
@@ -406,6 +425,33 @@ class CompareTest(PricesCase):
         with mock.patch.object(ah, "search_products", return_value=self.found()):
             data = prices.compare("ah", "1")
         self.assertEqual([c["id"] for c in data["candidates"] if c["cheaper"]], ["2"])  # €1,99/kg tegen €2,38/kg
+
+    def test_one_plus_one_free_is_compared_per_item(self):
+        self.sync_offer("2026-11-02T05:00:00+00:00", offer("1", "AH Rundergehakt", 3.49, None, "1+1 gratis", brand="AH", unitSize="300 g"))
+        with mock.patch.object(ah, "search_products", return_value=[]):
+            data = prices.compare("ah", "1")
+        self.assertEqual((data["product"]["price"], data["product"]["unitPrice"]), (1.75, {"value": 5.83, "unit": "kg"}))
+
+    def test_same_kind_and_same_brand_for_the_filters(self):
+        prices.record("ah", [{"id": "1", "title": "AH Rundergehakt", "price": 3.49, "unitSize": "300 g", "brand": "AH"}])
+        found = [
+            {"webshopId": "1", "title": "AH Rundergehakt", "price": {"now": 3.49}, "unitSize": "300 g", "brand": "AH", "isBonus": False},
+            {"webshopId": "2", "title": "AH Rundergehakt", "price": {"now": 9.99}, "unitSize": "1000 g", "brand": "AH", "isBonus": False},
+            {"webshopId": "3", "title": "AH Biologisch rundergehakt", "price": {"now": 4.99}, "unitSize": "300 g", "brand": "AH", "isBonus": False},
+            {"webshopId": "4", "title": "Slagerij Rundergehakt mager", "price": {"now": 5.49}, "unitSize": "500 g", "brand": "Slagerij", "isBonus": True,
+             "promo": {"label": "25% korting", "priceBefore": 5.49}},
+            {"webshopId": "5", "title": "AH Hamburgers", "price": {"now": 3.99}, "unitSize": "400 g", "brand": "AH", "isBonus": False},
+            {"webshopId": "6", "title": "AH Half-om-half gehakt", "price": {"now": 2.99}, "unitSize": "500 g", "brand": "AH", "isBonus": False},
+        ]
+        with mock.patch.object(ah, "search_products", return_value=found) as search:
+            data = prices.compare("ah", "1")
+        search.assert_called_once_with("AH Rundergehakt", 30)  # genoeg resultaten voor de grote verpakking
+        self.assertEqual(data["kind"], "rundergehakt")
+        flags = {c["id"]: (c["sameKind"], c["sameBrand"], c["onOffer"]) for c in data["candidates"]}
+        self.assertEqual(flags, {
+            "1": (True, True, False), "2": (True, True, False), "3": (True, True, False), "4": (True, False, True),
+            "5": (False, True, False), "6": (False, True, False),
+        })
 
     def test_the_route_refuses_an_unknown_product(self):
         client = create_app().test_client()

@@ -4631,6 +4631,36 @@ body.has-onboarding {
   color: var(--danger);
 }
 
+/* De filters boven de lijst: drie schakelaars en een veld om op naam te filteren. */
+.compare-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.compare-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.compare-filters__text {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.compare-summary {
+  margin: 8px 0 0;
+  font-weight: 600;
+}
+
+.compare-summary:empty {
+  display: none;
+}
+
 .compare-dialog__note {
   margin: 8px 0 0;
   font-size: 13px;

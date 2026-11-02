@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.89.2
+
+### Nieuw in 2.89.2
+
+*English summary: Compare pack sizes can now be filtered. By default it shows only the same kind of product (every word of the product name without brand, sizes and pack words must be in the name: "AH Rundergehakt" shows 300 g, 1000 g and organic mince, but not burgers or meatballs); "Same brand", "On offer" and a name filter narrow it further, and the selected product always stays for comparison. At the top it says which visible product is cheapest per unit and by how much, or that this product is the cheapest. The search asks the store for 30 products instead of 10, so the big pack is among them. Fixed: AH gives "1+1 free", "2nd half price" and "2nd = 50% off" with the regular price as the price and no price before, so the per-item price, the verdict and the comparison used the full price (300 g mince on 1+1 showed €11.63/kg instead of €5.83/kg); the per-item price now follows from that regular price, and the offer card shows it too.*
+
+- **Vergelijk verpakkingen is te filteren** ([#178](https://github.com/helmerzNL/MealieShopper/issues/178), op verzoek):
+  - **Zelfde soort** (standaard aan): alleen producten waarin elk woord van de productnaam staat, zonder merk, winkel, maten en woorden als *voordeelverpakking*. Bij *AH Rundergehakt* zie je 300 g, 1000 g, biologisch en mager rundergehakt, maar geen hamburgers, gehaktballen of half-om-half.
+  - **Zelfde merk**, **In de aanbieding** en een veld **Filter op naam**. De filters werken op wat er al gevonden is, zonder nieuwe zoekopdracht.
+  - Het gekozen product blijft altijd staan, om mee te vergelijken. De kleur volgt de plek in wat er te zien is.
+  - **Bovenaan het antwoord**: *"AH Rundergehakt 1000 g is per kg € … goedkoper dan dit product"*, of *"Dit product is per kg het goedkoopst van deze 4"*. Daaronder hoeveel van de gevonden producten je ziet.
+  - MealieShopper vraagt de winkel nu om 30 producten in plaats van 10, zodat ook de grote verpakking ertussen zit.
+
+### Opgelost in 2.89.2
+
+- **Prijs per stuk bij "1+1 gratis" en "2e halve prijs" van AH.** AH geeft bij die acties de gewone prijs als prijs mee, zonder prijs ervoor. Daardoor rekende MealieShopper met de volle prijs: 300 g rundergehakt met 1+1 gratis stond op € 11,63/kg in plaats van € 5,83/kg, met een verkeerd oordeel en een verkeerde vergelijking. Nu volgt de prijs per stuk uit die gewone prijs, voor *1+1 gratis* (en *2+1*), *2e halve prijs* en *2e = 50% korting*. De kaart van de aanbieding toont hem ook (*bij 2 stuks · € 1,75 per stuk*). Bij *25% korting* zonder prijs ervoor rekent MealieShopper niets uit, omdat niet zeker is of de prijs al verlaagd is.
+
 ## v2.89.1
 
 ### Opgelost in 2.89.1
