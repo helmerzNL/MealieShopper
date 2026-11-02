@@ -13,6 +13,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Weigert AH een token (401, of 400/403 met `invalid_grant`, "member not active" of `invalid_token`), dan vergeet de app het en probeert de aanroep één keer opnieuw met een vers token. Dat geldt voor de bonus, het zoeken naar producten, producten op id, recepten zoeken en een recept ophalen.
   - Een geweigerd token van je AH-koppeling wordt ook vergeten, zodat de volgende aanroep het opnieuw ververst.
 - Live nagekeken: een vers anoniem token haalt de bonus gewoon op.
+- Pull request: [#181](https://github.com/helmerzNL/MealieShopper/pull/181).
 - **Zoeken in de Prijsgeschiedenis op woorden en maat.** "Gehakt 500 gram" vond niets: het zoeken keek of die hele tekst letterlijk in de productnaam stond, en de maat staat apart ("500 g"). Nu moet elk woord in de naam (of het merk) staan, ook als deel van een woord ("gehakt" vindt "AH Rundergehakt"), in elke volgorde. Een maat in de zoekterm ("500 gram", "500g", "0,5 kg", "2 x 250 g") wordt vergeleken met de verpakking: gehakt van 500 gram wel, dat van 300 gram niet. Een product waarvan de verpakking niet bekend is, zoals een regel van een kassabon zonder maat, blijft erin. Geldt ook voor de MCP-tool `get_price_history`.
 
 ## v2.89.0
