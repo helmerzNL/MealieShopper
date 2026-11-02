@@ -933,7 +933,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "De prijsgeschiedenis van producten uit de lokale kopie: wanneer ze in de aanbieding waren en voor welke prijs, de normale prijs door de tijd en wat je betaalde (uit bestellingen en kassabonnen). Handig om te zien of een aanbieding echt voordelig is.",
         "inputSchema": _schema(
             {
-                "query": {"type": "string", "description": "Een deel van de productnaam, bijvoorbeeld 'penne'. Leeg: de producten met de recentste gegevens."},
+                "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
                 "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
             }

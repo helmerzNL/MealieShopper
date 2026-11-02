@@ -173,6 +173,22 @@ class HistoryTest(PricesCase):
             conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R9', '2026-10-01', 1, 0, 'x')")
         self.assertEqual(self.history()["unsynced"], {"ah": {"orders": 1, "receipts": 1}})
 
+    def test_search_by_words_and_pack_size(self):
+        record = lambda pid, title, size: prices.record("ah", [{"id": pid, "title": title, "price": 3.0, "unitSize": size}], now="2026-10-01T08:00:00+00:00")
+        record("1", "AH Rundergehakt", "500 g")
+        record("2", "AH Rundergehakt", "300 g")
+        record("3", "AH Half-om-half gehakt", "0,5 kg")
+        record("4", "AH Kipgehakt", "1 kg")
+        record("5", "AH Gehaktkruiden", "per stuk")
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "SLAGER GEHAKT", 1, 4.0, 4.0), (None, "AH GEHAKT 300G", 1, 2.0, 2.0))
+        found = lambda query: sorted(p["productId"] for p in self.history(query=query)["products"])
+        self.assertEqual(found("Gehakt 500 gram"), ["1", "3", "bon:slager gehakt"])  # de bon zonder maat blijft erin, die van 300 g niet
+        self.assertEqual(found("500g gehakt"), found("Gehakt 500 gram"))  # volgorde en schrijfwijze van de maat maken niet uit
+        self.assertEqual(found("gehakt 0,5 kg"), found("Gehakt 500 gram"))
+        self.assertEqual(found("rundergehakt 300 gram"), ["2"])
+        self.assertEqual(found("gehakt"), ["1", "2", "3", "4", "5", "bon:ah gehakt 300g", "bon:slager gehakt"])
+        self.assertEqual(found("half om half"), ["3"])
+
     def test_the_same_price_on_more_days_is_one_period_and_a_change_starts_a_new_one(self):
         for day, price in (("01", 1.0), ("02", 1.0), ("05", 1.0), ("06", 1.2), ("09", 1.0)):
             prices.record("ah", [{"id": "1", "title": "Kaas", "price": price}], now=f"2026-10-{day}T08:00:00+00:00")

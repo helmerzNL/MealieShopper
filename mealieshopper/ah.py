@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from os import environ
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import unquote, urlencode, urlparse
 
 import requests
@@ -288,6 +288,62 @@ class TokenCache:
 anon_token_cache: TokenCache | None = None
 user_token_cache: TokenCache | None = None
 
+# AH geeft een anoniem token dat zeven dagen geldig heet, maar trekt het soms eerder in. Dan antwoordt elke aanroep met een 400
+# `invalid_grant` ("member not active") en bleven de bonus en het zoeken tot een week lang mislukken. Daarom bewaren we het hooguit
+# een uur, en vergeten we een token zodra AH het weigert (zie `TokenRejected` en `_anonymous`).
+ANON_TOKEN_MAX_AGE = 3600
+_REJECTED_MARKERS = ("invalid_grant", "member not active", "invalid_token")
+
+T = TypeVar("T")
+
+
+class TokenRejected(RuntimeError):
+    """AH weigert het token: ingetrokken of verlopen voordat het zou verlopen. Een nieuw token lost het meestal op."""
+
+
+def _token_rejected(status: int, body: str) -> bool:
+    text = str(body or "").lower()
+    return status == 401 or (status in (400, 403) and any(marker in text for marker in _REJECTED_MARKERS))
+
+
+def forget_token(token: str | None) -> None:
+    """Vergeet een bewaard token dat AH weigerde, zodat de volgende aanroep een nieuw haalt (anoniem of met de koppeling)."""
+    global anon_token_cache, user_token_cache
+    if not token:
+        return
+    if anon_token_cache and anon_token_cache.token == token:
+        anon_token_cache = None
+    if user_token_cache and user_token_cache.token == token:
+        user_token_cache = None
+
+
+def _bearer(headers: Any) -> str | None:
+    value = str((headers or {}).get("Authorization") or "")
+    return value[len("Bearer "):] if value.startswith("Bearer ") else None
+
+
+def _body(response: Any) -> str:
+    """De tekst van een antwoord (ingekort), of niets als die er niet is."""
+    text = getattr(response, "text", "")
+    return text[:500] if isinstance(text, str) else ""
+
+
+def _reject_if_token(status: int, body: str, token: str | None, message: str) -> None:
+    """Geeft `TokenRejected` (en vergeet het token) als het antwoord zegt dat AH het token weigert."""
+    if _token_rejected(status, body):
+        forget_token(token)
+        raise TokenRejected(message)
+
+
+def _anonymous(call: Callable[[str], T]) -> T:
+    """`call(token)` met het anonieme token. Weigert AH dat token, dan één keer opnieuw met een vers token."""
+    token = get_token()
+    try:
+        return call(token)
+    except TokenRejected:
+        forget_token(token)
+        return call(get_token())
+
 
 def _auth_headers(token: str | None = None, *, include_content_type: bool = True) -> dict[str, str]:
     headers = dict(AH_AUTH_HEADERS)
@@ -302,6 +358,7 @@ def _request_json(method: str, url: str, **kwargs: Any) -> Any:
     response = requests.request(method, url, timeout=30, **kwargs)
     if not response.ok:
         body = response.text[:500]
+        _reject_if_token(response.status_code, body, _bearer(kwargs.get("headers")), f"{response.status_code}: {body}")
         raise RuntimeError(f"{response.status_code}: {body}")
     return response.json()
 
@@ -320,7 +377,7 @@ def get_token() -> str:
     )
     anon_token_cache = TokenCache(
         token=data["access_token"],
-        expires_at=time.time() + max(0, int(data.get("expires_in", 3600)) - 60),
+        expires_at=time.time() + min(ANON_TOKEN_MAX_AGE, max(0, int(data.get("expires_in", 3600)) - 60)),
     )
     return anon_token_cache.token
 
@@ -555,12 +612,12 @@ def search_recipes(query: str, page: int = 0, size: int = 12) -> dict[str, Any]:
         )
     size = min(size, RECIPE_SEARCH_WINDOW - start)  # de laatste pagina wordt afgekapt in plaats van een fout
 
-    data = _graphql(
-        get_token(),
+    data = _anonymous(lambda token: _graphql(
+        token,
         RECIPE_SEARCH_QUERY,
         {"query": {"searchText": str(query), "size": size, "start": start}},
         "AH zoeken",
-    )
+    ))
     found = data.get("recipeSearch") or {}
     recipes = [_recipe_card(item) for item in found.get("result") or [] if item.get("id") is not None]
     total = int((found.get("page") or {}).get("total") or 0)
@@ -678,16 +735,21 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
 
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     limit = max(1, int(limit))
-    token = get_token()
-    response = _get_with_retry(
-        f"{AH_API_BASE}/mobile-services/product/search/v2",
-        headers=_auth_headers(token, include_content_type=False),
-        params={"query": query, "page": 0, "size": max(limit, SEARCH_WINDOW), "sortOn": "RELEVANCE"},
-        timeout=30,
-    )
-    if not response.ok:
-        raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
-    products = rank_search_results(query, response.json().get("products") or [])
+
+    def search(token: str) -> Any:
+        response = _get_with_retry(
+            f"{AH_API_BASE}/mobile-services/product/search/v2",
+            headers=_auth_headers(token, include_content_type=False),
+            params={"query": query, "page": 0, "size": max(limit, SEARCH_WINDOW), "sortOn": "RELEVANCE"},
+            timeout=30,
+        )
+        if not response.ok:
+            message = f"AH productzoekopdracht mislukt ({response.status_code})"
+            _reject_if_token(response.status_code, _body(response), token, message)
+            raise RuntimeError(message)
+        return response.json()
+
+    products = rank_search_results(query, _anonymous(search).get("products") or [])
     return [_search_product_dict(item, query) for item in products[:limit]]
 
 
@@ -706,17 +768,23 @@ def product_web_url(product_id: Any) -> str:
 def get_products_by_ids(product_ids: list[int]) -> list[dict[str, Any]]:
     if not product_ids:
         return []
-    token = get_token()
     params: list[tuple[str, str]] = [("ids", str(product_id)) for product_id in product_ids]
     params.append(("sortOn", "INPUT_PRODUCT_IDS"))
-    response = _get_with_retry(
-        f"{AH_API_BASE}/mobile-services/product/search/v2/products",
-        headers=_auth_headers(token, include_content_type=False),
-        params=params,
-        timeout=30,
-    )
-    if not response.ok:
-        raise RuntimeError(f"AH producten ophalen mislukt ({response.status_code}): {response.text[:200]}")
+
+    def fetch(token: str) -> Any:
+        response = _get_with_retry(
+            f"{AH_API_BASE}/mobile-services/product/search/v2/products",
+            headers=_auth_headers(token, include_content_type=False),
+            params=params,
+            timeout=30,
+        )
+        if not response.ok:
+            message = f"AH producten ophalen mislukt ({response.status_code}): {response.text[:200]}"
+            _reject_if_token(response.status_code, _body(response), token, message)
+            raise RuntimeError(message)
+        return response
+
+    response = _anonymous(fetch)
 
     products = []
     for item in response.json() or []:
@@ -833,7 +901,7 @@ def _promotion_products(promotion: dict[str, Any]) -> list[dict[str, Any]]:
 def get_bonus_promotions(today: date | None = None) -> list[dict[str, Any]]:
     """De bonus van alle bonusperiodes die AH kent, als producten met hun looptijd. Een product kan in twee periodes staan
     (deze week en volgende week, elk met een eigen actie); dan komt het twee keer terug. Werkt zonder AH-login."""
-    data = _graphql(get_token(), BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen")
+    data = _anonymous(lambda token: _graphql(token, BONUS_PROMOTIONS_QUERY, {}, "AH bonus ophalen"))
     periods = [
         (deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate")))
         for period in data.get("bonusPeriods") or []
@@ -928,7 +996,9 @@ def _bonus_from_search(term: str, token: str) -> list[dict[str, Any]]:
         timeout=30,
     )
     if not response.ok:
-        raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
+        message = f"AH productzoekopdracht mislukt ({response.status_code})"
+        _reject_if_token(response.status_code, _body(response), token, message)
+        raise RuntimeError(message)
     products = [_bonus_product(item) for item in response.json().get("products") or [] if isinstance(item, dict) and item.get("isBonus")]
     return [product for product in products if product]
 
@@ -981,7 +1051,9 @@ def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> di
         timeout=30,
     )
     if not response.ok:
-        raise RuntimeError(f"{what} mislukt ({response.status_code}): {response.text[:200]}")
+        message = f"{what} mislukt ({response.status_code}): {response.text[:200]}"
+        _reject_if_token(response.status_code, _body(response), token, message)
+        raise RuntimeError(message)
     data = response.json()
     if data.get("errors"):
         raise RuntimeError(f"{what} mislukt: {data['errors'][0].get('message', 'GraphQL error')}")
@@ -1154,6 +1226,8 @@ def _graphql_variants(
     for query in queries:
         try:
             return _graphql(token, query, variables, what)
+        except TokenRejected:
+            raise  # een ander token helpt, een andere variant van de vraag niet
         except RuntimeError as exc:
             errors.append(str(exc))
     raise RuntimeError(" | ".join(dict.fromkeys(errors)))
@@ -1600,9 +1674,7 @@ def _iso_minutes(minutes: Any) -> str | None:
 
 def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
     """Allerhande-recept als schema.org Recipe (JSON-LD), via de AH-API zonder paginascraping."""
-    data = _graphql_variants(
-        get_token(), RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"
-    )
+    data = _anonymous(lambda token: _graphql_variants(token, RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"))
     recipe = data.get("recipe")
     if not recipe:
         raise RuntimeError("AH recept niet gevonden")
