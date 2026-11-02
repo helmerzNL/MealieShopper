@@ -49,6 +49,7 @@ function base(lang) {
     ["/api/ah/auth/status*", { connected: true, verified: true, type: "refresh" }],
     ["/api/picnic/auth/status*", { connected: true, verified: true, twoFactorPending: false }],
     ["/api/jumbo/auth/status*", { connected: true, verified: true, loginPending: false }],
+    ["/api/crisp/auth/status*", { connected: true, verified: true, codePending: false, country: "nl" }],
     ["/api/mealie/status*", { configured: true, url: mealieUrl, source: "app", connected: true, verified: true, version: "v2.8.0", username: "anna" }],
     ["/api/update", { available: false, current: VERSION, latest: VERSION }],
   ];
@@ -57,4 +58,17 @@ function base(lang) {
 // De datum van het weekmenu: maandag van de week van 28 oktober 2026 (woensdag).
 const WEEK = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"];
 
-module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER };
+// De prijs per kilo, liter of stuk zoals prices.unit_price die geeft ({ value, unit }), uit een verpakking als "2 x 300 g",
+// "1,5 l", "6 x 30 cl" of "8 stuks". Geen bekende maat: null.
+function perUnit(price, unitSize) {
+  const text = String(unitSize || "").toLowerCase().replace(",", ".");
+  if (typeof price !== "number") return null;
+  if (/^per stuk$/.test(text)) return { value: price, unit: "stuk" };
+  const match = /^(?:(\d+)\s*x\s*)?(\d+(?:\.\d+)?)\s*(kg|g|l|cl|ml|stuks?)$/.exec(text);
+  if (!match) return null;
+  const amount = Number(match[1] || 1) * Number(match[2]);
+  const [factor, unit] = { kg: [1, "kg"], g: [0.001, "kg"], l: [1, "l"], cl: [0.01, "l"], ml: [0.001, "l"], stuk: [1, "stuk"], stuks: [1, "stuk"] }[match[3]];
+  return { value: Math.round((price / (amount * factor)) * 100) / 100, unit };
+}
+
+module.exports = { svg, dish, product, DISHES, base, WEEK, mealieUrl, VERSION, NEWER, perUnit };

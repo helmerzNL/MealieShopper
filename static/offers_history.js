@@ -470,6 +470,11 @@ function packCompareSummary(visible) {
   return t("offers.compare.cheapest", { unit, count: I18N.formatNumber(visible.length) });
 }
 
+// Uitleg in het venster (laden, de telling, niets gevonden) als grijze tekst; alleen een echte fout staat in een rood vak (message).
+function packCompareNote(text) {
+  $("#compare-dialog-message").innerHTML = `<p class="muted">${escapeHtml(text)}</p>`;
+}
+
 function renderPackCompare() {
   const data = packCompare.data;
   if (!data) return;
@@ -478,9 +483,9 @@ function renderPackCompare() {
   $("#compare-dialog-filters").hidden = candidates.length < 2;
   $("#compare-dialog-summary").textContent = packCompareSummary(visible);
   const others = visible.filter((candidate) => !candidate.self).length;
-  if (candidates.length < 2) message("#compare-dialog-message", t("offers.compare.none"));
-  else if (!others) message("#compare-dialog-message", t("offers.compare.no_match"));
-  else message("#compare-dialog-message", t("offers.compare.count", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(candidates.length) }));
+  if (candidates.length < 2) packCompareNote(t("offers.compare.none"));
+  else if (!others) packCompareNote(t("offers.compare.no_match"));
+  else packCompareNote(t("offers.compare.count", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(candidates.length) }));
   // De kleur volgt de plek in wat er te zien is: de goedkoopste groen, de duurste rood.
   $("#compare-dialog-list").innerHTML = visible.map((candidate, index) => packCompareItem(candidate, visible.length > 1 ? index / (visible.length - 1) : 0)).join("");
 }
@@ -498,7 +503,7 @@ async function openPackCompare(store, productId) {
   $("#compare-dialog-title").textContent = t("offers.compare.title");
   $("#compare-dialog-meta").textContent = "";
   $("#compare-dialog-list").innerHTML = "";
-  message("#compare-dialog-message", t("offers.compare.loading"));
+  packCompareNote(t("offers.compare.loading"));
   if (!dialog.open) dialog.showModal();
   try {
     const data = await jsonFetch(`/api/prices/compare?${new URLSearchParams({ store, id: productId })}`);

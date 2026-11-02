@@ -49,6 +49,10 @@ async function shoot(browser, scenario, lang, device, base) {
   if (scenario.run) await scenario.run(page, { lang, device });
   await page.waitForTimeout(500);
   await page.mouse.move(2, 2);
+  // Een foutmelding in beeld komt meestal door een nagebootst antwoord dat niet meer klopt met de app (zoals een winkel die erbij
+  // kwam): meld die, zodat het screenshot niet ongemerkt een fout laat zien.
+  const errors = await page.$$eval(".message.error", (boxes) => boxes.filter((box) => box.getClientRects().length).map((box) => box.textContent.trim()));
+  for (const text of errors) console.warn(`LET OP ${lang}/${scenario.name} (${device}): foutmelding in beeld: ${text}`);
   const png = await page.screenshot();
   await context.close();
   return png;
