@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.88.0
+
+### Nieuw in 2.88.0
+
+*English summary: the Price history (Offers, Price history) now shows more than the offers. It also shows the regular price over time and what you paid. The regular price is kept whenever MealieShopper looks a product up at the store (the check list of the week menu, Search for another product, the search per store and the MCP search tools), and it also comes from the price before an offer and from your orders. What you paid comes from the orders and receipts the app already keeps (AH, Jumbo, Picnic and Crisp), per item, so the history fills itself from everything the app ever fetched. The chart draws the regular price as steps and every purchase as a dot, with a legend and a table of purchases; products you only bought or looked up are found too. New: `GET /api/prices/history` and the MCP tool `get_price_history`. The new table `price_observations` is in the backup.*
+
+- **Prijsgeschiedenis: ook de gewone prijs en wat je betaalde.** Onder **Aanbiedingen, Prijsgeschiedenis** stond alleen wanneer een product in de aanbieding was. Nu staan er ook bij:
+  - **De gewone prijs door de tijd.** MealieShopper bewaart die elke keer dat het een product bij de winkel opzoekt: de controlelijst van het weekmenu, *Zoek een ander product*, het zoeken per winkel en de zoektools van de MCP-server. Eén prijs per product per dag. Daarnaast tellen de prijs vóór de actie van een aanbieding en de normale prijs in je bestellingen mee. Een product in de aanbieding zonder bekende prijs ervoor slaat het over, zodat er nooit een actieprijs als gewone prijs in komt.
+  - **Wat je betaalde**, per stuk, uit de bestellingen en kassabonnen die de app al bewaart: AH (geleverde bestellingen en kassabonnen), Jumbo, Picnic en Crisp. Een bestelling die nog niet geleverd is, telt niet mee, een geannuleerde ook niet. Zo staat alles wat de app ooit ophaalde er meteen in, zonder aparte import. Op een kassabon staat de prijs zonder de korting onderaan de bon; dat staat er ook bij.
+- **De grafiek** toont de gewone prijs als een trap (een trede loopt door tot de volgende keer dat een andere prijs is gezien) en elke aankoop als een stip, naast de balken van de aanbiedingen. Eronder staan een legenda en een tabel met de aankopen. Bovenaan staan ook hoe vaak je het kocht, wat je de laatste keer en gemiddeld per stuk betaalde, en de laagste en hoogste gewone prijs. Bij een grafiek van meer dan een jaar staat het jaartal bij de datums.
+- **Ook producten die nooit in de aanbieding waren**, maar die je kocht of opzocht, zijn nu te vinden. Een naam van een kassabon vindt het product ook ("RIJST BASMATI"), en dan staan alle gegevens van dat product erbij.
+- **`GET /api/prices/history`** (met `store`, `q` en `limit`) geeft per product de aanbiedingen (zoals `GET /api/offers/history`), de periodes met dezelfde gewone prijs (`regular`), de aankopen (`purchases`) en samenvattingen (`regularPrice`, `lastPaid`, `averagePaid`, `timesBought`). Het tabblad gebruikt deze route; `GET /api/offers/history` blijft bestaan.
+- **MCP-tool `get_price_history`**: dezelfde gegevens, compact, zodat een assistent kan zeggen of een aanbieding echt voordelig is.
+- **Back-up:** de nieuwe tabel `price_observations` gaat mee in de back-up ("Bijgehouden prijzen").
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (van [wolph](https://github.com/wolph)). Dit is deel 1; deel 2 (prijs per kilo of liter, een oordeel bij elke aanbieding en verpakkingen vergelijken) volgt.
+
 ## v2.87.1
 
 ### Opgelost in 2.87.1
