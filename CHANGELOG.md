@@ -22,6 +22,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - `offers` toont nu de prijs per eenheid en het oordeel bij elke aanbieding, en `cart` de prijs per kilo in de controlelijst met de regel *Per kg goedkoper* en **Kies**.
 - De README noemt Crisp ook bij *Naar Picnic, Jumbo of Crisp*, het Mandje, de Aanbiedingen, Recepten zoeken en het winkelmenu, heeft een eigen blok *Winkels: Crisp*, en een punt *Is het echt een aanbieding?* bij *Wat kan het?*.
 - Het screenshot-script kent de prijs per eenheid (`perUnit` in `scripts/screenshots/demo.js`), klapt een winkelblok onder Instellingen alleen open als het dicht is, en meldt `LET OP` als er een foutmelding in beeld staat (bijvoorbeeld omdat een nagebootst antwoord een nieuwe winkel nog niet kent).
+- Pull request: [#189](https://github.com/helmerzNL/MealieShopper/pull/189).
 
 ## v2.91.1
 
