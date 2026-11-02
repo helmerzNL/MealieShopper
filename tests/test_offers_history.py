@@ -176,6 +176,31 @@ class HistoryTest(TempDataDirTest):
         self.sync(item("1", "Kipfilet"), item("1", "Kipfilet"))
         self.assertEqual(offers.history("ah")["products"][0]["episodes"][0]["syncs"], 1)
 
+    def test_an_open_end_stored_before_v2_75_is_repaired(self):
+        # v2.73 bewaarde AH's "doorlopend" als 2999-12-31; de grafiek liep dan tot het jaar 2999 (issue #178).
+        self.sync(item("1", "Magnum Almond 2-pack", validUntil=None), item("2", "Kipfilet", validUntil=None))
+        self.sync(item("1", "Magnum Almond 2-pack", validUntil=None))  # Kipfilet is afgelopen
+        with sqlite3.connect(auth.db_path()) as conn:
+            conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")
+            conn.execute("UPDATE offers SET valid_until = '2999-12-31'")
+        getattr(offers, "_OPEN_ENDS_REPAIRED", set()).clear()  # zoals een nieuwe start van de app
+        products = {p["title"]: p for p in offers.history("ah")["products"]}
+        running, ended = products["Magnum Almond 2-pack"]["episodes"][0], products["Kipfilet"]["episodes"][0]
+        self.assertEqual((running["end"], running["open"]), (None, True))
+        self.assertEqual((ended["end"], ended["open"]), ("2026-10-01", False), "het einde is de laatste keer dat we hem zagen")
+        with sqlite3.connect(auth.db_path()) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM offers WHERE valid_until >= '2900'").fetchone()[0], 0)
+
+    def test_the_open_end_repair_runs_once_per_database(self):
+        self.sync(item("1", "Kipfilet"))
+        offers._OPEN_ENDS_REPAIRED.clear()
+        offers.history("ah")
+        with sqlite3.connect(auth.db_path()) as conn:
+            conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")
+        offers.history("ah")
+        with sqlite3.connect(auth.db_path()) as conn:
+            self.assertEqual(conn.execute("SELECT valid_until FROM offer_history").fetchone()[0], "2999-12-31", "niet bij elke verbinding opnieuw")
+
     def test_the_route(self):
         self.sync(item("1", "Kipfilet"))
         client = create_app().test_client()

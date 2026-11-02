@@ -161,6 +161,27 @@ class HistoryTest(PricesCase):
         self.assertEqual((product["productId"], product["title"], product["timesBought"]), ("11", "AH Rundergehakt", 10))
         self.assertEqual([p["source"] for p in product["purchases"]].count("receipt"), 8)
 
+    def test_a_linked_article_number_joins_the_product_from_the_orders(self):
+        # Op de bon "BLOEMKOOL" met artikelnummer 20960, in de bestelling "AH Bloemkool" met id 4183: een product (issue #178).
+        self.ah_order(101, "delivered", "2026-09-01", order_item(4183, "AH Bloemkool", 1.69))
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "BLOEMKOOL", 2, 1.99, 3.98))
+        self.ah_receipt("R2", "2026-10-09T09:00:00", (20960, "BLOEMKOOL", 1, 1.85, 1.85))
+        self.assertEqual(sorted(p["productId"] for p in self.history(query="bloemkool")["products"]), ["20960", "4183"], "zonder koppeling: twee")
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (20960, 4183, 'AH Bloemkool', 'x')")
+        data = self.history(query="bloemkool")
+        self.assertEqual(data["total"], 1)
+        product = data["products"][0]
+        self.assertEqual((product["productId"], product["title"], product["timesBought"]), ("4183", "AH Bloemkool", 3))
+        self.assertEqual([p["source"] for p in product["purchases"]], ["order", "receipt", "receipt"])
+        self.assertEqual(self.history(query="BLOEMKOOL")["total"], 1, "de naam op de bon vindt hem ook")
+
+    def test_an_article_number_that_ah_did_not_find_changes_nothing(self):
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (43947, "DRAAGTAS", 1, 0.25, 0.25))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (43947, NULL, NULL, 'x')")
+        self.assertEqual([p["productId"] for p in self.history(query="draagtas")["products"]], ["43947"])
+
     def test_a_receipt_line_that_matches_nothing_is_still_found(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "AH VERSE KNOFLOOK", 1, 0.79, 0.79))
         product = self.history(query="knoflook")["products"][0]

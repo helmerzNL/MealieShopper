@@ -285,10 +285,20 @@ def _name_index(conn, store: str) -> dict[str, str]:
     return index
 
 
+def _receipt_products(conn) -> dict[str, str]:
+    """Artikelnummer op de bon -> id van de webwinkel, voor zover AH ze koppelde (zie `ah_orders.resolve_receipt_products`)."""
+    if "ah_receipt_products" not in _tables(conn):
+        return {}
+    rows = conn.execute("SELECT receipt_product_id, product_id FROM ah_receipt_products WHERE product_id IS NOT NULL")
+    return {str(row["receipt_product_id"]): str(row["product_id"]) for row in rows}
+
+
 def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     """De regels van de kassabonnen (alleen AH), elk met het product waar ze bij horen in `product_id`.
 
-    Is het id op de bon bekend uit de aanbiedingen, de bewaarde prijzen of de bestellingen, dan is het dat product. Anders telt de naam:
+    Het id op een bon is AH's artikelnummer; is dat gekoppeld aan een product van de webwinkel (`ah_orders.resolve_receipt_products`,
+    "BLOEMKOOL" 20960 -> "AH Bloemkool" 4183), dan is het dat product. Is het id op de bon bekend uit de aanbiedingen, de bewaarde
+    prijzen of de bestellingen, dan is het dat product. Anders telt de naam:
     "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past de naam ook nergens, dan is het id van de bon het product, of, zonder id, de
     naam zelf (`bon:ah rundergehakt`), zodat de aankoop altijd te vinden is.
     """
@@ -299,10 +309,11 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
         return []
     index = _name_index(conn, store)
     known = set(index.values())
+    linked = _receipt_products(conn)
     found = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
-        key = own if own and own in known else (index.get(name) or own or f"bon:{name}")
+        key = linked.get(own) or (own if own and own in known else (index.get(name) or own or f"bon:{name}"))
         found.append({**dict(row), "product_id": key})
     return found
 
