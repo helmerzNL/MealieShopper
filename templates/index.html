@@ -214,6 +214,23 @@
       </div>
     </dialog>
 
+    <dialog id="meal-recipe-dialog" class="product-dialog meal-recipe" aria-labelledby="meal-recipe-title">
+      <div class="product-dialog__inner">
+        <img id="meal-recipe-image" class="meal-recipe__image" alt="" hidden>
+        <div>
+          <p class="meal-recipe__type" id="meal-recipe-type"></p>
+          <h3 id="meal-recipe-title" tabindex="-1" autofocus></h3>
+          <p class="muted" id="meal-recipe-facts"></p>
+        </div>
+        <div id="meal-recipe-body" class="meal-recipe__body"></div>
+        <div class="product-dialog__actions meal-recipe__actions">
+          <a class="button button--secondary" id="meal-recipe-mealie" target="_blank" rel="noreferrer noopener" hidden><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiOpenInNew"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg><span data-i18n="rsearch.in_mealie">Open in Mealie</span></a>
+          <button class="button button--secondary" type="button" id="meal-recipe-edit"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiPencilOutline"><path d="M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z"/></svg><span data-i18n="plan.edit">Wijzigen</span></button>
+          <button class="button" type="button" id="meal-recipe-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="plan-dialog" class="product-dialog plan-dialog" aria-labelledby="plan-dialog-title">
       <form class="product-dialog__inner" id="plan-form" novalidate>
         <h3 id="plan-dialog-title" tabindex="-1"></h3>

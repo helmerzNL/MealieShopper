@@ -595,11 +595,67 @@ function renderMeal(entry) {
         ${detail}
       </span>`;
   const classes = `meal${entry.imageUrl ? " meal--with-image" : ""}${note ? " meal--note" : ""}`;
-  // De hele maaltijd is de knop om haar te wijzigen of te verwijderen: een groot tikvlak en ruimte voor de naam.
-  return entry.id != null
-    ? `<button class="${classes} meal--button" type="button" data-plan-edit="${escapeHtml(entry.id)}" title="${escapeHtml(t("plan.edit"))}">${content}
-        ${mdiIcon(MDI_PENCIL_OUTLINE, "meal__pencil")}<span class="visually-hidden">${escapeHtml(t("plan.edit"))}</span></button>`
-    : `<div class="${classes}">${content}</div>`;
+  if (entry.id == null) return `<div class="${classes}">${content}</div>`;
+  // De hele maaltijd is een groot tikvlak dat het recept opent (openMealRecipe); het potlood rechtsboven wijzigt of
+  // verwijdert haar. Een notitie heeft geen recept: een tik daarop wijzigt haar meteen.
+  const id = escapeHtml(entry.id);
+  const open = note
+    ? `data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}"`
+    : `data-plan-view="${id}" title="${escapeHtml(t("plan.view"))}"`;
+  return `<div class="${classes} meal--planned">
+      <button class="meal__open" type="button" ${open}>${content}</button>
+      <button class="meal__edit" type="button" data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}" aria-label="${escapeHtml(t("plan.edit_meal", { name: mealName(entry) }))}">${mdiIcon(MDI_PENCIL_OUTLINE)}</button>
+    </div>`;
+}
+
+// ---- Het recept van een maaltijd in een venster: wat de week al van Mealie kreeg (recipeDetail, met de hoeveelheden
+// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster.
+const mealRecipe = { entry: null };
+
+function mealRecipeLines(detail) {
+  const ingredients = (detail.recipeIngredient || [])
+    .map((item) => String(item?.display || item?.note || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const steps = (detail.recipeInstructions || []).map((step) => String(step?.text || "").trim()).filter(Boolean);
+  return { ingredients, steps };
+}
+
+function renderMealRecipeBody(entry) {
+  const detail = entry.recipeDetail;
+  if (!detail) return `<p class="muted">${escapeHtml(t("plan.view_unavailable"))}</p>`;
+  const { ingredients, steps } = mealRecipeLines(detail);
+  const description = String(detail.description || "").trim();
+  return `
+    ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
+    <h4>${escapeHtml(t("rsearch.ingredients"))}</h4>
+    ${ingredients.length
+      ? `<ul class="picnic-recipe__list">${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+      : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients_mealie"))}</p>`}
+    <h4>${escapeHtml(t("rsearch.steps"))}</h4>
+    ${steps.length
+      ? `<ol class="picnic-recipe__list meal-recipe__steps">${steps.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ol>`
+      : `<p class="muted">${escapeHtml(t("rsearch.no_steps_mealie"))}</p>`}`;
+}
+
+function openMealRecipe(entry) {
+  mealRecipe.entry = entry;
+  const dialog = $("#meal-recipe-dialog");
+  $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
+  $("#meal-recipe-title").textContent = mealName(entry);
+  const facts = [mealServings(entry), entry.recipeMinutes ? t("rsearch.minutes", { count: entry.recipeMinutes }) : ""].filter(Boolean);
+  $("#meal-recipe-facts").textContent = facts.join(" · ");
+  $("#meal-recipe-facts").hidden = !facts.length;
+  const image = $("#meal-recipe-image");
+  image.hidden = !entry.imageUrl;
+  if (entry.imageUrl) image.src = entry.imageUrl;
+  else image.removeAttribute("src");
+  const link = $("#meal-recipe-mealie");
+  link.hidden = !entry.recipeUrl;
+  if (entry.recipeUrl) link.href = entry.recipeUrl;
+  else link.removeAttribute("href");
+  $("#meal-recipe-body").innerHTML = renderMealRecipeBody(entry);
+  if (!dialog.open) dialog.showModal();
+  dialog.scrollTop = 0;
 }
 
 function renderMealPlan(entries) {
@@ -2427,9 +2483,26 @@ $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#meal-days").addEventListener("click", (event) => {
   const add = event.target.closest("[data-plan-add]");
   if (add) return openPlanDialog({ date: add.dataset.planAdd });
-  const edit = event.target.closest("[data-plan-edit]");
-  const entry = edit && (state.entries || []).find((item) => String(item.id) === edit.dataset.planEdit);
+  const button = event.target.closest("[data-plan-view], [data-plan-edit]");
+  if (!button) return;
+  const id = button.dataset.planView ?? button.dataset.planEdit;
+  const entry = (state.entries || []).find((item) => String(item.id) === id);
+  if (!entry) return;
+  if (button.dataset.planView != null) openMealRecipe(entry);
+  else openPlanDialog({ entry });
+});
+// Het recept van een maaltijd (openMealRecipe): Wijzigen gaat naar het plan-venster; Sluiten, Esc of een tik naast het venster sluit.
+$("#meal-recipe-edit").addEventListener("click", () => {
+  const entry = mealRecipe.entry;
+  $("#meal-recipe-dialog").close();
   if (entry) openPlanDialog({ entry });
+});
+$("#meal-recipe-close").addEventListener("click", () => $("#meal-recipe-dialog").close());
+$("#meal-recipe-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+$("#meal-recipe-image").addEventListener("error", (event) => {
+  event.target.hidden = true;
 });
 // "Inplannen" bij een recept uit Mealie of na een import (`data-plan-slug`), of bij een recept van een winkel of maaltijdbox
 // (`data-plan-source`, dat bij het opslaan eerst in Mealie komt): de plan-dialoog met het recept al gekozen.

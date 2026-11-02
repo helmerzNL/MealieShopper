@@ -1959,36 +1959,115 @@ select.input {
   overflow-wrap: break-word;
 }
 
-/* Een geplande maaltijd is een knop (wijzigen of verwijderen); ze ziet eruit als tekst, met een klein potlood. */
-.meal--button {
+/* Een geplande maaltijd ziet eruit als tekst. Een tik erop opent het recept (een notitie: het plan-venster); het potlood
+   rechtsboven is een eigen knop die de maaltijd wijzigt. De tekst houdt rechts ruimte vrij voor het potlood. */
+.meal--planned {
+  position: relative;
+  display: block;
   width: calc(100% + 16px);
   margin: 0 -8px 8px;
-  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+.meal__open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 42px 6px 8px;
+  border: 0;
+  border-radius: inherit;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
 
+.meal__edit {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
 
-.meal--button:focus-visible {
+.meal__edit .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.meal__open:focus-visible,
+.meal__edit:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 
-.meal__pencil {
-  flex: none;
-  align-self: flex-start;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  fill: var(--muted);
+/* Het recept van een maaltijd in een venster: breder dan de andere vensters, voor de ingrediënten en de bereiding.
+   De knoppen blijven onderaan in beeld terwijl je door een lang recept scrolt. */
+.meal-recipe {
+  width: min(640px, calc(100vw - 32px));
 }
 
+.meal-recipe .product-dialog__inner {
+  padding-bottom: 0;
+}
+
+.meal-recipe__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  object-fit: cover;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.meal-recipe__type {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.meal-recipe h3:focus {
+  outline: none;
+}
+
+.meal-recipe h4 {
+  margin: 12px 0 0;
+  font-size: 15px;
+}
+
+.meal-recipe__body .picnic-recipe__list {
+  margin-bottom: 4px;
+}
+
+.meal-recipe__description,
+.meal-recipe__steps li {
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.meal-recipe__actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -20px;
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 
 /* De weekplanner: elke dag een kaart, met onderaan een rustige knop om een maaltijd toe te voegen. */
 .day-card {
@@ -2213,14 +2292,15 @@ button.plan-recipe:focus-visible {
 
 /* Oplichten alleen met een muis: op een telefoon blijft een hover na een tik anders hangen. */
 @media (hover: hover) {
-  .meal--button:hover,
+  .meal--planned:hover,
   button.plan-recipe:hover {
     border-color: var(--border);
     background: var(--selection);
   }
 
-  .meal--button:hover .meal__pencil {
-    fill: var(--primary-strong);
+  .meal__edit:hover {
+    background: var(--surface);
+    color: var(--primary-strong);
   }
 
   .day-card__add:hover {
@@ -2262,7 +2342,8 @@ button.plan-recipe:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .day-card__add,
-  .meal--button {
+  .meal--planned,
+  .meal__edit {
     transition: none;
   }
 }
