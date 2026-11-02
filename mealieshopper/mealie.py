@@ -502,6 +502,9 @@ def get_meal_plan_with_recipes(start_date: str, end_date: str) -> list[dict[str,
         enriched["recipeDetail"] = ingredients.scale_recipe(detail, scale) if detail else detail
         enriched["servings"] = _servings(detail or recipe, scale) if recipe else None
         enriched["imageUrl"] = _image_path(detail) or _image_path(recipe)
+        # Voor het recept in een venster (een tik op de maaltijd): de bereidingstijd en de link naar het recept in Mealie.
+        enriched["recipeMinutes"] = _minutes(detail.get("totalTime")) if detail else None
+        enriched["recipeUrl"] = recipe_page_url(recipe["slug"]) if recipe.get("slug") else None
         result.append(enriched)
     return result
 

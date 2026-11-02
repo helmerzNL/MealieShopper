@@ -61,7 +61,7 @@ Every image shows the same page on a computer and on a phone. The recipes and pr
 
 ### Week menu and basket
 
-Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, or tap a meal to move or remove it. Pick a recipe from Mealie, or let Mealie pick one with **Surprise me**. Every change goes straight to Mealie.
+Your week menu from Mealie, with every day of the week: plan a recipe or note on it with **Add**, tap a meal to read its recipe, or tap the pencil at the top right to move or remove it. Pick a recipe from Mealie, or let Mealie pick one with **Surprise me**. Every change goes straight to Mealie.
 
 <img src="docs/screenshots/en/plan-add.png" alt="Plan a meal: the day, the meal, the choice between Recipe and Note, your recipes from Mealie and the Surprise me button" width="900">
 
@@ -275,7 +275,7 @@ The **Recipes** tab has two subtabs: **Week menu** (planning the week menu and s
 
 ### Planning the week menu
 
-The week menu always shows the whole week, including days without a meal. **Add** on a day opens the *Plan a meal* window: choose the day, the meal (breakfast, lunch, dinner or side; from Mealie 3.7 also snack, drink and dessert) and then **Recipe** or **Note**. With **Recipe** you search your recipes in Mealie and pick one; **Surprise me** lets Mealie pick a recipe itself, following the meal plan rules of your household (in Mealie under the meal plan settings). A **Note** is a meal without a recipe, such as *Eating out* or *Leftovers*, with optional details. Tap a planned meal to change the day, the meal or the recipe, or to take it off the week menu with **Remove**; the recipe stays in Mealie.
+The week menu always shows the whole week, including days without a meal. **Add** on a day opens the *Plan a meal* window: choose the day, the meal (breakfast, lunch, dinner or side; from Mealie 3.7 also snack, drink and dessert) and then **Recipe** or **Note**. With **Recipe** you search your recipes in Mealie and pick one; **Surprise me** lets Mealie pick a recipe itself, following the meal plan rules of your household (in Mealie under the meal plan settings). A **Note** is a meal without a recipe, such as *Eating out* or *Leftovers*, with optional details. Tap a planned meal to read its recipe in a window: the ingredients (already scaled to the servings you planned), the method and the cooking time, with **Open in Mealie** and **Edit**. The pencil at the top right of a meal (or **Edit** in that window) opens *Edit meal*: change the day, the meal or the recipe, or take it off the week menu with **Remove**; the recipe stays in Mealie. A note has no recipe: tapping it opens *Edit meal* straight away.
 
 Every change goes straight to Mealie (`/api/households/mealplans`) and MealieShopper then fetches the week again. MealieShopper keeps no plan of its own, so what you plan in Mealie shows here too, and the other way round. Everyone who is logged in may plan; in Mealie the meal is in the name of the token's user. The same window opens with **Plan** on every recipe: in Find recipes, Meal kits and Stores, and in the message after an import (also under Import from URL). If the recipe comes from a store or meal kit, MealieShopper first puts it in Mealie when you save, or uses the recipe that is already there (Mealie keeps the source link of every import; MealieShopper looks that up first).
 

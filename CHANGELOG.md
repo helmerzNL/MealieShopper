@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.88.0
+
+### Nieuw in 2.88.0
+
+*English summary: in the week menu, tapping a meal now opens its recipe in a window instead of the edit screen: the ingredients (already scaled to the servings you planned), the method, the cooking time and the description, with Open in Mealie, Edit and Close. The pencil at the top right of a meal is now its own button and opens Edit meal, as does Edit in the recipe window. A note has no recipe, so tapping it still opens Edit meal. The window needs no extra request: the week already brings each recipe from Mealie.*
+
+- **Een tik op een maaltijd in het weekmenu opent het recept**, in een venster: de foto, de maaltijd en de dag, de porties en de bereidingstijd, de omschrijving, de ingrediënten (al omgerekend naar de porties die je in Mealie plande, net als *Alle ingrediënten*) en de bereiding. Met **Open in Mealie**, **Wijzigen** en **Sluiten**; Esc of een tik naast het venster sluit het ook. De knoppen blijven onderaan in beeld terwijl je door een lang recept scrolt.
+- **Het potlood rechtsboven bij een maaltijd is een eigen knop** en opent *Maaltijd wijzigen* (de dag, de maaltijd, het recept, of Verwijderen). Vroeger opende een tik op de hele maaltijd dat venster. **Wijzigen** in het receptvenster opent hetzelfde.
+- Een notitie (zoals *Uit eten*) heeft geen recept: een tik daarop opent nog steeds meteen *Maaltijd wijzigen*.
+- Het venster vraagt niets nieuws aan Mealie: de week haalt elk recept al op. `GET /api/mealplan` geeft per maaltijd ook `recipeMinutes` (de bereidingstijd) en `recipeUrl` (het recept in Mealie).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.87.1
 
 ### Opgelost in 2.87.1
