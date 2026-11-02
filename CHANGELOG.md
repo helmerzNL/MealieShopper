@@ -20,7 +20,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **De kaart van een aanbieding** heeft nu de titel als link naar de winkel (in plaats van de hele kaart), zodat er een knop op kan.
 - **Prijsgeschiedenis:** de gewone prijs per eenheid bij de kerngetallen; de MCP-tool `get_price_history` geeft hem ook (`regularPricePerUnit`).
 - Ideeën en testgevallen voor de prijs per eenheid (het kortingspercentage, kleuren naar plek, *6 x 1 l* is de prijs van het pak) komen uit het userscript *Albert Heijn kortingspercentages en prijs per kg/ml/etc.* van [wolph](https://github.com/wolph) (BSD-3-Clause); de code is eigen werk.
-- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (deel 2).
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (deel 2). Pull request: [#180](https://github.com/helmerzNL/MealieShopper/pull/180).
 
 ### Opgelost in 2.89.0
 
