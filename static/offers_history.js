@@ -412,8 +412,9 @@ window.addEventListener("resize", () => {
 
 // Vergelijk verpakkingen (#178): één zoekopdracht bij de winkel naar hetzelfde product in andere maten, op prijs per kilo, liter of stuk.
 // Kleur naar plek in de lijst (goedkoopste groen, duurste rood), zoals in het userscript van wolph. Geopend vanaf een aanbieding
-// (offers.js) of vanaf de prijsgeschiedenis.
-const packCompare = { loadId: 0 };
+// (offers.js) of vanaf de prijsgeschiedenis. Standaard alleen hetzelfde soort product (zie prices._same_kind); de filters erboven
+// werken op wat er al gevonden is, zonder nieuwe zoekopdracht. Het gekozen product blijft altijd staan, om mee te vergelijken.
+const packCompare = { loadId: 0, data: null };
 
 function packCompareRankClass(rank) {
   if (rank <= 0.2) return "rank-1";
@@ -423,7 +424,7 @@ function packCompareRankClass(rank) {
   return "rank-5";
 }
 
-function packCompareItem(candidate) {
+function packCompareItem(candidate, rank) {
   const tags = [
     candidate.self ? t("offers.compare.this") : "",
     !candidate.self && candidate.same ? t("offers.compare.same") : "",
@@ -433,15 +434,67 @@ function packCompareItem(candidate) {
   const name = escapeHtml([candidate.title, candidate.unitSize].filter(Boolean).join(" · "));
   const title = candidate.url ? `<a href="${escapeHtml(candidate.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
   return `<li class="compare-item${candidate.self ? " is-self" : ""}${candidate.same ? " is-same" : ""}">
-    <span class="compare-item__unit ${packCompareRankClass(candidate.rank)}">${escapeHtml(offerPerUnitText(candidate.unitPrice))}</span>
+    <span class="compare-item__unit ${packCompareRankClass(rank)}">${escapeHtml(offerPerUnitText(candidate.unitPrice))}</span>
     <span class="compare-item__body"><span>${title}</span>
       <small class="muted">${escapeHtml([formatPrice(candidate.price), ...tags].filter(Boolean).join(" · "))}</small></span>
   </li>`;
 }
 
+function packCompareVisible() {
+  const candidates = (packCompare.data && packCompare.data.candidates) || [];
+  const kind = $("#compare-filter-kind").checked;
+  const brand = $("#compare-filter-brand").checked;
+  const onOffer = $("#compare-filter-offer").checked;
+  const text = $("#compare-filter-text").value.trim();
+  return candidates.filter(
+    (candidate) =>
+      candidate.self ||
+      ((!kind || candidate.sameKind) && (!brand || candidate.sameBrand) && (!onOffer || candidate.onOffer) && (!text || matchesWords(candidate.title, text)))
+  );
+}
+
+// Het antwoord bovenaan: wat per eenheid het goedkoopst is van wat er nu te zien is, vergeleken met het gekozen product.
+function packCompareSummary(visible) {
+  const self = visible.find((candidate) => candidate.self);
+  const others = visible.filter((candidate) => !candidate.self);
+  if (!self || !self.unitPrice || !others.length) return "";
+  const cheapest = others[0];
+  const unit = t({ kg: "offers.unit.kg", l: "offers.unit.l" }[self.unitPrice.unit] || "offers.unit.stuk");
+  if (cheapest.unitPrice.value < self.unitPrice.value - 0.005) {
+    return t("offers.compare.cheaper_than", {
+      title: [cheapest.title, cheapest.unitSize].filter(Boolean).join(" "),
+      amount: formatPrice(self.unitPrice.value - cheapest.unitPrice.value),
+      unit,
+    });
+  }
+  return t("offers.compare.cheapest", { unit, count: I18N.formatNumber(visible.length) });
+}
+
+function renderPackCompare() {
+  const data = packCompare.data;
+  if (!data) return;
+  const candidates = data.candidates || [];
+  const visible = packCompareVisible();
+  $("#compare-dialog-filters").hidden = candidates.length < 2;
+  $("#compare-dialog-summary").textContent = packCompareSummary(visible);
+  const others = visible.filter((candidate) => !candidate.self).length;
+  if (candidates.length < 2) message("#compare-dialog-message", t("offers.compare.none"));
+  else if (!others) message("#compare-dialog-message", t("offers.compare.no_match"));
+  else message("#compare-dialog-message", t("offers.compare.count", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(candidates.length) }));
+  // De kleur volgt de plek in wat er te zien is: de goedkoopste groen, de duurste rood.
+  $("#compare-dialog-list").innerHTML = visible.map((candidate, index) => packCompareItem(candidate, visible.length > 1 ? index / (visible.length - 1) : 0)).join("");
+}
+
 async function openPackCompare(store, productId) {
   const loadId = ++packCompare.loadId;
   const dialog = $("#compare-dialog");
+  packCompare.data = null;
+  $("#compare-filter-kind").checked = true;
+  $("#compare-filter-brand").checked = false;
+  $("#compare-filter-offer").checked = false;
+  $("#compare-filter-text").value = "";
+  $("#compare-dialog-filters").hidden = true;
+  $("#compare-dialog-summary").textContent = "";
   $("#compare-dialog-title").textContent = t("offers.compare.title");
   $("#compare-dialog-meta").textContent = "";
   $("#compare-dialog-list").innerHTML = "";
@@ -451,19 +504,23 @@ async function openPackCompare(store, productId) {
     const data = await jsonFetch(`/api/prices/compare?${new URLSearchParams({ store, id: productId })}`);
     if (loadId !== packCompare.loadId) return;
     const product = data.product || {};
+    packCompare.data = data;
     $("#compare-dialog-title").textContent = product.title || t("offers.compare.title");
     $("#compare-dialog-meta").textContent = [product.unitSize, offerPerUnitText(product.unitPrice), t("offers.compare.searched", { query: data.query })]
       .filter(Boolean)
       .join(" · ");
-    const candidates = data.candidates || [];
-    message("#compare-dialog-message", candidates.length > 1 ? "" : t("offers.compare.none"));
-    $("#compare-dialog-list").innerHTML = candidates.map(packCompareItem).join("");
+    renderPackCompare();
   } catch (error) {
     if (loadId !== packCompare.loadId) return;
     message("#compare-dialog-message", error.message);
   }
 }
 
+for (const id of ["#compare-filter-kind", "#compare-filter-brand", "#compare-filter-offer"]) $(id).addEventListener("change", renderPackCompare);
+$("#compare-filter-text").addEventListener("input", renderPackCompare);
+window.addEventListener("ms:languagechange", () => {
+  if (packCompare.data) renderPackCompare();
+});
 $("#compare-dialog-close").addEventListener("click", () => $("#compare-dialog").close());
 $("#compare-dialog").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();

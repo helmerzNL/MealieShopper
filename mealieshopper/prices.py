@@ -511,7 +511,7 @@ GOOD_DISCOUNT = 0.20  # vanaf 20% onder de laagste gewone prijs van de laatste 3
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
 PACK_MARGIN = 0.02  # een andere verpakking telt pas als goedkoper bij minstens 2% verschil per eenheid
-COMPARE_LIMIT = 10
+COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergehakt) tussen de resultaten te krijgen
 
 # Woorden die een verpakking aanduiden, niet het product: zonder deze woorden (en zonder maten) is "AH Zalmfilet 3-pack" hetzelfde
 # product als "AH Zalmfilet".
@@ -547,25 +547,53 @@ def base_title(title: Any) -> str:
     return " ".join(word for word in re.findall(r"[a-z0-9]+", text) if word not in _PACK_WORDS)
 
 
+_STORE_WORDS = frozenset({"ah", "jumbo", "picnic", "crisp"})
+
+
+def _kind_words(title: Any, brand: Any) -> list[str]:
+    """De woorden die zeggen wat voor product het is: de naam zonder merk, winkel, maten en verpakkingswoorden ("rundergehakt")."""
+    brand_words = set(re.findall(r"[a-z0-9]+", ah_lists._fold(brand or "")))
+    return [word for word in base_title(title).split() if word not in brand_words and word not in _STORE_WORDS]
+
+
+def _same_kind(kind: list[str], other_title: Any) -> bool:
+    """Hetzelfde soort product: elk woord van de soort staat in de naam, ook als deel van een woord. Bij "AH Rundergehakt" horen
+    "AH Rundergehakt 1000 g" en "AH Biologisch rundergehakt", maar niet "AH Hamburgers" of "AH Half-om-half gehakt"."""
+    words = base_title(other_title).split()
+    return all(any(word in other for other in words) for word in kind)
+
+
 def _same_product(base: str, other_title: Any) -> bool:
     """Hetzelfde product in een andere verpakking: precies dezelfde naam zonder maten en verpakkingswoorden. "AH Biologisch Penne" is
     dus niet hetzelfde als "AH Penne", maar "AH Penne voordeelverpakking" wel."""
     return bool(base) and base_title(other_title) == base
 
 
+# Acties met een voorwaarde waarbij de winkel de gewone prijs als prijs noemt en geen prijs ervoor: AH zet bij "1+1 gratis",
+# "2e halve prijs" en "2e = 50% korting" de gewone prijs neer (zie `ah._promotion_products`), Jumbo zonder actieprijs ook. Wat een stuk
+# kost, volgt dan uit die prijs. Bij "25% korting" zonder prijs ervoor weten we niet of de prijs al verlaagd is; die rekenen we niet uit.
+_FROM_REGULAR = frozenset({deals.SECOND_HALF, deals.NTH_FREE, deals.NTH_PERCENT})
+
+
 def _effective(offer: dict[str, Any]) -> float | None:
     """Wat één stuk kost bij de aanbieding (als je de voorwaarde haalt)."""
     if _number(offer.get("unitPrice")) is not None:
         return _number(offer.get("unitPrice"))
-    return _number(offer.get("price")) if _number(offer.get("priceBefore")) is not None else None
+    price = _number(offer.get("price"))
+    if _number(offer.get("priceBefore")) is not None:
+        return price
+    mechanic = deals.parse_mechanic(offer.get("promoLabel"))
+    if price is not None and mechanic["type"] in _FROM_REGULAR:
+        return _number(deals.effective_unit_price(mechanic, price, price))
+    return None
 
 
 def _stated_regular(offer: dict[str, Any]) -> float | None:
-    """De gewone prijs die de winkel bij de aanbieding noemt. AH geeft bij een actie met een minimumaantal ("2 voor 3") geen prijs ervoor
-    maar de gewone prijs als prijs; dan is de prijs hoger dan wat een stuk bij de actie kost."""
+    """De gewone prijs die de winkel bij de aanbieding noemt. AH geeft bij een actie met een minimumaantal ("2 voor 3", "1+1 gratis")
+    geen prijs ervoor maar de gewone prijs als prijs; dan is de prijs hoger dan wat een stuk bij de actie kost."""
     if _number(offer.get("priceBefore")) is not None:
         return _number(offer.get("priceBefore"))
-    price, unit = _number(offer.get("price")), _number(offer.get("unitPrice"))
+    price, unit = _number(offer.get("price")), _effective(offer)
     return price if price is not None and unit is not None and unit < price else None
 
 
@@ -647,6 +675,8 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
         product_id = str(offer.get("id"))
         effective = _effective(offer)
         stated = _stated_regular(offer)
+        if _number(offer.get("unitPrice")) is None and effective is not None and stated is not None:
+            offer["unitPrice"] = effective  # zo toont de kaart ook bij "1+1 gratis" van AH wat een stuk kost
         offer["unitPricePer"] = unit_price(effective if effective is not None else offer.get("price"), offer.get("unitSize"))
         known = [price for price in regulars.get(product_id, []) if _number(price) is not None]
         if stated is not None:
@@ -727,8 +757,9 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
     """Andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar. Doet één zoekopdracht bij de winkel.
 
     De gevonden producten met dezelfde soort eenheid staan op prijs per eenheid, de goedkoopste eerst. `same` zegt of het hetzelfde
-    product is (dezelfde naam zonder maten en verpakkingswoorden, en hetzelfde merk), `cheaper` of het per eenheid goedkoper is dan het
-    gekozen product, en `rank` (0 tot 1) waar het tussen de rest staat, voor de kleur. De gevonden prijzen worden ook bewaard.
+    product is (dezelfde naam zonder maten en verpakkingswoorden, en hetzelfde merk), `sameKind` of het hetzelfde soort product is (zie
+    `_same_kind`; daarop filtert het venster standaard), `sameBrand` of het merk gelijk is, `cheaper` of het per eenheid goedkoper is dan
+    het gekozen product, en `rank` (0 tot 1) waar het tussen de rest staat, voor de kleur. De gevonden prijzen worden ook bewaard.
     """
     store = offers._valid_store(store)
     product_id = str(product_id or "").strip()
@@ -753,11 +784,14 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
     candidates.sort(key=lambda c: (c["unitPrice"]["value"], c["id"] != product_id))
     mine = product["unitPrice"]["value"] if product["unitPrice"] else None
     brand = ah_lists._fold(product.get("brand") or "")
+    kind = _kind_words(product["title"], product.get("brand"))
     for index, candidate in enumerate(candidates):
         candidate["self"] = candidate["id"] == product_id
+        candidate["sameKind"] = candidate["self"] or _same_kind(kind, candidate["title"])
+        candidate["sameBrand"] = candidate["self"] or bool(brand) and ah_lists._fold(candidate.get("brand") or "") == brand
         candidate["same"] = candidate["self"] or (
             _same_product(base, candidate["title"]) and (not brand or not candidate.get("brand") or ah_lists._fold(candidate["brand"]) == brand)
         )
         candidate["cheaper"] = mine is not None and not candidate["self"] and candidate["unitPrice"]["value"] < mine * (1 - PACK_MARGIN)
         candidate["rank"] = round(index / (len(candidates) - 1), 2) if len(candidates) > 1 else 0
-    return {"store": store, "product": product, "query": query, "unit": unit, "candidates": candidates}
+    return {"store": store, "product": product, "query": query, "unit": unit, "kind": " ".join(kind), "candidates": candidates}
