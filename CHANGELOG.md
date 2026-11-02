@@ -14,6 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - staat onder het ingrediënt een regel als een andere optie per eenheid goedkoper is, bijvoorbeeld *"Per kg goedkoper: AH Rundergehakt 500 g – € 10,70/kg (gekozen: € 12,63/kg)"*, met **Kies**. Dat kiest die optie en rekent het aantal verpakkingen opnieuw uit voor de hoeveelheid uit het recept (voor 500 g: één keer 500 g in plaats van twee keer 300 g).
 - Bij AH vroeg de zoekopdracht al om 30 producten en hield er vijf over; die 30 worden nu gebruikt, dus er zijn geen extra aanroepen. Bij Picnic, Jumbo en Crisp vraagt dezelfde zoekopdracht om meer producten.
 - **Zoek een ander product** laat de eerste vijf zoekresultaten zien zoals voorheen, nu ook met de prijs per eenheid.
+- Pull request: [#183](https://github.com/helmerzNL/MealieShopper/pull/183).
 
 ## v2.89.2
 
