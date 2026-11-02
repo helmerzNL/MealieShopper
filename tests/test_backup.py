@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import io
 import json
 import os
 import sqlite3
@@ -7,6 +10,8 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
@@ -18,6 +23,16 @@ PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
 PASSPHRASE = "een lange zin voor het bestand"
 PNG = b"\x89PNG\r\n\x1a\n" + b"avatar" * 5
+
+
+def product_image(n: int) -> dict:
+    """Een echte, kleine afbeelding voor `product_images`, met de waarden die eruit volgen (die rekent het terugzetten opnieuw uit)."""
+    out = io.BytesIO()
+    Image.new("RGB", (4 + n, 3), (n * 40, 120, 200)).save(out, "PNG")
+    data = out.getvalue()
+    return {"data": data, "digest": hashlib.sha256(data).hexdigest(), "content_type": "image/png", "width": 4 + n, "height": 3}
+
+
 SINGLETONS = {"ah_basket", "ah_saved_recipes_meta", "offer_recipes_meta", "offers_schedule"}  # CHECK (id = 1)
 SECRETS = {
     mealie.SECRET_URL: "http://mealie.test:9000",
@@ -82,6 +97,8 @@ class BackupCase(unittest.TestCase):
                             values[name] = PNG
                         elif table == "user_profiles" and name == "avatar_type":
                             values[name] = "image/png"
+                        elif table == "product_images" and name in product_image(n):
+                            values[name] = product_image(n)[name]
                         elif kind == "INTEGER":
                             values[name] = n * 10 + index
                         elif kind == "REAL":
@@ -452,6 +469,31 @@ class RefusalTest(BackupCase):
             doc["tables"]["user_profiles"][0]["avatar"] = {"base64": "***"}
 
         self.refused(self.tweak(self.data_bytes, broken), "bad_row")
+
+    def test_a_product_image_is_read_again_and_not_taken_on_the_files_word(self):
+        def spoil(doc):
+            doc["tables"]["product_images"][0]["data"] = {"base64": "PHN2Zz48L3N2Zz4="}  # <svg></svg>
+
+        self.assertIn("product_images", self.refused(self.tweak(self.data_bytes, spoil), "bad_row")["error"])
+
+        def too_wide(doc):
+            out = io.BytesIO()
+            Image.new("RGB", (1500, 10)).save(out, "PNG")
+            doc["tables"]["product_images"][0]["data"] = {"base64": base64.b64encode(out.getvalue()).decode("ascii")}
+
+        self.assertIn("1024", self.refused(self.tweak(self.data_bytes, too_wide), "bad_row")["error"])
+
+    def test_what_follows_from_a_product_image_is_worked_out_again(self):
+        def lie(doc):
+            row = doc["tables"]["product_images"][0]
+            row.update(content_type="image/webp", width=999, height=999, digest="niet-waar")
+
+        self.assertEqual(self.restore(self.tweak(self.data_bytes, lie))["status"], "done")
+        with closing(self.connect()) as conn:
+            row = conn.execute("SELECT * FROM product_images ORDER BY id LIMIT 1").fetchone()
+        expected = product_image(1)
+        self.assertEqual((row["content_type"], row["width"], row["height"], row["digest"]),
+                         (expected["content_type"], expected["width"], expected["height"], expected["digest"]))
 
     def test_a_file_over_the_limit_is_refused_and_not_kept(self):
         with mock.patch.object(backup, "MAX_STAGE_BYTES", 1000):

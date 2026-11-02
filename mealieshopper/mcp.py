@@ -506,7 +506,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
     store = args.get("store") or None
     if store is not None and store not in offers.STORES:
         raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
-    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50))
+    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50), bought=bool(args.get("bought")))
     keep = PRICE_HISTORY_ITEMS
     return {
         "total": data["total"],
@@ -936,6 +936,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
                 "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
+                "bought": {"type": "boolean", "description": "Alleen producten die je minstens één keer kocht (uit bestellingen en kassabonnen)."},
             }
         ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Prijsgeschiedenis"},
