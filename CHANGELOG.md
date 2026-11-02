@@ -14,6 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Het gekozen product blijft altijd staan, om mee te vergelijken. De kleur volgt de plek in wat er te zien is.
   - **Bovenaan het antwoord**: *"AH Rundergehakt 1000 g is per kg € … goedkoper dan dit product"*, of *"Dit product is per kg het goedkoopst van deze 4"*. Daaronder hoeveel van de gevonden producten je ziet.
   - MealieShopper vraagt de winkel nu om 30 producten in plaats van 10, zodat ook de grote verpakking ertussen zit.
+- Pull request: [#182](https://github.com/helmerzNL/MealieShopper/pull/182).
 
 ### Opgelost in 2.89.2
 
