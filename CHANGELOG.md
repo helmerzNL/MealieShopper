@@ -2,6 +2,31 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.89.0
+
+### Nieuw in 2.89.0
+
+*English summary: part 2 of the price history (#178). Every offer now shows its price per kilo, litre or piece and a verdict: "A real deal" (what an item costs with the offer is at least 20% below the lowest regular price of the last 30 days), "Small saving", or "Not cheaper than the regular price of the last 30 days", with a note when the store's price before is higher than that. Offers also say when this is the lowest offer price in a year, when the product is on offer six times a year or more, and when another pack of the same product is cheaper per unit. The new "Compare pack sizes" button (on an offer and in Price history) searches the store once and lists the packs with the same unit, cheapest per unit first, coloured green to red. Ideas and test cases come from wolph's userscript. Fixed: purchases in the store now all count in the price history. A line on an AH receipt without a usable product id was left out, and an unknown id became a separate product; now a line is linked by its id when that is known, otherwise by its name ("AH RUNDERGEHAKT" belongs to "AH Rundergehakt"), and otherwise it is listed as its own product. The history also says how many orders and receipts still have to be fetched.*
+
+- **Prijs per kilo, liter of stuk bij elke aanbieding**, uit de verpakking: *2 x 250 g* is 500 gram, *6 x 1 l* zes liter (de prijs van het pak gedeeld door zes, niet de literprijs zelf), *ca. 500 g* 500 gram en *per stuk* één stuk. Bij een aanbieding met een voorwaarde (*2 voor 3*, *2e halve prijs*, *1+1 gratis*) is het wat een stuk met de actie kost.
+- **Een oordeel bij elke aanbieding:**
+  - *Echt voordelig*: wat een stuk met de actie kost, ligt minstens 20% onder de laagste gewone prijs van de laatste 30 dagen.
+  - *Klein voordeel*: lager, maar minder dan 20%.
+  - *Niet goedkoper dan de gewone prijs van de laatste 30 dagen*: je kon het onlangs voor die prijs of minder kopen.
+  - Noemt de winkel een prijs ervoor die hoger is dan de laagste gewone prijs van de laatste 30 dagen, dan staat dat in de uitleg (houd de muis op het oordeel).
+  - Daarnaast *Laagste actieprijs in een jaar*, *n× in de aanbieding dit jaar: komt vaak terug* (vanaf zes keer) en *Per eenheid goedkoper*: een andere verpakking van hetzelfde product (dezelfde naam zonder maten en woorden als *voordeelverpakking* of *3-pack*, en hetzelfde merk) die per eenheid minstens 2% goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen.
+  - Het oordeel komt uit de gegevens van deel 1 (de bewaarde gewone prijzen, je bestellingen en de aanbiedingsgeschiedenis); er gaat niets naar een winkel of een AI. Een nieuw bewaarde prijs ververst de lijst (ETag).
+- **Vergelijk verpakkingen** (knop bij een aanbieding en in de Prijsgeschiedenis): zoekt één keer bij de winkel naar hetzelfde product en zet de gevonden verpakkingen met dezelfde eenheid naast elkaar, de goedkoopste per eenheid bovenaan, gekleurd van groen naar rood. *Dit product*, *zelfde product*, *goedkoper per eenheid* en *in de aanbieding* staan erbij. De gevonden prijzen worden bewaard, zodat het oordeel daarna beter wordt. Nieuwe route: `GET /api/prices/compare` (met `store` en `id`).
+- **De kaart van een aanbieding** heeft nu de titel als link naar de winkel (in plaats van de hele kaart), zodat er een knop op kan.
+- **Prijsgeschiedenis:** de gewone prijs per eenheid bij de kerngetallen; de MCP-tool `get_price_history` geeft hem ook (`regularPricePerUnit`).
+- Ideeën en testgevallen voor de prijs per eenheid (het kortingspercentage, kleuren naar plek, *6 x 1 l* is de prijs van het pak) komen uit het userscript *Albert Heijn kortingspercentages en prijs per kg/ml/etc.* van [wolph](https://github.com/wolph) (BSD-3-Clause); de code is eigen werk.
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (deel 2). Pull request: [#180](https://github.com/helmerzNL/MealieShopper/pull/180).
+
+### Opgelost in 2.89.0
+
+- **Prijsgeschiedenis: aankopen in de winkel tellen weer allemaal mee.** Rundergehakt dat je tien keer kocht, kwam er maar een paar keer in terug. Een regel op een AH-kassabon zonder bruikbaar product-id (leeg of 0) liet de geschiedenis weg, en een id dat bij geen bekend product hoorde werd een apart product. Nu hoort een regel bij het product met hetzelfde id als dat bekend is. Anders telt de naam: "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past ook de naam nergens, dan staat de regel als eigen product in de lijst, met de naam van de bon, zodat de aankoop altijd te vinden is.
+- **Nog niet opgehaalde aankopen staan erbij.** Een synchronisatie haalt de producten van een deel van je bestellingen en kassabonnen per keer op. Boven de lijst staat nu van hoeveel bestellingen en kassabonnen dat nog moet gebeuren; die aankopen ontbreken tot je ze synchroniseert onder Winkels.
+
 ## v2.88.0
 
 ### Nieuw in 2.88.0

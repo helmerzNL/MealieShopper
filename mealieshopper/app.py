@@ -427,13 +427,18 @@ def create_app() -> Flask:
         store = request.args.get("store") or "ah"
         week = offers_week()
         try:
-            etag = hashlib.sha1(offers.signature(store, week).encode("utf-8")).hexdigest()
+            etag = hashlib.sha1(f"{offers.signature(store, week)}|{prices.signature(store)}".encode("utf-8")).hexdigest()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
-        response = offers_action(lambda: offers.load(store, week), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        def load_with_verdicts() -> dict[str, Any]:
+            data = offers.load(store, week)
+            prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178); een fout laat de lijst staan
+            return data
+
+        response = offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -450,6 +455,14 @@ def create_app() -> Flask:
         return offers_action(
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
+        )
+
+    @app.get("/api/prices/compare")
+    def prices_compare():
+        # Doet één zoekopdracht bij de winkel: andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar.
+        return offers_action(
+            lambda: prices.compare(request.args.get("store"), request.args.get("id")),
+            tr("Verpakkingen vergelijken mislukt", "Comparing pack sizes failed"),
         )
 
     @app.post("/api/offers/sync")

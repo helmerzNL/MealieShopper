@@ -515,6 +515,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
                 "store": product["store"], "productId": product["productId"], "title": product.get("title"), "brand": product.get("brand"),
                 "size": product.get("unitSize"), "onOfferNow": product.get("onOfferNow"), "timesOnOffer": product.get("timesOnOffer"),
                 "lowestOfferPrice": product.get("lowestPrice"), "regularPrice": product.get("regularPrice"),
+                "regularPricePerUnit": product.get("regularPerUnit"),
                 "lowestRegularPrice": product.get("lowestRegular"), "highestRegularPrice": product.get("highestRegular"),
                 "timesBought": product.get("timesBought"), "lastPaid": product.get("lastPaid"), "averagePaid": product.get("averagePaid"),
                 "offers": [
