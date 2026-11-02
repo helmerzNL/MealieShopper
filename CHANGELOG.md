@@ -2,6 +2,116 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.91.1
+
+### Opgelost in 2.91.1
+
+*English summary: with a popup open (the recipe of a meal, Edit meal, a product photo, Compare packs or an offer), swiping on a phone sometimes scrolled the page behind it: as soon as the popup reached its top or bottom, on a short popup, or on the dark edge around it. Now only the popup scrolls; the page behind it stays put and keeps its place, swiping down no longer reloads the page (pull-to-refresh), and the mouse wheel behaves the same. After closing, the page scrolls as before.*
+
+- **Vegen in een popup scrolt alleen de popup.** Met een popup open (het recept van een maaltijd, *Maaltijd wijzigen*, de foto van een product, *Verpakkingen vergelijken* of een aanbieding) scrolde de pagina erachter soms mee: zodra de popup bovenaan of onderaan was, bij een korte popup, en bij vegen op de donkere rand eromheen. Nu staat de pagina erachter stil zolang er een popup open is, en houdt ze haar plek. Vegen naar beneden ververst de pagina ook niet meer (pull-to-refresh). Met het muiswiel werkt het net zo. Na het sluiten scrolt de pagina weer gewoon.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#186](https://github.com/helmerzNL/MealieShopper/pull/186).
+
+## v2.91.0
+
+### Nieuw in 2.91.0
+
+*English summary: in the week menu, tapping a meal now opens its recipe in a window instead of the edit screen: the ingredients (already scaled to the servings you planned), the method, the cooking time and the description, with Open in Mealie, Edit and Close. The pencil at the top right of a meal is now its own button and opens Edit meal, as does Edit in the recipe window. A note has no recipe, so tapping it still opens Edit meal. The window needs no extra request: the week already brings each recipe from Mealie.*
+
+- **Een tik op een maaltijd in het weekmenu opent het recept**, in een venster: de foto, de maaltijd en de dag, de porties en de bereidingstijd, de omschrijving, de ingrediënten (al omgerekend naar de porties die je in Mealie plande, net als *Alle ingrediënten*) en de bereiding. Met **Open in Mealie**, **Wijzigen** en **Sluiten**; Esc of een tik naast het venster sluit het ook. De knoppen blijven onderaan in beeld terwijl je door een lang recept scrolt.
+- **Het potlood rechtsboven bij een maaltijd is een eigen knop** en opent *Maaltijd wijzigen* (de dag, de maaltijd, het recept, of Verwijderen). Vroeger opende een tik op de hele maaltijd dat venster. **Wijzigen** in het receptvenster opent hetzelfde.
+- Een notitie (zoals *Uit eten*) heeft geen recept: een tik daarop opent nog steeds meteen *Maaltijd wijzigen*.
+- Het venster vraagt niets nieuws aan Mealie: de week haalt elk recept al op. `GET /api/mealplan` geeft per maaltijd ook `recipeMinutes` (de bereidingstijd) en `recipeUrl` (het recept in Mealie).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#184](https://github.com/helmerzNL/MealieShopper/pull/184).
+
+## v2.90.0
+
+### Nieuw in 2.90.0
+
+*English summary: the pack comparison now also works in the check list when you put the week menu in your basket. Every product in a line's drop-down shows its price per kilo, litre or piece (with an offer: what an item costs with the deal, also for "1+1 free"). After the suggested product the drop-down only lists the same product in another size or what is cheaper per unit, and only the same kind of product (for minced beef no mixed mince or meatballs); other search results are left out and remain available through Search for another product. When another option is cheaper per unit, a line under the ingredient says so ("Cheaper per kg: AH Rundergehakt 500 g – €10.70/kg (chosen: €12.63/kg)") with a Choose button, which also recalculates the number of packs. Searching yourself still shows the first five results, now with the price per unit.*
+
+- **Vergelijken in de controlelijst van het weekmenu** ([#178](https://github.com/helmerzNL/MealieShopper/issues/178), op verzoek). Als je het weekmenu in je mandje doet:
+  - staat bij elk product in de keuzelijst de **prijs per kilo, liter of stuk**. Bij een aanbieding is dat wat een stuk met de actie kost, ook bij *1+1 gratis* (waar AH de gewone prijs als prijs geeft);
+  - staat na het voorgestelde product alleen nog wat **hetzelfde product** is in een andere maat, of **per eenheid goedkoper**, en alleen hetzelfde soort product: bij rundergehakt dus 500 g en 175 g rundergehakt en *minder vet*, maar geen gemengd gehakt, gehaktballen, biologisch van 250 g of Greenfields. De goedkoopste per eenheid eerst, hooguit zes. Andere zoekresultaten vind je met **Zoek een ander product**;
+  - staat onder het ingrediënt een regel als een andere optie per eenheid goedkoper is, bijvoorbeeld *"Per kg goedkoper: AH Rundergehakt 500 g – € 10,70/kg (gekozen: € 12,63/kg)"*, met **Kies**. Dat kiest die optie en rekent het aantal verpakkingen opnieuw uit voor de hoeveelheid uit het recept (voor 500 g: één keer 500 g in plaats van twee keer 300 g).
+- Bij AH vroeg de zoekopdracht al om 30 producten en hield er vijf over; die 30 worden nu gebruikt, dus er zijn geen extra aanroepen. Bij Picnic, Jumbo en Crisp vraagt dezelfde zoekopdracht om meer producten.
+- **Zoek een ander product** laat de eerste vijf zoekresultaten zien zoals voorheen, nu ook met de prijs per eenheid.
+- Pull request: [#183](https://github.com/helmerzNL/MealieShopper/pull/183).
+
+## v2.89.2
+
+### Nieuw in 2.89.2
+
+*English summary: Compare pack sizes can now be filtered. By default it shows only the same kind of product (every word of the product name without brand, sizes and pack words must be in the name: "AH Rundergehakt" shows 300 g, 1000 g and organic mince, but not burgers or meatballs); "Same brand", "On offer" and a name filter narrow it further, and the selected product always stays for comparison. At the top it says which visible product is cheapest per unit and by how much, or that this product is the cheapest. The search asks the store for 30 products instead of 10, so the big pack is among them. Fixed: AH gives "1+1 free", "2nd half price" and "2nd = 50% off" with the regular price as the price and no price before, so the per-item price, the verdict and the comparison used the full price (300 g mince on 1+1 showed €11.63/kg instead of €5.83/kg); the per-item price now follows from that regular price, and the offer card shows it too.*
+
+- **Vergelijk verpakkingen is te filteren** ([#178](https://github.com/helmerzNL/MealieShopper/issues/178), op verzoek):
+  - **Zelfde soort** (standaard aan): alleen producten waarin elk woord van de productnaam staat, zonder merk, winkel, maten en woorden als *voordeelverpakking*. Bij *AH Rundergehakt* zie je 300 g, 1000 g, biologisch en mager rundergehakt, maar geen hamburgers, gehaktballen of half-om-half.
+  - **Zelfde merk**, **In de aanbieding** en een veld **Filter op naam**. De filters werken op wat er al gevonden is, zonder nieuwe zoekopdracht.
+  - Het gekozen product blijft altijd staan, om mee te vergelijken. De kleur volgt de plek in wat er te zien is.
+  - **Bovenaan het antwoord**: *"AH Rundergehakt 1000 g is per kg € … goedkoper dan dit product"*, of *"Dit product is per kg het goedkoopst van deze 4"*. Daaronder hoeveel van de gevonden producten je ziet.
+  - MealieShopper vraagt de winkel nu om 30 producten in plaats van 10, zodat ook de grote verpakking ertussen zit.
+- Pull request: [#182](https://github.com/helmerzNL/MealieShopper/pull/182).
+
+### Opgelost in 2.89.2
+
+- **Prijs per stuk bij "1+1 gratis" en "2e halve prijs" van AH.** AH geeft bij die acties de gewone prijs als prijs mee, zonder prijs ervoor. Daardoor rekende MealieShopper met de volle prijs: 300 g rundergehakt met 1+1 gratis stond op € 11,63/kg in plaats van € 5,83/kg, met een verkeerd oordeel en een verkeerde vergelijking. Nu volgt de prijs per stuk uit die gewone prijs, voor *1+1 gratis* (en *2+1*), *2e halve prijs* en *2e = 50% korting*. De kaart van de aanbieding toont hem ook (*bij 2 stuks · € 1,75 per stuk*). Bij *25% korting* zonder prijs ervoor rekent MealieShopper niets uit, omdat niet zeker is of de prijs al verlaagd is.
+
+## v2.89.1
+
+### Opgelost in 2.89.1
+
+*English summary: fetching the AH Bonus failed with "AH bonus ophalen mislukt (400): member not active / invalid_grant". The Bonus, product search and recipes use an anonymous AH token, which AH says is valid for seven days but sometimes revokes earlier; MealieShopper kept using the revoked token until it expired, so every request failed for up to a week. MealieShopper now keeps the anonymous token for at most an hour, and when AH rejects a token it forgets it and tries once more with a fresh one. A fresh token was checked live against AH and works. Also fixed: searching the Price history for "Gehakt 500 gram" found nothing, because the whole text had to be in the product name; now every word must be in the name (also as part of a word) and a size in the search is compared with the pack.*
+
+- **De AH Bonus ophalen mislukte met "AH bonus ophalen mislukt (400): member not active / invalid_grant".** De bonus, het zoeken naar producten (ook in de controlelijst van het weekmenu) en de recepten gebruiken een anoniem AH-token, zonder je account. AH zegt dat zo'n token zeven dagen geldig is, maar trekt het soms eerder in. MealieShopper bleef het ingetrokken token gebruiken tot het zou verlopen, dus elke aanroep mislukte tot een week lang, ook de terugvalroutes van de bonus.
+  - MealieShopper bewaart het anonieme token nu hooguit een uur.
+  - Weigert AH een token (401, of 400/403 met `invalid_grant`, "member not active" of `invalid_token`), dan vergeet de app het en probeert de aanroep één keer opnieuw met een vers token. Dat geldt voor de bonus, het zoeken naar producten, producten op id, recepten zoeken en een recept ophalen.
+  - Een geweigerd token van je AH-koppeling wordt ook vergeten, zodat de volgende aanroep het opnieuw ververst.
+- Live nagekeken: een vers anoniem token haalt de bonus gewoon op.
+- Pull request: [#181](https://github.com/helmerzNL/MealieShopper/pull/181).
+- **Zoeken in de Prijsgeschiedenis op woorden en maat.** "Gehakt 500 gram" vond niets: het zoeken keek of die hele tekst letterlijk in de productnaam stond, en de maat staat apart ("500 g"). Nu moet elk woord in de naam (of het merk) staan, ook als deel van een woord ("gehakt" vindt "AH Rundergehakt"), in elke volgorde. Een maat in de zoekterm ("500 gram", "500g", "0,5 kg", "2 x 250 g") wordt vergeleken met de verpakking: gehakt van 500 gram wel, dat van 300 gram niet. Een product waarvan de verpakking niet bekend is, zoals een regel van een kassabon zonder maat, blijft erin. Geldt ook voor de MCP-tool `get_price_history`.
+
+## v2.89.0
+
+### Nieuw in 2.89.0
+
+*English summary: part 2 of the price history (#178). Every offer now shows its price per kilo, litre or piece and a verdict: "A real deal" (what an item costs with the offer is at least 20% below the lowest regular price of the last 30 days), "Small saving", or "Not cheaper than the regular price of the last 30 days", with a note when the store's price before is higher than that. Offers also say when this is the lowest offer price in a year, when the product is on offer six times a year or more, and when another pack of the same product is cheaper per unit. The new "Compare pack sizes" button (on an offer and in Price history) searches the store once and lists the packs with the same unit, cheapest per unit first, coloured green to red. Ideas and test cases come from wolph's userscript. Fixed: purchases in the store now all count in the price history. A line on an AH receipt without a usable product id was left out, and an unknown id became a separate product; now a line is linked by its id when that is known, otherwise by its name ("AH RUNDERGEHAKT" belongs to "AH Rundergehakt"), and otherwise it is listed as its own product. The history also says how many orders and receipts still have to be fetched.*
+
+- **Prijs per kilo, liter of stuk bij elke aanbieding**, uit de verpakking: *2 x 250 g* is 500 gram, *6 x 1 l* zes liter (de prijs van het pak gedeeld door zes, niet de literprijs zelf), *ca. 500 g* 500 gram en *per stuk* één stuk. Bij een aanbieding met een voorwaarde (*2 voor 3*, *2e halve prijs*, *1+1 gratis*) is het wat een stuk met de actie kost.
+- **Een oordeel bij elke aanbieding:**
+  - *Echt voordelig*: wat een stuk met de actie kost, ligt minstens 20% onder de laagste gewone prijs van de laatste 30 dagen.
+  - *Klein voordeel*: lager, maar minder dan 20%.
+  - *Niet goedkoper dan de gewone prijs van de laatste 30 dagen*: je kon het onlangs voor die prijs of minder kopen.
+  - Noemt de winkel een prijs ervoor die hoger is dan de laagste gewone prijs van de laatste 30 dagen, dan staat dat in de uitleg (houd de muis op het oordeel).
+  - Daarnaast *Laagste actieprijs in een jaar*, *n× in de aanbieding dit jaar: komt vaak terug* (vanaf zes keer) en *Per eenheid goedkoper*: een andere verpakking van hetzelfde product (dezelfde naam zonder maten en woorden als *voordeelverpakking* of *3-pack*, en hetzelfde merk) die per eenheid minstens 2% goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen.
+  - Het oordeel komt uit de gegevens van deel 1 (de bewaarde gewone prijzen, je bestellingen en de aanbiedingsgeschiedenis); er gaat niets naar een winkel of een AI. Een nieuw bewaarde prijs ververst de lijst (ETag).
+- **Vergelijk verpakkingen** (knop bij een aanbieding en in de Prijsgeschiedenis): zoekt één keer bij de winkel naar hetzelfde product en zet de gevonden verpakkingen met dezelfde eenheid naast elkaar, de goedkoopste per eenheid bovenaan, gekleurd van groen naar rood. *Dit product*, *zelfde product*, *goedkoper per eenheid* en *in de aanbieding* staan erbij. De gevonden prijzen worden bewaard, zodat het oordeel daarna beter wordt. Nieuwe route: `GET /api/prices/compare` (met `store` en `id`).
+- **De kaart van een aanbieding** heeft nu de titel als link naar de winkel (in plaats van de hele kaart), zodat er een knop op kan.
+- **Prijsgeschiedenis:** de gewone prijs per eenheid bij de kerngetallen; de MCP-tool `get_price_history` geeft hem ook (`regularPricePerUnit`).
+- Ideeën en testgevallen voor de prijs per eenheid (het kortingspercentage, kleuren naar plek, *6 x 1 l* is de prijs van het pak) komen uit het userscript *Albert Heijn kortingspercentages en prijs per kg/ml/etc.* van [wolph](https://github.com/wolph) (BSD-3-Clause); de code is eigen werk.
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (deel 2). Pull request: [#180](https://github.com/helmerzNL/MealieShopper/pull/180).
+
+### Opgelost in 2.89.0
+
+- **Prijsgeschiedenis: aankopen in de winkel tellen weer allemaal mee.** Rundergehakt dat je tien keer kocht, kwam er maar een paar keer in terug. Een regel op een AH-kassabon zonder bruikbaar product-id (leeg of 0) liet de geschiedenis weg, en een id dat bij geen bekend product hoorde werd een apart product. Nu hoort een regel bij het product met hetzelfde id als dat bekend is. Anders telt de naam: "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past ook de naam nergens, dan staat de regel als eigen product in de lijst, met de naam van de bon, zodat de aankoop altijd te vinden is.
+- **Nog niet opgehaalde aankopen staan erbij.** Een synchronisatie haalt de producten van een deel van je bestellingen en kassabonnen per keer op. Boven de lijst staat nu van hoeveel bestellingen en kassabonnen dat nog moet gebeuren; die aankopen ontbreken tot je ze synchroniseert onder Winkels.
+
+## v2.88.0
+
+### Nieuw in 2.88.0
+
+*English summary: the Price history (Offers, Price history) now shows more than the offers. It also shows the regular price over time and what you paid. The regular price is kept whenever MealieShopper looks a product up at the store (the check list of the week menu, Search for another product, the search per store and the MCP search tools), and it also comes from the price before an offer and from your orders. What you paid comes from the orders and receipts the app already keeps (AH, Jumbo, Picnic and Crisp), per item, so the history fills itself from everything the app ever fetched. The chart draws the regular price as steps and every purchase as a dot, with a legend and a table of purchases; products you only bought or looked up are found too. New: `GET /api/prices/history` and the MCP tool `get_price_history`. The new table `price_observations` is in the backup.*
+
+- **Prijsgeschiedenis: ook de gewone prijs en wat je betaalde.** Onder **Aanbiedingen, Prijsgeschiedenis** stond alleen wanneer een product in de aanbieding was. Nu staan er ook bij:
+  - **De gewone prijs door de tijd.** MealieShopper bewaart die elke keer dat het een product bij de winkel opzoekt: de controlelijst van het weekmenu, *Zoek een ander product*, het zoeken per winkel en de zoektools van de MCP-server. Eén prijs per product per dag. Daarnaast tellen de prijs vóór de actie van een aanbieding en de normale prijs in je bestellingen mee. Een product in de aanbieding zonder bekende prijs ervoor slaat het over, zodat er nooit een actieprijs als gewone prijs in komt.
+  - **Wat je betaalde**, per stuk, uit de bestellingen en kassabonnen die de app al bewaart: AH (geleverde bestellingen en kassabonnen), Jumbo, Picnic en Crisp. Een bestelling die nog niet geleverd is, telt niet mee, een geannuleerde ook niet. Zo staat alles wat de app ooit ophaalde er meteen in, zonder aparte import. Op een kassabon staat de prijs zonder de korting onderaan de bon; dat staat er ook bij.
+- **De grafiek** toont de gewone prijs als een trap (een trede loopt door tot de volgende keer dat een andere prijs is gezien) en elke aankoop als een stip, naast de balken van de aanbiedingen. Eronder staan een legenda en een tabel met de aankopen. Bovenaan staan ook hoe vaak je het kocht, wat je de laatste keer en gemiddeld per stuk betaalde, en de laagste en hoogste gewone prijs. Bij een grafiek van meer dan een jaar staat het jaartal bij de datums.
+- **Ook producten die nooit in de aanbieding waren**, maar die je kocht of opzocht, zijn nu te vinden. Een naam van een kassabon vindt het product ook ("RIJST BASMATI"), en dan staan alle gegevens van dat product erbij.
+- **`GET /api/prices/history`** (met `store`, `q` en `limit`) geeft per product de aanbiedingen (zoals `GET /api/offers/history`), de periodes met dezelfde gewone prijs (`regular`), de aankopen (`purchases`) en samenvattingen (`regularPrice`, `lastPaid`, `averagePaid`, `timesBought`). Het tabblad gebruikt deze route; `GET /api/offers/history` blijft bestaan.
+- **MCP-tool `get_price_history`**: dezelfde gegevens, compact, zodat een assistent kan zeggen of een aanbieding echt voordelig is.
+- **Back-up:** de nieuwe tabel `price_observations` gaat mee in de back-up ("Bijgehouden prijzen").
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (van [wolph](https://github.com/wolph)). Pull request: [#179](https://github.com/helmerzNL/MealieShopper/pull/179). Dit is deel 1; deel 2 (prijs per kilo of liter, een oordeel bij elke aanbieding en verpakkingen vergelijken) volgt.
+
 ## v2.87.1
 
 ### Opgelost in 2.87.1

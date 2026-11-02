@@ -39,6 +39,8 @@ class MealPlanTestCase(unittest.TestCase):
         auth._INITIALIZED = False
         mealie._version_cache.clear()
         self.addCleanup(mealie._version_cache.clear)
+        mealie._group_slug_cache.clear()
+        self.addCleanup(mealie._group_slug_cache.clear)
         self.client = create_app().test_client()
 
 
@@ -151,6 +153,36 @@ class WeekTest(MealPlanTestCase):
         self.assertEqual([(e["id"], e["recipeDetail"] and e["recipeDetail"]["name"]) for e in entries], [(1, None), (2, "Pasta")])
         self.assertIsNone(entries[0]["imageUrl"])
         self.assertIsNone(entries[0]["servings"], "een notitie heeft geen porties")
+
+    def test_a_recipe_brings_its_time_and_link_for_the_recipe_window(self):
+        # Een tik op een maaltijd opent het recept in een venster: met de bereidingstijd en de link naar Mealie erbij.
+        week = {"items": [
+            {"id": 1, "date": "2026-11-02", "entryType": "dinner", "title": "Uit eten", "text": "", "recipeId": None, "recipe": None},
+            {"id": 2, "date": "2026-11-03", "entryType": "dinner", "title": "", "recipeId": RECIPE_ID, "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta"}},
+        ]}
+        recipe = {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta", "totalTime": "1 hour 30 minutes",
+                  "recipeIngredient": [], "recipeInstructions": [{"text": "Kook de pasta."}]}
+
+        def get(url, **kwargs):
+            return response(body=week if url.endswith("/mealplans") else recipe)
+
+        with mock.patch.object(mealie.requests, "get", side_effect=get), mock.patch.object(mealie, "group_slug", return_value="thuis"):
+            entries = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08").get_json()
+        note, meal = entries
+        self.assertEqual((meal["recipeMinutes"], meal["recipeUrl"]), (90, f"{URL}/g/thuis/r/pasta"))
+        self.assertEqual(meal["recipeDetail"]["recipeInstructions"], [{"text": "Kook de pasta."}])
+        self.assertEqual((note["recipeMinutes"], note["recipeUrl"]), (None, None), "een notitie heeft geen recept")
+
+    def test_a_recipe_mealie_could_not_give_keeps_its_link(self):
+        week = {"items": [{"id": 2, "date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID, "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta"}}]}
+
+        def get(url, **kwargs):
+            return response(body=week) if url.endswith("/mealplans") else response(500, {"detail": "kapot"})
+
+        with mock.patch.object(mealie.requests, "get", side_effect=get), mock.patch.object(mealie, "group_slug", return_value=None):
+            entry = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08").get_json()[0]
+        self.assertIsNone(entry["recipeDetail"])
+        self.assertEqual((entry["recipeMinutes"], entry["recipeUrl"]), (None, f"{URL}/recipe/pasta"))
 
 
 SPAGHETTI = {"quantity": 400, "unit": {"name": "gram", "abbreviation": "g", "useAbbreviation": True}, "food": {"name": "spaghetti"}, "note": "", "display": "400 g spaghetti"}

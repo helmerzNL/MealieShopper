@@ -1252,10 +1252,19 @@ a.product-card strong {
   border-radius: 4px;
 }
 
+/* Een popup houdt het vegen voor zich. Zolang er een open is, scrolt de pagina erachter niet: niet bij vegen op de
+   popup als die bovenaan of onderaan is, niet bij vegen op de donkere rand eromheen, en vegen naar beneden ververst de
+   pagina niet (pull-to-refresh). Het slot zit op <html>: dat scrolt de pagina, ook waar html zelf overflow-y heeft. */
+html:has(dialog[open]) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .product-dialog {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: 0;
@@ -1687,6 +1696,22 @@ a.product-card__main:hover strong {
   padding: 0 8px;
 }
 
+/* De vergelijking in de controlelijst: een goedkopere verpakking per eenheid, met "Kies" (#178). */
+.review-cheaper {
+  display: block;
+  margin-top: 2px;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.review-cheaper:empty {
+  display: none;
+}
+
+.review-cheaper .link-button {
+  font-size: 13px;
+}
+
 .review-note {
   display: block;
   margin-top: 3px;
@@ -1943,36 +1968,115 @@ select.input {
   overflow-wrap: break-word;
 }
 
-/* Een geplande maaltijd is een knop (wijzigen of verwijderen); ze ziet eruit als tekst, met een klein potlood. */
-.meal--button {
+/* Een geplande maaltijd ziet eruit als tekst. Een tik erop opent het recept (een notitie: het plan-venster); het potlood
+   rechtsboven is een eigen knop die de maaltijd wijzigt. De tekst houdt rechts ruimte vrij voor het potlood. */
+.meal--planned {
+  position: relative;
+  display: block;
   width: calc(100% + 16px);
   margin: 0 -8px 8px;
-  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
+  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+.meal__open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 42px 6px 8px;
+  border: 0;
+  border-radius: inherit;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s var(--ease), background-color 0.15s var(--ease);
 }
 
+.meal__edit {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
 
-.meal--button:focus-visible {
+.meal__edit .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.meal__open:focus-visible,
+.meal__edit:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 
-.meal__pencil {
-  flex: none;
-  align-self: flex-start;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  fill: var(--muted);
+/* Het recept van een maaltijd in een venster: breder dan de andere vensters, voor de ingrediënten en de bereiding.
+   De knoppen blijven onderaan in beeld terwijl je door een lang recept scrolt. */
+.meal-recipe {
+  width: min(640px, calc(100vw - 32px));
 }
 
+.meal-recipe .product-dialog__inner {
+  padding-bottom: 0;
+}
+
+.meal-recipe__image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  object-fit: cover;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.meal-recipe__type {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.meal-recipe h3:focus {
+  outline: none;
+}
+
+.meal-recipe h4 {
+  margin: 12px 0 0;
+  font-size: 15px;
+}
+
+.meal-recipe__body .picnic-recipe__list {
+  margin-bottom: 4px;
+}
+
+.meal-recipe__description,
+.meal-recipe__steps li {
+  white-space: pre-line;
+  overflow-wrap: break-word;
+}
+
+.meal-recipe__actions {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -20px;
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 
 /* De weekplanner: elke dag een kaart, met onderaan een rustige knop om een maaltijd toe te voegen. */
 .day-card {
@@ -2197,14 +2301,15 @@ button.plan-recipe:focus-visible {
 
 /* Oplichten alleen met een muis: op een telefoon blijft een hover na een tik anders hangen. */
 @media (hover: hover) {
-  .meal--button:hover,
+  .meal--planned:hover,
   button.plan-recipe:hover {
     border-color: var(--border);
     background: var(--selection);
   }
 
-  .meal--button:hover .meal__pencil {
-    fill: var(--primary-strong);
+  .meal__edit:hover {
+    background: var(--surface);
+    color: var(--primary-strong);
   }
 
   .day-card__add:hover {
@@ -2246,7 +2351,8 @@ button.plan-recipe:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .day-card__add,
-  .meal--button {
+  .meal--planned,
+  .meal__edit {
     transition: none;
   }
 }
@@ -4302,6 +4408,88 @@ body.has-onboarding {
   stroke-width: 2;
 }
 
+/* De gewone prijs als trap: een onzichtbare dikke lijn eronder maakt elke trede makkelijk aan te wijzen. */
+.ohc-step-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+
+.ohc-step:focus {
+  outline: none;
+}
+
+.ohc-step:focus-visible .ohc-regular,
+.ohc-step:hover .ohc-regular {
+  stroke: var(--text);
+}
+
+/* Een aankoop: een stip op de prijs per stuk die je betaalde. */
+.ohc-paid circle {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.ohc-paid:hover circle,
+.ohc-paid:focus circle {
+  fill: var(--text);
+}
+
+.ohc-paid:focus {
+  outline: none;
+}
+
+.ohc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ohc-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ohc-key {
+  display: inline-block;
+  width: 18px;
+  height: 8px;
+}
+
+.ohc-key--offer {
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.ohc-key--regular {
+  height: 0;
+  border-top: 2px dashed var(--muted);
+}
+
+.ohc-key--paid {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--text);
+  border-radius: 50%;
+}
+
+.ohc-note {
+  margin: 6px 8px 0;
+  font-size: 13px;
+}
+
+.ohc-table caption {
+  padding: 0 8px 4px;
+  font-weight: 600;
+  text-align: left;
+}
+
 .ohc-table {
   width: 100%;
   margin-top: 14px;
@@ -4420,4 +4608,166 @@ body.has-onboarding {
 
 #backup-box h3 {
   margin-top: 24px;
+}
+
+/* Aanbiedingen: de titel is de link naar de winkel, zodat de kaart ook een knop kan hebben (Vergelijk verpakkingen). */
+.offer-card .offer-card__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.offer-card .offer-card__link strong {
+  color: var(--primary);
+}
+
+.offer-card .offer-card__link:hover strong,
+.offer-card .offer-card__link:focus-visible strong {
+  text-decoration: underline;
+}
+
+.offer-card .offer-card__per-unit {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.offer-card .offer-card__compare {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+/* Het oordeel bij een aanbieding (#178): groen is echt voordelig, geel een klein voordeel, grijs geen voordeel, oranje een andere
+   verpakking die per eenheid goedkoper is. */
+.product-card .verdict {
+  width: fit-content;
+  margin-top: 4px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.product-card .verdict--good {
+  background: var(--success-bg);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+  color: var(--success-text);
+}
+
+.product-card .verdict--small {
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1px var(--warning-border);
+  color: var(--warning-text);
+}
+
+.product-card .verdict--none {
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+
+.product-card .verdict--pack {
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1px var(--warning-border);
+  color: var(--warning-text);
+  white-space: normal;
+}
+
+/* Verpakkingen vergelijken: de prijs per eenheid voorop, gekleurd naar plek in de lijst. */
+.compare-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.compare-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+}
+
+.compare-item.is-self {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.compare-item__unit {
+  flex: none;
+  min-width: 92px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: center;
+}
+
+.compare-item__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.compare-item__body a {
+  color: var(--primary);
+}
+
+.compare-item .rank-1,
+.compare-item .rank-2 {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.compare-item .rank-3 {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.compare-item .rank-4 {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.compare-item .rank-5 {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* De filters boven de lijst: drie schakelaars en een veld om op naam te filteren. */
+.compare-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.compare-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.compare-filters__text {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.compare-summary {
+  margin: 8px 0 0;
+  font-weight: 600;
+}
+
+.compare-summary:empty {
+  display: none;
+}
+
+.compare-dialog__note {
+  margin: 8px 0 0;
+  font-size: 13px;
 }

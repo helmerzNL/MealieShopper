@@ -595,11 +595,67 @@ function renderMeal(entry) {
         ${detail}
       </span>`;
   const classes = `meal${entry.imageUrl ? " meal--with-image" : ""}${note ? " meal--note" : ""}`;
-  // De hele maaltijd is de knop om haar te wijzigen of te verwijderen: een groot tikvlak en ruimte voor de naam.
-  return entry.id != null
-    ? `<button class="${classes} meal--button" type="button" data-plan-edit="${escapeHtml(entry.id)}" title="${escapeHtml(t("plan.edit"))}">${content}
-        ${mdiIcon(MDI_PENCIL_OUTLINE, "meal__pencil")}<span class="visually-hidden">${escapeHtml(t("plan.edit"))}</span></button>`
-    : `<div class="${classes}">${content}</div>`;
+  if (entry.id == null) return `<div class="${classes}">${content}</div>`;
+  // De hele maaltijd is een groot tikvlak dat het recept opent (openMealRecipe); het potlood rechtsboven wijzigt of
+  // verwijdert haar. Een notitie heeft geen recept: een tik daarop wijzigt haar meteen.
+  const id = escapeHtml(entry.id);
+  const open = note
+    ? `data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}"`
+    : `data-plan-view="${id}" title="${escapeHtml(t("plan.view"))}"`;
+  return `<div class="${classes} meal--planned">
+      <button class="meal__open" type="button" ${open}>${content}</button>
+      <button class="meal__edit" type="button" data-plan-edit="${id}" title="${escapeHtml(t("plan.edit"))}" aria-label="${escapeHtml(t("plan.edit_meal", { name: mealName(entry) }))}">${mdiIcon(MDI_PENCIL_OUTLINE)}</button>
+    </div>`;
+}
+
+// ---- Het recept van een maaltijd in een venster: wat de week al van Mealie kreeg (recipeDetail, met de hoeveelheden
+// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster.
+const mealRecipe = { entry: null };
+
+function mealRecipeLines(detail) {
+  const ingredients = (detail.recipeIngredient || [])
+    .map((item) => String(item?.display || item?.note || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const steps = (detail.recipeInstructions || []).map((step) => String(step?.text || "").trim()).filter(Boolean);
+  return { ingredients, steps };
+}
+
+function renderMealRecipeBody(entry) {
+  const detail = entry.recipeDetail;
+  if (!detail) return `<p class="muted">${escapeHtml(t("plan.view_unavailable"))}</p>`;
+  const { ingredients, steps } = mealRecipeLines(detail);
+  const description = String(detail.description || "").trim();
+  return `
+    ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
+    <h4>${escapeHtml(t("rsearch.ingredients"))}</h4>
+    ${ingredients.length
+      ? `<ul class="picnic-recipe__list">${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+      : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients_mealie"))}</p>`}
+    <h4>${escapeHtml(t("rsearch.steps"))}</h4>
+    ${steps.length
+      ? `<ol class="picnic-recipe__list meal-recipe__steps">${steps.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ol>`
+      : `<p class="muted">${escapeHtml(t("rsearch.no_steps_mealie"))}</p>`}`;
+}
+
+function openMealRecipe(entry) {
+  mealRecipe.entry = entry;
+  const dialog = $("#meal-recipe-dialog");
+  $("#meal-recipe-type").textContent = `${mealLabel(entry.entryType)} · ${formatDate(entry.date)}`;
+  $("#meal-recipe-title").textContent = mealName(entry);
+  const facts = [mealServings(entry), entry.recipeMinutes ? t("rsearch.minutes", { count: entry.recipeMinutes }) : ""].filter(Boolean);
+  $("#meal-recipe-facts").textContent = facts.join(" · ");
+  $("#meal-recipe-facts").hidden = !facts.length;
+  const image = $("#meal-recipe-image");
+  image.hidden = !entry.imageUrl;
+  if (entry.imageUrl) image.src = entry.imageUrl;
+  else image.removeAttribute("src");
+  const link = $("#meal-recipe-mealie");
+  link.hidden = !entry.recipeUrl;
+  if (entry.recipeUrl) link.href = entry.recipeUrl;
+  else link.removeAttribute("href");
+  $("#meal-recipe-body").innerHTML = renderMealRecipeBody(entry);
+  if (!dialog.open) dialog.showModal();
+  dialog.scrollTop = 0;
 }
 
 function renderMealPlan(entries) {
@@ -1001,7 +1057,37 @@ function dealText(deal) {
 
 function cartCandidateLabel(candidate) {
   const deal = candidate.deal ? dealText(candidate.deal) : "";
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), deal].filter(Boolean).join(" \u2013 ");
+  // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
+  const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
+  const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, why].filter(Boolean).join(" \u2013 ");
+}
+
+// De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
+function reviewCheaperIndex(row, chosen) {
+  const mine = row.candidates[chosen]?.unitPrice;
+  if (!mine) return -1;
+  let best = -1;
+  row.candidates.forEach((candidate, index) => {
+    const unit = candidate.unitPrice;
+    if (index === chosen || !unit || unit.unit !== mine.unit || unit.value >= mine.value * 0.98) return;
+    if (best < 0 || unit.value < row.candidates[best].unitPrice.value) best = index;
+  });
+  return best;
+}
+
+function reviewCheaperHtml(row, chosen) {
+  const best = reviewCheaperIndex(row, chosen);
+  if (best < 0) return "";
+  const candidate = row.candidates[best];
+  const unit = t({ kg: "offers.unit.kg", l: "offers.unit.l" }[candidate.unitPrice.unit] || "offers.unit.stuk");
+  const text = t("cart.cheaper_hint", {
+    unit,
+    title: [candidate.title, candidate.unitSize].filter(Boolean).join(" "),
+    price: offerPerUnitText(candidate.unitPrice),
+    current: offerPerUnitText(row.candidates[chosen].unitPrice),
+  });
+  return `${escapeHtml(text)} <button class="link-button review-cheaper-pick" type="button" data-pick="${best}">${escapeHtml(t("cart.cheaper_pick"))}</button>`;
 }
 
 function openProductPopup(url) {
@@ -1257,6 +1343,7 @@ function reviewRowHtml(row, index) {
       <div class="review-ingredient">
         <strong>${escapeHtml(row.display)}</strong>
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+        <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
       ${reviewThumbHtml(first)}
@@ -1337,6 +1424,15 @@ function renderCartReview(rows) {
       if (link && candidate.url) link.href = candidate.url;
       el.querySelector(".review-note").textContent = candidate.doubt || "";
       el.classList.toggle("is-doubt", Boolean(candidate.doubt));
+      el.querySelector(".review-cheaper").innerHTML = reviewCheaperHtml(row, Number(event.target.value));
+    });
+    // "Kies": de goedkoopste optie per eenheid kiezen, alsof je hem in de keuzelijst kiest (ook het aantal verpakkingen rekent mee).
+    el.querySelector(".review-cheaper").addEventListener("click", (event) => {
+      const pick = event.target.closest("[data-pick]");
+      if (!pick) return;
+      product.value = pick.dataset.pick;
+      product.dispatchEvent(new Event("change"));
+      product.focus();
     });
     el.querySelector(".review-include").addEventListener("change", updateConfirm);
     el.querySelector("a.review-link")?.addEventListener("click", (event) => {
@@ -1429,6 +1525,8 @@ async function addToCart() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
+        compare: true,
         items: ingredients.map((ingredient) => ({
           query: ingredient.food?.name || ingredient.display,
           display: ingredient.display || ingredient.food?.name || "",
@@ -2385,9 +2483,26 @@ $("#load-plan").addEventListener("click", () => loadMealPlan({ force: true }));
 $("#meal-days").addEventListener("click", (event) => {
   const add = event.target.closest("[data-plan-add]");
   if (add) return openPlanDialog({ date: add.dataset.planAdd });
-  const edit = event.target.closest("[data-plan-edit]");
-  const entry = edit && (state.entries || []).find((item) => String(item.id) === edit.dataset.planEdit);
+  const button = event.target.closest("[data-plan-view], [data-plan-edit]");
+  if (!button) return;
+  const id = button.dataset.planView ?? button.dataset.planEdit;
+  const entry = (state.entries || []).find((item) => String(item.id) === id);
+  if (!entry) return;
+  if (button.dataset.planView != null) openMealRecipe(entry);
+  else openPlanDialog({ entry });
+});
+// Het recept van een maaltijd (openMealRecipe): Wijzigen gaat naar het plan-venster; Sluiten, Esc of een tik naast het venster sluit.
+$("#meal-recipe-edit").addEventListener("click", () => {
+  const entry = mealRecipe.entry;
+  $("#meal-recipe-dialog").close();
   if (entry) openPlanDialog({ entry });
+});
+$("#meal-recipe-close").addEventListener("click", () => $("#meal-recipe-dialog").close());
+$("#meal-recipe-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+$("#meal-recipe-image").addEventListener("error", (event) => {
+  event.target.hidden = true;
 });
 // "Inplannen" bij een recept uit Mealie of na een import (`data-plan-slug`), of bij een recept van een winkel of maaltijdbox
 // (`data-plan-source`, dat bij het opslaan eerst in Mealie komt): de plan-dialoog met het recept al gekozen.

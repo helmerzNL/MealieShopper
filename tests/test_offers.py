@@ -733,7 +733,7 @@ class OffersTabMarkupTest(unittest.TestCase):
         script = (root / "static" / "offers_history.js").read_text(encoding="utf-8")
         offers_js = (root / "static" / "offers.js").read_text(encoding="utf-8")
         self.assertLess(html.index("offers.js"), html.index("offers_history.js"))
-        self.assertIn("/api/offers/history?", script)
+        self.assertIn("/api/prices/history?", script)
         self.assertIn("offersState.store", script)
         self.assertIn('data-subtab="offers-history"', script)
         self.assertIn("offerHistoryStoreChanged", offers_js, "wisselen van winkel ververst de geschiedenis")
