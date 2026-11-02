@@ -10,6 +10,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Vegen in een popup scrolt alleen de popup.** Met een popup open (het recept van een maaltijd, *Maaltijd wijzigen*, de foto van een product, *Verpakkingen vergelijken* of een aanbieding) scrolde de pagina erachter soms mee: zodra de popup bovenaan of onderaan was, bij een korte popup, en bij vegen op de donkere rand eromheen. Nu staat de pagina erachter stil zolang er een popup open is, en houdt ze haar plek. Vegen naar beneden ververst de pagina ook niet meer (pull-to-refresh). Met het muiswiel werkt het net zo. Na het sluiten scrolt de pagina weer gewoon.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#186](https://github.com/helmerzNL/MealieShopper/pull/186).
 
 ## v2.91.0
 
