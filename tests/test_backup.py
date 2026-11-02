@@ -329,12 +329,20 @@ class FileContentTest(BackupCase):
             auth.set_secret(key, value)
         _, data = self.make(links=True, passphrase=PASSPHRASE)
         text = data.decode("utf-8")
-        for value in SECRETS.values():
-            self.assertNotIn(value, text)
-        self.assertNotIn(PASSPHRASE, text)
         document = json.loads(text)
+        sealed = document["secrets"]["sealed"]
+        # Salt en token zijn willekeurige base64: een korte waarde als "nl" (CRISP_COUNTRY) staat daar vaak toevallig in.
+        # Elke waarde mag dus nergens buiten die twee staan, een lange waarde nergens in het bestand, en wat in het blok
+        # zit is echt versleuteld: alleen met het wachtwoord geeft het precies de koppelingen terug.
+        outside = text.replace(sealed["token"], "").replace(sealed["salt"], "")
+        for value in SECRETS.values():
+            self.assertNotIn(value, outside)
+            if len(value) >= 8:
+                self.assertNotIn(value, text)
+        self.assertEqual(backup.unseal(sealed, PASSPHRASE), SECRETS)
+        self.assertNotIn(PASSPHRASE, text)
         self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
-        self.assertEqual(document["secrets"]["sealed"]["kdf"], "scrypt")
+        self.assertEqual(sealed["kdf"], "scrypt")
 
     def test_a_backup_without_links_has_none(self):
         for key, value in SECRETS.items():
