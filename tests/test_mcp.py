@@ -508,7 +508,7 @@ class ProtocolTest(McpTestCase):
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe",
-                         "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches"})
+                         "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches", "get_price_history"})
         # De enige tool die iets weghaalt, haalt een maaltijd uit het weekmenu (het recept blijft); die zegt dat eerlijk.
         destructive = {"remove_planned_meal"}
         for name, tool in tools.items():

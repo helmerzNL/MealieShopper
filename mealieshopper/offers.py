@@ -540,6 +540,32 @@ def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, An
             """,
             (*stores, pattern),
         ).fetchall()
+    ranked = sorted(_history_products(rows).values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
+    return {"products": ranked[:limit], "total": len(ranked)}
+
+
+def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    """De aanbiedingsgeschiedenis van bepaalde producten van een winkel, in de vorm van `history`, per product-id.
+
+    Voor de prijsgeschiedenis (`prices.history`), die de aanbiedingen samenvoegt met de normale prijs en wat je betaalde.
+    """
+    store = _valid_store(store)
+    ids = sorted({str(product_id) for product_id in product_ids if product_id not in (None, "")})
+    if not ids:
+        return {}
+    rows = []
+    with closing(_connect()) as conn:
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            rows += conn.execute(
+                f"SELECT * FROM offer_history WHERE store = ? AND product_id IN ({','.join('?' * len(chunk))}) ORDER BY product_id, first_seen, id",
+                (store, *chunk),
+            ).fetchall()
+    return {product["productId"]: product for product in _history_products(rows).values()}
+
+
+def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Rijen uit `offer_history` (gesorteerd op winkel, product en begin) samengevoegd per product, zoals `history` ze geeft."""
     products: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         product = products.setdefault(
@@ -571,8 +597,7 @@ def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[str, An
         product["highestPrice"] = max(prices) if prices else None
         before = [e["priceBefore"] for e in product["episodes"] if isinstance(e["priceBefore"], (int, float))]
         product["regularPrice"] = max(before) if before else None
-    ranked = sorted(products.values(), key=lambda p: (p["lastSeen"], p["timesOnOffer"]), reverse=True)
-    return {"products": ranked[:limit], "total": len(ranked)}
+    return products
 
 
 def sync_all() -> dict[str, Any]:

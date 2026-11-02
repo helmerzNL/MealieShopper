@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, prices, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -427,13 +427,18 @@ def create_app() -> Flask:
         store = request.args.get("store") or "ah"
         week = offers_week()
         try:
-            etag = hashlib.sha1(offers.signature(store, week).encode("utf-8")).hexdigest()
+            etag = hashlib.sha1(f"{offers.signature(store, week)}|{prices.signature(store)}".encode("utf-8")).hexdigest()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
-        response = offers_action(lambda: offers.load(store, week), tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        def load_with_verdicts() -> dict[str, Any]:
+            data = offers.load(store, week)
+            prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178); een fout laat de lijst staan
+            return data
+
+        response = offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
@@ -443,6 +448,21 @@ def create_app() -> Flask:
         return offers_action(
             lambda: offers.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
             tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
+        )
+
+    @app.get("/api/prices/history")
+    def prices_history():
+        return offers_action(
+            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
+            tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
+        )
+
+    @app.get("/api/prices/compare")
+    def prices_compare():
+        # Doet één zoekopdracht bij de winkel: andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar.
+        return offers_action(
+            lambda: prices.compare(request.args.get("store"), request.args.get("id")),
+            tr("Verpakkingen vergelijken mislukt", "Comparing pack sizes failed"),
         )
 
     @app.post("/api/offers/sync")
@@ -590,6 +610,9 @@ def create_app() -> Flask:
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
+        # Het weekmenu in het mandje (`compare`): na het voorgestelde product alleen hetzelfde product in een andere maat of wat per
+        # eenheid goedkoper is (#178). Zelf zoeken met "Zoek een ander product" laat de eerste vijf zoekresultaten zien, zoals voorheen.
+        compare = bool(body.get("compare"))
 
         def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
@@ -601,13 +624,13 @@ def create_app() -> Flask:
                 "candidates": [],
             }
             try:
-                products = search(query, 5)
+                products = search(query, prices.COMPARE_LIMIT if compare else prices.CHECK_LIST_SIZE)
             except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
                 result["error"] = str(exc)
                 return result
-            result["candidates"] = [
-                make_candidate(product, item.get("quantity"), item.get("unit")) for product in products
-            ]
+            result["candidates"] = prices.check_list_candidates(
+                [make_candidate(product, item.get("quantity"), item.get("unit")) for product in products], compare
+            )
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:
@@ -616,7 +639,7 @@ def create_app() -> Flask:
 
     @app.post("/api/ah/cart/preview")
     def ah_cart_preview():
-        return cart_preview(ah.search_products, cart_candidate)
+        return cart_preview(prices.recorded("ah", ah.search_products), cart_candidate)
 
     @app.post("/api/ah/cart")
     def ah_cart():
@@ -818,13 +841,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": picnic.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("picnic", picnic.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/cart/preview")
     def picnic_cart_preview():
-        return cart_preview(picnic.search_products, picnic.candidate)
+        return cart_preview(prices.recorded("picnic", picnic.search_products), picnic.candidate)
 
     @app.get("/api/picnic/cart")
     def picnic_cart_get():
@@ -1002,13 +1025,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term missing")}), 400
         try:
-            return jsonify({"products": crisp.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("crisp", crisp.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/cart/preview")
     def crisp_cart_preview():
-        return cart_preview(crisp.search_products, crisp.candidate)
+        return cart_preview(prices.recorded("crisp", crisp.search_products), crisp.candidate)
 
     @app.get("/api/crisp/cart")
     def crisp_cart_get():
@@ -1256,13 +1279,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": jumbo.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("jumbo", jumbo.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/cart/preview")
     def jumbo_cart_preview():
-        return cart_preview(jumbo.search_products, jumbo.candidate)
+        return cart_preview(prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
 
     @app.get("/api/jumbo/cart")
     def jumbo_cart_get():

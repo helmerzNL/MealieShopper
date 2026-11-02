@@ -505,6 +505,7 @@ class StageTest(BackupCase):
         self.assertRegex(body["token"], r"^[0-9a-f]{32}$")
         self.assertEqual(body["counts"]["lists"], 4)  # twee rijen in elke van de twee tabellen met lijstjes (AH en Jumbo)
         self.assertEqual(body["counts"]["offerHistory"], 2)
+        self.assertEqual(body["counts"]["prices"], 2)
         self.assertEqual(body["links"], [])
         self.assertFalse(body["needsPassphrase"])
         self.assertTrue(body["createdAt"] and body["appVersion"])

@@ -16,7 +16,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, server_settings
+from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, server_settings
 
 LATEST_PROTOCOL = "2025-06-18"
 SUPPORTED_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -234,7 +234,7 @@ def tool_search_products(args: dict[str, Any]) -> Any:
                 "bonus": item.get("isBonus"),
                 "url": ah.product_web_url(item["webshopId"]),
             }
-            for item in ah.search_products(query, limit)
+            for item in prices.recorded("ah", ah.search_products)(query, limit)
         ]
     }
 
@@ -253,7 +253,7 @@ def tool_search_picnic_products(args: dict[str, Any]) -> Any:
     return {
         "products": [
             {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus")}
-            for item in picnic.search_products(query, limit)
+            for item in prices.recorded("picnic", picnic.search_products)(query, limit)
         ]
     }
 
@@ -277,7 +277,7 @@ def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     return {
         "products": [
             {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus"), "url": item.get("url")}
-            for item in jumbo.search_products(query, limit)
+            for item in prices.recorded("jumbo", jumbo.search_products)(query, limit)
         ]
     }
 
@@ -497,6 +497,46 @@ def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
 
 def tool_list_offer_mismatches(args: dict[str, Any]) -> Any:
     return offers.list_mismatches(args.get("store") or None, _int_arg(args, "limit", 100, 1, MAX_LIST_ITEMS))
+
+
+PRICE_HISTORY_ITEMS = 12  # per product de laatste aanbiedingen, prijsperiodes en aankopen; genoeg voor een oordeel, compact voor de assistent
+
+
+def tool_get_price_history(args: dict[str, Any]) -> Any:
+    store = args.get("store") or None
+    if store is not None and store not in offers.STORES:
+        raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
+    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50))
+    keep = PRICE_HISTORY_ITEMS
+    return {
+        "total": data["total"],
+        "products": [
+            {
+                "store": product["store"], "productId": product["productId"], "title": product.get("title"), "brand": product.get("brand"),
+                "size": product.get("unitSize"), "onOfferNow": product.get("onOfferNow"), "timesOnOffer": product.get("timesOnOffer"),
+                "lowestOfferPrice": product.get("lowestPrice"), "regularPrice": product.get("regularPrice"),
+                "regularPricePerUnit": product.get("regularPerUnit"),
+                "lowestRegularPrice": product.get("lowestRegular"), "highestRegularPrice": product.get("highestRegular"),
+                "timesBought": product.get("timesBought"), "lastPaid": product.get("lastPaid"), "averagePaid": product.get("averagePaid"),
+                "offers": [
+                    {"from": e.get("start"), "until": e.get("end"), "ongoing": e.get("open"), "price": e.get("price"),
+                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel")}
+                    for e in product.get("episodes", [])[-keep:]
+                ],
+                "regularPrices": product.get("regular", [])[-keep:],
+                "purchases": [
+                    {"date": p["date"], "pricePerItem": p["price"], "quantity": p["quantity"], "source": p["source"]}
+                    for p in product.get("purchases", [])[-keep:]
+                ],
+            }
+            for product in data["products"]
+        ],
+        "hint": (
+            "Prijzen zijn per stuk. regularPrices zijn periodes met dezelfde normale prijs (uit zoekopdrachten, bestellingen en de prijs "
+            "vóór een aanbieding); purchases komen uit bestellingen en kassabonnen (op een kassabon is de korting onderaan de bon niet "
+            "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt."
+        ),
+    }
 
 
 def tool_import_recipe(args: dict[str, Any]) -> Any:
@@ -888,6 +928,18 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Gemelde koppelingen"},
         "handler": tool_list_offer_mismatches,
+    },
+    "get_price_history": {
+        "description": "De prijsgeschiedenis van producten uit de lokale kopie: wanneer ze in de aanbieding waren en voor welke prijs, de normale prijs door de tijd en wat je betaalde (uit bestellingen en kassabonnen). Handig om te zien of een aanbieding echt voordelig is.",
+        "inputSchema": _schema(
+            {
+                "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
+            }
+        ),
+        "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Prijsgeschiedenis"},
+        "handler": tool_get_price_history,
     },
     "import_recipe_to_mealie": {
         "description": "Importeer een recept van een webpagina (ook Allerhande) in Mealie. Maakt een nieuw recept aan; er wordt niets overschreven of verwijderd.",

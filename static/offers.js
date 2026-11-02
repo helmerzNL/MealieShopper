@@ -101,22 +101,63 @@ function offerConditionsText(offer) {
   return parts.join(" \u00b7 ");
 }
 
+// De prijs per kilo, liter of stuk ("€ 5,00/kg"); `unit` is kg, l of stuk.
+function offerPerUnitText(perUnit) {
+  if (!perUnit || typeof perUnit.value !== "number") return "";
+  const unit = { kg: "offers.unit.kg", l: "offers.unit.l" }[perUnit.unit] || "offers.unit.stuk";
+  return t("offers.per_unit", { price: formatPrice(perUnit.value), unit: t(unit) });
+}
+
+// Het oordeel bij een aanbieding (#178): is de actieprijs lager dan de gewone prijs van de laatste 30 dagen, komt de aanbieding vaak
+// terug, en is een andere verpakking per eenheid goedkoper. Zie prices.annotate.
+function offerVerdictLines(offer) {
+  const verdict = offer.verdict;
+  if (!verdict) return [];
+  const lines = [];
+  const reference = typeof verdict.lowestRegular === "number" ? t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }) : "";
+  const inflated = verdict.inflated && typeof offer.priceBefore === "number" ? t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }) : "";
+  const title = [reference, inflated].filter(Boolean).join(" ");
+  if (verdict.kind === "good") lines.push({ cls: "verdict verdict--good", text: t("offers.verdict.good", { percent: verdict.percent }), title });
+  if (verdict.kind === "small") lines.push({ cls: "verdict verdict--small", text: t("offers.verdict.small", { percent: verdict.percent }), title });
+  if (verdict.kind === "none") lines.push({ cls: "verdict verdict--none", text: t("offers.verdict.none"), title });
+  if (verdict.bestInYear) lines.push({ cls: "verdict-note", text: t("offers.verdict.best_in_year") });
+  if (verdict.often) lines.push({ cls: "verdict-note", text: t("offers.verdict.often", { count: verdict.timesThisYear }) });
+  const pack = verdict.cheaperPack;
+  if (pack && pack.unitPrice) {
+    lines.push({
+      cls: "verdict verdict--pack",
+      text: t("offers.verdict.cheaper_pack", { title: [pack.title, pack.unitSize].filter(Boolean).join(" "), price: offerPerUnitText(pack.unitPrice) }),
+    });
+  }
+  return lines;
+}
+
 function offerProductCard(offer) {
   const meta = [offer.brand, offer.unitSize].filter(Boolean).join(" · ");
   const was = offer.priceBefore ? ` <s>${escapeHtml(formatPrice(offer.priceBefore))}</s>` : "";
-  const tag = offer.url ? "a" : "div";
-  const link = offer.url ? ` href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer"` : "";
+  const name = `<strong>${escapeHtml(offer.title)}</strong>`;
+  const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
+  const perUnit = offerPerUnitText(offer.unitPricePer);
+  const verdict = offerVerdictLines(offer)
+    .map((line) => `<small class="${line.cls}"${line.title ? ` title="${escapeHtml(line.title)}"` : ""}>${escapeHtml(line.text)}</small>`)
+    .join("");
+  const compare = offer.unitPricePer
+    ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
+    : "";
   return `
-    <${tag} class="product-card"${link}>
+    <article class="product-card offer-card">
       ${offer.image ? `<img src="${escapeHtml(offer.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <span>
-        <strong>${escapeHtml(offer.title)}</strong>
+        ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
         ${offerConditionsText(offer) ? `<small>${escapeHtml(offerConditionsText(offer))}</small>` : ""}
         ${offer.price ? `<small class="product-card__price">${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
+        ${perUnit ? `<small class="offer-card__per-unit">${escapeHtml(perUnit)}</small>` : ""}
+        ${verdict}
+        ${compare}
       </span>
-    </${tag}>`;
+    </article>`;
 }
 
 // Hoeveel producten er in een rij van het raster passen; een verborgen raster geeft de ruwe waarde, dan gokken we.
@@ -427,6 +468,11 @@ async function offersIndexRecipes() {
 }
 
 $("#offers-more").addEventListener("click", offersShowMore);
+// Vergelijk verpakkingen: het venster staat in offers_history.js (openPackCompare).
+$("#offers-products").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-compare]");
+  if (button) openPackCompare(offersState.store, button.dataset.compare);
+});
 $("#offers-recipes").addEventListener("click", (event) => {
   const button = event.target.closest(".offer-match, .offer-flag");
   if (!button) return;
