@@ -4302,6 +4302,88 @@ body.has-onboarding {
   stroke-width: 2;
 }
 
+/* De gewone prijs als trap: een onzichtbare dikke lijn eronder maakt elke trede makkelijk aan te wijzen. */
+.ohc-step-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+
+.ohc-step:focus {
+  outline: none;
+}
+
+.ohc-step:focus-visible .ohc-regular,
+.ohc-step:hover .ohc-regular {
+  stroke: var(--text);
+}
+
+/* Een aankoop: een stip op de prijs per stuk die je betaalde. */
+.ohc-paid circle {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.ohc-paid:hover circle,
+.ohc-paid:focus circle {
+  fill: var(--text);
+}
+
+.ohc-paid:focus {
+  outline: none;
+}
+
+.ohc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ohc-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ohc-key {
+  display: inline-block;
+  width: 18px;
+  height: 8px;
+}
+
+.ohc-key--offer {
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.ohc-key--regular {
+  height: 0;
+  border-top: 2px dashed var(--muted);
+}
+
+.ohc-key--paid {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--text);
+  border-radius: 50%;
+}
+
+.ohc-note {
+  margin: 6px 8px 0;
+  font-size: 13px;
+}
+
+.ohc-table caption {
+  padding: 0 8px 4px;
+  font-weight: 600;
+  text-align: left;
+}
+
 .ohc-table {
   width: 100%;
   margin-top: 14px;

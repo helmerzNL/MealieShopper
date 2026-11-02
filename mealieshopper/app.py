@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, prices, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -445,6 +445,13 @@ def create_app() -> Flask:
             tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
         )
 
+    @app.get("/api/prices/history")
+    def prices_history():
+        return offers_action(
+            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
+            tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
+        )
+
     @app.post("/api/offers/sync")
     def offers_sync():
         body = request.get_json(silent=True) or {}
@@ -616,7 +623,7 @@ def create_app() -> Flask:
 
     @app.post("/api/ah/cart/preview")
     def ah_cart_preview():
-        return cart_preview(ah.search_products, cart_candidate)
+        return cart_preview(prices.recorded("ah", ah.search_products), cart_candidate)
 
     @app.post("/api/ah/cart")
     def ah_cart():
@@ -818,13 +825,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": picnic.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("picnic", picnic.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/cart/preview")
     def picnic_cart_preview():
-        return cart_preview(picnic.search_products, picnic.candidate)
+        return cart_preview(prices.recorded("picnic", picnic.search_products), picnic.candidate)
 
     @app.get("/api/picnic/cart")
     def picnic_cart_get():
@@ -1002,13 +1009,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term missing")}), 400
         try:
-            return jsonify({"products": crisp.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("crisp", crisp.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/cart/preview")
     def crisp_cart_preview():
-        return cart_preview(crisp.search_products, crisp.candidate)
+        return cart_preview(prices.recorded("crisp", crisp.search_products), crisp.candidate)
 
     @app.get("/api/crisp/cart")
     def crisp_cart_get():
@@ -1256,13 +1263,13 @@ def create_app() -> Flask:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": jumbo.search_products(query, 10)})
+            return jsonify({"products": prices.recorded("jumbo", jumbo.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/cart/preview")
     def jumbo_cart_preview():
-        return cart_preview(jumbo.search_products, jumbo.candidate)
+        return cart_preview(prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
 
     @app.get("/api/jumbo/cart")
     def jumbo_cart_get():
