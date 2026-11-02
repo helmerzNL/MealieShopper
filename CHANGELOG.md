@@ -13,7 +13,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Een los product komt vóór een multipack van AH ("AH Zalmfilet 3-pack"). Voor een recept wil je er één; het aantal verpakkingen rekent MealieShopper zelf uit.
   - Verder blijft de volgorde van AH. Of het ingrediënt letterlijk in de productnaam staat, telt bewust niet: kaas van Milner heet "Jong belegen 35+ plakken".
 - Geldt voor de controlelijst van het weekmenu, *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
-- Issue: [#175](https://github.com/helmerzNL/MealieShopper/issues/175).
+- Issue: [#175](https://github.com/helmerzNL/MealieShopper/issues/175). Pull request: [#176](https://github.com/helmerzNL/MealieShopper/pull/176).
 
 ## v2.87.0
 
