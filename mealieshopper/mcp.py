@@ -850,7 +850,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "De winkel waarvan de aanbiedingen worden vergeleken."},
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "De winkel waarvan de aanbiedingen worden vergeleken."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal paren, standaard 40."},
                 "offset": {"type": "integer", "minimum": 0, "description": "Vanaf welk paar, standaard 0."},
             },
@@ -867,7 +867,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         ),
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "De winkel van het product."},
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "De winkel van het product."},
                 "ingredient": {"type": "string", "description": "De ingrediëntregel, precies zoals in review_offer_matches."},
                 "offer_id": {"type": "string", "description": "Het offerId uit review_offer_matches."},
                 "reason": {"type": "string", "description": "Korte reden, bijvoorbeeld 'sauzen zijn geen rauw vlees'."},
@@ -882,7 +882,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "De gemelde onjuiste koppelingen (door de eigenaar met de vlag of door een assistent), de nieuwste eerst, met ingrediënt, product en reden.",
         "inputSchema": _schema(
             {
-                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo"], "description": "Alleen deze winkel; standaard alle."},
+                "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal meldingen, standaard 100."},
             }
         ),

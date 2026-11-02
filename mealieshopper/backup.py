@@ -42,7 +42,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ DATA_TABLES = (
     "jumbo_lists", "jumbo_list_items",
     "jumbo_orders", "jumbo_order_items", "jumbo_orders_meta",
     "picnic_orders", "picnic_order_items", "picnic_orders_meta",
+    "crisp_orders", "crisp_order_items", "crisp_orders_meta",
     "offers", "offer_history", "offers_meta",
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
@@ -96,6 +97,8 @@ SECRET_KEYS: dict[str, str] = {
     "AH_REFRESH_TOKEN": "ah",
     picnic.AUTH_KEY_SECRET: "picnic",
     jumbo.REFRESH_SECRET: "jumbo",
+    crisp.CLIENT_SECRET: "crisp",
+    crisp.COUNTRY_SECRET: "crisp",
     **{info["secret"]: f"ai_{name}" for name, info in ai_review.PROVIDERS.items()},
 }
 # Keuzes zonder geheim die mee teruggaan. Alles wat hier niet staat (AUTH_MODE, SESSION_EPOCH, ONBOARDING_*,
@@ -111,7 +114,7 @@ MAX_SETTING_CHARS = 20_000
 # Wat de beheerder ziet: tabellen samengevoegd tot een paar regels.
 COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "lists": ("ah_lists", "jumbo_lists"),
-    "orders": ("ah_orders", "jumbo_orders", "picnic_orders"),
+    "orders": ("ah_orders", "jumbo_orders", "picnic_orders", "crisp_orders"),
     "receipts": ("ah_receipts",),
     "offers": ("offers",),
     "offerHistory": ("offer_history",),
@@ -120,7 +123,7 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "profiles": ("user_profiles",),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (

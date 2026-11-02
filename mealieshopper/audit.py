@@ -57,6 +57,7 @@ SERVICE_DOMAINS: dict[str, tuple[str, ...]] = {
     "ah": ("ah.nl",),
     "picnic": ("picnicinternational.com",),
     "jumbo": ("jumbo.com",),
+    "crisp": ("crispapp.nl",),
     "hellofresh": ("hellofresh.nl",),
     "marleyspoon": ("marleyspoon.nl", "marleyspoon.com"),
 }

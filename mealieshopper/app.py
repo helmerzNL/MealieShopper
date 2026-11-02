@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-62")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261101-65")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -963,6 +963,164 @@ def create_app() -> Flask:
     def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
+
+    # --- Crisp --------------------------------------------------------------------------
+    # Koppelen met een code per mail (zoals de Crisp-app); de producten gaan, net als bij Picnic, direct in het echte
+    # mandje. Recepten van Crisp zijn te zoeken, te bekijken en in Mealie te zetten.
+
+    def crisp_error(exc: Exception) -> Any:
+        return store_error("Crisp", exc, crisp.CrispAuthError, crisp.CrispLoginError, crisp.CrispBasketError)
+
+    @app.get("/api/crisp/auth/status")
+    def crisp_auth_status():
+        verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
+        return jsonify(crisp.status(verify=verify))
+
+    @app.post("/api/crisp/auth")
+    def crisp_auth():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(crisp.start_login(body.get("email"), body.get("country") or "nl"))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/auth/verify")
+    def crisp_auth_verify():
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(crisp.verify_login(body.get("code")))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/auth/logout")
+    def crisp_auth_logout():
+        return jsonify(crisp.unlink())
+
+    @app.get("/api/crisp/search")
+    def crisp_search():
+        query = (request.args.get("q") or "").strip()
+        if not query:
+            return jsonify({"error": tr("Zoekterm ontbreekt", "Search term missing")}), 400
+        try:
+            return jsonify({"products": crisp.search_products(query, 10)})
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/cart/preview")
+    def crisp_cart_preview():
+        return cart_preview(crisp.search_products, crisp.candidate)
+
+    @app.get("/api/crisp/cart")
+    def crisp_cart_get():
+        try:
+            return jsonify(crisp.get_cart())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/cart")
+    def crisp_cart():
+        return store_cart(crisp, crisp_error, crisp.CrispAuthError)
+
+    @app.put("/api/crisp/cart/items/<product_id>")
+    def crisp_cart_set_quantity(product_id: str):
+        # Het aantal van één product in het echte Crisp-mandje; 0 haalt het weg. Nooit een bestelling.
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(crisp.set_quantity(product_id, body.get("quantity")))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/cart/clear")
+    def crisp_cart_clear():
+        # Het mandje leegmaken vraagt om een expliciete bevestiging, zoals bij Picnic.
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") is not True:
+            return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
+        try:
+            return jsonify(crisp.clear_cart())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    # Bestellingen: de bezorgde uit de lokale kopie (crisp_orders), de aankomende live.
+    @app.get("/api/crisp/orders")
+    def crisp_orders_list():
+        return jsonify(crisp_orders.list_orders())
+
+    @app.get("/api/crisp/orders/open")
+    def crisp_orders_open():
+        try:
+            return jsonify({"orders": crisp.get_open_orders()})
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/orders/sync")
+    def crisp_orders_sync():
+        try:
+            return jsonify(crisp_orders.sync_orders())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/orders/<order_id>")
+    def crisp_order_detail(order_id: str):
+        # Uit de lokale kopie als de producten er al in staan; anders (een aankomende bestelling, of nog niet
+        # gesynchroniseerd) live bij Crisp. Lukt dat niet, dan wat we hebben.
+        local = crisp_orders.get_order(order_id)
+        if local and local["itemsSynced"]:
+            return jsonify(local)
+        try:
+            return jsonify(crisp.get_order(order_id))
+        except Exception as exc:  # noqa: BLE001
+            if local:
+                return jsonify(local)
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/favorites")
+    def crisp_favorites():
+        try:
+            return jsonify(crisp.get_favorites())
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/recipes")
+    def crisp_recipe_search():
+        try:
+            return jsonify(crisp.search_recipes(request.args.get("q")))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.get("/api/crisp/recipes/<recipe_id>")
+    def crisp_recipe_detail(recipe_id: str):
+        try:
+            return jsonify(crisp.get_recipe(recipe_id))
+        except Exception as exc:  # noqa: BLE001
+            return crisp_error(exc)
+
+    @app.post("/api/crisp/recipes/<recipe_id>/import")
+    def crisp_recipe_import(recipe_id: str):
+        # Zet het recept in Mealie, als schema.org Recipe (Crisp-recepten hebben geen webpagina).
+        try:
+            mealie.ensure_configured()
+            source = crisp.source_url(recipe_id)
+        except (RuntimeError, ValueError) as exc:  # Mealie niet gekoppeld of een ongeldig id: de tekst is van onszelf
+            return jsonify({"error": str(exc)}), 400
+        found = reused_recipe(source)
+        if found:
+            return found
+        try:
+            recipe = crisp.get_recipe(recipe_id)
+            slug = mealie.import_via_jsonld(source, crisp.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("Crisp recipe import error")
+            if isinstance(exc, (ValueError, crisp.CrispAuthError)):
+                return crisp_error(exc)
+            # De melding van Mealie of Crisp kan het antwoord van de dienst bevatten: alleen in het logboek.
+            return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
+
+    @app.post("/api/crisp/explore")
+    def crisp_explore_routes():
+        # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
+        return jsonify(crisp.explore())
 
     # --- Jumbo --------------------------------------------------------------------------
     # Koppelen werkt zoals bij AH (de beheerder plakt een regel uit de browserconsole); de producten

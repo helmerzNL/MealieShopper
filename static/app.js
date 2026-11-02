@@ -18,10 +18,10 @@ const state = {
   ahRecipeQuery: "",
   about: null,
   aboutLoaded: false,
-  store: "ah", // de keuze voor het weekmenu: "ah", "picnic" of "jumbo"
-  itemsStore: "ah", // de winkel in de tab Winkels: "ah" of "jumbo"
+  store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
+  itemsStore: "ah", // de winkel in de tab Winkels: "ah", "jumbo", "picnic" of "crisp"
   preferredStore: "ah", // de laatste keuze van de gebruiker; geldt zodra die winkel als gekoppeld bekend is
-  linkedStores: { picnic: false, jumbo: false, mealie: false }, // gezet door picnic.js, jumbo.js en renderMealieStatus; AH is altijd een keuze
+  linkedStores: { picnic: false, jumbo: false, crisp: false, mealie: false }, // gezet door picnic.js, jumbo.js, crisp.js en renderMealieStatus; AH is altijd een keuze
 };
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
@@ -286,6 +286,7 @@ async function refreshAuthStatus() {
     refreshMealieStatus();
     if (typeof refreshPicnicStatus === "function") refreshPicnicStatus();
     if (typeof refreshJumboStatus === "function") refreshJumboStatus();
+    if (typeof refreshCrispStatus === "function") refreshCrispStatus();
     if (typeof startUpdateCheck === "function") startUpdateCheck();
   }
   return state.auth;
@@ -1030,6 +1031,7 @@ const STORES = {
   ah: { name: "Albert Heijn", api: "ah", linked: "ah", button: "plan.add_cart", ready: "cart.ready" },
   picnic: { name: "Picnic", api: "picnic", linked: "picnic", button: "plan.add_cart_picnic", ready: "cart.ready_picnic" },
   jumbo: { name: "Jumbo", api: "jumbo", linked: "jumbo", button: "plan.add_cart_jumbo", ready: "cart.ready_jumbo" },
+  crisp: { name: "Crisp", api: "crisp", linked: "crisp", button: "plan.add_cart_crisp", ready: "cart.ready_crisp" },
 };
 
 function currentStore() {
@@ -1089,13 +1091,14 @@ function itemsStoreName() {
   return STORES[state.itemsStore].name;
 }
 
-// De winkels die in de tab Winkels te kiezen zijn: AH altijd, Jumbo en Picnic zodra ze gekoppeld zijn.
+// De winkels die in de tab Winkels te kiezen zijn: AH altijd, Jumbo, Picnic en Crisp zodra ze gekoppeld zijn.
 function itemsStores() {
-  return ["ah", ...["jumbo", "picnic"].filter((key) => state.linkedStores[key])];
+  return ["ah", ...["jumbo", "picnic", "crisp"].filter((key) => state.linkedStores[key])];
 }
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];
 const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
+const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 function renderItemsStore() {
   const stores = itemsStores();
@@ -1109,17 +1112,21 @@ function renderItemsStore() {
         `<button class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
     )
     .join("");
-  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen.
+  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
+  const crisp = state.itemsStore === "crisp";
+  // Picnic en Crisp hebben eigen tabs voor hun bestellingen; de lijstjes en bestellingen van AH en Jumbo horen daar niet bij.
+  const ownTabs = picnic || crisp;
   const hide = (subtab, hidden) =>
     document.querySelectorAll(`[data-subtab="${subtab}"]`).forEach((button) => {
       button.hidden = hidden;
     });
   hide("ah-items-recepten", state.itemsStore !== "ah");
-  hide("ah-items-lijstjes", picnic);
-  hide("ah-items-bestellingen", picnic);
+  hide("ah-items-lijstjes", ownTabs);
+  hide("ah-items-bestellingen", ownTabs);
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
   JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
+  CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
   if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
@@ -1155,7 +1162,7 @@ function showCartResult(data, notFound) {
       return `<li>${escapeHtml(item.quantity)}x ${escapeHtml(item.product.title)}${size}</li>`;
     })
     .join("");
-  // Picnic en Jumbo melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
+  // Picnic, Jumbo en Crisp melden zelf ook welke producten ze niet in het mandje kregen (of al op het lijstje stonden).
   const names = state.store === "ah" ? notFound : [...notFound, ...(data.skippedItems || [])];
   const missing = names.length
     ? th("cart.missing", { count: names.length, names: names.join(", ") })
@@ -1165,8 +1172,8 @@ function showCartResult(data, notFound) {
     <div class="message success">${th(ready, { added: data.added }).replace("{missing}", missing)}</div>
     ${lines ? `<ul class="cart-lines">${lines}</ul>` : ""}
   `;
-  // Picnic en Jumbo vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
-  if (state.store === "picnic" || state.store === "jumbo") {
+  // Picnic, Jumbo en Crisp vullen het echte mandje: laat zien waar je het kunt bekijken en aanpassen.
+  if (["picnic", "jumbo", "crisp"].includes(state.store)) {
     $("#cart-result").insertAdjacentHTML(
       "beforeend",
       `<p><button class="button button--secondary" id="view-basket" type="button">${escapeHtml(t("basket.view"))}</button></p>`
@@ -1534,7 +1541,7 @@ function applyStoreFold(store, linked) {
   $(`#${store}-login-body`).hidden = !open;
 }
 
-for (const store of ["mealie", "ah", "picnic", "jumbo", "ai"]) {
+for (const store of ["mealie", "ah", "picnic", "jumbo", "crisp", "ai"]) {
   $(`#${store}-login-toggle`).addEventListener("click", () => {
     const toggle = $(`#${store}-login-toggle`);
     state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
@@ -2298,6 +2305,8 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
     if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof loadJumboFavorites === "function" && !jumboFavorites.loaded) loadJumboFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-favorieten" && typeof loadCrispFavorites === "function" && !crispFavorites.loaded) loadCrispFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-bestellingen" && typeof loadCrispOrders === "function" && !crispOrders.loaded) loadCrispOrders();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {
       state.ahListsLoaded = true;
       loadAhFavoriteLists();

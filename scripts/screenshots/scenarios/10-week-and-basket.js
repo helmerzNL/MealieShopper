@@ -1,5 +1,7 @@
 // Weekmenu naar de winkel, mandjes, recepten zoeken, winkelkeuze en maaltijdboxen.
 const { DISHES, WEEK, product } = require("../demo");
+// Je eigen recepten in Mealie staan bij Recepten zoeken bovenaan (dezelfde als in de receptkiezer van het weekmenu).
+const { mealieRecipes } = require("./01-plan");
 
 // ---- Hulpjes
 
@@ -244,6 +246,7 @@ const jumboDetail = {
 
 // Antwoorden voor het zoeken bij alle vijf de winkels en aanbieders.
 const searchRoutes = {
+  "/api/mealie/recipes*": mealieRecipes,
   "/api/ah/search*": ahResults,
   "/api/jumbo/recipes*": jumboResults,
   "/api/jumbo/recipes/*": jumboDetail,
@@ -329,7 +332,7 @@ module.exports = [
     run: async (page) => openBasket(page, "jumbo"),
   },
   {
-    // Recepten zoeken: de resultaten van Albert Heijn bovenaan.
+    // Recepten zoeken: je eigen recepten in Mealie bovenaan, daaronder Albert Heijn.
     name: "search",
     routes: searchRoutes,
     run: async (page) => {
@@ -347,7 +350,7 @@ module.exports = [
     },
   },
   {
-    // Een Jumbo-recept met ingrediënten, bereiding en de knoppen Importeer en Bekijk op de site.
+    // Een Jumbo-recept met ingrediënten, bereiding en de knoppen Inplannen, Importeer en Bekijk bij Jumbo.
     name: "search-detail",
     routes: searchRoutes,
     run: async (page, { device }) => {

@@ -24,7 +24,8 @@ const RECIPE_TITLES = [
 ];
 
 const savedRecipes = {
-  recipes: RECIPE_TITLES.map(([title, image], index) => ({ title, image, url: `https://www.example.nl/allerhande/recept/${index + 1}` })),
+  // Een Allerhande-link eindigt op het receptnummer (R-R…); daaraan herkent de app het recept en toont ze Bekijken en Inplannen.
+  recipes: RECIPE_TITLES.map(([title, image], index) => ({ title, image, url: `https://www.example.nl/allerhande/recept/R-R${1200 + index}` })),
   total: RECIPE_TITLES.length,
   syncedAt: "2026-10-27T19:12:00",
   source: "local",

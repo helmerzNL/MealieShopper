@@ -1,5 +1,5 @@
-// Recepten zoeken: in je eigen recepten in Mealie (zodra Mealie gekoppeld is), tegelijk bij Albert Heijn, Jumbo en Picnic (de laatste
-// twee zodra ze gekoppeld zijn) en in de menu's van de maaltijdboxen HelloFresh en Marley Spoon (zonder koppeling; de komende weken
+// Recepten zoeken: in je eigen recepten in Mealie (zodra Mealie gekoppeld is), tegelijk bij Albert Heijn, Jumbo, Picnic en Crisp (de
+// laatste drie zodra ze gekoppeld zijn) en in de menu's van de maaltijdboxen HelloFresh en Marley Spoon (zonder koppeling; de komende weken
 // worden bij het zoeken opgehaald). Een recept uit Mealie importeer je niet, dat plan je meteen in het weekmenu.
 // Elke winkel heeft zijn eigen blok met resultaten; een winkel die faalt, laat de andere gewoon staan.
 // Elke kaart heeft Bekijken (het recept met ingrediënten en bereiding, in dit tabblad) en Inplannen (zie recipeCardActions in
@@ -7,7 +7,7 @@
 // Winkels (AH, Jumbo, Picnic) en Maaltijdboxen, elk met een eigen "gastheer" (zie hieronder).
 // Laadt na app.js en gebruikt daar de hulpfuncties ($, message, jsonFetch, postJson, setBusy, t, tn, ...).
 
-const SEARCH_STORES = ["mealie", "ah", "jumbo", "picnic", "hellofresh", "marleyspoon"];
+const SEARCH_STORES = ["mealie", "ah", "jumbo", "picnic", "crisp", "hellofresh", "marleyspoon"];
 const MEALKIT_SEARCH = new Set(["hellofresh", "marleyspoon"]); // zoeken in menu's; elke aanbieder heeft eigen routes onder /api/<aanbieder>/
 const MEALKIT_SEARCH_WEEKS = 4; // deze week en de 3 weken erna
 const recipeSearch = {
@@ -16,6 +16,7 @@ const recipeSearch = {
   ah: { recipes: [], total: 0, page: 0, more: false },
   jumbo: { recipes: [], total: 0, more: false },
   picnic: { recipes: [], total: 0, more: false },
+  crisp: { recipes: [], total: 0, more: false },
   hellofresh: { recipes: [], total: 0, more: false },
   marleyspoon: { recipes: [], total: 0, more: false },
   searched: false,
@@ -74,7 +75,7 @@ function renderSearchStore(store) {
   } else {
     parts.count.textContent = data.recipes.length ? (data.more ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : tn("search.count", data.total, { limit: "" })) : "";
   }
-  if (parts.more) parts.more.hidden = !data.more; // Picnic en de maaltijdboxen hebben maar één pagina
+  if (parts.more) parts.more.hidden = !data.more; // Picnic, Crisp en de maaltijdboxen hebben maar één pagina
   if (recipeSearch.searched && !data.recipes.length && !parts.message.textContent) {
     message(`#${parts.message.id}`, t("rsearch.none", { query: recipeSearch.query }), "success");
   }
@@ -118,7 +119,8 @@ async function fetchSearchStore(store, append) {
       const recipes = (answer.recipes || []).map(mealKitSearchCard);
       found = { recipes, total: answer.total ?? recipes.length, more: Number(answer.total) > recipes.length };
     } else {
-      const answer = await jsonFetch(`/api/picnic/recipes?q=${q}`);
+      // Picnic en Crisp: één pagina met de treffers.
+      const answer = await jsonFetch(`/api/${store}/recipes?q=${q}`);
       found = { recipes: answer.recipes || [], total: answer.total ?? (answer.recipes || []).length, more: false };
     }
     if (query !== recipeSearch.query) return; // intussen is er opnieuw gezocht
@@ -162,7 +164,7 @@ async function runRecipeSearch(event) {
   setBusy(button, false);
 }
 
-// ---- Een recept van Jumbo of Picnic openen: ingrediënten en bereiding, en importeren in Mealie
+// ---- Een recept van Jumbo, Picnic of Crisp openen: ingrediënten en bereiding, en importeren in Mealie
 async function importStoreRecipe(store, id, button, target) {
   button.disabled = true;
   button.textContent = t("recipe.importing");
@@ -187,7 +189,7 @@ const AH_SAVED_HOST = { prefix: "ah-recipe", list: "#ah-recipes-view", detail: "
 const MEALKIT_HOST = { prefix: "mealkit-recipe", list: "#mealkits-view", detail: "#mealkit-recipe-view", known: () => mealKits.search?.recipes || mealKits.menu?.recipes || [] };
 
 // De naam van de winkel bij de link in het detail ("Bekijk bij Albert Heijn").
-const RECIPE_SOURCE_NAMES = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picnic", hellofresh: "HelloFresh", marleyspoon: "Marley Spoon" };
+const RECIPE_SOURCE_NAMES = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picnic", crisp: "Crisp", hellofresh: "HelloFresh", marleyspoon: "Marley Spoon" };
 
 function showRecipeList(host) {
   $(host.detail).hidden = true;

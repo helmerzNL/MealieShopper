@@ -1,5 +1,6 @@
 import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
@@ -635,18 +636,59 @@ def _get_with_retry(url: str, attempts: int = 3, **kwargs: Any) -> requests.Resp
     raise AssertionError("onbereikbaar")  # pragma: no cover
 
 
+# Hoeveel producten we AH per zoekopdracht vragen. AH's eigen volgorde zet soms iets bovenaan dat niet over het
+# ingrediënt gaat: bij "AH Penne" kwam een "Guacamole seasoning mix 3-pack" (door AH onder Penne ingedeeld) eerst
+# en stond "AH Penne" zelf pas op plek 9 (issue #175). Daarom vragen we er meer en zetten we ze zelf op volgorde.
+SEARCH_WINDOW = 30
+
+_WORD_RE = re.compile(r"[^\W_]+")
+
+
+def _words(value: Any) -> list[str]:
+    """De woorden van een tekst in kleine letters en zonder accenten: "Crème fraîche" -> ["creme", "fraiche"]."""
+    text = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return _WORD_RE.findall("".join(ch for ch in text if not unicodedata.combining(ch)))
+
+
+def _search_rank(query_words: list[str], item: dict[str, Any], position: int) -> tuple[bool, bool, int]:
+    """Sorteersleutel voor een zoekresultaat; lager is beter.
+
+    1. Een product dat precies zo heet als de zoekterm, ook met AH's eigen merk ervoor ("penne" is "AH Penne",
+       "spaghetti" is "AH Biologisch Spaghetti"). Alleen het eigen merk: "Pringles Paprika" is geen paprika.
+    2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
+       samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
+    3. Verder de volgorde van AH. Of de zoekwoorden in de titel staan, telt bewust niet: "Milner Jong belegen" is
+       kaas zonder "kaas" in de naam, en "Kruiden roomkaas" zou er dan voor komen.
+    """
+    title = _words(item.get("title"))
+    brand = _words(item.get("brand"))
+    own_brand = brand[:1] == ["ah"] and title[: len(brand)] == brand
+    name = title[len(brand):] if own_brand else title
+    exact = bool(query_words) and query_words in (title, name)
+    return (not exact, bool(item.get("isVirtualBundle")), position)
+
+
+def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]:
+    """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan; zie `_search_rank`."""
+    items = [item for item in products if isinstance(item, dict)]
+    query_words = _words(query)
+    ranked = sorted(enumerate(items), key=lambda pair: _search_rank(query_words, pair[1], pair[0]))
+    return [item for _, item in ranked]
+
+
 def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    limit = max(1, int(limit))
     token = get_token()
     response = _get_with_retry(
         f"{AH_API_BASE}/mobile-services/product/search/v2",
         headers=_auth_headers(token, include_content_type=False),
-        params={"query": query, "page": 0, "size": max(1, int(limit)), "sortOn": "RELEVANCE"},
+        params={"query": query, "page": 0, "size": max(limit, SEARCH_WINDOW), "sortOn": "RELEVANCE"},
         timeout=30,
     )
     if not response.ok:
         raise RuntimeError(f"AH productzoekopdracht mislukt ({response.status_code})")
-    products = response.json().get("products") or []
-    return [_search_product_dict(item, query) for item in products[: max(1, int(limit))]]
+    products = rank_search_results(query, response.json().get("products") or [])
+    return [_search_product_dict(item, query) for item in products[:limit]]
 
 
 def search_product(query: str) -> dict[str, Any] | None:

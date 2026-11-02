@@ -2,6 +2,77 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.87.1
+
+### Opgelost in 2.87.1
+
+*English summary: the week menu sometimes picked a product that has nothing to do with the ingredient at Albert Heijn. For "AH Penne" it suggested "AH Guacamole seasoning mix 3-pack": AH's own search put that multipack (which AH files under Penne) first and AH Penne itself ninth, while MealieShopper only asked AH for the first five. MealieShopper now asks AH for 30 products and puts a product named exactly like the ingredient first (with or without AH's own brand in front: "penne" is AH Penne, but "Pringles Paprika" is not paprika), and a single product before a multipack; otherwise AH's order stays. This applies to the check list, Search for another product, `POST /api/ah/cart` for a line without a product and the MCP tool `search_products`.*
+
+- **Het weekmenu vindt bij Albert Heijn het juiste product.** Bij "AH Penne" stelde de controlelijst "AH Guacamole seasoning mix 3-pack" voor. Dat kwam van AH zelf: de zoekfunctie van AH zette die multipack (door AH bij Penne ingedeeld) bovenaan en AH Penne pas op plek 9, en MealieShopper vroeg AH alleen om de eerste vijf. Nu vraagt MealieShopper AH om 30 producten en zet het ze zelf op volgorde:
+  - Een product dat precies zo heet als het ingrediënt komt eerst, ook met AH's eigen merk ervoor: "penne" en "AH Penne" geven AH Penne, "spaghetti" geeft AH Biologisch Spaghetti. Een ander merk telt niet mee: "Pringles Paprika" is geen paprika.
+  - Een los product komt vóór een multipack van AH ("AH Zalmfilet 3-pack"). Voor een recept wil je er één; het aantal verpakkingen rekent MealieShopper zelf uit.
+  - Verder blijft de volgorde van AH. Of het ingrediënt letterlijk in de productnaam staat, telt bewust niet: kaas van Milner heet "Jong belegen 35+ plakken".
+- Geldt voor de controlelijst van het weekmenu, *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
+- Issue: [#175](https://github.com/helmerzNL/MealieShopper/issues/175). Pull request: [#176](https://github.com/helmerzNL/MealieShopper/pull/176).
+
+## v2.87.0
+
+### Nieuw in 2.87.0
+
+*English summary: Crisp gets the same treatment as Picnic. In the Basket tab you can change the Crisp basket: quantities with `−` and `+` or by typing, remove a product, or empty the basket after a confirmation; below it are what you pay and how much more you need to reach Crisp's minimum order. Under Stores, Crisp has Favorites (the products you saved in the Crisp app, each with an "In basket" button) and Orders: upcoming orders live, delivered orders in a local copy you update with Sync, with "Add all to basket" per order. The address, IBAN and payment details of an order are never stored. Crisp's offers of this week are in the Offers tab and in the daily sync; Crisp gives no validity period in its promo overview, so they are shown in the current week, like Picnic's. As before, the routes come from the source code in the public Crisp app; Explore Crisp routes now also checks orders, favorites and offers.*
+
+- **Het Crisp-mandje aanpassen** (tabblad Mandje). Net als bij Picnic: aantallen met `−` en `+` of door te typen, een product weghalen, of het mandje legen na een bevestiging. Het gaat direct naar je echte Crisp-mandje, in één verzoek per wijziging (`PUT /basket/main` met het nieuwe aantal; 0 haalt het product weg, zoals in de app). Legen haalt alle losse producten weg; recepten die je in de Crisp-app in het mandje zette, blijven staan. Eronder staan het totaal, wat je betaalt (met bezorg- en servicekosten) en hoeveel er nog bij moet tot het minimumbedrag. Weigert Crisp een wijziging, dan zegt MealieShopper dat in eigen woorden en blijft het mandje zoals het was. Er wordt nooit een bestelling geplaatst.
+- **Crisp onder Winkels: Favorieten en Bestellingen.**
+  - **Favorieten** zijn de producten die je in de Crisp-app hebt bewaard ("Door jou bewaard"), met een zoekveld en per product een knop **In mandje**.
+  - **Bestellingen** toont je aankomende bestellingen live en je bezorgde bestellingen uit een lokale kopie (`crisp_orders`, ook in de back-up). **Synchroniseren** bladert door je bestelgeschiedenis bij Crisp tot een pagina die al bekend is en haalt per keer de producten van hooguit 25 bestellingen op. Open een bestelling voor de producten en zet ze met **Alles in mandje** opnieuw in je Crisp-mandje.
+  - Het adres, het IBAN, de betaalwijze, de factuur en de track-and-trace van een bestelling bewaart en toont MealieShopper niet.
+- **Crisp-aanbiedingen** in het tabblad Aanbiedingen, ook in de dagelijkse synchronisatie en in **Aanbiedingen synchroniseren**. MealieShopper leest de promopagina van de app: losse producten en groepen (met actieprijs, gewone prijs en actietekst) en acties met hun producten (de titel van de actie is dan het label). Crisp geeft daar geen looptijd bij; de aanbiedingen staan daarom bij de huidige week, zoals die van Picnic.
+- **Crisp-routes verkennen** controleert ook de bestelgeschiedenis, één bestelling, de open bestellingen, de favorieten en de promopagina, met alleen soorten, aantallen en veldnamen (geen id's, adressen of prijzen).
+- **API**: `PUT /api/crisp/cart/items/<id>`, `POST /api/crisp/cart/clear` (met `{"confirm": true}`), `GET /api/crisp/orders`, `GET /api/crisp/orders/open`, `GET /api/crisp/orders/<id>`, `POST /api/crisp/orders/sync` en `GET /api/crisp/favorites`. `crisp` is een geldige winkel voor `/api/offers`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#174](https://github.com/helmerzNL/MealieShopper/pull/174).
+
+## v2.86.1
+
+### Opgelost in 2.86.1
+
+*English summary: Crisp recipes and products now show their photos. Crisp gives a photo as a blob id, not as an address; MealieShopper now builds the address the way the Crisp app does (`https://crispapp.nl/blob/<id>?thumb=<size>`), in Find recipes, in the recipe view and in the check list.*
+
+- **Foto's bij Crisp-recepten en -producten.** Bij Recepten zoeken, in het recept en in de controlelijst ontbrak de foto. Crisp geeft een foto als blob-id, niet als adres; MealieShopper liet die weg. Nu maakt het het adres zoals de Crisp-app (`https://crispapp.nl/blob/<id>?thumb=<maat>`): 512 voor de kaarten, 1024 voor het recept en de foto in het groot.
+
+- Pull request: [#173](https://github.com/helmerzNL/MealieShopper/pull/173).
+
+## v2.86.0
+
+### Nieuw in 2.86.0
+
+*English summary: Crisp, the Dutch app-only online supermarket, is now a store in MealieShopper. The administrator links it under Settings, Link, Crisp with the email address of the Crisp account and a code that Crisp emails (the Netherlands or Belgium; no password, only the device id is stored, encrypted). The week menu then goes into the real Crisp basket through the same check list as the other stores, Find recipes also searches the recipes in the Crisp app (view them, import them into Mealie or plan them), and the Basket tab shows the Crisp basket read-only. Crisp has no official API: logging in follows the open-source home-assistant-crisp project, search, recipes and the basket follow the public Crisp app. Explore Crisp routes shows which routes work.*
+
+- **Crisp als supermarkt.** Crisp heeft geen webshop en geen officiële API; MealieShopper praat met de app-API zoals de Crisp-app zelf. Inloggen en de headers volgen het open-source project [home-assistant-crisp](https://github.com/NLthijs48/home-assistant-crisp) (MIT); de routes voor zoeken, recepten en het mandje komen uit de broncode in de openbare Crisp-app. Het onderzoek, ook naar de voorwaarden van Crisp naast die van Picnic, Jumbo en Albert Heijn, staat in [docs/onderzoek-crisp.md](docs/onderzoek-crisp.md).
+- **Koppelen met een code per mail** (Instellingen, Koppelen, Crisp; alleen de beheerder). Kies Nederland of België, vul het e-mailadres van je Crisp-account in en daarna de code uit de mail. Er is geen wachtwoord: MealieShopper maakt een apparaat-id zoals de app, Crisp koppelt je account daaraan en MealieShopper bewaart alleen dat id, versleuteld (en in de back-up bij de koppelingen). `Ontkoppelen` meldt het apparaat bij Crisp af en wist het. `Koppeling controleren` vraagt Crisp of het apparaat nog is ingelogd.
+- **Het weekmenu naar het Crisp-mandje.** Crisp staat in de winkelkeuze van de planner zodra het gekoppeld is. Dezelfde controlelijst als bij de andere winkels: per ingrediënt de producten van Crisp, het aantal verpakkingen uit het gewicht dat Crisp noemt, en aanbiedingen (een lagere prijs dan de gewone prijs of een actie). Na je bevestiging gaan ze in één keer in je echte Crisp-mandje; een product dat Crisp niet kan leveren, wordt gemeld. Er wordt nooit een bestelling geplaatst.
+- **Crisp-recepten zoeken, bekijken en in Mealie zetten.** `Recepten zoeken` zoekt ook in de recepten van de Crisp-app (met de zoekfunctie van Crisp), met `Bekijken` (ingrediënten, ook wat je zelf toevoegt, en de bereiding), `Importeer` en `Inplannen`. Een recept dat al uit Crisp in Mealie staat, wordt bij het inplannen hergebruikt.
+- **Het Crisp-mandje in het tabblad Mandje**, alleen om te bekijken: producten, aantallen, gewicht en prijs. Aanpassen, een bezorgmoment kiezen en bestellen doe je in de Crisp-app.
+- **Crisp-routes verkennen** (alleen de beheerder) roept de routes voor gebruiker, zoeken, product, mandje en recepten aan en toont welke werken en welke velden erin zitten, zonder namen, adressen, prijzen of id's.
+- **Auditlog**: het verkeer met `crispapp.nl` staat onder de dienst Crisp. De installatiehulp kent Crisp nog niet; koppel het onder Instellingen.
+- **API**: `/api/crisp/auth` (code aanvragen), `/api/crisp/auth/verify`, `/api/crisp/auth/logout`, `/api/crisp/auth/status`, `/api/crisp/search`, `/api/crisp/cart/preview`, `/api/crisp/cart` (lezen en vullen), `/api/crisp/recipes`, `/api/crisp/recipes/<id>`, `/api/crisp/recipes/<id>/import` en `/api/crisp/explore`.
+
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#170](https://github.com/helmerzNL/MealieShopper/pull/170).
+
+## v2.85.2
+
+### Opgelost in 2.85.2
+
+*English summary: the explanation above the recipes under Stores > Picnic and Stores > Jumbo still said "open a recipe, or import it into Mealie". Since 2.83.0 every card has **View** and **Plan**, and importing without planning only happens from the recipe itself; the text now says so, like Find recipes and Meal kits. Reload the page once after updating.*
+
+- **De uitleg boven de recepten bij Winkels > Picnic en Winkels > Jumbo klopt weer.** Er stond nog *Open een recept voor de ingrediënten en de bereiding, of importeer het in Mealie*. Sinds 2.83.0 ([#162](https://github.com/helmerzNL/MealieShopper/pull/162)) heeft elke kaart **Bekijken** en **Inplannen**, en importeren zonder in te plannen doe je alleen in het recept zelf. Er staat nu, net als bij Recepten zoeken en Maaltijdboxen: *Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie.* De README (Winkels: Picnic) is op dezelfde manier bijgewerkt, in het Nederlands en het Engels, en de screenshots `picnic-recipes` en `jumbo-recipes` zijn opnieuw gemaakt.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+- Pull request: [#172](https://github.com/helmerzNL/MealieShopper/pull/172).
+
 ## v2.85.1
 
 ### Opgelost in 2.85.1
