@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.90.0
+
+### Nieuw in 2.90.0
+
+*English summary: the pack comparison now also works in the check list when you put the week menu in your basket. Every product in a line's drop-down shows its price per kilo, litre or piece (with an offer: what an item costs with the deal, also for "1+1 free"). After the suggested product the drop-down only lists the same product in another size or what is cheaper per unit, and only the same kind of product (for minced beef no mixed mince or meatballs); other search results are left out and remain available through Search for another product. When another option is cheaper per unit, a line under the ingredient says so ("Cheaper per kg: AH Rundergehakt 500 g – €10.70/kg (chosen: €12.63/kg)") with a Choose button, which also recalculates the number of packs. Searching yourself still shows the first five results, now with the price per unit.*
+
+- **Vergelijken in de controlelijst van het weekmenu** ([#178](https://github.com/helmerzNL/MealieShopper/issues/178), op verzoek). Als je het weekmenu in je mandje doet:
+  - staat bij elk product in de keuzelijst de **prijs per kilo, liter of stuk**. Bij een aanbieding is dat wat een stuk met de actie kost, ook bij *1+1 gratis* (waar AH de gewone prijs als prijs geeft);
+  - staat na het voorgestelde product alleen nog wat **hetzelfde product** is in een andere maat, of **per eenheid goedkoper**, en alleen hetzelfde soort product: bij rundergehakt dus 500 g en 175 g rundergehakt en *minder vet*, maar geen gemengd gehakt, gehaktballen, biologisch van 250 g of Greenfields. De goedkoopste per eenheid eerst, hooguit zes. Andere zoekresultaten vind je met **Zoek een ander product**;
+  - staat onder het ingrediënt een regel als een andere optie per eenheid goedkoper is, bijvoorbeeld *"Per kg goedkoper: AH Rundergehakt 500 g – € 10,70/kg (gekozen: € 12,63/kg)"*, met **Kies**. Dat kiest die optie en rekent het aantal verpakkingen opnieuw uit voor de hoeveelheid uit het recept (voor 500 g: één keer 500 g in plaats van twee keer 300 g).
+- Bij AH vroeg de zoekopdracht al om 30 producten en hield er vijf over; die 30 worden nu gebruikt, dus er zijn geen extra aanroepen. Bij Picnic, Jumbo en Crisp vraagt dezelfde zoekopdracht om meer producten.
+- **Zoek een ander product** laat de eerste vijf zoekresultaten zien zoals voorheen, nu ook met de prijs per eenheid.
+
 ## v2.89.2
 
 ### Nieuw in 2.89.2

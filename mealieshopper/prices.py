@@ -795,3 +795,58 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
         candidate["cheaper"] = mine is not None and not candidate["self"] and candidate["unitPrice"]["value"] < mine * (1 - PACK_MARGIN)
         candidate["rank"] = round(index / (len(candidates) - 1), 2) if len(candidates) > 1 else 0
     return {"store": store, "product": product, "query": query, "unit": unit, "kind": " ".join(kind), "candidates": candidates}
+
+
+# --- de controlelijst van het weekmenu -------------------------------------------------------------------------------
+
+CHECK_LIST_SIZE = 5  # zoveel producten toont de controlelijst zonder vergelijking (zoals voorheen)
+CHECK_LIST_EXTRAS = 6  # hooguit zoveel vergelijkingsopties onder het voorgestelde product
+
+
+def per_item_price(candidate: dict[str, Any]) -> float | None:
+    """Wat één stuk van een kandidaat uit de controlelijst kost: bij een aanbieding met de actie (ook "1+1 gratis", waar AH de gewone
+    prijs als prijs geeft), anders de prijs."""
+    deal = candidate.get("deal") if isinstance(candidate.get("deal"), dict) else {}
+    price = _number(candidate.get("price"))
+    if deal and deal.get("validity") != deals.EXPIRED:
+        if _number(deal.get("unitPrice")) is not None:
+            return _number(deal.get("unitPrice"))
+        mechanic = deals.parse_mechanic(deal.get("label"))
+        if price is not None and mechanic["type"] in _FROM_REGULAR:
+            return _number(deals.effective_unit_price(mechanic, price, price))
+    return price
+
+
+def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> list[dict[str, Any]]:
+    """De producten voor één regel van de controlelijst, elk met zijn prijs per kilo, liter of stuk (`unitPrice`).
+
+    Zonder `compare` (zelf zoeken met *Zoek een ander product*) blijven de eerste vijf zoals ze zijn. Met `compare` (het weekmenu in het
+    mandje) komt na het voorgestelde product alleen wat **hetzelfde product** is in een andere maat (`same`) of **per eenheid goedkoper**
+    (`cheaper`), en alleen hetzelfde soort product (`_same_kind`): bij rundergehakt dus geen gemengd gehakt of gehaktballen. De
+    goedkoopste per eenheid eerst, hooguit `CHECK_LIST_EXTRAS`. Andere zoekresultaten vallen weg; die vind je met *Zoek een ander product*.
+    """
+    for candidate in candidates:
+        candidate["unitPrice"] = unit_price(per_item_price(candidate), candidate.get("unitSize"))
+    if not compare or not candidates:
+        return candidates[:CHECK_LIST_SIZE]
+    first = candidates[0]
+    first["suggested"] = True
+    kind = _kind_words(first.get("title"), first.get("brand"))
+    base = base_title(first.get("title"))
+    brand = ah_lists._fold(first.get("brand") or "")
+    mine = first["unitPrice"]
+    seen = {str(first.get("productId"))}
+    extras = []
+    for candidate in candidates[1:]:
+        key = str(candidate.get("productId"))
+        if key in seen or not _same_kind(kind, candidate.get("title")):
+            continue
+        seen.add(key)
+        other_brand = ah_lists._fold(candidate.get("brand") or "")
+        same = _same_product(base, candidate.get("title")) and (not brand or not other_brand or other_brand == brand)
+        unit = candidate["unitPrice"]
+        cheaper = bool(mine and unit and unit["unit"] == mine["unit"] and unit["value"] < mine["value"] * (1 - PACK_MARGIN))
+        if same or cheaper:
+            extras.append({**candidate, "same": same, "cheaper": cheaper})
+    extras.sort(key=lambda c: (c["unitPrice"]["value"] if c["unitPrice"] else float("inf")))
+    return [first] + extras[:CHECK_LIST_EXTRAS]

@@ -604,6 +604,8 @@ I18N.add("en", {
   "cart.missing_hint.other": "{count} products were not found. Search for them yourself, for example under another name, and add them anyway.",
   "cart.search_label": "Search term",
   "cart.search_other": "Search for another product",
+  "cart.cheaper_hint": "Cheaper per {unit}: {title} – {price} (chosen: {current}).",
+  "cart.cheaper_pick": "Choose",
   "cart.search_button": "Search",
   "cart.search_none": "Nothing found for \"{term}\". Try another search term.",
   "cart.include": "Add",
