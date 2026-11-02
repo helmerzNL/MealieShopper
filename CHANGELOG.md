@@ -16,7 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **`GET /api/prices/history`** (met `store`, `q` en `limit`) geeft per product de aanbiedingen (zoals `GET /api/offers/history`), de periodes met dezelfde gewone prijs (`regular`), de aankopen (`purchases`) en samenvattingen (`regularPrice`, `lastPaid`, `averagePaid`, `timesBought`). Het tabblad gebruikt deze route; `GET /api/offers/history` blijft bestaan.
 - **MCP-tool `get_price_history`**: dezelfde gegevens, compact, zodat een assistent kan zeggen of een aanbieding echt voordelig is.
 - **Back-up:** de nieuwe tabel `price_observations` gaat mee in de back-up ("Bijgehouden prijzen").
-- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (van [wolph](https://github.com/wolph)). Dit is deel 1; deel 2 (prijs per kilo of liter, een oordeel bij elke aanbieding en verpakkingen vergelijken) volgt.
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178) (van [wolph](https://github.com/wolph)). Pull request: [#179](https://github.com/helmerzNL/MealieShopper/pull/179). Dit is deel 1; deel 2 (prijs per kilo of liter, een oordeel bij elke aanbieding en verpakkingen vergelijken) volgt.
 
 ## v2.87.1
 
