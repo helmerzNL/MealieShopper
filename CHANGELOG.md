@@ -19,6 +19,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **In de back-up**: de bewaarde afbeeldingen gaan mee (*Bewaarde productafbeeldingen* in de samenvatting), want de winkel geeft ze niet terug als hij ze vervangt. Bij het terugzetten wordt elke afbeelding opnieuw gelezen: wat geen PNG, JPEG of WebP van hooguit 1024 pixels breed is, wordt geweigerd, en het type, de maat en de controlesom volgen uit de afbeelding zelf.
 - **Nieuwe afhankelijkheid: Pillow** (voor het verkleinen). De container installeert die vanzelf; draai je MealieShopper zonder container, voer dan `pip install -r requirements.txt` opnieuw uit.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#188](https://github.com/helmerzNL/MealieShopper/pull/188).
 
 ## v2.91.1
 
