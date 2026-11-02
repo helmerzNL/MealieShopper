@@ -2,6 +2,15 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.91.1
+
+### Opgelost in 2.91.1
+
+*English summary: with a popup open (the recipe of a meal, Edit meal, a product photo, Compare packs or an offer), swiping on a phone sometimes scrolled the page behind it: as soon as the popup reached its top or bottom, on a short popup, or on the dark edge around it. Now only the popup scrolls; the page behind it stays put and keeps its place, swiping down no longer reloads the page (pull-to-refresh), and the mouse wheel behaves the same. After closing, the page scrolls as before.*
+
+- **Vegen in een popup scrolt alleen de popup.** Met een popup open (het recept van een maaltijd, *Maaltijd wijzigen*, de foto van een product, *Verpakkingen vergelijken* of een aanbieding) scrolde de pagina erachter soms mee: zodra de popup bovenaan of onderaan was, bij een korte popup, en bij vegen op de donkere rand eromheen. Nu staat de pagina erachter stil zolang er een popup open is, en houdt ze haar plek. Vegen naar beneden ververst de pagina ook niet meer (pull-to-refresh). Met het muiswiel werkt het net zo. Na het sluiten scrolt de pagina weer gewoon.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.91.0
 
 ### Nieuw in 2.91.0
