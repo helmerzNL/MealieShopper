@@ -1252,10 +1252,19 @@ a.product-card strong {
   border-radius: 4px;
 }
 
+/* Een popup houdt het vegen voor zich. Zolang er een open is, scrolt de pagina erachter niet: niet bij vegen op de
+   popup als die bovenaan of onderaan is, niet bij vegen op de donkere rand eromheen, en vegen naar beneden ververst de
+   pagina niet (pull-to-refresh). Het slot zit op <html>: dat scrolt de pagina, ook waar html zelf overflow-y heeft. */
+html:has(dialog[open]) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .product-dialog {
   width: min(480px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   padding: 0;
