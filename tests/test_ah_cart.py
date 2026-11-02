@@ -186,6 +186,80 @@ class SearchRetryTest(unittest.TestCase):
         self.assertEqual(get.call_count, 1)
 
 
+def ah_product(webshop_id, title, brand="AH", bundle=False):
+    return {"webshopId": webshop_id, "title": title, "brand": brand, "isVirtualBundle": bundle,
+            "currentPrice": 1.0, "salesUnitSize": "500 g", "images": []}
+
+
+class SearchRankTest(unittest.TestCase):
+    """Issue #175: AH's eigen volgorde zette een multipack guacamolekruiden boven "AH Penne"."""
+
+    # Zo gaf AH ze echt terug voor "AH Penne" (ingekort): de multipack stond door AH onder Penne.
+    PENNE = [
+        ah_product(578640, "AH Guacamole seasoning mix 3-pack", bundle=True),
+        ah_product(543604, "AH Biologisch Mini penne volkoren", brand="AH Biologisch"),
+        ah_product(594833, "AH Proteine penne"),
+        ah_product(1, "Grand' Italia Penne tradizionali", brand="Grand' Italia"),
+        ah_product(62027, "AH Penne"),
+    ]
+
+    def search(self, query, products, limit=5):
+        answer = mock.Mock(ok=True)
+        answer.json.return_value = {"products": products}
+        with mock.patch.object(ah, "get_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "get", return_value=answer) as get:
+            found = ah.search_products(query, limit)
+        return found, get.call_args.kwargs["params"]
+
+    def titles(self, query, products):
+        return [item["title"] for item in ah.rank_search_results(query, products)]
+
+    def test_the_product_with_the_ingredients_name_comes_first(self):
+        found, params = self.search("AH Penne", self.PENNE, 1)
+        self.assertEqual([item["webshopId"] for item in found], ["62027"])
+        self.assertEqual(params["size"], ah.SEARCH_WINDOW)  # AH zette AH Penne op plek 9: vraag er meer
+
+    def test_ahs_own_brand_may_be_left_out(self):
+        self.assertEqual(self.titles("penne", self.PENNE)[0], "AH Penne")
+        spaghetti = [ah_product(1, "Knorr Maaltijdmix spaghetti bolognese", brand="Knorr"),
+                     ah_product(2, "AH Biologisch Spaghetti", brand="AH Biologisch")]
+        self.assertEqual(self.titles("spaghetti", spaghetti)[0], "AH Biologisch Spaghetti")
+
+    def test_another_brand_is_not_an_exact_match(self):
+        paprika = [ah_product(1, "AH Paprika mild gemalen"), ah_product(2, "Pringles Paprika", brand="Pringles")]
+        self.assertEqual(self.titles("paprika", paprika), ["AH Paprika mild gemalen", "Pringles Paprika"])
+
+    def test_case_and_accents_do_not_matter(self):
+        products = [ah_product(1, "AH Creme fraiche light 15% vet"), ah_product(2, "AH Crème Fraîche")]
+        self.assertEqual(self.titles("crème fraîche", products)[0], "AH Crème Fraîche")
+        self.assertEqual(self.titles("Creme Fraiche", products)[0], "AH Crème Fraîche")
+
+    def test_a_multipack_comes_after_single_products_in_ahs_order(self):
+        products = [
+            ah_product(1, "AH Scharrel kipfilet blokjes 3-pack", bundle=True),
+            ah_product(2, "AH Scharrel kipfilet naturel"),
+            ah_product(3, "AH Scharrel roasted kipfilet 2-pack", bundle=True),
+            ah_product(4, "AH Scharrel kipfilet 2 stuks"),
+        ]
+        self.assertEqual(
+            [item["webshopId"] for item in ah.rank_search_results("kipfilet", products)], [2, 4, 1, 3]
+        )
+
+    def test_otherwise_ahs_order_stays(self):
+        # Milner is kaas zonder "kaas" in de naam: woorden in de titel tellen niet mee.
+        products = [ah_product(1, "Milner Jong belegen 35+ plakken", brand="Milner"),
+                    ah_product(2, "AH Kruiden roomkaas")]
+        self.assertEqual(self.titles("kaas", products), ["Milner Jong belegen 35+ plakken", "AH Kruiden roomkaas"])
+        self.assertEqual(self.titles("", self.PENNE)[-1], "AH Guacamole seasoning mix 3-pack")
+
+    def test_the_limit_is_kept(self):
+        found, params = self.search("AH Penne", self.PENNE, 2)
+        self.assertEqual([item["title"] for item in found], ["AH Penne", "AH Biologisch Mini penne volkoren"])
+        found, params = self.search("AH Penne", self.PENNE, 50)
+        self.assertEqual(params["size"], 50)
+        self.assertEqual(found[-1]["title"], "AH Guacamole seasoning mix 3-pack")
+
+
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

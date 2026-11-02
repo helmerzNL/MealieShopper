@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.87.1
+
+### Opgelost in 2.87.1
+
+*English summary: the week menu sometimes picked a product that has nothing to do with the ingredient at Albert Heijn. For "AH Penne" it suggested "AH Guacamole seasoning mix 3-pack": AH's own search put that multipack (which AH files under Penne) first and AH Penne itself ninth, while MealieShopper only asked AH for the first five. MealieShopper now asks AH for 30 products and puts a product named exactly like the ingredient first (with or without AH's own brand in front: "penne" is AH Penne, but "Pringles Paprika" is not paprika), and a single product before a multipack; otherwise AH's order stays. This applies to the check list, Search for another product, `POST /api/ah/cart` for a line without a product and the MCP tool `search_products`.*
+
+- **Het weekmenu vindt bij Albert Heijn het juiste product.** Bij "AH Penne" stelde de controlelijst "AH Guacamole seasoning mix 3-pack" voor. Dat kwam van AH zelf: de zoekfunctie van AH zette die multipack (door AH bij Penne ingedeeld) bovenaan en AH Penne pas op plek 9, en MealieShopper vroeg AH alleen om de eerste vijf. Nu vraagt MealieShopper AH om 30 producten en zet het ze zelf op volgorde:
+  - Een product dat precies zo heet als het ingrediënt komt eerst, ook met AH's eigen merk ervoor: "penne" en "AH Penne" geven AH Penne, "spaghetti" geeft AH Biologisch Spaghetti. Een ander merk telt niet mee: "Pringles Paprika" is geen paprika.
+  - Een los product komt vóór een multipack van AH ("AH Zalmfilet 3-pack"). Voor een recept wil je er één; het aantal verpakkingen rekent MealieShopper zelf uit.
+  - Verder blijft de volgorde van AH. Of het ingrediënt letterlijk in de productnaam staat, telt bewust niet: kaas van Milner heet "Jong belegen 35+ plakken".
+- Geldt voor de controlelijst van het weekmenu, *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
+- Issue: [#175](https://github.com/helmerzNL/MealieShopper/issues/175).
+
 ## v2.87.0
 
 ### Nieuw in 2.87.0
