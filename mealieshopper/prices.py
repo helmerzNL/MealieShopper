@@ -294,10 +294,6 @@ def _unsynced(conn, store: str) -> dict[str, int]:
     return counts
 
 
-def _pattern(query: Any) -> str:
-    return "%" + str(query or "").strip().replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
-
-
 def _limit(value: Any) -> int:
     try:
         return max(1, min(MAX_LIMIT, int(value)))
@@ -305,31 +301,68 @@ def _limit(value: Any) -> int:
         return 50
 
 
-def _candidates(conn, store: str, pattern: str, today: str, receipts: list[dict[str, Any]], needle: str) -> dict[str, str]:
-    """Product-id -> de laatste dag dat we iets van het product weten, voor elk product waarvan een titel bij de zoekterm past."""
-    last: dict[str, str] = {}
+class _Query:
+    """Een zoekterm voor de prijsgeschiedenis: losse woorden en eventueel een maat.
+
+    Elk woord moet in de naam (of het merk) van het product staan, ook als deel van een woord: "gehakt" vindt "AH Rundergehakt". Een
+    maat in de zoekterm ("500 gram", "500g", "0,5 kg", "2 x 250 g") wordt vergeleken met de verpakking: "Gehakt 500 gram" vindt gehakt
+    van 500 gram en niet dat van 300 gram. Een product waarvan de verpakking niet bekend is (zoals een regel van een kassabon) blijft erin.
+    """
+
+    def __init__(self, query: Any) -> None:
+        text = _fold_name(query)
+        self.size: tuple[float, str] | None = None
+        match = packs._PACK_SIZE_RE.search(text)
+        if match:
+            self.size = packs.parse_pack_size(match.group(0))
+            text = f"{text[:match.start()]} {text[match.end():]}"
+        self.words = re.findall(r"[a-z0-9]+", text)
+
+    def wants(self, names: set[str], sizes: set[tuple[float, str]]) -> bool:
+        if self.words and not any(all(word in name for word in self.words) for name in names):
+            return False
+        return not self.size or not sizes or any(_same_size(size, self.size) for size in sizes)
+
+
+def _same_size(one: tuple[float, str], other: tuple[float, str]) -> bool:
+    return one[1] == other[1] and abs(one[0] - other[0]) <= 0.005 * max(one[0], other[0])
+
+
+def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
+    """De verpakking van een product: uit de pakmaat, anders uit een maat in de naam ("AH RUNDERGEHAKT 500G")."""
+    size = packs.parse_pack_size(unit_size)
+    if size:
+        return size
+    match = packs._PACK_SIZE_RE.search(_fold_name(title))
+    return packs.parse_pack_size(match.group(0)) if match else None
+
+
+def _candidates(conn, store: str, query: _Query, today: str, receipts: list[dict[str, Any]]) -> dict[str, str]:
+    """Product-id -> de laatste dag dat we iets van het product weten, voor elk product dat bij de zoekterm past.
+
+    Alle namen en verpakkingen van een product tellen samen (uit de aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen).
+    """
+    found: dict[str, dict[str, Any]] = {}
 
     def add(rows) -> None:
         for row in rows:
-            day = str(row["last"] or "")[:10]
-            if row["product_id"] and day > last.get(row["product_id"], ""):
-                last[row["product_id"]] = day
+            product_id = row["product_id"]
+            if not product_id:
+                continue
+            entry = found.setdefault(product_id, {"last": "", "names": set(), "sizes": set()})
+            entry["last"] = max(entry["last"], str(row["last"] or "")[:10])
+            entry["names"].add(_fold_name(f"{row['title'] or ''} {row['brand'] or ''}"))
+            size = _size_of(row["unit_size"], row["title"])
+            if size:
+                entry["sizes"].add(size)
 
-    add(conn.execute(
-        "SELECT product_id, MAX(last_seen) AS last FROM offer_history WHERE store = ? AND title LIKE ? ESCAPE '\\' GROUP BY product_id",
-        (store, pattern),
-    ))
-    add(conn.execute(
-        "SELECT product_id, MAX(day) AS last FROM price_observations WHERE store = ? AND title LIKE ? ESCAPE '\\' GROUP BY product_id",
-        (store, pattern),
-    ))
+    columns = "product_id, title, brand, unit_size"
+    add(conn.execute(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
+    add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
     for sql in _purchase_sources(conn, store):
-        add(conn.execute(
-            f"SELECT product_id, MAX(day) AS last FROM ({sql}) WHERE title LIKE ? ESCAPE '\\' AND day <= ? GROUP BY product_id",
-            (pattern, today),
-        ))
-    add({"product_id": row["product_id"], "last": row["day"]} for row in receipts if needle in _fold_name(row["title"]))
-    return last
+        add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
+    add({**row, "last": row["day"]} for row in receipts)
+    return {product_id: entry["last"] for product_id, entry in found.items() if query.wants(entry["names"], entry["sizes"])}
 
 
 def _in(ids: list[str]) -> str:
@@ -439,22 +472,22 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
 def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
 
-    Een product past als een van zijn titels (uit de aanbiedingen, een zoekopdracht of een aankoop) de zoekterm bevat. Per product
+    Een product past als elk woord van de zoekterm in een van zijn namen staat (uit de aanbiedingen, een zoekopdracht of een aankoop) en,
+    als de zoekterm een maat noemt ("Gehakt 500 gram"), zijn verpakking die maat heeft; zie `_Query`. Per product
     staan de velden van `offers.history` erin, plus `regular` (periodes met dezelfde normale prijs), `purchases` (wat je betaalde,
     per stuk, oudste eerst) en samenvattingen als `regularPrice`, `lastPaid`, `averagePaid` en `timesBought`. `unsynced` zegt per winkel
     van hoeveel bestellingen en kassabonnen de producten nog niet zijn opgehaald: die aankopen ontbreken nog.
     """
     stores = [offers._valid_store(store)] if store else list(STORES)
-    pattern = _pattern(query)
+    wanted = _Query(query)
     limit = _limit(limit)
     today = today or _now()[:10]
-    needle = _fold_name(query)
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
         unsynced = {name: _unsynced(conn, name) for name in stores}
         candidates = {
             (name, product_id): day for name in stores
-            for product_id, day in _candidates(conn, name, pattern, today, receipts[name], needle).items()
+            for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items()
         }
         ranked = sorted(candidates, key=lambda key: (candidates[key], key[0], key[1]), reverse=True)
         chosen = ranked[:limit]

@@ -53,7 +53,7 @@ I18N.add("nl", {
   "offers.history.title": "Prijsgeschiedenis",
   "offers.history.explain": "Zoek een product om te zien wanneer het in de aanbieding was en voor welke prijs, wat het normaal kost en wat je ervoor betaalde. De aanbiedingen lopen vanaf de eerste synchronisatie; je bestellingen en kassabonnen tellen mee zodra de app ze heeft opgehaald.",
   "offers.history.search": "Zoek een product",
-  "offers.history.search_ph": "Zoek bijvoorbeeld kipfilet",
+  "offers.history.search_ph": "Zoek bijvoorbeeld gehakt 500 gram",
   "offers.history.loading": "Prijsgeschiedenis laden…",
   "offers.history.empty": "Er is nog geen geschiedenis. Die begint bij de eerste synchronisatie van de aanbiedingen, van je bestellingen of van je kassabonnen.",
   "offers.history.unsynced_note": "Nog niet opgehaald: de producten van {what}. Die aankopen ontbreken hier tot je ze synchroniseert onder Winkels.",

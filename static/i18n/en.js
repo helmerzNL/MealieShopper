@@ -53,7 +53,7 @@ I18N.add("en", {
   "offers.history.title": "Price history",
   "offers.history.explain": "Search for a product to see when it was on offer and at what price, what it normally costs and what you paid for it. The offers start at the first sync; your orders and receipts count as soon as the app has fetched them.",
   "offers.history.search": "Search for a product",
-  "offers.history.search_ph": "Search, for example chicken",
+  "offers.history.search_ph": "Search, for example gehakt 500 gram",
   "offers.history.loading": "Loading price history…",
   "offers.history.empty": "There is no history yet. It starts at the first sync of the offers, your orders or your receipts.",
   "offers.history.unsynced_note": "Not fetched yet: the products of {what}. Those purchases are missing here until you sync them under Stores.",
