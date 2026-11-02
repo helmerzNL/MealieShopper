@@ -1001,7 +1001,37 @@ function dealText(deal) {
 
 function cartCandidateLabel(candidate) {
   const deal = candidate.deal ? dealText(candidate.deal) : "";
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), deal].filter(Boolean).join(" \u2013 ");
+  // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
+  const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
+  const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, why].filter(Boolean).join(" \u2013 ");
+}
+
+// De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
+function reviewCheaperIndex(row, chosen) {
+  const mine = row.candidates[chosen]?.unitPrice;
+  if (!mine) return -1;
+  let best = -1;
+  row.candidates.forEach((candidate, index) => {
+    const unit = candidate.unitPrice;
+    if (index === chosen || !unit || unit.unit !== mine.unit || unit.value >= mine.value * 0.98) return;
+    if (best < 0 || unit.value < row.candidates[best].unitPrice.value) best = index;
+  });
+  return best;
+}
+
+function reviewCheaperHtml(row, chosen) {
+  const best = reviewCheaperIndex(row, chosen);
+  if (best < 0) return "";
+  const candidate = row.candidates[best];
+  const unit = t({ kg: "offers.unit.kg", l: "offers.unit.l" }[candidate.unitPrice.unit] || "offers.unit.stuk");
+  const text = t("cart.cheaper_hint", {
+    unit,
+    title: [candidate.title, candidate.unitSize].filter(Boolean).join(" "),
+    price: offerPerUnitText(candidate.unitPrice),
+    current: offerPerUnitText(row.candidates[chosen].unitPrice),
+  });
+  return `${escapeHtml(text)} <button class="link-button review-cheaper-pick" type="button" data-pick="${best}">${escapeHtml(t("cart.cheaper_pick"))}</button>`;
 }
 
 function openProductPopup(url) {
@@ -1257,6 +1287,7 @@ function reviewRowHtml(row, index) {
       <div class="review-ingredient">
         <strong>${escapeHtml(row.display)}</strong>
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+        <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
       ${reviewThumbHtml(first)}
@@ -1337,6 +1368,15 @@ function renderCartReview(rows) {
       if (link && candidate.url) link.href = candidate.url;
       el.querySelector(".review-note").textContent = candidate.doubt || "";
       el.classList.toggle("is-doubt", Boolean(candidate.doubt));
+      el.querySelector(".review-cheaper").innerHTML = reviewCheaperHtml(row, Number(event.target.value));
+    });
+    // "Kies": de goedkoopste optie per eenheid kiezen, alsof je hem in de keuzelijst kiest (ook het aantal verpakkingen rekent mee).
+    el.querySelector(".review-cheaper").addEventListener("click", (event) => {
+      const pick = event.target.closest("[data-pick]");
+      if (!pick) return;
+      product.value = pick.dataset.pick;
+      product.dispatchEvent(new Event("change"));
+      product.focus();
     });
     el.querySelector(".review-include").addEventListener("change", updateConfirm);
     el.querySelector("a.review-link")?.addEventListener("click", (event) => {
@@ -1429,6 +1469,8 @@ async function addToCart() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
+        compare: true,
         items: ingredients.map((ingredient) => ({
           query: ingredient.food?.name || ingredient.display,
           display: ingredient.display || ingredient.food?.name || "",

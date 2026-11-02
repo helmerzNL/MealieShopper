@@ -610,6 +610,9 @@ def create_app() -> Flask:
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
+        # Het weekmenu in het mandje (`compare`): na het voorgestelde product alleen hetzelfde product in een andere maat of wat per
+        # eenheid goedkoper is (#178). Zelf zoeken met "Zoek een ander product" laat de eerste vijf zoekresultaten zien, zoals voorheen.
+        compare = bool(body.get("compare"))
 
         def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
@@ -621,13 +624,13 @@ def create_app() -> Flask:
                 "candidates": [],
             }
             try:
-                products = search(query, 5)
+                products = search(query, prices.COMPARE_LIMIT if compare else prices.CHECK_LIST_SIZE)
             except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
                 result["error"] = str(exc)
                 return result
-            result["candidates"] = [
-                make_candidate(product, item.get("quantity"), item.get("unit")) for product in products
-            ]
+            result["candidates"] = prices.check_list_candidates(
+                [make_candidate(product, item.get("quantity"), item.get("unit")) for product in products], compare
+            )
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:

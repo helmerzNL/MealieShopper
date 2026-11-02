@@ -458,5 +458,74 @@ class CompareTest(PricesCase):
         self.assertEqual(client.get("/api/prices/compare?store=ah&id=404").status_code, 400)
         self.assertEqual(client.get("/api/prices/compare?store=lidl&id=1").status_code, 400)
 
+
+def ah_found(pid, title, price, size, brand="AH", bonus=None):
+    item = {"webshopId": pid, "title": title, "price": {"now": price}, "unitSize": size, "brand": brand, "images": [], "isBonus": bool(bonus)}
+    if bonus:
+        item["promo"] = bonus
+    return item
+
+
+class CheckListTest(PricesCase):
+    """De vergelijking in de controlelijst van het weekmenu: alleen zelfde product of goedkoper per eenheid (#178)."""
+
+    def found(self):
+        return [
+            ah_found("300", "AH Rundergehakt", 3.79, "300 g", bonus={"label": "voor 3.79", "priceBefore": 4.29}),  # €12,63/kg
+            ah_found("bio", "AH Biologisch Rundergehakt", 4.99, "250 g"),  # €19,96/kg: zelfde soort, maar niet goedkoper
+            ah_found("500", "AH Rundergehakt", 5.35, "500 g"),  # €10,70/kg: zelfde product en goedkoper
+            ah_found("175", "AH Rundergehakt", 2.99, "175 g"),  # €17,09/kg: zelfde product, duurder
+            ah_found("green", "AH Greenfields Rundergehakt", 5.99, "300 g"),  # €19,97/kg
+            ah_found("mix", "AH Gemengd gehakt", 8.99, "1 kg"),  # €8,99/kg: goedkoper, maar geen rundergehakt
+            ah_found("mager", "AH Mager rundergehakt", 6.79, "500 g"),  # €13,58/kg: duurder, geen zelfde product
+            ah_found("minder", "AH Rundergehakt minder vet", 3.69, "300 g"),  # €12,30/kg: goedkoper per kg, zelfde soort
+        ]
+
+    def preview(self, compare, quantity=500, unit="g"):
+        body = {"items": [{"query": "rundergehakt", "quantity": quantity, "unit": unit}]}
+        if compare:
+            body["compare"] = True
+        with mock.patch.object(ah, "search_products", side_effect=lambda query, limit: self.found()[:limit]) as search:
+            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+        self.assertEqual(reply.status_code, 200)
+        return reply.get_json()["items"][0]["candidates"], search
+
+    def test_the_week_menu_shows_only_the_same_product_or_cheaper_per_unit(self):
+        candidates, search = self.preview(compare=True)
+        search.assert_called_once_with("rundergehakt", prices.COMPARE_LIMIT)
+        rows = [(c["productId"], c["unitPrice"]["value"], c.get("same", False), c.get("cheaper", False)) for c in candidates]
+        self.assertEqual(rows, [
+            ("300", 12.63, False, False),  # het voorgestelde product blijft bovenaan
+            ("500", 10.7, True, True),
+            ("minder", 12.3, False, True),
+            ("175", 17.09, True, False),
+        ])
+        self.assertTrue(candidates[0]["suggested"])
+        self.assertEqual([c["packs"] for c in candidates][:2], [2, 1])  # 500 g: twee keer 300 g of één keer 500 g
+
+    def test_searching_yourself_shows_the_first_five_as_before(self):
+        candidates, search = self.preview(compare=False)
+        search.assert_called_once_with("rundergehakt", 5)
+        self.assertEqual([c["productId"] for c in candidates], ["300", "bio", "500", "175", "green"])
+        self.assertEqual(candidates[1]["unitPrice"], {"value": 19.96, "unit": "kg"})  # de prijs per eenheid staat er wel bij
+        self.assertNotIn("same", candidates[1])
+
+    def test_one_plus_one_counts_per_item_in_the_check_list(self):
+        one_plus_one = {"label": "1+1 gratis", "mechanism": "1+1 gratis"}  # AH geeft de gewone prijs en geen prijs ervoor
+        self.assertEqual(prices.per_item_price({"price": 3.49, "deal": {"label": "1+1 gratis", "unitPrice": None, "validity": "valid"}}), 1.75)
+        self.assertEqual(prices.per_item_price({"price": 3.49, "deal": {"label": "1+1 gratis", "unitPrice": None, "validity": "expired"}}), 3.49)
+        self.assertEqual(prices.per_item_price({"price": 3.49}), 3.49)
+        found = [ah_found("300", "AH Rundergehakt", 3.49, "300 g", bonus=one_plus_one), ah_found("1000", "AH Rundergehakt", 9.99, "1000 g")]
+        with mock.patch.object(ah, "search_products", return_value=found):
+            reply = create_app().test_client().post("/api/ah/cart/preview", json={"compare": True, "items": [{"query": "rundergehakt"}]})
+        candidates = reply.get_json()["items"][0]["candidates"]
+        self.assertEqual([(c["productId"], c["unitPrice"]["value"]) for c in candidates], [("300", 5.83), ("1000", 9.99)])  # zelfde product
+        self.assertFalse(candidates[1]["cheaper"])
+
+    def test_without_a_pack_size_only_the_same_product_is_added(self):
+        found = [ah_found("a", "AH Basilicum", 1.29, ""), ah_found("b", "AH Basilicum", 2.49, "1 bos"), ah_found("c", "AH Basilicum pesto", 2.0, "190 g")]
+        result = prices.check_list_candidates([{"productId": f["webshopId"], "title": f["title"], "brand": "AH", "unitSize": f["unitSize"], "price": f["price"]["now"]} for f in found], True)
+        self.assertEqual([c["productId"] for c in result], ["a", "b"])
+
 if __name__ == "__main__":
     unittest.main()

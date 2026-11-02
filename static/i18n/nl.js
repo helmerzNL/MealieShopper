@@ -604,6 +604,8 @@ I18N.add("nl", {
   "cart.missing_hint.other": "{count} producten zijn niet gevonden. Zoek ze zelf op, bijvoorbeeld onder een andere naam, en voeg ze alsnog toe.",
   "cart.search_label": "Zoekterm",
   "cart.search_other": "Zoek een ander product",
+  "cart.cheaper_hint": "Per {unit} goedkoper: {title} – {price} (gekozen: {current}).",
+  "cart.cheaper_pick": "Kies",
   "cart.search_button": "Zoeken",
   "cart.search_none": "Niets gevonden voor \"{term}\". Probeer een andere zoekterm.",
   "cart.include": "Toevoegen",

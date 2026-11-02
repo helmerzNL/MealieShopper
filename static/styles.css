@@ -1687,6 +1687,22 @@ a.product-card__main:hover strong {
   padding: 0 8px;
 }
 
+/* De vergelijking in de controlelijst: een goedkopere verpakking per eenheid, met "Kies" (#178). */
+.review-cheaper {
+  display: block;
+  margin-top: 2px;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.review-cheaper:empty {
+  display: none;
+}
+
+.review-cheaper .link-button {
+  font-size: 13px;
+}
+
 .review-note {
   display: block;
   margin-top: 3px;
