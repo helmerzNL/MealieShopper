@@ -6,9 +6,10 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ### Opgelost in 2.91.2
 
-*English summary: in Compare pack sizes, the count ("6 of the 8 products found"), "Searching for other packs…" and "no other packs found" were shown in a red error box; they are now plain grey text, and only a real error is red. The README (Dutch and English) and its screenshots are updated to 2.91: every screenshot was made again, with new ones for the recipe window in the week menu, the price per unit and verdict on offers, Compare pack sizes, the Price history and Crisp (basket, favorites, orders and linking). Reload the page once after updating.*
+*English summary: in Compare pack sizes, the count ("6 of the 8 products found"), "Searching for other packs…" and "no other packs found" were shown in a red error box; they are now plain grey text, and only a real error is red. The explanation above Find recipes now mentions Crisp, which it searches since 2.86.0. The README (Dutch and English) and its screenshots are updated to 2.91: every screenshot was made again, with new ones for the recipe window in the week menu, the price per unit and verdict on offers, Compare pack sizes, the Price history and Crisp (basket, favorites, orders and linking). Reload the page once after updating.*
 
 - **Vergelijk verpakkingen: de telling staat niet meer in een rood foutvak.** *6 van de 8 gevonden producten*, *Andere verpakkingen zoeken…* en *Geen andere verpakkingen gevonden* stonden in een rood vak, alsof er iets mis was. Nu is het gewone grijze tekst; alleen een echte fout (bijvoorbeeld als de winkel niet antwoordt) staat nog in een rood vak.
+- **De uitleg boven Recepten zoeken noemt Crisp.** Sinds 2.86.0 zoekt Recepten zoeken ook bij Crisp, maar de uitleg noemde alleen Jumbo en Picnic. Nu staat er *bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn*.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 
 ### Documentatie in 2.91.2

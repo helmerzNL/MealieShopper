@@ -379,7 +379,7 @@ I18N.add("en", {
   "orders.jumbo_receipts.one": "Jumbo has {count} store receipt (MealieShopper cannot show it yet)",
   "orders.jumbo_receipts.other": "Jumbo has {count} store receipts (MealieShopper cannot show them yet)",
   "orders.jumbo_detail_error": "Jumbo could not deliver the products of the orders ({error}). The list was updated.",
-  "search.intro": "Searches your own recipes in Mealie, Albert Heijn, Jumbo and Picnic once they are linked, and the HelloFresh and Marley Spoon menus for this week and the coming weeks (no link needed) at the same time. View a recipe for the ingredients and the method, or plan it in your week menu; a recipe from a store then goes into Mealie too.",
+  "search.intro": "Searches your own recipes in Mealie, Albert Heijn, Jumbo, Picnic and Crisp once they are linked, and the HelloFresh and Marley Spoon menus for this week and the coming weeks (no link needed) at the same time. View a recipe for the ingredients and the method, or plan it in your week menu; a recipe from a store then goes into Mealie too.",
   "rsearch.count": "{shown} of {total} recipes.",
   "rsearch.none": "No recipes found for \"{query}\".",
   "rsearch.more": "More recipes",
