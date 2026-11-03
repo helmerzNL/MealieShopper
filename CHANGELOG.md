@@ -19,6 +19,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: `POST /api/mealie/bulk-import` (een selectie: `store`, `ids` en optioneel `group` voor de categorie), `POST /api/mealie/bulk-import/group` (een hele groep of lijst, alleen de beheerder), `GET /api/mealie/bulk-import` (de voortgang, met codes voor fouten en waarschuwingen) en `POST /api/mealie/bulk-import/cancel`. Per import staat er één regel in het auditlog (*Mealie bulk import*). Er is geen MCP-tool voor.
 - **Handleiding**: het nieuwe kopje *In bulk importeren in Mealie*, met twee nieuwe screenshots.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#213](https://github.com/helmerzNL/MealieShopper/pull/213).
 
 ## v2.97.1
 
