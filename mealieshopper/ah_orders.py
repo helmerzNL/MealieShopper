@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
+from collections import deque
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -417,6 +419,8 @@ RECEIPT_PRODUCTS_DEADLINE_SECONDS = 45
 RECEIPT_PRODUCTS_DEADLINE_NIGHTLY = 150
 RECEIPT_PRODUCTS_RECHECK_DAYS = 30  # een artikelnummer dat AH niet vond, proberen we na zoveel dagen opnieuw
 RECEIPT_PRODUCTS_BACKOFF_HOURS = 12
+RECEIPT_PRODUCTS_PER_HOUR = 120  # alle zoekopdrachten samen (na een bon-sync, 's nachts en bij het zoeken in de Prijsgeschiedenis)
+RECEIPT_PRODUCTS_LOOKUP_SEARCHES = 2  # bij een zoekopdracht in de Prijsgeschiedenis: de namen op de bon die erbij passen
 SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
 # Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
 # werd een nieuwe kans, zonder 30 dagen te wachten.
@@ -431,6 +435,32 @@ _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
 """
+
+
+class _HourlyBudgetSpent(Exception):
+    """Het aantal zoekopdrachten van dit uur is op (`RECEIPT_PRODUCTS_PER_HOUR`)."""
+
+
+# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync en het zoeken in de Prijsgeschiedenis
+# delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+_PACE_LOCK = threading.Lock()
+_PACE = {"last": float("-inf"), "recent": deque()}
+
+
+def _polite_search(query: str) -> list[tuple[int, int, str]]:
+    with _PACE_LOCK:
+        now = time.monotonic()
+        recent = _PACE["recent"]
+        while recent and now - recent[0] > 3600:
+            recent.popleft()
+        if len(recent) >= RECEIPT_PRODUCTS_PER_HOUR:
+            raise _HourlyBudgetSpent()
+        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - now
+        if wait > 0:
+            time.sleep(wait)
+        _PACE["last"] = time.monotonic()
+        recent.append(_PACE["last"])
+        return ah.search_hq_ids(query)
 
 
 def _receipt_queries(name: str) -> list[str]:
@@ -458,8 +488,8 @@ def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
     ).fetchall()
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
-        key = "".join(str(row["name"]).casefold().split())
-        group = groups.setdefault(key, {"name": " ".join(str(row["name"]).split()), "ids": [], "bought": 0})
+        key = _name_key(row["name"])
+        group = groups.setdefault(key, {"key": key, "name": " ".join(str(row["name"]).split()), "ids": [], "bought": 0})
         group["ids"].append(int(row["id"]))
         group["bought"] += row["bought"]
     return sorted(groups.values(), key=lambda group: (-group["bought"], group["name"]))
@@ -470,8 +500,12 @@ def _linked(conn, ids: list[int]) -> set[int]:
     return {row[0] for row in conn.execute(f"SELECT receipt_product_id FROM ah_receipt_products WHERE product_id IS NOT NULL AND receipt_product_id IN ({marks})", ids)}
 
 
+def _name_key(name: Any) -> str:
+    return "".join(str(name).casefold().split())
+
+
 def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
-                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS) -> dict[str, Any]:
+                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None) -> dict[str, Any]:
     """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
 
     Per naam op de bon zoeken we bij AH en koppelen een artikelnummer alleen aan het resultaat met precies dat artikelnummer (`hqId`):
@@ -488,7 +522,7 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
             conn.execute("DELETE FROM ah_receipt_products WHERE product_id IS NULL")
         auth.set_setting(SETTING_RECEIPT_PRODUCTS_VERSION, RECEIPT_PRODUCTS_VERSION)
     with closing(_connect()) as conn:
-        groups = _todo_by_name(conn, now)
+        groups = [group for group in _todo_by_name(conn, now) if only is None or group["key"] in only]
     deadline = time.monotonic() + deadline_seconds
     for group in groups:
         with closing(_connect()) as conn:
@@ -498,10 +532,10 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
         for query in _receipt_queries(group["name"]) if left else []:
             if result["searches"] >= searches or time.monotonic() > deadline:
                 return result
-            if result["searches"]:
-                time.sleep(RECEIPT_PRODUCTS_PAUSE_SECONDS)
             try:
-                hits = ah.search_hq_ids(query)
+                hits = _polite_search(query)
+            except _HourlyBudgetSpent:
+                return {**result, "limited": True}
             except ah.AhHttpError as exc:
                 result["searches"] += 1
                 if exc.status in (403, 429):  # firewall of te veel verzoeken: niet aandringen
@@ -529,6 +563,16 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
                 conn.executemany(_MISSING_RECEIPT_PRODUCT, [(product_id, now) for product_id in left])
             result["missing"] += len(left)
     return result
+
+
+def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES) -> dict[str, Any]:
+    """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND").
+    Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
+    (die wacht `RECEIPT_PRODUCTS_RECHECK_DAYS`)."""
+    keys = {_name_key(name) for name in names if str(name).strip()}
+    if not keys:
+        return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
+    return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
 
 
 def resolve_receipt_products_nightly() -> dict[str, Any] | None:

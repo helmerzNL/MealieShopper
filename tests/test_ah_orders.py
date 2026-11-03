@@ -55,6 +55,9 @@ class AhOrdersTestCase(unittest.TestCase):
         sleep = mock.patch.object(ah_orders.time, "sleep")  # de pauze tussen zoekopdrachten
         self.sleep = sleep.start()
         self.addCleanup(sleep.stop)
+        pace = mock.patch.dict(ah_orders._PACE, {"last": float("-inf"), "recent": ah_orders.deque()})
+        pace.start()
+        self.addCleanup(pace.stop)
         self.client = create_app().test_client()
 
 
@@ -487,7 +490,9 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
         self.receipt("R1", *[(1000 + n, word) for n, word in enumerate(words)])
         result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00", searches=4)
         self.assertEqual((result["searches"], self.search_hq_ids.call_count), (4, 4))
-        self.assertEqual([c.args[0] for c in self.sleep.call_args_list], [ah_orders.RECEIPT_PRODUCTS_PAUSE_SECONDS] * 3, "een pauze tussen elke twee")
+        pauses = [c.args[0] for c in self.sleep.call_args_list]
+        self.assertEqual(len(pauses), 3, "een pauze tussen elke twee")
+        self.assertTrue(all(0 < pause <= ah_orders.RECEIPT_PRODUCTS_PAUSE_SECONDS for pause in pauses), pauses)
         self.assertEqual(len(self.links()), 4, "wat niet aan de beurt kwam, blijft open voor de volgende keer")
 
     def test_a_403_or_429_from_ah_stops_and_waits_hours(self):
@@ -513,6 +518,25 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
         self.assertEqual(self.search_hq_ids.call_count, 2, "naam en langste woord")
         ah_orders.resolve_receipt_products("2026-11-03T13:00:00+00:00")
         self.assertEqual(self.search_hq_ids.call_count, 2, "maar een keer: daarna weer na 30 dagen")
+
+    def test_the_pause_holds_across_runs_and_there_is_an_hourly_budget(self):
+        self.receipt("R1", (1, "APPELS"), (2, "PEREN"), (3, "BANANEN"))
+        ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00", searches=1)
+        ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00", searches=1)
+        self.assertEqual(self.sleep.call_count, 1, "ook tussen twee losse runs een pauze")
+        with mock.patch.object(ah_orders, "RECEIPT_PRODUCTS_PER_HOUR", 2):
+            result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
+        self.assertEqual((result.get("limited"), self.search_hq_ids.call_count), (True, 2), "het uurbudget is op")
+
+    def test_names_from_a_search_are_looked_up_right_away(self):
+        self.receipt("R1", (501520, "REDBAND"), (77234, "RED BAND"), (20960, "BLOEMKOOL"))
+        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes"), (77234, 547751, "Red Band Winegums original")]
+        result = ah_orders.resolve_receipt_names(["REDBAND", "RED BAND"])
+        self.assertEqual((result["found"], self.search_hq_ids.call_count), (2, 1), "alleen deze namen, een zoekopdracht")
+        self.assertIn(self.search_hq_ids.call_args.args[0], ("REDBAND", "RED BAND"))
+        self.assertEqual(self.links(), {501520: 88624, 77234: 547751})
+        self.assertEqual(ah_orders.resolve_receipt_names(["REDBAND"])["searches"], 0, "al gekoppeld: niet opnieuw")
+        self.assertEqual(ah_orders.resolve_receipt_names([" "])["searches"], 0)
 
     def test_the_nightly_task_links_more_but_only_with_receipts(self):
         self.assertIsNone(ah_orders.resolve_receipt_products_nightly())

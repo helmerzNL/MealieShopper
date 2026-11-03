@@ -388,7 +388,8 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
             found.append({**dict(row), "product_id": webshop_id, "title": webshop_title or row["title"], "receipt_name": row["title"]})
             continue
         key = own if same_id else (_match_name(index, bare, store, name) or (None if other_product else own) or fallback)
-        found.append({**dict(row), "product_id": key})
+        # Een bonregel met een artikelnummer dat (nog) bij geen enkel product hoort: die kan `history` meteen laten opzoeken.
+        found.append({**dict(row), "product_id": key, "lookup": row["source"] == "receipt" and bool(own) and key in (own, fallback)})
     return found
 
 
@@ -623,7 +624,20 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     return product
 
 
-def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False) -> dict[str, Any]:
+def _lookup_receipt_names(lookup: Callable[[list[str]], Any], wanted: "_Query", today: str) -> None:
+    """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
+    with closing(_connect()) as conn:
+        rows = _receipt_rows(conn, "ah", today)
+    names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
+    if names:
+        try:
+            lookup(names)
+        except Exception:  # noqa: BLE001 - zonder koppeling staat de regel er gewoon met de naam op de bon
+            log.warning("Namen op de bon opzoeken mislukt", exc_info=True)
+
+
+def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
+            lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
 
     Een product past als elk woord van de zoekterm in een van zijn namen staat (uit de aanbiedingen, een zoekopdracht of een aankoop) en,
@@ -632,11 +646,16 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
     dezelfde normale prijs), `purchases` (wat je betaalde, per stuk, oudste eerst), `savedImages` (de bewaarde afbeeldingen, de nieuwste
     eerst; zie product_images.py) en samenvattingen als `regularPrice`, `lastPaid`, `averagePaid` en `timesBought`. `unsynced` zegt per
     winkel van hoeveel bestellingen en kassabonnen de producten nog niet zijn opgehaald: die aankopen ontbreken nog.
+
+    Met `lookup` (een zoekterm en AH erbij) worden de namen op de bon die bij de zoekterm passen en nog bij geen product horen eerst
+    bij AH opgezocht (`ah_orders.resolve_receipt_names`): zo staat "REDBAND" er meteen als "Red Band Winegums original".
     """
     stores = [offers._valid_store(store)] if store else list(STORES)
     wanted = _Query(query)
     limit = _limit(limit)
     today = today or _now()[:10]
+    if lookup and wanted.words and "ah" in stores:
+        _lookup_receipt_names(lookup, wanted, today)
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
         unsynced = {name: _unsynced(conn, name) for name in stores}
