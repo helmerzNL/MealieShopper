@@ -52,6 +52,9 @@ class AhOrdersTestCase(unittest.TestCase):
         search = mock.patch.object(ah, "search_hq_ids", return_value=[])  # geen echte zoekopdrachten bij AH
         self.search_hq_ids = search.start()
         self.addCleanup(search.stop)
+        sleep = mock.patch.object(ah_orders.time, "sleep")  # de pauze tussen zoekopdrachten
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
         self.client = create_app().test_client()
 
 
@@ -341,7 +344,7 @@ class ReceiptsCacheTest(AhOrdersTestCase):
 
     def test_new_receipts_are_added_with_their_lines(self):
         data = self.sync([[{"id": "R2", "dateTime": "2026-10-18T10:00:00", "total": 12.34}, {"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 5.0}]]).get_json()
-        self.assertEqual(data, {"new": 2, "total": 2, "remaining": 0, "failed": 0, "products": {"found": 0, "missing": 1, "failed": 0}})
+        self.assertEqual(data, {"new": 2, "total": 2, "remaining": 0, "failed": 0, "products": {"found": 0, "missing": 1, "failed": 0, "searches": 2}})
         listed = self.client.get("/api/ah/receipts").get_json()
         self.assertEqual([(r["id"], r["itemCount"], r["detailsSynced"]) for r in listed["receipts"]], [("R2", 1, True), ("R1", 1, True)])
         receipt = self.client.get("/api/ah/receipts/R2").get_json()
@@ -408,7 +411,7 @@ class ReceiptProductsTest(AhOrdersTestCase):
             "BROCCOLI": [(999, 1, "AH Broccoli rijst")],
         }[name]
         result = ah_orders.resolve_receipt_products("2026-10-02T00:00:00+00:00")
-        self.assertEqual(result, {"found": 1, "missing": 1, "failed": 0})
+        self.assertEqual(result, {"found": 1, "missing": 1, "failed": 0, "searches": 2})
         self.assertEqual(self.links(), {20960: 4183, 532357: 186629, 999: 1, 20961: None}, "andere resultaten bewaren we ook")
 
     def test_a_missing_article_number_waits_before_it_is_searched_again(self):
@@ -430,7 +433,7 @@ class ReceiptProductsTest(AhOrdersTestCase):
 
     def test_lines_without_an_article_number_are_left_alone(self):
         self.receipt("R1", (None, "AH VERSE KNOFLOOK"), (0, "DRAAGTAS"))
-        self.assertEqual(ah_orders.resolve_receipt_products(), {"found": 0, "missing": 0, "failed": 0})
+        self.assertEqual(ah_orders.resolve_receipt_products(), {"found": 0, "missing": 0, "failed": 0, "searches": 0})
         self.search_hq_ids.assert_not_called()
 
     def test_a_failing_search_is_retried_next_time(self):
@@ -443,9 +446,82 @@ class ReceiptProductsTest(AhOrdersTestCase):
         detail = {"id": "R1", "items": [{"productId": 20960, "name": "BLOEMKOOL", "quantity": 1, "price": 1.99, "amount": 1.99}], "discounts": [], "payments": []}
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 1.99}]), mock.patch.object(ah, "get_receipt", return_value=detail):
             self.search_hq_ids.return_value = [(20960, 4183, "AH Bloemkool")]
-            self.assertEqual(ah_orders.sync_receipts()["products"], {"found": 1, "missing": 0, "failed": 0})
+            self.assertEqual(ah_orders.sync_receipts()["products"], {"found": 1, "missing": 0, "failed": 0, "searches": 1})
             with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")):
                 self.assertEqual(ah_orders.sync_receipts()["failed"], 0)
+
+
+class ReceiptProductsPolitenessTest(AhOrdersTestCase):
+    """Zoeken per naam op de bon, met een tweede poging, en zuinig met AH (rate limiting en firewall)."""
+
+    def receipt(self, receipt_id, *lines):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES (?, '2026-10-01', 0, 1, 'x')", (receipt_id,))
+            conn.executemany(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES (?, ?, ?, ?, 1, 1.0, 1.0)",
+                [(receipt_id, position, product_id, name) for position, (product_id, name) in enumerate(lines)],
+            )
+
+    def links(self):
+        with closing(ah_orders._connect()) as conn:
+            return {row["receipt_product_id"]: row["product_id"] for row in conn.execute("SELECT * FROM ah_receipt_products")}
+
+    def test_one_search_per_name_on_the_receipt(self):
+        # "REDBAND" en "RED BAND" staan op de bon bij verschillende artikelnummers: een zoekopdracht per naam (spaties tellen niet).
+        self.receipt("R1", (501520, "REDBAND"), (854572, "REDBAND"), (77234, "RED BAND"))
+        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes"), (854572, 410055, "Red Band Zoete aardbeien"),
+                                           (77234, 547751, "Red Band Winegums original")]
+        result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
+        self.assertEqual((result["found"], result["searches"]), (3, 1))
+        self.assertEqual(self.search_hq_ids.call_count, 1, "REDBAND en RED BAND zijn een naam")
+
+    def test_an_abbreviated_name_gets_a_second_try_with_its_longest_word(self):
+        self.receipt("R1", (511669, "RB PICOLIENT"))
+        self.search_hq_ids.side_effect = lambda query: {"PICOLIENT": [(511669, 4242, "Red Band Picolient")]}.get(query, [])
+        result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
+        self.assertEqual([c.args[0] for c in self.search_hq_ids.call_args_list], ["RB PICOLIENT", "PICOLIENT"])
+        self.assertEqual((result["found"], self.links()), (1, {511669: 4242}))
+
+    def test_searches_are_paced_and_capped(self):
+        words = ["APPELS", "PEREN", "BANANEN", "DRUIVEN", "KIWIS", "MANGO", "PRUIMEN", "CITROEN", "MELOEN", "ANANAS"]
+        self.receipt("R1", *[(1000 + n, word) for n, word in enumerate(words)])
+        result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00", searches=4)
+        self.assertEqual((result["searches"], self.search_hq_ids.call_count), (4, 4))
+        self.assertEqual([c.args[0] for c in self.sleep.call_args_list], [ah_orders.RECEIPT_PRODUCTS_PAUSE_SECONDS] * 3, "een pauze tussen elke twee")
+        self.assertEqual(len(self.links()), 4, "wat niet aan de beurt kwam, blijft open voor de volgende keer")
+
+    def test_a_403_or_429_from_ah_stops_and_waits_hours(self):
+        for status in (429, 403):
+            with self.subTest(status=status):
+                ah_orders.auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+                self.receipt(f"R{status}", (status, "BLOEMKOOL"), (status + 1, "BROCCOLI"))
+                self.search_hq_ids.reset_mock()
+                self.search_hq_ids.side_effect = ah.AhHttpError("AH productzoekopdracht mislukt", status)
+                result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
+                self.assertEqual((self.search_hq_ids.call_count, result["pausedUntil"]), (1, "2026-11-04T00:00:00+00:00"))
+                self.search_hq_ids.side_effect = None
+                later = ah_orders.resolve_receipt_products("2026-11-03T20:00:00+00:00")
+                self.assertEqual((self.search_hq_ids.call_count, later["searches"]), (1, 0), "tijdens de pauze niet opnieuw")
+                after = ah_orders.resolve_receipt_products("2026-11-04T01:00:00+00:00")
+                self.assertGreater(after["searches"], 0)
+
+    def test_misses_from_the_old_way_of_searching_get_one_new_try(self):
+        self.receipt("R1", (511669, "RB PICOLIENT"))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (511669, NULL, NULL, '2026-11-03T02:56:36+00:00')")
+        ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
+        self.assertEqual(self.search_hq_ids.call_count, 2, "naam en langste woord")
+        ah_orders.resolve_receipt_products("2026-11-03T13:00:00+00:00")
+        self.assertEqual(self.search_hq_ids.call_count, 2, "maar een keer: daarna weer na 30 dagen")
+
+    def test_the_nightly_task_links_more_but_only_with_receipts(self):
+        self.assertIsNone(ah_orders.resolve_receipt_products_nightly())
+        self.receipt("R1", (20960, "BLOEMKOOL"))
+        with mock.patch.object(ah_orders, "resolve_receipt_products", return_value={"found": 1}) as resolve:
+            self.assertEqual(ah_orders.resolve_receipt_products_nightly(), {"found": 1})
+        resolve.assert_called_once_with(searches=ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+        with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")):
+            self.assertIsNone(ah_orders.resolve_receipt_products_nightly(), "de nachtelijke taak gaat altijd door")
 
 
 class SearchHqIdsTest(unittest.TestCase):

@@ -325,12 +325,13 @@ def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
     return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
 
 
-def _receipt_products(conn) -> dict[str, str]:
-    """Artikelnummer op de bon -> id van de webwinkel, voor zover AH ze koppelde (zie `ah_orders.resolve_receipt_products`)."""
+def _receipt_products(conn) -> dict[str, tuple[str, str]]:
+    """Artikelnummer op de bon -> (id van de webwinkel, naam in de webwinkel), voor zover AH ze koppelde (zie
+    `ah_orders.resolve_receipt_products`)."""
     if "ah_receipt_products" not in _tables(conn):
         return {}
-    rows = conn.execute("SELECT receipt_product_id, product_id FROM ah_receipt_products WHERE product_id IS NOT NULL")
-    return {str(row["receipt_product_id"]): str(row["product_id"]) for row in rows}
+    rows = conn.execute("SELECT receipt_product_id, product_id, title FROM ah_receipt_products WHERE product_id IS NOT NULL")
+    return {str(row["receipt_product_id"]): (str(row["product_id"]), row["title"] or "") for row in rows}
 
 
 # Aankopen uit bevestigingsmails (zie price_import.py), in dezelfde vorm als de regels van een kassabon: zonder id van de webwinkel.
@@ -380,7 +381,13 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
         # minstens een woord delen. Hoort het id bij een ander product, dan valt het ook als laatste keus af.
         same_id = bool(own) and own in titles and _names_agree(name, titles[own])
         other_product = bool(own) and own in titles and not same_id
-        key = linked.get(own) or (own if same_id else (_match_name(index, bare, store, name) or (None if other_product else own) or fallback))
+        if own in linked:
+            # Gekoppeld via het artikelnummer: de echte naam uit de webwinkel ("Red Band Winegums original" in plaats van "RED BAND").
+            # De naam op de bon blijft vindbaar (`receipt_name`).
+            webshop_id, webshop_title = linked[own]
+            found.append({**dict(row), "product_id": webshop_id, "title": webshop_title or row["title"], "receipt_name": row["title"]})
+            continue
+        key = own if same_id else (_match_name(index, bare, store, name) or (None if other_product else own) or fallback)
         found.append({**dict(row), "product_id": key})
     return found
 
@@ -460,7 +467,8 @@ class _Query:
         self.words = re.findall(r"[a-z0-9]+", text)
 
     def wants(self, names: set[str], sizes: set[tuple[float, str]]) -> bool:
-        if self.words and not any(all(word in name for word in self.words) for name in names):
+        # Spaties tellen niet: "redband" vindt ook "Red Band Winegums" (een bon schrijft het merk vaak aan elkaar).
+        if self.words and not any(all(word in name or word in name.replace(" ", "") for word in self.words) for name in names):
             return False
         return not self.size or not sizes or any(_same_size(size, self.size) for size in sizes)
 
@@ -503,6 +511,9 @@ def _candidates(conn, store: str, query: _Query, today: str, receipts: list[dict
     for sql in _purchase_sources(conn, store):
         add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
     add({**row, "last": row["day"]} for row in receipts)
+    for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
+        if row.get("receipt_name") and row["product_id"] in found:
+            found[row["product_id"]]["names"].add(_fold_name(row["receipt_name"]))
     return {product_id: entry["last"] for product_id, entry in found.items() if query.wants(entry["names"], entry["sizes"])}
 
 

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from os import environ
 from typing import Any
 
-from . import auth, offers
+from . import ah_orders, auth, offers
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,10 @@ def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) 
 def sync_now(trigger: str = "manual") -> dict[str, Any]:
     """Haal alle aanbiedingen op en onthoud de uitkomst (voor de statusregel onder Koppelen)."""
     result = offers.sync_all()
+    # Daarna een deel van de artikelnummers op de kassabonnen aan producten koppelen (zie ah_orders.resolve_receipt_products).
+    linked = ah_orders.resolve_receipt_products_nightly()
+    if linked is not None:
+        result = {**result, "receiptProducts": linked}
     _record(trigger, result)
     return result
 
