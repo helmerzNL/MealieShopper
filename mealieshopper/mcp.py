@@ -152,15 +152,36 @@ def tool_search_recipes(args: dict[str, Any]) -> Any:
 
 def tool_saved_recipes(args: dict[str, Any]) -> Any:
     data = ah_recipes.get()
+    try:
+        group = ah_recipes.resolve_group(data.get("groups") or [], _text(args.get("group"), 120))
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
+    recipes = data["recipes"]
+    if group is not None:
+        by_id = {str(recipe["id"]): recipe for recipe in recipes}
+        recipes = [by_id[recipe_id] for recipe_id in group["recipeIds"] if recipe_id in by_id]
     words = _text(args.get("query"), 200).casefold().split()
     recipes = [
-        recipe for recipe in data["recipes"]
+        recipe for recipe in recipes
         if all(word in str(recipe.get("title") or "").casefold() for word in words)
     ]
-    return {
+    result = {
         "total": len(recipes),
         "syncedAt": data.get("syncedAt"),
         "recipes": [{"title": r["title"], "url": r["url"]} for r in recipes[:MAX_LIST_ITEMS]],
+    }
+    if group is not None:
+        result["group"] = group["name"]
+    return result
+
+
+def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
+    """De receptgroepen van de bewaarde AH-recepten, uit de lokale kopie. Alleen lezen."""
+    data = ah_recipes.get()
+    return {
+        "total": data["total"],
+        "syncedAt": data.get("syncedAt"),
+        "groups": [{"id": g["id"], "name": g["name"], "count": g["count"]} for g in data.get("groups") or []],
     }
 
 
@@ -506,7 +527,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
     store = args.get("store") or None
     if store is not None and store not in offers.STORES:
         raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
-    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50))
+    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50), bought=bool(args.get("bought")))
     keep = PRICE_HISTORY_ITEMS
     return {
         "total": data["total"],
@@ -675,10 +696,21 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_search_recipes,
     },
     "list_saved_ah_recipes": {
-        "description": "De recepten die de eigenaar bij Albert Heijn heeft bewaard, uit de lokale kopie. Optioneel gefilterd op woorden in de titel.",
-        "inputSchema": _schema({"query": {"type": "string", "description": "Woorden die in de titel moeten staan."}}),
+        "description": "De recepten die de eigenaar bij Albert Heijn heeft bewaard, uit de lokale kopie. Optioneel alleen die van één receptgroep (zie list_ah_recipe_groups) en gefilterd op woorden in de titel.",
+        "inputSchema": _schema(
+            {
+                "query": {"type": "string", "description": "Woorden die in de titel moeten staan."},
+                "group": {"type": "string", "description": "Id of (deel van) de naam van een receptgroep, bijvoorbeeld 'Taarten'. Standaard alle bewaarde recepten."},
+            }
+        ),
         "annotations": {**READ_ONLY, "title": "Bewaarde AH-recepten"},
         "handler": tool_saved_recipes,
+    },
+    "list_ah_recipe_groups": {
+        "description": "De receptgroepen van de bewaarde AH-recepten (zoals in de AH-app), met id, naam en aantal recepten, uit de lokale kopie. Gebruik de naam of het id met list_saved_ah_recipes.",
+        "inputSchema": _schema(),
+        "annotations": {**READ_ONLY, "title": "AH-receptgroepen"},
+        "handler": tool_list_ah_recipe_groups,
     },
     "list_ah_lists": {
         "description": "De favoriete AH-lijstjes van de eigenaar, met id, naam en aantal producten. Gebruik het id met get_ah_list.",
@@ -936,6 +968,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "query": {"type": "string", "description": "Woorden uit de productnaam en eventueel een maat, bijvoorbeeld 'penne' of 'gehakt 500 gram'. Leeg: de producten met de recentste gegevens."},
                 "store": {"type": "string", "enum": ["ah", "picnic", "jumbo", "crisp"], "description": "Alleen deze winkel; standaard alle."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Aantal producten, standaard 10."},
+                "bought": {"type": "boolean", "description": "Alleen producten die je minstens één keer kocht (uit bestellingen en kassabonnen)."},
             }
         ),
         "annotations": {**READ_ONLY, "openWorldHint": False, "title": "Prijsgeschiedenis"},

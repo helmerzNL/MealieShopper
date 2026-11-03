@@ -1,5 +1,5 @@
 // Weekmenu naar de winkel, mandjes, recepten zoeken, winkelkeuze en maaltijdboxen.
-const { DISHES, WEEK, product } = require("../demo");
+const { DISHES, WEEK, product, perUnit } = require("../demo");
 // Je eigen recepten in Mealie staan bij Recepten zoeken bovenaan (dezelfde als in de receptkiezer van het weekmenu).
 const { mealieRecipes } = require("./01-plan");
 
@@ -42,13 +42,15 @@ const mealPlan = MENU.map(([day, type, name, image, ingredients]) => ({
   recipeDetail: { name, recipeIngredient: ingredients.map((display) => ({ display })) },
 }));
 
-// Per ingrediënt de producten die de winkel voorstelt: [trefwoord, kleur, soort, [titel, merk, inhoud, prijs, verpakkingen, twijfel?], ...]
+// Per ingrediënt de producten die de winkel voorstelt: [trefwoord, kleur, soort, [titel, merk, inhoud, prijs, verpakkingen, twijfel?], ...].
+// Het eerste is het voorgestelde product; daarna, zoals bij het weekmenu (prices.check_list_candidates), alleen hetzelfde product in
+// een andere maat of wat per eenheid goedkoper is. Bij spaghetti en aardappelen is een grotere verpakking per kilo goedkoper.
 const CATALOG = [
-  ["spaghetti", "#e6b84a", "pack", ["Spaghetti", "AH", "500 g", 1.49, 1], ["Spaghetti n° 5", "Barilla", "500 g", 2.19, 1]],
-  ["kerstomaten", "#d9503f", "pack", ["Kerstomaten", "AH", "250 g", 1.99, 1], ["Biologische kerstomaten", "AH Biologisch", "250 g", 2.49, 1]],
-  ["pesto", "#6aa55a", "jar", ["Pesto verde", "AH", "190 g", 2.29, 1, true], ["Pesto alla Genovese", "Barilla", "190 g", 2.79, 1]],
+  ["spaghetti", "#e6b84a", "pack", ["Spaghetti", "AH", "500 g", 1.49, 1], ["Spaghetti", "AH", "1 kg", 2.59, 1]],
+  ["kerstomaten", "#d9503f", "pack", ["Kerstomaten", "AH", "250 g", 1.99, 1], ["Kerstomaten", "AH", "500 g", 3.99, 1]],
+  ["pesto", "#6aa55a", "jar", ["Pesto verde", "AH", "190 g", 2.29, 1, true]],
   ["pijnboompitten", "#c9a36a", "pack", ["Pijnboompitten", "AH", "80 g", 3.49, 1]],
-  ["aardappelen", "#b98a5a", "pack", ["Kruimige aardappelen", "AH", "2 kg", 2.79, 1], ["Kruimige aardappelen", "AH Biologisch", "1 kg", 1.99, 1]],
+  ["aardappelen", "#b98a5a", "pack", ["Kruimige aardappelen", "AH", "2 kg", 2.79, 1], ["Kruimige aardappelen", "AH", "5 kg", 5.49, 1]],
   ["boerenkool", "#3f7f45", "pack", ["Boerenkool gesneden", "AH", "500 g", 1.79, 1]],
   ["rookworst", "#8a4b3a", "pack", ["Rookworst", "Unox", "250 g", 2.39, 1]],
   ["tomatenblokjes", "#d9503f", "jar", ["Tomatenblokjes", "AH", "400 g", 0.79, 1]],
@@ -83,8 +85,14 @@ function cartPreview(route, request) {
           url: url(`${found[0]}-${at}`),
           packs,
           doubt: doubt ? (dutch(request) ? "Verpakkingsgrootte onbekend" : "Pack size unknown") : null,
+          unitPrice: perUnit(price, unitSize),
         }))
       : [];
+    // Het voorgestelde product eerst; de rest is hetzelfde product (`same`) en soms per eenheid goedkoper (`cheaper`).
+    candidates.forEach((candidate, at) => {
+      if (at === 0) candidate.suggested = true;
+      else Object.assign(candidate, { same: true, cheaper: candidate.unitPrice.value < candidates[0].unitPrice.value * 0.98 });
+    });
     return { query: item.query, display: item.display, quantity: item.quantity ?? null, unit: item.unit ?? null, candidates };
   });
   return json(route, { items });
@@ -198,6 +206,16 @@ const picnicResults = {
   ],
 };
 
+// Crisp-recepten (sinds 2.86.0 zoekt Recepten zoeken ook bij Crisp, zodra Crisp gekoppeld is).
+const crispResults = {
+  total: 3,
+  recipes: [
+    storeRecipe("cr1", "Kip piri piri met zoete aardappel", DISHES.curry, 35, 2, null, ["Pittig"]),
+    storeRecipe("cr2", "Kipsaté met atjar en rijst", DISHES.stroganoff, 30, 2, null, ["Familie"]),
+    storeRecipe("cr3", "Salade met gegrilde kip en peer", DISHES.salad, 15, 2, null, ["Snel"]),
+  ],
+};
+
 const kit = (key, name, headline, image, minutes, cuisine, label, base, week = "2026-W44") => ({ key, name, headline, image, url: `https://www.example.nl/${base}/${key}`, minutes, cuisine, label, week });
 const helloFreshMenu = [
   kit("pasta-pesto-met-kip", "Pasta pesto met kip", "met cherrytomaatjes en pijnboompitten", DISHES.pesto, 25, "Italiaans", "Snel", "hellofresh"),
@@ -251,6 +269,7 @@ const searchRoutes = {
   "/api/jumbo/recipes*": jumboResults,
   "/api/jumbo/recipes/*": jumboDetail,
   "/api/picnic/recipes*": picnicResults,
+  "/api/crisp/recipes*": crispResults,
   "/api/hellofresh/search*": searchKits(helloFreshMenu.filter((recipe) => /kip|wraps|pasta/i.test(recipe.name)), 4),
   "/api/marleyspoon/search*": searchKits(marleySpoonMenu.filter((recipe) => /kip|tacos|bowl/i.test(recipe.name)), 4),
 };

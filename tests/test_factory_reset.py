@@ -242,7 +242,7 @@ class RestartTest(FactoryResetCase):
 
 class PageTest(unittest.TestCase):
     def test_the_tab_is_called_system_and_holds_updates_and_clean_up(self):
-        tab = re.search(r'<button[^>]*data-subtab="settings-system"[^>]*>(.*?)</button>', HTML, re.S).group(1)
+        tab = re.search(r'<a[^>]*data-subtab="settings-system"[^>]*>(.*?)</a>', HTML, re.S).group(1)
         self.assertIn('data-i18n="settings.tab.system"', tab)
         panel = HTML[HTML.index('id="settings-system"'):HTML.index('<section id="about"')]
         self.assertLess(panel.index("update.title"), panel.index("system.cleanup_title"))

@@ -103,9 +103,10 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("resize", profileMenuClose);
 $("#user-menu-list").addEventListener("click", (event) => {
-  const item = event.target.closest("button");
+  const item = event.target.closest(".user-menu__item");
   if (!item) return;
   profileMenuClose();
+  if (item.dataset.userAction) event.preventDefault();
   if (item.dataset.userAction === "profile") openProfile();
   if (item.dataset.userAction === "settings") openSettings();
   if (item.dataset.userAction === "about") showPanel("about");

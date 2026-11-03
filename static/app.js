@@ -16,6 +16,8 @@ const state = {
   ahRecipesLoaded: false,
   ahRecipes: [],
   ahRecipeQuery: "",
+  ahRecipeGroups: [], // de receptgroepen van AH: [{id, name, count, recipeIds}]
+  ahRecipeGroup: "", // de gekozen groep; "" is alle bewaarde recepten
   about: null,
   aboutLoaded: false,
   store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
@@ -288,6 +290,7 @@ async function refreshAuthStatus() {
     if (typeof refreshJumboStatus === "function") refreshJumboStatus();
     if (typeof refreshCrispStatus === "function") refreshCrispStatus();
     if (typeof startUpdateCheck === "function") startUpdateCheck();
+    if (typeof routerStart === "function") routerStart();
   }
   return state.auth;
 }
@@ -1195,7 +1198,7 @@ function renderItemsStore() {
   $("#items-store-list").innerHTML = stores
     .map(
       (key) =>
-        `<button class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
+        `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="/stores/${key}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
   // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
@@ -1216,6 +1219,7 @@ function renderItemsStore() {
   // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
   const open = document.querySelector("#ah-items .subtab.is-active");
   if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
+  if (typeof routerRetry === "function") routerRetry();
 }
 
 function switchItemsStore(store) {
@@ -1997,7 +2001,8 @@ async function openAhList(listId, { push = true } = {}) {
   if (!state.ahOpenListId) state.ahListsScroll = window.scrollY;
   state.ahOpenListId = listId;
   state.ahOpenList = null;
-  if (push) history.pushState({ ahList: listId }, "");
+  state.ahListFromOverview = push; // geopend met een klik in het overzicht: terug is dan een stap terug in de browser
+  if (push && typeof routerSync === "function") routerSync();
   const known = state.ahLists.find((list) => list.id === listId);
   $("#ah-list-title").textContent = known?.name || t("list.default_title");
   $("#ah-list-meta").textContent = "";
@@ -2010,8 +2015,12 @@ async function openAhList(listId, { push = true } = {}) {
 }
 
 function closeAhList() {
-  if (history.state?.ahList) history.back();
-  else showAhListsOverview();
+  if (state.ahListFromOverview) {
+    history.back(); // router.js opent dan het overzicht weer
+    return;
+  }
+  showAhListsOverview();
+  if (typeof routerSync === "function") routerSync();
 }
 
 async function loadAhFavoriteListItems(listId, { keepScroll = false } = {}) {
@@ -2214,19 +2223,42 @@ function renderSavedRecipeCard(recipe) {
   `;
 }
 
+// De keuzelijst met de receptgroepen van AH, zoals de receptenlijsten bij Jumbo: eerst alle recepten, dan elke groep.
+function renderAhRecipeGroups() {
+  const select = $("#ah-recipe-group");
+  const groups = state.ahRecipeGroups;
+  if (!groups.some((group) => group.id === state.ahRecipeGroup)) state.ahRecipeGroup = "";
+  const all = `<option value="">${escapeHtml(`${t("ah.recipes.all_groups")} (${I18N.formatNumber(state.ahRecipes.length)})`)}</option>`;
+  select.innerHTML =
+    all +
+    groups
+      .map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(`${group.name} (${I18N.formatNumber(group.count)})`)}</option>`)
+      .join("");
+  select.value = state.ahRecipeGroup;
+  select.hidden = !groups.length; // zonder groepen valt er niets te kiezen
+}
+
+// De recepten van de gekozen groep, in de volgorde van die groep; zonder keuze alle bewaarde recepten.
+function savedRecipesOfGroup() {
+  const group = state.ahRecipeGroups.find((item) => item.id === state.ahRecipeGroup);
+  if (!group) return state.ahRecipes;
+  const byId = new Map(state.ahRecipes.map((recipe) => [String(recipe.id), recipe]));
+  return (group.recipeIds || []).map((id) => byId.get(String(id))).filter(Boolean);
+}
+
 function renderSavedRecipes() {
   const query = state.ahRecipeQuery.trim();
   const all = state.ahRecipes;
-  const recipes = query ? all.filter((recipe) => matchesWords(recipe.title, query)) : all;
+  const inGroup = savedRecipesOfGroup();
+  const recipes = query ? inGroup.filter((recipe) => matchesWords(recipe.title, query)) : inGroup;
   $("#ah-recipes").innerHTML = recipes.length
     ? recipes.map(renderSavedRecipeCard).join("")
     : "";
   if (!all.length) return;
-  message(
-    "#ah-recipes-message",
-    recipes.length ? "" : t("saved.none_match", { query }),
-    "success"
-  );
+  let text = "";
+  if (!inGroup.length) text = t("ah.recipes.group_empty");
+  else if (!recipes.length) text = t("saved.none_match", { query });
+  message("#ah-recipes-message", text, "success");
 }
 
 function updateSavedRecipesStatus(data) {
@@ -2256,6 +2288,8 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
     const query = refresh ? "?refresh=1" : cachedOnly ? "?cached=1" : "";
     const data = await jsonFetch(`/api/ah/recipes/saved${query}`);
     state.ahRecipes = data.recipes || [];
+    state.ahRecipeGroups = data.groups || [];
+    renderAhRecipeGroups();
     $("#ah-recipe-filter").disabled = !state.ahRecipes.length;
     button.dataset.label = data.syncedAt ? t("saved.refresh") : t("saved.fetch");
     state.ahRecipesFetched = Boolean(data.syncedAt);
@@ -2304,6 +2338,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+  if (typeof routerSync === "function") routerSync();
 }
 
 // Het navigatiemenu links (groot scherm) inklappen tot alleen de pictogrammen; de keuze blijft bewaard.
@@ -2409,6 +2444,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
       state.ahListsLoaded = true;
       loadAhFavoriteLists();
     }
+    if (typeof routerSync === "function") routerSync();
   });
 });
 
@@ -2601,6 +2637,10 @@ $("#ah-recipe-filter").addEventListener("input", (event) => {
   state.ahRecipeQuery = event.target.value;
   renderSavedRecipes();
 });
+$("#ah-recipe-group").addEventListener("change", (event) => {
+  state.ahRecipeGroup = event.target.value;
+  renderSavedRecipes();
+});
 $("#ah-list-filter").addEventListener("input", onAhListFilter);
 $("#ah-list-back").addEventListener("click", closeAhList);
 $("#sync-open-ah-list").addEventListener("click", async (event) => {
@@ -2628,10 +2668,7 @@ $("#ah-recipes").addEventListener("click", (event) => {
 });
 // De browser zou bij terug zelf een scrollstand kiezen; wij zetten hem terug op de plek in het overzicht.
 if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-window.addEventListener("popstate", (event) => {
-  if (event.state?.ahList) openAhList(event.state.ahList, { push: false });
-  else if (state.ahOpenListId) showAhListsOverview();
-});
+// Terug en vooruit (ook naar een lijstje) regelt router.js.
 // Een plaatje dat niet laadt (bijvoorbeeld een recept zonder afbeelding in Mealie) verdwijnt netjes.
 document.addEventListener(
   "error",
@@ -2659,17 +2696,17 @@ if (params.get("ah_refresh")) {
   openSettings();
   $("#token-input").value = params.get("ah_refresh");
   message("#token-message", t("ah.refresh_received"), "success");
-  history.replaceState({}, "", "/");
+  history.replaceState({}, "", "/settings");
 }
 if (params.get("ah_connected")) {
   openSettings();
   message("#token-message", t("ah.saved"), "success");
-  history.replaceState({}, "", "/");
+  history.replaceState({}, "", "/settings");
 }
 if (params.get("ah_error")) {
   openSettings();
   message("#token-message", t("ah.redirect_failed", { error: params.get("ah_error") }));
-  history.replaceState({}, "", "/");
+  history.replaceState({}, "", "/settings");
 }
 
 // Een andere taal: alles wat uit gegevens is opgebouwd opnieuw tekenen (de vaste teksten doet i18n.js).
@@ -2680,6 +2717,7 @@ window.addEventListener("ms:languagechange", () => {
   renderCredentials();
   renderAhLists();
   if (state.ahOpenListId) loadAhFavoriteListItems(state.ahOpenListId, { keepScroll: true });
+  renderAhRecipeGroups();
   renderSavedRecipes();
   refreshSavedRecipesStatus();
   renderAbout();
@@ -2701,3 +2739,31 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#auth-gate").hidden = false;
   });
 });
+
+// ---- adressen van schermen (router.js gebruikt ze, en de links elders in de app ook). Hier, omdat app.js als eerste laadt.
+
+function routerQuery(params) {
+  const text = new URLSearchParams(Object.entries(params).filter(([, value]) => value)).toString();
+  return text ? `?${text}` : "";
+}
+
+function storesPath(store, section = "", id = "") {
+  return ["/stores", store, section, id].filter(Boolean).map((part, index) => (index ? encodeURIComponent(part) : part)).join("/");
+}
+
+function offersPath(sub = "", params = {}) {
+  return `/offers${sub ? `/${sub}` : ""}${routerQuery(params)}`;
+}
+
+// De prijsgeschiedenis van een product: de naam zoekt hem op, het id kiest hem in de lijst.
+function priceHistoryPath(store, title, productId = "") {
+  return offersPath("history", { store: store === "ah" ? "" : store, q: title || "", product: productId ? String(productId) : "" });
+}
+
+// Waar een aankoop vandaan komt: een bestelling of kassabon heeft een eigen adres, als de app hem kan tonen.
+function purchasePath(store, source, ref) {
+  if (!ref) return "";
+  if (source === "receipt" && store === "ah") return storesPath("ah", "receipts", ref);
+  if (source === "order" && (store === "ah" || store === "jumbo")) return storesPath(store, "orders", ref);
+  return "";
+}

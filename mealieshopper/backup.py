@@ -4,8 +4,9 @@ Het volgt het patroon in `shared/guidelines/backup-restore.md` van Flux76HQ/App-
 met zichtbare voortgang). Kort:
 
 * Het bestand is één JSON-bestand: de koppelingen met Mealie en de supermarkten, de instellingen en alle tabellen met
-  gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan, de beoordelingen van
-  aanbiedingen bij recepten, de profielen).
+  gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan, de bewaarde afbeeldingen van
+  aanbiedingen die je kocht, de beoordelingen van aanbiedingen bij recepten, de profielen). Afbeeldingen staan er als
+  base64 in en worden bij het terugzetten opnieuw gelezen.
 * **De koppelingen zijn de uitzondering op "een back-up opent nooit de app".** Mealie-token, AH-, Picnic- en
   Jumbo-sessie en AI-sleutels staan alleen in het bestand als je er bij het maken een wachtwoord voor kiest; ze zijn
   daarmee versleuteld (scrypt + Fernet). Zonder dat wachtwoord is het bestand zonder koppelingen terug te zetten niet
@@ -42,7 +43,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, prices, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -68,13 +69,13 @@ DATA_TABLES = (
     "ah_orders", "ah_order_items",
     "ah_receipts", "ah_receipt_items",
     "ah_orders_meta",
-    "ah_saved_recipes", "ah_saved_recipes_meta",
+    "ah_saved_recipes", "ah_saved_recipes_meta", "ah_saved_recipe_groups", "ah_saved_recipe_group_items",
     "jumbo_lists", "jumbo_list_items",
     "jumbo_orders", "jumbo_order_items", "jumbo_orders_meta",
     "picnic_orders", "picnic_order_items", "picnic_orders_meta",
     "crisp_orders", "crisp_order_items", "crisp_orders_meta",
     "offers", "offer_history", "offers_meta",
-    "price_observations",
+    "price_observations", "product_images", "imported_purchases",
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
     "ai_recipe_matches", "ai_recipe_runs",
@@ -89,6 +90,7 @@ EXCLUDED_TABLES = frozenset({
     "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
     "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
     "marleyspoon_menus",  # idem voor Marley Spoon
+    "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
@@ -120,12 +122,14 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "offers": ("offers",),
     "offerHistory": ("offer_history",),
     "prices": ("price_observations",),
+    "productImages": ("product_images",),
+    "importedPurchases": ("imported_purchases",),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, prices, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
@@ -514,6 +518,8 @@ def _decoded(table: str, number: int, row: dict[str, Any], known: dict[str, bool
         values = {name: _decode(value) for name, value in row.items()}
         if table == "user_profiles":
             _check_profile(values)
+        if table == "product_images":
+            values.update(product_images.checked(values.get("data")))  # type, maat en digest volgen uit de afbeelding zelf
     except ValueError as exc:
         raise BackupError("bad_row", table=table, line=number, error=str(exc)[:200]) from exc
     return values

@@ -733,14 +733,14 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     return [item for _, item in ranked]
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    limit = max(1, int(limit))
+def _search_json(query: str, size: int) -> Any:
+    """De ruwe zoekresultaten van AH (anoniem)."""
 
     def search(token: str) -> Any:
         response = _get_with_retry(
             f"{AH_API_BASE}/mobile-services/product/search/v2",
             headers=_auth_headers(token, include_content_type=False),
-            params={"query": query, "page": 0, "size": max(limit, SEARCH_WINDOW), "sortOn": "RELEVANCE"},
+            params={"query": query, "page": 0, "size": size, "sortOn": "RELEVANCE"},
             timeout=30,
         )
         if not response.ok:
@@ -749,8 +749,30 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
             raise RuntimeError(message)
         return response.json()
 
-    products = rank_search_results(query, _anonymous(search).get("products") or [])
+    return _anonymous(search)
+
+
+def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    limit = max(1, int(limit))
+    products = rank_search_results(query, _search_json(query, max(limit, SEARCH_WINDOW)).get("products") or [])
     return [_search_product_dict(item, query) for item in products[:limit]]
+
+
+# Een bonregel heet kort en algemeen ("BROCCOLI", "KIPFILET"); het product staat dan vaak pas op plek 30 tot 45 van de resultaten.
+HQ_SEARCH_WINDOW = 100
+
+
+def search_hq_ids(query: str) -> list[tuple[int, int, str]]:
+    """(hqId, webshopId, titel) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van de
+    webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend."""
+    found = []
+    for item in _search_json(query, HQ_SEARCH_WINDOW).get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        hq_id, webshop_id = item.get("hqId"), item.get("webshopId") or item.get("id")
+        if isinstance(hq_id, int) and hq_id > 0 and isinstance(webshop_id, int) and webshop_id > 0:
+            found.append((hq_id, webshop_id, str(item.get("title") or "").strip()))
+    return found
 
 
 def search_product(query: str) -> dict[str, Any] | None:
@@ -1239,19 +1261,59 @@ def _recipe_page(recipes: list[dict[str, Any]], total: int, page: int, size: int
     return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
 
 
+def _category_recipe_ids(category: dict[str, Any]) -> list[int]:
+    """De receptnummers van een receptgroep, in de volgorde van AH en zonder dubbelen."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    for entry in category.get("recipes") or []:
+        raw = entry.get("id") if isinstance(entry, dict) else entry
+        try:
+            recipe_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if recipe_id not in seen:
+            seen.add(recipe_id)
+            ids.append(recipe_id)
+    return ids
+
+
+def _collection_categories(token: str) -> list[dict[str, Any]]:
+    """De receptgroepen van het lid (zoals in de AH-app): `[{id, name, isDefault, recipeIds}]`, in de volgorde van AH."""
+    data = _graphql_variants(
+        token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
+    )
+    groups: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for category in data.get("recipeCollectionCategories") or []:
+        if not isinstance(category, dict) or category.get("id") is None:
+            continue
+        group_id = str(category["id"])
+        if group_id in seen:
+            continue
+        seen.add(group_id)
+        name = " ".join(str(category.get("name") or "").split())
+        groups.append(
+            {
+                "id": group_id,
+                "name": name or tr(f"Groep {group_id}", f"Group {group_id}"),
+                "isDefault": bool(category.get("isDefault")),
+                "recipeIds": _category_recipe_ids(category),
+            }
+        )
+    return groups
+
+
 def _collection_recipe_ids(token: str) -> list[int]:
+    """Alle bewaarde recepten: de receptnummers van alle groepen samen, zonder dubbelen."""
     data = _graphql_variants(
         token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
     )
     ids: list[int] = []
     seen: set[int] = set()
     for category in data.get("recipeCollectionCategories") or []:
-        for entry in category.get("recipes") or []:
-            raw = entry.get("id") if isinstance(entry, dict) else entry
-            try:
-                recipe_id = int(raw)
-            except (TypeError, ValueError):
-                continue
+        if not isinstance(category, dict):
+            continue
+        for recipe_id in _category_recipe_ids(category):
             if recipe_id not in seen:
                 seen.add(recipe_id)
                 ids.append(recipe_id)
@@ -1360,6 +1422,20 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
             )
         )
     return _get_saved_recipes_api(page, size)
+
+
+def get_saved_recipe_groups() -> list[dict[str, Any]]:
+    """De receptgroepen van het AH-account met hun receptnummers: `[{id, name, isDefault, recipeIds}]`."""
+    if not configured_refresh_token():
+        raise RuntimeError(
+            tr(
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
+                "om receptgroepen op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
+                "to fetch recipe groups.",
+            )
+        )
+    return _collection_categories(get_user_token())
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:
