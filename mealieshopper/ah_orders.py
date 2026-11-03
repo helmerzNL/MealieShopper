@@ -15,12 +15,15 @@ Het afleveradres bewaren we bewust niet; alleen datum en tijdvak.
 from __future__ import annotations
 
 import json
+import re
+import threading
 import time
+from collections import deque
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import ah, ah_lists, auth
+from . import ah, ah_lists, auth, price_import
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
@@ -402,68 +405,185 @@ def sync_receipts() -> dict[str, Any]:
     try:
         products = resolve_receipt_products(now)
     except Exception:  # noqa: BLE001 - het koppelen van producten mag het ophalen van de bonnen nooit laten mislukken
-        products = {"found": 0, "missing": 0, "failed": 0}
+        products = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     return {"new": len(new), "total": len(listed), "remaining": remaining, "failed": failed, "products": products}
 
 
-RECEIPT_PRODUCTS_PER_SYNC = 40  # zoveel artikelnummers per synchronisatie; de rest volgt de volgende keer
-RECEIPT_PRODUCTS_DEADLINE_SECONDS = 20
+# Hoeveel zoekopdrachten bij AH per keer: na het ophalen van de bonnen weinig (je wacht erop), in de nachtelijke taak wat meer.
+# Tussen twee zoekopdrachten zit een pauze: AH beperkt het aantal verzoeken en de firewall blokkeert pieken. Geeft AH een 403 of 429,
+# dan stopt het koppelen meteen en wacht het `RECEIPT_PRODUCTS_BACKOFF_HOURS` uur.
+RECEIPT_PRODUCTS_SEARCHES = 20
+RECEIPT_PRODUCTS_SEARCHES_NIGHTLY = 60
+RECEIPT_PRODUCTS_PAUSE_SECONDS = 1.5
+RECEIPT_PRODUCTS_DEADLINE_SECONDS = 45
+RECEIPT_PRODUCTS_DEADLINE_NIGHTLY = 150
 RECEIPT_PRODUCTS_RECHECK_DAYS = 30  # een artikelnummer dat AH niet vond, proberen we na zoveel dagen opnieuw
+RECEIPT_PRODUCTS_BACKOFF_HOURS = 12
+RECEIPT_PRODUCTS_PER_HOUR = 120  # alle zoekopdrachten samen (na een bon-sync, 's nachts en bij het zoeken in de Prijsgeschiedenis)
+RECEIPT_PRODUCTS_LOOKUP_SEARCHES = 2  # bij een zoekopdracht in de Prijsgeschiedenis: de namen op de bon die erbij passen
+SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
+# Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
+# werd een nieuwe kans, zonder 30 dagen te wachten.
+RECEIPT_PRODUCTS_VERSION = "2"
+SETTING_RECEIPT_PRODUCTS_VERSION = "receipt_products_version"
 
 _UPSERT_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, title = excluded.title, checked_at = excluded.checked_at
 """
+_MISSING_RECEIPT_PRODUCT = """
+INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
+ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
+"""
 
 
-def resolve_receipt_products(now: str | None = None) -> dict[str, int]:
+class _HourlyBudgetSpent(Exception):
+    """Het aantal zoekopdrachten van dit uur is op (`RECEIPT_PRODUCTS_PER_HOUR`)."""
+
+
+# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync en het zoeken in de Prijsgeschiedenis
+# delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+_PACE_LOCK = threading.Lock()
+_PACE = {"last": float("-inf"), "recent": deque()}
+
+
+def _polite_search(query: str) -> list[tuple[int, int, str]]:
+    with _PACE_LOCK:
+        now = time.monotonic()
+        recent = _PACE["recent"]
+        while recent and now - recent[0] > 3600:
+            recent.popleft()
+        if len(recent) >= RECEIPT_PRODUCTS_PER_HOUR:
+            raise _HourlyBudgetSpent()
+        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - now
+        if wait > 0:
+            time.sleep(wait)
+        _PACE["last"] = time.monotonic()
+        recent.append(_PACE["last"])
+        return ah.search_hq_ids(query)
+
+
+def _receipt_queries(name: str) -> list[str]:
+    """De zoekopdrachten voor een naam op de bon: de naam zelf en, als die uit meer woorden bestaat, het langste woord. Een bon
+    kort af ("RB PICOLIENT" is Red Band Picolient); "PICOLIENT" alleen vindt hem wel."""
+    text = " ".join(str(name).split())
+    words = re.findall(r"[^\W\d_]{4,}", text)
+    longest = max(words, key=len) if words else ""
+    return [text] + ([longest] if longest and longest.casefold() != text.casefold() else [])
+
+
+def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
+    """De artikelnummers die nog niet gekoppeld zijn, per naam op de bon (een naam als "REDBAND" hoort bij meer artikelnummers en
+    kost dan een zoekopdracht), de vaakst gekochte naam eerst."""
+    recheck = (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        """
+        SELECT l.product_id AS id, MAX(l.name) AS name, COUNT(*) AS bought FROM ah_receipt_items l
+        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.product_id IS NOT NULL AND l.product_id != 0 AND COALESCE(l.name, '') != ''
+          AND (p.receipt_product_id IS NULL OR (p.product_id IS NULL AND p.checked_at < ?))
+        GROUP BY l.product_id
+        """,
+        (recheck,),
+    ).fetchall()
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _name_key(row["name"])
+        group = groups.setdefault(key, {"key": key, "name": " ".join(str(row["name"]).split()), "ids": [], "bought": 0})
+        group["ids"].append(int(row["id"]))
+        group["bought"] += row["bought"]
+    return sorted(groups.values(), key=lambda group: (-group["bought"], group["name"]))
+
+
+def _linked(conn, ids: list[int]) -> set[int]:
+    marks = ",".join("?" * len(ids))
+    return {row[0] for row in conn.execute(f"SELECT receipt_product_id FROM ah_receipt_products WHERE product_id IS NOT NULL AND receipt_product_id IN ({marks})", ids)}
+
+
+def _name_key(name: Any) -> str:
+    return "".join(str(name).casefold().split())
+
+
+def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
+                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None) -> dict[str, Any]:
     """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
 
-    Per artikelnummer zoeken we de naam van de bonregel bij AH en nemen alleen het resultaat met precies dat artikelnummer (`hqId`):
-    geen gok op naam. Elk ander resultaat met een artikelnummer bewaren we ook, dat scheelt latere zoekopdrachten. De vaakst gekochte
-    artikelnummers eerst, hooguit `RECEIPT_PRODUCTS_PER_SYNC` per keer en hooguit `RECEIPT_PRODUCTS_DEADLINE_SECONDS` lang."""
+    Per naam op de bon zoeken we bij AH en koppelen een artikelnummer alleen aan het resultaat met precies dat artikelnummer (`hqId`):
+    geen gok op naam. Vindt de naam niets, dan nog een keer met het langste woord. Elk ander resultaat met een artikelnummer bewaren
+    we ook, dat scheelt latere zoekopdrachten. Hooguit `searches` zoekopdrachten, met een pauze ertussen en hooguit `deadline_seconds`
+    lang. Bij een 403 of 429 van AH stopt het en wacht het een paar uur (`SETTING_RECEIPT_PRODUCTS_PAUSED`)."""
     now = now or _now()
-    recheck = (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
-    with closing(_connect()) as conn:
-        todo = conn.execute(
-            """
-            SELECT l.product_id AS id, MAX(l.name) AS name FROM ah_receipt_items l
-            LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-            WHERE l.product_id IS NOT NULL AND l.product_id != 0 AND COALESCE(l.name, '') != ''
-              AND (p.receipt_product_id IS NULL OR (p.product_id IS NULL AND p.checked_at < ?))
-            GROUP BY l.product_id ORDER BY COUNT(*) DESC, l.product_id LIMIT ?
-            """,
-            (recheck, RECEIPT_PRODUCTS_PER_SYNC),
-        ).fetchall()
-    result = {"found": 0, "missing": 0, "failed": 0}
-    deadline = time.monotonic() + RECEIPT_PRODUCTS_DEADLINE_SECONDS
-    for row in todo:
-        if time.monotonic() > deadline:
-            break
-        with closing(_connect()) as conn:
-            known = conn.execute(
-                "SELECT 1 FROM ah_receipt_products WHERE receipt_product_id = ? AND product_id IS NOT NULL", (row["id"],)
-            ).fetchone()
-        if known:  # gevonden bij de zoekopdracht van een ander artikelnummer
-            result["found"] += 1
-            continue
-        try:
-            hits = ah.search_hq_ids(row["name"])
-        except Exception:  # noqa: BLE001 - de volgende synchronisatie probeert het opnieuw
-            result["failed"] += 1
-            continue
+    result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
+    paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    if paused and paused > now:
+        return {**result, "pausedUntil": paused}
+    if auth.get_setting(SETTING_RECEIPT_PRODUCTS_VERSION, "") != RECEIPT_PRODUCTS_VERSION:
         with closing(_connect()) as conn, conn:
-            conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now) for hq_id, webshop_id, title in hits])
-            if any(hq_id == row["id"] for hq_id, _, _ in hits):
-                result["found"] += 1
-            else:
-                conn.execute(
-                    "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?) "
-                    "ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL",
-                    (row["id"], now),
-                )
-                result["missing"] += 1
+            conn.execute("DELETE FROM ah_receipt_products WHERE product_id IS NULL")
+        auth.set_setting(SETTING_RECEIPT_PRODUCTS_VERSION, RECEIPT_PRODUCTS_VERSION)
+    with closing(_connect()) as conn:
+        groups = [group for group in _todo_by_name(conn, now) if only is None or group["key"] in only]
+    deadline = time.monotonic() + deadline_seconds
+    for group in groups:
+        with closing(_connect()) as conn:
+            left = [product_id for product_id in group["ids"] if product_id not in _linked(conn, group["ids"])]
+        result["found"] += len(group["ids"]) - len(left)  # gevonden bij de zoekopdracht van een andere naam
+        complete = True
+        for query in _receipt_queries(group["name"]) if left else []:
+            if result["searches"] >= searches or time.monotonic() > deadline:
+                return result
+            try:
+                hits = _polite_search(query)
+            except _HourlyBudgetSpent:
+                return {**result, "limited": True}
+            except ah.AhHttpError as exc:
+                result["searches"] += 1
+                if exc.status in (403, 429):  # firewall of te veel verzoeken: niet aandringen
+                    until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
+                    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
+                    return {**result, "failed": result["failed"] + 1, "pausedUntil": until}
+                result["failed"] += 1
+                complete = False
+                break
+            except Exception:  # noqa: BLE001 - de volgende keer opnieuw
+                result["searches"] += 1
+                result["failed"] += 1
+                complete = False
+                break
+            result["searches"] += 1
+            found = {hq_id for hq_id, _, _ in hits}
+            with closing(_connect()) as conn, conn:
+                conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now) for hq_id, webshop_id, title in hits])
+            result["found"] += sum(1 for product_id in left if product_id in found)
+            left = [product_id for product_id in left if product_id not in found]
+            if not left:
+                break
+        if left and complete:
+            with closing(_connect()) as conn, conn:
+                conn.executemany(_MISSING_RECEIPT_PRODUCT, [(product_id, now) for product_id in left])
+            result["missing"] += len(left)
     return result
+
+
+def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES) -> dict[str, Any]:
+    """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND").
+    Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
+    (die wacht `RECEIPT_PRODUCTS_RECHECK_DAYS`)."""
+    keys = {_name_key(name) for name in names if str(name).strip()}
+    if not keys:
+        return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
+    return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
+
+
+def resolve_receipt_products_nightly() -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan."""
+    try:
+        with closing(_connect()) as conn:
+            if not conn.execute("SELECT 1 FROM ah_receipt_items LIMIT 1").fetchone():
+                return None
+        return resolve_receipt_products(searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+    except Exception:  # noqa: BLE001 - het koppelen is een extraatje bij de aanbiedingen
+        return None
 
 
 def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
@@ -545,6 +665,7 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "source": "kassabon", "product": row["name"], "brand": None, "quantity": row["quantity"],
                     "amount": row["amount"], "date": (row["date_time"] or "")[:10], "id": row["receipt_id"], "open": False,
                 })
+        occurrences += price_import.search_lines(conn, "ah", words, ah_lists._fold)  # oude bestellingen uit je bevestigingsmails
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:

@@ -733,6 +733,14 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     return [item for _, item in ranked]
 
 
+class AhHttpError(RuntimeError):
+    """Een fout van AH met de HTTP-status erbij, zodat de aanroeper bij 403 (firewall) of 429 (te veel verzoeken) kan stoppen."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def _search_json(query: str, size: int) -> Any:
     """De ruwe zoekresultaten van AH (anoniem)."""
 
@@ -746,7 +754,7 @@ def _search_json(query: str, size: int) -> Any:
         if not response.ok:
             message = f"AH productzoekopdracht mislukt ({response.status_code})"
             _reject_if_token(response.status_code, _body(response), token, message)
-            raise RuntimeError(message)
+            raise AhHttpError(message, response.status_code)
         return response.json()
 
     return _anonymous(search)
@@ -1063,6 +1071,172 @@ def get_bonus_products() -> list[dict[str, Any]]:
     if not found and errors:
         raise RuntimeError(errors[0])
     return list(found.values())
+
+
+# --- Bonus Box (persoonlijke bonus) ---------------------------------------------------------------
+# De Bonus Box is de persoonlijke bonus in de AH-app: elke week een stel aanbiedingen die AH op je aankopen afstemt, waarvan je er een
+# aantal activeert (5, met Premium 10). Ze is vanaf vrijdag te zien en geldt van maandag t/m zondag, net als de bonus. Omdat ze bij jou
+# hoort, vraagt ze de AH-koppeling (het gebruikerstoken); anoniem is er geen Bonus Box.
+# Eerst de GraphQL van de app: `bonusPromotions` met `filterSet: APP_BONUS_BOX`, per bonusperiode, met dezelfde acties en producten als
+# de gewone bonus en daarbij `activationStatus`. Lukt dat niet, dan de REST-route `bonuspage/v1/personal`, die de vorm van de bonuspagina
+# heeft. Beide zijn onofficieel (gevonden in de community-projecten appie-go en bonbonus) en nog niet met een eigen antwoord gecontroleerd;
+# de verkenner (`ah_explore`) laat zien wat AH geeft. Activeren doet MealieShopper niet: dat kan niet ongedaan worden, dus dat blijft in de app.
+BONUS_PERIODS_QUERY = """
+query BonusPeriods {
+  bonusPeriods { startDate endDate weekNumber }
+}
+"""
+BONUS_BOX_QUERY = """
+query BonusBox($periodStart: String, $periodEnd: String, $weekNumber: Int) {
+  bonusPromotions(filterSet: APP_BONUS_BOX, input: {periodStart: $periodStart, periodEnd: $periodEnd, weekNumber: $weekNumber}) {
+    id
+    title
+    periodStart
+    periodEnd
+    promotionType
+    category
+    activationStatus
+    promotionLabels { title topText centerText bottomText }
+    price { now { amount } was { amount } }
+    products {
+      id
+      title
+      brand
+      salesUnitSize
+      price { now { amount } was { amount } }
+      imagePack { small { url } }
+    }
+  }
+}
+"""
+BONUS_BOX_PATH = "/mobile-services/bonuspage/v1/personal"
+BONUS_BOX_ACTIVATED = "ACTIVATED"
+# Soorten actie die zeker geen Bonus Box zijn. Negeert AH het filter, dan komt anders de hele bonus als persoonlijke bonus binnen.
+_NOT_PERSONAL_TYPES = BONUS_PROMOTION_TYPES | {"INCENTIVE", "ETOS", "GALL"}
+
+
+def _activated(status: Any) -> bool | None:
+    """Of een aanbieding uit de Bonus Box geactiveerd is: True, False, of None als AH het niet zegt."""
+    text = str(status or "").strip().upper()
+    return (text == BONUS_BOX_ACTIVATED) if text else None
+
+
+def _bonus_box_periods(token: str, today: date) -> list[tuple[str, str, int | None]]:
+    """De bonusweken die nog niet voorbij zijn: (begin, einde, weeknummer). Geeft AH er geen, dan deze week (maandag t/m zondag)."""
+    try:
+        data = _graphql(token, BONUS_PERIODS_QUERY, {}, "AH bonusweken ophalen")
+    except TokenRejected:
+        raise
+    except Exception:  # noqa: BLE001 - zonder de weken van AH nemen we deze week
+        data = {}
+    periods = []
+    for period in data.get("bonusPeriods") or []:
+        if not isinstance(period, dict):
+            continue
+        start, end = deals.parse_date(period.get("startDate")), deals.parse_date(period.get("endDate"))
+        if start and end and end >= today:
+            week = period.get("weekNumber")
+            periods.append((start.isoformat(), end.isoformat(), week if isinstance(week, int) and not isinstance(week, bool) else None))
+    if not periods:
+        monday, sunday = deals.week_of(today.isoformat())
+        periods.append((monday.isoformat(), sunday.isoformat(), today.isocalendar()[1]))
+    return periods
+
+
+def bonus_box_promotions(promotions: Any, start: str, end: str) -> list[dict[str, Any]]:
+    """De producten van de acties in een Bonus Box (GraphQL), in de vorm van `_bonus_product`, met `activated`.
+
+    Een actie zonder looptijd krijgt die van de bonusweek. Een actie zonder producten wordt één aanbieding met haar eigen titel en prijs,
+    zodat ze toch in de lijst staat (zonder productpagina)."""
+    found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
+    for promotion in promotions if isinstance(promotions, list) else []:
+        if not isinstance(promotion, dict):
+            continue
+        if promotion.get("promotionType") in _NOT_PERSONAL_TYPES and promotion.get("activationStatus") is None:
+            continue
+        promotion = {**promotion, "periodStart": promotion.get("periodStart") or start, "periodEnd": promotion.get("periodEnd") or end}
+        products = _promotion_products(promotion)
+        if not products and promotion.get("id") and str(promotion.get("title") or "").strip():
+            products = _promotion_products({**promotion, "products": [
+                {"id": f"bonusbox-{promotion['id']}", "title": promotion["title"], "price": promotion.get("price")},
+            ]})
+        activated = _activated(promotion.get("activationStatus"))
+        for product in products:
+            product["activated"] = activated
+            found.setdefault((product["id"], product["validFrom"], product["validUntil"]), product)
+    return list(found.values())
+
+
+def bonus_box_in(data: Any, start: str, end: str) -> list[dict[str, Any]]:
+    """De producten in een antwoord van `bonuspage/v1/personal` (de vorm van de bonuspagina), met `activated` en de looptijd van de week
+    als het product of de groep er zelf geen geeft."""
+    sections = data if isinstance(data, list) else [data]
+    found: dict[str, dict[str, Any]] = {}
+    for section in sections:
+        entries = section.get("bonusGroupOrProducts") if isinstance(section, dict) else None
+        for entry in entries if isinstance(entries, list) else []:
+            node = (entry.get("product") or entry.get("bonusGroup")) if isinstance(entry, dict) else None
+            if not isinstance(node, dict):
+                continue
+            for product in bonus_products_in(entry):
+                product["validFrom"] = product["validFrom"] or node.get("bonusStartDate") or start
+                product["validUntil"] = product["validUntil"] or _bonus_end(node) or (None if node.get("isInfiniteBonus") else end)
+                product["activated"] = _activated(node.get("activationStatus"))
+                found.setdefault(product["id"], product)
+    return list(found.values())
+
+
+def _bonus_box_week(token: str, start: str, end: str, week: int | None) -> list[dict[str, Any]]:
+    """De Bonus Box van één bonusweek: eerst GraphQL, anders de REST-route."""
+    try:
+        data = _graphql(token, BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": week}, "AH Bonus Box ophalen")
+        return bonus_box_promotions(data.get("bonusPromotions"), start, end)
+    except TokenRejected:
+        raise
+    except Exception as exc:  # noqa: BLE001 - onofficiële route; val terug op de REST-route
+        graphql_error = exc
+    try:
+        data = _request_json(
+            "GET", f"{AH_API_BASE}{BONUS_BOX_PATH}",
+            headers=_auth_headers(token, include_content_type=False), params={"bonusStartDate": start},
+        )
+    except TokenRejected:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"{str(graphql_error)[:200]}; {str(exc)[:200]}") from exc
+    return bonus_box_in(data, start, end)
+
+
+def get_bonus_box(today: date | None = None) -> list[dict[str, Any]]:
+    """Je Bonus Box: de persoonlijke bonus van deze week en (vanaf vrijdag) volgende week, als producten met hun looptijd en `activated`.
+    Vraagt de AH-koppeling: zonder koppeling een LookupError. Weigert AH het token, dan één keer opnieuw met een vers token."""
+    if not configured_refresh_token():
+        raise LookupError(tr("AH-account niet gekoppeld", "AH account not linked"))
+    today = today or date.today()
+
+    def fetch(token: str) -> list[dict[str, Any]]:
+        found: dict[tuple[str, Any, Any], dict[str, Any]] = {}
+        errors: list[str] = []
+        for start, end, week in _bonus_box_periods(token, today):
+            try:
+                products = _bonus_box_week(token, start, end, week)
+            except TokenRejected:
+                raise
+            except Exception as exc:  # noqa: BLE001 - een week die niet lukt laat de andere staan
+                errors.append(str(exc)[:300])
+                continue
+            for product in products:
+                found.setdefault((product["id"], product["validFrom"], product["validUntil"]), product)
+        if not found and errors:
+            raise RuntimeError(errors[0])
+        return list(found.values())
+
+    token = get_user_token()
+    try:
+        return fetch(token)
+    except TokenRejected:
+        forget_token(token)
+        return fetch(get_user_token())
 
 
 def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 import requests
 
-from . import ah
+from . import ah, deals
 
 # Velden met een vaste, niet-persoonlijke vocabulaire: hier tonen we de waarde, bij de rest alleen het type.
 VOCABULARY_KEYS = {
@@ -222,6 +222,35 @@ def explore() -> dict[str, Any]:
     probes.append(report)
     if report["ok"]:
         report["productCount"] = len(ah.bonus_products_in(bonus))
+
+    # De Bonus Box (persoonlijke bonus): vraagt de AH-koppeling. Per route alleen aantallen, soorten actie en activatiestatussen, geen producten.
+    monday, sunday = deals.week_of(date.today().isoformat())
+    start, end = monday.isoformat(), sunday.isoformat()
+
+    def bonus_box(promotions: list[Any], products: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "acties": len(promotions),
+            "producten": len(products),
+            "soorten": sorted({str(p.get("promotionType")) for p in promotions if isinstance(p, dict)}),
+            "activatie": sorted({str(p.get("activationStatus")) for p in promotions if isinstance(p, dict)}),
+            "geactiveerd": sum(1 for product in products if product.get("activated")),
+        }
+
+    report, _ = _probe(
+        "Bonus Box: GraphQL bonusPromotions(filterSet: APP_BONUS_BOX)",
+        lambda: _raw_graphql(ah.BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": monday.isocalendar()[1]}),
+        lambda data: bonus_box(list((data or {}).get("bonusPromotions") or []), ah.bonus_box_promotions((data or {}).get("bonusPromotions"), start, end)),
+    )
+    probes.append(report)
+
+    def bonus_box_rest(data: Any) -> dict[str, Any]:
+        sections = data if isinstance(data, list) else [data]
+        entries = [entry for section in sections if isinstance(section, dict) for entry in section.get("bonusGroupOrProducts") or [] if isinstance(entry, dict)]
+        nodes = [entry.get("product") or entry.get("bonusGroup") for entry in entries]
+        return bonus_box([node for node in nodes if isinstance(node, dict)], ah.bonus_box_in(data, start, end))
+
+    report, _ = _probe(f"Bonus Box: GET {ah.BONUS_BOX_PATH}", lambda: _raw_get(ah.BONUS_BOX_PATH, {"bonusStartDate": start}), bonus_box_rest)
+    probes.append(report)
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",

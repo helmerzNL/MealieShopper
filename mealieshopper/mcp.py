@@ -39,8 +39,9 @@ class ToolError(Exception):
 
 # --- tools ---------------------------------------------------------------------------------------
 
-def _monday(day: datetime.date) -> datetime.date:
-    return day - datetime.timedelta(days=day.weekday())
+def _week_start(day: datetime.date, first: int) -> datetime.date:
+    """De eerste dag van de week waar `day` in valt; `first` telt zoals Mealie (0 = zondag, 1 = maandag ... 6 = zaterdag)."""
+    return day - datetime.timedelta(days=(day.isoweekday() - first) % 7)
 
 
 def _parse_date(value: Any, default: datetime.date) -> datetime.date:
@@ -57,7 +58,11 @@ def _text(value: Any, limit: int = 300) -> str:
 
 
 def tool_week_menu(args: dict[str, Any]) -> Any:
-    start = _parse_date(args.get("start_date"), _monday(datetime.date.today()))
+    if args.get("start_date") in (None, ""):
+        # Alleen dan is de eerste dag van de week nodig (die kan Mealie vragen).
+        start = _week_start(datetime.date.today(), mealie.week_start()["day"])
+    else:
+        start = _parse_date(args.get("start_date"), datetime.date.today())
     days = max(1, min(14, int(args.get("days") or 7)))
     end = start + datetime.timedelta(days=days - 1)
     entries = mealie.get_meal_plan_with_recipes(start.isoformat(), end.isoformat())
@@ -541,7 +546,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
                 "timesBought": product.get("timesBought"), "lastPaid": product.get("lastPaid"), "averagePaid": product.get("averagePaid"),
                 "offers": [
                     {"from": e.get("start"), "until": e.get("end"), "ongoing": e.get("open"), "price": e.get("price"),
-                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel")}
+                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel"), "personal": bool(e.get("personal"))}
                     for e in product.get("episodes", [])[-keep:]
                 ],
                 "regularPrices": product.get("regular", [])[-keep:],
@@ -555,7 +560,8 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
         "hint": (
             "Prijzen zijn per stuk. regularPrices zijn periodes met dezelfde normale prijs (uit zoekopdrachten, bestellingen en de prijs "
             "vóór een aanbieding); purchases komen uit bestellingen en kassabonnen (op een kassabon is de korting onderaan de bon niet "
-            "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt."
+            "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt. "
+            "personal: een persoonlijke aanbieding (de AH Bonus Box), alleen voor de eigenaar en alleen als die haar in de AH-app activeerde."
         ),
     }
 
@@ -646,10 +652,10 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 
 TOOLS: dict[str, dict[str, Any]] = {
     "get_week_menu": {
-        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week (maandag t/m zondag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
+        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week, vanaf de eerste dag van de week die in MealieShopper of Mealie is ingesteld (anders maandag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
-                "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de maandag van deze week."},
+                "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de eerste dag van deze week (zoals ingesteld in MealieShopper of Mealie, anders maandag)."},
                 "days": {"type": "integer", "minimum": 1, "maximum": 14, "description": "Aantal dagen, standaard 7."},
             }
         ),
@@ -906,7 +912,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_get_receipt,
     },
     "search_ah_purchases": {
-        "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam. Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
+        "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam, ook in de oude bestellingen die uit bevestigingsmails zijn ingelezen (`imported: true`, met het bestelnummer of `dag:<datum>` als id; die staan niet in get_ah_order). Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
         "inputSchema": _schema(
             {"query": {"type": "string", "description": "Bijvoorbeeld 'koffie'."}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal losse aankopen, standaard 50."}},
             ["query"],

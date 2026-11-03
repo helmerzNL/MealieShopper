@@ -8,7 +8,7 @@ Afspraken voor het werken aan MealieShopper (voor Claude Code en andere AI-hulpe
 
 - Werk op een eigen branch en richt de pull request op `beta` (nooit op `main`).
 - Elke push naar `beta` bouwt de container `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`) en maakt een pre-release `vX.Y.Z-beta` (`docker.yml` en `release.yml`).
-- `main` is de stabiele lijn. Die krijgt alleen een pull request vanuit `beta` (de promotie), op verzoek van de gebruiker. Dat bouwt `latest` en de stabiele release `vX.Y.Z`. `pr-target.yml` laat elke andere pull request naar `main` falen.
+- `main` is de stabiele lijn. Die krijgt alleen een pull request vanuit `beta` (de promotie), op verzoek van de gebruiker. Dat bouwt `latest` en de stabiele release `vX.Y.Z`. `pr-target.yml` laat elke andere pull request naar `main` falen, behalve die van Dependabot: zijn beveiligingsupdates gaan altijd naar `main`, dus de check zet ze over naar `beta` (of sluit ze als de update al in `beta` staat).
 - De check `Pull request target` en het verbod op rechtstreeks pushen naar `main` zet de eigenaar aan in de branch protection van GitHub; dat kan niet vanuit de code.
 
 ## Releases
@@ -25,6 +25,7 @@ Afspraken voor het werken aan MealieShopper (voor Claude Code en andere AI-hulpe
 ## Werkwijze
 
 - Maak alleen een pull request als de gebruiker erom vraagt (naar `beta`, zie Branches), en merge alleen op verzoek.
-- Houd Nederlands en Engels gelijk: de interface (`static/i18n/`), de README's (`README.md` en `README.en.md`) en de voorbeeld-`.env`-bestanden.
+- Houd Nederlands en Engels gelijk: de interface (`static/i18n/`), de README's (`README.md` en `README.en.md`), de handleiding (`docs/handleiding.md` en `docs/handleiding.en.md`) en de voorbeeld-`.env`-bestanden.
+- De README's volgen de [README-template](https://github.com/Flux76HQ/App-Guidance/tree/main/shared/templates/readme) van Flux76HQ/App-Guidance: dezelfde kopjes in dezelfde volgorde, en wat daar geen plek heeft (de uitleg per functie, de koppelingen, problemen oplossen) staat in de handleiding. `tests/test_readme.py` bewaakt de kopjes, de links en de ankers.
 - Draai de tests met `python -m unittest discover -s tests`.
 - De back-up en het terugzetten in de app (`mealieshopper/backup.py`) volgen [`backup-restore.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/backup-restore.md) van Flux76HQ/App-Guidance. Een nieuwe tabel met gegevens hoort in `backup.DATA_TABLES` (of bewust in `EXCLUDED_TABLES`) en in `tests/test_backup.py`; een test dwingt dat af.

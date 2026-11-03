@@ -2,6 +2,59 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.97.0
+
+### Nieuw in 2.97.0
+
+*English summary: the week menu now starts on the first day of the week of your household in Mealie, the same day as the meal planner in Mealie (from Mealie 3.30). MealieShopper reads it from Mealie (GET /api/households/preferences), at most once every ten minutes and at once with Check link; if Mealie is not linked or does not answer, the week starts on Monday as before. Mealie's default is Sunday, so the owner can also pick a fixed day under Settings, Link, Mealie, First day of the week (As in Mealie is the default). The choice applies to everyone, to the MCP tool get_week_menu and goes into the backup. Offers keep AH's Bonus week from Monday to Sunday and show the Bonus week that overlaps the chosen week most. Reload the page once after updating.*
+
+- **De week begint op de eerste dag uit Mealie.** In Mealie stel je bij je huishouden de eerste dag van de week in, en sinds Mealie 3.30 begint de weekplanner daar ook op. Het weekmenu in MealieShopper volgt nu dezelfde dag, ook bij het bladeren door de weken en na een wijziging.
+  - MealieShopper vraagt de dag aan Mealie (`GET /api/households/preferences`, veld `firstDayOfWeek`; elke token mag dat lezen) en onthoudt hem tien minuten. **Koppeling controleren** haalt hem meteen opnieuw op.
+  - Is Mealie niet gekoppeld of niet bereikbaar, dan begint de week op maandag, zoals tot nu toe.
+- **Eerste dag van de week kiezen** (alleen de beheerder): onder **Instellingen > Koppelen > Mealie** staat de keuzelijst *Eerste dag van de week*, met *Zoals in Mealie* (standaard, met de dag die Mealie nu geeft) of een vaste dag. Handig omdat Mealie standaard op zondag staat. De keuze geldt voor iedereen en gaat mee in de back-up (`WEEK_START`).
+- **MCP**: `get_week_menu` begint zonder `start_date` op dezelfde eerste dag van de week in plaats van op maandag.
+- **Aanbiedingen** houden de bonusweek van AH, van maandag t/m zondag. Begint het weekmenu op een andere dag, dan hoort er de bonusweek bij die er het meest mee overlapt (de week waarin de middelste dag valt): bij za 7 t/m vr 13 nov is dat ma 9 t/m zo 15 nov. Met maandag als eerste dag verandert er niets.
+- **API**: `GET /api/mealie/status` geeft `weekStart` (`day`, 0 = zondag t/m 6 = zaterdag, met `source`: `setting`, `mealie` of `default`); `GET` en `PUT /api/server-settings` hebben `weekStart` (leeg = zoals in Mealie, of 0 t/m 6).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#204](https://github.com/helmerzNL/MealieShopper/pull/204).
+
+## v2.96.0
+
+### Nieuw in 2.96.0
+
+*English summary: Import old purchases is now also on the Orders page of every store (Albert Heijn, Jumbo, Picnic and Crisp), and the orders you import from your confirmation emails are listed among your past orders on their date, like any other order. You can open them for their products (at AH and Jumbo with their own address), and the purchase search on the Orders page finds them too. An imported order has an archive box in front of its date and, for the administrator, a bin that removes the whole order (it then no longer counts in the Price history either). An imported order that the app later also fetches from your account is not listed twice. Also in this version: when you search the Price history for a name that is on a receipt but not linked yet, the app looks that name up at AH right away (#202). Reload the page once after updating.*
+
+- **Oude aankopen importeren ook bij Bestellingen.** De knop uit de Prijsgeschiedenis staat nu ook op het tabblad **Bestellingen** van elke winkel (Albert Heijn, Jumbo, Picnic en Crisp) en opent dezelfde dialoog, voor de winkel die je daar bekijkt. Alleen de beheerder ziet de knop, net als in de Prijsgeschiedenis.
+- **Ingelezen bestellingen bij de afgelopen bestellingen.** Wat je uit je bevestigingsmails inleest, staat tussen je **Afgelopen bestellingen** op de dag van de bestelling, met *Geïmporteerd*, het totaal en het aantal producten.
+  - Een ingelezen bestelling werkt als elke andere: open hem voor de producten (met wat je per stuk betaalde en *Bonus* bij korting; de naam linkt naar de Prijsgeschiedenis). Bij AH en Jumbo heeft hij een eigen adres (`/stores/ah/imported/<bestelnummer>`), zodat herladen en een bladwijzer werken.
+  - Het zoekveld bij Bestellingen (AH en Jumbo) vindt ook de producten uit ingelezen bestellingen.
+  - Een **archiefdoos** voor de datum laat zien dat de bestelling is ingelezen. Met de **prullenbak** op de kaart verwijdert de beheerder de hele bestelling, na een bevestiging; ze telt dan ook niet meer mee in de Prijsgeschiedenis.
+  - Haalt de app een ingelezen bestelling later toch uit je account (zelfde bestelnummer, of een bestelling op dezelfde dag), dan staat ze er maar één keer, net als in de Prijsgeschiedenis.
+- **API en MCP**: `GET /api/imported-orders/<winkel>` en `GET /api/imported-orders/<winkel>/<ref>` geven de ingelezen bestellingen (voor iedereen die de bestellingen mag zien). `DELETE /api/prices/import` neemt `ref` om één bestelling te verwijderen (alleen de beheerder). `GET /api/ah/purchases/search`, `GET /api/jumbo/purchases/search` en de MCP-tool `search_ah_purchases` geven de ingelezen regels met `imported: true`.
+- **Kassabonnen: namen meteen opzoeken** (#178, door wolph). Zoek je in de Prijsgeschiedenis op een naam die op een bon staat maar nog niet gekoppeld is (*redband*), dan zoekt MealieShopper die naam meteen bij AH op: hooguit twee zoekopdrachten, binnen dezelfde pauze en het uurbudget voor de hele app.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull requests: [#202](https://github.com/helmerzNL/MealieShopper/pull/202).
+
+## v2.95.0
+
+### Nieuw in 2.95.0
+
+*English summary: the offers now include your personal AH offers, the Bonus Box from the AH app. When your AH account is linked, MealieShopper fetches the Bonus Box of this week and (from Friday) next week together with the regular bonus, every day and on Sync. Bonus Box offers are at the top of the AH offers with a label that says whether you activated them (green) or still have to activate them in the AH app (yellow); only an activated offer applies, and activating stays in the AH app because it can't be undone. A new switch, Bonus Box only, above the categories shows only your Bonus Box, with its own category counts, and is remembered in your browser; next to it you see how many you activated, or why there are none. If fetching the Bonus Box fails, the regular bonus is still updated and the Bonus Box from last time stays. The Bonus Box also counts in the recipe suggestions and is marked in the Price history. Also in this version: receipt lines are looked up per name at AH, with a second try and fewer requests (#200), and the pull request check moves a Dependabot pull request from main to beta instead of failing (#199). Reload the page once after updating.*
+
+- **De AH Bonus Box bij de aanbiedingen.** Is je AH-account gekoppeld, dan haalt MealieShopper bij de aanbiedingen van Albert Heijn ook je persoonlijke aanbiedingen op: de Bonus Box uit de AH-app, van deze week en (vanaf vrijdag) van volgende week. Dat gaat mee met de dagelijkse synchronisatie en met `Aanbiedingen synchroniseren`.
+  - De Bonus Box staat bovenaan de aanbiedingen van AH, met het label *Bonus Box · geactiveerd* (groen) of *Bonus Box · activeer in de AH-app* (geel). AH laat je er elke week een aantal activeren (5, met Premium 10) en alleen een geactiveerde aanbieding geldt. Activeren doe je zelf in de AH-app: dat kan niet ongedaan worden, dus MealieShopper doet het niet.
+  - **Schakelaar Alleen Bonus Box** boven de categorieën: aan, dan zie je alleen je Bonus Box, met de categorieën en aantallen die daarbij horen. De keuze blijft bewaard in je browser. Ernaast staat hoeveel je er hebt geactiveerd, of waarom er geen zijn: geen AH-koppeling (dan staat de schakelaar uit), of het ophalen mislukte.
+  - Mislukt alleen het ophalen van de Bonus Box, dan wordt de gewone bonus toch bijgewerkt en blijft de Bonus Box van de vorige keer staan; de fout staat bij de schakelaar en onder **Instellingen > Koppelen > Aanbiedingen** (*waarvan 3 uit je Bonus Box*).
+  - Staat een product zowel in de gewone bonus als in je Bonus Box, dan staan beide acties in de lijst.
+  - De Bonus Box telt mee in de receptvoorstellen. In de **Prijsgeschiedenis** staat een periode uit je Bonus Box als *Bonus Box*; staat een product in beide, dan telt daar de gewone bonus.
+  - De routes zijn onofficieel en nog niet met een eigen antwoord gecontroleerd: eerst de GraphQL van de app (`bonusPromotions` met `filterSet: APP_BONUS_BOX`, met het gebruikerstoken), anders `GET bonuspage/v1/personal`. De AH-verkenner (`POST /api/ah/explore`) laat van beide zien hoeveel acties en producten er zijn en welke activatiestatussen AH geeft, zonder producten of prijzen; deel dat rapport als de Bonus Box niet verschijnt.
+- **API en MCP**: `GET /api/offers` geeft per aanbieding `personal` en `activated`, en in `personal` of de winkel een Bonus Box heeft, of de koppeling er is, het aantal, hoeveel er geactiveerd zijn en een eventuele fout. `POST /api/offers/sync-all` en de status geven het aantal per winkel. De MCP-tool `get_price_history` geeft `personal` per aanbieding.
+- **In de database**: de tabellen `offers` en `offer_history` krijgen de kolom `personal` (en `offers` ook `activated`), `offers_meta` de kolom `personal_error`. Een bestaande database krijgt ze bij de start; bestaande rijen zijn gewone aanbiedingen. Ze gaan mee in de back-up, en een oudere back-up zet gewoon terug.
+- **Kassabonnen: echte producten per naam** (#178, door wolph). MealieShopper zoekt de namen op de bonnen per naam bij AH op en koppelt een artikelnummer alleen aan het product met precies dat nummer. Een afgekorte naam krijgt een tweede poging met het langste woord (*RB PICOLIENT* wordt *PICOLIENT*), en het gaat zuinig: hooguit 20 zoekopdrachten na een synchronisatie en 60 in de nacht, met een pauze bij een 403 of 429.
+- **Pull request target**: een pull request van Dependabot naar `main` faalt niet meer, maar wordt door de check naar `beta` verzet (of gesloten als de update al in `beta` staat).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull requests: [#199](https://github.com/helmerzNL/MealieShopper/pull/199) en [#200](https://github.com/helmerzNL/MealieShopper/pull/200).
+
 ## v2.94.1
 
 ### De stabiele release in het kort: alles sinds 2.91.1

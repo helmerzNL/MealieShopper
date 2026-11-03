@@ -41,6 +41,8 @@ class MealPlanTestCase(unittest.TestCase):
         self.addCleanup(mealie._version_cache.clear)
         mealie._group_slug_cache.clear()
         self.addCleanup(mealie._group_slug_cache.clear)
+        mealie._week_start_cache.clear()
+        self.addCleanup(mealie._week_start_cache.clear)
         self.client = create_app().test_client()
 
 
