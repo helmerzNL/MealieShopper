@@ -541,7 +541,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
                 "timesBought": product.get("timesBought"), "lastPaid": product.get("lastPaid"), "averagePaid": product.get("averagePaid"),
                 "offers": [
                     {"from": e.get("start"), "until": e.get("end"), "ongoing": e.get("open"), "price": e.get("price"),
-                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel")}
+                     "priceBefore": e.get("priceBefore"), "label": e.get("promoLabel"), "personal": bool(e.get("personal"))}
                     for e in product.get("episodes", [])[-keep:]
                 ],
                 "regularPrices": product.get("regular", [])[-keep:],
@@ -555,7 +555,8 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
         "hint": (
             "Prijzen zijn per stuk. regularPrices zijn periodes met dezelfde normale prijs (uit zoekopdrachten, bestellingen en de prijs "
             "vóór een aanbieding); purchases komen uit bestellingen en kassabonnen (op een kassabon is de korting onderaan de bon niet "
-            "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt."
+            "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt. "
+            "personal: een persoonlijke aanbieding (de AH Bonus Box), alleen voor de eigenaar en alleen als die haar in de AH-app activeerde."
         ),
     }
 

@@ -3,12 +3,51 @@
 // beheerder onder Instellingen > Koppelen meteen synchroniseren.
 // Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekOffsetText en setPlanWeek uit app.js.
 //
+// Bij AH staan ook je persoonlijke aanbiedingen (de Bonus Box) in de lijst, bovenaan en met een eigen label; met de schakelaar
+// "Alleen Bonus Box" zie je alleen die. De schakelaar onthoudt deze browser.
+//
 // De week is die van het weekmenu (state.weekOffset): plan je volgende week, dan staan hier de aanbiedingen van volgende week, en kies
 // je hier een andere week, dan gaat het weekmenu mee. Eerdere weken zijn er niet: verlopen aanbiedingen staan in de Prijsgeschiedenis.
 
 const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
-const offersState = { store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "" };
+const OFFERS_PERSONAL_KEY = "ms-offers-personal";
+const offersState = {
+  store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
+  personal: null, personalOnly: false,
+};
+try {
+  offersState.personalOnly = localStorage.getItem(OFFERS_PERSONAL_KEY) === "1";
+} catch {
+  // Zonder opslag staat de schakelaar uit.
+}
+
+// Alleen de persoonlijke aanbiedingen (de Bonus Box): als de schakelaar aan staat en de winkel ze heeft.
+function offersPersonalOnly() {
+  return offersState.personalOnly && Boolean(offersState.personal && offersState.personal.supported);
+}
+
+// De aanbiedingen die de schakelaar doorlaat, en hun categorieën met het aantal daarin (in de volgorde van de hele lijst).
+function offersShown() {
+  return offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
+}
+
+function offersShownCategories() {
+  if (!offersPersonalOnly()) return offersState.categories;
+  const counts = {};
+  offersShown().forEach((offer) => {
+    counts[offer.category] = (counts[offer.category] || 0) + 1;
+  });
+  return offersState.categories.filter((category) => counts[category.id]).map((category) => ({ id: category.id, count: counts[category.id] }));
+}
+
+// Het label van een persoonlijke aanbieding: groen als ze geactiveerd is, geel als dat nog moet in de app van de winkel.
+function offerPersonalBadge(offer) {
+  if (!offer.personal) return "";
+  const state = offer.activated === true ? "on" : offer.activated === false ? "off" : "";
+  const text = t(state === "on" ? "offers.personal.badge_on" : state === "off" ? "offers.personal.badge_off" : "offers.personal.badge");
+  return `<small class="offer-card__personal${state ? ` offer-card__personal--${state}` : ""}">${escapeHtml(text)}</small>`;
+}
 
 // De week van de aanbiedingen: die van het weekmenu, maar nooit een eerdere dan deze (staat het weekmenu op vorige week, dan deze week).
 function offersWeekOffset() {
@@ -153,6 +192,7 @@ function offerProductCard(offer) {
       <span>
         ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
+        ${offerPersonalBadge(offer)}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
         ${offerConditionsText(offer) ? `<small>${escapeHtml(offerConditionsText(offer))}</small>` : ""}
         ${offer.price ? `<small class="product-card__price">${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
@@ -175,9 +215,11 @@ function offerCategoryLabel(id) {
 }
 
 function renderOfferCategories() {
-  const total = offersState.offers.length;
+  const total = offersShown().length;
+  const categories = offersShownCategories();
+  if (offersState.category !== "all" && !categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
-    offersState.categories.map((category) => ({
+    categories.map((category) => ({
       id: category.id,
       label: t("offers.chip", { count: I18N.formatNumber(category.count), category: offerCategoryLabel(category.id) }),
     }))
@@ -192,7 +234,8 @@ function renderOfferCategories() {
 }
 
 function renderOfferGrid() {
-  const shown = offersState.category === "all" ? offersState.offers : offersState.offers.filter((offer) => offer.category === offersState.category);
+  const base = offersShown();
+  const shown = offersState.category === "all" ? base : base.filter((offer) => offer.category === offersState.category);
   const limit = offersState.rows * offerColumns();
   $("#offers-products").innerHTML = shown.slice(0, limit).map(offerProductCard).join("");
   $("#offers-more").hidden = shown.length <= limit;
@@ -208,10 +251,46 @@ function offersPeriodText(period) {
   return t("offers.period", { from: day(from), until: day(until) });
 }
 
+// De schakelaar "Alleen Bonus Box", alleen bij een winkel met persoonlijke aanbiedingen (AH). Ernaast: hoeveel je er hebt geactiveerd,
+// of waarom er geen zijn (geen koppeling, of het ophalen mislukte; dan staan die van de vorige keer er nog).
+function renderOffersPersonal() {
+  const info = offersState.personal;
+  const show = Boolean(offersState.supported && info && info.supported);
+  $("#offers-personal").hidden = !show;
+  if (!show) return;
+  const input = $("#offers-personal-only");
+  input.checked = offersState.personalOnly;
+  input.disabled = !info.linked && !info.count;
+  $("#offers-personal-label").textContent = info.count ? t("offers.personal.switch_count", { count: I18N.formatNumber(info.count) }) : t("offers.personal.switch");
+  const personal = offersState.offers.filter((offer) => offer.personal);
+  const known = personal.filter((offer) => offer.activated === true || offer.activated === false);
+  let note = "";
+  if (!info.linked) note = t("offers.personal.unlinked");
+  else if (info.error) note = t("offers.personal.error", { error: info.error });
+  else if (known.length) note = t("offers.personal.activated", { count: I18N.formatNumber(known.filter((offer) => offer.activated).length), total: I18N.formatNumber(known.length) });
+  else if (!personal.length && offersPersonalOnly()) note = t("offers.personal.none");
+  $("#offers-personal-note").textContent = note;
+  $("#offers-personal-note").hidden = !note;
+}
+
+function offersTogglePersonal(on) {
+  offersState.personalOnly = on;
+  offersState.rows = OFFER_ROWS;
+  try {
+    localStorage.setItem(OFFERS_PERSONAL_KEY, on ? "1" : "0");
+  } catch {
+    // De keuze geldt dan alleen tot je de pagina herlaadt.
+  }
+  renderOffersPersonal();
+  renderOfferCategories();
+  renderOfferGrid();
+}
+
 function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
   offersState.categories = data.categories || [];
+  offersState.personal = data.personal || null;
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   offersState.rows = OFFER_ROWS;
   const status = $("#offers-status");
@@ -226,6 +305,7 @@ function renderOffers(data) {
   $("#offers-period").textContent = periodText;
   $("#offers-period").hidden = !periodText;
   renderOffersWeekNotes(data);
+  renderOffersPersonal();
   renderOfferCategories();
   renderOfferGrid();
 }
@@ -261,6 +341,7 @@ function renderOffersLoading() {
   $("#offers-status").textContent = "";
   $("#offers-period").hidden = true;
   $("#offers-later").hidden = true;
+  $("#offers-personal").hidden = true;
   $("#offers-categories").hidden = true;
   $("#offers-products").innerHTML = "";
   $("#offers-products").setAttribute("aria-busy", "true");
@@ -347,7 +428,7 @@ function openOfferProduct(recipe, item) {
   offerDialogMatch = item;
   $("#offer-product-title").textContent = offer.title;
   $("#offer-product-meta").textContent = [offer.brand, offer.unitSize].filter(Boolean).join(" \u00b7 ");
-  $("#offer-product-label").textContent = offer.promoLabel || "";
+  $("#offer-product-label").textContent = [offer.personal ? t("offers.personal.badge") : "", offer.promoLabel].filter(Boolean).join(" \u00b7 ");
   const was = offer.priceBefore ? ` <s>${escapeHtml(formatPrice(offer.priceBefore))}</s>` : "";
   $("#offer-product-price").innerHTML = offer.price ? `<strong>${escapeHtml(formatPrice(offer.price))}</strong>${was}` : "";
   $("#offer-product-conditions").textContent = offerConditionsText(offer);
@@ -511,6 +592,7 @@ $("#offers-categories").addEventListener("click", (event) => {
   const chip = event.target.closest("[data-cat]");
   if (chip) offersChooseCategory(chip.dataset.cat);
 });
+$("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
 let offersResizeFrame = 0;
 window.addEventListener("resize", () => {
   if (!offersTabActive()) return;
@@ -547,7 +629,14 @@ function offersSyncStoreLine(store, info, failure) {
   if (failure) return t("offers.sync.store.error", { store: name, error: failure });
   if (!info.linked) return t("offers.sync.store.skipped", { store: name });
   if (!info.syncedAt) return t("offers.sync.store.never", { store: name });
-  return tn("offers.sync.store.ok", info.total, { store: name, when: formatSyncTime(info.syncedAt) });
+  return tn("offers.sync.store.ok", info.total, { store: name, when: formatSyncTime(info.syncedAt) }) + offersSyncPersonalText(info.personal);
+}
+
+// Bij AH: hoeveel aanbiedingen er uit je Bonus Box komen, of waarom het ophalen daarvan mislukte.
+function offersSyncPersonalText(personal) {
+  if (!personal || !personal.linked) return "";
+  if (personal.error) return ` (${t("offers.sync.personal.error", { error: personal.error })})`;
+  return personal.count ? ` (${tn("offers.sync.personal.count", personal.count)})` : "";
 }
 
 function renderOffersSync() {

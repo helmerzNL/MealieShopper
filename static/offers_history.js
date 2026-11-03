@@ -53,7 +53,12 @@ function offerHistoryPeriodText(episode) {
 
 function offerHistoryBarTitle(episode) {
   const price = typeof episode.price === "number" ? offerHistoryPrice(episode.price) : t("offers.history.no_price");
-  return [offerHistoryPeriodText(episode), price, episode.promoLabel].filter(Boolean).join(" · ");
+  return [offerHistoryPeriodText(episode), price, offerHistoryLabel(episode)].filter(Boolean).join(" · ");
+}
+
+// De actietekst van een periode; een persoonlijke aanbieding (AH: de Bonus Box) staat erbij als zodanig.
+function offerHistoryLabel(episode) {
+  return [episode.personal ? t("offers.personal.badge") : "", episode.promoLabel].filter(Boolean).join(" · ");
 }
 
 // Een rond stapje voor de prijsas: 0,25 - 0,50 - 1 - 2 - 5 - 10 ...
@@ -281,7 +286,7 @@ function offerHistoryDetail(product) {
     .reverse()
     .map(
       (episode) =>
-        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(typeof episode.price === "number" ? offerHistoryPrice(episode.price) : "")}</td><td>${escapeHtml(episode.promoLabel || "")}</td></tr>`
+        `<tr><td>${escapeHtml(offerHistoryPeriodText(episode))}</td><td>${escapeHtml(typeof episode.price === "number" ? offerHistoryPrice(episode.price) : "")}</td><td>${escapeHtml(offerHistoryLabel(episode))}</td></tr>`
     )
     .join("");
   const purchaseRows = (product.purchases || [])
