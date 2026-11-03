@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-76")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-77")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -182,6 +182,49 @@ def create_app() -> Flask:
     @app.get("/api/mealie/recipes/<slug>")
     def mealie_recipe_detail(slug: str):
         return mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
+
+    # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
+    # recept mag importeren; een hele groep of lijst alleen de beheerder (dat pad staat in auth.ADMIN_PATHS).
+    def bulk_action(action, status: int = 200):
+        try:
+            return jsonify(action()), status
+        except recipe_bulk.Busy as exc:
+            return jsonify({"error": str(exc), "job": recipe_bulk.progress()}), 409
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError as exc:  # onze eigen tekst: wat er mis is met de keuze, of wat er nog gekoppeld moet worden
+            return jsonify({"error": str(exc)}), 400
+        except Exception:  # noqa: BLE001 - de tekst kan het antwoord van een dienst bevatten: alleen in het logboek
+            app.logger.exception("Bulk import error")
+            return jsonify({"error": tr("De import starten is mislukt", "Starting the import failed")}), 424
+
+    def bulk_user() -> dict[str, Any] | None:
+        return auth.current_user() if auth.auth_required() else None
+
+    def bulk_start(whole: bool):
+        body = request.get_json(silent=True) or {}
+        return bulk_action(
+            lambda: recipe_bulk.start(
+                body.get("store"), body.get("ids"), body.get("group"), whole=whole, titles=body.get("titles"), user=bulk_user()
+            ),
+            202,
+        )
+
+    @app.get("/api/mealie/bulk-import")
+    def bulk_import_status():
+        return jsonify(recipe_bulk.progress())
+
+    @app.post("/api/mealie/bulk-import")
+    def bulk_import_selection():
+        return bulk_start(False)
+
+    @app.post("/api/mealie/bulk-import/group")
+    def bulk_import_group():
+        return bulk_start(True)
+
+    @app.post("/api/mealie/bulk-import/cancel")
+    def bulk_import_cancel():
+        return bulk_action(lambda: recipe_bulk.cancel(bulk_user(), auth.is_owner()))
 
     @app.get("/api/ah/search")
     def ah_search():
