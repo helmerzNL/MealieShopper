@@ -302,6 +302,19 @@ def _match_name(index: dict[str, str], bare: dict[str, str], store: str, name: s
     return bare.get(stripped) if stripped else None
 
 
+def _words(name: str) -> set[str]:
+    """De woorden van een (gevouwen) naam die iets zeggen: zonder het huismerk en zonder woorden van een of twee letters."""
+    return {word for word in name.split() if len(word) >= 3 and word != "ah"}
+
+
+def _names_agree(receipt_name: str, titles: Iterable[str]) -> bool:
+    """Deelt de naam op de bon minstens een woord met een naam van het product? Een bon kort woorden af ("RUNDERGEH"), dus een
+    woord dat met het andere begint telt ook. "AH RIJST BASMATI" en "AH Basmati rijst" wel, "AH ROOKWORST" en "Dr. Oetker
+    Ristorante pizza hawaii 3-pack" niet."""
+    mine = _words(receipt_name)
+    return any(a.startswith(b) or b.startswith(a) for title in titles for a in mine for b in _words(title))
+
+
 def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
     """Kale naam -> product, voor de namen waar maar een product bij hoort."""
     found: dict[str, set[str]] = {}
@@ -354,13 +367,19 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
         return []
     index = _name_index(conn, store)
     bare = _bare_index(index, store)
-    known = set(index.values())
+    titles: dict[str, list[str]] = {}
+    for title, product_id in index.items():
+        titles.setdefault(product_id, []).append(title)
     linked = _receipt_products(conn)
     found = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
         fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
-        key = linked.get(own) or (own if own and own in known else (_match_name(index, bare, store, name) or own or fallback))
+        # Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
+        # ("AH ROOKWORST" 627748 en "Dr. Oetker Ristorante pizza hawaii 3-pack" 627748). Een bekend id telt dus alleen als de namen
+        # minstens een woord delen.
+        same_id = bool(own) and own in titles and _names_agree(name, titles[own])
+        key = linked.get(own) or (own if same_id else (_match_name(index, bare, store, name) or own or fallback))
         found.append({**dict(row), "product_id": key})
     return found
 

@@ -176,6 +176,22 @@ class HistoryTest(PricesCase):
         self.assertEqual([p["source"] for p in product["purchases"]], ["order", "receipt", "receipt"])
         self.assertEqual(self.history(query="BLOEMK")["total"], 1, "de naam op de bon vindt hem ook")
 
+    def test_a_receipt_id_that_is_also_the_id_of_another_product_is_not_trusted(self):
+        # Het artikelnummer van "AH ROOKWORST" op de bon (627748) is ook het id van een pizza in de webwinkel (issue #178).
+        self.sync_offer("2026-11-02T05:00:00+00:00", offer("627748", "Dr. Oetker Ristorante pizza hawaii 3-pack", 8.80, 9.57))
+        self.ah_order(101, "delivered", "2026-09-01", order_item(55, "AH Rookworst", 2.79))
+        self.ah_receipt("R1", "2025-12-06T18:57:00", (627748, "AH ROOKWORST", 1, None, 2.99))
+        pizza = next(p for p in prices.history("ah", "ristorante", 50, today="2026-11-03")["products"] if p["productId"] == "627748")
+        self.assertEqual(pizza["timesBought"], 0)
+        sausage = next(p for p in prices.history("ah", "rookworst", 50, today="2026-11-03")["products"] if p["productId"] == "55")
+        self.assertEqual((sausage["timesBought"], [p["source"] for p in sausage["purchases"]]), (2, ["receipt", "order"]))
+
+    def test_names_agree_on_a_shared_or_shortened_word(self):
+        self.assertTrue(prices._names_agree("ah rijst basmati", ["ah basmati rijst"]))
+        self.assertTrue(prices._names_agree("ah rundergeh", ["ah rundergehakt"]))
+        self.assertFalse(prices._names_agree("ah rookworst", ["dr. oetker ristorante pizza hawaii 3-pack"]))
+        self.assertFalse(prices._names_agree("ah ui", ["ah uien"]), "woorden van twee letters tellen niet")
+
     def test_a_receipt_name_without_the_house_brand_finds_the_product(self):
         # Op de bon "BLOEMKOOL", in de bestelling "AH Bloemkool" (issue #178): zonder "AH" vooraan is het dezelfde naam.
         self.ah_order(101, "delivered", "2026-09-01", order_item(4183, "AH Bloemkool", 1.69))
