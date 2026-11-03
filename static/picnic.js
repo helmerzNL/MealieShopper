@@ -3,7 +3,8 @@
 
 const picnicState = { connected: false, codePending: false, report: null, slots: [] };
 const picnicRecipes = { source: "saved", recipes: [], query: "", loaded: false };
-const picnicOrders = { upcoming: [], past: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
+// `imported`: de ingelezen oude bestellingen (zie price_import.py), die bij de afgelopen bestellingen staan.
+const picnicOrders = { upcoming: [], past: [], imported: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
 const picnicFavorites = { products: [], total: 0, filtered: true, pending: 0, run: 0, query: "", loaded: false };
 
 function postJson(url, body = {}) {
@@ -326,13 +327,14 @@ function picnicOrderCard(order, source) {
 }
 
 function renderPicnicOrders() {
-  const { upcoming, past, syncedAt, loaded } = picnicOrders;
+  const { upcoming, syncedAt, loaded } = picnicOrders;
+  const past = importedOrdersMerge(picnicOrders.past, picnicOrders.imported, (order) => order.deliveredStart || order.windowStart || order.etaStart);
   const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
   $("#picnic-orders-upcoming").innerHTML = upcoming.length
     ? upcoming.map((order) => picnicOrderCard(order, "live")).join("")
     : empty(picnicOrders.upcomingFailed ? t("picnic.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
   $("#picnic-orders-past").innerHTML = past.length
-    ? past.map((order) => picnicOrderCard(order, "local")).join("")
+    ? past.map((order) => (order.imported ? importedOrderCard(order, "picnic") : picnicOrderCard(order, "local"))).join("")
     : empty(syncedAt ? t("picnic.orders.none") : t("picnic.orders.never_synced"));
   $("#picnic-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
 }
@@ -343,13 +345,15 @@ async function loadPicnicOrders() {
   const run = ++picnicOrders.run;
   message("#picnic-orders-message", "");
   try {
-    const [local, live] = await Promise.all([
+    const [local, live, imported] = await Promise.all([
       jsonFetch("/api/picnic/orders"),
       jsonFetch("/api/picnic/deliveries?current=1").then((data) => data.deliveries || null, () => null),
+      importedOrdersFetch("picnic"),
     ]);
     if (run !== picnicOrders.run) return;
     Object.assign(picnicOrders, {
       past: local.orders || [],
+      imported,
       syncedAt: local.syncedAt,
       upcoming: (live || []).filter((order) => String(order.status).toUpperCase() === "CURRENT"),
       upcomingFailed: live === null,
@@ -445,6 +449,13 @@ async function openPicnicOrder(id, source) {
   }
 }
 
+// Een ingelezen oude bestelling (zie openImportedStoreOrder in orders.js): zonder producten van Picnic, dus zonder Alles in mandje.
+function openPicnicImportedOrder(ref) {
+  picnicOrders.detail = null;
+  const open = ++picnicOrders.run;
+  openImportedStoreOrder("picnic", ref, () => open === picnicOrders.run);
+}
+
 // De producten van een bestelling opnieuw in je Picnic-mandje; er wordt nooit een bestelling geplaatst.
 async function addPicnicOrderToBasket() {
   const order = picnicOrders.detail;
@@ -469,7 +480,15 @@ $("#picnic-order-back").addEventListener("click", showPicnicOrderList);
 $("#picnic-order-add-all").addEventListener("click", addPicnicOrderToBasket);
 $("#picnic-orders-list-view").addEventListener("click", (event) => {
   const open = event.target.closest("[data-picnic-order]");
-  if (open) openPicnicOrder(open.dataset.picnicOrder, open.dataset.source);
+  const imported = event.target.closest("[data-imported-order]");
+  const remove = event.target.closest("[data-imported-delete]");
+  if (remove) deleteImportedOrder("picnic", remove.dataset.importedDelete, remove);
+  else if (open) openPicnicOrder(open.dataset.picnicOrder, open.dataset.source);
+  else if (imported) openPicnicImportedOrder(imported.dataset.importedOrder);
+});
+$("#picnic-orders-import").addEventListener("click", () => openPriceImport("picnic"));
+window.addEventListener("ms:imported-orders", (event) => {
+  if (picnicOrders.loaded && event.detail?.store === "picnic") loadPicnicOrders();
 });
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)

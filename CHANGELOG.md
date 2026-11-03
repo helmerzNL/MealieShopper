@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.96.0
+
+### Nieuw in 2.96.0
+
+*English summary: Import old purchases is now also on the Orders page of every store (Albert Heijn, Jumbo, Picnic and Crisp), and the orders you import from your confirmation emails are listed among your past orders on their date, like any other order. You can open them for their products (at AH and Jumbo with their own address), and the purchase search on the Orders page finds them too. An imported order has an archive box in front of its date and, for the administrator, a bin that removes the whole order (it then no longer counts in the Price history either). An imported order that the app later also fetches from your account is not listed twice. Also in this version: when you search the Price history for a name that is on a receipt but not linked yet, the app looks that name up at AH right away (#202). Reload the page once after updating.*
+
+- **Oude aankopen importeren ook bij Bestellingen.** De knop uit de Prijsgeschiedenis staat nu ook op het tabblad **Bestellingen** van elke winkel (Albert Heijn, Jumbo, Picnic en Crisp) en opent dezelfde dialoog, voor de winkel die je daar bekijkt. Alleen de beheerder ziet de knop, net als in de Prijsgeschiedenis.
+- **Ingelezen bestellingen bij de afgelopen bestellingen.** Wat je uit je bevestigingsmails inleest, staat tussen je **Afgelopen bestellingen** op de dag van de bestelling, met *Geïmporteerd*, het totaal en het aantal producten.
+  - Een ingelezen bestelling werkt als elke andere: open hem voor de producten (met wat je per stuk betaalde en *Bonus* bij korting; de naam linkt naar de Prijsgeschiedenis). Bij AH en Jumbo heeft hij een eigen adres (`/stores/ah/imported/<bestelnummer>`), zodat herladen en een bladwijzer werken.
+  - Het zoekveld bij Bestellingen (AH en Jumbo) vindt ook de producten uit ingelezen bestellingen.
+  - Een **archiefdoos** voor de datum laat zien dat de bestelling is ingelezen. Met de **prullenbak** op de kaart verwijdert de beheerder de hele bestelling, na een bevestiging; ze telt dan ook niet meer mee in de Prijsgeschiedenis.
+  - Haalt de app een ingelezen bestelling later toch uit je account (zelfde bestelnummer, of een bestelling op dezelfde dag), dan staat ze er maar één keer, net als in de Prijsgeschiedenis.
+- **API en MCP**: `GET /api/imported-orders/<winkel>` en `GET /api/imported-orders/<winkel>/<ref>` geven de ingelezen bestellingen (voor iedereen die de bestellingen mag zien). `DELETE /api/prices/import` neemt `ref` om één bestelling te verwijderen (alleen de beheerder). `GET /api/ah/purchases/search`, `GET /api/jumbo/purchases/search` en de MCP-tool `search_ah_purchases` geven de ingelezen regels met `imported: true`.
+- **Kassabonnen: namen meteen opzoeken** (#178, door wolph). Zoek je in de Prijsgeschiedenis op een naam die op een bon staat maar nog niet gekoppeld is (*redband*), dan zoekt MealieShopper die naam meteen bij AH op: hooguit twee zoekopdrachten, binnen dezelfde pauze en het uurbudget voor de hele app.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull requests: [#202](https://github.com/helmerzNL/MealieShopper/pull/202).
+
 ## v2.95.0
 
 ### Nieuw in 2.95.0

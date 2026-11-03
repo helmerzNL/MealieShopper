@@ -129,9 +129,11 @@ class OverviewStyleTest(unittest.TestCase):
         self.assertIn("width: 64px", image)
 
     def test_sync_button_keeps_a_big_enough_target(self):
-        sync = rule(".list-card__sync")
-        self.assertRegex(sync, r"min-height: (\d+)px")
-        self.assertGreaterEqual(int(re.search(r"min-height: (\d+)px", sync).group(1)), 40)
+        # Ook de prullenbak op een ingelezen bestelling (list-card__action), die op dezelfde plek staat.
+        for selector in (".list-card__sync", ".list-card__action"):
+            button = rule(selector)
+            self.assertRegex(button, r"min-height: (\d+)px")
+            self.assertGreaterEqual(int(re.search(r"min-height: (\d+)px", button).group(1)), 40, selector)
 
     def test_spinner_respects_reduced_motion(self):
         self.assertRegex(CSS, r"@media \(prefers-reduced-motion: reduce\) {\s*\.icon-button\.is-busy svg {\s*animation: none;")
