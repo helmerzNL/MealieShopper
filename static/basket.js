@@ -51,9 +51,12 @@ async function showBasket() {
   const content = $("#basket-content");
   content.innerHTML = `<p class="muted">${escapeHtml(t("basket.loading"))}</p>`;
   const stores = { ah: showAhBasket, picnic: showPicnicBasket, jumbo: showJumboBasket, crisp: showCrispBasket };
+  const store = basketState.store;
   try {
-    await stores[basketState.store]();
+    await stores[store]();
   } catch (error) {
+    // Intussen een andere winkel gekozen: die toont zijn eigen mandje, een fout van deze winkel hoort daar niet bij.
+    if (basketState.store !== store) return;
     content.innerHTML = "";
     message("#basket-message", error.message);
   }

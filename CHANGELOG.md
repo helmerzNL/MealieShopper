@@ -2,6 +2,57 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.94.1
+
+### De stabiele release in het kort: alles sinds 2.91.1
+
+*English summary: this is the stable release after 2.91.1; it brings everything from 2.91.2, 2.92.0, 2.93.0, 2.94.0 and 2.94.1. Every screen has its own address, so reloading, bookmarks and back and forward in the browser work; the menu, tabs and store choice are real links (Ctrl+click opens a new tab), and screens link to each other (an offer to its price history, a purchase to its order or receipt, a product back to its price history). Price history gets the "Only bought before" switch, keeps the images of the products you bought (Saved images), and lets the owner import old purchases from order confirmation emails with the help of an AI assistant. A product on an AH receipt and the same product from an order are now one product, a receipt line no longer ends up at a completely different product, and the chart no longer runs to the year 2999. Your saved AH recipes come with their recipe groups. Compare pack sizes no longer shows its count in a red error box, and choosing another store in the Basket while the AH basket is still loading no longer shows an error. pyasn1 is updated to 0.6.5 (security fixes). When updating: the new dependency Pillow is installed by the container; without the container run pip install -r requirements.txt again. A reverse proxy must allow requests of about 5 MB for the largest import. Reload the page once after updating.*
+
+- **Elk scherm een eigen adres** (2.93.0). Herladen, een bladwijzer en terug en vooruit in de browser werken zoals je verwacht: het weekmenu staat op `/recipes`, de prijsgeschiedenis op `/offers/history`, een bestelling op `/stores/ah/orders/<nummer>`, het mandje op `/cart`, enzovoort. Het menu, de tabs, de winkelkeuze en het gebruikersmenu zijn echte links: met Ctrl+klik (Cmd+klik op een Mac) of de middelste muisknop open je een scherm in een nieuw tabblad.
+- **Schermen linken naar elkaar** (2.93.0): een aanbieding naar haar prijsgeschiedenis, een aankoop in de prijsgeschiedenis naar de bestelling of kassabon, en een product in een bestelling, het mandje of op een kassabon terug naar zijn prijsgeschiedenis.
+- **De Prijsgeschiedenis is uitgebreid:**
+  - de schakelaar **Alleen eerder gekocht** toont alleen de producten die je minstens één keer kocht (2.92.0);
+  - van de producten die je kocht bewaart MealieShopper de afbeelding, met de naam van toen: onder **Bewaarde afbeeldingen** zie je of een product met een nieuwe naam of foto nog hetzelfde is (2.92.0);
+  - met **Oude aankopen importeren** (alleen de beheerder) lees je bestellingen uit je bevestigingsmails in: een AI-assistent als Claude of ChatGPT zet ze om naar JSON, **Controleren** laat per bestelling zien of ze nieuw is, en niets telt dubbel (2.93.0).
+- **Kassabon en bestelling: één product** (2.93.0). *BLOEMKOOL* op de kassabon en *AH Bloemkool* uit een bestelling stonden apart in de lijst; nu koppelt MealieShopper het artikelnummer op de bon aan het product bij AH. Een bonregel komt ook niet meer bij een heel ander product terecht (*AH ROOKWORST* bij een pizza), en de grafiek loopt niet meer tot het jaar 2999.
+- **Receptgroepen bij je bewaarde AH-recepten** (2.94.0), net als de receptenlijsten bij Jumbo; de AI-assistent krijgt de MCP-tool `list_ah_recipe_groups`.
+- **Opgelost**: *Vergelijk verpakkingen* toont de telling niet meer in een rood foutvak, en de uitleg boven Recepten zoeken noemt Crisp (2.91.2). Kies je in het Mandje een andere winkel terwijl het AH-mandje nog laadt, dan blijft het mandje van die winkel staan, zonder foutmelding (2.94.1).
+- **Beveiliging** (2.94.1): pyasn1 0.6.5, zie hieronder.
+- **Bij het updaten:**
+  - **Nieuwe afhankelijkheid: Pillow** (2.92.0). De container installeert die vanzelf; draai je MealieShopper zonder container, voer dan `pip install -r requirements.txt` opnieuw uit.
+  - Gebruik je een reverse proxy, laat die dan aanvragen van ongeveer 5 MB door, anders lukt de grootste import van oude aankopen niet.
+  - Er gaat meer mee in de back-up: de bewaarde afbeeldingen, de ingelezen aankopen en de AH-receptgroepen. Maak na het updaten een nieuwe back-up als je die er ook in wilt hebben.
+  - Ververs de pagina één keer, dan laadt de browser de nieuwe scripts en stijlen.
+
+### Opgelost in 2.94.1
+
+*English summary: in the Basket tab, choosing Picnic, Jumbo or Crisp while the AH basket was still loading or syncing showed "Cannot set properties of null (setting 'textContent')" in a red box, and the basket of the chosen store disappeared. The AH basket now only draws itself while AH is still chosen, and an error of the AH basket only shows at AH. Reload the page once after updating.*
+
+- **Een andere winkel kiezen in het Mandje terwijl het AH-mandje nog laadt, geeft geen fout meer.** Het Mandje opent bij Albert Heijn en haalt dat mandje op (en synchroniseert het). Koos je in die paar seconden Picnic, Jumbo of Crisp, dan tekende het AH-mandje zich daarna alsnog, in een scherm dat er niet meer was: *Cannot set properties of null (setting 'textContent')* stond in een rood vak en het mandje van de gekozen winkel was weg. Nu tekent het AH-mandje alleen zolang AH gekozen is, en staat een fout van het AH-mandje alleen bij AH. De fout zat er al langer in; de screenshots vonden hem.
+- `tests/test_basket_switch.py` draait het wisselen van winkel tijdens het laden na, in Node.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#197](https://github.com/helmerzNL/MealieShopper/pull/197).
+
+### Beveiliging in 2.94.1
+
+*English summary: pyasn1 is updated from 0.6.4 to 0.6.5. The new version fixes four ways in which crafted ASN.1 data could make decoding take quadratic CPU time (GHSA-mm57-4v3p-rchx, GHSA-2qm8-x737-gmw5, GHSA-9m75-vc3g-4x39 and GHSA-fm9c-5rcf-2q5p). MealieShopper uses pyasn1 through py_webauthn, to read the certificates of passkeys.*
+
+- **pyasn1 0.6.4 → 0.6.5.** De nieuwe versie lost vier manieren op waarop gemaakte ASN.1-gegevens het decoderen kwadratisch veel rekentijd konden laten kosten (GHSA-mm57-4v3p-rchx, GHSA-2qm8-x737-gmw5, GHSA-9m75-vc3g-4x39 en GHSA-fm9c-5rcf-2q5p). MealieShopper gebruikt pyasn1 via py_webauthn, om de certificaten van passkeys te lezen.
+- Pull request: [#191](https://github.com/helmerzNL/MealieShopper/pull/191).
+
+### Documentatie in 2.94.1
+
+*English summary: the README (Dutch and English) and its screenshots are updated to 2.94. New screenshots show Only bought before with the Saved images of a product that was renamed, Import old purchases after Check, and a chosen AH recipe group; the screenshot of the saved AH recipes now shows the group list. Every screenshot was made again and now shows the address of the screen in the address bar of the window.*
+
+- **README's en screenshots bijgewerkt tot 2.94**, in het Nederlands en het Engels. Nieuw:
+  - `price-images`: de Prijsgeschiedenis met **Alleen eerder gekocht** aan, en de **Bewaarde afbeeldingen** van kipfilet, dat tegenwoordig *Scharrel kipfilet* heet en een nieuwe foto kreeg;
+  - `price-import`: **Oude aankopen importeren** na **Controleren**, met per bestelling of ze nieuw is of waarom niet;
+  - `recipe-groups`: je bewaarde AH-recepten met de receptgroep *Doordeweeks* gekozen.
+- `recipes` toont nu de keuzelijst met *Alle recepten* en je receptgroepen.
+- **Alle screenshots zijn opnieuw gemaakt** en tonen in de adresbalk van het venster het adres van het scherm (`/offers/history`, `/stores/ah/recipes`), want elk scherm heeft sinds 2.93.0 een eigen adres. Het screenshot-script (`scripts/screenshots/lib.js`) zet dat adres er zelf in.
+- De README noemt bij *Wat kan het?* ook Alleen eerder gekocht, de bewaarde afbeeldingen, het importeren van oude aankopen en de receptgroepen.
+- Pull request: [#197](https://github.com/helmerzNL/MealieShopper/pull/197).
+
 ## v2.94.0
 
 ### Nieuw in 2.94.0

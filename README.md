@@ -39,9 +39,9 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic, Jumbo of Crisp, voor zover gekoppeld. De porties die je in de planner van Mealie per maaltijd instelt, neemt MealieShopper over: de hoeveelheden worden omgerekend en hetzelfde ingrediënt uit meerdere recepten wordt opgeteld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en toont ze eerst in een controlelijst. Daar vink je weg wat je niet wilt en kies je een ander product of aantal; pas na je bevestiging gaan ze in je mandje bij die winkel. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app, bij Jumbo of in de Crisp-app.
 - **Het weekmenu plannen.** Zet een recept uit Mealie of een notitie ("Uit eten") op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** een recept kiezen volgens je planregels. Een tik op een maaltijd toont het recept, met de ingrediënten voor de porties die je plande. Elke wijziging gaat meteen naar Mealie; MealieShopper bewaart zelf geen planning.
 - **Aanbiedingen en receptvoorstellen.** Het tabblad Aanbiedingen toont de aanbiedingen van Albert Heijn (Bonus), Picnic, Jumbo en Crisp, elke dag automatisch bijgewerkt, en zoekt in je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten) naar gerechten waarvan ingrediënten in de aanbieding zijn.
-- **Is het echt een aanbieding?** Bij elke aanbieding staan de prijs per kilo, liter of stuk en een oordeel: echt voordelig, klein voordeel, of niet goedkoper dan de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. **Vergelijk verpakkingen** laat zien welke verpakking per eenheid het goedkoopst is, en de controlelijst van het weekmenu wijst je erop als een andere verpakking goedkoper is.
+- **Is het echt een aanbieding?** Bij elke aanbieding staan de prijs per kilo, liter of stuk en een oordeel: echt voordelig, klein voordeel, of niet goedkoper dan de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. **Vergelijk verpakkingen** laat zien welke verpakking per eenheid het goedkoopst is, en de controlelijst van het weekmenu wijst je erop als een andere verpakking goedkoper is. Met **Alleen eerder gekocht** zie je alleen wat je kocht; van die producten bewaart MealieShopper de afbeelding, zodat je een product herkent dat een andere naam of foto kreeg. Oudere aankopen uit je bevestigingsmails lees je in met hulp van een AI-assistent.
 - **Recepten zoeken en importeren.** Zoek tegelijk in je eigen recepten in Mealie, de recepten van Albert Heijn, Jumbo, Picnic, Crisp en de menu's van HelloFresh en Marley Spoon. Elk recept bekijk je in MealieShopper en plan je met één klik in; een recept van een winkel komt dan ook in Mealie (staat het er al, dan gebruikt MealieShopper dat recept). Of importeer een recept via een link.
-- **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
+- **Je AH-account in MealieShopper.** Je bewaarde recepten (met je receptgroepen uit de AH-app) en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic, Jumbo en Crisp, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic en Crisp pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
 - **Bestellingen en kassabonnen.** Je AH-mandje, je bestellingen bij Albert Heijn en je kassabonnen uit de winkel, bewaard in een eigen kopie zodat je ze ook zonder verbinding met AH kunt bekijken en doorzoeken ("wanneer kocht ik voor het laatst koffie?"). Ook je AI-assistent kan ze bevragen.
 - **Picnic, Jumbo en Crisp onder Winkels.** Kies de winkel in het winkelmenu: bij Picnic je recepten, favorieten en bestellingen, bij Jumbo je lijstjes, bestellingen en receptenlijsten, bij Crisp je favorieten en bestellingen. Wat kan, bewaart MealieShopper als lokale kopie, met dezelfde knoppen als bij Albert Heijn.
@@ -59,7 +59,7 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 
 ## Zo ziet het eruit
 
-Elke afbeelding laat dezelfde pagina zien op een computer en op een telefoon. De recepten en producten zijn voorbeeldgegevens.
+Elke afbeelding laat dezelfde pagina zien op een computer en op een telefoon; in de adresbalk staat het adres van dat scherm. De recepten en producten zijn voorbeeldgegevens.
 
 ### Weekmenu en winkelmandje
 
@@ -111,6 +111,14 @@ De **Prijsgeschiedenis** toont per product wanneer het in de aanbieding was, de 
 
 <img src="docs/screenshots/nl/price-history.png" alt="De Prijsgeschiedenis van rundergehakt: kerngetallen, een grafiek met de aanbiedingen als balken, de gewone prijs als trap en je aankopen als stippen, en de tabel met aanbiedingen" width="900">
 
+Met de schakelaar **Alleen eerder gekocht** staan in de lijst alleen de producten die je minstens één keer kocht. Van zo'n product bewaart MealieShopper de afbeelding, met de naam die het product toen had. Krijgt het een andere naam of foto, dan zie je onder **Bewaarde afbeeldingen** dat het nog hetzelfde product is.
+
+<img src="docs/screenshots/nl/price-images.png" alt="De Prijsgeschiedenis met Alleen eerder gekocht aan: links alleen producten die je kocht, rechts Scharrel kipfilet met zijn kerngetallen; op de telefoon de bewaarde afbeeldingen, de nieuwe als AH Scharrel kipfilet en twee oudere als AH Kipfilet" width="900">
+
+In je account staan alleen de bestellingen van de laatste maanden; oudere staan nog in je bevestigingsmails. Met **Oude aankopen importeren** (alleen de beheerder) kopieer je een prompt voor een AI-assistent als Claude of ChatGPT en plak je de JSON die de assistent van je mails maakt. **Controleren** laat per bestelling zien of ze nieuw is of er al is; pas **Importeren** leest ze in.
+
+<img src="docs/screenshots/nl/price-import.png" alt="Oude aankopen importeren: de geplakte JSON, de controle Nieuw: 4, al bekend: 2, producten: 105, per bestelling nieuw of waarom niet (is al ingelezen, staat al in je bestellingen), en de knoppen Controleren en Importeren" width="900">
+
 ### Recepten zoeken
 
 <img src="docs/screenshots/nl/search.png" alt="Recepten zoeken naar kip: bovenaan je eigen recepten in Mealie, als kaarten met tijd, porties en tags" width="900">
@@ -139,9 +147,13 @@ Het tabblad **Maaltijdboxen** toont de openbare weekmenu's van HelloFresh en Mar
 
 ### Winkels: je bewaarde AH-recepten
 
-Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens twee naast elkaar. Bovenaan zoek je in je recepten.
+Je bewaarde Allerhande-recepten staan in MealieShopper, op een telefoon minstens twee naast elkaar. Bovenaan zoek je in je recepten. Heb je in de AH-app receptgroepen gemaakt, dan kies je naast de titel *Alle recepten* of een van je groepen.
 
-<img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met een zoekbalk en kaarten met Bekijken en Inplannen" width="900">
+<img src="docs/screenshots/nl/recipes.png" alt="Mijn bewaarde recepten met de keuzelijst Alle recepten (12), een zoekbalk en kaarten met Bekijken en Inplannen" width="900">
+
+Kies je een groep, dan zie je alleen de recepten daarvan, in de volgorde van die groep; zoeken werkt binnen de groep.
+
+<img src="docs/screenshots/nl/recipe-groups.png" alt="Mijn bewaarde recepten met de receptgroep Doordeweeks (4) gekozen: alleen de recepten van die groep" width="900">
 
 ### Winkels: je lijstjes
 
@@ -676,7 +688,7 @@ python -m unittest discover -s tests          # alle tests
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
 - **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, draai `python scripts/ha_addon.py` (dat zet de versie in de Home Assistant-add-ons onder `homeassistant/`; een test faalt als je het vergeet), schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `beta`: de workflow `.github/workflows/release.yml` maakt dan de pre-release `vX.Y.Z-beta`, met die tekst; bij de promotie van `beta` naar `main` volgt de stabiele release `vX.Y.Z`, met de tekst van alle versies sinds de vorige stabiele release (`release_notes.py --since`). Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
 - **Branches en container registry:** pull requests gaan naar `beta`, niet naar `main` (`main` krijgt alleen een pull request vanuit `beta`; de check in `.github/workflows/pr-target.yml` dwingt dat af). De workflow bouwt en pusht bij elke push naar `main` naar `ghcr.io/helmerznl/mealieshopper:latest` (en `X.Y.Z`), en bij elke push naar `beta` naar `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`), voor `linux/amd64` en `linux/arm64` (via QEMU en Buildx; ook handmatig via `workflow_dispatch`). Wil je de ontwikkelversie draaien, gebruik dan de tag `beta` en een eigen data-map.
-- **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een draaiende MealieShopper met nagebootste gegevens en zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn. Start daarvoor een lege MealieShopper met inloggen uit (`PASSKEY_AUTH_ENABLED=false`; een paar scenario's vragen echte gegevens aan de server, zoals de componentenlijst bij Over) en maak ze opnieuw met `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optioneel `--only plan,login` en `--lang nl`). Het consent-scenario draait Python met Flask, dus de omgeving van de app moet op het `PATH` staan. Staat er een foutmelding in beeld, dan meldt het script `LET OP`; de scenario's staan in `scripts/screenshots/scenarios/` en de demo-gegevens in `scripts/screenshots/demo.js`. Er is een Node-installatie met Playwright voor nodig.
+- **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een draaiende MealieShopper met nagebootste gegevens en zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn. Start daarvoor een lege MealieShopper met inloggen uit (`PASSKEY_AUTH_ENABLED=false`; een paar scenario's vragen echte gegevens aan de server, zoals de componentenlijst bij Over) en maak ze opnieuw met `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optioneel `--only plan,login` en `--lang nl`). Het consent-scenario draait Python met Flask, dus de omgeving van de app moet op het `PATH` staan. In de adresbalk van het venster zet het script het adres van het scherm. Staat er een foutmelding in beeld, dan meldt het script `LET OP`; de scenario's staan in `scripts/screenshots/scenarios/` en de demo-gegevens in `scripts/screenshots/demo.js`. Er is een Node-installatie met Playwright voor nodig.
 
 ## Integraties en componenten
 

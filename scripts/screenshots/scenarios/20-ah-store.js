@@ -31,6 +31,7 @@ const savedRecipes = {
   groups: [
     { id: "doordeweeks", name: "Doordeweeks", isDefault: false, count: 4, recipeIds: ["1201", "1204", "1205", "1210"] },
     { id: "soep", name: "Soep", isDefault: false, count: 2, recipeIds: ["1203", "1210"] },
+    { id: "weekend", name: "Weekend", isDefault: false, count: 4, recipeIds: ["1206", "1202", "1207", "1208"] },
   ],
   syncedAt: "2026-10-27T19:12:00",
   source: "local",
@@ -237,6 +238,19 @@ module.exports = [
     routes,
     run: async (page) => {
       await openStores()(page);
+      await scrollTo(page, "#ah-items-recepten .box");
+    },
+  },
+  {
+    // Een receptgroep uit de AH-app gekozen (2.94): alleen de recepten van die groep, in de volgorde van de groep.
+    name: "recipe-groups",
+    routes,
+    run: async (page) => {
+      await openStores()(page);
+      await page.waitForSelector("#ah-recipe-group:not([hidden])");
+      await page.selectOption("#ah-recipe-group", "doordeweeks");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.waitForTimeout(500);
       await scrollTo(page, "#ah-items-recepten .box");
     },
   },

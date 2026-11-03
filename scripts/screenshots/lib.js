@@ -65,11 +65,27 @@ async function shoot(browser, scenario, lang, device, base) {
   );
   for (const text of errors) console.warn(`LET OP ${lang}/${scenario.name} (${device}): foutmelding in beeld: ${text}`);
   const png = await page.screenshot();
+  const url = page.url();
   await context.close();
-  return png;
+  return { png, url };
 }
 
-function frameHtml(desktopPng, phonePng, theme) {
+// Het adres in de adresbalk van het venster: sinds 2.93 heeft elk scherm een eigen adres (/offers/history, /stores/ah/orders/41).
+// De host is die van het voorbeeld uit de README; ?tabbar=1 hoort bij de telefoon en valt weg.
+function addressOf(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete("tabbar");
+    const search = parsed.searchParams.toString();
+    return `mealieshopper.example.nl${parsed.pathname}${search ? `?${decodeURIComponent(search)}` : ""}`;
+  } catch (e) {
+    return "";
+  }
+}
+
+const escapeText = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function frameHtml(desktopPng, phonePng, theme, address = "") {
   const d = desktopPng.toString("base64");
   const p = phonePng.toString("base64");
   return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -77,14 +93,14 @@ function frameHtml(desktopPng, phonePng, theme) {
     body{width:1376px;height:700px;overflow:hidden;position:relative;background:#e9f0eb;font-family:Inter,system-ui,sans-serif}
     .win{position:absolute;left:20px;top:35px;width:970px;height:700px;border-radius:22px 22px 0 0;background:#dde6e0;box-shadow:0 18px 50px rgba(24,37,30,.22),0 0 0 1px rgba(24,37,30,.08)}
     .dots{position:absolute;left:34px;top:34px;display:flex;gap:9px}.dots i{width:14px;height:14px;border-radius:50%;display:block}
-    .url{position:absolute;left:120px;right:100px;top:33px;height:18px;border-radius:9px;background:#f3f7f4}
+    .url{position:absolute;left:120px;right:100px;top:33px;height:18px;border-radius:9px;background:#f3f7f4;padding:0 12px;font:500 11px/18px Inter,system-ui,sans-serif;color:#5d6b63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .win img{position:absolute;left:20px;top:60px;width:930px;height:604px;display:block}
     .phone{position:absolute;left:1012px;top:35px;width:318px;height:700px;border-radius:46px 46px 0 0;background:#16241d;box-shadow:0 18px 50px rgba(24,37,30,.3)}
     .screen{position:absolute;left:9px;top:12px;width:300px;height:660px;border-radius:36px 36px 0 0;overflow:hidden;background:${theme === "dark" ? "#0f1613" : "#fff"}}
     .phone img{position:absolute;left:0;top:28px;width:300px;height:625px;display:block}
     .island{position:absolute;left:129px;top:20px;width:60px;height:16px;border-radius:9px;background:#16241d;z-index:2}
   </style></head><body>
-    <div class="win"><div class="dots"><i style="background:#ee6a5f"></i><i style="background:#f5bd4f"></i><i style="background:#61c554"></i></div><div class="url"></div><img src="data:image/png;base64,${d}"></div>
+    <div class="win"><div class="dots"><i style="background:#ee6a5f"></i><i style="background:#f5bd4f"></i><i style="background:#61c554"></i></div><div class="url">${escapeText(address)}</div><img src="data:image/png;base64,${d}"></div>
     <div class="phone"><div class="island"></div><div class="screen"><img src="data:image/png;base64,${p}"></div></div>
   </body></html>`;
 }
@@ -108,8 +124,8 @@ async function run(scenarios, base) {
     for (const lang of langs) {
       try {
         const desktop = await shoot(browsers[lang], scenario, lang, "desktop", base);
-        const phone = await shoot(browsers[lang], scenario, lang, scenario.desktopOnly ? "desktop" : "phone", base);
-        await framer.setContent(frameHtml(desktop, scenario.desktopOnly ? desktop : phone, scenario.theme || "light"));
+        const phone = scenario.desktopOnly ? desktop : await shoot(browsers[lang], scenario, lang, "phone", base);
+        await framer.setContent(frameHtml(desktop.png, phone.png, scenario.theme || "light", addressOf(desktop.url)));
         const dir = path.join(OUT, lang);
         fs.mkdirSync(dir, { recursive: true });
         await framer.screenshot({ path: path.join(dir, `${scenario.name}.png`) });

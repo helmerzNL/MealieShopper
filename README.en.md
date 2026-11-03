@@ -39,9 +39,9 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic, Jumbo or Crisp, as far as linked. The servings you set per meal in Mealie's planner carry over: the amounts are scaled and the same ingredient from several recipes is added up. One button looks up the best products for every ingredient, works out how many packs you need and shows them first in a check list. There you untick what you don't want and choose another product or number of packs; only after you confirm are they put in your basket at that store. You finish the order yourself, at Albert Heijn, in the Picnic app, at Jumbo or in the Crisp app.
 - **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Tapping a meal shows its recipe, with the ingredients for the servings you planned. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
 - **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus), Picnic, Jumbo and Crisp, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
-- **Is it really a deal?** Every offer shows its price per kilo, litre or piece and a verdict: a real deal, a small saving, or not cheaper than the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price over time and what you paid yourself, from your orders and receipts. **Compare pack sizes** shows which pack is cheapest per unit, and the check list of the week menu points it out when another pack is cheaper.
+- **Is it really a deal?** Every offer shows its price per kilo, litre or piece and a verdict: a real deal, a small saving, or not cheaper than the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price over time and what you paid yourself, from your orders and receipts. **Compare pack sizes** shows which pack is cheapest per unit, and the check list of the week menu points it out when another pack is cheaper. With **Only bought before** you only see what you bought; MealieShopper keeps the image of those products, so you recognise a product that got another name or photo. Older purchases from your confirmation emails can be read in with the help of an AI assistant.
 - **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic, Crisp and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link.
-- **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
+- **Your AH account in MealieShopper.** Your saved recipes (with your recipe groups from the AH app) and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic, Jumbo and Crisp, with a list for the stores you linked. At Picnic and Crisp you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your AH basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
 - **Picnic, Jumbo and Crisp under Stores.** Choose the store in the store menu: at Picnic your recipes, favourites and orders, at Jumbo your lists, orders and recipe lists, at Crisp your favourites and orders. Where possible MealieShopper keeps a local copy, with the same buttons as at Albert Heijn.
@@ -59,7 +59,7 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 
 ## What it looks like
 
-Every image shows the same page on a computer and on a phone. The recipes and products are sample data.
+Every image shows the same page on a computer and on a phone; the address bar shows the address of that screen. The recipes and products are sample data.
 
 ### Week menu and basket
 
@@ -111,6 +111,14 @@ The **Price history** shows per product when it was on offer, the regular price 
 
 <img src="docs/screenshots/en/price-history.png" alt="The Price history of minced beef: key figures, a chart with the offers as bars, the regular price as steps and your purchases as dots, and the table of offers" width="900">
 
+With the **Only bought before** switch the list only shows the products you bought at least once. For such a product MealieShopper keeps the image, with the name the product had at the time. When it gets another name or photo, **Saved images** shows that it is still the same product.
+
+<img src="docs/screenshots/en/price-images.png" alt="The Price history with Only bought before switched on: on the left only products you bought, on the right Scharrel kipfilet with its key figures; on the phone the saved images, the new one as AH Scharrel kipfilet and two older ones as AH Kipfilet" width="900">
+
+Your account only has the orders of the last few months; older ones are still in your confirmation emails. With **Import old purchases** (administrator only) you copy a prompt for an AI assistant such as Claude or ChatGPT and paste the JSON the assistant makes of your emails. **Check** shows per order whether it is new or already there; only **Import** reads them in.
+
+<img src="docs/screenshots/en/price-import.png" alt="Import old purchases: the pasted JSON, the check New: 4, already known: 2, products: 105, per order new or why not (was already imported, is already in your orders), and the buttons Check and Import" width="900">
+
 ### Find recipes
 
 <img src="docs/screenshots/en/search.png" alt="Searching recipes for kip: your own recipes in Mealie first, as cards with time, servings and tags" width="900">
@@ -139,9 +147,13 @@ The **Meal kits** tab shows the public weekly menus of HelloFresh and Marley Spo
 
 ### Stores: your saved AH recipes
 
-Your saved Allerhande recipes live in MealieShopper, at least two side by side on a phone. Search your recipes at the top.
+Your saved Allerhande recipes live in MealieShopper, at least two side by side on a phone. Search your recipes at the top. If you made recipe groups in the AH app, pick *All recipes* or one of your groups next to the title.
 
-<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with a search bar and cards with View and Plan" width="900">
+<img src="docs/screenshots/en/recipes.png" alt="My saved recipes with the list All recipes (12), a search bar and cards with View and Plan" width="900">
+
+Pick a group to see only its recipes, in the order of that group; searching works within the group.
+
+<img src="docs/screenshots/en/recipe-groups.png" alt="My saved recipes with the recipe group Doordeweeks (4) chosen: only the recipes of that group" width="900">
 
 ### Stores: your lists
 
@@ -676,7 +688,7 @@ python -m unittest discover -s tests          # all tests
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, run `python scripts/ha_addon.py` (it puts the version in the Home Assistant add-ons under `homeassistant/`; a test fails if you forget), write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`, with the text of every version since the previous stable release (`release_notes.py --since`). Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
 - **Branches and container registry:** pull requests go to `beta`, not to `main` (`main` only receives a pull request from `beta`; the check in `.github/workflows/pr-target.yml` enforces it). The workflow builds and pushes on every push to `main` to `ghcr.io/helmerznl/mealieshopper:latest` (and `X.Y.Z`), and on every push to `beta` to `ghcr.io/helmerznl/mealieshopper:beta` (and `X.Y.Z-beta`), for `linux/amd64` and `linux/arm64` (through QEMU and Buildx; also manually through `workflow_dispatch`). To run the development version, use the `beta` tag and a separate data folder.
-- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a running MealieShopper with mocked data and hand-drawn illustrations (no third-party photos), so they are free to use anywhere. Start an empty MealieShopper with login switched off for this (`PASSKEY_AUTH_ENABLED=false`; a few scenarios ask the server for real data, such as the component list under About) and regenerate them with `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optionally `--only plan,login` and `--lang en`). The consent scenario runs Python with Flask, so the app's environment must be on the `PATH`. When an error message is on screen, the script reports `LET OP`; the scenarios are in `scripts/screenshots/scenarios/` and the demo data in `scripts/screenshots/demo.js`. You need Node with Playwright installed.
+- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a running MealieShopper with mocked data and hand-drawn illustrations (no third-party photos), so they are free to use anywhere. Start an empty MealieShopper with login switched off for this (`PASSKEY_AUTH_ENABLED=false`; a few scenarios ask the server for real data, such as the component list under About) and regenerate them with `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optionally `--only plan,login` and `--lang en`). The consent scenario runs Python with Flask, so the app's environment must be on the `PATH`. The script puts the address of the screen in the address bar of the window. When an error message is on screen, the script reports `LET OP`; the scenarios are in `scripts/screenshots/scenarios/` and the demo data in `scripts/screenshots/demo.js`. You need Node with Playwright installed.
 
 ## Integrations and components
 
