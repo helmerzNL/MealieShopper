@@ -829,6 +829,15 @@ def admin_only(path: str) -> bool:
     return path in ADMIN_PATHS or any(path == prefix or path.startswith(prefix + "/") or (prefix.endswith("/") and path.startswith(prefix)) for prefix in ADMIN_PREFIXES)
 
 
+# De adressen van de pagina's (zie static/router.js). Ze geven dezelfde pagina als "/", met het inlogscherm als je niet bent
+# ingelogd, dus ze zijn net zo openbaar als "/". De gegevens zelf komen via /api en daar geldt de gewone controle.
+PAGE_ROOTS = ("recipes", "offers", "import", "stores", "meal-kits", "cart", "profile", "settings", "about")
+
+
+def is_page_path(path: str) -> bool:
+    return any(path == f"/{root}" or path.startswith(f"/{root}/") for root in PAGE_ROOTS)
+
+
 def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
     if not auth_required():
         return None
@@ -845,7 +854,7 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
         "/api/onboarding/status",
         "/api/onboarding/start",
     }
-    if path in public_paths or any(path.startswith(prefix) for prefix in public_prefixes):
+    if path in public_paths or is_page_path(path) or any(path.startswith(prefix) for prefix in public_prefixes):
         return None
     user = current_user()
     if user:

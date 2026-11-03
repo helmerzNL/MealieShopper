@@ -13,7 +13,8 @@ const OFFER_HISTORY_DAY = 86400000;
 const OFFER_HISTORY_LABEL_HEIGHT = 14;
 const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
 const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
-const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
+// `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js).
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, loadId: 0, timer: 0, loadedStore: "", unsynced: null };
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -287,7 +288,11 @@ function offerHistoryDetail(product) {
     .reverse()
     .map((purchase) => {
       const day = offerHistoryDay(purchase.date);
-      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${escapeHtml(offerHistorySource(purchase.source))}</td></tr>`;
+      // De bron linkt naar de bestelling of kassabon zelf, als de app die kan tonen.
+      const source = escapeHtml(offerHistorySource(purchase.source));
+      const path = purchasePath(product.store, purchase.source, purchase.ref);
+      const sourceCell = path ? `<a href="${escapeHtml(path)}" data-route>${source}</a>` : source;
+      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${sourceCell}</td></tr>`;
     })
     .join("");
   const link = product.url
@@ -365,11 +370,12 @@ function renderOfferHistory() {
       const lowest = typeof product.lowestPrice === "number" ? ` · ${t("offers.history.item.lowest", { price: offerHistoryPrice(product.lowestPrice) })}` : "";
       const bought = product.timesBought ? ` · ${tn("offers.history.item.bought", product.timesBought)}` : "";
       const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
-      return `<li><button class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" type="button" data-key="${escapeHtml(key)}" aria-pressed="${key === offerHistory.selected}">
+      const href = priceHistoryPath(product.store, offerHistory.query, product.productId);
+      return `<li><a class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" data-key="${escapeHtml(key)}" href="${escapeHtml(href)}" data-nav${key === offerHistory.selected ? ' aria-current="true"' : ""}>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : ""}</small>
-      </button></li>`;
+      </a></li>`;
     })
     .join("");
   const chosen = products.find((product) => offerHistoryKey(product) === offerHistory.selected);
@@ -402,6 +408,7 @@ async function loadOfferHistory() {
     }
     message("#offers-history-message", "");
     renderOfferHistory();
+    if (typeof routerSync === "function") routerSync({ replace: true }); // de zoekterm in het adres, zonder een stap terug per letter
   } catch (error) {
     if (loadId !== offerHistory.loadId) return;
     message("#offers-history-message", error.message);
@@ -419,6 +426,7 @@ function offerHistoryStoreChanged() {
 }
 
 $("#offers-history-search").addEventListener("input", () => {
+  offerHistory.pinned = false; // een nieuwe zoekterm: het gekozen product hoort niet meer in het adres
   clearTimeout(offerHistory.timer);
   offerHistory.timer = setTimeout(loadOfferHistory, 250);
 });
@@ -446,7 +454,9 @@ $("#offers-history-list").addEventListener("click", (event) => {
   const item = event.target.closest("[data-key]");
   if (!item) return;
   offerHistory.selected = item.dataset.key;
+  offerHistory.pinned = true;
   renderOfferHistory();
+  if (typeof routerSync === "function") routerSync();
 });
 document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", loadOfferHistory);
 window.addEventListener("ms:languagechange", () => {

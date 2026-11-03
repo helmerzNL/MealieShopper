@@ -386,7 +386,7 @@ class RoutesTest(AiTestCase):
 
         def hidden():
             html = self.admin.get("/").get_data(as_text=True)
-            return " hidden" in re.search(r'<button class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
+            return " hidden" in re.search(r'<a class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
 
         self.assertTrue(hidden())
         self.set_key()

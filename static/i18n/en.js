@@ -41,6 +41,7 @@ I18N.add("en", {
   "offers.verdict.often": "On offer {count}× this year: comes back often",
   "offers.verdict.cheaper_pack": "Cheaper per unit: {title} ({price})",
   "offers.compare.open": "Compare pack sizes",
+  "offers.card.history": "Price history",
   "offers.compare.title": "Compare pack sizes",
   "offers.compare.loading": "Searching other pack sizes…",
   "offers.compare.searched": "searched for “{query}”",

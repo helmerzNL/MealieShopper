@@ -41,6 +41,7 @@ I18N.add("nl", {
   "offers.verdict.often": "{count}× in de aanbieding dit jaar: komt vaak terug",
   "offers.verdict.cheaper_pack": "Per eenheid goedkoper: {title} ({price})",
   "offers.compare.open": "Vergelijk verpakkingen",
+  "offers.card.history": "Prijsgeschiedenis",
   "offers.compare.title": "Verpakkingen vergelijken",
   "offers.compare.loading": "Andere verpakkingen zoeken…",
   "offers.compare.searched": "gezocht op “{query}”",

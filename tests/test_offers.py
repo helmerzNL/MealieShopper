@@ -719,7 +719,7 @@ class OffersTabMarkupTest(unittest.TestCase):
         section = html[html.index('<section id="offers"'):html.index('<section id="url"')]
         self.assertIn('<div class="subtab-menu" id="offers-store-menu" hidden>', section)
         self.assertLess(section.index("offers-store-menu"), section.index('data-subtab="offers-items"'))
-        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"])
+        self.assertEqual(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["offers-items", "offers-suggestions", "offers-history"])
         self.assertIn('<div id="offers-items" class="subpanel is-active">', section)
         self.assertIn('<div id="offers-suggestions" class="subpanel">', section)
         self.assertIn('<div id="offers-history" class="subpanel">', section)
@@ -1228,7 +1228,7 @@ class OffersRoutesTest(TempDataDirTest):
 
         def subtab(client):
             html = client.get("/").get_data(as_text=True)
-            return re.search(r'<button class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
+            return re.search(r'<a class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
 
         self.assertIn(" hidden", subtab(self.client))
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-0123456789abcdef"}):
