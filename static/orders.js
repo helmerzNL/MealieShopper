@@ -11,7 +11,8 @@ function ordersAreJumbo() {
 }
 
 // `open`: de bestelling of kassabon die open staat ({ kind, id }), voor het adres (router.js).
-const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null };
+// `imported`: de ingelezen oude bestellingen van deze winkel (zie price_import.py), die bij de afgelopen bestellingen staan.
+const ordersState = { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null };
 
 function dayLabel(value) {
   const date = new Date(String(value || "").length === 10 ? `${value}T12:00:00` : value);
@@ -110,7 +111,12 @@ async function syncAhBasket() {
   }
 }
 
+function ordersStore() {
+  return ordersAreJumbo() ? "jumbo" : "ah";
+}
+
 function orderCard(order) {
+  if (order.imported) return importedOrderCard(order, ordersStore());
   const lines = [
     order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
     [slotLabel(order.slotStart, order.slotEnd), money(order.total)].filter(Boolean).join(" · "),
@@ -118,18 +124,19 @@ function orderCard(order) {
   ].filter(Boolean);
   return `
     <div class="list-card">
-      <a class="list-card__open" data-order-id="${escapeHtml(order.id)}" href="${escapeHtml(storesPath(ordersAreJumbo() ? "jumbo" : "ah", "orders", order.id))}" data-nav>
+      <a class="list-card__open" data-order-id="${escapeHtml(order.id)}" href="${escapeHtml(storesPath(ordersStore(), "orders", order.id))}" data-nav>
         <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
         ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
       </a>
     </div>`;
 }
 
-// Aankomende bestellingen (nog open, nieuwste eerst) en afgelopen bestellingen (geleverd, nieuwste eerst)
+// Aankomende bestellingen (nog open, nieuwste eerst) en afgelopen bestellingen (geleverd, nieuwste eerst), met de ingelezen oude
+// bestellingen ertussen op hun datum
 function renderOrderList() {
   const upcoming = ordersState.orders.filter((order) => order.kind === "open").sort((a, b) => String(a.deliveryDate || "").localeCompare(String(b.deliveryDate || "")));
-  const past = ordersState.orders.filter((order) => order.kind !== "open");
-  const never = !ordersState.ordersSyncedAt;
+  const past = importedOrdersMerge(ordersState.orders.filter((order) => order.kind !== "open"), ordersState.imported);
+  const never = !ordersState.ordersSyncedAt && !ordersState.imported.length;
   const empty = (text) => `<p class="muted">${escapeHtml(never ? t("orders.never_synced") : text)}</p>`;
   $("#ah-order-upcoming").innerHTML = upcoming.length ? upcoming.map(orderCard).join("") : empty(t("orders.upcoming_none"));
   $("#ah-order-list").innerHTML = past.length ? past.map(orderCard).join("") : empty(ordersAreJumbo() ? t("orders.none_jumbo") : t("orders.none"));
@@ -184,18 +191,21 @@ async function loadOrders() {
   message("#ah-orders-message", "");
   const store = state.itemsStore;
   try {
+    const imported = importedOrdersFetch(store);
     if (ordersAreJumbo()) {
       const orders = await jsonFetch("/api/jumbo/orders");
+      const importedOrders = await imported;
       if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
-      Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt, loaded: true });
+      Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt, loaded: true });
       renderOrders();
       return;
     }
     const receipts = await jsonFetch("/api/ah/receipts");
     Object.assign(ordersState, { receipts: receipts.receipts, receiptsSyncedAt: receipts.syncedAt, loaded: true });
     const orders = await jsonFetch("/api/ah/orders");
-    Object.assign(ordersState, { orders: orders.orders, ordersSyncedAt: orders.syncedAt });
+    const importedOrders = await imported;
     if (store !== state.itemsStore) return;
+    Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt });
     renderOrders();
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
@@ -273,7 +283,7 @@ function renderPurchaseResults(data) {
     .map(
       (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>
         <small>${escapeHtml([dayLabel(entry.date), t("orders.source.order"), entry.quantity ? `${entry.quantity}x` : "", money(entry.amount)].filter(Boolean).join(" · "))}</small></div>
-        <button class="button button--secondary" type="button" data-order-id="${escapeHtml(entry.id)}">${escapeHtml(t("orders.view"))}</button></div>`
+        <button class="button button--secondary" type="button" ${entry.imported ? "data-imported-order" : "data-order-id"}="${escapeHtml(entry.id)}">${escapeHtml(t("orders.view"))}</button></div>`
     )
     .join("");
   const found = data.receiptHits || { receipts: [], total: 0, unsearched: 0 };
@@ -390,6 +400,12 @@ async function openPurchase(kind, id) {
       $("#ah-order-items").innerHTML = order.items.length
         ? `<div class="product-grid">${order.items.map((item) => purchaseItem(item, ordersAreJumbo() ? "jumbo" : "ah")).join("")}</div>`
         : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+    } else if (kind === "imported") {
+      const store = ordersStore();
+      const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(id)}`);
+      $("#ah-order-title").textContent = importedOrderTitle(order);
+      $("#ah-order-meta").textContent = importedOrderMeta(order);
+      $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`; // altijd met producten
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
@@ -410,9 +426,126 @@ $("#ah-order-back").addEventListener("click", showPurchaseOverview);
 $("#ah-items-bestellingen").addEventListener("click", (event) => {
   const order = event.target.closest("[data-order-id]");
   const receipt = event.target.closest("[data-receipt-id]");
-  if (order) openPurchase("order", order.dataset.orderId);
+  const imported = event.target.closest("[data-imported-order]");
+  const remove = event.target.closest("[data-imported-delete]");
+  if (remove) deleteImportedOrder(ordersStore(), remove.dataset.importedDelete, remove);
+  else if (order) openPurchase("order", order.dataset.orderId);
   else if (receipt) openPurchase("receipt", receipt.dataset.receiptId);
+  else if (imported) openPurchase("imported", imported.dataset.importedOrder);
 });
+$("#orders-import").addEventListener("click", () => openPriceImport(ordersStore()));
+// Na importeren of verwijderen (hier of in de Prijsgeschiedenis): de lijst van deze winkel opnieuw, als hij er al stond.
+window.addEventListener("ms:imported-orders", (event) => {
+  if (ordersState.loaded && event.detail?.store === ordersStore()) loadOrders();
+});
+
+// ---- Ingelezen oude bestellingen (zie price_import.py): bij elke winkel tussen de afgelopen bestellingen, ook bij Picnic en Crisp.
+// Ze openen en doorzoeken als elke andere bestelling. De archiefdoos laat zien dat een bestelling uit je bevestigingsmails is
+// ingelezen; met de prullenbak haalt de beheerder hem in zijn geheel weg. Importeren gaat met dezelfde dialoog als in de
+// Prijsgeschiedenis (openPriceImport in offers_history.js).
+const MDI_ARCHIVE_OUTLINE = "M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z";
+const MDI_DELETE_OUTLINE = "M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H16V19H8V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z";
+
+// Importeren en verwijderen kan alleen de beheerder; de server laat ook alleen de beheerder toe (/api/prices/import).
+function priceImportIsOwner() {
+  const auth = state.auth || {};
+  return !auth.enabled || (Boolean(auth.authenticated) && auth.isOwner !== false);
+}
+
+// Mislukt dit, dan blijven de bestellingen uit je account gewoon staan, zonder de ingelezen.
+async function importedOrdersFetch(store) {
+  try {
+    return (await jsonFetch(`/api/imported-orders/${encodeURIComponent(store)}`)).orders || [];
+  } catch {
+    return [];
+  }
+}
+
+// De ingelezen bestellingen tussen de bestellingen uit je account, de nieuwste eerst. `dateOf` geeft de dag van een bestelling uit
+// je account; bij gelijke dagen blijft de volgorde van de server staan.
+function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliveryDate) {
+  const day = (order) => String((order.imported ? order.date : dateOf(order)) || "").slice(0, 10);
+  return [...orders, ...imported].sort((a, b) => day(b).localeCompare(day(a)));
+}
+
+function importedOrderTitle(order) {
+  return dayLabel(order.date) || t("orders.order_title", { id: order.ref });
+}
+
+function importedOrderMeta(order) {
+  return [
+    order.number ? t("orders.order_title", { id: order.number }) : "",
+    t("orders.imported.at", { when: formatSyncTime(order.importedAt) }),
+    money(order.total),
+    tn("list.items", order.itemCount),
+  ].filter(Boolean).join(" · ");
+}
+
+function importedOrderItems(order, store) {
+  return order.items.map((item) => purchaseItem(item, store)).join("");
+}
+
+// Een kaart zoals die van een bestelling uit je account. Bij AH en Jumbo heeft de bestelling een eigen adres
+// (/stores/ah/imported/<ref>, zie router.js); Picnic en Crisp openen hem in hun eigen tabblad.
+function importedOrderCard(order, store) {
+  const title = importedOrderTitle(order);
+  const badge = t("orders.imported.badge");
+  const lines = [[t("orders.kind.imported"), money(order.total)].filter(Boolean).join(" · "), tn("list.items", order.itemCount)];
+  const body = `
+        <strong><span class="list-card__badge" role="img" aria-label="${escapeHtml(badge)}" title="${escapeHtml(badge)}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>${escapeHtml(title)}</strong>
+        ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}`;
+  const open = store === "ah" || store === "jumbo"
+    ? `<a class="list-card__open" data-imported-order="${escapeHtml(order.ref)}" href="${escapeHtml(storesPath(store, "imported", order.ref))}" data-nav>${body}</a>`
+    : `<button type="button" class="list-card__open" data-imported-order="${escapeHtml(order.ref)}">${body}</button>`;
+  const remove = t("orders.imported.delete");
+  return `
+    <div class="list-card list-card--imported">
+      ${open}
+      ${priceImportIsOwner() ? `<button type="button" class="icon-button list-card__action" data-imported-delete="${escapeHtml(order.ref)}" data-title="${escapeHtml(title)}" aria-label="${escapeHtml(`${remove}: ${title}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>` : ""}
+    </div>`;
+}
+
+// Iedereen die de lijst van een winkel toont, luistert naar ms:imported-orders en laadt hem opnieuw (orders.js, picnic.js,
+// crisp.js, en de Prijsgeschiedenis in offers_history.js).
+function importedOrdersChanged(store) {
+  window.dispatchEvent(new CustomEvent("ms:imported-orders", { detail: { store } }));
+}
+
+// De hele ingelezen bestelling weg, na een bevestiging. De melding komt pas na het opnieuw laden: dat wist eerst de oude melding.
+async function deleteImportedOrder(store, ref, button) {
+  if (!window.confirm(t("orders.imported.delete_confirm", { date: button.dataset.title || ref }))) return;
+  const box = store === "picnic" || store === "crisp" ? `#${store}-orders-message` : "#ah-orders-message";
+  button.disabled = true;
+  try {
+    await jsonFetch(`/api/prices/import?${new URLSearchParams({ store, ref })}`, { method: "DELETE" });
+    importedOrdersChanged(store);
+    message(box, t("orders.imported.deleted"), "success");
+  } catch (error) {
+    message(box, error.message);
+    button.disabled = false;
+  }
+}
+
+// Picnic en Crisp: dezelfde opbouw (#picnic-order-view, #crisp-order-view), elk met een eigen teller tegen een trage oude aanvraag.
+async function openImportedStoreOrder(store, ref, current) {
+  $(`#${store}-orders-list-view`).hidden = true;
+  $(`#${store}-order-view`).hidden = false;
+  $(`#${store}-order-title`).textContent = t("orders.order_title", { id: ref });
+  $(`#${store}-order-meta`).textContent = "";
+  $(`#${store}-order-items`).innerHTML = "";
+  $(`#${store}-order-add-all`).hidden = true; // een regel uit een mail heeft geen product van de winkel
+  message(`#${store}-order-message`, "");
+  try {
+    const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(ref)}`);
+    if (!current()) return;
+    $(`#${store}-order-title`).textContent = importedOrderTitle(order);
+    $(`#${store}-order-meta`).textContent = importedOrderMeta(order);
+    $(`#${store}-order-items`).innerHTML = importedOrderItems(order, store);
+    $(`#${store}-order-title`).focus();
+  } catch (error) {
+    if (current()) message(`#${store}-order-message`, error.message);
+  }
+}
 
 // ---- verkenner (alleen de beheerder): welke AH-routes werken, en met welke velden?
 let exploreReport = null;
@@ -452,7 +585,7 @@ $("#explore-copy").addEventListener("click", async (event) => {
 
 // Bij een andere winkel in de tab Winkels: schone lijst, en opnieuw laden als dit tabblad openstaat.
 function resetOrders() {
-  Object.assign(ordersState, { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
+  Object.assign(ordersState, { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
   purchaseSeq++;
   $("#ah-purchase-filter").value = "";
   $("#ah-purchase-results").hidden = true;
