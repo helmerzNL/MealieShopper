@@ -17,6 +17,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **MCP**: de nieuwe tool `list_ah_recipe_groups` geeft je receptgroepen met het aantal recepten, en `list_saved_ah_recipes` neemt `group` (id of een deel van de naam, bijvoorbeeld *taarten*).
 - **In de back-up**: de receptgroepen gaan mee (`ah_saved_recipe_groups` en `ah_saved_recipe_group_items`). Een oudere back-up zonder groepen zet gewoon terug.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#195](https://github.com/helmerzNL/MealieShopper/pull/195).
 
 ## v2.93.0
 
