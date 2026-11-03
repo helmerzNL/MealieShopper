@@ -20,6 +20,7 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 
 [![Last commit](https://img.shields.io/github/last-commit/helmerzNL/MealieShopper/beta)](https://github.com/helmerzNL/MealieShopper/commits/beta)
 [![Commit activity](https://img.shields.io/github/commit-activity/m/helmerzNL/MealieShopper)](https://github.com/helmerzNL/MealieShopper/graphs/commit-activity)
+[![License](https://img.shields.io/github/license/helmerzNL/MealieShopper)](LICENSE)
 [![Forks](https://img.shields.io/github/forks/helmerzNL/MealieShopper?style=social)](https://github.com/helmerzNL/MealieShopper/forks)
 [![Stars](https://img.shields.io/github/stars/helmerzNL/MealieShopper?style=social)](https://github.com/helmerzNL/MealieShopper/stargazers)
 [![Issues](https://img.shields.io/github/issues/helmerzNL/MealieShopper)](https://github.com/helmerzNL/MealieShopper/issues)
@@ -352,7 +353,9 @@ MealieShopper is free. If it is useful to you, a coffee keeps the development go
 
 ## License
 
-No licence has been chosen yet: all rights reserved. The components MealieShopper uses each have their own licence; see [Architecture](#architecture).
+[MIT](LICENSE) © 2026 Helmer
+
+The components MealieShopper uses each have their own licence; see [Architecture](#architecture).
 
 ---
 
