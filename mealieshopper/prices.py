@@ -11,6 +11,10 @@ Drie bronnen, per winkel en product samengevoegd:
 
 Lezen vraagt nooit iets aan een winkel. Het bijhouden laat nooit een zoekopdracht mislukken: een fout wordt gelogd en verder genegeerd.
 
+`history(..., bought=True)` toont alleen de producten die je minstens één keer kocht (de schakelaar *Alleen eerder gekocht*). Van een
+aanbieding die je kocht bewaart `product_images.py` de afbeelding (in `product_images`, hooguit 1024 pixels breed, met de naam van toen);
+`history` geeft die per product in `savedImages`, om later te vergelijken als het product anders gaat heten.
+
 Daarbovenop (deel 2 van #178): de **prijs per kilo, liter of stuk** (`unit_price`), een **oordeel bij elke aanbieding**
 (`annotate`: is de actieprijs lager dan de gewone prijs van de laatste 30 dagen, hoe vaak was het product dit jaar in de aanbieding,
 en is een andere verpakking van hetzelfde product per kilo goedkoper) en **verpakkingen vergelijken** (`compare`: één zoekopdracht
@@ -49,6 +53,24 @@ CREATE TABLE IF NOT EXISTS price_observations (
   price REAL NOT NULL,
   seen_at TEXT NOT NULL,
   PRIMARY KEY (store, product_id, day)
+);
+
+-- De afbeelding van een aanbieding die je minstens één keer kocht, verkleind tot hooguit 1024 pixels breed (zie product_images.py).
+-- `title` is de naam die het product had toen de afbeelding werd bewaard: zo zie je later of het hetzelfde product is, ook als de
+-- naam veranderde. Dezelfde afbeelding (`digest`, de SHA-256 van `data`) staat er per product één keer in.
+CREATE TABLE IF NOT EXISTS product_images (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  store TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  digest TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  saved_at TEXT NOT NULL,
+  UNIQUE (store, product_id, digest)
 );
 """
 
@@ -285,6 +307,47 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     return found
 
 
+def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
+    """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`)."""
+    found: set[str] = set()
+    for sql in _purchase_sources(conn, store):
+        found.update(
+            str(row["product_id"])
+            for row in conn.execute(f"SELECT DISTINCT product_id FROM ({sql}) WHERE day <= ? AND paid > 0", (today,))
+            if row["product_id"]
+        )
+    found.update(str(row["product_id"]) for row in receipts if row["product_id"] and _number(row["paid"]) is not None)
+    return found
+
+
+def bought_ids(store: str, today: str | None = None) -> set[str]:
+    """De product-id's van een winkel die je minstens één keer kocht (uit je bestellingen en kassabonnen)."""
+    today = today or _now()[:10]
+    with closing(_connect()) as conn:
+        return _bought(conn, store, today, _receipt_rows(conn, store, today))
+
+
+def _saved_images(conn, store: str, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """De bewaarde afbeeldingen van deze producten (zonder de afbeelding zelf), de nieuwste eerst."""
+    found: dict[str, list[dict[str, Any]]] = {}
+    rows = conn.execute(
+        f"""SELECT id, product_id, title, digest, width, height, saved_at FROM product_images
+            WHERE store = ? AND product_id IN ({_in(ids)}) ORDER BY saved_at DESC, id DESC""",
+        (store, *ids),
+    )
+    for row in rows:
+        found.setdefault(row["product_id"], []).append({
+            "url": image_url(row["id"], row["digest"]), "title": row["title"], "savedAt": row["saved_at"],
+            "width": row["width"], "height": row["height"],
+        })
+    return found
+
+
+def image_url(image_id: Any, digest: Any) -> str:
+    """Het adres (binnen MealieShopper) van een bewaarde afbeelding. `v` verandert met de inhoud, dus de browser mag hem lang bewaren."""
+    return f"/api/prices/images/{int(image_id)}?v={str(digest or '')[:16]}"
+
+
 def _unsynced(conn, store: str) -> dict[str, int]:
     tables = _tables(conn)
     counts = {"orders": 0, "receipts": 0}
@@ -412,7 +475,8 @@ def _regular_segments(points: list[tuple[str, float, str]]) -> list[dict[str, An
     return segments
 
 
-def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed: list[Any], bought: list[Any], today: str) -> dict[str, Any]:
+def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed: list[Any], bought: list[Any], today: str,
+             images: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     product: dict[str, Any] = dict(offer) if offer else {
         "store": store, "productId": product_id, "episodes": [], "timesOnOffer": 0, "lowestPrice": None, "highestPrice": None,
         "regularPrice": None, "onOfferNow": False, "category": None, "firstSeen": None, "lastSeen": None,
@@ -466,17 +530,19 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
         purchases[-1]["date"] if purchases else "",
     ) if d]
     product["lastActivity"] = max(days) if days else None
+    product["savedImages"] = images or []
     return product
 
 
-def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None) -> dict[str, Any]:
+def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
 
     Een product past als elk woord van de zoekterm in een van zijn namen staat (uit de aanbiedingen, een zoekopdracht of een aankoop) en,
-    als de zoekterm een maat noemt ("Gehakt 500 gram"), zijn verpakking die maat heeft; zie `_Query`. Per product
-    staan de velden van `offers.history` erin, plus `regular` (periodes met dezelfde normale prijs), `purchases` (wat je betaalde,
-    per stuk, oudste eerst) en samenvattingen als `regularPrice`, `lastPaid`, `averagePaid` en `timesBought`. `unsynced` zegt per winkel
-    van hoeveel bestellingen en kassabonnen de producten nog niet zijn opgehaald: die aankopen ontbreken nog.
+    als de zoekterm een maat noemt ("Gehakt 500 gram"), zijn verpakking die maat heeft; zie `_Query`. Met `bought` blijven alleen de
+    producten over die je minstens één keer kocht. Per product staan de velden van `offers.history` erin, plus `regular` (periodes met
+    dezelfde normale prijs), `purchases` (wat je betaalde, per stuk, oudste eerst), `savedImages` (de bewaarde afbeeldingen, de nieuwste
+    eerst; zie product_images.py) en samenvattingen als `regularPrice`, `lastPaid`, `averagePaid` en `timesBought`. `unsynced` zegt per
+    winkel van hoeveel bestellingen en kassabonnen de producten nog niet zijn opgehaald: die aankopen ontbreken nog.
     """
     stores = [offers._valid_store(store)] if store else list(STORES)
     wanted = _Query(query)
@@ -485,19 +551,25 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
         unsynced = {name: _unsynced(conn, name) for name in stores}
-        candidates = {
-            (name, product_id): day for name in stores
-            for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items()
-        }
+        candidates: dict[tuple[str, str], str] = {}
+        for name in stores:
+            keep = _bought(conn, name, today, receipts[name]) if bought else None
+            for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items():
+                if keep is None or product_id in keep:
+                    candidates[(name, product_id)] = day
         ranked = sorted(candidates, key=lambda key: (candidates[key], key[0], key[1]), reverse=True)
         chosen = ranked[:limit]
-        found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]]]] = {}
+        found: dict[str, tuple[dict[str, list[Any]], dict[str, list[Any]], dict[str, list[dict[str, Any]]]]] = {}
         for name in stores:
             ids = [product_id for store_name, product_id in chosen if store_name == name]
-            found[name] = (_observations(conn, name, ids), _purchases(conn, name, ids, today, receipts[name])) if ids else ({}, {})
+            found[name] = (
+                (_observations(conn, name, ids), _purchases(conn, name, ids, today, receipts[name]), _saved_images(conn, name, ids))
+                if ids else ({}, {}, {})
+            )
     offered = {name: offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
     products = [
-        _product(name, product_id, offered[name].get(product_id), found[name][0].get(product_id, []), found[name][1].get(product_id, []), today)
+        _product(name, product_id, offered[name].get(product_id), found[name][0].get(product_id, []), found[name][1].get(product_id, []), today,
+                 found[name][2].get(product_id, []))
         for name, product_id in chosen
     ]
     return {"products": products, "total": len(ranked), "unsynced": unsynced}

@@ -434,6 +434,10 @@ def sync(store: Any) -> dict[str, Any]:
             """,
             (store, now),
         )
+    # De afbeeldingen van aanbiedingen die je eerder kocht, om later te vergelijken. Een fout laat de synchronisatie staan.
+    from . import product_images  # pylint: disable=import-outside-toplevel - product_images leunt op prices, en prices op deze module
+
+    product_images.save_bought(store, items, now)
     return load(store)
 
 
