@@ -402,8 +402,9 @@ class MarkupTest(unittest.TestCase):
         script = (root / "static" / "ai_review.js").read_text(encoding="utf-8")
         offers_js = (root / "static" / "offers.js").read_text(encoding="utf-8")
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
-        readme = (root / "README.md").read_text(encoding="utf-8")
-        readme_en = (root / "README.en.md").read_text(encoding="utf-8")
+        # De README noemt de sleutels; de uitleg over de AI staat in de handleiding.
+        readme = (root / "README.md").read_text(encoding="utf-8") + (root / "docs" / "handleiding.md").read_text(encoding="utf-8")
+        readme_en = (root / "README.en.md").read_text(encoding="utf-8") + (root / "docs" / "handleiding.en.md").read_text(encoding="utf-8")
         for name in ("anthropic", "openai"):
             self.assertRegex(html, rf'<input class="input" id="ai-key-{name}" type="password"[^>]*autocomplete="off"')
         self.assertIn('id="ai-login-box"', html)

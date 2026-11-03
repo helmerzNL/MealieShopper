@@ -153,7 +153,7 @@ de tekst.
 Twee vlaggetjes (Nederland en Verenigd Koninkrijk) als losse knoppen van minstens 44 px, met de
 taalnaam in de eigen taal als `aria-label` en `aria-pressed` voor de gekozen taal; de gekozen vlag heeft
 een groene ring, de andere is gedimd. De vlaggen zijn inline SVG (geen emoji, want Windows toont daar
-letters) en staan in de kop, op de inlogpagina en in de installatiehulp. Zie het hoofdstuk Taal in de README.
+letters) en staan in de kop, op de inlogpagina en in de installatiehulp. Zie het onderdeel Taal in de [handleiding](handleiding.md#taal).
 
 ## Wat is gecontroleerd
 

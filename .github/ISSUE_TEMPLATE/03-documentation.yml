@@ -9,7 +9,7 @@ body:
   attributes:
     label: Waar staat het? / Where is it?
     description: Een link naar de pagina of het bestand. / A link to the page or file.
-    placeholder: README.md of README.en.md, onderdeel Updaten / README.md or README.en.md, section Updating
+    placeholder: README.md of README.en.md, onderdeel Beheer; docs/handleiding.md, onderdeel Gebruik / README.md or README.en.md, section Running it; docs/handleiding.en.md, section Usage
   validations:
     required: true
 - type: dropdown
