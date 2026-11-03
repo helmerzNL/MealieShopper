@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, prices, profile, server_settings, updates, users
+from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, prices, product_images, profile, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261102-67")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261102-68")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -452,10 +452,25 @@ def create_app() -> Flask:
 
     @app.get("/api/prices/history")
     def prices_history():
+        # ?bought=1: alleen de producten die je minstens één keer kocht.
+        bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return offers_action(
-            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
+            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
+
+    @app.get("/api/prices/images/<int:image_id>")
+    def prices_image(image_id: int):
+        # Een bewaarde afbeelding van een aanbieding die je eerder kocht (zie product_images.py); uit de database, nooit van de winkel.
+        found = product_images.get(image_id)
+        if not found:
+            return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
+        content_type, data = found
+        response = Response(data, mimetype=content_type)
+        # Met ?v= (een stuk van de SHA-256 van de afbeelding) verandert het adres als de inhoud verandert.
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable" if request.args.get("v") else "private, max-age=3600"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @app.get("/api/prices/compare")
     def prices_compare():

@@ -4,8 +4,9 @@ Het volgt het patroon in `shared/guidelines/backup-restore.md` van Flux76HQ/App-
 met zichtbare voortgang). Kort:
 
 * Het bestand is één JSON-bestand: de koppelingen met Mealie en de supermarkten, de instellingen en alle tabellen met
-  gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan, de beoordelingen van
-  aanbiedingen bij recepten, de profielen).
+  gegevens (lijstjes, bestellingen, kassabonnen, aanbiedingen en de hele historie daarvan, de bewaarde afbeeldingen van
+  aanbiedingen die je kocht, de beoordelingen van aanbiedingen bij recepten, de profielen). Afbeeldingen staan er als
+  base64 in en worden bij het terugzetten opnieuw gelezen.
 * **De koppelingen zijn de uitzondering op "een back-up opent nooit de app".** Mealie-token, AH-, Picnic- en
   Jumbo-sessie en AI-sleutels staan alleen in het bestand als je er bij het maken een wachtwoord voor kiest; ze zijn
   daarmee versleuteld (scrypt + Fernet). Zonder dat wachtwoord is het bestand zonder koppelingen terug te zetten niet
@@ -42,7 +43,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, prices, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, prices, product_images, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ DATA_TABLES = (
     "picnic_orders", "picnic_order_items", "picnic_orders_meta",
     "crisp_orders", "crisp_order_items", "crisp_orders_meta",
     "offers", "offer_history", "offers_meta",
-    "price_observations",
+    "price_observations", "product_images",
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
     "ai_recipe_matches", "ai_recipe_runs",
@@ -120,6 +121,7 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "offers": ("offers",),
     "offerHistory": ("offer_history",),
     "prices": ("price_observations",),
+    "productImages": ("product_images",),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
@@ -514,6 +516,8 @@ def _decoded(table: str, number: int, row: dict[str, Any], known: dict[str, bool
         values = {name: _decode(value) for name, value in row.items()}
         if table == "user_profiles":
             _check_profile(values)
+        if table == "product_images":
+            values.update(product_images.checked(values.get("data")))  # type, maat en digest volgen uit de afbeelding zelf
     except ValueError as exc:
         raise BackupError("bad_row", table=table, line=number, error=str(exc)[:200]) from exc
     return values

@@ -2,6 +2,8 @@
 // welke prijs, wat het normaal kostte en wat je ervoor betaalde (/api/prices/history: de aanbiedingen van elke synchronisatie, de
 // gewone prijs uit zoekopdrachten en bestellingen, en je aankopen uit bestellingen en kassabonnen).
 // De grafiek is inline SVG zonder bibliotheek; de tabel eronder geeft dezelfde gegevens voor schermlezers.
+// De schakelaar "Alleen eerder gekocht" toont alleen de producten die je minstens één keer kocht (?bought=1); de keuze blijft bewaard.
+// Van een aanbieding die je kocht bewaart de server de afbeelding (product_images.py); die staan bij het product, met de naam van toen.
 // Laadt na offers.js en gebruikt offersState, offersTabActive, STORES, jsonFetch, message, formatPrice en escapeHtml.
 
 const OFFER_HISTORY_LIMIT = 30;
@@ -10,7 +12,8 @@ const OFFER_HISTORY_BAR = 12;
 const OFFER_HISTORY_DAY = 86400000;
 const OFFER_HISTORY_LABEL_HEIGHT = 14;
 const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
-const offerHistory = { query: "", products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
+const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -226,8 +229,32 @@ function offerHistoryLegend(product) {
   return items.length > 1 ? `<ul class="ohc-legend">${items.join("")}</ul>` : "";
 }
 
+// De bewaarde afbeeldingen van een product dat je kocht, de nieuwste eerst, elk met de naam die het product toen had: zo zie je of
+// het hetzelfde product is, ook als de naam veranderde. Een klik opent de afbeelding in het groot (hooguit 1024 pixels breed).
+function offerHistoryImages(product) {
+  const images = product.savedImages || [];
+  if (!images.length) return "";
+  const items = images
+    .map((image) => {
+      const day = offerHistoryDay(image.savedAt);
+      const date = day === null ? "" : offerHistoryDayText(day, true);
+      const size = Number(image.width) > 0 && Number(image.height) > 0 ? ` width="${Number(image.width)}" height="${Number(image.height)}"` : "";
+      return `<li><figure>
+        <a href="${escapeHtml(image.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(t("offers.history.images.alt", { title: image.title, date }))}" loading="lazy"${size}></a>
+        <figcaption>${escapeHtml(image.title)}${date ? `<small>${escapeHtml(t("offers.history.images.saved", { date }))}</small>` : ""}</figcaption>
+      </figure></li>`;
+    })
+    .join("");
+  return `<section class="ohc-images" aria-labelledby="ohc-images-title">
+      <h4 id="ohc-images-title">${escapeHtml(t("offers.history.images.title"))}</h4>
+      <p class="muted">${escapeHtml(t("offers.history.images.explain"))}</p>
+      <ul>${items}</ul>
+    </section>`;
+}
+
 function offerHistoryDetail(product) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
+  const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const lastDay = offerHistoryDay(product.lastActivity || product.lastSeen);
   const lastSeen = lastDay === null ? "" : offerHistoryDayText(lastDay, true);
   const number = (value) => typeof value === "number";
@@ -268,7 +295,7 @@ function offerHistoryDetail(product) {
     : "";
   return `
     <div class="ohc-head">
-      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
@@ -279,6 +306,7 @@ function offerHistoryDetail(product) {
     <dl class="ohc-stats">${stats}</dl>
     <div class="ohc-chart" id="offers-history-chart">${offerHistoryChart(product, offerHistoryChartWidth())}</div>
     ${offerHistoryLegend(product)}
+    ${offerHistoryImages(product)}
     ${
       offerRows
         ? `<table class="ohc-table">
@@ -324,7 +352,10 @@ function renderOfferHistory() {
   if (!products.length) {
     list.innerHTML = "";
     detail.innerHTML = "";
-    status.textContent = [offerHistory.query ? t("offers.history.none", { query: offerHistory.query }) : t("offers.history.empty"), unsynced].filter(Boolean).join(" ");
+    const none = offerHistory.query
+      ? t(offerHistory.bought ? "offers.history.none_bought" : "offers.history.none", { query: offerHistory.query })
+      : t(offerHistory.bought ? "offers.history.empty_bought" : "offers.history.empty");
+    status.textContent = [none, unsynced].filter(Boolean).join(" ");
     return;
   }
   status.textContent = [tn("offers.history.count", offerHistory.total, { shown: products.length }), unsynced].filter(Boolean).join(" ");
@@ -349,6 +380,7 @@ async function loadOfferHistory() {
   const loadId = ++offerHistory.loadId;
   const store = offersState.store;
   const query = $("#offers-history-search").value.trim();
+  const bought = $("#offers-history-bought").checked;
   offerHistory.query = query;
   const loading = $("#offers-history-loading");
   if (!offerHistory.products.length) {
@@ -357,8 +389,10 @@ async function loadOfferHistory() {
   }
   try {
     const params = new URLSearchParams({ store, q: query, limit: String(OFFER_HISTORY_LIMIT) });
+    if (bought) params.set("bought", "1");
     const data = await jsonFetch(`/api/prices/history?${params}`);
     if (loadId !== offerHistory.loadId) return;
+    offerHistory.bought = bought;
     offerHistory.products = data.products || [];
     offerHistory.total = data.total || 0;
     offerHistory.unsynced = (data.unsynced || {})[store] || null;
@@ -390,6 +424,21 @@ $("#offers-history-search").addEventListener("input", () => {
 });
 $("#offers-history-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  clearTimeout(offerHistory.timer);
+  loadOfferHistory();
+});
+// De schakelaar "Alleen eerder gekocht": de keuze blijft bewaard in deze browser.
+try {
+  $("#offers-history-bought").checked = localStorage.getItem(OFFER_HISTORY_BOUGHT_KEY) === "1";
+} catch {
+  // Zonder opslag staat de schakelaar uit.
+}
+$("#offers-history-bought").addEventListener("change", (event) => {
+  try {
+    localStorage.setItem(OFFER_HISTORY_BOUGHT_KEY, event.target.checked ? "1" : "0");
+  } catch {
+    // De keuze geldt dan alleen tot je de pagina herlaadt.
+  }
   clearTimeout(offerHistory.timer);
   loadOfferHistory();
 });

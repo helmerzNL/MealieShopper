@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.92.0
+
+### Nieuw in 2.92.0
+
+*English summary: Price history has an "Only bought before" switch under the search box: with it on, the list only shows products you bought at least once (from your orders and receipts), also together with a search term; the choice is remembered in your browser. MealieShopper now also keeps the image of every offer you bought at least once, resized to at most 1024 pixels wide, with the name the product had at the time. When a store renames a product or changes its photo, the product's Saved images show whether it is still the same: a new photo is added and the old one stays (at most ten per product, the first one always stays). Images are saved while syncing the offers, also for earlier offers in the history while the store still serves them; this never makes a sync fail and takes at most 20 seconds per sync. The images are part of the backup and are read again on restore. New dependency: Pillow.*
+
+- **Alleen eerder gekocht** in de **Prijsgeschiedenis**. Onder het zoekveld staat een schakelaar: aan, dan staan in de lijst alleen de producten die je minstens één keer kocht, volgens je bestellingen (alleen geleverde) en kassabonnen. Het zoeken werkt er gewoon bij (*gehakt* met de schakelaar aan: alleen het gehakt dat je kocht). De keuze blijft bewaard in je browser. `GET /api/prices/history` neemt `bought=1`, en de MCP-tool `get_price_history` heeft `bought`.
+- **De afbeeldingen van aanbiedingen die je kocht worden bewaard**, om later te vergelijken als een product ineens anders heet:
+  - Bij elke synchronisatie van de aanbiedingen haalt MealieShopper de afbeelding op van elke aanbieding waarvan je het product minstens één keer kocht, en bewaart die in de database, met de naam die het product toen had en de datum. Ook de afbeelding van een eerdere aanbieding uit de geschiedenis komt erbij, zolang de winkel die nog geeft.
+  - **Verkleind tot hooguit 1024 pixels breed** (een kleinere afbeelding blijft zoals hij is, nooit vergroot; een gedraaide foto wordt rechtop gezet). Waar de winkel een grotere versie heeft (AH, Picnic en Crisp), haalt MealieShopper die op, zodat de bewaarde afbeelding zo scherp mogelijk is.
+  - In de Prijsgeschiedenis staat bij het product het blok **Bewaarde afbeeldingen**: elke afbeelding met de naam van toen en *bewaard op …*; een klik opent hem in het groot. De afbeelding bovenaan het product komt nu ook uit de bewaarde kopie, dus die blijft staan als de winkel hem weghaalt.
+  - Verandert de foto van een product, dan komt de nieuwe erbij en blijft de oude staan (hooguit tien per product; de eerste blijft altijd). Dezelfde foto onder een ander adres wordt niet nog eens bewaard.
+  - Het ophalen laat een synchronisatie nooit mislukken en duurt per synchronisatie hooguit 20 seconden (hooguit 40 afbeeldingen); wat dan nog niet binnen is, volgt de volgende keer. Het staat in het auditlog, net als ander verkeer met de winkels.
+  - `GET /api/prices/history` geeft per product `savedImages`; de afbeelding zelf staat op `GET /api/prices/images/<id>` (uit de database, nooit van de winkel).
+- **In de back-up**: de bewaarde afbeeldingen gaan mee (*Bewaarde productafbeeldingen* in de samenvatting), want de winkel geeft ze niet terug als hij ze vervangt. Bij het terugzetten wordt elke afbeelding opnieuw gelezen: wat geen PNG, JPEG of WebP van hooguit 1024 pixels breed is, wordt geweigerd, en het type, de maat en de controlesom volgen uit de afbeelding zelf.
+- **Nieuwe afhankelijkheid: Pillow** (voor het verkleinen). De container installeert die vanzelf; draai je MealieShopper zonder container, voer dan `pip install -r requirements.txt` opnieuw uit.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#188](https://github.com/helmerzNL/MealieShopper/pull/188).
+
 ## v2.91.1
 
 ### Opgelost in 2.91.1
