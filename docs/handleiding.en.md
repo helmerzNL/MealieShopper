@@ -24,7 +24,7 @@ Everything MealieShopper can do, screen by screen. Installing, configuring, runn
 - **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Tapping a meal shows its recipe, with the ingredients for the servings you planned. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
 - **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus, and with an AH link also your personal Bonus Box), Picnic, Jumbo and Crisp, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
 - **Is it really a deal?** Every offer shows its price per kilo, litre or piece and a verdict: a real deal, a small saving, or not cheaper than the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price over time and what you paid yourself, from your orders and receipts. **Compare pack sizes** shows which pack is cheapest per unit, and the check list of the week menu points it out when another pack is cheaper. With **Only bought before** you only see what you bought; MealieShopper keeps the image of those products, so you recognise a product that got another name or photo. Older purchases from your confirmation emails can be read in with the help of an AI assistant.
-- **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic, Crisp and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link.
+- **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic, Crisp and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link. Your saved AH recipes and your Jumbo recipe lists also go into Mealie in one go: a selection, or (the administrator) a whole group or list, with the store as tag and the group as category.
 - **Your AH account in MealieShopper.** Your saved recipes (with your recipe groups from the AH app) and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic, Jumbo and Crisp, with a list for the stores you linked. At Picnic and Crisp you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
 - **Orders and receipts.** Your AH basket, your orders at Albert Heijn and your receipts from the shop, kept as a copy of their own so you can look at and search them without a connection to AH ("when did I last buy coffee?"). Your AI assistant can query them too.
@@ -139,6 +139,8 @@ Pick a group to see only its recipes, in the order of that group; searching work
 
 <img src="screenshots/en/recipe-groups.png" alt="My saved recipes with the recipe group Doordeweeks (4) chosen: only the recipes of that group" width="900">
 
+With `Select` you put several recipes into Mealie at once, and the administrator a whole group with `Import whole group`; see [Bulk import into Mealie](#bulk-import-into-mealie).
+
 ### Stores: your lists
 
 Your favourite lists as cards. Sync them to MealieShopper, search by name or by product, and open a list in the same place. In an opened list you put the whole list in your basket with one press on **Add to basket**, and you change the quantity per product.
@@ -187,7 +189,7 @@ Choose **Jumbo** in the store menu. You see your **lists** (your own lists, Favo
 
 <img src="screenshots/en/jumbo-orders.png" alt="Completed Jumbo orders with date, delivery time and total" width="900">
 
-Under **Recipes** you choose Favourites or one of your own lists; `View` shows the ingredients, the method and the nutrition values, and `Plan` puts the recipe in your week menu (and in Mealie).
+Under **Recipes** you choose Favourites or one of your own lists; `View` shows the ingredients, the method and the nutrition values, and `Plan` puts the recipe in your week menu (and in Mealie). With `Select` and `Import whole list` you put more recipes into Mealie at once; see [Bulk import into Mealie](#bulk-import-into-mealie).
 
 <img src="screenshots/en/jumbo-recipes.png" alt="Recipe list at Jumbo with a list picker and cards" width="900">
 
@@ -271,6 +273,25 @@ The **Basket** tab shows the basket of the store you choose at the top (Albert H
 ### Searching and importing recipes
 
 `Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) and **Crisp** (the recipes in the Crisp app, with Crisp's own search) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Every card has `View` and `Plan`, lined up at the bottom. `View` shows the recipe in MealieShopper, with the ingredients and the method, `Import` (put it in Mealie without planning; not for a recipe that already comes from Mealie) and a link to the source: `View at Albert Heijn` (or the other store) or `Open in Mealie`. Picnic and Crisp have no web page, so there is no link there. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
+
+### Bulk import into Mealie
+
+Under **Stores** you put your saved AH recipes and your Jumbo recipe lists into Mealie in one go, instead of one by one.
+
+- **A selection.** Choose `Select` above the recipes: every card gets a box. Tap a card or its box to choose it; `Select all` chooses the cards you see (at AH within your search, at Jumbo the pages that are loaded). At the bottom a bar shows `Import N recipes into Mealie`. You choose at most 50 at a time. Everyone who may import a single recipe may do this.
+- **A whole group or list** (administrator only). `Import whole group` (AH, for the chosen recipe group; with *All recipes* chosen the button reads `Import all recipes`) and `Import whole list` (Jumbo) put everything from that group or list into Mealie. At Jumbo MealieShopper first fetches all pages of the list.
+
+First a window asks you to confirm: how many recipes it is, which tag and category they get and roughly how long it takes. Then the import runs in the background and you can keep using the app. The window shows the progress and per recipe *Imported*, *Already in Mealie* or *Failed* (with the reason), with a link to the recipe in Mealie. If you close the window, *Import into Mealie running* appears above the recipes; it opens the window again, also after reloading the page. `Stop` stops the import after the recipe it is working on; whoever started it and the administrator may do that. One import runs at a time.
+
+<img src="screenshots/en/recipe-bulk.png" alt="My saved recipes with the group Doordeweeks chosen: two cards ticked, the buttons Select and Import whole group (4), and at the bottom the bar with Select all, Done and Import 2 recipes into Mealie" width="900">
+
+**In Mealie.** Every recipe gets the tag with the store's name (*Albert Heijn* or *Jumbo*), and from a group or list also the category with that name (for example *Doordeweeks*). *All recipes* and the Jumbo *Favourites* are not a grouping of your own; those only get the tag. If you select recipes while a group or list is chosen, they get that category too. If the tag or category does not exist yet, MealieShopper creates it. For that the Mealie user of your API token must be allowed to organise (in Mealie, at the user: *Organize*); if not, the recipes are imported anyway, with a notice.
+
+**Nothing twice, and gentle on the stores.** A recipe that is already in Mealie (same source) is not imported again; it only gets the tag and category it is missing. If Mealie cannot look up what is already there, the import stops, because otherwise everything would be imported twice. MealieShopper waits a second and a half between two recipes. If AH or Jumbo refuses the requests (403 or 429), five recipes fail in a row or Mealie refuses the token, the import stops. MealieShopper fetches at most 250 new recipes per run; what is already in Mealie does not count. Start the import again afterwards for the rest: it carries on where it stopped. That also goes after a restart of MealieShopper, which interrupts a running import. MealieShopper fetches Mealie's units and foods once per import, not for every recipe.
+
+<img src="screenshots/en/recipe-bulk-report.png" alt="The Import into Mealie window after the group Doordeweeks: 4 of 4 recipes, 3 imported and 1 already in Mealie, with a link to Mealie for each recipe" width="900">
+
+API: `POST /api/mealie/bulk-import` (a selection: `store` is `ah` or `jumbo`, `ids` the recipes and optionally `group` for the category), `POST /api/mealie/bulk-import/group` (a whole group or list, with `store` and `group`; at AH without `group` all saved recipes; administrator only), `GET /api/mealie/bulk-import` (the progress) and `POST /api/mealie/bulk-import/cancel`. The import runs in MealieShopper's memory and appears as one line per run in the audit log (*Mealie bulk import*). There is no MCP tool for it: the rule *administrator only* does not apply there.
 
 ### Offers
 

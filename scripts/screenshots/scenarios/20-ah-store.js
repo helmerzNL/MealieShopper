@@ -1,5 +1,5 @@
 // Winkels > Albert Heijn: bewaarde recepten, lijstjes, bestellingen en kassabonnen.
-const { dish, product, DISHES } = require("../demo");
+const { dish, product, DISHES, mealieUrl } = require("../demo");
 
 // De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
 async function lang(request) {
@@ -212,6 +212,50 @@ const routes = {
   "/api/ah/purchases/search*": purchaseHits,
 };
 
+// ---- in bulk importeren (2.98) -----------------------------------------------------------------------------
+// De groep Doordeweeks in één keer naar Mealie: drie nieuw, één stond er al. De server geeft codes; de app maakt er tekst van.
+const BULK_GROUP = savedRecipes.groups[0];
+const bulkJob = {
+  state: "done",
+  phase: "",
+  store: "ah",
+  storeName: "Albert Heijn",
+  group: { id: BULK_GROUP.id, name: BULK_GROUP.name },
+  category: BULK_GROUP.name,
+  whole: true,
+  groupSize: BULK_GROUP.count,
+  items: BULK_GROUP.recipeIds.map((id, index) => ({
+    id,
+    title: savedRecipes.recipes.find((recipe) => recipe.id === id).title,
+    status: index === 2 ? "existing" : "imported",
+    slug: `recept-${id}`,
+    mealieUrl: `${mealieUrl}/g/thuis/r/recept-${id}`,
+    error: "",
+  })),
+  warnings: [],
+  error: "",
+  startedBy: "anna",
+  startedAt: "2026-10-28T09:20:00+00:00",
+  finishedAt: "2026-10-28T09:20:18+00:00",
+  total: 4,
+  done: 4,
+  imported: 3,
+  existing: 1,
+  failed: 0,
+  skipped: 0,
+  remaining: 0,
+  limits: { selection: 50, imports: 250, items: 1000 },
+};
+
+const bulkRoutes = {
+  ...routes,
+  "/api/mealie/bulk-import**": (route, request) => {
+    const started = request.method() === "POST";
+    const body = started ? bulkJob : { state: "idle", limits: bulkJob.limits };
+    return route.fulfill({ status: started ? 202 : 200, contentType: "application/json", body: JSON.stringify(body) });
+  },
+};
+
 // Naar Winkels > Albert Heijn en daar naar het gevraagde onderdeel.
 const openStores = (subtab) => async (page) => {
   await page.click('[data-tab="ah-items"]');
@@ -252,6 +296,37 @@ module.exports = [
       await page.evaluate(() => document.activeElement && document.activeElement.blur());
       await page.waitForTimeout(500);
       await scrollTo(page, "#ah-items-recepten .box");
+    },
+  },
+  {
+    // In bulk importeren (2.98): met Selecteren een vakje op elke kaart en onderaan de balk met Importeer N in Mealie.
+    name: "recipe-bulk",
+    routes: bulkRoutes,
+    run: async (page) => {
+      await openStores()(page);
+      await page.waitForSelector("#ah-recipe-group:not([hidden])");
+      await page.selectOption("#ah-recipe-group", "doordeweeks");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.click('[data-bulk-select="ah"]');
+      const boxes = page.locator("#ah-recipes [data-bulk-id]");
+      await boxes.nth(0).check();
+      await boxes.nth(2).check();
+      await page.waitForTimeout(400);
+      await scrollTo(page, "#ah-items-recepten .box");
+    },
+  },
+  {
+    // De beheerder importeert de hele groep: het venster met het verslag per recept, met een link naar Mealie.
+    name: "recipe-bulk-report",
+    routes: bulkRoutes,
+    run: async (page) => {
+      await openStores()(page);
+      await page.waitForSelector("#ah-recipe-group:not([hidden])");
+      await page.selectOption("#ah-recipe-group", "doordeweeks");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.click('[data-bulk-group="ah"]');
+      await page.click("#bulk-run");
+      await page.waitForTimeout(500);
     },
   },
   { name: "lists", routes, run: openLists },

@@ -3372,6 +3372,11 @@ body.has-onboarding {
     padding-bottom: calc(112px + env(safe-area-inset-bottom));
   }
 
+  /* De balk van In bulk importeren boven de zwevende tabbalk. */
+  html.has-tabbar .bulk-bar {
+    bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+
   html.has-tabbar .tabs {
     position: fixed;
     z-index: 20;
@@ -5095,4 +5100,152 @@ body.has-onboarding {
 
 .import-dialog__spacer {
   flex: 1 1 auto;
+}
+
+/* In bulk importeren (recipe_bulk.js): selecteren op de kaarten, een vaste balk eronder en het venster met de voortgang. */
+.bulk-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.bulk-tools .button[aria-pressed="true"] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.bulk-status {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.recipe-card.is-selectable {
+  position: relative;
+  cursor: pointer;
+}
+
+.recipe-card.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.bulk-check {
+  position: absolute;
+  z-index: 1;
+  top: 24px;
+  left: 24px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+}
+
+.bulk-check input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* Zonder afbeelding staat het vakje voor de titel. */
+.recipe-card.is-selectable:not(:has(img)) h3 {
+  padding-left: 44px;
+}
+
+.recipe-card.is-selectable:not(:has(img)) .bulk-check {
+  top: 8px;
+  left: 8px;
+}
+
+.bulk-bar {
+  position: sticky;
+  z-index: 5;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.bulk-bar__count {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.bulk-bar__note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.bulk-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.bulk-intro p {
+  margin: 4px 0;
+}
+
+.bulk-progress p {
+  margin: 0 0 6px;
+}
+
+.bulk-progress progress {
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin-bottom: 6px;
+  accent-color: var(--primary);
+}
+
+.bulk-report {
+  max-height: min(320px, 40vh);
+}
+
+.bulk-report:empty {
+  display: none;
+}
+
+/* Op een telefoon een lage balk: de knop met het aantal bovenaan, de telling alleen voor schermlezers. */
+@media (max-width: 640px) {
+  .bulk-bar {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .bulk-bar__count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .bulk-bar [data-bulk-import] {
+    order: -1;
+    flex: 1 1 100%;
+  }
+
+  .bulk-bar [data-bulk-all],
+  .bulk-bar [data-bulk-clear] {
+    flex: 1 1 auto;
+    padding: 0 12px;
+    white-space: nowrap;
+  }
 }

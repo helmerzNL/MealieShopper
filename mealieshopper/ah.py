@@ -359,7 +359,7 @@ def _request_json(method: str, url: str, **kwargs: Any) -> Any:
     if not response.ok:
         body = response.text[:500]
         _reject_if_token(response.status_code, body, _bearer(kwargs.get("headers")), f"{response.status_code}: {body}")
-        raise RuntimeError(f"{response.status_code}: {body}")
+        raise AhHttpError(f"{response.status_code}: {body}", response.status_code)
     return response.json()
 
 
@@ -1249,7 +1249,7 @@ def _graphql(token: str, query: str, variables: dict[str, Any], what: str) -> di
     if not response.ok:
         message = f"{what} mislukt ({response.status_code}): {response.text[:200]}"
         _reject_if_token(response.status_code, _body(response), token, message)
-        raise RuntimeError(message)
+        raise AhHttpError(message, response.status_code)  # met de status, zodat een aanroeper bij 403/429 kan stoppen
     data = response.json()
     if data.get("errors"):
         raise RuntimeError(f"{what} mislukt: {data['errors'][0].get('message', 'GraphQL error')}")
@@ -1424,6 +1424,10 @@ def _graphql_variants(
             return _graphql(token, query, variables, what)
         except TokenRejected:
             raise  # een ander token helpt, een andere variant van de vraag niet
+        except AhHttpError as exc:
+            if exc.status in (403, 429):
+                raise  # firewall of te veel verzoeken: een andere variant maakt het alleen erger
+            errors.append(str(exc))
         except RuntimeError as exc:
             errors.append(str(exc))
     raise RuntimeError(" | ".join(dict.fromkeys(errors)))
@@ -1922,12 +1926,16 @@ def _iso_minutes(minutes: Any) -> str | None:
     return f"PT{value}M" if value > 0 else None
 
 
+class RecipeUnavailable(RuntimeError):
+    """AH kent het recept niet (meer), of het heeft geen ingrediënten en geen bereiding: opnieuw proberen helpt niet."""
+
+
 def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
     """Allerhande-recept als schema.org Recipe (JSON-LD), via de AH-API zonder paginascraping."""
     data = _anonymous(lambda token: _graphql_variants(token, RECIPE_DETAIL_QUERIES, {"id": int(recipe_id)}, "AH recept ophalen"))
     recipe = data.get("recipe")
     if not recipe:
-        raise RuntimeError("AH recept niet gevonden")
+        raise RecipeUnavailable("AH recept niet gevonden")
 
     ingredients = [
         str(item.get("text")).strip()
@@ -1940,7 +1948,7 @@ def get_recipe_jsonld(recipe_id: int) -> dict[str, Any]:
         if str(text or "").strip():
             steps.append({"@type": "HowToStep", "text": str(text).strip()})
     if not ingredients and not steps:
-        raise RuntimeError("AH recept heeft geen ingredienten of bereiding")
+        raise RecipeUnavailable("AH recept heeft geen ingredienten of bereiding")
 
     times = [recipe.get(key) or 0 for key in ("cookTime", "ovenTime", "waitTime")]
     images = [

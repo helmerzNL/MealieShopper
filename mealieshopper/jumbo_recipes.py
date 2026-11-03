@@ -247,10 +247,19 @@ def _ingredient_line(raw: dict[str, Any]) -> str:
     return " ".join(part for part in (amount, name) if part)
 
 
+class RecipeUnavailable(RuntimeError):
+    """Jumbo kent het recept niet (meer), of het heeft geen ingrediënten en geen bereiding: opnieuw proberen helpt niet."""
+
+
+def valid_id(recipe_id: Any) -> str:
+    """Het receptnummer als tekst; een `ValueError` als het geen geldig nummer is."""
+    return _valid_id(recipe_id)
+
+
 def parse_recipe(raw: Any, recipe_id: str) -> dict[str, Any]:
     """Een recept uit het antwoord van `getRecipe`: tekst, tijden, ingrediënten (met het Jumbo-product) en stappen."""
     if not isinstance(raw, dict) or not isinstance(raw.get("title"), str):
-        raise RuntimeError(tr("Jumbo kent dit recept niet (meer)", "Jumbo doesn't know this recipe (any more)"))
+        raise RecipeUnavailable(tr("Jumbo kent dit recept niet (meer)", "Jumbo doesn't know this recipe (any more)"))
     ingredients = []
     for item in raw.get("ingredients") or []:
         if not isinstance(item, dict) or not str(item.get("name") or "").strip():
@@ -322,7 +331,7 @@ def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
     lines = [item["line"] for item in recipe["ingredients"]]
     steps = [{"@type": "HowToStep", "text": text} for text in recipe["steps"]]
     if not lines and not steps:
-        raise RuntimeError(tr("Dit Jumbo-recept heeft geen ingrediënten of bereiding", "This Jumbo recipe has no ingredients or steps"))
+        raise RecipeUnavailable(tr("Dit Jumbo-recept heeft geen ingrediënten of bereiding", "This Jumbo recipe has no ingredients or steps"))
     description = recipe.get("description") or ""
     if recipe.get("tip"):
         description = f"{description}\n\nTip: {recipe['tip']}".strip()
