@@ -2,6 +2,51 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.93.0
+
+### Nieuw in 2.93.0
+
+*English summary: every screen now has its own address (/recipes, /cart, /offers/history, /stores/ah/orders/<number>, /stores/ah/receipts/<id> and so on), so reloading, bookmarks and back and forward in the browser work. The menu, the tabs, the store choice and the user menu are real links: Ctrl+click (Cmd+click on a Mac) or the middle mouse button opens a screen in a new tab. Screens link to each other: an offer to its price history, a purchase in the price history to its order or receipt, and a product in an order, the basket or on a receipt back to its price history. In Price history the owner can import old purchases from order confirmation emails: copy the prompt, give it with the emails to an AI assistant such as Claude or ChatGPT, paste the JSON it returns and choose Check to see per order whether it is new or already there; only Import reads it in. An order that was already imported, or that the app knows from your account, is skipped, also when the app fetches it from your account later. Imported purchases are part of the backup and can be removed again per store. Reload the page once after updating.*
+
+- **Elk scherm een eigen adres.** Herladen, een bladwijzer en terug en vooruit in de browser werken nu zoals je verwacht:
+  - het weekmenu en Recepten zoeken op `/recipes` en `/recipes/search`;
+  - de aanbiedingen, de recepten erbij en de prijsgeschiedenis op `/offers`, `/offers/recipes` en `/offers/history` (met `?store=`, `?q=` en `?product=`);
+  - URL importeren op `/import`;
+  - de winkels op `/stores/<winkel>/<recipes|lists|orders|favorites>`, een lijstje op `/stores/ah/lists/<id>`, een bestelling op `/stores/<ah|jumbo>/orders/<nummer>` en een kassabon op `/stores/ah/receipts/<id>`;
+  - de maaltijdboxen en het mandje op `/meal-kits` en `/cart`;
+  - het profiel, de instellingen en Over op `/profile` (en `/profile/security`, `/profile/ai`), `/settings` (en `/settings/users`, `/settings/audit`, `/settings/system`) en `/about`.
+  - `/` blijft het weekmenu. `/settings` opent alleen voor de beheerder. Staat er een winkel in het adres waarvan de koppeling na het inloggen nog laadt, dan opent dat scherm zodra de koppeling binnen is.
+  - Zoeken in de prijsgeschiedenis past het adres aan zonder een stap terug per letter.
+  - De server geeft op deze adressen dezelfde pagina als `/` (`auth.PAGE_ROOTS`). Ze zijn net zo openbaar als `/`, want het inlogscherm staat op de pagina zelf; `/api` blijft beschermd en een onbekend adres geeft nog steeds 404.
+- **Het menu, de tabs, de winkelkeuze en het gebruikersmenu zijn echte links.** Een gewone klik blijft in de app; met Ctrl+klik (Cmd+klik op een Mac), Shift- of Alt-klik of de middelste muisknop opent de browser het scherm in een nieuw tabblad, en blijft dit tabblad staan.
+- **Links tussen schermen:**
+  - een aanbieding heeft de link **Prijsgeschiedenis** naar dat product;
+  - in de prijsgeschiedenis linkt de bron van een aankoop (*bestelling*, *kassabon*) naar die bestelling of bon;
+  - een product in een bestelling, in het mandje of op een kassabon linkt naar zijn prijsgeschiedenis;
+  - de producten in de lijst van de prijsgeschiedenis, de bestellingen en de kassabonnen hebben elk hun eigen adres.
+- **Oude aankopen importeren** in de **Prijsgeschiedenis** (alleen de beheerder). In je account staan alleen de bestellingen van de laatste maanden; oudere staan nog in je bevestigingsmails.
+  - Met **Oude aankopen importeren** kopieer je een prompt voor een AI-assistent als Claude of ChatGPT. Geef die prompt met je bevestigingsmails aan de assistent en plak de JSON die terugkomt (ook tussen ` ```json ` en ` ``` `). Het geldt voor de winkel die bij de aanbiedingen gekozen is: AH, Picnic, Jumbo of Crisp.
+  - De prompt vraagt per bestelling de datum (de bezorg- of afhaaldag) en het bestelnummer, en per product de naam, het aantal, de prijs en de korting.
+  - **Controleren** laat per bestelling zien of ze nieuw is, of waarom niet: ze staat twee keer in deze JSON, is al ingelezen (zelfde bestelnummer, of zonder nummer zelfde dag en totaal), staat al in je bestellingen, of op die dag staat al een bestelling in je account. Een bestelling zonder bruikbare datum of zonder producten wordt niet ingelezen en staat bij de problemen. Pas **Importeren** leest de bestellingen in, en alleen met de tekst die je controleerde.
+  - Haalt de app een ingelezen bestelling later alsnog uit je account, dan telt de ingelezen versie niet meer mee. Zo telt een aankoop nooit dubbel.
+  - Een ingelezen regel heeft alleen de naam uit de mail. Die wordt op naam aan een bekend product gekoppeld, zoals een regel van een kassabon; een dubbel merk uit een mail (*AH Ah zachte spinazie*) valt weg. Past de naam nergens, dan staat de regel als eigen product in de lijst. De bron heet *import*.
+  - **Ingelezen aankopen verwijderen** haalt alle ingelezen aankopen van die winkel weer weg.
+  - Hooguit 5.000.000 tekens, 5000 bestellingen per keer en 1000 producten per bestelling. Een reverse proxy voor MealieShopper moet een aanvraag van ongeveer 5 MB doorlaten om de grootste import te kunnen doen.
+  - `GET`, `POST` (met `dryRun` voor Controleren) en `DELETE /api/prices/import`, alleen voor de beheerder.
+- **In de back-up**: de ingelezen aankopen gaan mee (*Ingelezen aankopen* in de samenvatting). De koppeling van de artikelnummers op de kassabonnen (zie hieronder) gaat niet mee: de volgende synchronisatie van de bonnen bouwt die opnieuw op.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178). Pull requests: [#190](https://github.com/helmerzNL/MealieShopper/pull/190), [#192](https://github.com/helmerzNL/MealieShopper/pull/192), [#193](https://github.com/helmerzNL/MealieShopper/pull/193) en [#194](https://github.com/helmerzNL/MealieShopper/pull/194).
+
+### Opgelost in 2.93.0
+
+*English summary: in Price history the chart no longer runs to the year 2999: offers saved before 2.75.0 could still have AH's "ongoing" end date 31-12-2999, which is now cleared once after starting. A product on an AH receipt and the same product from an order are now one product: the id on a receipt is AH's article number (hqId), not the web shop's id, and after every receipt sync MealieShopper looks the receipt lines up at AH and only links an article number to the result with exactly that number. A receipt line no longer ends up at a completely different product whose web shop id happens to equal its article number (AH ROOKWORST at a pizza, CROKY CHIPS at chicken schnitzel): a known id now only counts when the names share at least one word, otherwise the line becomes its own product.*
+
+- **De grafiek in de Prijsgeschiedenis loopt niet meer tot het jaar 2999.** Een aanbieding die vóór 2.75.0 werd opgeslagen, kon AH's einddatum voor *doorlopend* (`2999-12-31`) nog hebben; dan liep de grafiek tot 2999 en telde de aanbieding als nog lopend. Na het starten maakt MealieShopper die einddatum een keer leeg, in de aanbiedingen en in de aanbiedingsgeschiedenis.
+- **Een product op de kassabon en hetzelfde product uit een bestelling zijn één product.** *BLOEMKOOL* op de bon en *AH Bloemkool* uit een bestelling stonden apart in de lijst. Het id op een kassabon is het artikelnummer van AH (`hqId`), niet het id van de webwinkel: *BLOEMKOOL* heeft 20960, *AH Bloemkool* 4183.
+  - Na elke synchronisatie van de kassabonnen zoekt MealieShopper de naam van de bonregels bij AH op en koppelt een artikelnummer alleen aan het resultaat met precies dat artikelnummer, dus zonder te gokken op naam. Hooguit 40 artikelnummers en 20 seconden per keer, de vaakst gekochte eerst; wat AH niet vindt, probeert het na 30 dagen opnieuw. Het koppelen laat het ophalen van de bonnen nooit mislukken.
+  - Is een regel niet gekoppeld, dan telt de naam, nu ook zonder *AH* ervoor: *BLOEMKOOL* hoort bij *AH Bloemkool* als maar één product zo heet.
+- **Een bonregel komt niet meer bij een heel ander product terecht.** Het artikelnummer op een bon kan toevallig gelijk zijn aan het id van een ander product in de webwinkel: *AH ROOKWORST* (627748) stond zo als aankoop van € 2,99 bij *Dr. Oetker Ristorante pizza hawaii 3-pack*, en *CROKY CHIPS* bij *AH Scharrel kipschnitzel 2 stuks 2-pack*. Een bekend id telt nu alleen als de naam op de bon minstens één woord deelt met een naam van dat product; een afgekort woord telt mee (*RUNDERGEH* past bij *Rundergehakt*). Past ook de naam nergens, dan wordt de regel een eigen product.
+
 ## v2.92.0
 
 ### Nieuw in 2.92.0

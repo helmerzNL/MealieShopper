@@ -161,6 +161,65 @@ class HistoryTest(PricesCase):
         self.assertEqual((product["productId"], product["title"], product["timesBought"]), ("11", "AH Rundergehakt", 10))
         self.assertEqual([p["source"] for p in product["purchases"]].count("receipt"), 8)
 
+    def test_a_linked_article_number_joins_the_product_from_the_orders(self):
+        # Op de bon "AH BLOEMK" (afgekort) met artikelnummer 20960, in de bestelling "AH Bloemkool" met id 4183: een product (issue #178).
+        self.ah_order(101, "delivered", "2026-09-01", order_item(4183, "AH Bloemkool", 1.69))
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "AH BLOEMK", 2, 1.99, 3.98))
+        self.ah_receipt("R2", "2026-10-09T09:00:00", (20960, "AH BLOEMK", 1, 1.85, 1.85))
+        self.assertEqual(sorted(p["productId"] for p in self.history(query="bloem")["products"]), ["20960", "4183"], "zonder koppeling: twee")
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (20960, 4183, 'AH Bloemkool', 'x')")
+        data = self.history(query="bloem")
+        self.assertEqual(data["total"], 1)
+        product = data["products"][0]
+        self.assertEqual((product["productId"], product["title"], product["timesBought"]), ("4183", "AH Bloemkool", 3))
+        self.assertEqual([p["source"] for p in product["purchases"]], ["order", "receipt", "receipt"])
+        self.assertEqual(self.history(query="BLOEMK")["total"], 1, "de naam op de bon vindt hem ook")
+
+    def test_a_receipt_id_that_is_also_the_id_of_another_product_is_not_trusted(self):
+        # Het artikelnummer van "AH ROOKWORST" op de bon (627748) is ook het id van een pizza in de webwinkel (issue #178).
+        self.sync_offer("2026-11-02T05:00:00+00:00", offer("627748", "Dr. Oetker Ristorante pizza hawaii 3-pack", 8.80, 9.57))
+        self.ah_order(101, "delivered", "2026-09-01", order_item(55, "AH Rookworst", 2.79))
+        self.ah_receipt("R1", "2025-12-06T18:57:00", (627748, "AH ROOKWORST", 1, None, 2.99))
+        pizza = next(p for p in prices.history("ah", "ristorante", 50, today="2026-11-03")["products"] if p["productId"] == "627748")
+        self.assertEqual(pizza["timesBought"], 0)
+        sausage = next(p for p in prices.history("ah", "rookworst", 50, today="2026-11-03")["products"] if p["productId"] == "55")
+        self.assertEqual((sausage["timesBought"], [p["source"] for p in sausage["purchases"]]), (2, ["receipt", "order"]))
+
+    def test_a_receipt_id_of_another_product_without_a_name_match_stays_its_own_product(self):
+        # Zonder bestelling van rookworst valt de bonregel niet terug op het id van de pizza, maar wordt hij een eigen product.
+        self.sync_offer("2026-11-02T05:00:00+00:00", offer("627748", "Dr. Oetker Ristorante pizza hawaii 3-pack", 8.80, 9.57))
+        self.ah_receipt("R1", "2025-12-06T18:57:00", (627748, "AH ROOKWORST", 1, None, 2.99))
+        products = {p["productId"]: p for p in prices.history("ah", "", 50, today="2026-11-03")["products"]}
+        self.assertEqual(products["627748"]["timesBought"], 0)
+        self.assertEqual(products["bon:ah rookworst"]["timesBought"], 1)
+
+    def test_names_agree_on_a_shared_or_shortened_word(self):
+        self.assertTrue(prices._names_agree("ah rijst basmati", ["ah basmati rijst"]))
+        self.assertTrue(prices._names_agree("ah rundergeh", ["ah rundergehakt"]))
+        self.assertFalse(prices._names_agree("ah rookworst", ["dr. oetker ristorante pizza hawaii 3-pack"]))
+        self.assertFalse(prices._names_agree("ah ui", ["ah uien"]), "woorden van twee letters tellen niet")
+
+    def test_a_receipt_name_without_the_house_brand_finds_the_product(self):
+        # Op de bon "BLOEMKOOL", in de bestelling "AH Bloemkool" (issue #178): zonder "AH" vooraan is het dezelfde naam.
+        self.ah_order(101, "delivered", "2026-09-01", order_item(4183, "AH Bloemkool", 1.69))
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "BLOEMKOOL", 1, 1.99, 1.99))
+        product = self.product("4183", query="bloemkool")
+        self.assertEqual((product["timesBought"], [p["source"] for p in product["purchases"]]), (2, ["order", "receipt"]))
+
+    def test_a_bare_name_that_fits_two_products_is_not_guessed(self):
+        self.ah_order(101, "delivered", "2026-09-01", order_item(1, "AH Bloemkool", 1.69), order_item(2, "Bloemkool", 1.49))
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "BLOEMKOOL ", 1, 1.99, 1.99))
+        ids = sorted(p["productId"] for p in self.history(query="bloemkool")["products"])
+        self.assertEqual(ids, ["1", "2"], "precies dezelfde naam gaat voor: Bloemkool")
+        self.assertEqual(self.product("2", query="bloemkool")["timesBought"], 2)
+
+    def test_an_article_number_that_ah_did_not_find_changes_nothing(self):
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (43947, "DRAAGTAS", 1, 0.25, 0.25))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (43947, NULL, NULL, 'x')")
+        self.assertEqual([p["productId"] for p in self.history(query="draagtas")["products"]], ["43947"])
+
     def test_a_receipt_line_that_matches_nothing_is_still_found(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "AH VERSE KNOFLOOK", 1, 0.79, 0.79))
         product = self.history(query="knoflook")["products"][0]

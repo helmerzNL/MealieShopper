@@ -733,14 +733,14 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     return [item for _, item in ranked]
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    limit = max(1, int(limit))
+def _search_json(query: str, size: int) -> Any:
+    """De ruwe zoekresultaten van AH (anoniem)."""
 
     def search(token: str) -> Any:
         response = _get_with_retry(
             f"{AH_API_BASE}/mobile-services/product/search/v2",
             headers=_auth_headers(token, include_content_type=False),
-            params={"query": query, "page": 0, "size": max(limit, SEARCH_WINDOW), "sortOn": "RELEVANCE"},
+            params={"query": query, "page": 0, "size": size, "sortOn": "RELEVANCE"},
             timeout=30,
         )
         if not response.ok:
@@ -749,8 +749,30 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
             raise RuntimeError(message)
         return response.json()
 
-    products = rank_search_results(query, _anonymous(search).get("products") or [])
+    return _anonymous(search)
+
+
+def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    limit = max(1, int(limit))
+    products = rank_search_results(query, _search_json(query, max(limit, SEARCH_WINDOW)).get("products") or [])
     return [_search_product_dict(item, query) for item in products[:limit]]
+
+
+# Een bonregel heet kort en algemeen ("BROCCOLI", "KIPFILET"); het product staat dan vaak pas op plek 30 tot 45 van de resultaten.
+HQ_SEARCH_WINDOW = 100
+
+
+def search_hq_ids(query: str) -> list[tuple[int, int, str]]:
+    """(hqId, webshopId, titel) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van de
+    webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend."""
+    found = []
+    for item in _search_json(query, HQ_SEARCH_WINDOW).get("products") or []:
+        if not isinstance(item, dict):
+            continue
+        hq_id, webshop_id = item.get("hqId"), item.get("webshopId") or item.get("id")
+        if isinstance(hq_id, int) and hq_id > 0 and isinstance(webshop_id, int) and webshop_id > 0:
+            found.append((hq_id, webshop_id, str(item.get("title") or "").strip()))
+    return found
 
 
 def search_product(query: str) -> dict[str, Any] | None:

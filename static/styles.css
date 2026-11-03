@@ -4913,3 +4913,95 @@ body.has-onboarding {
   margin: 8px 0 0;
   font-size: 13px;
 }
+
+/* Oude aankopen importeren (#178) */
+.ohc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.ohc-tools .button {
+  margin-top: 10px;
+}
+
+.import-steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.import-steps p {
+  margin: 0 0 8px;
+}
+
+.import-steps label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.import-prompt {
+  margin-top: 8px;
+}
+
+.import-prompt pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.import-data {
+  width: 100%;
+  min-height: 140px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.import-report {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-report li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-report li.is-known small,
+.import-report li.is-problem small {
+  color: var(--muted);
+}
+
+.import-report li.is-new small {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.import-dialog__actions {
+  flex-wrap: wrap;
+}
+
+.import-dialog__spacer {
+  flex: 1 1 auto;
+}

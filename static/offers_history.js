@@ -199,6 +199,7 @@ function offerHistoryChart(product, width) {
 
 // Waar een aankoop vandaan komt. Een kassabon toont de prijs zonder de korting onderaan de bon; dat staat onder de tabel.
 function offerHistorySource(source) {
+  if (source === "import") return t("offers.history.source.import");
   return source === "receipt" ? t("offers.history.source.receipt") : t("offers.history.source.order");
 }
 
@@ -458,7 +459,10 @@ $("#offers-history-list").addEventListener("click", (event) => {
   renderOfferHistory();
   if (typeof routerSync === "function") routerSync();
 });
-document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", loadOfferHistory);
+document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", () => {
+  priceImportShowButton();
+  loadOfferHistory();
+});
 window.addEventListener("ms:languagechange", () => {
   if (offerHistory.products.length || offerHistory.loadedStore) renderOfferHistory();
 });
@@ -592,4 +596,155 @@ $("#compare-dialog").addEventListener("click", (event) => {
 $("#offers-history-detail").addEventListener("click", (event) => {
   const button = event.target.closest("[data-compare]");
   if (button) openPackCompare(button.dataset.store, button.dataset.compare);
+});
+
+// Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de
+// server (price_import.py). Eerst controleren (dryRun): wat nieuw is en wat er al is. Pas daarna importeren, met dezelfde tekst.
+// Alleen de beheerder ziet de knop; de server laat ook alleen de beheerder toe.
+const priceImport = { store: "", prompt: "", checked: null, busy: false };
+
+function priceImportIsOwner() {
+  const auth = state.auth || {};
+  return !auth.enabled || (Boolean(auth.authenticated) && auth.isOwner !== false);
+}
+
+function priceImportShowButton() {
+  $("#offers-history-import").hidden = !priceImportIsOwner();
+}
+
+function priceImportStoreName() {
+  return (STORES[priceImport.store] && STORES[priceImport.store].name) || priceImport.store;
+}
+
+function priceImportDay(iso) {
+  const day = offerHistoryDay(iso);
+  return day === null ? iso || "" : offerHistoryDayText(day, true);
+}
+
+function renderPriceImportStatus(summary) {
+  const store = priceImportStoreName();
+  $("#import-dialog-status").textContent = summary.orders
+    ? tn("offers.import.status", summary.orders, { store, first: priceImportDay(summary.first), last: priceImportDay(summary.last) })
+    : t("offers.import.status_none", { store });
+  $("#import-remove").hidden = !summary.orders;
+}
+
+function renderPriceImportReport(report) {
+  const orders = (report.orders || []).map((order) => {
+    const what = [priceImportDay(order.date), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
+    const state = order.new ? t("offers.import.new") : order.reason;
+    return `<li class="${order.new ? "is-new" : "is-known"}"><span>${escapeHtml(what)}</span> <small>${escapeHtml(state || "")}</small></li>`;
+  });
+  const problems = (report.problems || []).map((problem) => `<li class="is-problem"><small>${escapeHtml(problem)}</small></li>`);
+  const header = report.problemCount ? [`<li class="is-problem"><strong>${escapeHtml(tn("offers.import.problems", report.problemCount))}</strong></li>`] : [];
+  $("#import-report").innerHTML = [...orders, ...header, ...problems].join("");
+}
+
+async function loadPriceImportSummary() {
+  const summary = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`);
+  priceImport.prompt = summary.prompt || "";
+  $("#import-prompt").textContent = priceImport.prompt;
+  renderPriceImportStatus(summary);
+}
+
+async function openPriceImport() {
+  priceImport.store = offersState.store;
+  priceImport.checked = null;
+  $("#import-run").disabled = true;
+  $("#import-report").innerHTML = "";
+  message("#import-dialog-message", "");
+  $("#import-dialog").showModal();
+  try {
+    await loadPriceImportSummary();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  }
+}
+
+async function priceImportPost(dryRun) {
+  const data = $("#import-data").value;
+  if (!data.trim()) {
+    message("#import-dialog-message", t("offers.import.empty"));
+    return null;
+  }
+  return jsonFetch("/api/prices/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ store: priceImport.store, data, dryRun }),
+  });
+}
+
+async function checkPriceImport() {
+  if (priceImport.busy) return;
+  priceImport.busy = true;
+  $("#import-run").disabled = true;
+  try {
+    const report = await priceImportPost(true);
+    if (!report) return;
+    renderPriceImportReport(report);
+    priceImport.checked = report.new ? $("#import-data").value : null;
+    $("#import-run").disabled = !report.new;
+    const summary = t("offers.import.checked", { new: I18N.formatNumber(report.new), duplicates: I18N.formatNumber(report.duplicates), lines: I18N.formatNumber(report.lines) });
+    message("#import-dialog-message", report.new ? summary : `${summary} ${t("offers.import.nothing_new")}`, report.new ? "success" : "info");
+  } catch (error) {
+    $("#import-report").innerHTML = "";
+    message("#import-dialog-message", error.message);
+  } finally {
+    priceImport.busy = false;
+  }
+}
+
+async function runPriceImport() {
+  if (priceImport.busy || priceImport.checked !== $("#import-data").value) return;
+  priceImport.busy = true;
+  $("#import-run").disabled = true;
+  try {
+    const report = await priceImportPost(false);
+    if (!report) return;
+    renderPriceImportReport(report);
+    priceImport.checked = null;
+    message("#import-dialog-message", report.imported ? tn("offers.import.done", report.imported) : t("offers.import.nothing_new"), "success");
+    await loadPriceImportSummary();
+    loadOfferHistory();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  } finally {
+    priceImport.busy = false;
+  }
+}
+
+async function removePriceImport() {
+  if (!window.confirm(t("offers.import.remove_confirm", { store: priceImportStoreName() }))) return;
+  try {
+    const result = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`, { method: "DELETE" });
+    $("#import-report").innerHTML = "";
+    message("#import-dialog-message", tn("offers.import.removed", result.removed), "success");
+    await loadPriceImportSummary();
+    loadOfferHistory();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  }
+}
+
+async function copyPriceImportPrompt() {
+  try {
+    await navigator.clipboard.writeText(priceImport.prompt);
+    message("#import-dialog-message", t("offers.import.copied"), "success");
+  } catch {
+    $("#import-dialog .import-prompt").open = true;
+    message("#import-dialog-message", t("offers.import.copy_failed"));
+  }
+}
+
+$("#offers-history-import").addEventListener("click", openPriceImport);
+$("#import-copy").addEventListener("click", copyPriceImportPrompt);
+$("#import-check").addEventListener("click", checkPriceImport);
+$("#import-run").addEventListener("click", runPriceImport);
+$("#import-remove").addEventListener("click", removePriceImport);
+$("#import-data").addEventListener("input", () => {
+  $("#import-run").disabled = priceImport.checked === null || priceImport.checked !== $("#import-data").value;
+});
+$("#import-close").addEventListener("click", () => $("#import-dialog").close());
+$("#import-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
 });
