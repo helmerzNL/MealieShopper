@@ -214,6 +214,38 @@
       </div>
     </dialog>
 
+    <dialog id="import-dialog" class="product-dialog import-dialog" aria-labelledby="import-dialog-title">
+      <div class="product-dialog__inner">
+        <div>
+          <h3 id="import-dialog-title" data-i18n="offers.import.title">Oude aankopen importeren</h3>
+          <p class="muted" data-i18n="offers.import.explain">In je account staan alleen de bestellingen van de laatste maanden. Oudere bestellingen staan nog in je bevestigingsmails. Laat een AI-assistent (zoals Claude of ChatGPT) die mails omzetten naar JSON en plak die hieronder. Een bestelling die er al is, wordt overgeslagen.</p>
+          <p class="muted" id="import-dialog-status"></p>
+        </div>
+        <ol class="import-steps">
+          <li>
+            <p data-i18n="offers.import.step_prompt">Kopieer de prompt en geef die samen met je bevestigingsmails aan je assistent.</p>
+            <button class="button button--secondary" type="button" id="import-copy" data-i18n="offers.import.copy">Prompt kopiëren</button>
+            <details class="import-prompt">
+              <summary data-i18n="offers.import.show_prompt">Prompt bekijken</summary>
+              <pre id="import-prompt"></pre>
+            </details>
+          </li>
+          <li>
+            <label for="import-data" data-i18n="offers.import.step_paste">Plak hier de JSON van de assistent</label>
+            <textarea class="input import-data" id="import-data" rows="8" spellcheck="false" autocomplete="off"></textarea>
+          </li>
+        </ol>
+        <div id="import-dialog-message" role="status" aria-live="polite"></div>
+        <ul class="import-report" id="import-report"></ul>
+        <div class="product-dialog__actions import-dialog__actions">
+          <button class="button button--danger" type="button" id="import-remove" data-i18n="offers.import.remove">Ingelezen aankopen verwijderen</button>
+          <span class="import-dialog__spacer"></span>
+          <button class="button button--secondary" type="button" id="import-close" data-i18n="common.close">Sluiten</button>
+          <button class="button button--secondary" type="button" id="import-check" data-i18n="offers.import.check">Controleren</button>
+          <button class="button" type="button" id="import-run" data-i18n="offers.import.run" disabled>Importeren</button>
+        </div>
+      </div>
+    </dialog>
     <dialog id="meal-recipe-dialog" class="product-dialog meal-recipe" aria-labelledby="meal-recipe-title">
       <div class="product-dialog__inner">
         <img id="meal-recipe-image" class="meal-recipe__image" alt="" hidden>
@@ -583,10 +615,13 @@
               <input class="input" id="offers-history-search" type="search" placeholder="Zoek bijvoorbeeld gehakt 500 gram" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:offers.history.search_ph">
             </label>
           </form>
-          <label class="ohc-filter">
-            <input type="checkbox" id="offers-history-bought" role="switch">
-            <span data-i18n="offers.history.bought_only">Alleen eerder gekocht</span>
-          </label>
+          <div class="ohc-tools">
+            <label class="ohc-filter">
+              <input type="checkbox" id="offers-history-bought" role="switch">
+              <span data-i18n="offers.history.bought_only">Alleen eerder gekocht</span>
+            </label>
+            <button class="button button--secondary" type="button" id="offers-history-import" data-i18n="offers.import.open" hidden>Oude aankopen importeren</button>
+          </div>
           <p class="muted" id="offers-history-status"></p>
           <div id="offers-history-message"></div>
           <div id="offers-history-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>

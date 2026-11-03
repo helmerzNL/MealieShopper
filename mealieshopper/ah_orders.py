@@ -15,8 +15,9 @@ Het afleveradres bewaren we bewust niet; alleen datum en tijdvak.
 from __future__ import annotations
 
 import json
+import time
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from . import ah, ah_lists, auth
@@ -86,6 +87,15 @@ CREATE TABLE IF NOT EXISTS ah_receipt_items (
   position INTEGER NOT NULL,
   product_id INTEGER, name TEXT, quantity INTEGER, price REAL, amount REAL,
   PRIMARY KEY (receipt_id, position)
+);
+
+-- Het id op een kassabon is AH's artikelnummer (`hqId`), niet het id van de webwinkel. Deze tabel koppelt ze, zodat "BLOEMKOOL" op de
+-- bon bij "AH Bloemkool" uit de bestellingen hoort (issue #178). `product_id` NULL: AH vond het artikelnummer niet (opnieuw na een tijd).
+CREATE TABLE IF NOT EXISTS ah_receipt_products (
+  receipt_product_id INTEGER PRIMARY KEY,
+  product_id INTEGER,
+  title TEXT,
+  checked_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS ah_orders_meta (
@@ -389,7 +399,71 @@ def sync_receipts() -> dict[str, Any]:
     with closing(_connect()) as conn, conn:
         remaining = conn.execute("SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0").fetchone()[0]
         _stamp(conn, "receipts")
-    return {"new": len(new), "total": len(listed), "remaining": remaining, "failed": failed}
+    try:
+        products = resolve_receipt_products(now)
+    except Exception:  # noqa: BLE001 - het koppelen van producten mag het ophalen van de bonnen nooit laten mislukken
+        products = {"found": 0, "missing": 0, "failed": 0}
+    return {"new": len(new), "total": len(listed), "remaining": remaining, "failed": failed, "products": products}
+
+
+RECEIPT_PRODUCTS_PER_SYNC = 40  # zoveel artikelnummers per synchronisatie; de rest volgt de volgende keer
+RECEIPT_PRODUCTS_DEADLINE_SECONDS = 20
+RECEIPT_PRODUCTS_RECHECK_DAYS = 30  # een artikelnummer dat AH niet vond, proberen we na zoveel dagen opnieuw
+
+_UPSERT_RECEIPT_PRODUCT = """
+INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, ?)
+ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, title = excluded.title, checked_at = excluded.checked_at
+"""
+
+
+def resolve_receipt_products(now: str | None = None) -> dict[str, int]:
+    """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
+
+    Per artikelnummer zoeken we de naam van de bonregel bij AH en nemen alleen het resultaat met precies dat artikelnummer (`hqId`):
+    geen gok op naam. Elk ander resultaat met een artikelnummer bewaren we ook, dat scheelt latere zoekopdrachten. De vaakst gekochte
+    artikelnummers eerst, hooguit `RECEIPT_PRODUCTS_PER_SYNC` per keer en hooguit `RECEIPT_PRODUCTS_DEADLINE_SECONDS` lang."""
+    now = now or _now()
+    recheck = (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+    with closing(_connect()) as conn:
+        todo = conn.execute(
+            """
+            SELECT l.product_id AS id, MAX(l.name) AS name FROM ah_receipt_items l
+            LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+            WHERE l.product_id IS NOT NULL AND l.product_id != 0 AND COALESCE(l.name, '') != ''
+              AND (p.receipt_product_id IS NULL OR (p.product_id IS NULL AND p.checked_at < ?))
+            GROUP BY l.product_id ORDER BY COUNT(*) DESC, l.product_id LIMIT ?
+            """,
+            (recheck, RECEIPT_PRODUCTS_PER_SYNC),
+        ).fetchall()
+    result = {"found": 0, "missing": 0, "failed": 0}
+    deadline = time.monotonic() + RECEIPT_PRODUCTS_DEADLINE_SECONDS
+    for row in todo:
+        if time.monotonic() > deadline:
+            break
+        with closing(_connect()) as conn:
+            known = conn.execute(
+                "SELECT 1 FROM ah_receipt_products WHERE receipt_product_id = ? AND product_id IS NOT NULL", (row["id"],)
+            ).fetchone()
+        if known:  # gevonden bij de zoekopdracht van een ander artikelnummer
+            result["found"] += 1
+            continue
+        try:
+            hits = ah.search_hq_ids(row["name"])
+        except Exception:  # noqa: BLE001 - de volgende synchronisatie probeert het opnieuw
+            result["failed"] += 1
+            continue
+        with closing(_connect()) as conn, conn:
+            conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now) for hq_id, webshop_id, title in hits])
+            if any(hq_id == row["id"] for hq_id, _, _ in hits):
+                result["found"] += 1
+            else:
+                conn.execute(
+                    "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?) "
+                    "ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL",
+                    (row["id"], now),
+                )
+                result["missing"] += 1
+    return result
 
 
 def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:

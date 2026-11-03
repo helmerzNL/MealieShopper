@@ -29,7 +29,7 @@ from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
-from . import ah, ah_lists, deals, offers, packs
+from . import ah, ah_lists, deals, offers, packs, price_import
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -268,7 +268,15 @@ def _purchase_sources(conn, store: str) -> list[str]:
 
 
 def _fold_name(value: Any) -> str:
-    return " ".join(ah_lists._fold(value).split())
+    words = ah_lists._fold(value).split()
+    if len(words) > 1 and words[0] == words[1]:  # "AH Ah zachte spinazie" in een bevestigingsmail: het merk staat er twee keer
+        words = words[1:]
+    return " ".join(words)
+
+
+def _without_house_brand(store: str, name: str) -> str | None:
+    """De naam zonder het huismerk vooraan ("ah bloemkool" -> "bloemkool"): een kassabon laat "AH" vaak weg. Alleen bij AH."""
+    return name[3:] if store == "ah" and name.startswith("ah ") else (name if store == "ah" else None)
 
 
 def _name_index(conn, store: str) -> dict[str, str]:
@@ -285,24 +293,74 @@ def _name_index(conn, store: str) -> dict[str, str]:
     return index
 
 
-def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
-    """De regels van de kassabonnen (alleen AH), elk met het product waar ze bij horen in `product_id`.
+def _match_name(index: dict[str, str], bare: dict[str, str], store: str, name: str) -> str | None:
+    """Het product bij een naam: precies (gevouwen), of anders zonder het huismerk vooraan aan beide kanten ("BLOEMKOOL" en
+    "AH Bloemkool"). Dat laatste alleen als die kale naam bij precies een product hoort."""
+    if name in index:
+        return index[name]
+    stripped = _without_house_brand(store, name)
+    return bare.get(stripped) if stripped else None
 
-    Is het id op de bon bekend uit de aanbiedingen, de bewaarde prijzen of de bestellingen, dan is het dat product. Anders telt de naam:
+
+def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
+    """Kale naam -> product, voor de namen waar maar een product bij hoort."""
+    found: dict[str, set[str]] = {}
+    for name, product_id in index.items():
+        stripped = _without_house_brand(store, name)
+        if stripped:
+            found.setdefault(stripped, set()).add(product_id)
+    return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
+
+
+def _receipt_products(conn) -> dict[str, str]:
+    """Artikelnummer op de bon -> id van de webwinkel, voor zover AH ze koppelde (zie `ah_orders.resolve_receipt_products`)."""
+    if "ah_receipt_products" not in _tables(conn):
+        return {}
+    rows = conn.execute("SELECT receipt_product_id, product_id FROM ah_receipt_products WHERE product_id IS NOT NULL")
+    return {str(row["receipt_product_id"]): str(row["product_id"]) for row in rows}
+
+
+# Aankopen uit bevestigingsmails (zie price_import.py), in dezelfde vorm als de regels van een kassabon: zonder id van de webwinkel.
+_IMPORTED_SQL = """
+SELECT NULL AS receipt_product_id, title, NULL AS brand, NULL AS unit_size, NULL AS image, day, quantity, paid, regular,
+       'import' AS source, order_ref AS ref
+FROM imported_purchases WHERE store = ? AND day <= ?
+"""
+
+
+def _imported_rows(conn, store: str, today: str) -> list[Any]:
+    """De ingelezen aankopen van een winkel, zonder de bestellingen die de app inmiddels ook uit je account heeft (zelfde
+    bestelnummer, of een bestelling op dezelfde dag): die tellen anders dubbel."""
+    if "imported_purchases" not in _tables(conn):
+        return []
+    numbers, days = price_import.account_orders(conn, store)
+    return [row for row in conn.execute(_IMPORTED_SQL, (store, today)) if row["ref"] not in numbers and row["day"] not in days]
+
+
+def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
+    """De regels van de kassabonnen (alleen AH) en de ingelezen aankopen (`_imported_rows`), elk met het product waar ze bij
+    horen in `product_id`.
+
+    Het id op een bon is AH's artikelnummer; is dat gekoppeld aan een product van de webwinkel (`ah_orders.resolve_receipt_products`,
+    "BLOEMKOOL" 20960 -> "AH Bloemkool" 4183), dan is het dat product. Is het id op de bon bekend uit de aanbiedingen, de bewaarde
+    prijzen of de bestellingen, dan is het dat product. Anders telt de naam:
     "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past de naam ook nergens, dan is het id van de bon het product, of, zonder id, de
     naam zelf (`bon:ah rundergehakt`), zodat de aankoop altijd te vinden is.
     """
-    if store != "ah" or not {"ah_receipt_items", "ah_receipts"} <= _tables(conn):
-        return []
-    rows = conn.execute(f"SELECT * FROM ({_RECEIPTS_SQL}) WHERE day <= ?", (today,)).fetchall()
+    rows = list(_imported_rows(conn, store, today))
+    if store == "ah" and {"ah_receipt_items", "ah_receipts"} <= _tables(conn):
+        rows += conn.execute(f"SELECT * FROM ({_RECEIPTS_SQL}) WHERE day <= ?", (today,)).fetchall()
     if not rows:
         return []
     index = _name_index(conn, store)
+    bare = _bare_index(index, store)
     known = set(index.values())
+    linked = _receipt_products(conn)
     found = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
-        key = own if own and own in known else (index.get(name) or own or f"bon:{name}")
+        fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
+        key = linked.get(own) or (own if own and own in known else (_match_name(index, bare, store, name) or own or fallback))
         found.append({**dict(row), "product_id": key})
     return found
 
@@ -683,7 +741,11 @@ def signature(store: Any) -> str:
     try:
         with closing(_connect()) as conn:
             row = conn.execute("SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),)).fetchone()
-        return f"{row['n']}:{row['last'] or ''}"
+            imported = ""
+            if "imported_purchases" in _tables(conn):
+                extra = conn.execute("SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)).fetchone()
+                imported = f":{extra['n']}:{extra['last'] or ''}"
+        return f"{row['n']}:{row['last'] or ''}{imported}"
     except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
         log.warning("Handtekening van de prijzen mislukt", exc_info=True)
         return ""

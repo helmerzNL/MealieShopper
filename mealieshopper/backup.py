@@ -43,7 +43,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, prices, product_images, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ DATA_TABLES = (
     "picnic_orders", "picnic_order_items", "picnic_orders_meta",
     "crisp_orders", "crisp_order_items", "crisp_orders_meta",
     "offers", "offer_history", "offers_meta",
-    "price_observations", "product_images",
+    "price_observations", "product_images", "imported_purchases",
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
     "ai_recipe_matches", "ai_recipe_runs",
@@ -90,6 +90,7 @@ EXCLUDED_TABLES = frozenset({
     "audit_log", "mealie_images", "backup_jobs", "sqlite_sequence",
     "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
     "marleyspoon_menus",  # idem voor Marley Spoon
+    "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
@@ -122,12 +123,13 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "offerHistory": ("offer_history",),
     "prices": ("price_observations",),
     "productImages": ("product_images",),
+    "importedPurchases": ("imported_purchases",),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, prices, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (
