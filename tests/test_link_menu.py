@@ -101,7 +101,7 @@ class LinkPageTest(unittest.TestCase):
         self.assertIn('applyStoreFold("ai", AI_REVIEW_PROVIDERS.some((provider) => status.providers[provider].configured))', script)
 
     def test_texts_point_to_the_new_place(self):
-        for path in ("mealieshopper/ah.py", "mealieshopper/jumbo.py", "mealieshopper/picnic.py", "mealieshopper/mealie.py", "static/i18n/nl.js", "README.md"):
+        for path in ("mealieshopper/ah.py", "mealieshopper/jumbo.py", "mealieshopper/picnic.py", "mealieshopper/mealie.py", "static/i18n/nl.js", "README.md", "docs/handleiding.md"):
             text = (ROOT / path).read_text(encoding="utf-8")
             self.assertNotIn("Beheer >", text, path)
             self.assertNotIn("Beheer, Beveiliging", text, path)

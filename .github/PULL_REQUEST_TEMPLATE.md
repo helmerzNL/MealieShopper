@@ -53,7 +53,7 @@ Only documentation or tests, with no effect on the app? Write: "No new version n
 
 - [ ] De pull request richt zich op `beta`. / The pull request targets `beta`.
 - [ ] `python -m unittest discover -s tests` slaagt. / `python -m unittest discover -s tests` passes.
-- [ ] Nederlands en Engels zijn gelijk: de interface (`static/i18n/`), `README.md` en `README.en.md`, en de voorbeeld-`.env`-bestanden. / Dutch and English match: the interface (`static/i18n/`), `README.md` and `README.en.md`, and the example `.env` files.
+- [ ] Nederlands en Engels zijn gelijk: de interface (`static/i18n/`), `README.md` en `README.en.md`, `docs/handleiding.md` en `docs/handleiding.en.md`, en de voorbeeld-`.env`-bestanden. / Dutch and English match: the interface (`static/i18n/`), `README.md` and `README.en.md`, `docs/handleiding.md` and `docs/handleiding.en.md`, and the example `.env` files.
 - [ ] Er staan geen geheimen of `.env`-bestanden in deze pull request. / No secrets or `.env` files are in this pull request.
 - [ ] Een nieuwe tabel met gegevens staat in `backup.DATA_TABLES` (of bewust in `EXCLUDED_TABLES`) en in `tests/test_backup.py`. / A new data table is in `backup.DATA_TABLES` (or deliberately in `EXCLUDED_TABLES`) and in `tests/test_backup.py`.
 - [ ] Wat een standaard is (passkeys, OAuth, JWT, TOTP en dergelijke) gebruikt een bestaande open-sourcebibliotheek, hier genoemd, of de uitzondering is uitgelegd. / Anything defined by a standard (passkeys, OAuth, JWT, TOTP and the like) uses an existing open-source library, named here, or the exception is explained.
