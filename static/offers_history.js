@@ -605,13 +605,9 @@ $("#offers-history-detail").addEventListener("click", (event) => {
 
 // Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de
 // server (price_import.py). Eerst controleren (dryRun): wat nieuw is en wat er al is. Pas daarna importeren, met dezelfde tekst.
-// Alleen de beheerder ziet de knop; de server laat ook alleen de beheerder toe.
+// Alleen de beheerder ziet de knop (priceImportIsOwner in orders.js); de server laat ook alleen de beheerder toe. Dezelfde dialoog
+// opent ook bij Bestellingen, voor de winkel die daar gekozen is; de ingelezen bestellingen staan daar bij de afgelopen bestellingen.
 const priceImport = { store: "", prompt: "", checked: null, busy: false };
-
-function priceImportIsOwner() {
-  const auth = state.auth || {};
-  return !auth.enabled || (Boolean(auth.authenticated) && auth.isOwner !== false);
-}
 
 function priceImportShowButton() {
   $("#offers-history-import").hidden = !priceImportIsOwner();
@@ -652,8 +648,8 @@ async function loadPriceImportSummary() {
   renderPriceImportStatus(summary);
 }
 
-async function openPriceImport() {
-  priceImport.store = offersState.store;
+async function openPriceImport(store) {
+  priceImport.store = store;
   priceImport.checked = null;
   $("#import-run").disabled = true;
   $("#import-report").innerHTML = "";
@@ -710,7 +706,7 @@ async function runPriceImport() {
     priceImport.checked = null;
     message("#import-dialog-message", report.imported ? tn("offers.import.done", report.imported) : t("offers.import.nothing_new"), "success");
     await loadPriceImportSummary();
-    loadOfferHistory();
+    importedOrdersChanged(priceImport.store);
   } catch (error) {
     message("#import-dialog-message", error.message);
   } finally {
@@ -725,7 +721,7 @@ async function removePriceImport() {
     $("#import-report").innerHTML = "";
     message("#import-dialog-message", tn("offers.import.removed", result.removed), "success");
     await loadPriceImportSummary();
-    loadOfferHistory();
+    importedOrdersChanged(priceImport.store);
   } catch (error) {
     message("#import-dialog-message", error.message);
   }
@@ -741,7 +737,12 @@ async function copyPriceImportPrompt() {
   }
 }
 
-$("#offers-history-import").addEventListener("click", openPriceImport);
+$("#offers-history-import").addEventListener("click", () => openPriceImport(offersState.store));
+// Ingelezen of verwijderd, hier of bij Bestellingen: de Prijsgeschiedenis opnieuw als die openstaat (anders laadt het subtab hem
+// toch opnieuw bij het openen).
+window.addEventListener("ms:imported-orders", () => {
+  if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
+});
 $("#import-copy").addEventListener("click", copyPriceImportPrompt);
 $("#import-check").addEventListener("click", checkPriceImport);
 $("#import-run").addEventListener("click", runPriceImport);

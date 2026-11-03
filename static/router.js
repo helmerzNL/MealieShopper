@@ -26,7 +26,8 @@ const ROUTE_SUBTABS = {
   settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system" },
 };
 
-// Winkels: per winkel de onderdelen en hun subtab. /stores/ah/receipts/<id> is een kassabon onder Bestellingen.
+// Winkels: per winkel de onderdelen en hun subtab. /stores/ah/receipts/<id> is een kassabon onder Bestellingen, en
+// /stores/ah/imported/<ref> een ingelezen oude bestelling (zie price_import.py).
 const STORE_SECTIONS = {
   ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
@@ -60,7 +61,7 @@ function routerCurrentPath() {
     const section = routerSlug(STORE_SECTIONS[store], routerActiveSubtab(panel));
     if (section === "lists" && state.ahOpenListId) return storesPath(store, "lists", state.ahOpenListId);
     const open = typeof ordersState !== "undefined" ? ordersState.open : null;
-    if (section === "orders" && open) return storesPath(store, open.kind === "receipt" ? "receipts" : "orders", open.id);
+    if (section === "orders" && open) return storesPath(store, { receipt: "receipts", imported: "imported" }[open.kind] || "orders", open.id);
     return storesPath(store, section);
   }
   const sub = routerSlug(ROUTE_SUBTABS[root], routerActiveSubtab(panel));
@@ -129,7 +130,7 @@ function routerApplyStores(parts) {
     }
     switchItemsStore(store);
   }
-  const section = part === "receipts" ? "orders" : part;
+  const section = part === "receipts" || part === "imported" ? "orders" : part;
   const subtab = STORE_SECTIONS[state.itemsStore]?.[section];
   if (subtab) routerOpenSubtab(subtab);
   if (section === "lists") {
@@ -137,7 +138,7 @@ function routerApplyStores(parts) {
     else if (state.ahOpenListId) showAhListsOverview();
   }
   if (section === "orders" && typeof openPurchase === "function") {
-    if (id) openPurchase(part === "receipts" ? "receipt" : "order", id);
+    if (id) openPurchase({ receipts: "receipt", imported: "imported" }[part] || "order", id);
     else showPurchaseOverview();
   }
 }

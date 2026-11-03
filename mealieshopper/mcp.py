@@ -907,7 +907,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_get_receipt,
     },
     "search_ah_purchases": {
-        "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam. Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
+        "description": "Waar en wanneer kocht de eigenaar een product? Zoekt in alle bewaarde bestellingen en kassabonnen op woorden in de productnaam, ook in de oude bestellingen die uit bevestigingsmails zijn ingelezen (`imported: true`, met het bestelnummer of `dag:<datum>` als id; die staan niet in get_ah_order). Geeft per product de laatste keer, hoe vaak en hoeveel, en de losse aankopen.",
         "inputSchema": _schema(
             {"query": {"type": "string", "description": "Bijvoorbeeld 'koffie'."}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_ITEMS, "description": "Aantal losse aankopen, standaard 50."}},
             ["query"],

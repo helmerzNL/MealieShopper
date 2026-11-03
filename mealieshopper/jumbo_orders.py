@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, jumbo
+from . import auth, jumbo, price_import
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -225,6 +225,7 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "amount": row["amount"], "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
                     "open": False,
                 })
+        occurrences += price_import.search_lines(conn, "jumbo", words, _fold)  # oude bestellingen uit je bevestigingsmails
         unsearched = conn.execute("SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0").fetchone()[0]
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}

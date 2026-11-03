@@ -2478,9 +2478,53 @@ button.plan-recipe:focus-visible {
 }
 
 .icon-button svg,
-.list-card__sync svg {
+.list-card__sync svg,
+.list-card__action svg {
   width: 22px;
   height: 22px;
+  fill: currentColor;
+}
+
+/* Een ingelezen oude bestelling (uit je bevestigingsmails): een archiefdoos voor de datum, en de prullenbak waar bij een lijstje
+   het synchroniseer-icoon staat. */
+.list-card__action {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+}
+
+.list-card__badge {
+  display: inline-flex;
+  vertical-align: -3px;
+  margin-right: 6px;
+  color: var(--muted);
+}
+
+.list-card__badge svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.list-card__action:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+/* Oude aankopen importeren bij Bestellingen: de knop met dezelfde archiefdoos als op de kaarten. */
+.orders-import {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.orders-import .mdi {
+  flex: none;
+  width: 18px;
+  height: 18px;
   fill: currentColor;
 }
 

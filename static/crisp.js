@@ -3,7 +3,8 @@
 
 const crispState = { connected: false, codePending: false, report: null };
 const crispFavorites = { products: [], query: "", loaded: false, run: 0 };
-const crispOrders = { upcoming: [], past: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
+// `imported`: de ingelezen oude bestellingen (zie price_import.py), die bij de afgelopen bestellingen staan.
+const crispOrders = { upcoming: [], past: [], imported: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
 
 // ---- Status en koppelen (beheerder)
 function renderCrispStatus() {
@@ -223,13 +224,14 @@ function crispOrderCard(order, source) {
 }
 
 function renderCrispOrders() {
-  const { upcoming, past, syncedAt, loaded } = crispOrders;
+  const { upcoming, syncedAt, loaded } = crispOrders;
+  const past = importedOrdersMerge(crispOrders.past, crispOrders.imported, (order) => order.windowStart || order.deliveryDate);
   const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
   $("#crisp-orders-upcoming").innerHTML = upcoming.length
     ? upcoming.map((order) => crispOrderCard(order, "live")).join("")
     : empty(crispOrders.upcomingFailed ? t("crisp.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
   $("#crisp-orders-past").innerHTML = past.length
-    ? past.map((order) => crispOrderCard(order, "local")).join("")
+    ? past.map((order) => (order.imported ? importedOrderCard(order, "crisp") : crispOrderCard(order, "local"))).join("")
     : empty(syncedAt ? t("crisp.orders.none") : t("crisp.orders.never_synced"));
   $("#crisp-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
 }
@@ -240,12 +242,13 @@ async function loadCrispOrders() {
   const run = ++crispOrders.run;
   message("#crisp-orders-message", "");
   try {
-    const [local, live] = await Promise.all([
+    const [local, live, imported] = await Promise.all([
       jsonFetch("/api/crisp/orders"),
       jsonFetch("/api/crisp/orders/open").then((data) => data.orders || [], () => null),
+      importedOrdersFetch("crisp"),
     ]);
     if (run !== crispOrders.run) return;
-    Object.assign(crispOrders, { past: local.orders || [], syncedAt: local.syncedAt, upcoming: live || [], upcomingFailed: live === null, loaded: true });
+    Object.assign(crispOrders, { past: local.orders || [], imported, syncedAt: local.syncedAt, upcoming: live || [], upcomingFailed: live === null, loaded: true });
     renderCrispOrders();
   } catch (error) {
     if (run === crispOrders.run) message("#crisp-orders-message", error.message);
@@ -319,6 +322,13 @@ async function openCrispOrder(id) {
   } catch (error) {
     message("#crisp-order-message", error.message);
   }
+}
+
+// Een ingelezen oude bestelling (zie openImportedStoreOrder in orders.js): zonder producten van Crisp, dus zonder Alles in mandje.
+function openCrispImportedOrder(ref) {
+  crispOrders.detail = null;
+  const open = ++crispOrders.run;
+  openImportedStoreOrder("crisp", ref, () => open === crispOrders.run);
 }
 
 // De producten van een bestelling opnieuw in je Crisp-mandje; er wordt nooit een bestelling geplaatst.
@@ -456,7 +466,15 @@ $("#crisp-order-back").addEventListener("click", showCrispOrderList);
 $("#crisp-order-add-all").addEventListener("click", addCrispOrderToBasket);
 $("#crisp-orders-list-view").addEventListener("click", (event) => {
   const open = event.target.closest("[data-crisp-order]");
-  if (open) openCrispOrder(open.dataset.crispOrder);
+  const imported = event.target.closest("[data-imported-order]");
+  const remove = event.target.closest("[data-imported-delete]");
+  if (remove) deleteImportedOrder("crisp", remove.dataset.importedDelete, remove);
+  else if (open) openCrispOrder(open.dataset.crispOrder);
+  else if (imported) openCrispImportedOrder(imported.dataset.importedOrder);
+});
+$("#crisp-orders-import").addEventListener("click", () => openPriceImport("crisp"));
+window.addEventListener("ms:imported-orders", (event) => {
+  if (crispOrders.loaded && event.detail?.store === "crisp") loadCrispOrders();
 });
 $("#crisp-explore-copy").addEventListener("click", async (event) => {
   const button = event.currentTarget;

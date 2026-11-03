@@ -11,6 +11,9 @@ AH geeft in de app en de API alleen de bestellingen van de laatste maanden. Wat 
   regel van een kassabon. Past de naam nergens, dan staat hij als eigen product in de lijst.
 - `paid` is wat je per stuk betaalde (met de korting op dat product), `regular` de prijs per stuk zonder korting.
 - De ingelezen aankopen staan in `imported_purchases` en gaan mee in de back-up. `remove(store)` haalt ze weer weg.
+- **Ook bij Bestellingen.** Een ingelezen bestelling staat bij de afgelopen bestellingen van die winkel (`list_orders`, `get_order`),
+  net als een bestelling uit je account, en de regels tellen mee als je in je aankopen zoekt (`search_lines`). Een ingelezen
+  bestelling die de app inmiddels ook uit je account kent, staat er niet nog een keer. `remove(store, ref)` haalt één bestelling weg.
 """
 from __future__ import annotations
 
@@ -292,10 +295,88 @@ def summary(store: Any) -> dict[str, Any]:
     return {"store": key, "orders": row["orders"], "lines": row["lines"], "first": row["first"], "last": row["last"], "prompt": prompt(key)}
 
 
-def remove(store: Any) -> dict[str, Any]:
-    """Haal alle ingelezen aankopen van een winkel weg."""
+def remove(store: Any, ref: Any = None) -> dict[str, Any]:
+    """Haal de ingelezen aankopen van een winkel weg: alle, of met `ref` alleen die ene bestelling."""
     key = _store(store)
+    only = str(ref) if ref not in (None, "") else None
+    where, args = ("store = ? AND order_ref = ?", (key, only)) if only is not None else ("store = ?", (key,))
     with closing(_connect()) as conn, conn:
-        removed = conn.execute("SELECT COUNT(DISTINCT order_ref) FROM imported_purchases WHERE store = ?", (key,)).fetchone()[0]
-        conn.execute("DELETE FROM imported_purchases WHERE store = ?", (key,))
-    return {"store": key, "removed": removed}
+        removed = conn.execute(f"SELECT COUNT(DISTINCT order_ref) FROM imported_purchases WHERE {where}", args).fetchone()[0]
+        conn.execute(f"DELETE FROM imported_purchases WHERE {where}", args)
+    return {"store": key, "removed": removed, **({"ref": only} if only is not None else {})}
+
+
+# --- ingelezen bestellingen bij Bestellingen ------------------------------------------------------
+
+def _quantity(value: Any) -> int | float:
+    """2.0 wordt 2: zo staat een aantal ook in de bestellingen uit je account."""
+    number = float(value or 0)
+    return int(number) if number.is_integer() else number
+
+
+def _order_rows(conn, store: str, ref: str | None = None) -> list[Any]:
+    """Per ingelezen bestelling één rij. Een bestelling met hetzelfde nummer of op dezelfde dag als een bestelling uit je account
+    staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij."""
+    numbers, days = account_orders(conn, store)
+    where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
+    rows = conn.execute(
+        f"""SELECT order_ref, MIN(day) AS day, MAX(order_total) AS order_total, MIN(imported_at) AS imported_at, COUNT(*) AS lines,
+                   SUM(quantity) AS units, SUM(COALESCE(paid, 0) * quantity) AS paid_total
+            FROM imported_purchases WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
+        args,
+    ).fetchall()
+    return [row for row in rows if row["order_ref"] not in numbers and row["day"] not in days]
+
+
+def _order_json(store: str, row: Any) -> dict[str, Any]:
+    ref = row["order_ref"]
+    total = row["order_total"] if row["order_total"] is not None else round(row["paid_total"] or 0, 2)
+    return {
+        "id": ref, "ref": ref, "store": store, "imported": True, "kind": "imported", "number": None if ref.startswith("dag:") else ref,
+        "date": row["day"], "deliveryDate": row["day"], "total": total, "itemCount": row["lines"], "units": _quantity(row["units"]),
+        "importedAt": row["imported_at"],
+    }
+
+
+def list_orders(store: Any) -> dict[str, Any]:
+    """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan."""
+    key = _store(store)
+    with closing(_connect()) as conn:
+        return {"store": key, "orders": [_order_json(key, row) for row in _order_rows(conn, key)]}
+
+
+def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
+    """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is."""
+    key = _store(store)
+    ref = str(ref or "")
+    with closing(_connect()) as conn:
+        rows = _order_rows(conn, key, ref)
+        if not rows:
+            return None
+        lines = conn.execute(
+            "SELECT title, quantity, paid, regular FROM imported_purchases WHERE store = ? AND order_ref = ? ORDER BY position", (key, ref)
+        ).fetchall()
+    items = [{
+        "title": line["title"], "quantity": _quantity(line["quantity"]), "paid": line["paid"], "price": line["regular"],
+        "amount": round(line["paid"] * line["quantity"], 2) if line["paid"] is not None else None,
+        "bonus": line["paid"] is not None and line["regular"] is not None and line["paid"] < line["regular"] - 0.004,
+    } for line in lines]
+    return {**_order_json(key, rows[0]), "items": items}
+
+
+def search_lines(conn, store: str, words: list[str], fold) -> list[dict[str, Any]]:
+    """De regels van de ingelezen bestellingen waar alle woorden in staan, in de vorm van `<winkel>_orders.search_purchases`
+    (`fold` is de vouwfunctie van die zoekopdracht). Een bestelling die de app ook uit je account kent, telt niet mee."""
+    if "imported_purchases" not in _tables(conn):
+        return []
+    numbers, days = account_orders(conn, store)
+    found = []
+    for row in conn.execute("SELECT order_ref, day, title, quantity, paid FROM imported_purchases WHERE store = ?", (store,)):
+        if row["order_ref"] in numbers or row["day"] in days or not all(word in fold(row["title"]) for word in words):
+            continue
+        found.append({
+            "source": "bestelling", "imported": True, "product": row["title"], "brand": None, "quantity": _quantity(row["quantity"]),
+            "amount": round(row["paid"] * row["quantity"], 2) if row["paid"] is not None else None, "date": row["day"],
+            "id": row["order_ref"], "open": False,
+        })
+    return found
