@@ -461,7 +461,10 @@ def create_app() -> Flask:
         # ?bought=1: alleen de producten die je minstens één keer kocht.
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return offers_action(
-            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought),
+            # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
+            # ah_orders.resolve_receipt_names).
+            lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
+                                   lookup=ah_orders.resolve_receipt_names),
             tr("Prijsgeschiedenis laden mislukt", "Loading the price history failed"),
         )
 
