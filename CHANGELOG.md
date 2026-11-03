@@ -31,6 +31,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Een andere winkel kiezen in het Mandje terwijl het AH-mandje nog laadt, geeft geen fout meer.** Het Mandje opent bij Albert Heijn en haalt dat mandje op (en synchroniseert het). Koos je in die paar seconden Picnic, Jumbo of Crisp, dan tekende het AH-mandje zich daarna alsnog, in een scherm dat er niet meer was: *Cannot set properties of null (setting 'textContent')* stond in een rood vak en het mandje van de gekozen winkel was weg. Nu tekent het AH-mandje alleen zolang AH gekozen is, en staat een fout van het AH-mandje alleen bij AH. De fout zat er al langer in; de screenshots vonden hem.
 - `tests/test_basket_switch.py` draait het wisselen van winkel tijdens het laden na, in Node.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#197](https://github.com/helmerzNL/MealieShopper/pull/197).
 
 ### Beveiliging in 2.94.1
 
@@ -50,6 +51,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - `recipes` toont nu de keuzelijst met *Alle recepten* en je receptgroepen.
 - **Alle screenshots zijn opnieuw gemaakt** en tonen in de adresbalk van het venster het adres van het scherm (`/offers/history`, `/stores/ah/recipes`), want elk scherm heeft sinds 2.93.0 een eigen adres. Het screenshot-script (`scripts/screenshots/lib.js`) zet dat adres er zelf in.
 - De README noemt bij *Wat kan het?* ook Alleen eerder gekocht, de bewaarde afbeeldingen, het importeren van oude aankopen en de receptgroepen.
+- Pull request: [#197](https://github.com/helmerzNL/MealieShopper/pull/197).
 
 ## v2.94.0
 
