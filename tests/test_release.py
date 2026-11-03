@@ -92,6 +92,23 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("- main", guard)
         self.assertIn('"$HEAD_REF" != "beta"', guard)
 
+    def test_a_dependabot_pull_request_to_main_moves_to_beta_instead_of_failing(self):
+        # Beveiligingsupdates van Dependabot gaan altijd naar de standaardbranch (main); de check zet ze over naar beta.
+        text = (ROOT / ".github" / "workflows" / "pr-target.yml").read_text(encoding="utf-8")
+        steps = {block.split("\n", 1)[0].strip(): block for block in text.split("      - name: ")[1:]}
+        move = steps["Move a Dependabot pull request to beta"]
+        guard = steps["Require beta as the source branch"]
+        self.assertIn("pull-requests: write", text)
+        self.assertIn("id: dependabot", move)
+        self.assertIn("github.event.pull_request.user.login == 'dependabot[bot]'", move)
+        self.assertIn("head.repo.full_name == github.repository", move)  # geen pull request uit een fork
+        self.assertIn("-f base=beta", move)
+        self.assertIn("git apply --check -R -C0", move)  # staat de update al in beta, dan sluiten
+        self.assertIn("-f state=closed", move)
+        # De gewone check valt alleen weg als het verzetten of sluiten lukte; anders faalt hij zoals altijd.
+        self.assertIn("if: steps.dependabot.outcome != 'success'", guard)
+        self.assertIn('"$HEAD_REF" != "beta"', guard)
+
     def test_branch_rule_is_written_down(self):
         text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("rechtstreeks naar `main`", text)

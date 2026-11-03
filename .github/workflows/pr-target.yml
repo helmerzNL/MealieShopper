@@ -2,6 +2,11 @@ name: Pull request target
 
 # Pull requests gaan naar beta. main krijgt alleen een pull request vanuit beta (de promotie
 # naar een stabiele release). Maak deze check verplicht in de branch protection van main.
+#
+# Uitzondering: Dependabot. Zijn beveiligingsupdates gaan altijd naar de standaardbranch (main);
+# `target-branch` in een dependabot.yml geldt daar niet voor. Zo'n pull request zet deze check
+# daarom zelf over naar beta, in plaats van te falen. Staat de update al in beta, dan sluit de
+# check hem: Dependabot opent hem tot de volgende promotie opnieuw op main, omdat main hem nog mist.
 on:
   pull_request:
     branches:
@@ -14,8 +19,40 @@ permissions:
 jobs:
   only-from-beta:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
+      - name: Checkout
+        if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move a Dependabot pull request to beta
+        id: dependabot
+        if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/update.patch"
+          git checkout -q --detach origin/beta
+          if [ -s "$RUNNER_TEMP/update.patch" ] && git apply --check -R -C0 "$RUNNER_TEMP/update.patch" 2>/dev/null; then
+            gh api "repos/$REPO/issues/$NUMBER/comments" -f body="Deze update staat al in \`beta\` en komt met de volgende promotie in \`main\`. Pull requests gaan naar \`beta\`, niet rechtstreeks naar \`main\` (zie CLAUDE.md), dus ik sluit deze." > /dev/null
+            gh api -X PATCH "repos/$REPO/pulls/$NUMBER" -f state=closed > /dev/null
+            echo "De update staat al in beta: pull request #$NUMBER gesloten."
+          else
+            gh api -X PATCH "repos/$REPO/pulls/$NUMBER" -f base=beta > /dev/null
+            gh api "repos/$REPO/issues/$NUMBER/comments" -f body="Pull requests gaan naar \`beta\`, niet rechtstreeks naar \`main\` (zie CLAUDE.md). Dependabot opent beveiligingsupdates altijd op \`main\`, dus ik heb deze naar \`beta\` verzet." > /dev/null
+            echo "Pull request #$NUMBER gaat nu naar beta."
+          fi
+
       - name: Require beta as the source branch
+        if: steps.dependabot.outcome != 'success'
         env:
           HEAD_REF: ${{ github.head_ref }}
         run: |
