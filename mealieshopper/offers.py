@@ -7,6 +7,9 @@ komen daarna uit een lokale vergelijking: geen aanroep naar een winkel of een AI
 
 De aanbiedingen van AH (Bonus), Picnic en Jumbo worden elke dag door `offers_schedule` opgehaald, en op verzoek via
 `sync_all` (de knop onder Instellingen > Koppelen) of per winkel via `sync` (de knop bij Aanbiedingen).
+
+Bij AH horen daar ook je persoonlijke aanbiedingen bij, de Bonus Box (zie `ah.get_bonus_box`), zodra je AH-account gekoppeld is. Die staan
+tussen de gewone aanbiedingen met `personal` (en `activated`: of je ze in de AH-app geactiveerd hebt), zodat je erop kunt filteren.
 """
 from __future__ import annotations
 
@@ -29,6 +32,11 @@ FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
     "crisp": crisp.get_offers,
 }
 STORES = ("ah", "picnic", "jumbo", "crisp")
+# Winkels met persoonlijke aanbiedingen (AH: de Bonus Box), met de functie die ze ophaalt. Die vraagt een koppeling, en een fout laat de
+# gewone aanbiedingen staan: dan blijven de persoonlijke van de vorige keer staan en meldt `load` de fout.
+PERSONAL_FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+    "ah": ah.get_bonus_box,
+}
 
 
 def linked(store: str) -> bool:
@@ -40,6 +48,13 @@ def linked(store: str) -> bool:
     if store == "crisp":
         return bool(crisp.configured_client_id())
     return True
+
+
+def personal_linked(store: str) -> bool:
+    """Of we de persoonlijke aanbiedingen van deze winkel kunnen ophalen: bij AH (de Bonus Box) vraagt dat je AH-koppeling."""
+    if store == "ah":
+        return bool(ah.configured_refresh_token())
+    return False
 
 MEALIE_RECIPE_LIMIT = 300
 OTHER_RECIPE_LIMIT = 60
@@ -63,7 +78,9 @@ CREATE TABLE IF NOT EXISTS {name} (
   url TEXT,
   valid_from TEXT,
   valid_until TEXT,
-  category TEXT
+  category TEXT,
+  personal INTEGER NOT NULL DEFAULT 0,
+  activated INTEGER
 )
 """
 
@@ -90,14 +107,16 @@ CREATE TABLE IF NOT EXISTS offer_history (
   last_seen TEXT NOT NULL,
   ended_at TEXT,
   syncs INTEGER NOT NULL DEFAULT 1,
-  continued INTEGER NOT NULL DEFAULT 0
+  continued INTEGER NOT NULL DEFAULT 0,
+  personal INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS offer_history_product ON offer_history (store, product_id);
 CREATE INDEX IF NOT EXISTS offer_history_open ON offer_history (store, ended_at);
 
 CREATE TABLE IF NOT EXISTS offers_meta (
   store TEXT PRIMARY KEY,
-  synced_at TEXT NOT NULL
+  synced_at TEXT NOT NULL,
+  personal_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS offer_recipes (
@@ -197,6 +216,13 @@ def _connect():
     for column in ("reason", "source"):
         if column not in rejection_columns:
             conn.execute(f"ALTER TABLE offer_rejections ADD COLUMN {column} TEXT")
+    # Van vóór de Bonus Box: nog geen persoonlijke aanbiedingen. Bestaande rijen zijn gewone aanbiedingen.
+    for table, column, kind in (
+        ("offers", "personal", "INTEGER NOT NULL DEFAULT 0"), ("offers", "activated", "INTEGER"),
+        ("offer_history", "personal", "INTEGER NOT NULL DEFAULT 0"), ("offers_meta", "personal_error", "TEXT"),
+    ):
+        if column not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
     _drop_offers_key(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)")
     _repair_open_ends(conn)
@@ -275,7 +301,9 @@ def signature(store: Any, week: Any = None) -> str:
     monday = week_bounds(week)[0].isoformat() if week is not None else ""
     with closing(_connect()) as conn:
         meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, about.read_version()))
+    # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
+    personal = "personal" if personal_linked(store) else ""
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.read_version()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -313,23 +341,25 @@ def _one_per_product(offers: list[dict[str, Any]], prefer_current: bool = False)
     """Elk product een keer, op de plaats waar het het eerst staat. Staat een product er twee keer (twee acties tegelijk, of deze
     en volgende week), dan wint de meest specifieke actie: die het laatst begint, en bij gelijk begin die het eerst eindigt (een
     weekactie gaat voor een actie die tot de feestdagen loopt). Met `prefer_current` gaat een actie die nu loopt voor een die nog moet
-    beginnen; zo krijgt de AI van `ai_match` bij elk product de actie van nu."""
+    beginnen; zo krijgt de AI van `ai_match` bij elk product de actie van nu. Een persoonlijke aanbieding (Bonus Box) telt apart: staat
+    hetzelfde product ook in de gewone bonus, dan blijven ze allebei staan, want het zijn twee verschillende acties."""
     def rank(offer: dict[str, Any]) -> tuple[bool, int, int]:
         start = deals.parse_date(offer["validFrom"]) or date.min
         end = deals.parse_date(offer["validUntil"]) or date.max
         running = not (prefer_current and offer["validity"] == deals.UPCOMING)
         return (running, start.toordinal(), -end.toordinal())
 
-    best: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
+    best: dict[tuple[str, bool], dict[str, Any]] = {}
+    order: list[tuple[str, bool]] = []
     for offer in offers:
-        known = best.get(offer["id"])
+        key = (offer["id"], bool(offer.get("personal")))
+        known = best.get(key)
         if known is None:
-            order.append(offer["id"])
-            best[offer["id"]] = offer
+            order.append(key)
+            best[key] = offer
         elif rank(offer) > rank(known):
-            best[offer["id"]] = offer
-    return [best[product_id] for product_id in order]
+            best[key] = offer
+    return [best[key] for key in order]
 
 
 def load(store: Any, week: Any = None) -> dict[str, Any]:
@@ -341,10 +371,11 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
     """
     store = _valid_store(store)
     with closing(_connect()) as conn:
-        meta = conn.execute("SELECT synced_at FROM offers_meta WHERE store = ?", (store,)).fetchone()
+        meta = conn.execute("SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,)).fetchone()
         rows = conn.execute(
             """
-            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category
+            SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
+              personal, activated
             FROM offers WHERE store = ? ORDER BY position
             """,
             (store,),
@@ -364,6 +395,9 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
             "validUntil": row["valid_until"],
             # Een kopie van vóór de categorieën krijgt de categorie alsnog uit de titel.
             "category": row["category"] or offer_categories.categorize(row["title"]),
+            # Een persoonlijke aanbieding (AH: de Bonus Box) en of je die geactiveerd hebt (None: onbekend, of geen persoonlijke aanbieding).
+            "personal": bool(row["personal"]),
+            "activated": None if row["activated"] is None or not row["personal"] else bool(row["activated"]),
             # Wat de aanbieding inhoudt: soort, minimumaantal, prijs per stuk bij de voorwaarde en of ze nog geldt.
             **deals.describe(
                 row["promo_label"], price_now=row["price"], price_before=row["price_before"],
@@ -390,28 +424,78 @@ def load(store: Any, week: Any = None) -> dict[str, Any]:
         **selection,
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
+        "personal": _personal_summary(store, offers, meta["personal_error"] if meta else None),
     }
+
+
+def _personal_summary(store: str, offers: list[dict[str, Any]], error: str | None) -> dict[str, Any]:
+    """Wat er over de persoonlijke aanbiedingen (AH: de Bonus Box) bij de lijst staat: of de winkel ze heeft, of de koppeling er is,
+    hoeveel er in de lijst staan en hoeveel daarvan geactiveerd zijn, en de fout van de laatste keer ophalen (de vorige bleven dan staan)."""
+    personal = [offer for offer in offers if offer.get("personal")]
+    return {
+        "supported": store in PERSONAL_FETCHERS,
+        "linked": personal_linked(store),
+        "count": len(personal),
+        "activated": sum(1 for offer in personal if offer.get("activated")),
+        "error": error or None,
+    }
+
+
+def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """De persoonlijke aanbiedingen van een winkel (AH: de Bonus Box): (aanbiedingen, fout). Zonder koppeling ([], None); mislukt het
+    ophalen, dan (None, fout), en houdt `sync` de persoonlijke aanbiedingen van de vorige keer."""
+    fetch = PERSONAL_FETCHERS.get(store)
+    if not fetch or not personal_linked(store):
+        return [], None
+    try:
+        return fetch(), None
+    except LookupError:
+        return [], None
+    except Exception as exc:  # noqa: BLE001 - onofficiële route; de gewone aanbiedingen gaan voor
+        return None, str(exc)[:300] or tr("mislukt", "failed")
+
+
+def _previous_personal(store: str) -> list[dict[str, Any]]:
+    """De persoonlijke aanbiedingen uit de kopie, in de vorm van een fetcher: voor als het ophalen ervan mislukt."""
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT * FROM offers WHERE store = ? AND personal = 1 ORDER BY position", (store,)).fetchall()
+    return [
+        {"id": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
+         "priceBefore": row["price_before"], "promoLabel": row["promo_label"], "image": row["image"], "url": row["url"],
+         "validFrom": row["valid_from"], "validUntil": row["valid_until"], "storedCategory": row["category"],
+         "activated": None if row["activated"] is None else bool(row["activated"])}
+        for row in rows
+    ]
 
 
 def sync(store: Any) -> dict[str, Any]:
     """Haal de aanbiedingen van een winkel op, vervang de lokale kopie en schrijf ze weg in de geschiedenis.
 
-    Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren.
+    Mislukt het ophalen, dan verandert er niets: de vorige kopie en de geschiedenis blijven zoals ze waren. De persoonlijke aanbiedingen
+    (AH: de Bonus Box) komen erbij als de winkel gekoppeld is, bovenaan de lijst; mislukt alleen het ophalen daarvan, dan blijven de
+    persoonlijke aanbiedingen van de vorige keer staan en bewaren we de fout, zodat de lijst die kan melden.
     """
     store = _valid_store(store)
     fetch = FETCHERS.get(store)
     if not fetch:
         raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
     offers = fetch()
+    personal, personal_error = _fetch_personal(store)
+    if personal is None:
+        personal = _previous_personal(store)
     now = _now()
     items = []
-    # Een product mag er vaker in staan, met een andere looptijd (de bonus van deze en van volgende week); dezelfde rij twee keer niet.
-    seen: set[tuple[str, Any, Any]] = set()
-    for offer in offers:
-        key = (str(offer.get("id")), offer.get("validFrom"), offer.get("validUntil"))
+    # Een product mag er vaker in staan, met een andere looptijd (de bonus van deze en van volgende week) of als persoonlijke aanbieding;
+    # dezelfde rij twee keer niet.
+    seen: set[tuple[str, Any, Any, bool]] = set()
+    for offer, is_personal in [*((offer, True) for offer in personal), *((offer, False) for offer in offers)]:
+        if not isinstance(offer, dict):
+            continue
+        key = (str(offer.get("id")), offer.get("validFrom"), offer.get("validUntil"), is_personal)
         if not offer.get("id") or not offer.get("title") or key in seen:
             continue
         seen.add(key)
+        activated = offer.get("activated") if is_personal else None
         items.append(
             {
                 "id": str(offer["id"]),
@@ -425,13 +509,17 @@ def sync(store: Any) -> dict[str, Any]:
                 "url": offer.get("url") or "",
                 "validFrom": offer.get("validFrom"),
                 "validUntil": offer.get("validUntil"),
-                "category": offer_categories.categorize(offer["title"], offer.get("categoryHint")),
+                # Een bewaarde persoonlijke aanbieding (zie `_previous_personal`) houdt haar categorie.
+                "category": offer.get("storedCategory") or offer_categories.categorize(offer["title"], offer.get("categoryHint")),
+                "personal": is_personal,
+                "activated": None if activated is None else bool(activated),
             }
         )
     rows = [
         (
             store, item["id"], position, item["title"], item["brand"], item["unitSize"], item["price"], item["priceBefore"],
             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], item["category"],
+            1 if item["personal"] else 0, None if item["activated"] is None else int(item["activated"]),
         )
         for position, item in enumerate(items)
     ]
@@ -440,18 +528,19 @@ def sync(store: Any) -> dict[str, Any]:
         conn.executemany(
             """
             INSERT OR REPLACE INTO offers
-              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (store, product_id, position, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
+               personal, activated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
         _record_history(conn, store, _started(items), now)
         conn.execute(
             """
-            INSERT INTO offers_meta (store, synced_at) VALUES (?, ?)
-            ON CONFLICT(store) DO UPDATE SET synced_at = excluded.synced_at
+            INSERT INTO offers_meta (store, synced_at, personal_error) VALUES (?, ?, ?)
+            ON CONFLICT(store) DO UPDATE SET synced_at = excluded.synced_at, personal_error = excluded.personal_error
             """,
-            (store, now),
+            (store, now, personal_error),
         )
     # De afbeeldingen van aanbiedingen die je eerder kocht, om later te vergelijken. Een fout laat de synchronisatie staan.
     from . import product_images  # pylint: disable=import-outside-toplevel - product_images leunt op prices, en prices op deze module
@@ -465,10 +554,11 @@ def sync(store: Any) -> dict[str, Any]:
 
 def _started(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """De aanbiedingen die vandaag gelden, elk product een keer: alleen die komen in de geschiedenis. De bonus van volgende week
-    komt er pas in als hij begint, zodat de geschiedenis zegt wanneer iets echt in de aanbieding was."""
+    komt er pas in als hij begint, zodat de geschiedenis zegt wanneer iets echt in de aanbieding was. Staat een product zowel in de
+    gewone bonus als in je Bonus Box, dan telt de gewone bonus: die gold voor iedereen."""
     today = date.today()
     found: dict[str, dict[str, Any]] = {}
-    for item in items:
+    for item in sorted(items, key=lambda item: bool(item.get("personal"))):
         start = deals.parse_date(item["validFrom"])
         if start is None or start <= today:
             found.setdefault(item["id"], item)
@@ -502,9 +592,10 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
             conn.execute(
                 """
                 UPDATE offer_history SET last_seen = ?, syncs = syncs + 1, title = ?, brand = ?, unit_size = ?, category = ?,
-                  image = ?, url = ?, valid_from = COALESCE(?, valid_from), valid_until = ? WHERE id = ?
+                  image = ?, url = ?, valid_from = COALESCE(?, valid_from), valid_until = ?, personal = ? WHERE id = ?
                 """,
-                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validFrom"], item["validUntil"], row["id"]),
+                (now, item["title"], item["brand"], item["unitSize"], item["category"], item["image"], item["url"], item["validFrom"], item["validUntil"],
+                 1 if item.get("personal") else 0, row["id"]),
             )
             continue
         if item is not None:
@@ -514,12 +605,13 @@ def _record_history(conn, store: str, items: list[dict[str, Any]], now: str) -> 
         """
         INSERT INTO offer_history
           (store, product_id, title, brand, unit_size, category, price, price_before, promo_label, image, url, valid_from, valid_until,
-           first_seen, last_seen, continued)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           first_seen, last_seen, continued, personal)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (store, item["id"], item["title"], item["brand"], item["unitSize"], item["category"], item["price"], item["priceBefore"],
-             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], now, now, 1 if item["id"] in changed else 0)
+             item["promoLabel"], item["image"], item["url"], item["validFrom"], item["validUntil"], now, now, 1 if item["id"] in changed else 0,
+             1 if item.get("personal") else 0)
             for item in items
             if item["id"] not in handled
         ],
@@ -606,6 +698,8 @@ def _history_products(rows: Iterable[Any]) -> dict[tuple[str, str], dict[str, An
                 "validFrom": row["valid_from"],
                 "validUntil": row["valid_until"],
                 "syncs": row["syncs"],
+                # Een persoonlijke aanbieding (AH: de Bonus Box); een rij van vóór de Bonus Box is een gewone aanbieding.
+                "personal": bool(row["personal"]) if "personal" in row.keys() else False,
                 **_episode_span(row),
             }
         )
@@ -637,6 +731,8 @@ def sync_all() -> dict[str, Any]:
         try:
             data = sync(store)
             results[store] = {"count": data["total"], "syncedAt": data["syncedAt"]}
+            if data["personal"]["supported"]:
+                results[store]["personal"] = data["personal"]
         except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; de bewaarde kopie blijft staan
             results[store] = {"error": str(exc)[:300] or tr("mislukt", "failed")}
     return {"stores": results, "finishedAt": _now()}
@@ -645,12 +741,17 @@ def sync_all() -> dict[str, Any]:
 def overview() -> dict[str, Any]:
     """Per winkel: wanneer de aanbiedingen voor het laatst zijn opgehaald en hoeveel er staan."""
     with closing(_connect()) as conn:
-        metas = {row["store"]: row["synced_at"] for row in conn.execute("SELECT store, synced_at FROM offers_meta")}
-        counts = {row["store"]: row["n"] for row in conn.execute("SELECT store, COUNT(*) AS n FROM offers GROUP BY store")}
-    return {
-        store: {"linked": linked(store), "syncedAt": metas.get(store), "total": counts.get(store, 0)}
-        for store in STORES
-    }
+        metas = {row["store"]: row for row in conn.execute("SELECT store, synced_at, personal_error FROM offers_meta")}
+        counts = {row["store"]: (row["n"], row["p"]) for row in conn.execute("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")}
+    result: dict[str, Any] = {}
+    for store in STORES:
+        meta = metas.get(store)
+        total, personal = counts.get(store, (0, 0))
+        result[store] = {"linked": linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
+        if store in PERSONAL_FETCHERS:
+            # De persoonlijke aanbiedingen (AH: de Bonus Box) tellen mee in `total`.
+            result[store]["personal"] = {"linked": personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
+    return result
 
 
 # --- ingrediënten en aanbiedingen vergelijken ----------------------------------------------------

@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.95.0
+
+### Nieuw in 2.95.0
+
+*English summary: the offers now include your personal AH offers, the Bonus Box from the AH app. When your AH account is linked, MealieShopper fetches the Bonus Box of this week and (from Friday) next week together with the regular bonus, every day and on Sync. Bonus Box offers are at the top of the AH offers with a label that says whether you activated them (green) or still have to activate them in the AH app (yellow); only an activated offer applies, and activating stays in the AH app because it can't be undone. A new switch, Bonus Box only, above the categories shows only your Bonus Box, with its own category counts, and is remembered in your browser; next to it you see how many you activated, or why there are none. If fetching the Bonus Box fails, the regular bonus is still updated and the Bonus Box from last time stays. The Bonus Box also counts in the recipe suggestions and is marked in the Price history. Also in this version: receipt lines are looked up per name at AH, with a second try and fewer requests (#200), and the pull request check moves a Dependabot pull request from main to beta instead of failing (#199). Reload the page once after updating.*
+
+- **De AH Bonus Box bij de aanbiedingen.** Is je AH-account gekoppeld, dan haalt MealieShopper bij de aanbiedingen van Albert Heijn ook je persoonlijke aanbiedingen op: de Bonus Box uit de AH-app, van deze week en (vanaf vrijdag) van volgende week. Dat gaat mee met de dagelijkse synchronisatie en met `Aanbiedingen synchroniseren`.
+  - De Bonus Box staat bovenaan de aanbiedingen van AH, met het label *Bonus Box · geactiveerd* (groen) of *Bonus Box · activeer in de AH-app* (geel). AH laat je er elke week een aantal activeren (5, met Premium 10) en alleen een geactiveerde aanbieding geldt. Activeren doe je zelf in de AH-app: dat kan niet ongedaan worden, dus MealieShopper doet het niet.
+  - **Schakelaar Alleen Bonus Box** boven de categorieën: aan, dan zie je alleen je Bonus Box, met de categorieën en aantallen die daarbij horen. De keuze blijft bewaard in je browser. Ernaast staat hoeveel je er hebt geactiveerd, of waarom er geen zijn: geen AH-koppeling (dan staat de schakelaar uit), of het ophalen mislukte.
+  - Mislukt alleen het ophalen van de Bonus Box, dan wordt de gewone bonus toch bijgewerkt en blijft de Bonus Box van de vorige keer staan; de fout staat bij de schakelaar en onder **Instellingen > Koppelen > Aanbiedingen** (*waarvan 3 uit je Bonus Box*).
+  - Staat een product zowel in de gewone bonus als in je Bonus Box, dan staan beide acties in de lijst.
+  - De Bonus Box telt mee in de receptvoorstellen. In de **Prijsgeschiedenis** staat een periode uit je Bonus Box als *Bonus Box*; staat een product in beide, dan telt daar de gewone bonus.
+  - De routes zijn onofficieel en nog niet met een eigen antwoord gecontroleerd: eerst de GraphQL van de app (`bonusPromotions` met `filterSet: APP_BONUS_BOX`, met het gebruikerstoken), anders `GET bonuspage/v1/personal`. De AH-verkenner (`POST /api/ah/explore`) laat van beide zien hoeveel acties en producten er zijn en welke activatiestatussen AH geeft, zonder producten of prijzen; deel dat rapport als de Bonus Box niet verschijnt.
+- **API en MCP**: `GET /api/offers` geeft per aanbieding `personal` en `activated`, en in `personal` of de winkel een Bonus Box heeft, of de koppeling er is, het aantal, hoeveel er geactiveerd zijn en een eventuele fout. `POST /api/offers/sync-all` en de status geven het aantal per winkel. De MCP-tool `get_price_history` geeft `personal` per aanbieding.
+- **In de database**: de tabellen `offers` en `offer_history` krijgen de kolom `personal` (en `offers` ook `activated`), `offers_meta` de kolom `personal_error`. Een bestaande database krijgt ze bij de start; bestaande rijen zijn gewone aanbiedingen. Ze gaan mee in de back-up, en een oudere back-up zet gewoon terug.
+- **Kassabonnen: echte producten per naam** (#178, door wolph). MealieShopper zoekt de namen op de bonnen per naam bij AH op en koppelt een artikelnummer alleen aan het product met precies dat nummer. Een afgekorte naam krijgt een tweede poging met het langste woord (*RB PICOLIENT* wordt *PICOLIENT*), en het gaat zuinig: hooguit 20 zoekopdrachten na een synchronisatie en 60 in de nacht, met een pauze bij een 403 of 429.
+- **Pull request target**: een pull request van Dependabot naar `main` faalt niet meer, maar wordt door de check naar `beta` verzet (of gesloten als de update al in `beta` staat).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull requests: [#199](https://github.com/helmerzNL/MealieShopper/pull/199) en [#200](https://github.com/helmerzNL/MealieShopper/pull/200).
+
 ## v2.94.1
 
 ### De stabiele release in het kort: alles sinds 2.91.1
