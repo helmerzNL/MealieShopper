@@ -341,7 +341,7 @@ The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.loca
 - As long as no login method is set up, whoever opens the address first can claim the installation. Do the first start on a network you trust, or right after the container is running.
 - The IP address used for the block after failed attempts comes from `X-Forwarded-For` of your reverse proxy (one hop). So don't put MealieShopper directly on the internet, but behind a proxy that sets that header itself.
 - Passkeys need a domain name and HTTPS. Then set `RP_ID` (the host name only) and `RP_ORIGINS` (the full address), see [`.env.unraid.example`](.env.unraid.example).
-- Report a vulnerability privately through [GitHub](https://github.com/helmerzNL/MealieShopper/security/advisories/new), never in a public issue.
+- Report a vulnerability privately, as described in [`SECURITY.md`](SECURITY.md), never in a public issue.
 
 ## Support MealieShopper
 

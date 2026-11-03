@@ -341,7 +341,7 @@ De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.loca
 - Zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait.
 - Het IP-adres voor de blokkade na mislukte pogingen komt uit `X-Forwarded-For` van je reverse proxy (één stap). Zet MealieShopper dus niet rechtstreeks op internet, maar achter een proxy die dat veld zelf instelt.
 - Passkeys vragen een domeinnaam en HTTPS. Zet dan `RP_ID` (alleen de hostnaam) en `RP_ORIGINS` (het volledige adres), zie [`.env.unraid.example`](.env.unraid.example).
-- Meld een kwetsbaarheid vertrouwelijk via [GitHub](https://github.com/helmerzNL/MealieShopper/security/advisories/new), nooit in een openbaar issue.
+- Meld een kwetsbaarheid vertrouwelijk, zoals beschreven in [`SECURITY.md`](SECURITY.md), nooit in een openbaar issue.
 
 ## Steun MealieShopper
 

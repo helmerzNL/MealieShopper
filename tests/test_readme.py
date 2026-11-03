@@ -129,6 +129,25 @@ class ReadmeFilesTest(unittest.TestCase):
             self.assertIn("](https://ko-fi.com/flux76)", header, lang)
             self.assertIn("flux76.com", text(lang).strip().splitlines()[-2], lang)
 
+    def test_security_policy(self):
+        # SECURITY.md volgt shared/templates/github/SECURITY.md: eerst Nederlands, dan Engels, zonder open plekken.
+        file = ROOT / "SECURITY.md"
+        content = file.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"<[A-Z]", content))
+        self.assertNotIn("FILL IN", content)
+        self.assertNotIn("<!--", content)
+        self.assertLess(content.index("## Nederlands"), content.index("## English"))
+        nl, en = content.split("## English", 1)
+        self.assertEqual(len(re.findall(r"^### ", nl, re.M)), len(re.findall(r"^### ", en, re.M)))
+        self.assertEqual(content.count("/security/advisories/new"), 2)
+        for path in LOCAL_LINK.findall(content):
+            self.assertTrue((ROOT / path.split("#")[0]).exists(), path)
+        for link in ANCHOR_LINK.findall(content):
+            path, anchor = link.split("#", 1)
+            self.assertIn(anchor, anchors(ROOT / path if path else file), link)
+        for lang in READMES:
+            self.assertIn("](SECURITY.md)", text(lang), lang)
+
     def test_environment_variables_used_by_the_code_are_documented(self):
         used = set()
         for file in (ROOT / "mealieshopper").glob("*.py"):
