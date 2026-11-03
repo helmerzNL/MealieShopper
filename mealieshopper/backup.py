@@ -69,7 +69,7 @@ DATA_TABLES = (
     "ah_orders", "ah_order_items",
     "ah_receipts", "ah_receipt_items",
     "ah_orders_meta",
-    "ah_saved_recipes", "ah_saved_recipes_meta",
+    "ah_saved_recipes", "ah_saved_recipes_meta", "ah_saved_recipe_groups", "ah_saved_recipe_group_items",
     "jumbo_lists", "jumbo_list_items",
     "jumbo_orders", "jumbo_order_items", "jumbo_orders_meta",
     "picnic_orders", "picnic_order_items", "picnic_orders_meta",

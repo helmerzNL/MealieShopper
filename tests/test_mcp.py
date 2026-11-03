@@ -503,7 +503,7 @@ class ProtocolTest(McpTestCase):
 
     def test_tools_list_has_schemas_and_honest_annotations(self):
         tools = {t["name"]: t for t in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
-        self.assertEqual(set(tools), {"get_week_menu", "search_mealie_recipes", "plan_meal", "remove_planned_meal", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
+        self.assertEqual(set(tools), {"get_week_menu", "search_mealie_recipes", "plan_meal", "remove_planned_meal", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_recipe_groups", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
                              "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
@@ -775,6 +775,28 @@ class ToolsTest(McpTestCase):
         with mock.patch.object(ah_recipes, "get", return_value=saved):
             self.assertEqual(self.data("list_saved_ah_recipes", {"query": "pasta PESTO"})["total"], 1)
             self.assertEqual(self.data("list_saved_ah_recipes")["total"], 2)
+
+    def test_saved_recipes_per_group(self):
+        saved = {
+            "recipes": [{"id": "1", "title": "Pasta pesto", "url": "u1"}, {"id": "2", "title": "Appeltaart", "url": "u2"}, {"id": "3", "title": "Kwarktaart", "url": "u3"}],
+            "total": 3,
+            "syncedAt": "x",
+            "groups": [
+                {"id": "7", "name": "Taarten", "isDefault": False, "count": 2, "recipeIds": ["3", "2"]},
+                {"id": "8", "name": "Pasta's", "isDefault": False, "count": 1, "recipeIds": ["1"]},
+            ],
+        }
+        with mock.patch.object(ah_recipes, "get", return_value=saved):
+            groups = self.data("list_ah_recipe_groups")
+            self.assertEqual(groups["groups"], [{"id": "7", "name": "Taarten", "count": 2}, {"id": "8", "name": "Pasta's", "count": 1}])
+            self.assertEqual(groups["total"], 3)
+            cakes = self.data("list_saved_ah_recipes", {"group": "taarten"})
+            self.assertEqual((cakes["group"], [r["title"] for r in cakes["recipes"]]), ("Taarten", ["Kwarktaart", "Appeltaart"]))
+            self.assertEqual(self.data("list_saved_ah_recipes", {"group": "7", "query": "appel"})["total"], 1)
+            self.assertNotIn("group", self.data("list_saved_ah_recipes"))
+            wrong = self.call(self.token, "list_saved_ah_recipes", {"group": "soepen"})
+            self.assertTrue(wrong["isError"])
+            self.assertIn("Taarten", self.text(wrong))
 
     def test_lists(self):
         ah_lists.save_snapshot({"id": "abc", "name": "Weekboodschappen", "items": [

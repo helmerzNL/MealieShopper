@@ -114,6 +114,44 @@ class SavedRecipesCollectionsTest(unittest.TestCase):
         self.assertIn("Cannot query field recipes", str(ctx.exception))
 
 
+class SavedRecipeGroupsTest(unittest.TestCase):
+    def run_groups(self, responses):
+        with mock.patch.object(ah, "configured_refresh_token", return_value="tok"), \
+                mock.patch.object(ah, "get_user_token", return_value="tok"), \
+                mock.patch.object(ah.requests, "post", side_effect=responses) as post:
+            return ah.get_saved_recipe_groups(), post
+
+    def test_every_group_keeps_its_name_and_own_recipes(self):
+        collections = graphql_ok({"recipeCollectionCategories": [
+            {"id": 1, "name": "Alles", "isDefault": True, "recipes": [{"id": 11}, {"id": 12}, {"id": 11}]},
+            {"id": 2, "name": " Taarten  en  cake ", "isDefault": False, "recipes": [{"id": 13}, {"id": 12}, {"id": "x"}]},
+            {"id": 3, "name": None, "recipes": None},
+            {"name": "Zonder id", "recipes": [{"id": 14}]},
+            {"id": 2, "name": "Dubbel", "recipes": [{"id": 15}]},
+        ]})
+        groups, post = self.run_groups([collections])
+        self.assertEqual(post.call_count, 1, "geen receptdetails nodig voor de groepen")
+        self.assertEqual(groups, [
+            {"id": "1", "name": "Alles", "isDefault": True, "recipeIds": [11, 12]},
+            {"id": "2", "name": "Taarten en cake", "isDefault": False, "recipeIds": [13, 12]},
+            {"id": "3", "name": "Groep 3", "isDefault": False, "recipeIds": []},
+        ])
+
+    def test_scalar_recipe_ids_after_selection_error(self):
+        rejected = graphql_error('Field "recipes" must not have a selection since type "[Int!]" has no subfields')
+        scalar = graphql_ok({"recipeCollectionCategories": [{"id": 9, "name": "Soepen", "isDefault": False, "recipes": [5, 6, 5]}]})
+        groups, post = self.run_groups([rejected, scalar])
+        self.assertEqual(groups, [{"id": "9", "name": "Soepen", "isDefault": False, "recipeIds": [5, 6]}])
+        self.assertEqual(post.call_count, 2)
+
+    def test_not_linked(self):
+        with mock.patch.object(ah, "configured_refresh_token", return_value=""), \
+                mock.patch.object(ah, "_collection_categories", side_effect=AssertionError("niet aanroepen")):
+            with self.assertRaises(RuntimeError) as ctx:
+                ah.get_saved_recipe_groups()
+        self.assertIn("Instellingen > Koppelen > Albert Heijn", str(ctx.exception))
+
+
 class SavedRecipesCookbookTest(unittest.TestCase):
     def test_recipes_are_mapped_and_paged(self):
         collected = {

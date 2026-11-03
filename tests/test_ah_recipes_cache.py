@@ -22,6 +22,10 @@ def pager(total, size=ah_recipes.PAGE_SIZE):
     return fake
 
 
+def group(group_id, name, ids, default=False):
+    return {"id": str(group_id), "name": name, "isDefault": default, "recipeIds": list(ids)}
+
+
 class SavedRecipesCacheTestCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -29,6 +33,10 @@ class SavedRecipesCacheTestCase(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         env.start()
         self.addCleanup(env.stop)
+        # Standaard heeft AH geen receptgroepen; de groepentests zetten er zelf een paar neer.
+        groups = mock.patch.object(ah, "get_saved_recipe_groups", return_value=[])
+        self.groups = groups.start()
+        self.addCleanup(groups.stop)
         self.client = create_app().test_client()
 
 
@@ -118,7 +126,71 @@ class CacheTest(SavedRecipesCacheTestCase):
             self.assertEqual(ah_recipes.get()["total"], 0)
 
 
+class GroupsTest(SavedRecipesCacheTestCase):
+    def fetch(self, total, groups, force=False):
+        self.groups.return_value = groups
+        self.groups.side_effect = None
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(total)):
+            return ah_recipes.get(force=force)
+
+    def test_groups_are_kept_in_ah_order_with_their_own_recipe_order(self):
+        data = self.fetch(5, [group(7, "Taarten", [4, 2]), group(3, "Soepen", [1, 5, 3])])
+        self.assertEqual(
+            [(g["id"], g["name"], g["count"], g["recipeIds"], g["isDefault"]) for g in data["groups"]],
+            [("7", "Taarten", 2, ["4", "2"], False), ("3", "Soepen", 3, ["1", "5", "3"], False)],
+        )
+        with mock.patch.object(ah, "get_saved_recipe_groups", side_effect=AssertionError("niet bij AH vragen")):
+            self.assertEqual(ah_recipes.get()["groups"], data["groups"], "de groepen komen uit de kopie")
+
+    def test_default_group_with_everything_is_the_same_as_all_recipes(self):
+        data = self.fetch(3, [group(1, "Bewaard", [3, 2, 1], default=True), group(2, "Snel", [2])])
+        self.assertEqual([g["name"] for g in data["groups"]], ["Snel"])
+
+    def test_default_group_with_a_part_stays(self):
+        data = self.fetch(3, [group(1, "Bewaard", [1, 2], default=True), group(2, "Snel", [3])])
+        self.assertEqual([(g["name"], g["isDefault"]) for g in data["groups"]], [("Bewaard", True), ("Snel", False)])
+
+    def test_unknown_and_double_recipes_in_a_group_are_left_out(self):
+        data = self.fetch(2, [group(1, "Mix", [2, 99, 2, 1]), group(2, "Leeg", [])])
+        self.assertEqual([(g["name"], g["recipeIds"], g["count"]) for g in data["groups"]], [("Mix", ["2", "1"], 2), ("Leeg", [], 0)])
+
+    def test_failing_groups_still_keep_the_recipes(self):
+        self.groups.side_effect = RuntimeError("collectie: 500")
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(4)):
+            data = ah_recipes.get()
+        self.assertEqual((data["total"], data["groups"]), (4, []))
+        self.assertEqual(ah_recipes.load()["total"], 4)
+
+    def test_refresh_replaces_the_groups(self):
+        self.fetch(3, [group(1, "Oud", [1]), group(2, "Ook oud", [2])])
+        data = self.fetch(3, [group(5, "Nieuw", [3])], force=True)
+        self.assertEqual([g["name"] for g in data["groups"]], ["Nieuw"])
+        self.assertEqual([g["name"] for g in ah_recipes.load()["groups"]], ["Nieuw"])
+
+    def test_empty_and_cache_only_have_no_groups(self):
+        self.assertEqual(ah_recipes.get(fetch_if_missing=False)["groups"], [])
+        self.assertEqual(ah_recipes.EMPTY["groups"], [], "de lege uitkomst wordt niet gedeeld aangepast")
+
+    def test_resolve_group_by_id_or_name(self):
+        groups = self.fetch(3, [group(1, "Taarten", [1]), group(2, "Hartige taarten", [2]), group(3, "Crème brûlée", [3])])["groups"]
+        self.assertIsNone(ah_recipes.resolve_group(groups, "  "))
+        self.assertEqual(ah_recipes.resolve_group(groups, "2")["name"], "Hartige taarten")
+        self.assertEqual(ah_recipes.resolve_group(groups, "hartig")["id"], "2")
+        self.assertEqual(ah_recipes.resolve_group(groups, "taarten")["id"], "1", "een exacte naam wint van een deel")
+        self.assertEqual(ah_recipes.resolve_group(groups, "creme")["id"], "3")
+        with self.assertRaisesRegex(ValueError, "Kies uit"):
+            ah_recipes.resolve_group(groups, "soep")
+        with self.assertRaisesRegex(ValueError, "geen receptgroepen"):
+            ah_recipes.resolve_group([], "soep")
+
+
 class RouteTest(SavedRecipesCacheTestCase):
+    def test_route_serves_the_groups(self):
+        self.groups.return_value = [group(4, "Feest", [2, 1])]
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
+            data = self.client.get("/api/ah/recipes/saved").get_json()
+        self.assertEqual(data["groups"], [{"id": "4", "name": "Feest", "isDefault": False, "count": 2, "recipeIds": ["2", "1"]}])
+
     def test_route_serves_the_copy_and_refresh_goes_to_ah(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(4)) as live:
             first = self.client.get("/api/ah/recipes/saved").get_json()

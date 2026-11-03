@@ -16,6 +16,8 @@ const state = {
   ahRecipesLoaded: false,
   ahRecipes: [],
   ahRecipeQuery: "",
+  ahRecipeGroups: [], // de receptgroepen van AH: [{id, name, count, recipeIds}]
+  ahRecipeGroup: "", // de gekozen groep; "" is alle bewaarde recepten
   about: null,
   aboutLoaded: false,
   store: "ah", // de keuze voor het weekmenu: "ah", "picnic", "jumbo" of "crisp"
@@ -2221,19 +2223,42 @@ function renderSavedRecipeCard(recipe) {
   `;
 }
 
+// De keuzelijst met de receptgroepen van AH, zoals de receptenlijsten bij Jumbo: eerst alle recepten, dan elke groep.
+function renderAhRecipeGroups() {
+  const select = $("#ah-recipe-group");
+  const groups = state.ahRecipeGroups;
+  if (!groups.some((group) => group.id === state.ahRecipeGroup)) state.ahRecipeGroup = "";
+  const all = `<option value="">${escapeHtml(`${t("ah.recipes.all_groups")} (${I18N.formatNumber(state.ahRecipes.length)})`)}</option>`;
+  select.innerHTML =
+    all +
+    groups
+      .map((group) => `<option value="${escapeHtml(group.id)}">${escapeHtml(`${group.name} (${I18N.formatNumber(group.count)})`)}</option>`)
+      .join("");
+  select.value = state.ahRecipeGroup;
+  select.hidden = !groups.length; // zonder groepen valt er niets te kiezen
+}
+
+// De recepten van de gekozen groep, in de volgorde van die groep; zonder keuze alle bewaarde recepten.
+function savedRecipesOfGroup() {
+  const group = state.ahRecipeGroups.find((item) => item.id === state.ahRecipeGroup);
+  if (!group) return state.ahRecipes;
+  const byId = new Map(state.ahRecipes.map((recipe) => [String(recipe.id), recipe]));
+  return (group.recipeIds || []).map((id) => byId.get(String(id))).filter(Boolean);
+}
+
 function renderSavedRecipes() {
   const query = state.ahRecipeQuery.trim();
   const all = state.ahRecipes;
-  const recipes = query ? all.filter((recipe) => matchesWords(recipe.title, query)) : all;
+  const inGroup = savedRecipesOfGroup();
+  const recipes = query ? inGroup.filter((recipe) => matchesWords(recipe.title, query)) : inGroup;
   $("#ah-recipes").innerHTML = recipes.length
     ? recipes.map(renderSavedRecipeCard).join("")
     : "";
   if (!all.length) return;
-  message(
-    "#ah-recipes-message",
-    recipes.length ? "" : t("saved.none_match", { query }),
-    "success"
-  );
+  let text = "";
+  if (!inGroup.length) text = t("ah.recipes.group_empty");
+  else if (!recipes.length) text = t("saved.none_match", { query });
+  message("#ah-recipes-message", text, "success");
 }
 
 function updateSavedRecipesStatus(data) {
@@ -2263,6 +2288,8 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
     const query = refresh ? "?refresh=1" : cachedOnly ? "?cached=1" : "";
     const data = await jsonFetch(`/api/ah/recipes/saved${query}`);
     state.ahRecipes = data.recipes || [];
+    state.ahRecipeGroups = data.groups || [];
+    renderAhRecipeGroups();
     $("#ah-recipe-filter").disabled = !state.ahRecipes.length;
     button.dataset.label = data.syncedAt ? t("saved.refresh") : t("saved.fetch");
     state.ahRecipesFetched = Boolean(data.syncedAt);
@@ -2610,6 +2637,10 @@ $("#ah-recipe-filter").addEventListener("input", (event) => {
   state.ahRecipeQuery = event.target.value;
   renderSavedRecipes();
 });
+$("#ah-recipe-group").addEventListener("change", (event) => {
+  state.ahRecipeGroup = event.target.value;
+  renderSavedRecipes();
+});
 $("#ah-list-filter").addEventListener("input", onAhListFilter);
 $("#ah-list-back").addEventListener("click", closeAhList);
 $("#sync-open-ah-list").addEventListener("click", async (event) => {
@@ -2686,6 +2717,7 @@ window.addEventListener("ms:languagechange", () => {
   renderCredentials();
   renderAhLists();
   if (state.ahOpenListId) loadAhFavoriteListItems(state.ahOpenListId, { keepScroll: true });
+  renderAhRecipeGroups();
   renderSavedRecipes();
   refreshSavedRecipesStatus();
   renderAbout();
