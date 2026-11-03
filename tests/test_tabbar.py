@@ -55,7 +55,7 @@ class TabbarMarkupTest(unittest.TestCase):
         self.assertIn("viewport-fit=cover", self.html)
 
     def test_seven_tabs_with_icon_long_and_short_label(self):
-        buttons = re.findall(r'<button class="tab[^"]*" data-tab="([\w-]+)".*?</button>', self.nav, re.S)
+        buttons = re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)".*?</a>', self.nav, re.S)
         self.assertEqual(buttons, ["recipes", "offers", "url", "ah-items", "meal-kits", "basket"])
         self.assertEqual(self.nav.count('class="tab-icon"'), 6, "het avatar-icoon in de plaats van Beheer is een eigen soort")
         self.assertEqual(self.nav.count('aria-hidden="true"'), 15, "icoon en kort label worden niet voorgelezen")
@@ -104,7 +104,7 @@ class TabbarMarkupTest(unittest.TestCase):
 
     def test_recipes_tab_holds_the_week_menu_and_recipe_search_as_subtabs(self):
         section = self.html[self.html.index('<section id="recipes"'):self.html.index('<section id="basket"')]
-        self.assertEqual(re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["planner", "search"])
+        self.assertEqual(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"', section), ["planner", "search"])
         self.assertIn('<div id="planner" class="subpanel is-active">', section)
         self.assertIn('<div id="search" class="subpanel">', section)
 

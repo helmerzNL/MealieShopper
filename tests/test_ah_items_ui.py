@@ -40,7 +40,7 @@ class StoreSubtabsTest(unittest.TestCase):
 
     def nav(self):
         nav = HTML[HTML.index('<nav class="subtabs" aria-label="Winkels"'):HTML.index('id="ah-items-recepten" class="subpanel')]
-        return re.findall(r'<button class="subtab[^"]*" data-subtab="([\w-]+)"[^>]*>', nav)
+        return re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"[^>]*>', nav)
 
     def test_the_buttons_are_in_the_order_recipes_first(self):
         self.assertEqual(self.nav(), self.ORDER)
@@ -67,7 +67,7 @@ class StoreSubtabsTest(unittest.TestCase):
         en = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
         self.assertIn('"ah.tab.recipes": "Recepten"', nl)
         self.assertIn('"ah.tab.recipes": "Recipes"', en)
-        self.assertIn('data-i18n="ah.tab.recipes">Recepten</button>', HTML)
+        self.assertIn('data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>', HTML)
 
     def test_switching_store_opens_the_first_visible_tab_of_that_store(self):
         script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -145,7 +145,7 @@ class OverviewScriptTest(unittest.TestCase):
         self.assertIn("state.ahListHits = {};\n  ahListSearchSeq++;", JS, "oude treffers horen niet bij een nieuwe zoektekst")
 
     def test_list_opens_in_place_and_back_uses_history(self):
-        for needle in ("history.pushState({ ahList: listId }", "history.back()", 'addEventListener("popstate"',
+        for needle in ("state.ahListFromOverview = push", "history.back()", "routerSync()",
                        'history.scrollRestoration = "manual"', "state.ahListsScroll"):
             self.assertIn(needle, JS, needle)
 

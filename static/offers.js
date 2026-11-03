@@ -63,9 +63,10 @@ function renderOffersStore() {
   $("#offers-store-list").innerHTML = available
     .map(
       (key) =>
-        `<button class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" type="button" data-store="${key}">${escapeHtml(STORES[key].name)}</button>`
+        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath("", { store: key === "ah" ? "" : key }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
+  if (typeof routerRetry === "function") routerRetry();
 }
 
 function offersSwitchStore(store) {
@@ -79,6 +80,7 @@ function offersSwitchStore(store) {
   }
   showOffers();
   if (typeof offerHistoryStoreChanged === "function") offerHistoryStoreChanged();
+  if (typeof routerSync === "function") routerSync();
 }
 
 // De voorwaarden van een aanbieding: vanaf hoeveel stuks, wat een stuk dan kost en tot wanneer ze geldt.
@@ -144,6 +146,7 @@ function offerProductCard(offer) {
   const compare = offer.unitPricePer
     ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
     : "";
+  const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
   return `
     <article class="product-card offer-card">
       ${offer.image ? `<img src="${escapeHtml(offer.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
@@ -156,6 +159,7 @@ function offerProductCard(offer) {
         ${perUnit ? `<small class="offer-card__per-unit">${escapeHtml(perUnit)}</small>` : ""}
         ${verdict}
         ${compare}
+        ${history}
       </span>
     </article>`;
 }

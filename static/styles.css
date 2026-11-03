@@ -524,6 +524,27 @@ h2 {
   color: var(--primary-strong);
 }
 
+/* Navigatie is een echte link (router.js): Ctrl+klik en de middelste knop openen een nieuw tabblad. Zelfde uiterlijk als de knoppen. */
+a.tab,
+a.subtab,
+a.subtab-menu__item,
+a.user-menu__item,
+a.ohc-item,
+a.list-card__open {
+  text-decoration: none;
+}
+
+a.subtab,
+a.subtab-menu__item {
+  display: inline-flex;
+  align-items: center;
+}
+
+a.subtab[hidden],
+a.subtab-menu__item[hidden] {
+  display: none;
+}
+
 /* Iconen: Material Design Icons (Pictogrammers, licentie in static/icons/). In de bovenste tabs staan
    ze links van de tekst; in de onderste menubalk (PWA op een klein scherm) boven een kort label. */
 .tab {
@@ -4750,7 +4771,8 @@ body.has-onboarding {
   font-weight: 600;
 }
 
-.offer-card .offer-card__compare {
+.offer-card .offer-card__compare,
+.offer-card .offer-card__history {
   margin-top: 4px;
   font-size: 13px;
 }

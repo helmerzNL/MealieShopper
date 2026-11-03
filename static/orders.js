@@ -10,7 +10,8 @@ function ordersAreJumbo() {
   return state.itemsStore === "jumbo";
 }
 
-const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false };
+// `open`: de bestelling of kassabon die open staat ({ kind, id }), voor het adres (router.js).
+const ordersState = { basket: null, orders: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", loaded: false, open: null };
 
 function dayLabel(value) {
   const date = new Date(String(value || "").length === 10 ? `${value}T12:00:00` : value);
@@ -37,13 +38,16 @@ function money(value) {
   return value === null || value === undefined ? "" : formatPrice(value);
 }
 
-function purchaseItem(item) {
+// Een product uit een bestelling of het mandje; de naam linkt naar zijn prijsgeschiedenis.
+function purchaseItem(item, store = "ah") {
   const meta = [item.brand, item.unitSize].filter(Boolean).join(" · ");
+  const title = item.title || item.name || "";
+  const name = title ? `<a href="${escapeHtml(priceHistoryPath(store, title, item.productId || ""))}" data-route>${escapeHtml(title)}</a>` : "";
   return `
     <article class="product-card">
       ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy">` : ""}
       <div>
-        <strong>${escapeHtml(item.quantity)}x ${escapeHtml(item.title || item.name || "")}</strong>
+        <strong>${escapeHtml(item.quantity)}x ${name}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         ${item.taxonomy ? `<small>${escapeHtml(item.taxonomy)}</small>` : ""}
         ${item.bonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
@@ -72,7 +76,7 @@ function renderBasket() {
     delivery ? t("orders.delivery", { when: delivery }) : "",
     t("orders.updated", { when: formatSyncTime(basket.syncedAt) }),
   ].filter(Boolean);
-  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map(purchaseItem).join("")}</div>`;
+  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map((item) => purchaseItem(item)).join("")}</div>`;
 }
 
 // Het AH-mandje (de boodschappenlijst waar het weekmenu in schrijft) staat in het tabblad Mandje (basket.js):
@@ -111,10 +115,10 @@ function orderCard(order) {
   ].filter(Boolean);
   return `
     <div class="list-card">
-      <button type="button" class="list-card__open" data-order-id="${escapeHtml(order.id)}">
+      <a class="list-card__open" data-order-id="${escapeHtml(order.id)}" href="${escapeHtml(storesPath(ordersAreJumbo() ? "jumbo" : "ah", "orders", order.id))}" data-nav>
         <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
         ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
-      </button>
+      </a>
     </div>`;
 }
 
@@ -157,7 +161,7 @@ function renderReceiptList() {
             <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
             <small>${escapeHtml([money(receipt.total), receipt.detailsSynced ? tn("list.items", receipt.itemCount) : t("orders.items_pending")].filter(Boolean).join(" · "))}</small>
           </div>
-          <button class="button button--secondary" type="button" data-receipt-id="${escapeHtml(receipt.id)}">${escapeHtml(t("orders.view"))}</button>
+          <a class="button button--secondary" data-receipt-id="${escapeHtml(receipt.id)}" href="${escapeHtml(storesPath("ah", "receipts", receipt.id))}" data-nav>${escapeHtml(t("orders.view"))}</a>
         </div>`
     )
     .join("");
@@ -328,7 +332,13 @@ function receiptMethod(method) {
 function receiptPaper(receipt, words = []) {
   const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
   const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
-  const lines = receipt.items.map((line) => row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`));
+  // De omschrijving linkt naar de prijsgeschiedenis van dat product (op naam: op een bon staat geen id van de webwinkel).
+  const lines = receipt.items.map((line) =>
+    row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`).replace(
+      `<span class="receipt__c1">${escapeHtml(line.name)}</span>`,
+      `<span class="receipt__c1"><a href="${escapeHtml(priceHistoryPath("ah", line.name))}" data-route>${escapeHtml(line.name)}</a></span>`
+    )
+  );
   const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
   const units = receipt.items.reduce((sum, line) => sum + (line.quantity || 0), 0);
   const payments = receipt.payments.map((entry) => row([receiptMethod(entry.method), money(entry.amount)], "receipt__pay"));
@@ -349,11 +359,15 @@ function receiptPaper(receipt, words = []) {
 
 // ---- één bestelling of kassabon openen
 function showPurchaseOverview() {
+  ordersState.open = null;
   $("#ah-order-detail").hidden = true;
   $("#ah-orders-view").hidden = false;
+  if (typeof routerSync === "function") routerSync();
 }
 
 async function openPurchase(kind, id) {
+  ordersState.open = { kind, id: String(id) };
+  if (typeof routerSync === "function") routerSync();
   $("#ah-orders-view").hidden = true;
   $("#ah-order-detail").hidden = false;
   $("#ah-order-title").textContent = "";
@@ -371,7 +385,7 @@ async function openPurchase(kind, id) {
         t("orders.updated", { when: formatSyncTime(order.syncedAt) }),
       ].filter(Boolean).join(" · ");
       $("#ah-order-items").innerHTML = order.items.length
-        ? `<div class="product-grid">${order.items.map(purchaseItem).join("")}</div>`
+        ? `<div class="product-grid">${order.items.map((item) => purchaseItem(item, ordersAreJumbo() ? "jumbo" : "ah")).join("")}</div>`
         : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
