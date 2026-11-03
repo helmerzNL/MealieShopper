@@ -21,6 +21,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - haal het image `latest` (of `3.0.0`) binnen, of werk de Home Assistant-add-on bij, en ververs daarna de pagina één keer;
   - voor de tags en categorieën moet de Mealie-gebruiker van je API-token mogen organiseren (in Mealie bij de gebruiker: *Organiseren*). Zonder dat recht worden de recepten wel geïmporteerd, met een melding.
 - De volledige tekst per versie staat hieronder bij v2.98.0.
+- Pull requests: [#213](https://github.com/helmerzNL/MealieShopper/pull/213) en [#214](https://github.com/helmerzNL/MealieShopper/pull/214).
 
 ## v2.98.0
 
