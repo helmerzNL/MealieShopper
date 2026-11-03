@@ -37,8 +37,9 @@ Je weekmenu plannen in [Mealie](https://mealie.io) en in je mandje zetten bij [A
 ## Wat kan het?
 
 - **Weekmenu naar je boodschappen.** Het weekmenu uit Mealie, met de plaatjes van je recepten. Je kiest in de planner je supermarkt: Albert Heijn, Picnic, Jumbo of Crisp, voor zover gekoppeld. De porties die je in de planner van Mealie per maaltijd instelt, neemt MealieShopper over: de hoeveelheden worden omgerekend en hetzelfde ingrediënt uit meerdere recepten wordt opgeteld. Eén knop zoekt voor elk ingrediënt de beste producten, rekent uit hoeveel verpakkingen je nodig hebt en toont ze eerst in een controlelijst. Daar vink je weg wat je niet wilt en kies je een ander product of aantal; pas na je bevestiging gaan ze in je mandje bij die winkel. Je rondt de bestelling zelf af, bij Albert Heijn, in de Picnic-app, bij Jumbo of in de Crisp-app.
-- **Het weekmenu plannen.** Zet een recept uit Mealie of een notitie ("Uit eten") op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** een recept kiezen volgens je planregels. Elke wijziging gaat meteen naar Mealie; MealieShopper bewaart zelf geen planning.
+- **Het weekmenu plannen.** Zet een recept uit Mealie of een notitie ("Uit eten") op een dag, verplaats of verwijder een maaltijd, of laat Mealie met **Verras me** een recept kiezen volgens je planregels. Een tik op een maaltijd toont het recept, met de ingrediënten voor de porties die je plande. Elke wijziging gaat meteen naar Mealie; MealieShopper bewaart zelf geen planning.
 - **Aanbiedingen en receptvoorstellen.** Het tabblad Aanbiedingen toont de aanbiedingen van Albert Heijn (Bonus), Picnic, Jumbo en Crisp, elke dag automatisch bijgewerkt, en zoekt in je recepten (Mealie, Jumbo, Picnic en bewaarde AH-recepten) naar gerechten waarvan ingrediënten in de aanbieding zijn.
+- **Is het echt een aanbieding?** Bij elke aanbieding staan de prijs per kilo, liter of stuk en een oordeel: echt voordelig, klein voordeel, of niet goedkoper dan de gewone prijs van de laatste 30 dagen. De **Prijsgeschiedenis** toont per product de aanbiedingen, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. **Vergelijk verpakkingen** laat zien welke verpakking per eenheid het goedkoopst is, en de controlelijst van het weekmenu wijst je erop als een andere verpakking goedkoper is.
 - **Recepten zoeken en importeren.** Zoek tegelijk in je eigen recepten in Mealie, de recepten van Albert Heijn, Jumbo, Picnic, Crisp en de menu's van HelloFresh en Marley Spoon. Elk recept bekijk je in MealieShopper en plan je met één klik in; een recept van een winkel komt dan ook in Mealie (staat het er al, dan gebruikt MealieShopper dat recept). Of importeer een recept via een link.
 - **Je AH-account in MealieShopper.** Je bewaarde recepten en je favoriete lijstjes, bewaard in een eigen kopie zodat ze ook werken als AH even niet meewerkt. Zoeken in je recepten en lijstjes gaat direct.
 - **Eén tabblad Mandje.** Je mandje bij Albert Heijn (de boodschappenlijst waar het weekmenu in schrijft), Picnic, Jumbo en Crisp, met een keuzelijst voor de winkels die gekoppeld zijn. Bij Picnic en Crisp pas je aantallen aan of leeg je het mandje; Jumbo toont het alleen. Na het vullen vanuit het weekmenu brengt de knop **Mandje bekijken** je erheen.
@@ -65,13 +66,17 @@ Je weekmenu uit Mealie, met elke dag van de week: plan er een recept of notitie 
 
 <img src="docs/screenshots/nl/plan-add.png" alt="Maaltijd plannen: de dag, de maaltijd, de keuze tussen Recept en Notitie, je recepten uit Mealie en de knop Verras me" width="900">
 
-De porties die je in de planner van Mealie per maaltijd instelt, rekenen alle hoeveelheden om. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld. Bij elk product staat een foto; tik erop om hem groot te zien.
+Een tik op een maaltijd opent het recept in een venster: de omschrijving, de ingrediënten (al omgerekend naar de porties die je plande), de bereiding en de bereidingstijd, met **Open in Mealie** en **Wijzigen**.
 
-<img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt een foto van het product, het product en het aantal verpakkingen, met een gemarkeerde regel" width="900">
+<img src="docs/screenshots/nl/meal-recipe.png" alt="Het recept van een maaltijd in een venster: de maaltijd en de dag, de porties en de bereidingstijd, de omschrijving, de ingrediënten en de knoppen Open in Mealie, Wijzigen en Sluiten" width="900">
 
-### Naar Picnic of Jumbo
+De porties die je in de planner van Mealie per maaltijd instelt, rekenen alle hoeveelheden om. Het aantal verpakkingen wordt uitgerekend met de verpakkingsgrootte van AH, en regels waar de app niet zeker van is, markeert ze zodat je ze controleert voordat het mandje wordt gevuld. Bij elk product staat een foto; tik erop om hem groot te zien. In de keuzelijst staat bij elk product de prijs per kilo, liter of stuk. Is een andere verpakking per eenheid goedkoper, dan staat dat onder het ingrediënt, met **Kies**.
 
-Is Picnic of Jumbo gekoppeld, dan kies je naast de knop naar welke supermarkt het weekmenu gaat. De producten komen direct in het mandje van die winkel; **Mandje bekijken** brengt je naar het tabblad Mandje. Er wordt nooit een bestelling geplaatst.
+<img src="docs/screenshots/nl/cart.png" alt="Controleer je mandje: per ingrediënt een foto van het product, het product met de prijs per kilo en het aantal verpakkingen; bij spaghetti staat dat 1 kg per kilo goedkoper is, met de knop Kies, en een regel is gemarkeerd" width="900">
+
+### Naar Picnic, Jumbo of Crisp
+
+Is Picnic, Jumbo of Crisp gekoppeld, dan kies je naast de knop naar welke supermarkt het weekmenu gaat. De producten komen direct in het mandje van die winkel; **Mandje bekijken** brengt je naar het tabblad Mandje. Er wordt nooit een bestelling geplaatst.
 
 <img src="docs/screenshots/nl/plan-picnic.png" alt="Het weekmenu met de supermarktkeuze Picnic en de melding dat de boodschappen in het Picnic-mandje staan" width="900">
 
@@ -81,23 +86,35 @@ Eén tabblad voor je mandje bij elke gekoppelde winkel, te kiezen in de keuzelij
 
 <img src="docs/screenshots/nl/basket.png" alt="Het tabblad Mandje met het AH-mandje: producten met aantal en prijs" width="900">
 
-Bij Picnic pas je aantallen aan, haal je producten weg of leeg je het mandje, en staan eronder wat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten. Jumbo toont het mandje alleen.
+Bij Picnic en Crisp pas je aantallen aan, haal je producten weg of leeg je het mandje. Bij Picnic staan eronder wat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten; bij Crisp wat je betaalt en hoeveel er nog ontbreekt tot het minimumbedrag. Jumbo toont het mandje alleen.
 
 <img src="docs/screenshots/nl/basket-picnic.png" alt="Het Picnic-mandje met plus- en minknoppen, het te betalen bedrag en de bezorgmomenten" width="900">
+
+<img src="docs/screenshots/nl/basket-crisp.png" alt="Het Crisp-mandje met plus- en minknoppen, Mandje legen, het te betalen bedrag en wat er nog ontbreekt tot het minimum" width="900">
 
 <img src="docs/screenshots/nl/basket-jumbo.png" alt="Het Jumbo-mandje, alleen om te bekijken" width="900">
 
 ### Aanbiedingen
 
-De aanbiedingen van Albert Heijn, Picnic en Jumbo, per week en gelijk met het weekmenu: plan je volgende week, dan zie je de aanbiedingen van volgende week. Bij Albert Heijn is dat de complete bonusweek, van maandag t/m zondag; de bonus van volgende week staat er al zodra AH die in het weekend doorgeeft. Kies een categorie om alleen die aanbiedingen te zien.
+De aanbiedingen van Albert Heijn, Picnic, Jumbo en Crisp, per week en gelijk met het weekmenu: plan je volgende week, dan zie je de aanbiedingen van volgende week. Bij Albert Heijn is dat de complete bonusweek, van maandag t/m zondag; de bonus van volgende week staat er al zodra AH die in het weekend doorgeeft. Kies een categorie om alleen die aanbiedingen te zien.
 
-<img src="docs/screenshots/nl/offers.png" alt="Het tabblad Aanbiedingen: de week met pijltjes, de looptijd van de bonusweek, hoeveel aanbiedingen er later beginnen, de categorieën en de producten met hun actie" width="900">
+Bij elke aanbieding staan de prijs per kilo, liter of stuk en een oordeel: ligt wat je met de actie per stuk betaalt echt onder de gewone prijs van de laatste 30 dagen? Daarnaast staat erbij als het de laagste actieprijs in een jaar is, als de aanbieding vaak terugkomt, of als een andere verpakking per eenheid goedkoper is.
+
+<img src="docs/screenshots/nl/offers.png" alt="Het tabblad Aanbiedingen: de categorieën en de producten met hun actie, de prijs per kilo of liter, een oordeel als Echt voordelig of Klein voordeel en de knop Vergelijk verpakkingen" width="900">
+
+**Vergelijk verpakkingen** zoekt bij de winkel naar andere verpakkingen van hetzelfde product en zet ze per kilo, liter of stuk naast elkaar, de goedkoopste bovenaan. Standaard zie je alleen hetzelfde soort product; met **Zelfde merk**, **In de aanbieding** en een filter op naam maak je de lijst kleiner. Bovenaan staat welke verpakking het goedkoopst is en hoeveel dat scheelt.
+
+<img src="docs/screenshots/nl/compare.png" alt="Vergelijk verpakkingen bij rundergehakt: de filters, bovenaan dat 1000 g per kilo € 1,00 goedkoper is, en de verpakkingen met hun kiloprijs van goedkoop naar duur" width="900">
+
+De **Prijsgeschiedenis** toont per product wanneer het in de aanbieding was, de gewone prijs door de tijd en wat je zelf betaalde, uit je bestellingen en kassabonnen. Zo zie je ook een gewone prijs die vlak voor een aanbieding omhoog ging.
+
+<img src="docs/screenshots/nl/price-history.png" alt="De Prijsgeschiedenis van rundergehakt: kerngetallen, een grafiek met de aanbiedingen als balken, de gewone prijs als trap en je aankopen als stippen, en de tabel met aanbiedingen" width="900">
 
 ### Recepten zoeken
 
 <img src="docs/screenshots/nl/search.png" alt="Recepten zoeken naar kip: bovenaan je eigen recepten in Mealie, als kaarten met tijd, porties en tags" width="900">
 
-Je zoekt ook in je eigen recepten in Mealie; die staan bovenaan. Zijn Jumbo en Picnic gekoppeld, dan zoek je ook daar in één keer; de resultaten staan per winkel bij elkaar. Elke kaart heeft onderaan dezelfde twee knoppen: **Bekijken** opent het recept op dezelfde plek, met de ingrediënten en de bereiding, en **Inplannen** zet het in je weekmenu. In het recept staan ook **Importeer** (alleen in Mealie zetten) en een link naar de winkel of naar Mealie.
+Je zoekt ook in je eigen recepten in Mealie; die staan bovenaan. Zijn Jumbo, Picnic of Crisp gekoppeld, dan zoek je ook daar in één keer; de resultaten staan per winkel bij elkaar. Elke kaart heeft onderaan dezelfde twee knoppen: **Bekijken** opent het recept op dezelfde plek, met de ingrediënten en de bereiding, en **Inplannen** zet het in je weekmenu. In het recept staan ook **Importeer** (alleen in Mealie zetten) en een link naar de winkel of naar Mealie.
 
 <img src="docs/screenshots/nl/search-stores.png" alt="Zoekresultaten van Jumbo met kaarten, tijd, personen en waardering" width="900">
 
@@ -109,9 +126,9 @@ De menu's van **HelloFresh** en **Marley Spoon** zoeken altijd mee, zonder koppe
 
 ### Winkels kiezen
 
-Onder **Winkels** staat het winkelmenu als eerste knop in de tabbalk. Het toont de gekozen winkel en klapt open met de gekoppelde winkels: Albert Heijn, Jumbo en Picnic. Met één gekoppelde winkel is het menu verborgen.
+Onder **Winkels** staat het winkelmenu als eerste knop in de tabbalk. Het toont de gekozen winkel en klapt open met de gekoppelde winkels: Albert Heijn, Jumbo, Picnic en Crisp. Met één gekoppelde winkel is het menu verborgen.
 
-<img src="docs/screenshots/nl/stores-menu.png" alt="Het uitgeklapte winkelmenu met Albert Heijn, Jumbo en Picnic" width="900">
+<img src="docs/screenshots/nl/stores-menu.png" alt="Het uitgeklapte winkelmenu met Albert Heijn, Jumbo, Picnic en Crisp" width="900">
 
 ### Maaltijdboxen
 
@@ -176,6 +193,16 @@ Bij **Recepten** kies je Favorieten of een van je eigen lijstjes; `Bekijken` too
 <img src="docs/screenshots/nl/jumbo-recipes.png" alt="Receptenlijst bij Jumbo met een keuzelijst en kaarten" width="900">
 
 <img src="docs/screenshots/nl/jumbo-recipe.png" alt="Een Jumbo-recept met ingrediënten, bereiding, tip en voedingswaarden" width="900">
+
+### Winkels: Crisp
+
+Kies in het winkelmenu **Crisp**. **Favorieten** toont de producten die je in de Crisp-app hebt bewaard, met een knop om er één in je Crisp-mandje te zetten.
+
+<img src="docs/screenshots/nl/crisp-favorites.png" alt="Favoriete Crisp-producten met een knop In mandje per product" width="900">
+
+**Bestellingen** toont je aankomende bestellingen (live opgehaald) en je bezorgde bestellingen, die je met *Synchroniseren* lokaal bewaart. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje.
+
+<img src="docs/screenshots/nl/crisp-orders.png" alt="Crisp-bestellingen: aankomend en bezorgd, met de dag, de bezorgtijd, het totaal en het aantal producten" width="900">
 
 ### Donker thema
 
@@ -353,7 +380,7 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic, Jumbo en Crisp) koppel je er één of meer. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de meldingen of Mealie, Albert Heijn, Picnic, Jumbo en Crisp gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** en **Crisp**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
-<img src="docs/screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen en de blokken voor Mealie, Albert Heijn, Picnic en Jumbo" width="900">
+<img src="docs/screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen dat Mealie, Albert Heijn, Jumbo, Picnic en Crisp gekoppeld zijn, en het blok Aanbiedingen" width="900">
 
 <img src="docs/screenshots/nl/settings-picnic.png" alt="Instellingen, Koppelen, Picnic: inloggen met e-mailadres en wachtwoord" width="900">
 
@@ -409,6 +436,8 @@ Crisp heeft geen officiële koppeling en geen webshop: bestellen gaat alleen in 
 1. Kies het land (Nederland of België), vul het e-mailadres van je Crisp-account in en kies `Code aanvragen`.
 2. Vul de code uit de mail van Crisp in en kies `Bevestigen`.
 3. Zodra er staat dat Crisp gekoppeld is, verschijnt Crisp in de winkelkeuze van de planner, bij `Recepten zoeken` en in het tabblad **Mandje**.
+
+<img src="docs/screenshots/nl/settings-crisp.png" alt="Instellingen, Koppelen, Crisp: het land, het e-mailadres met Code aanvragen, en daaronder het veld voor de code uit de mail" width="900">
 
 Er is geen wachtwoord. MealieShopper bewaart alleen het apparaat-id waaraan Crisp je account koppelt, versleuteld; `Ontkoppelen` meldt het apparaat bij Crisp af en wist het. Het weekmenu gaat in je echte Crisp-mandje. In het tabblad **Mandje** pas je aantallen aan, haal je een product weg of leeg je het mandje (recepten die je in de Crisp-app in het mandje zette, blijven staan); een bezorgmoment kiezen en bestellen doe je in de Crisp-app. Crisp-recepten zoek je bij `Recepten zoeken`, je bekijkt ze in MealieShopper en zet ze met `Importeer` of `Inplannen` in Mealie. Onder **Winkels** staan bij Crisp je **Favorieten** (de producten die je in de app hebt bewaard, met een knop om er één in je mandje te zetten) en je **Bestellingen**: de aankomende live, de bezorgde in een lokale kopie die je met `Synchroniseren` bijwerkt, met per bestelling `Alles in mandje`. Het adres, het IBAN en de betaalgegevens van een bestelling bewaart MealieShopper niet. De aanbiedingen van Crisp staan in het tabblad **Aanbiedingen** en worden elke dag mee gesynchroniseerd.
 
@@ -646,7 +675,7 @@ python -m unittest discover -s tests          # alle tests
 - **Huisstijl:** kleuren, typografie en PWA-instellingen staan in [`docs/huisstijl.md`](docs/huisstijl.md). Herbouw de beeldbestanden met `python scripts/build_brand.py` (Pillow nodig).
 - **Versie en release:** het versienummer staat in `VERSION` (alleen `X.Y.Z`); verhoog het bij een release, draai `python scripts/ha_addon.py` (dat zet de versie in de Home Assistant-add-ons onder `homeassistant/`; een test faalt als je het vergeet), schrijf een kopje voor de nieuwe versie in [`CHANGELOG.md`](CHANGELOG.md) en merge naar `beta`: de workflow `.github/workflows/release.yml` maakt dan de pre-release `vX.Y.Z-beta`, met die tekst; bij de promotie van `beta` naar `main` volgt de stabiele release `vX.Y.Z`, met de tekst van alle versies sinds de vorige stabiele release (`release_notes.py --since`). Elke versie krijgt een eigen GitHub release. De commit komt uit de build: de Dockerfile heeft het build-argument `GIT_COMMIT`, en de workflow in `.github/workflows/docker.yml` zet dat op `github.sha`. Handmatig: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
 - **Branches en container registry:** pull requests gaan naar `beta`, niet naar `main` (`main` krijgt alleen een pull request vanuit `beta`; de check in `.github/workflows/pr-target.yml` dwingt dat af). De workflow bouwt en pusht bij elke push naar `main` naar `ghcr.io/helmerznl/mealieshopper:latest` (en `X.Y.Z`), en bij elke push naar `beta` naar `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`), voor `linux/amd64` en `linux/arm64` (via QEMU en Buildx; ook handmatig via `workflow_dispatch`). Wil je de ontwikkelversie draaien, gebruik dan de tag `beta` en een eigen data-map.
-- **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een draaiende MealieShopper met nagebootste gegevens en zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn. Maak ze opnieuw met `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optioneel `--only plan,login` en `--lang nl`); de scenario's staan in `scripts/screenshots/scenarios/` en de demo-gegevens in `scripts/screenshots/demo.js`. Er is een Node-installatie met Playwright voor nodig.
+- **Screenshots:** de afbeeldingen in `docs/screenshots/` zijn gemaakt met Playwright tegen een draaiende MealieShopper met nagebootste gegevens en zelfgetekende illustraties (geen foto's van derden), zodat ze overal vrij te gebruiken zijn. Start daarvoor een lege MealieShopper met inloggen uit (`PASSKEY_AUTH_ENABLED=false`; een paar scenario's vragen echte gegevens aan de server, zoals de componentenlijst bij Over) en maak ze opnieuw met `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optioneel `--only plan,login` en `--lang nl`). Het consent-scenario draait Python met Flask, dus de omgeving van de app moet op het `PATH` staan. Staat er een foutmelding in beeld, dan meldt het script `LET OP`; de scenario's staan in `scripts/screenshots/scenarios/` en de demo-gegevens in `scripts/screenshots/demo.js`. Er is een Node-installatie met Playwright voor nodig.
 
 ## Integraties en componenten
 

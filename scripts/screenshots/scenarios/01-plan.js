@@ -1,24 +1,39 @@
-const { DISHES, WEEK } = require("../demo");
+const { DISHES, WEEK, mealieUrl } = require("../demo");
 
-// Een maaltijd zoals /api/mealplan die geeft: met het id (dan is ze aan te tikken om te wijzigen) en de porties uit de planner
-// van Mealie (`servings`, zie mealie.py): `base` uit het recept, `scale` uit de planner en `planned` = base x scale.
+// Een maaltijd zoals /api/mealplan die geeft: met het id (dan is ze aan te tikken: een tik opent het recept, het potlood wijzigt
+// haar), de porties uit de planner van Mealie (`servings`, zie mealie.py: `base` uit het recept, `scale` uit de planner en
+// `planned` = base x scale), de bereidingstijd en het adres van het recept in Mealie. `extra` vult het recept aan (omschrijving, bereiding).
 let nextId = 101;
-const entry = (day, type, name, image, ingredients, base = 4, scale = 1) => ({
+const slugOf = (name) => name.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+const entry = (day, type, name, image, ingredients, base = 4, scale = 1, minutes = 30, extra = {}) => ({
   id: nextId++, date: WEEK[day], entryType: type, imageUrl: image, title: name, recipeId: `r-${nextId}`, recipe: { name },
-  recipeDetail: { name, recipeIngredient: ingredients.map((display) => ({ display })) },
+  recipeDetail: { name, recipeIngredient: ingredients.map((display) => ({ display })), ...extra },
   servings: { scale, base, planned: base * scale },
+  recipeMinutes: minutes, recipeUrl: `${mealieUrl}/g/home/r/${slugOf(name)}`,
 });
+
+// Het recept dat in het venster opent: de hoeveelheden zijn al omgerekend naar de geplande porties (zoals de week ze geeft).
+const PESTO = {
+  description: "Snelle doordeweekse pasta met romige pesto, zoete kerstomaatjes uit de pan en geroosterde pijnboompitten.",
+  recipeInstructions: [
+    "Kook de spaghetti in ruim water met zout beetgaar volgens de verpakking.",
+    "Rooster de pijnboompitten in een droge koekenpan goudbruin en zet ze apart.",
+    "Halveer de kerstomaatjes en bak ze 3 minuten in een scheutje olijfolie.",
+    "Giet de pasta af en bewaar een kopje kookvocht. Meng de pasta met de pesto en een scheut kookvocht.",
+    "Schep de tomaatjes erdoor en bestrooi met de pijnboompitten en de Parmezaanse kaas.",
+  ].map((text) => ({ text })),
+};
 // Een notitie zonder recept, zoals "Uit eten".
 const note = (day, type, title, text) => ({ id: nextId++, date: WEEK[day], entryType: type, title, text, recipe: null, recipeId: null });
 
 const entries = [
-  entry(0, "dinner", "Pasta pesto met kerstomaatjes", DISHES.pesto, ["400 g spaghetti", "250 g kerstomaten", "200 g groene pesto", "80 g pijnboompitten"]),
-  entry(1, "dinner", "Boerenkoolstamppot met rookworst", DISHES.stamppot, ["1 kg kruimige aardappelen", "500 g boerenkool", "1 rookworst"], 4, 1.5),
-  entry(2, "dinner", "Tomatensoep met balletjes", DISHES.soup, ["1 blik tomatenblokjes", "300 g gehakt", "1 ui"], 4, 0.5),
-  entry(3, "dinner", "Wraps met kip en avocado", DISHES.wrap, ["4 tortilla wraps", "300 g kipfilet", "2 avocado's"]),
+  entry(0, "dinner", "Pasta pesto met kerstomaatjes", DISHES.pesto, ["400 g spaghetti", "250 g kerstomaten", "200 g groene pesto", "80 g pijnboompitten", "40 g Parmezaanse kaas", "2 el olijfolie"], 4, 1, 20, PESTO),
+  entry(1, "dinner", "Boerenkoolstamppot met rookworst", DISHES.stamppot, ["1 kg kruimige aardappelen", "500 g boerenkool", "1 rookworst"], 4, 1.5, 40),
+  entry(2, "dinner", "Tomatensoep met balletjes", DISHES.soup, ["1 blik tomatenblokjes", "300 g gehakt", "1 ui"], 4, 0.5, 45),
+  entry(3, "dinner", "Wraps met kip en avocado", DISHES.wrap, ["4 tortilla wraps", "300 g kipfilet", "2 avocado's"], 4, 1, 20),
   note(4, "dinner", { nl: "Uit eten", en: "Eating out" }, { nl: "Verjaardag van oma", en: "Grandma's birthday" }),
-  entry(5, "lunch", "Pannenkoeken met appel en kaneel", DISHES.pancake, ["250 g bloem", "3 eieren", "2 appels"], 4, 0.5),
-  entry(6, "dinner", "Lasagne met spinazie", DISHES.lasagna, ["250 g lasagnebladen", "300 g spinazie"], 6),
+  entry(5, "lunch", "Pannenkoeken met appel en kaneel", DISHES.pancake, ["250 g bloem", "3 eieren", "2 appels"], 4, 0.5, 30),
+  entry(6, "dinner", "Lasagne met spinazie", DISHES.lasagna, ["250 g lasagnebladen", "300 g spinazie"], 6, 1, 60),
 ];
 
 // De recepten in Mealie, als receptkaart (zie mealie.recipe_card): voor de receptkiezer bij Toevoegen en voor Recepten zoeken.
@@ -76,6 +91,25 @@ module.exports = [
       await page.click(`[data-plan-add="${WEEK[4]}"]`);
       await page.waitForSelector("#plan-recipe-results .plan-recipe");
       await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Een tik op een maaltijd opent het recept: de ingrediënten voor de geplande porties, de bereiding, Open in Mealie en Wijzigen.
+    name: "meal-recipe",
+    routes: planRoutes,
+    run: async (page, { device }) => {
+      await page.waitForSelector("[data-plan-view]");
+      await page.click("[data-plan-view]");
+      await page.waitForSelector("#meal-recipe-dialog[open]");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      // Op het bureaublad vult de foto het venster: scrol naar de maaltijd, zodat ook de ingrediënten in beeld zijn.
+      if (device === "desktop") {
+        await page.evaluate(() => {
+          const dialog = document.getElementById("meal-recipe-dialog");
+          dialog.scrollTop = document.getElementById("meal-recipe-type").offsetTop - 24;
+        });
+      }
       await page.waitForTimeout(400);
     },
   },

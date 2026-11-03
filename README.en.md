@@ -37,8 +37,9 @@ Plan your week menu in [Mealie](https://mealie.io) and put it in your basket at 
 ## What can it do?
 
 - **Week menu to groceries.** The week menu from Mealie, with the pictures of your recipes. You choose your supermarket in the planner: Albert Heijn, Picnic, Jumbo or Crisp, as far as linked. The servings you set per meal in Mealie's planner carry over: the amounts are scaled and the same ingredient from several recipes is added up. One button looks up the best products for every ingredient, works out how many packs you need and shows them first in a check list. There you untick what you don't want and choose another product or number of packs; only after you confirm are they put in your basket at that store. You finish the order yourself, at Albert Heijn, in the Picnic app, at Jumbo or in the Crisp app.
-- **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
+- **Planning the week menu.** Put a recipe from Mealie or a note ("Eating out") on a day, move or remove a meal, or let Mealie pick a recipe following your meal plan rules with **Surprise me**. Tapping a meal shows its recipe, with the ingredients for the servings you planned. Every change goes straight to Mealie; MealieShopper keeps no plan of its own.
 - **Offers and recipe suggestions.** The Offers tab shows the offers of Albert Heijn (Bonus), Picnic, Jumbo and Crisp, updated automatically every day, and searches your recipes (Mealie, Jumbo, Picnic and saved AH recipes) for dishes with ingredients on offer.
+- **Is it really a deal?** Every offer shows its price per kilo, litre or piece and a verdict: a real deal, a small saving, or not cheaper than the regular price of the last 30 days. The **Price history** shows per product the offers, the regular price over time and what you paid yourself, from your orders and receipts. **Compare pack sizes** shows which pack is cheapest per unit, and the check list of the week menu points it out when another pack is cheaper.
 - **Search and import recipes.** Search your own recipes in Mealie, the recipes of Albert Heijn, Jumbo, Picnic, Crisp and the menus of HelloFresh and Marley Spoon at the same time. You view every recipe in MealieShopper and plan it with one click; a recipe from a store then goes into Mealie too (if it is already there, MealieShopper uses that recipe). Or import a recipe from a link.
 - **Your AH account in MealieShopper.** Your saved recipes and your favourite lists, kept as a copy of their own so they keep working when AH is unavailable. Searching your recipes and lists is instant.
 - **One Basket tab.** Your basket at Albert Heijn (the shopping list the weekly menu writes to), Picnic, Jumbo and Crisp, with a list for the stores you linked. At Picnic and Crisp you change quantities or empty the basket; Jumbo shows it read-only. After filling from the week menu, the **View basket** button takes you there.
@@ -65,13 +66,17 @@ Your week menu from Mealie, with every day of the week: plan a recipe or note on
 
 <img src="docs/screenshots/en/plan-add.png" alt="Plan a meal: the day, the meal, the choice between Recipe and Note, your recipes from Mealie and the Surprise me button" width="900">
 
-The servings you set per meal in Mealie's planner scale every amount. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled. Every product has a photo; tap it to see it large.
+Tapping a meal opens its recipe in a window: the description, the ingredients (already scaled to the servings you planned), the method and the cooking time, with **Open in Mealie** and **Edit**.
 
-<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient a photo of the product, the product and the number of packs, with one marked line" width="900">
+<img src="docs/screenshots/en/meal-recipe.png" alt="The recipe of a meal in a window: the meal and the day, the servings and the cooking time, the description, the ingredients and the Open in Mealie, Edit and Close buttons" width="900">
 
-### To Picnic or Jumbo
+The servings you set per meal in Mealie's planner scale every amount. The number of packs is calculated with the pack size from AH, and lines the app is not sure about are marked so you check them before the basket is filled. Every product has a photo; tap it to see it large. In the drop-down every product shows its price per kilo, litre or piece. When another pack is cheaper per unit, a line under the ingredient says so, with **Choose**.
 
-If Picnic or Jumbo is linked, you choose next to the button which supermarket the week menu goes to. The products go straight into the basket at that store; **View basket** takes you to the Basket tab. An order is never placed.
+<img src="docs/screenshots/en/cart.png" alt="Check your basket: per ingredient a photo of the product, the product with its price per kilo and the number of packs; for spaghetti it says 1 kg is cheaper per kilo, with the Choose button, and one line is marked" width="900">
+
+### To Picnic, Jumbo or Crisp
+
+If Picnic, Jumbo or Crisp is linked, you choose next to the button which supermarket the week menu goes to. The products go straight into the basket at that store; **View basket** takes you to the Basket tab. An order is never placed.
 
 <img src="docs/screenshots/en/plan-picnic.png" alt="The week menu with the supermarket choice Picnic and the message that the groceries are in the Picnic basket" width="900">
 
@@ -81,23 +86,35 @@ One tab for your basket at every linked store, chosen in the list at the top. At
 
 <img src="docs/screenshots/en/basket.png" alt="The Basket tab with the AH basket: products with quantity and price" width="900">
 
-At Picnic you change quantities, remove products or empty the basket, and below it you see what you pay, what your membership saves and the next available delivery slots. Jumbo shows the basket read-only.
+At Picnic and Crisp you change quantities, remove products or empty the basket. At Picnic you see below it what you pay, what your membership saves and the next available delivery slots; at Crisp what you pay and how much is still missing to reach the minimum order. Jumbo shows the basket read-only.
 
 <img src="docs/screenshots/en/basket-picnic.png" alt="The Picnic basket with plus and minus buttons, the amount to pay and the delivery slots" width="900">
+
+<img src="docs/screenshots/en/basket-crisp.png" alt="The Crisp basket with plus and minus buttons, Empty basket, the amount to pay and what is still missing to reach the minimum" width="900">
 
 <img src="docs/screenshots/en/basket-jumbo.png" alt="The Jumbo basket, read-only" width="900">
 
 ### Offers
 
-The offers of Albert Heijn, Picnic and Jumbo, per week and in step with the week menu: plan next week and you see next week's offers. At Albert Heijn that is the complete Bonus week, Monday to Sunday; next week's Bonus is there as soon as AH gives it at the weekend. Pick a category to see only those offers.
+The offers of Albert Heijn, Picnic, Jumbo and Crisp, per week and in step with the week menu: plan next week and you see next week's offers. At Albert Heijn that is the complete Bonus week, Monday to Sunday; next week's Bonus is there as soon as AH gives it at the weekend. Pick a category to see only those offers.
 
-<img src="docs/screenshots/en/offers.png" alt="The Offers tab: the week with arrows, the run of the Bonus week, how many offers start later, the categories and the products with their deal" width="900">
+Every offer shows its price per kilo, litre or piece and a verdict: is what you pay per item with the deal really below the regular price of the last 30 days? It also says when this is the lowest offer price in a year, when the offer comes back often, or when another pack is cheaper per unit.
+
+<img src="docs/screenshots/en/offers.png" alt="The Offers tab: the categories and the products with their deal, the price per kilo or litre, a verdict such as A real deal or Small saving and the Compare pack sizes button" width="900">
+
+**Compare pack sizes** searches the store for other packs of the same product and lists them per kilo, litre or piece, the cheapest first. By default you only see the same kind of product; **Same brand**, **On offer** and a name filter narrow the list. At the top it says which pack is cheapest and by how much.
+
+<img src="docs/screenshots/en/compare.png" alt="Compare pack sizes for minced beef: the filters, at the top that 1000 g is €1.00 cheaper per kilo, and the packs with their price per kilo from cheap to expensive" width="900">
+
+The **Price history** shows per product when it was on offer, the regular price over time and what you paid yourself, from your orders and receipts. That way you also see a regular price that went up just before an offer.
+
+<img src="docs/screenshots/en/price-history.png" alt="The Price history of minced beef: key figures, a chart with the offers as bars, the regular price as steps and your purchases as dots, and the table of offers" width="900">
 
 ### Find recipes
 
 <img src="docs/screenshots/en/search.png" alt="Searching recipes for kip: your own recipes in Mealie first, as cards with time, servings and tags" width="900">
 
-You also search your own recipes in Mealie; they come first. If Jumbo and Picnic are linked, you search those at once too; the results are grouped per store. Every card has the same two buttons at the bottom: **View** opens the recipe in the same place, with the ingredients and the method, and **Plan** puts it in your week menu. The recipe also has **Import** (only put it in Mealie) and a link to the store or to Mealie.
+You also search your own recipes in Mealie; they come first. If Jumbo, Picnic or Crisp is linked, you search those at once too; the results are grouped per store. Every card has the same two buttons at the bottom: **View** opens the recipe in the same place, with the ingredients and the method, and **Plan** puts it in your week menu. The recipe also has **Import** (only put it in Mealie) and a link to the store or to Mealie.
 
 <img src="docs/screenshots/en/search-stores.png" alt="Jumbo search results with cards, time, servings and rating" width="900">
 
@@ -109,9 +126,9 @@ The menus of **HelloFresh** and **Marley Spoon** are always searched too, withou
 
 ### Choosing a store
 
-Under **Stores** the store menu is the first button in the tab bar. It shows the chosen store and opens with the linked stores: Albert Heijn, Jumbo and Picnic. With one linked store the menu is hidden.
+Under **Stores** the store menu is the first button in the tab bar. It shows the chosen store and opens with the linked stores: Albert Heijn, Jumbo, Picnic and Crisp. With one linked store the menu is hidden.
 
-<img src="docs/screenshots/en/stores-menu.png" alt="The opened store menu with Albert Heijn, Jumbo and Picnic" width="900">
+<img src="docs/screenshots/en/stores-menu.png" alt="The opened store menu with Albert Heijn, Jumbo, Picnic and Crisp" width="900">
 
 ### Meal kits
 
@@ -176,6 +193,16 @@ Under **Recipes** you choose Favourites or one of your own lists; `View` shows t
 <img src="docs/screenshots/en/jumbo-recipes.png" alt="Recipe list at Jumbo with a list picker and cards" width="900">
 
 <img src="docs/screenshots/en/jumbo-recipe.png" alt="A Jumbo recipe with ingredients, method, tip and nutrition values" width="900">
+
+### Stores: Crisp
+
+Choose **Crisp** in the store menu. **Favorites** shows the products you saved in the Crisp app, with a button to put one in your Crisp basket.
+
+<img src="docs/screenshots/en/crisp-favorites.png" alt="Favourite Crisp products with an Add to basket button per product" width="900">
+
+**Orders** shows your upcoming orders (fetched live) and your delivered orders, which you keep locally with *Sync*. Open an order for its products and put them back in your Crisp basket with one button.
+
+<img src="docs/screenshots/en/crisp-orders.png" alt="Crisp orders: upcoming and delivered, with the day, the delivery time, the total and the number of products" width="900">
 
 ### Dark theme
 
@@ -353,7 +380,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 You always link Mealie; of the supermarkets (Albert Heijn, Picnic, Jumbo and Crisp) you link one or more. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the banners saying whether Mealie, Albert Heijn, Picnic, Jumbo and Crisp are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** and **Crisp**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
-<img src="docs/screenshots/en/settings-stores.png" alt="Settings with the opened store menu: Albert Heijn, Picnic and Jumbo" width="900">
+<img src="docs/screenshots/en/settings-stores.png" alt="Settings, Link: the notices that Mealie, Albert Heijn, Jumbo, Picnic and Crisp are linked, and the Offers block" width="900">
 
 <img src="docs/screenshots/en/settings-picnic.png" alt="Settings, Link, Picnic: logging in with email address and password" width="900">
 
@@ -409,6 +436,8 @@ Crisp has no official integration and no web shop: you order in the Crisp app on
 1. Choose the country (the Netherlands or Belgium), enter the email address of your Crisp account and choose `Request code`.
 2. Enter the code from Crisp's email and choose `Confirm`.
 3. As soon as it says Crisp is linked, Crisp appears in the store choice of the planner, in `Find recipes` and in the **Basket** tab.
+
+<img src="docs/screenshots/en/settings-crisp.png" alt="Settings, Link, Crisp: the country, the email address with Request code, and below it the field for the code from the email" width="900">
 
 There is no password. MealieShopper only stores the device id that Crisp links your account to, encrypted; `Unlink` logs the device out at Crisp and deletes it. The week menu goes into your real Crisp basket. In the **Basket** tab you change quantities, remove a product or empty the basket (recipes you put in the basket in the Crisp app stay); you pick a delivery time and order in the Crisp app. You find Crisp recipes under `Find recipes`, view them in MealieShopper and put them in Mealie with `Import` or `Plan`. Under **Stores**, Crisp has your **Favorites** (the products you saved in the app, with a button to put one in your basket) and your **Orders**: upcoming ones live, delivered ones in a local copy that you update with `Sync`, with `Add all to basket` per order. MealieShopper does not keep an order's address, IBAN or payment details. Crisp's offers are in the **Offers** tab and are synced every day as well.
 
@@ -646,7 +675,7 @@ python -m unittest discover -s tests          # all tests
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, run `python scripts/ha_addon.py` (it puts the version in the Home Assistant add-ons under `homeassistant/`; a test fails if you forget), write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`, with the text of every version since the previous stable release (`release_notes.py --since`). Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`
 - **Branches and container registry:** pull requests go to `beta`, not to `main` (`main` only receives a pull request from `beta`; the check in `.github/workflows/pr-target.yml` enforces it). The workflow builds and pushes on every push to `main` to `ghcr.io/helmerznl/mealieshopper:latest` (and `X.Y.Z`), and on every push to `beta` to `ghcr.io/helmerznl/mealieshopper:beta` (and `X.Y.Z-beta`), for `linux/amd64` and `linux/arm64` (through QEMU and Buildx; also manually through `workflow_dispatch`). To run the development version, use the `beta` tag and a separate data folder.
-- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a running MealieShopper with mocked data and hand-drawn illustrations (no third-party photos), so they are free to use anywhere. Regenerate them with `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optionally `--only plan,login` and `--lang en`); the scenarios are in `scripts/screenshots/scenarios/` and the demo data in `scripts/screenshots/demo.js`. You need Node with Playwright installed.
+- **Screenshots:** the images in `docs/screenshots/` were made with Playwright against a running MealieShopper with mocked data and hand-drawn illustrations (no third-party photos), so they are free to use anywhere. Start an empty MealieShopper with login switched off for this (`PASSKEY_AUTH_ENABLED=false`; a few scenarios ask the server for real data, such as the component list under About) and regenerate them with `SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js` (optionally `--only plan,login` and `--lang en`). The consent scenario runs Python with Flask, so the app's environment must be on the `PATH`. When an error message is on screen, the script reports `LET OP`; the scenarios are in `scripts/screenshots/scenarios/` and the demo data in `scripts/screenshots/demo.js`. You need Node with Playwright installed.
 
 ## Integrations and components
 

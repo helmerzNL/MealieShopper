@@ -386,7 +386,7 @@ I18N.add("nl", {
   "orders.jumbo_receipts.one": "Jumbo heeft {count} winkelbon (die toont MealieShopper nog niet)",
   "orders.jumbo_receipts.other": "Jumbo heeft {count} winkelbonnen (die toont MealieShopper nog niet)",
   "orders.jumbo_detail_error": "De producten van de bestellingen kon Jumbo niet leveren ({error}). De lijst is wel bijgewerkt.",
-  "search.intro": "Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo en Picnic zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.",
+  "search.intro": "Zoekt tegelijk in je eigen recepten in Mealie, bij Albert Heijn, bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn, en in de menu's van HelloFresh en Marley Spoon van deze week en de komende weken (daar is geen koppeling voor nodig). Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; een recept van een winkel komt dan ook in Mealie.",
   "rsearch.count": "{shown} van {total} recepten.",
   "rsearch.none": "Geen recepten gevonden met \"{query}\".",
   "rsearch.more": "Meer recepten",
