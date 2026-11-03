@@ -25,8 +25,13 @@ const RECIPE_TITLES = [
 
 const savedRecipes = {
   // Een Allerhande-link eindigt op het receptnummer (R-R…); daaraan herkent de app het recept en toont ze Bekijken en Inplannen.
-  recipes: RECIPE_TITLES.map(([title, image], index) => ({ title, image, url: `https://www.example.nl/allerhande/recept/R-R${1200 + index}` })),
+  recipes: RECIPE_TITLES.map(([title, image], index) => ({ id: String(1200 + index), title, image, url: `https://www.example.nl/allerhande/recept/R-R${1200 + index}` })),
   total: RECIPE_TITLES.length,
+  // De receptgroepen uit de AH-app; de keuzelijst naast de titel toont ze met Alle recepten erboven.
+  groups: [
+    { id: "doordeweeks", name: "Doordeweeks", isDefault: false, count: 4, recipeIds: ["1201", "1204", "1205", "1210"] },
+    { id: "soep", name: "Soep", isDefault: false, count: 2, recipeIds: ["1203", "1210"] },
+  ],
   syncedAt: "2026-10-27T19:12:00",
   source: "local",
 };

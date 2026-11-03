@@ -1261,19 +1261,59 @@ def _recipe_page(recipes: list[dict[str, Any]], total: int, page: int, size: int
     return {"recipes": recipes[start:start + size], "total": max(total, len(recipes))}
 
 
+def _category_recipe_ids(category: dict[str, Any]) -> list[int]:
+    """De receptnummers van een receptgroep, in de volgorde van AH en zonder dubbelen."""
+    ids: list[int] = []
+    seen: set[int] = set()
+    for entry in category.get("recipes") or []:
+        raw = entry.get("id") if isinstance(entry, dict) else entry
+        try:
+            recipe_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if recipe_id not in seen:
+            seen.add(recipe_id)
+            ids.append(recipe_id)
+    return ids
+
+
+def _collection_categories(token: str) -> list[dict[str, Any]]:
+    """De receptgroepen van het lid (zoals in de AH-app): `[{id, name, isDefault, recipeIds}]`, in de volgorde van AH."""
+    data = _graphql_variants(
+        token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
+    )
+    groups: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for category in data.get("recipeCollectionCategories") or []:
+        if not isinstance(category, dict) or category.get("id") is None:
+            continue
+        group_id = str(category["id"])
+        if group_id in seen:
+            continue
+        seen.add(group_id)
+        name = " ".join(str(category.get("name") or "").split())
+        groups.append(
+            {
+                "id": group_id,
+                "name": name or tr(f"Groep {group_id}", f"Group {group_id}"),
+                "isDefault": bool(category.get("isDefault")),
+                "recipeIds": _category_recipe_ids(category),
+            }
+        )
+    return groups
+
+
 def _collection_recipe_ids(token: str) -> list[int]:
+    """Alle bewaarde recepten: de receptnummers van alle groepen samen, zonder dubbelen."""
     data = _graphql_variants(
         token, RECIPE_COLLECTIONS_QUERIES, {}, "AH receptencollectie ophalen"
     )
     ids: list[int] = []
     seen: set[int] = set()
     for category in data.get("recipeCollectionCategories") or []:
-        for entry in category.get("recipes") or []:
-            raw = entry.get("id") if isinstance(entry, dict) else entry
-            try:
-                recipe_id = int(raw)
-            except (TypeError, ValueError):
-                continue
+        if not isinstance(category, dict):
+            continue
+        for recipe_id in _category_recipe_ids(category):
             if recipe_id not in seen:
                 seen.add(recipe_id)
                 ids.append(recipe_id)
@@ -1382,6 +1422,20 @@ def get_saved_recipes(page: int = 0, size: int = 50) -> dict[str, Any]:
             )
         )
     return _get_saved_recipes_api(page, size)
+
+
+def get_saved_recipe_groups() -> list[dict[str, Any]]:
+    """De receptgroepen van het AH-account met hun receptnummers: `[{id, name, isDefault, recipeIds}]`."""
+    if not configured_refresh_token():
+        raise RuntimeError(
+            tr(
+                "AH account niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Albert Heijn "
+                "om receptgroepen op te halen.",
+                "AH account not linked. The admin links it under Settings > Link > Albert Heijn "
+                "to fetch recipe groups.",
+            )
+        )
+    return _collection_categories(get_user_token())
 
 
 def add_to_shopping_list(items: list[dict[str, Any]]) -> None:

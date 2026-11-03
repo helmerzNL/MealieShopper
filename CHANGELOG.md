@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.94.0
+
+### Nieuw in 2.94.0
+
+*English summary: your saved AH recipes now come with their recipe groups, just like the recipe lists at Jumbo. Under Stores > Albert Heijn > Recipes a list next to the title shows All recipes and every recipe group you made in the AH app, each with its number of recipes; choosing a group shows only its recipes, in the group's own order, and searching works within the chosen group. The groups are fetched together with the recipes (Fetch from AH, Refresh) and kept in the local copy, so choosing a group never calls AH. A default group that holds all your recipes is not listed separately, because it is the same as All recipes. If fetching the groups fails, the recipes are still kept, without the list. The AI assistant gets the MCP tool list_ah_recipe_groups, and list_saved_ah_recipes takes a group. The groups are part of the backup. Reload the page once after updating.*
+
+- **Receptgroepen bij je bewaarde AH-recepten**, zoals de receptenlijsten bij Jumbo. Onder **Winkels > Albert Heijn > Recepten** staat naast de titel een keuzelijst met *Alle recepten* en elke receptgroep die je in de AH-app maakte, elk met het aantal recepten.
+  - Kies je een groep, dan zie je alleen de recepten daarvan, in de volgorde van die groep. Zoeken werkt binnen de gekozen groep; een lege groep meldt *Er staan geen recepten in deze groep.*
+  - De groepen komen mee met `Ophalen bij AH` en `Vernieuwen` en staan in de lokale kopie: een groep kiezen vraagt niets aan AH.
+  - Een standaardgroep met al je recepten staat er niet apart in, want die is gelijk aan *Alle recepten*. Zonder groepen is er geen keuzelijst.
+  - Lukt het ophalen van de groepen niet (bijvoorbeeld als de recepten uit het kookboek komen), dan worden de recepten wel bewaard, zonder groepen.
+  - MealieShopper las de groepen al (`recipeCollectionCategories`), maar voegde alle recepten samen tot één lijst. `ah.get_saved_recipe_groups()` geeft ze nu per groep; `GET /api/ah/recipes/saved` geeft `groups` (`id`, `name`, `isDefault`, `count`, `recipeIds`).
+- **MCP**: de nieuwe tool `list_ah_recipe_groups` geeft je receptgroepen met het aantal recepten, en `list_saved_ah_recipes` neemt `group` (id of een deel van de naam, bijvoorbeeld *taarten*).
+- **In de back-up**: de receptgroepen gaan mee (`ah_saved_recipe_groups` en `ah_saved_recipe_group_items`). Een oudere back-up zonder groepen zet gewoon terug.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.93.0
 
 ### Nieuw in 2.93.0
