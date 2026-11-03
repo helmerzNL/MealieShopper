@@ -524,6 +524,27 @@ h2 {
   color: var(--primary-strong);
 }
 
+/* Navigatie is een echte link (router.js): Ctrl+klik en de middelste knop openen een nieuw tabblad. Zelfde uiterlijk als de knoppen. */
+a.tab,
+a.subtab,
+a.subtab-menu__item,
+a.user-menu__item,
+a.ohc-item,
+a.list-card__open {
+  text-decoration: none;
+}
+
+a.subtab,
+a.subtab-menu__item {
+  display: inline-flex;
+  align-items: center;
+}
+
+a.subtab[hidden],
+a.subtab-menu__item[hidden] {
+  display: none;
+}
+
 /* Iconen: Material Design Icons (Pictogrammers, licentie in static/icons/). In de bovenste tabs staan
    ze links van de tekst; in de onderste menubalk (PWA op een klein scherm) boven een kort label. */
 .tab {
@@ -4258,6 +4279,65 @@ body.has-onboarding {
   }
 }
 
+/* De schakelaar "Alleen eerder gekocht": een gewoon selectievakje (toetsenbord en schermlezer werken zoals altijd), getekend als schakelaar. */
+.ohc-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 2px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ohc-filter input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  border: 2px solid var(--muted);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+
+.ohc-filter input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+.ohc-filter input:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.ohc-filter input:checked::before {
+  background: var(--surface);
+  transform: translateX(16px);
+}
+
+.ohc-filter input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ohc-filter input,
+  .ohc-filter input::before {
+    transition: none;
+  }
+}
+
 .ohc-list {
   display: grid;
   gap: 6px;
@@ -4484,6 +4564,67 @@ body.has-onboarding {
   font-size: 13px;
 }
 
+/* De bewaarde afbeeldingen van een product dat je kocht, met de naam van toen eronder. */
+.ohc-images {
+  margin-top: 18px;
+}
+
+.ohc-images h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.ohc-images > p {
+  margin: 2px 0 10px;
+  font-size: 13px;
+}
+
+.ohc-images ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ohc-images figure {
+  margin: 0;
+}
+
+.ohc-images a {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.ohc-images a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.ohc-images img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.ohc-images figcaption {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ohc-images figcaption small {
+  display: block;
+  color: var(--muted);
+}
+
 .ohc-table caption {
   padding: 0 8px 4px;
   font-weight: 600;
@@ -4630,7 +4771,8 @@ body.has-onboarding {
   font-weight: 600;
 }
 
-.offer-card .offer-card__compare {
+.offer-card .offer-card__compare,
+.offer-card .offer-card__history {
   margin-top: 4px;
   font-size: 13px;
 }
@@ -4770,4 +4912,96 @@ body.has-onboarding {
 .compare-dialog__note {
   margin: 8px 0 0;
   font-size: 13px;
+}
+
+/* Oude aankopen importeren (#178) */
+.ohc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.ohc-tools .button {
+  margin-top: 10px;
+}
+
+.import-steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.import-steps p {
+  margin: 0 0 8px;
+}
+
+.import-steps label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.import-prompt {
+  margin-top: 8px;
+}
+
+.import-prompt pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.import-data {
+  width: 100%;
+  min-height: 140px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.import-report {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-report li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-report li.is-known small,
+.import-report li.is-problem small {
+  color: var(--muted);
+}
+
+.import-report li.is-new small {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.import-dialog__actions {
+  flex-wrap: wrap;
+}
+
+.import-dialog__spacer {
+  flex: 1 1 auto;
 }

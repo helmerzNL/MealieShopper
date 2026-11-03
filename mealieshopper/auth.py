@@ -818,7 +818,7 @@ def register_routes(app: Flask) -> None:
 
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers
 # zien de status ervan wel (/api/mealie/status, /api/ah/auth/status), maar kunnen niets wijzigen.
-ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/backup", "/api/mealie/auth", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/", "/api/crisp/auth/")
+ADMIN_PREFIXES = ("/api/users", "/api/server-settings", "/api/audit", "/api/update", "/api/system", "/api/backup", "/api/mealie/auth", "/api/prices/import", "/api/ah/auth/", "/api/picnic/auth/", "/api/jumbo/auth/", "/api/crisp/auth/")
 ADMIN_PATHS = {"/api/offers/sync-all", "/api/offers/ai", "/api/offers/ai/test", "/api/offers/ai/review", "/api/offers/ai/search", "/api/offers/ai/search/plan", "/api/offers/ai/search/status", "/api/ah/auth", "/api/ah/explore", "/api/picnic/auth", "/api/picnic/explore", "/api/jumbo/auth", "/api/jumbo/explore", "/api/crisp/auth", "/api/crisp/explore"}
 ADMIN_EXCEPTIONS = {"/api/ah/auth/status", "/api/picnic/auth/status", "/api/jumbo/auth/status", "/api/crisp/auth/status"}
 
@@ -827,6 +827,15 @@ def admin_only(path: str) -> bool:
     if path in ADMIN_EXCEPTIONS:
         return False
     return path in ADMIN_PATHS or any(path == prefix or path.startswith(prefix + "/") or (prefix.endswith("/") and path.startswith(prefix)) for prefix in ADMIN_PREFIXES)
+
+
+# De adressen van de pagina's (zie static/router.js). Ze geven dezelfde pagina als "/", met het inlogscherm als je niet bent
+# ingelogd, dus ze zijn net zo openbaar als "/". De gegevens zelf komen via /api en daar geldt de gewone controle.
+PAGE_ROOTS = ("recipes", "offers", "import", "stores", "meal-kits", "cart", "profile", "settings", "about")
+
+
+def is_page_path(path: str) -> bool:
+    return any(path == f"/{root}" or path.startswith(f"/{root}/") for root in PAGE_ROOTS)
 
 
 def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
@@ -845,7 +854,7 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
         "/api/onboarding/status",
         "/api/onboarding/start",
     }
-    if path in public_paths or any(path.startswith(prefix) for prefix in public_prefixes):
+    if path in public_paths or is_page_path(path) or any(path.startswith(prefix) for prefix in public_prefixes):
         return None
     user = current_user()
     if user:

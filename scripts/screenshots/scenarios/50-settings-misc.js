@@ -19,6 +19,7 @@ const OFFERS_STATUS = {
     ah: { linked: true, syncedAt: "2026-10-28T04:00:21Z", total: 412 },
     picnic: { linked: true, syncedAt: "2026-10-28T04:00:48Z", total: 186 },
     jumbo: { linked: true, syncedAt: "2026-10-28T04:01:09Z", total: 354 },
+    crisp: { linked: true, syncedAt: "2026-10-28T04:01:22Z", total: 97 },
   },
 };
 
@@ -41,7 +42,7 @@ const LINK_ROUTES = { "/api/offers/status": OFFERS_STATUS, "/api/offers/ai": AI_
 // Klap het blok van één winkel open en zet het bovenaan het scherm, onder de vaste balk.
 const openStoreBlock = (store, fill) => async (page) => {
   await openSettings("settings-link")(page);
-  await page.click(`#${store}-login-toggle`);
+  if ((await page.getAttribute(`#${store}-login-toggle`, "aria-expanded")) !== "true") await page.click(`#${store}-login-toggle`);
   if (fill) await fill(page);
   await page.evaluate((name) => {
     const box = document.getElementById(`${name}-login-box`);
@@ -72,6 +73,15 @@ const settingsScenarios = [
     name: "settings-jumbo",
     routes: LINK_ROUTES,
     run: openStoreBlock("jumbo"),
+  },
+  {
+    // Crisp koppelen: het e-mailadres, en daaronder het veld voor de code die Crisp mailt.
+    name: "settings-crisp",
+    routes: { ...LINK_ROUTES, "/api/crisp/auth/status*": { connected: false, verified: false, codePending: true, country: "nl" } },
+    run: openStoreBlock("crisp", async (page) => {
+      await page.fill("#crisp-email", "anna@example.nl");
+      await page.evaluate(() => document.activeElement.blur());
+    }),
   },
 ];
 

@@ -199,7 +199,26 @@ def _connect():
             conn.execute(f"ALTER TABLE offer_rejections ADD COLUMN {column} TEXT")
     _drop_offers_key(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)")
+    _repair_open_ends(conn)
     return conn
+
+
+# De databases waarvan de einddatums al zijn nagekeken, zodat dat per proces een keer gebeurt en niet bij elke verbinding.
+_OPEN_ENDS_REPAIRED: set[str] = set()
+
+
+def _repair_open_ends(conn) -> None:
+    """Een aanbieding die voor v2.75.0 werd opgeslagen kan AH's "doorlopend" (2999-12-31) nog als einddatum hebben. Sinds v2.75.0 maakt
+    `ah._bonus_end` daar None van, maar oude rijen houden die datum: een lopende rij tot de volgende synchronisatie, een afgesloten rij voor
+    altijd. Dan loopt de grafiek van de Prijsgeschiedenis tot het jaar 2999 en telt `prices` de aanbieding als nog lopend."""
+    key = str(auth.db_path())
+    if key in _OPEN_ENDS_REPAIRED:
+        return
+    cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
+    with conn:
+        for table in ("offers", "offer_history"):
+            conn.execute(f"UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?", (cutoff,))
+    _OPEN_ENDS_REPAIRED.add(key)
 
 
 def _offers_keyed(conn) -> bool:
@@ -434,6 +453,10 @@ def sync(store: Any) -> dict[str, Any]:
             """,
             (store, now),
         )
+    # De afbeeldingen van aanbiedingen die je eerder kocht, om later te vergelijken. Een fout laat de synchronisatie staan.
+    from . import product_images  # pylint: disable=import-outside-toplevel - product_images leunt op prices, en prices op deze module
+
+    product_images.save_bought(store, items, now)
     return load(store)
 
 

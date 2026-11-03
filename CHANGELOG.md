@@ -2,6 +2,92 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.93.0
+
+### Nieuw in 2.93.0
+
+*English summary: every screen now has its own address (/recipes, /cart, /offers/history, /stores/ah/orders/<number>, /stores/ah/receipts/<id> and so on), so reloading, bookmarks and back and forward in the browser work. The menu, the tabs, the store choice and the user menu are real links: Ctrl+click (Cmd+click on a Mac) or the middle mouse button opens a screen in a new tab. Screens link to each other: an offer to its price history, a purchase in the price history to its order or receipt, and a product in an order, the basket or on a receipt back to its price history. In Price history the owner can import old purchases from order confirmation emails: copy the prompt, give it with the emails to an AI assistant such as Claude or ChatGPT, paste the JSON it returns and choose Check to see per order whether it is new or already there; only Import reads it in. An order that was already imported, or that the app knows from your account, is skipped, also when the app fetches it from your account later. Imported purchases are part of the backup and can be removed again per store. Reload the page once after updating.*
+
+- **Elk scherm een eigen adres.** Herladen, een bladwijzer en terug en vooruit in de browser werken nu zoals je verwacht:
+  - het weekmenu en Recepten zoeken op `/recipes` en `/recipes/search`;
+  - de aanbiedingen, de recepten erbij en de prijsgeschiedenis op `/offers`, `/offers/recipes` en `/offers/history` (met `?store=`, `?q=` en `?product=`);
+  - URL importeren op `/import`;
+  - de winkels op `/stores/<winkel>/<recipes|lists|orders|favorites>`, een lijstje op `/stores/ah/lists/<id>`, een bestelling op `/stores/<ah|jumbo>/orders/<nummer>` en een kassabon op `/stores/ah/receipts/<id>`;
+  - de maaltijdboxen en het mandje op `/meal-kits` en `/cart`;
+  - het profiel, de instellingen en Over op `/profile` (en `/profile/security`, `/profile/ai`), `/settings` (en `/settings/users`, `/settings/audit`, `/settings/system`) en `/about`.
+  - `/` blijft het weekmenu. `/settings` opent alleen voor de beheerder. Staat er een winkel in het adres waarvan de koppeling na het inloggen nog laadt, dan opent dat scherm zodra de koppeling binnen is.
+  - Zoeken in de prijsgeschiedenis past het adres aan zonder een stap terug per letter.
+  - De server geeft op deze adressen dezelfde pagina als `/` (`auth.PAGE_ROOTS`). Ze zijn net zo openbaar als `/`, want het inlogscherm staat op de pagina zelf; `/api` blijft beschermd en een onbekend adres geeft nog steeds 404.
+- **Het menu, de tabs, de winkelkeuze en het gebruikersmenu zijn echte links.** Een gewone klik blijft in de app; met Ctrl+klik (Cmd+klik op een Mac), Shift- of Alt-klik of de middelste muisknop opent de browser het scherm in een nieuw tabblad, en blijft dit tabblad staan.
+- **Links tussen schermen:**
+  - een aanbieding heeft de link **Prijsgeschiedenis** naar dat product;
+  - in de prijsgeschiedenis linkt de bron van een aankoop (*bestelling*, *kassabon*) naar die bestelling of bon;
+  - een product in een bestelling, in het mandje of op een kassabon linkt naar zijn prijsgeschiedenis;
+  - de producten in de lijst van de prijsgeschiedenis, de bestellingen en de kassabonnen hebben elk hun eigen adres.
+- **Oude aankopen importeren** in de **Prijsgeschiedenis** (alleen de beheerder). In je account staan alleen de bestellingen van de laatste maanden; oudere staan nog in je bevestigingsmails.
+  - Met **Oude aankopen importeren** kopieer je een prompt voor een AI-assistent als Claude of ChatGPT. Geef die prompt met je bevestigingsmails aan de assistent en plak de JSON die terugkomt (ook tussen ` ```json ` en ` ``` `). Het geldt voor de winkel die bij de aanbiedingen gekozen is: AH, Picnic, Jumbo of Crisp.
+  - De prompt vraagt per bestelling de datum (de bezorg- of afhaaldag) en het bestelnummer, en per product de naam, het aantal, de prijs en de korting.
+  - **Controleren** laat per bestelling zien of ze nieuw is, of waarom niet: ze staat twee keer in deze JSON, is al ingelezen (zelfde bestelnummer, of zonder nummer zelfde dag en totaal), staat al in je bestellingen, of op die dag staat al een bestelling in je account. Een bestelling zonder bruikbare datum of zonder producten wordt niet ingelezen en staat bij de problemen. Pas **Importeren** leest de bestellingen in, en alleen met de tekst die je controleerde.
+  - Haalt de app een ingelezen bestelling later alsnog uit je account, dan telt de ingelezen versie niet meer mee. Zo telt een aankoop nooit dubbel.
+  - Een ingelezen regel heeft alleen de naam uit de mail. Die wordt op naam aan een bekend product gekoppeld, zoals een regel van een kassabon; een dubbel merk uit een mail (*AH Ah zachte spinazie*) valt weg. Past de naam nergens, dan staat de regel als eigen product in de lijst. De bron heet *import*.
+  - **Ingelezen aankopen verwijderen** haalt alle ingelezen aankopen van die winkel weer weg.
+  - Hooguit 5.000.000 tekens, 5000 bestellingen per keer en 1000 producten per bestelling. Een reverse proxy voor MealieShopper moet een aanvraag van ongeveer 5 MB doorlaten om de grootste import te kunnen doen.
+  - `GET`, `POST` (met `dryRun` voor Controleren) en `DELETE /api/prices/import`, alleen voor de beheerder.
+- **In de back-up**: de ingelezen aankopen gaan mee (*Ingelezen aankopen* in de samenvatting). De koppeling van de artikelnummers op de kassabonnen (zie hieronder) gaat niet mee: de volgende synchronisatie van de bonnen bouwt die opnieuw op.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Issue: [#178](https://github.com/helmerzNL/MealieShopper/issues/178). Pull requests: [#190](https://github.com/helmerzNL/MealieShopper/pull/190), [#192](https://github.com/helmerzNL/MealieShopper/pull/192), [#193](https://github.com/helmerzNL/MealieShopper/pull/193) en [#194](https://github.com/helmerzNL/MealieShopper/pull/194).
+
+### Opgelost in 2.93.0
+
+*English summary: in Price history the chart no longer runs to the year 2999: offers saved before 2.75.0 could still have AH's "ongoing" end date 31-12-2999, which is now cleared once after starting. A product on an AH receipt and the same product from an order are now one product: the id on a receipt is AH's article number (hqId), not the web shop's id, and after every receipt sync MealieShopper looks the receipt lines up at AH and only links an article number to the result with exactly that number. A receipt line no longer ends up at a completely different product whose web shop id happens to equal its article number (AH ROOKWORST at a pizza, CROKY CHIPS at chicken schnitzel): a known id now only counts when the names share at least one word, otherwise the line becomes its own product.*
+
+- **De grafiek in de Prijsgeschiedenis loopt niet meer tot het jaar 2999.** Een aanbieding die vóór 2.75.0 werd opgeslagen, kon AH's einddatum voor *doorlopend* (`2999-12-31`) nog hebben; dan liep de grafiek tot 2999 en telde de aanbieding als nog lopend. Na het starten maakt MealieShopper die einddatum een keer leeg, in de aanbiedingen en in de aanbiedingsgeschiedenis.
+- **Een product op de kassabon en hetzelfde product uit een bestelling zijn één product.** *BLOEMKOOL* op de bon en *AH Bloemkool* uit een bestelling stonden apart in de lijst. Het id op een kassabon is het artikelnummer van AH (`hqId`), niet het id van de webwinkel: *BLOEMKOOL* heeft 20960, *AH Bloemkool* 4183.
+  - Na elke synchronisatie van de kassabonnen zoekt MealieShopper de naam van de bonregels bij AH op en koppelt een artikelnummer alleen aan het resultaat met precies dat artikelnummer, dus zonder te gokken op naam. Hooguit 40 artikelnummers en 20 seconden per keer, de vaakst gekochte eerst; wat AH niet vindt, probeert het na 30 dagen opnieuw. Het koppelen laat het ophalen van de bonnen nooit mislukken.
+  - Is een regel niet gekoppeld, dan telt de naam, nu ook zonder *AH* ervoor: *BLOEMKOOL* hoort bij *AH Bloemkool* als maar één product zo heet.
+- **Een bonregel komt niet meer bij een heel ander product terecht.** Het artikelnummer op een bon kan toevallig gelijk zijn aan het id van een ander product in de webwinkel: *AH ROOKWORST* (627748) stond zo als aankoop van € 2,99 bij *Dr. Oetker Ristorante pizza hawaii 3-pack*, en *CROKY CHIPS* bij *AH Scharrel kipschnitzel 2 stuks 2-pack*. Een bekend id telt nu alleen als de naam op de bon minstens één woord deelt met een naam van dat product; een afgekort woord telt mee (*RUNDERGEH* past bij *Rundergehakt*). Past ook de naam nergens, dan wordt de regel een eigen product.
+
+## v2.92.0
+
+### Nieuw in 2.92.0
+
+*English summary: Price history has an "Only bought before" switch under the search box: with it on, the list only shows products you bought at least once (from your orders and receipts), also together with a search term; the choice is remembered in your browser. MealieShopper now also keeps the image of every offer you bought at least once, resized to at most 1024 pixels wide, with the name the product had at the time. When a store renames a product or changes its photo, the product's Saved images show whether it is still the same: a new photo is added and the old one stays (at most ten per product, the first one always stays). Images are saved while syncing the offers, also for earlier offers in the history while the store still serves them; this never makes a sync fail and takes at most 20 seconds per sync. The images are part of the backup and are read again on restore. New dependency: Pillow.*
+
+- **Alleen eerder gekocht** in de **Prijsgeschiedenis**. Onder het zoekveld staat een schakelaar: aan, dan staan in de lijst alleen de producten die je minstens één keer kocht, volgens je bestellingen (alleen geleverde) en kassabonnen. Het zoeken werkt er gewoon bij (*gehakt* met de schakelaar aan: alleen het gehakt dat je kocht). De keuze blijft bewaard in je browser. `GET /api/prices/history` neemt `bought=1`, en de MCP-tool `get_price_history` heeft `bought`.
+- **De afbeeldingen van aanbiedingen die je kocht worden bewaard**, om later te vergelijken als een product ineens anders heet:
+  - Bij elke synchronisatie van de aanbiedingen haalt MealieShopper de afbeelding op van elke aanbieding waarvan je het product minstens één keer kocht, en bewaart die in de database, met de naam die het product toen had en de datum. Ook de afbeelding van een eerdere aanbieding uit de geschiedenis komt erbij, zolang de winkel die nog geeft.
+  - **Verkleind tot hooguit 1024 pixels breed** (een kleinere afbeelding blijft zoals hij is, nooit vergroot; een gedraaide foto wordt rechtop gezet). Waar de winkel een grotere versie heeft (AH, Picnic en Crisp), haalt MealieShopper die op, zodat de bewaarde afbeelding zo scherp mogelijk is.
+  - In de Prijsgeschiedenis staat bij het product het blok **Bewaarde afbeeldingen**: elke afbeelding met de naam van toen en *bewaard op …*; een klik opent hem in het groot. De afbeelding bovenaan het product komt nu ook uit de bewaarde kopie, dus die blijft staan als de winkel hem weghaalt.
+  - Verandert de foto van een product, dan komt de nieuwe erbij en blijft de oude staan (hooguit tien per product; de eerste blijft altijd). Dezelfde foto onder een ander adres wordt niet nog eens bewaard.
+  - Het ophalen laat een synchronisatie nooit mislukken en duurt per synchronisatie hooguit 20 seconden (hooguit 40 afbeeldingen); wat dan nog niet binnen is, volgt de volgende keer. Het staat in het auditlog, net als ander verkeer met de winkels.
+  - `GET /api/prices/history` geeft per product `savedImages`; de afbeelding zelf staat op `GET /api/prices/images/<id>` (uit de database, nooit van de winkel).
+- **In de back-up**: de bewaarde afbeeldingen gaan mee (*Bewaarde productafbeeldingen* in de samenvatting), want de winkel geeft ze niet terug als hij ze vervangt. Bij het terugzetten wordt elke afbeelding opnieuw gelezen: wat geen PNG, JPEG of WebP van hooguit 1024 pixels breed is, wordt geweigerd, en het type, de maat en de controlesom volgen uit de afbeelding zelf.
+- **Nieuwe afhankelijkheid: Pillow** (voor het verkleinen). De container installeert die vanzelf; draai je MealieShopper zonder container, voer dan `pip install -r requirements.txt` opnieuw uit.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#188](https://github.com/helmerzNL/MealieShopper/pull/188).
+
+## v2.91.2
+
+### Opgelost in 2.91.2
+
+*English summary: in Compare pack sizes, the count ("6 of the 8 products found"), "Searching for other packs…" and "no other packs found" were shown in a red error box; they are now plain grey text, and only a real error is red. The explanation above Find recipes now mentions Crisp, which it searches since 2.86.0. The README (Dutch and English) and its screenshots are updated to 2.91: every screenshot was made again, with new ones for the recipe window in the week menu, the price per unit and verdict on offers, Compare pack sizes, the Price history and Crisp (basket, favorites, orders and linking). Reload the page once after updating.*
+
+- **Vergelijk verpakkingen: de telling staat niet meer in een rood foutvak.** *6 van de 8 gevonden producten*, *Andere verpakkingen zoeken…* en *Geen andere verpakkingen gevonden* stonden in een rood vak, alsof er iets mis was. Nu is het gewone grijze tekst; alleen een echte fout (bijvoorbeeld als de winkel niet antwoordt) staat nog in een rood vak.
+- **De uitleg boven Recepten zoeken noemt Crisp.** Sinds 2.86.0 zoekt Recepten zoeken ook bij Crisp, maar de uitleg noemde alleen Jumbo en Picnic. Nu staat er *bij Jumbo, Picnic en Crisp zodra die gekoppeld zijn*.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
+### Documentatie in 2.91.2
+
+- **README's en screenshots bijgewerkt tot 2.91**, in het Nederlands en het Engels. Alle screenshots zijn opnieuw gemaakt met de huidige app; Crisp staat nu overal bij de gekoppelde winkels (winkelmenu, Mandje, Instellingen). Nieuw:
+  - `meal-recipe`: het recept van een maaltijd in het weekmenu, met **Open in Mealie** en **Wijzigen**;
+  - `compare`: **Vergelijk verpakkingen** met de filters en de kiloprijzen;
+  - `price-history`: de **Prijsgeschiedenis** met de aanbiedingen, de gewone prijs als trap en je aankopen;
+  - `basket-crisp`, `crisp-favorites`, `crisp-orders` en `settings-crisp`: het Crisp-mandje, de favorieten, de bestellingen en het koppelen met een code per mail.
+- `offers` toont nu de prijs per eenheid en het oordeel bij elke aanbieding, en `cart` de prijs per kilo in de controlelijst met de regel *Per kg goedkoper* en **Kies**.
+- De README noemt Crisp ook bij *Naar Picnic, Jumbo of Crisp*, het Mandje, de Aanbiedingen, Recepten zoeken en het winkelmenu, heeft een eigen blok *Winkels: Crisp*, en een punt *Is het echt een aanbieding?* bij *Wat kan het?*.
+- Het screenshot-script kent de prijs per eenheid (`perUnit` in `scripts/screenshots/demo.js`), klapt een winkelblok onder Instellingen alleen open als het dicht is, en meldt `LET OP` als er een foutmelding in beeld staat (bijvoorbeeld omdat een nagebootst antwoord een nieuwe winkel nog niet kent).
+- Pull request: [#189](https://github.com/helmerznl/MealieShopper/pull/189).
+
 ## v2.91.1
 
 ### Opgelost in 2.91.1

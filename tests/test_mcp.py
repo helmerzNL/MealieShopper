@@ -607,7 +607,7 @@ class PurchaseToolsTest(McpTestCase):
             ah_orders.sync_orders()
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-01T10:00:00", "total": 5.0}]), mock.patch.object(
             ah, "get_receipt", return_value={"id": "R1", "items": [{"productId": 1, "name": "Koffiebonen", "quantity": 1, "price": 5.0, "amount": 5.0}], "discounts": [], "payments": [{"method": "PIN", "amount": 5.0}]}
-        ):
+        ), mock.patch.object(ah, "search_hq_ids", return_value=[]):
             ah_orders.sync_receipts()
 
     def test_empty_copy_says_so(self):

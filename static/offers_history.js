@@ -2,6 +2,8 @@
 // welke prijs, wat het normaal kostte en wat je ervoor betaalde (/api/prices/history: de aanbiedingen van elke synchronisatie, de
 // gewone prijs uit zoekopdrachten en bestellingen, en je aankopen uit bestellingen en kassabonnen).
 // De grafiek is inline SVG zonder bibliotheek; de tabel eronder geeft dezelfde gegevens voor schermlezers.
+// De schakelaar "Alleen eerder gekocht" toont alleen de producten die je minstens één keer kocht (?bought=1); de keuze blijft bewaard.
+// Van een aanbieding die je kocht bewaart de server de afbeelding (product_images.py); die staan bij het product, met de naam van toen.
 // Laadt na offers.js en gebruikt offersState, offersTabActive, STORES, jsonFetch, message, formatPrice en escapeHtml.
 
 const OFFER_HISTORY_LIMIT = 30;
@@ -10,7 +12,9 @@ const OFFER_HISTORY_BAR = 12;
 const OFFER_HISTORY_DAY = 86400000;
 const OFFER_HISTORY_LABEL_HEIGHT = 14;
 const OFFER_HISTORY_CHAR_WIDTH = 7; // een schatting voor de vette prijstekst van 12 px; ruim genomen, zodat labels elkaar niet raken
-const offerHistory = { query: "", products: [], total: 0, selected: "", loadId: 0, timer: 0, loadedStore: "", unsynced: null };
+const OFFER_HISTORY_BOUGHT_KEY = "ms-offers-history-bought";
+// `pinned`: het product is gekozen (met een klik of uit het adres) en hoort dus in het adres (router.js).
+const offerHistory = { query: "", bought: false, products: [], total: 0, selected: "", pinned: false, loadId: 0, timer: 0, loadedStore: "", unsynced: null };
 
 function offerHistoryKey(product) {
   return `${product.store}:${product.productId}`;
@@ -195,6 +199,7 @@ function offerHistoryChart(product, width) {
 
 // Waar een aankoop vandaan komt. Een kassabon toont de prijs zonder de korting onderaan de bon; dat staat onder de tabel.
 function offerHistorySource(source) {
+  if (source === "import") return t("offers.history.source.import");
   return source === "receipt" ? t("offers.history.source.receipt") : t("offers.history.source.order");
 }
 
@@ -226,8 +231,32 @@ function offerHistoryLegend(product) {
   return items.length > 1 ? `<ul class="ohc-legend">${items.join("")}</ul>` : "";
 }
 
+// De bewaarde afbeeldingen van een product dat je kocht, de nieuwste eerst, elk met de naam die het product toen had: zo zie je of
+// het hetzelfde product is, ook als de naam veranderde. Een klik opent de afbeelding in het groot (hooguit 1024 pixels breed).
+function offerHistoryImages(product) {
+  const images = product.savedImages || [];
+  if (!images.length) return "";
+  const items = images
+    .map((image) => {
+      const day = offerHistoryDay(image.savedAt);
+      const date = day === null ? "" : offerHistoryDayText(day, true);
+      const size = Number(image.width) > 0 && Number(image.height) > 0 ? ` width="${Number(image.width)}" height="${Number(image.height)}"` : "";
+      return `<li><figure>
+        <a href="${escapeHtml(image.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(t("offers.history.images.alt", { title: image.title, date }))}" loading="lazy"${size}></a>
+        <figcaption>${escapeHtml(image.title)}${date ? `<small>${escapeHtml(t("offers.history.images.saved", { date }))}</small>` : ""}</figcaption>
+      </figure></li>`;
+    })
+    .join("");
+  return `<section class="ohc-images" aria-labelledby="ohc-images-title">
+      <h4 id="ohc-images-title">${escapeHtml(t("offers.history.images.title"))}</h4>
+      <p class="muted">${escapeHtml(t("offers.history.images.explain"))}</p>
+      <ul>${items}</ul>
+    </section>`;
+}
+
 function offerHistoryDetail(product) {
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
+  const image = ((product.savedImages || [])[0] || {}).url || product.image;
   const lastDay = offerHistoryDay(product.lastActivity || product.lastSeen);
   const lastSeen = lastDay === null ? "" : offerHistoryDayText(lastDay, true);
   const number = (value) => typeof value === "number";
@@ -260,7 +289,11 @@ function offerHistoryDetail(product) {
     .reverse()
     .map((purchase) => {
       const day = offerHistoryDay(purchase.date);
-      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${escapeHtml(offerHistorySource(purchase.source))}</td></tr>`;
+      // De bron linkt naar de bestelling of kassabon zelf, als de app die kan tonen.
+      const source = escapeHtml(offerHistorySource(purchase.source));
+      const path = purchasePath(product.store, purchase.source, purchase.ref);
+      const sourceCell = path ? `<a href="${escapeHtml(path)}" data-route>${source}</a>` : source;
+      return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${sourceCell}</td></tr>`;
     })
     .join("");
   const link = product.url
@@ -268,7 +301,7 @@ function offerHistoryDetail(product) {
     : "";
   return `
     <div class="ohc-head">
-      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
@@ -279,6 +312,7 @@ function offerHistoryDetail(product) {
     <dl class="ohc-stats">${stats}</dl>
     <div class="ohc-chart" id="offers-history-chart">${offerHistoryChart(product, offerHistoryChartWidth())}</div>
     ${offerHistoryLegend(product)}
+    ${offerHistoryImages(product)}
     ${
       offerRows
         ? `<table class="ohc-table">
@@ -324,7 +358,10 @@ function renderOfferHistory() {
   if (!products.length) {
     list.innerHTML = "";
     detail.innerHTML = "";
-    status.textContent = [offerHistory.query ? t("offers.history.none", { query: offerHistory.query }) : t("offers.history.empty"), unsynced].filter(Boolean).join(" ");
+    const none = offerHistory.query
+      ? t(offerHistory.bought ? "offers.history.none_bought" : "offers.history.none", { query: offerHistory.query })
+      : t(offerHistory.bought ? "offers.history.empty_bought" : "offers.history.empty");
+    status.textContent = [none, unsynced].filter(Boolean).join(" ");
     return;
   }
   status.textContent = [tn("offers.history.count", offerHistory.total, { shown: products.length }), unsynced].filter(Boolean).join(" ");
@@ -334,11 +371,12 @@ function renderOfferHistory() {
       const lowest = typeof product.lowestPrice === "number" ? ` · ${t("offers.history.item.lowest", { price: offerHistoryPrice(product.lowestPrice) })}` : "";
       const bought = product.timesBought ? ` · ${tn("offers.history.item.bought", product.timesBought)}` : "";
       const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
-      return `<li><button class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" type="button" data-key="${escapeHtml(key)}" aria-pressed="${key === offerHistory.selected}">
+      const href = priceHistoryPath(product.store, offerHistory.query, product.productId);
+      return `<li><a class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" data-key="${escapeHtml(key)}" href="${escapeHtml(href)}" data-nav${key === offerHistory.selected ? ' aria-current="true"' : ""}>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : ""}</small>
-      </button></li>`;
+      </a></li>`;
     })
     .join("");
   const chosen = products.find((product) => offerHistoryKey(product) === offerHistory.selected);
@@ -349,6 +387,7 @@ async function loadOfferHistory() {
   const loadId = ++offerHistory.loadId;
   const store = offersState.store;
   const query = $("#offers-history-search").value.trim();
+  const bought = $("#offers-history-bought").checked;
   offerHistory.query = query;
   const loading = $("#offers-history-loading");
   if (!offerHistory.products.length) {
@@ -357,8 +396,10 @@ async function loadOfferHistory() {
   }
   try {
     const params = new URLSearchParams({ store, q: query, limit: String(OFFER_HISTORY_LIMIT) });
+    if (bought) params.set("bought", "1");
     const data = await jsonFetch(`/api/prices/history?${params}`);
     if (loadId !== offerHistory.loadId) return;
+    offerHistory.bought = bought;
     offerHistory.products = data.products || [];
     offerHistory.total = data.total || 0;
     offerHistory.unsynced = (data.unsynced || {})[store] || null;
@@ -368,6 +409,7 @@ async function loadOfferHistory() {
     }
     message("#offers-history-message", "");
     renderOfferHistory();
+    if (typeof routerSync === "function") routerSync({ replace: true }); // de zoekterm in het adres, zonder een stap terug per letter
   } catch (error) {
     if (loadId !== offerHistory.loadId) return;
     message("#offers-history-message", error.message);
@@ -385,6 +427,7 @@ function offerHistoryStoreChanged() {
 }
 
 $("#offers-history-search").addEventListener("input", () => {
+  offerHistory.pinned = false; // een nieuwe zoekterm: het gekozen product hoort niet meer in het adres
   clearTimeout(offerHistory.timer);
   offerHistory.timer = setTimeout(loadOfferHistory, 250);
 });
@@ -393,13 +436,33 @@ $("#offers-history-form").addEventListener("submit", (event) => {
   clearTimeout(offerHistory.timer);
   loadOfferHistory();
 });
+// De schakelaar "Alleen eerder gekocht": de keuze blijft bewaard in deze browser.
+try {
+  $("#offers-history-bought").checked = localStorage.getItem(OFFER_HISTORY_BOUGHT_KEY) === "1";
+} catch {
+  // Zonder opslag staat de schakelaar uit.
+}
+$("#offers-history-bought").addEventListener("change", (event) => {
+  try {
+    localStorage.setItem(OFFER_HISTORY_BOUGHT_KEY, event.target.checked ? "1" : "0");
+  } catch {
+    // De keuze geldt dan alleen tot je de pagina herlaadt.
+  }
+  clearTimeout(offerHistory.timer);
+  loadOfferHistory();
+});
 $("#offers-history-list").addEventListener("click", (event) => {
   const item = event.target.closest("[data-key]");
   if (!item) return;
   offerHistory.selected = item.dataset.key;
+  offerHistory.pinned = true;
   renderOfferHistory();
+  if (typeof routerSync === "function") routerSync();
 });
-document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", loadOfferHistory);
+document.querySelector('.subtab[data-subtab="offers-history"]').addEventListener("click", () => {
+  priceImportShowButton();
+  loadOfferHistory();
+});
 window.addEventListener("ms:languagechange", () => {
   if (offerHistory.products.length || offerHistory.loadedStore) renderOfferHistory();
 });
@@ -470,6 +533,11 @@ function packCompareSummary(visible) {
   return t("offers.compare.cheapest", { unit, count: I18N.formatNumber(visible.length) });
 }
 
+// Uitleg in het venster (laden, de telling, niets gevonden) als grijze tekst; alleen een echte fout staat in een rood vak (message).
+function packCompareNote(text) {
+  $("#compare-dialog-message").innerHTML = `<p class="muted">${escapeHtml(text)}</p>`;
+}
+
 function renderPackCompare() {
   const data = packCompare.data;
   if (!data) return;
@@ -478,9 +546,9 @@ function renderPackCompare() {
   $("#compare-dialog-filters").hidden = candidates.length < 2;
   $("#compare-dialog-summary").textContent = packCompareSummary(visible);
   const others = visible.filter((candidate) => !candidate.self).length;
-  if (candidates.length < 2) message("#compare-dialog-message", t("offers.compare.none"));
-  else if (!others) message("#compare-dialog-message", t("offers.compare.no_match"));
-  else message("#compare-dialog-message", t("offers.compare.count", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(candidates.length) }));
+  if (candidates.length < 2) packCompareNote(t("offers.compare.none"));
+  else if (!others) packCompareNote(t("offers.compare.no_match"));
+  else packCompareNote(t("offers.compare.count", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(candidates.length) }));
   // De kleur volgt de plek in wat er te zien is: de goedkoopste groen, de duurste rood.
   $("#compare-dialog-list").innerHTML = visible.map((candidate, index) => packCompareItem(candidate, visible.length > 1 ? index / (visible.length - 1) : 0)).join("");
 }
@@ -498,7 +566,7 @@ async function openPackCompare(store, productId) {
   $("#compare-dialog-title").textContent = t("offers.compare.title");
   $("#compare-dialog-meta").textContent = "";
   $("#compare-dialog-list").innerHTML = "";
-  message("#compare-dialog-message", t("offers.compare.loading"));
+  packCompareNote(t("offers.compare.loading"));
   if (!dialog.open) dialog.showModal();
   try {
     const data = await jsonFetch(`/api/prices/compare?${new URLSearchParams({ store, id: productId })}`);
@@ -528,4 +596,155 @@ $("#compare-dialog").addEventListener("click", (event) => {
 $("#offers-history-detail").addEventListener("click", (event) => {
   const button = event.target.closest("[data-compare]");
   if (button) openPackCompare(button.dataset.store, button.dataset.compare);
+});
+
+// Oude aankopen importeren (#178): bestellingen uit bevestigingsmails, omgezet naar JSON door een AI-assistent met de prompt van de
+// server (price_import.py). Eerst controleren (dryRun): wat nieuw is en wat er al is. Pas daarna importeren, met dezelfde tekst.
+// Alleen de beheerder ziet de knop; de server laat ook alleen de beheerder toe.
+const priceImport = { store: "", prompt: "", checked: null, busy: false };
+
+function priceImportIsOwner() {
+  const auth = state.auth || {};
+  return !auth.enabled || (Boolean(auth.authenticated) && auth.isOwner !== false);
+}
+
+function priceImportShowButton() {
+  $("#offers-history-import").hidden = !priceImportIsOwner();
+}
+
+function priceImportStoreName() {
+  return (STORES[priceImport.store] && STORES[priceImport.store].name) || priceImport.store;
+}
+
+function priceImportDay(iso) {
+  const day = offerHistoryDay(iso);
+  return day === null ? iso || "" : offerHistoryDayText(day, true);
+}
+
+function renderPriceImportStatus(summary) {
+  const store = priceImportStoreName();
+  $("#import-dialog-status").textContent = summary.orders
+    ? tn("offers.import.status", summary.orders, { store, first: priceImportDay(summary.first), last: priceImportDay(summary.last) })
+    : t("offers.import.status_none", { store });
+  $("#import-remove").hidden = !summary.orders;
+}
+
+function renderPriceImportReport(report) {
+  const orders = (report.orders || []).map((order) => {
+    const what = [priceImportDay(order.date), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
+    const state = order.new ? t("offers.import.new") : order.reason;
+    return `<li class="${order.new ? "is-new" : "is-known"}"><span>${escapeHtml(what)}</span> <small>${escapeHtml(state || "")}</small></li>`;
+  });
+  const problems = (report.problems || []).map((problem) => `<li class="is-problem"><small>${escapeHtml(problem)}</small></li>`);
+  const header = report.problemCount ? [`<li class="is-problem"><strong>${escapeHtml(tn("offers.import.problems", report.problemCount))}</strong></li>`] : [];
+  $("#import-report").innerHTML = [...orders, ...header, ...problems].join("");
+}
+
+async function loadPriceImportSummary() {
+  const summary = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`);
+  priceImport.prompt = summary.prompt || "";
+  $("#import-prompt").textContent = priceImport.prompt;
+  renderPriceImportStatus(summary);
+}
+
+async function openPriceImport() {
+  priceImport.store = offersState.store;
+  priceImport.checked = null;
+  $("#import-run").disabled = true;
+  $("#import-report").innerHTML = "";
+  message("#import-dialog-message", "");
+  $("#import-dialog").showModal();
+  try {
+    await loadPriceImportSummary();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  }
+}
+
+async function priceImportPost(dryRun) {
+  const data = $("#import-data").value;
+  if (!data.trim()) {
+    message("#import-dialog-message", t("offers.import.empty"));
+    return null;
+  }
+  return jsonFetch("/api/prices/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ store: priceImport.store, data, dryRun }),
+  });
+}
+
+async function checkPriceImport() {
+  if (priceImport.busy) return;
+  priceImport.busy = true;
+  $("#import-run").disabled = true;
+  try {
+    const report = await priceImportPost(true);
+    if (!report) return;
+    renderPriceImportReport(report);
+    priceImport.checked = report.new ? $("#import-data").value : null;
+    $("#import-run").disabled = !report.new;
+    const summary = t("offers.import.checked", { new: I18N.formatNumber(report.new), duplicates: I18N.formatNumber(report.duplicates), lines: I18N.formatNumber(report.lines) });
+    message("#import-dialog-message", report.new ? summary : `${summary} ${t("offers.import.nothing_new")}`, report.new ? "success" : "info");
+  } catch (error) {
+    $("#import-report").innerHTML = "";
+    message("#import-dialog-message", error.message);
+  } finally {
+    priceImport.busy = false;
+  }
+}
+
+async function runPriceImport() {
+  if (priceImport.busy || priceImport.checked !== $("#import-data").value) return;
+  priceImport.busy = true;
+  $("#import-run").disabled = true;
+  try {
+    const report = await priceImportPost(false);
+    if (!report) return;
+    renderPriceImportReport(report);
+    priceImport.checked = null;
+    message("#import-dialog-message", report.imported ? tn("offers.import.done", report.imported) : t("offers.import.nothing_new"), "success");
+    await loadPriceImportSummary();
+    loadOfferHistory();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  } finally {
+    priceImport.busy = false;
+  }
+}
+
+async function removePriceImport() {
+  if (!window.confirm(t("offers.import.remove_confirm", { store: priceImportStoreName() }))) return;
+  try {
+    const result = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`, { method: "DELETE" });
+    $("#import-report").innerHTML = "";
+    message("#import-dialog-message", tn("offers.import.removed", result.removed), "success");
+    await loadPriceImportSummary();
+    loadOfferHistory();
+  } catch (error) {
+    message("#import-dialog-message", error.message);
+  }
+}
+
+async function copyPriceImportPrompt() {
+  try {
+    await navigator.clipboard.writeText(priceImport.prompt);
+    message("#import-dialog-message", t("offers.import.copied"), "success");
+  } catch {
+    $("#import-dialog .import-prompt").open = true;
+    message("#import-dialog-message", t("offers.import.copy_failed"));
+  }
+}
+
+$("#offers-history-import").addEventListener("click", openPriceImport);
+$("#import-copy").addEventListener("click", copyPriceImportPrompt);
+$("#import-check").addEventListener("click", checkPriceImport);
+$("#import-run").addEventListener("click", runPriceImport);
+$("#import-remove").addEventListener("click", removePriceImport);
+$("#import-data").addEventListener("input", () => {
+  $("#import-run").disabled = priceImport.checked === null || priceImport.checked !== $("#import-data").value;
+});
+$("#import-close").addEventListener("click", () => $("#import-dialog").close());
+$("#import-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
 });
