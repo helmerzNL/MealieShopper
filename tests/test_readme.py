@@ -129,6 +129,14 @@ class ReadmeFilesTest(unittest.TestCase):
             self.assertIn("](https://ko-fi.com/flux76)", header, lang)
             self.assertIn("flux76.com", text(lang).strip().splitlines()[-2], lang)
 
+    def test_licence(self):
+        # Een LICENSE-bestand, met de badge in de kop en de licentie onder het laatste kopje (README-template).
+        licence = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        self.assertTrue(licence.startswith("MIT License\n\nCopyright (c) "))
+        for lang in READMES:
+            self.assertIn("](LICENSE)\n", text(lang).split("\n---\n", 1)[0], lang)
+            self.assertIn("[MIT](LICENSE)", text(lang).split(headings(lang)[-1], 1)[1], lang)
+
     def test_security_policy(self):
         # SECURITY.md volgt shared/templates/github/SECURITY.md: eerst Nederlands, dan Engels, zonder open plekken.
         file = ROOT / "SECURITY.md"
