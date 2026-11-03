@@ -733,6 +733,14 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     return [item for _, item in ranked]
 
 
+class AhHttpError(RuntimeError):
+    """Een fout van AH met de HTTP-status erbij, zodat de aanroeper bij 403 (firewall) of 429 (te veel verzoeken) kan stoppen."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def _search_json(query: str, size: int) -> Any:
     """De ruwe zoekresultaten van AH (anoniem)."""
 
@@ -746,7 +754,7 @@ def _search_json(query: str, size: int) -> Any:
         if not response.ok:
             message = f"AH productzoekopdracht mislukt ({response.status_code})"
             _reject_if_token(response.status_code, _body(response), token, message)
-            raise RuntimeError(message)
+            raise AhHttpError(message, response.status_code)
         return response.json()
 
     return _anonymous(search)

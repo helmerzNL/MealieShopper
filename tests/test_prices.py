@@ -220,6 +220,15 @@ class HistoryTest(PricesCase):
             conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (43947, NULL, NULL, 'x')")
         self.assertEqual([p["productId"] for p in self.history(query="draagtas")["products"]], ["43947"])
 
+    def test_a_linked_receipt_line_gets_the_web_shop_name_and_stays_findable_by_the_receipt_name(self):
+        self.ah_receipt("R1", "2026-10-02T09:00:00", (77234, "RED BAND", 1, 1.99, 1.99), (511669, "RB PICOLIENT", 1, 1.49, 1.49))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, 'x')",
+                             [(77234, 547751, "Red Band Winegums original"), (511669, 4242, "Red Band Picolient")])
+        titles = {p["productId"]: p["title"] for p in self.history(query="redband")["products"]}
+        self.assertEqual(titles, {"547751": "Red Band Winegums original", "4242": "Red Band Picolient"}, "redband vindt Red Band (spaties tellen niet)")
+        self.assertEqual([p["productId"] for p in self.history(query="RB PICOLIENT")["products"]], ["4242"], "de naam op de bon werkt ook")
+
     def test_a_receipt_line_that_matches_nothing_is_still_found(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (None, "AH VERSE KNOFLOOK", 1, 0.79, 0.79))
         product = self.history(query="knoflook")["products"][0]
