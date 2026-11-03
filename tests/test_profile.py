@@ -108,9 +108,9 @@ class ProfileMarkupTest(unittest.TestCase):
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
         self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"])
-        settings = re.search(r'<button[^>]*data-user-action="settings"[^>]*>', menu).group(0)
+        settings = re.search(r'<a[^>]*data-user-action="settings"[^>]*>', menu).group(0)
         self.assertIn("data-admin-only", settings, "Instellingen is alleen voor de beheerder")
-        profile_item = re.search(r'<button[^>]*data-user-action="profile"[^>]*>', menu).group(0)
+        profile_item = re.search(r'<a[^>]*data-user-action="profile"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", profile_item)
         self.assertIn('id="auth-logout"', menu)
         self.assertNotIn("auth-chip", self.html)

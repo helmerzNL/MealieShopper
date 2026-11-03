@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-69")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-71")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -85,8 +85,14 @@ def create_app() -> Flask:
             return jsonify(payload), status
 
     @app.get("/")
-    def index():
+    def index(**_route):
         return render_template("index.html", public_base_url=public_base_url(), build_channel=about.build_channel())
+
+    # Elke pagina heeft een eigen adres (/recipes, /cart, /stores/ah/orders, ...): de server geeft dezelfde pagina terug en
+    # static/router.js toont het juiste scherm. Zo werken herladen, een bladwijzer en Ctrl+klik naar een nieuw tabblad.
+    for root in auth.PAGE_ROOTS:
+        app.add_url_rule(f"/{root}", f"page_{root}", index)
+        app.add_url_rule(f"/{root}/<path:rest>", f"page_{root}_rest", index)
 
     @app.get("/favicon.ico")
     def favicon():
