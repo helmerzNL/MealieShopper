@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from . import ah, auth, ingredients, jumbo, jumbo_recipes
+from . import ah, ah_recipes, auth, ingredients, jumbo, jumbo_recipes
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -248,11 +248,12 @@ def import_from_url(url: str) -> str:
     ensure_configured()
     errors: list[str] = []
 
-    # Allerhande-recepten komen via de AH-API: de websitepagina van AH blokkeert servers (403).
+    # Allerhande-recepten komen via de AH-API: de websitepagina van AH blokkeert servers (403). Een bewaard recept
+    # staat al in de lokale kopie; dan is AH niet nodig.
     recipe_id = ah.allerhande_recipe_id(url)
     if recipe_id:
         try:
-            return import_via_jsonld(url, ah.get_recipe_jsonld(recipe_id))
+            return import_via_jsonld(url, ah_recipes.saved_jsonld(recipe_id) or ah.get_recipe_jsonld(recipe_id))
         except Exception as exc:  # noqa: BLE001 - val terug op de pagina-import
             errors.append(f"AH-API: {exc}")
 

@@ -26,6 +26,21 @@ def group(group_id, name, ids, default=False):
     return {"id": str(group_id), "name": name, "isDefault": default, "recipeIds": list(ids)}
 
 
+def jsonld(recipe_id):
+    """Een recept zoals `ah.get_recipe_jsonld` het geeft."""
+    return {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": f"Recept {recipe_id}",
+        "url": f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
+        "recipeIngredient": [f"{recipe_id} el olijfolie", "1 ui"],
+        "recipeInstructions": [{"@type": "HowToStep", "text": "Snijd de ui."}, {"@type": "HowToStep", "text": "Bak alles."}],
+        "image": [f"https://img/{recipe_id}.jpg"],
+        "recipeYield": "4 personen",
+        "totalTime": "PT25M",
+    }
+
+
 class SavedRecipesCacheTestCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -37,6 +52,10 @@ class SavedRecipesCacheTestCase(unittest.TestCase):
         groups = mock.patch.object(ah, "get_saved_recipe_groups", return_value=[])
         self.groups = groups.start()
         self.addCleanup(groups.stop)
+        # De recepten zelf: standaard levert AH elk recept; de offline-tests sturen dit zelf.
+        details = mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld)
+        self.details = details.start()
+        self.addCleanup(details.stop)
         self.client = create_app().test_client()
 
 
@@ -182,6 +201,120 @@ class GroupsTest(SavedRecipesCacheTestCase):
             ah_recipes.resolve_group(groups, "soep")
         with self.assertRaisesRegex(ValueError, "geen receptgroepen"):
             ah_recipes.resolve_group([], "soep")
+
+
+class OfflineTest(SavedRecipesCacheTestCase):
+    def sync(self, total, force=False):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(total)):
+            return ah_recipes.get(force=force)
+
+    def test_sync_keeps_every_recipe_itself(self):
+        data = self.sync(3)
+        self.assertEqual(data["details"], {"fetched": 3, "failed": 0, "remaining": 0})
+        self.assertEqual((data["offline"], ah_recipes.load()["offline"]), (3, 3))
+        self.assertEqual(sorted(c.args[0] for c in self.details.call_args_list), [1, 2, 3])
+        self.assertEqual(ah_recipes.saved_jsonld(2)["recipeIngredient"], ["2 el olijfolie", "1 ui"])
+        self.assertEqual(ah_recipes.saved_jsonld("3")["name"], "Recept 3")
+
+    def test_next_sync_only_fetches_what_is_missing(self):
+        self.sync(2)
+        self.details.reset_mock()
+        data = self.sync(4, force=True)
+        self.assertEqual(sorted(c.args[0] for c in self.details.call_args_list), [3, 4])
+        self.assertEqual((data["details"]["fetched"], data["offline"]), (2, 4))
+
+    def test_a_limited_number_per_sync_and_the_rest_next_time(self):
+        with mock.patch.object(ah_recipes, "RECIPE_DETAILS_PER_SYNC", 2):
+            first = self.sync(5)
+            self.assertEqual(first["details"], {"fetched": 2, "failed": 0, "remaining": 3})
+            self.assertEqual(first["offline"], 2)
+            self.assertIsNotNone(ah_recipes.saved_jsonld(1), "in de volgorde van de lijst")
+            self.assertIsNone(ah_recipes.saved_jsonld(5))
+            second = self.sync(5, force=True)
+        self.assertEqual(second["details"], {"fetched": 2, "failed": 0, "remaining": 1})
+
+    def test_past_the_deadline_nothing_more_is_tried(self):
+        with mock.patch.object(ah_recipes, "RECIPE_DETAILS_DEADLINE_SECONDS", -1):
+            data = self.sync(3)
+        self.assertEqual(data["details"], {"fetched": 0, "failed": 0, "remaining": 3})
+        self.details.assert_not_called()
+        self.assertEqual(data["total"], 3, "de lijst zelf is wel bewaard")
+
+    def test_a_failing_recipe_does_not_fail_the_sync(self):
+        def flaky(recipe_id):
+            if recipe_id == 2:
+                raise RuntimeError("AH 500")
+            return jsonld(recipe_id)
+
+        self.details.side_effect = flaky
+        data = self.sync(3)
+        self.assertEqual(data["details"], {"fetched": 2, "failed": 1, "remaining": 1})
+        self.assertIsNone(ah_recipes.saved_jsonld(2))
+        self.details.side_effect = jsonld
+        self.assertEqual(self.sync(3, force=True)["details"], {"fetched": 1, "failed": 0, "remaining": 0})
+
+    def test_a_recipe_that_is_no_longer_saved_leaves_the_copy(self):
+        self.sync(3)
+        self.sync(2, force=True)
+        self.assertIsNone(ah_recipes.saved_jsonld(3))
+        self.assertEqual(ah_recipes.load()["offline"], 2)
+        self.assertIsNotNone(ah_recipes.saved_jsonld(1))
+
+    def test_a_failed_sync_keeps_the_recipes_offline(self):
+        self.sync(2)
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=RuntimeError("AH sessie verlopen")):
+            data = ah_recipes.get(force=True)
+        self.assertEqual((data["ahError"], data["offline"]), ("AH sessie verlopen", 2))
+        self.assertIsNotNone(ah_recipes.saved_jsonld(1))
+
+    def test_remember_only_keeps_saved_recipes(self):
+        with mock.patch.object(ah_recipes, "RECIPE_DETAILS_PER_SYNC", 0):
+            self.sync(2)
+        self.assertTrue(ah_recipes.remember(2, jsonld(2)))
+        self.assertFalse(ah_recipes.remember(99, jsonld(99)), "een recept uit Recepten zoeken blijft live")
+        self.assertFalse(ah_recipes.remember("abc", jsonld(1)))
+        self.assertEqual(ah_recipes.load()["offline"], 1)
+        self.assertIsNone(ah_recipes.saved_jsonld(99))
+
+    def test_nothing_fetched_yet_has_no_copy(self):
+        self.assertIsNone(ah_recipes.saved_jsonld(1))
+        self.assertIsNone(ah_recipes.saved_jsonld("geen nummer"))
+        self.assertEqual(ah_recipes.get(fetch_if_missing=False)["offline"], 0)
+
+
+class RecipeRouteTest(SavedRecipesCacheTestCase):
+    def test_a_saved_recipe_opens_without_ah(self):
+        with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
+            ah_recipes.get()
+        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("AH is offline")):
+            res = self.client.get("/api/ah/recipes/2")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["source"], "local")
+        self.assertEqual(data["ingredients"], [{"line": "2 el olijfolie"}, {"line": "1 ui"}])
+        self.assertEqual(data["steps"], ["Snijd de ui.", "Bak alles."])
+        self.assertEqual((data["portions"], data["minutes"], data["image"]), (4, 25, "https://img/2.jpg"))
+
+    def test_a_saved_recipe_without_copy_is_fetched_once_and_kept(self):
+        with mock.patch.object(ah_recipes, "RECIPE_DETAILS_PER_SYNC", 0), \
+                mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
+            ah_recipes.get()
+        self.details.reset_mock()
+        first = self.client.get("/api/ah/recipes/1").get_json()
+        second = self.client.get("/api/ah/recipes/1").get_json()
+        self.assertEqual((first["source"], second["source"]), ("ah", "local"))
+        self.assertEqual(self.details.call_count, 1)
+
+    def test_a_recipe_that_is_not_saved_stays_live(self):
+        self.client.get("/api/ah/recipes/7")
+        res = self.client.get("/api/ah/recipes/7")
+        self.assertEqual(res.get_json()["source"], "ah")
+        self.assertEqual(self.details.call_count, 2)
+
+    def test_ah_down_without_a_copy_is_424(self):
+        with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("AH is offline")):
+            res = self.client.get("/api/ah/recipes/5")
+        self.assertEqual(res.status_code, 424)
 
 
 class RouteTest(SavedRecipesCacheTestCase):

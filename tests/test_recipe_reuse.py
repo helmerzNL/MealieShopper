@@ -132,6 +132,7 @@ class AllerhandeRecipeTest(ReuseTestCase):
             "id": "1199999", "name": "Pasta pesto", "description": "Snel en groen.", "image": "https://static.ah.nl/pasta.jpg",
             "portions": 4, "minutes": 25, "url": "https://www.ah.nl/allerhande/recept/R-R1199999",
             "ingredients": [{"line": "300 g pasta"}, {"line": "1 potje pesto"}], "steps": ["Kook de pasta."], "nutrition": [],
+            "source": "ah",  # geen bewaard recept: live bij AH
         })
 
     def test_errors_do_not_leak_the_answer_of_ah(self):

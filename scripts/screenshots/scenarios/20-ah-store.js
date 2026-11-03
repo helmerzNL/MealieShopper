@@ -27,6 +27,7 @@ const savedRecipes = {
   // Een Allerhande-link eindigt op het receptnummer (R-R…); daaraan herkent de app het recept en toont ze Bekijken en Inplannen.
   recipes: RECIPE_TITLES.map(([title, image], index) => ({ id: String(1200 + index), title, image, url: `https://www.example.nl/allerhande/recept/R-R${1200 + index}` })),
   total: RECIPE_TITLES.length,
+  offline: RECIPE_TITLES.length, // alle recepten staan ook offline in MealieShopper
   // De receptgroepen uit de AH-app; de keuzelijst naast de titel toont ze met Alle recepten erboven.
   groups: [
     { id: "doordeweeks", name: "Doordeweeks", isDefault: false, count: 4, recipeIds: ["1201", "1204", "1205", "1210"] },

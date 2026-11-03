@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-74")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-75")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -209,10 +209,17 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
 
     # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
+    # Een bewaard recept komt uit de lokale kopie (ook als AH niet werkt); een ander recept live bij AH. Een bewaard
+    # recept dat nog niet in de kopie stond, wordt na het ophalen meteen bewaard.
     @app.get("/api/ah/recipes/<int:recipe_id>")
     def ah_recipe_detail(recipe_id: int):
+        saved = ah_recipes.saved_jsonld(recipe_id)
+        if saved:
+            return jsonify({**ah.recipe_detail_from_jsonld(saved, recipe_id), "source": "local"})
         try:
-            return jsonify(ah.recipe_detail(recipe_id))
+            ld = ah.get_recipe_jsonld(recipe_id)
+            ah_recipes.remember(recipe_id, ld)
+            return jsonify({**ah.recipe_detail_from_jsonld(ld, recipe_id), "source": "ah"})
         except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
             app.logger.exception("AH recipe error")
             return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424

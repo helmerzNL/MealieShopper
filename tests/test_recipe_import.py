@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, mealie  # noqa: E402
+from mealieshopper import ah, ah_recipes, mealie  # noqa: E402
 
 RECIPE = {
     "id": 1234,
@@ -128,6 +128,15 @@ class ImportFromUrlTest(unittest.TestCase):
         sent = post.call_args.kwargs["json"]
         self.assertEqual(json.loads(sent["data"]), ld)
         self.assertEqual(sent["url"], self.URL)
+
+    def test_saved_ah_recipe_comes_from_the_local_copy_without_ah(self):
+        ld = {"@type": "Recipe", "name": "Uit de kopie"}
+        with mock.patch.object(ah_recipes, "saved_jsonld", return_value=ld) as saved, \
+                mock.patch.object(ah, "get_recipe_jsonld", side_effect=AssertionError("AH niet nodig")), \
+                mock.patch.object(mealie.requests, "post", return_value=self.response(body="kopie")) as post:
+            self.assertEqual(mealie.import_from_url(self.URL), "kopie")
+        saved.assert_called_once_with(1234)
+        self.assertEqual(json.loads(post.call_args.kwargs["json"]["data"]), ld)
 
     def test_ah_api_failure_falls_back_to_mealie_url_import(self):
         with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), \

@@ -85,6 +85,17 @@ class OverviewMarkupTest(unittest.TestCase):
         self.assertLess(recipes.index("ah-recipe-filter"), recipes.index('id="ah-recipes"'))
         self.assertIn("recipe-grid--compact", recipes)
 
+    def test_recipes_sync_with_the_same_icon_button_as_the_lists(self):
+        recipes = HTML[HTML.index('id="ah-items-recepten"'):HTML.index('id="ah-items-lijstjes"')]
+        lists = HTML[HTML.index('id="ah-items-lijstjes"'):HTML.index('<section id="profile"')]
+        button = re.search(r'<button[^>]*id="sync-ah-recipes"[^>]*>(.*?)</button>', recipes, re.S)
+        self.assertIsNotNone(button)
+        self.assertIn('class="icon-button"', button.group(0))
+        self.assertIn('data-i18n-attr="aria-label:common.sync;title:common.sync"', button.group(0))
+        icon = re.search(r'id="sync-all-ah-lists".*?<path d="([^"]+)"', lists, re.S).group(1)
+        self.assertIn(f'<path d="{icon}"', button.group(1))
+        self.assertNotIn("load-ah-recipes", HTML)
+
     def test_lists_have_a_search_bar_and_a_detail_view_with_a_back_button(self):
         lists = HTML[HTML.index('id="ah-items-lijstjes"'):HTML.index('<section id="profile"')]
         self.assertIn('id="ah-list-filter"', lists)

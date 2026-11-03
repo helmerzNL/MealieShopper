@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.96.0
+
+### Nieuw in 2.96.0
+
+*English summary: under Stores > Albert Heijn > Recipes the Fetch from AH / Refresh button is now a Sync icon button, the same as at Lists. Sync now also keeps the recipes themselves (ingredients and method) in MealieShopper, so View, Plan and Import work for your saved AH recipes when AH is unreachable, like your lists and orders. Each sync fetches at most 120 recipes that are still missing (for at most 40 seconds, four at a time); the screen says how many are still missing, and the next sync fetches the rest. A saved recipe you open before it was kept is kept right away, and a recipe you no longer save leaves the copy. The status line shows how many recipes are available offline. The kept recipes are part of the backup. Reload the page once after updating.*
+
+- **Een Sync-knop bij Mijn bewaarde recepten.** De tekstknop *Ophalen bij AH* / *Vernieuwen* onder **Winkels > Albert Heijn > Recepten** is nu de ronde knop met de pijlen, net als bij **Lijstjes**. Tijdens het synchroniseren draait hij.
+- **Je bewaarde AH-recepten zijn offline beschikbaar**, net als je lijstjes en bestellingen:
+  - Synchroniseren bewaart nu ook de recepten zelf (de ingrediënten en de bereiding, als schema.org-recept) in MealieShopper, naast de lijst en de receptgroepen.
+  - `Bekijken`, `Inplannen` en `Importeer` gebruiken voor een bewaard recept de lokale kopie en vragen niets aan AH; ze werken dus ook als AH niet bereikbaar is. Een recept uit **Recepten zoeken** dat je niet bewaard hebt, blijft live van AH komen.
+  - Per synchronisatie haalt MealieShopper hooguit 120 recepten op die nog ontbreken, hooguit 40 seconden lang en vier tegelijk, in de volgorde van de lijst. Ontbreken er daarna nog, dan meldt het scherm hoeveel; de volgende synchronisatie haalt de rest. Een recept dat niet lukt, laat de synchronisatie niet mislukken en wordt de volgende keer opnieuw geprobeerd.
+  - Open je een bewaard recept dat nog niet in de kopie stond, dan wordt het meteen bewaard. Een recept dat je niet meer bewaart, verdwijnt bij de volgende synchronisatie uit de kopie.
+  - De statusregel toont hoeveel recepten offline beschikbaar zijn (*12 recepten · 12 offline beschikbaar · bewaard in MealieShopper op …*).
+- **API**: `GET /api/ah/recipes/saved` geeft `offline` en na een synchronisatie `details` (`fetched`, `failed`, `remaining`); `GET /api/ah/recipes/<id>` geeft `source` (`local` of `ah`).
+- **In de back-up**: de bewaarde recepten gaan mee (`ah_saved_recipe_details`), zodat ze na het terugzetten ook offline beschikbaar zijn. Een oudere back-up zonder deze tabel zet gewoon terug.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.95.0
 
 ### Nieuw in 2.95.0

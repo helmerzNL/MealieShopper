@@ -2264,9 +2264,13 @@ function renderSavedRecipes() {
 function updateSavedRecipesStatus(data) {
   const total = Number(data.total ?? state.ahRecipes.length);
   const when = formatSyncTime(data.syncedAt);
+  const offline = Number(data.offline ?? 0);
   state.ahRecipesMeta = data;
   $("#ah-recipes-status").textContent =
-    tn("saved.status", total) + (when ? t("saved.status_when", { when }) : "") + t("saved.status_hint");
+    tn("saved.status", total) +
+    tn("saved.offline", offline) +
+    (when ? t("saved.status_when", { when }) : "") +
+    t("saved.status_hint");
 }
 
 // `cachedOnly`: alleen de lokale kopie tonen, nooit AH vragen (zo opent het tabblad zonder AH-verkeer).
@@ -2274,15 +2278,13 @@ function refreshSavedRecipesStatus() {
   const meta = state.ahRecipesMeta;
   if (state.ahRecipes.length && meta) updateSavedRecipesStatus(meta);
   else $("#ah-recipes-status").textContent = state.ahRecipesLoaded ? t("saved.not_fetched") : t("saved.intro");
-  const button = $("#load-ah-recipes");
-  button.dataset.label = state.ahRecipesFetched ? t("saved.refresh") : t("saved.fetch");
-  if (!button.disabled) button.textContent = button.dataset.label;
 }
 
+// `refresh`: synchroniseren met AH (de lijst, de groepen en de recepten die nog in de kopie ontbreken).
 async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
-  const button = $("#load-ah-recipes");
+  const button = $("#sync-ah-recipes");
   state.ahRecipesLoaded = true;
-  setBusy(button, true, t("saved.loading"));
+  setBusy(button, true);
   message("#ah-recipes-message", "");
   try {
     const query = refresh ? "?refresh=1" : cachedOnly ? "?cached=1" : "";
@@ -2291,8 +2293,6 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
     state.ahRecipeGroups = data.groups || [];
     renderAhRecipeGroups();
     $("#ah-recipe-filter").disabled = !state.ahRecipes.length;
-    button.dataset.label = data.syncedAt ? t("saved.refresh") : t("saved.fetch");
-    state.ahRecipesFetched = Boolean(data.syncedAt);
     if (!state.ahRecipes.length) {
       $("#ah-recipes").innerHTML = "";
       if (data.source === "none") {
@@ -2310,11 +2310,14 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
         t("saved.ah_down", { error: data.ahError }),
         "error"
       );
+    } else if (data.details?.remaining > 0) {
+      // Een synchronisatie haalt een beperkt aantal recepten per keer op; de rest volgt bij de volgende.
+      message("#ah-recipes-message", tn("saved.details_remaining", data.details.remaining), "warning");
     }
   } catch (error) {
     message("#ah-recipes-message", error.message);
   } finally {
-    setBusy(button, false, t("saved.loading"));
+    setBusy(button, false);
   }
 }
 
@@ -2632,7 +2635,7 @@ $("#open-mealie-setup").addEventListener("click", () => {
 });
 $("#load-ah-lists").addEventListener("click", loadAhFavoriteLists);
 $("#sync-all-ah-lists").addEventListener("click", syncAllAhLists);
-$("#load-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
+$("#sync-ah-recipes").addEventListener("click", () => loadSavedRecipes({ refresh: true }));
 $("#ah-recipe-filter").addEventListener("input", (event) => {
   state.ahRecipeQuery = event.target.value;
   renderSavedRecipes();

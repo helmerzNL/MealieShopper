@@ -1978,7 +1978,11 @@ def recipe_url(recipe_id: int) -> str:
 
 def recipe_detail(recipe_id: int) -> dict[str, Any]:
     """Een Allerhande-recept in de vorm van het detailscherm (zoals Jumbo, Picnic en de maaltijdboxen)."""
-    ld = get_recipe_jsonld(recipe_id)
+    return recipe_detail_from_jsonld(get_recipe_jsonld(recipe_id), recipe_id)
+
+
+def recipe_detail_from_jsonld(ld: dict[str, Any], recipe_id: int) -> dict[str, Any]:
+    """Het detailscherm uit een schema.org-recept van `get_recipe_jsonld` (live of uit de lokale kopie)."""
     images = ld.get("image") or []
     portions = re.match(r"\s*(\d+)", str(ld.get("recipeYield") or ""))
     minutes = re.fullmatch(r"PT(\d+)M", str(ld.get("totalTime") or ""))
