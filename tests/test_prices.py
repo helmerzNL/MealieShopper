@@ -186,6 +186,14 @@ class HistoryTest(PricesCase):
         sausage = next(p for p in prices.history("ah", "rookworst", 50, today="2026-11-03")["products"] if p["productId"] == "55")
         self.assertEqual((sausage["timesBought"], [p["source"] for p in sausage["purchases"]]), (2, ["receipt", "order"]))
 
+    def test_a_receipt_id_of_another_product_without_a_name_match_stays_its_own_product(self):
+        # Zonder bestelling van rookworst valt de bonregel niet terug op het id van de pizza, maar wordt hij een eigen product.
+        self.sync_offer("2026-11-02T05:00:00+00:00", offer("627748", "Dr. Oetker Ristorante pizza hawaii 3-pack", 8.80, 9.57))
+        self.ah_receipt("R1", "2025-12-06T18:57:00", (627748, "AH ROOKWORST", 1, None, 2.99))
+        products = {p["productId"]: p for p in prices.history("ah", "", 50, today="2026-11-03")["products"]}
+        self.assertEqual(products["627748"]["timesBought"], 0)
+        self.assertEqual(products["bon:ah rookworst"]["timesBought"], 1)
+
     def test_names_agree_on_a_shared_or_shortened_word(self):
         self.assertTrue(prices._names_agree("ah rijst basmati", ["ah basmati rijst"]))
         self.assertTrue(prices._names_agree("ah rundergeh", ["ah rundergehakt"]))

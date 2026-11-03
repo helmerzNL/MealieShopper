@@ -377,9 +377,10 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
         fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
         # Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
         # ("AH ROOKWORST" 627748 en "Dr. Oetker Ristorante pizza hawaii 3-pack" 627748). Een bekend id telt dus alleen als de namen
-        # minstens een woord delen.
+        # minstens een woord delen. Hoort het id bij een ander product, dan valt het ook als laatste keus af.
         same_id = bool(own) and own in titles and _names_agree(name, titles[own])
-        key = linked.get(own) or (own if same_id else (_match_name(index, bare, store, name) or own or fallback))
+        other_product = bool(own) and own in titles and not same_id
+        key = linked.get(own) or (own if same_id else (_match_name(index, bare, store, name) or (None if other_product else own) or fallback))
         found.append({**dict(row), "product_id": key})
     return found
 
