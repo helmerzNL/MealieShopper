@@ -16,6 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Aanbiedingen** houden de bonusweek van AH, van maandag t/m zondag. Begint het weekmenu op een andere dag, dan hoort er de bonusweek bij die er het meest mee overlapt (de week waarin de middelste dag valt): bij za 7 t/m vr 13 nov is dat ma 9 t/m zo 15 nov. Met maandag als eerste dag verandert er niets.
 - **API**: `GET /api/mealie/status` geeft `weekStart` (`day`, 0 = zondag t/m 6 = zaterdag, met `source`: `setting`, `mealie` of `default`); `GET` en `PUT /api/server-settings` hebben `weekStart` (leeg = zoals in Mealie, of 0 t/m 6).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request: [#204](https://github.com/helmerzNL/MealieShopper/pull/204).
 
 ## v2.96.0
 
