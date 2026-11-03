@@ -1,7 +1,13 @@
 // Het tabblad Aanbiedingen: de AH Bonus van de week van het weekmenu, met de weekkeuze, de looptijd van de bonusweek, wat er al
 // voor later bekend is, de categorieën en de producten met hun prijs per eenheid en oordeel. Daarnaast de Prijsgeschiedenis en
 // Vergelijk verpakkingen.
-const { product, perUnit, WEEK } = require("../demo");
+const { svg, product, perUnit, WEEK } = require("../demo");
+
+// De taal van de pagina staat in de cookie ms_lang; teksten die normaal van de server komen volgen die.
+async function lang(request) {
+  const cookie = (await request.headerValue("cookie")) || "";
+  return /ms_lang=en/.test(cookie) ? "en" : "nl";
+}
 
 // [titel, merk, inhoud, prijs, prijs ervoor, actie, categorie, kleur, soort, minimumaantal, prijs per stuk bij de actie]
 const BONUS = [
@@ -133,6 +139,118 @@ const others = [
 }));
 const historyAnswer = { products: [mince, ...others], total: others.length + 1, unsynced: { ah: { orders: 0, receipts: 0 } } };
 
+// ---- Alleen eerder gekocht en Bewaarde afbeeldingen (2.92): kipfilet heet tegenwoordig "Scharrel kipfilet" en kreeg een nieuwe foto;
+// de bewaarde afbeeldingen laten zien dat het hetzelfde product is. Zelfgetekend: een schaaltje met kipfilet en een etiket.
+function tray(label, band, text) {
+  return svg(
+    `<rect width="120" height="120" fill="#fff"/><rect x="14" y="30" width="92" height="64" rx="12" fill="#dfe5e1"/>` +
+      `<rect x="20" y="36" width="80" height="52" rx="9" fill="#f4f6f5"/><ellipse cx="46" cy="60" rx="20" ry="13" fill="#f2c3a6"/>` +
+      `<ellipse cx="74" cy="62" rx="20" ry="13" fill="#eeb595"/><rect x="58" y="70" width="44" height="22" rx="4" fill="${label}"/>` +
+      `<rect x="58" y="70" width="44" height="7" rx="3" fill="${band}"/><text x="80" y="88" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="#fff" text-anchor="middle">${text}</text>`
+  );
+}
+const KIP_IMAGES = [
+  ["AH Scharrel kipfilet", "2026-09-14", tray("#2f7d57", "#f2cf45", "SCHARREL")],
+  ["AH Kipfilet", "2026-04-20", tray("#3a62b0", "#e8eef8", "KIPFILET")],
+  ["AH Kipfilet", "2025-11-12", tray("#3a62b0", "#d9503f", "KIPFILET")],
+];
+// [begin, einde, prijs, prijs ervoor, actie]
+const KIP_OFFERS = [
+  ["2026-02-02", "2026-02-08", 8.49, 10.98, "25% korting"],
+  ["2026-05-11", "2026-05-17", 8.98, 11.49, "voor 8,98"],
+  ["2026-08-03", "2026-08-09", 8.49, 11.98, "30% korting"],
+  ["2026-10-26", "2026-11-01", 8.98, 11.98, "25% korting"],
+];
+const KIP_REGULAR = [
+  ["2025-11-03", "2026-03-01", 10.98],
+  ["2026-03-02", "2026-07-05", 11.49],
+  ["2026-07-06", "2026-10-25", 11.98],
+];
+const KIP_BOUGHT = [
+  ["2025-11-13", 10.98, 1, "order"], ["2026-01-08", 10.98, 1, "receipt"], ["2026-02-05", 8.49, 2, "order"], ["2026-04-23", 11.49, 1, "receipt"],
+  ["2026-05-14", 8.98, 2, "order"], ["2026-08-06", 8.49, 2, "order"], ["2026-09-17", 11.98, 1, "receipt"], ["2026-10-22", 11.98, 1, "order"],
+];
+const kipPurchases = KIP_BOUGHT.map(([date, price, quantity, source], at) => ({ date, price, regularPrice: null, quantity, source, ref: `k${at}` }));
+const kipUnits = kipPurchases.reduce((sum, p) => sum + p.quantity, 0);
+const kip = {
+  store: "ah", productId: "wi100000", title: "Scharrel kipfilet", brand: "AH", unitSize: "2 x 300 g", image: KIP_IMAGES[0][2], url: offers[0].url,
+  category: "vlees", onOfferNow: true, firstSeen: "2026-02-02T05:00:00Z", lastSeen: "2026-10-28T05:00:21Z",
+  episodes: KIP_OFFERS.map(([start, end, price, priceBefore, promoLabel]) => ({
+    from: `${start}T05:00:00Z`, to: end < "2026-10-28" ? `${end}T05:00:00Z` : null, lastSeen: `${end < "2026-10-28" ? end : "2026-10-28"}T05:00:00Z`,
+    price, priceBefore, promoLabel, validFrom: start, validUntil: end, syncs: 7, start, end, open: false,
+  })),
+  timesOnOffer: KIP_OFFERS.length, lowestPrice: 8.49, highestPrice: 8.98,
+  regular: KIP_REGULAR.map(([from, to, price]) => ({ from, to, price })),
+  regularPrice: 11.98, regularSince: "2026-07-06", regularPerUnit: perUnit(11.98, "2 x 300 g"), lowestRegular: 10.98, highestRegular: 11.98,
+  purchases: kipPurchases, timesBought: kipPurchases.length, lastPaid: 11.98, lowestPaid: 8.49,
+  averagePaid: Math.round((kipPurchases.reduce((sum, p) => sum + p.price * p.quantity, 0) / kipUnits) * 100) / 100,
+  lastActivity: "2026-10-28",
+  savedImages: KIP_IMAGES.map(([title, day, url], at) => ({ id: 30 - at, url, title, savedAt: `${day}T05:00:12Z`, width: 800, height: 800 })),
+};
+// Met de schakelaar aan staan alleen producten die je kocht in de lijst.
+const bought = [
+  ["wi100003", "Rundergehakt", "AH", "500 g", 5, 3.99, 10, true],
+  ["wi100001", "Halfvolle melk", "AH", "1,5 l", 6, 1.04, 14, true],
+  ["wi200417", "Pindakaas", "Calvé", "650 g", 3, 3.99, 5, false],
+  ["wi100008", "Koffiebonen", "Lavazza", "1 kg", 5, 12.99, 2, true],
+  ["wi200522", "Volkoren wraps", "AH", "8 stuks", 2, 1.49, 4, false],
+].map(([productId, title, brand, unitSize, timesOnOffer, lowestPrice, timesBought, onOfferNow]) => ({
+  store: "ah", productId, title, brand, unitSize, timesOnOffer, lowestPrice, highestPrice: lowestPrice, timesBought, onOfferNow,
+  episodes: [], regular: [], purchases: [], regularPrice: null, regularPerUnit: null, lastActivity: "2026-10-28",
+}));
+const historyBoughtAnswer = { products: [kip, ...bought], total: 186, unsynced: { ah: { orders: 0, receipts: 0 } } };
+
+// ---- Oude aankopen importeren (2.93): de JSON die een AI-assistent van de bevestigingsmails maakte, en wat Controleren daarvan zegt.
+const IMPORT_JSON = JSON.stringify(
+  {
+    store: "ah",
+    orders: [
+      { orderNumber: "46512873", date: "2025-05-22", total: 118.62, items: [
+        { name: "AH Bananen tros", quantity: 2, price: 1.19, total: 2.38, discount: 0 },
+        { name: "AH Kipfilet 2 x 300 g", quantity: 2, price: 10.98, total: 21.96, discount: 5.49 },
+        { name: "AH Halfvolle melk 1,5 l", quantity: 3, price: 1.79, total: 5.37, discount: 0 },
+      ] },
+      { orderNumber: "46733019", date: "2025-06-05", total: 131.4, items: [
+        { name: "AH Rundergehakt 500 g", quantity: 2, price: 5.99, total: 11.98, discount: 0 },
+        { name: "Barilla Spaghetti n° 5", quantity: 2, price: 2.19, total: 4.38, discount: 1.39 },
+      ] },
+    ],
+  },
+  null,
+  2
+);
+// [bestelnummer of null, dag, producten, reden waarom niet nieuw (nl, en)]
+const IMPORT_ORDERS = [
+  ["46512873", "2025-05-22", 26, ["is al ingelezen", "was already imported"]],
+  ["46733019", "2025-06-05", 31],
+  ["46958402", "2025-06-19", 24],
+  [null, "2025-07-03", 28],
+  ["47402117", "2025-07-17", 22],
+  ["48467731", "2025-10-02", 30, ["staat al in je bestellingen", "is already in your orders"]],
+];
+const importSummary = async (route) => {
+  // De prompt komt van de server zelf (price_import.prompt), de telling is nagebootst.
+  let prompt = "";
+  try {
+    prompt = (await (await route.fetch()).json()).prompt || "";
+  } catch (e) { /* zonder server geen prompt */ }
+  return route.fulfill({ contentType: "application/json", body: JSON.stringify({ store: "ah", orders: 6, lines: 151, first: "2025-01-16", last: "2025-05-22", prompt }) });
+};
+const importCheck = async (route, request) => {
+  const l = await lang(request);
+  const orders = IMPORT_ORDERS.map(([number, date, items, reason]) => ({
+    ref: number || `dag:${date}`, date, total: null, items, new: !reason, reason: reason ? reason[l === "en" ? 1 : 0] : null,
+  }));
+  const fresh = orders.filter((order) => order.new);
+  return route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      store: "ah", dryRun: true, orders, new: fresh.length, duplicates: orders.length - fresh.length,
+      lines: fresh.reduce((sum, order) => sum + order.items, 0), problems: [], problemCount: 0, imported: 0,
+    }),
+  });
+};
+
 // ---- Vergelijk verpakkingen (/api/prices/compare): wat de zoekopdracht "Rundergehakt" bij AH vond, per kilo naast elkaar.
 // [id, titel, merk, inhoud, prijs, in de aanbieding, zelfde soort, zelfde product]
 const FOUND = [
@@ -186,6 +304,60 @@ module.exports = [
       // De grafiek met daarboven de laatste kerngetallen.
       const offset = device === "phone" ? 150 : 200;
       await page.evaluate((off) => window.scrollTo(0, document.querySelector("#offers-history-chart").getBoundingClientRect().top + window.scrollY - off), offset);
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Alleen eerder gekocht staat aan; bij kipfilet staan de bewaarde afbeeldingen: de nieuwe naam en foto, en de oude.
+    name: "price-images",
+    path: "/offers/history",
+    routes: {
+      "/api/offers*": offersAnswer,
+      "/api/prices/history*": (route, request) =>
+        route.fulfill({ contentType: "application/json", body: JSON.stringify(/bought=1/.test(request.url()) ? historyBoughtAnswer : historyAnswer) }),
+    },
+    run: async (page, { device }) => {
+      await page.waitForSelector("#offers-history-list .ohc-item");
+      await page.check("#offers-history-bought");
+      await page.waitForTimeout(800);
+      // Rundergehakt blijft gekozen (dat kocht je ook): kies kipfilet, het eerste product in de lijst.
+      await page.click("#offers-history-list li:first-child .ohc-item");
+      await page.waitForSelector(".ohc-images figure");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      if (device === "phone") {
+        // Op de telefoon staan de lijst en het product onder elkaar: de bewaarde afbeeldingen in beeld.
+        await page.evaluate(() => window.scrollTo(0, document.querySelector(".ohc-images").getBoundingClientRect().top + window.scrollY - 150));
+      } else {
+        // De schakelaar en de lijst links, en rechts het product met de bewaarde afbeeldingen.
+        await page.evaluate(() => {
+          const detail = document.querySelector("#offers-history-detail");
+          const images = document.querySelector(".ohc-images");
+          window.scrollTo(0, document.querySelector("#offers-history-bought").getBoundingClientRect().top + window.scrollY - 140);
+          if (detail.scrollHeight > detail.clientHeight) detail.scrollTop = images.offsetTop - detail.offsetTop - 12;
+        });
+      }
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // Oude aankopen importeren: de JSON van de assistent geplakt en gecontroleerd; per bestelling of ze nieuw is.
+    name: "price-import",
+    path: "/offers/history",
+    routes: { "/api/offers*": offersAnswer, "/api/prices/history*": historyAnswer, "/api/prices/import*": (route, request) => (request.method() === "POST" ? importCheck(route, request) : importSummary(route)) },
+    run: async (page) => {
+      await page.waitForSelector("#offers-history-import:not([hidden])");
+      await page.click("#offers-history-import");
+      await page.waitForSelector("#import-dialog-status:not(:empty)");
+      await page.fill("#import-data", IMPORT_JSON);
+      await page.click("#import-check");
+      await page.waitForSelector("#import-report li");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      // De JSON vanaf het begin, en het venster onderaan: de controle per bestelling en de knoppen.
+      await page.evaluate(() => {
+        document.querySelector("#import-data").scrollTop = 0;
+        const box = document.querySelector("#import-dialog"); // het venster zelf scrolt
+        box.scrollTop = box.scrollHeight;
+      });
       await page.waitForTimeout(400);
     },
   },

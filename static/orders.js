@@ -59,6 +59,8 @@ function purchaseItem(item, store = "ah") {
 function renderBasket() {
   const basket = ordersState.basket;
   const target = $("#ah-basket");
+  // Komt het AH-mandje binnen terwijl er al een andere winkel gekozen is, dan staat het niet meer in beeld: niets tekenen.
+  if (!target || basketState.store !== "ah") return;
   $("#ah-basket-note").textContent = t("orders.basket_note");
   if (!basket?.syncedAt) {
     target.innerHTML = `<p class="muted">${escapeHtml(t("orders.never_synced"))}</p>`;
@@ -101,7 +103,8 @@ async function syncAhBasket() {
     ordersState.basket = await jsonFetch("/api/ah/basket");
     renderBasket();
   } catch (error) {
-    message("#basket-message", error.message);
+    // Een mislukte synchronisatie hoort bij het AH-mandje, niet bij de winkel die nu gekozen is.
+    if (basketState.store === "ah") message("#basket-message", error.message);
   } finally {
     setBusy(button, false);
   }
