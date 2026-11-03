@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.0.0
+
+### De stabiele release in het kort: alles sinds 2.97.1
+
+*English summary: version 3.0.0 is the stable release after 2.97.1 and brings what came out as the 2.98.0 beta: bulk import of supermarket recipes into Mealie. Under Stores you select saved Albert Heijn recipes or recipes from your Jumbo lists (at most 50 at a time), or, as the administrator, import a whole AH recipe group or Jumbo list in one go. Every recipe gets the store as tag in Mealie, and the group or list as category; a recipe that is already in Mealie is skipped and only gets what is missing. The import runs in the background with a report per recipe and stops by itself when a store refuses the requests. 3.0.0 is a new major version, but nothing breaks: no changes to Compose or .env files, no new dependencies and no database changes. When updating: pull the latest image (or update the Home Assistant add-on) and reload the page once. For tags and categories, the Mealie user of your API token needs the right to organise.*
+
+- **Versie 3.0.0.** Een nieuwe hoofdversie, met de bulkimport als grootste nieuwe functie. Er breekt niets: wat met 2.97.1 werkte, werkt zonder aanpassingen verder.
+- **Recepten in bulk importeren in Mealie** (2.98.0). Bij **Winkels** zet je je bewaarde AH-recepten en je receptenlijsten van Jumbo in één keer in Mealie:
+  - met **Selecteren** vink je recepten aan (hooguit 50 tegelijk) en kies je **Importeer N in Mealie**; dat mag iedereen die ook één recept mag importeren;
+  - met **Hele groep importeren** of **Hele lijst importeren** zet de beheerder een hele AH-receptgroep (of alle bewaarde recepten) of een hele Jumbo-lijst in Mealie;
+  - elk recept krijgt in Mealie de tag *Albert Heijn* of *Jumbo*, en uit een groep of lijst ook de categorie met die naam; wat al in Mealie staat, wordt overgeslagen en krijgt alleen de tag en categorie die ontbreken;
+  - de import loopt op de achtergrond, met een venster met de voortgang en een verslag per recept, en stopt vanzelf als AH of Jumbo de verzoeken weigert. Per keer komen hooguit 250 nieuwe recepten mee; opnieuw starten gaat verder waar de vorige stopte.
+- **Jumbo-recepten op nummer in Mealie** (2.98.0): inplannen van een Jumbo-recept dat al in Mealie staat, zet het er niet nog eens in.
+- **Minder aandringen bij een weigering** (2.98.0): AH en Jumbo proberen bij een 403 of 429 niet meer andere varianten van hetzelfde verzoek.
+- **Goed om te weten bij het updaten:**
+  - geen wijzigingen in Compose- of `.env`-bestanden, geen nieuwe afhankelijkheden en geen nieuwe tabellen in de database;
+  - haal het image `latest` (of `3.0.0`) binnen, of werk de Home Assistant-add-on bij, en ververs daarna de pagina één keer;
+  - voor de tags en categorieën moet de Mealie-gebruiker van je API-token mogen organiseren (in Mealie bij de gebruiker: *Organiseren*). Zonder dat recht worden de recepten wel geïmporteerd, met een melding.
+- De volledige tekst per versie staat hieronder bij v2.98.0.
+
 ## v2.98.0
 
 ### Nieuw in 2.98.0
