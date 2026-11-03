@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.97.1
+
+### Beveiliging in 2.97.1
+
+*English summary: Pillow is updated from 12.3.0 to 13.0.0. The new version fixes 38 security issues in reading and writing images. Two are critical: native image memory that could be reused after a mode change (CVE-2026-96639, GHSA-v9pv-5gc8-w2m6), and a buffer overflow in the JPEG decoder (GHSA-5x8w-8jj5-q52h, GHSA-8g5g-8vmr-9782). Among the others are out-of-bounds reads and writes for TIFF, WMF/EMF and the bundled OpenJPEG, an endless loop when replacing Exif headers (CVE-2026-96643), and decompression bomb checks that could be bypassed. MealieShopper uses Pillow for the Saved images in the Price history: it opens, rotates and shrinks the product images it downloads from the stores, and reads them again when you restore a backup. The container installs the new version by itself; without the container, run pip install -r requirements.txt again. Pillow 13 no longer supports Python 3.10 (the container uses Python 3.12).*
+
+- **Pillow 12.3.0 → 13.0.0.** De nieuwe versie lost 38 beveiligingsproblemen op bij het lezen en schrijven van afbeeldingen. Twee zijn kritiek: geheugen van een afbeelding dat na een moduswissel opnieuw gebruikt kon worden (CVE-2026-96639, GHSA-v9pv-5gc8-w2m6), en een bufferoverloop in de JPEG-decoder (GHSA-5x8w-8jj5-q52h, GHSA-8g5g-8vmr-9782). Verder onder meer lezen en schrijven buiten het geheugen bij TIFF, WMF/EMF en de meegeleverde OpenJPEG, een eindeloze lus bij het vervangen van Exif-kopjes (CVE-2026-96643) en controles op decompressiebommen die te omzeilen waren. Alles staat in de [release notes van Pillow 13.0.0](https://pillow.readthedocs.io/en/stable/releasenotes/13.0.0.html#security).
+- MealieShopper gebruikt Pillow voor de **Bewaarde afbeeldingen** in de Prijsgeschiedenis: het opent, draait en verkleint de productafbeeldingen die het bij de winkels ophaalt, en leest ze opnieuw bij het terugzetten van een back-up. Daar komen dus afbeeldingen van buiten binnen.
+- **Bij het updaten:** de container installeert de nieuwe versie vanzelf. Draai je MealieShopper zonder container, voer dan `pip install -r requirements.txt` opnieuw uit. Pillow 13 werkt niet meer met Python 3.10; de container gebruikt Python 3.12.
+- Pull requests: [#208](https://github.com/helmerzNL/MealieShopper/pull/208) en [#210](https://github.com/helmerzNL/MealieShopper/pull/210).
+
 ## v2.97.0
 
 ### Nieuw in 2.97.0
