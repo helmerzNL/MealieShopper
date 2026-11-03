@@ -165,12 +165,14 @@ def status(verify: bool = False) -> dict[str, Any]:
     }
     if verify and result["configured"]:
         result["verified"] = True
+        _week_start_cache.pop(url, None)  # Koppeling controleren: een andere eerste dag in Mealie meteen overnemen
         try:
             result.update(check_connection(url, token))
             result["connected"] = True
         except RuntimeError as exc:
             result["connected"] = False
             result["error"] = str(exc)
+    result["weekStart"] = week_start()
     return result
 
 
@@ -433,6 +435,70 @@ def group_slug() -> str | None:
         slug = None
     _group_slug_cache[base] = (now + (GROUP_SLUG_TTL if slug else GROUP_SLUG_RETRY), slug)
     return slug
+
+
+# De eerste dag van de week. Zelfde nummering als Mealie en JavaScript (getDay): 0 = zondag, 1 = maandag ... 6 = zaterdag.
+SETTING_WEEK_START = "WEEK_START"  # "" = zoals in Mealie (standaard), "0".."6" = een vaste dag die de beheerder koos
+WEEK_START_DEFAULT = 1  # maandag: als Mealie niet gekoppeld is of het niet zegt
+WEEK_START_TTL = 600  # seconden dat we de keuze uit Mealie onthouden; Koppeling controleren vraagt het meteen opnieuw
+_week_start_cache: dict[str, tuple[float, int | None]] = {}
+
+
+def _weekday(value: Any) -> int | None:
+    """Een dag van 0 (zondag) tot 6 (zaterdag), of None. True/False tellen niet als getal."""
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 6:
+        return value
+    return None
+
+
+def first_day_of_week() -> int | None:
+    """De eerste dag van de week zoals het huishouden in Mealie die heeft ingesteld (0 = zondag), tien minuten onthouden.
+
+    Mealie (v2 en later) geeft die in `GET /api/households/preferences` als `firstDayOfWeek`; elke gebruiker met een token mag dat
+    lezen. Geeft None als Mealie niet gekoppeld of niet te bereiken is, of geen geldige dag geeft; na een minuut proberen we het opnieuw.
+    """
+    base = mealie_url()
+    if not base:
+        return None
+    now = time.time()
+    cached = _week_start_cache.get(base)
+    if cached and now < cached[0]:
+        return cached[1]
+    day: int | None = None
+    try:
+        response = requests.get(f"{base}/api/households/preferences", headers=auth_headers(), timeout=10)
+        if response.ok:
+            day = _weekday((response.json() or {}).get("firstDayOfWeek"))
+    except Exception:  # noqa: BLE001 - de eerste dag is een extra: een fout mag de status of het koppelen nooit breken
+        day = None
+    _week_start_cache[base] = (now + (WEEK_START_TTL if day is not None else GROUP_SLUG_RETRY), day)
+    return day
+
+
+def week_start_setting() -> str:
+    """De keuze van de beheerder: "" (zoals in Mealie) of "0".."6". Een onleesbare of ongeldige waarde telt als "zoals in Mealie"."""
+    try:
+        value = auth.get_setting(SETTING_WEEK_START).strip()
+    except (sqlite3.Error, OSError):
+        return ""
+    return value if value in {str(day) for day in range(7)} else ""
+
+
+def week_start() -> dict[str, Any]:
+    """Op welke dag de week begint, voor het weekmenu en de MCP-tool.
+
+    Een vaste dag van de beheerder gaat voor (bron "setting", zonder Mealie te vragen); anders de dag uit Mealie (bron "mealie");
+    en zegt Mealie niets, dan maandag (bron "default"). `mealie` is wat Mealie zelf zegt (None als dat niet bekend is).
+    """
+    setting = week_start_setting()
+    from_mealie = first_day_of_week() if not setting else None
+    if setting:
+        day, source = int(setting), "setting"
+    elif from_mealie is not None:
+        day, source = from_mealie, "mealie"
+    else:
+        day, source = WEEK_START_DEFAULT, "default"
+    return {"day": day, "source": source, "setting": setting, "mealie": from_mealie}
 
 
 def recipe_page_url(slug: str) -> str:

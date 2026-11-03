@@ -5,7 +5,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import auth_password, server_settings  # noqa: E402
+from mealieshopper import auth_password, mealie, server_settings  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -167,3 +167,39 @@ class McpToolSwitchTest(ServerSettingsTestCase):
         anna = self.join()
         self.assertEqual(self.put({"mcpTools": {"get_week_menu": False}}, anna).status_code, 403)
         self.assertTrue(all(self.names().values()))
+
+
+class WeekStartSettingTest(ServerSettingsTestCase):
+    """De eerste dag van de week: standaard zoals in Mealie (leeg), of een vaste dag van 0 (zondag) t/m 6 (zaterdag)."""
+
+    def test_follows_mealie_by_default(self):
+        self.assertEqual(self.get()["weekStart"], "")
+        self.assertEqual(self.admin.get("/api/mealie/status").get_json()["weekStart"]["source"], "default")
+
+    def test_the_owner_picks_a_fixed_day_or_goes_back_to_mealie(self):
+        for day in (6, 0, 1):
+            data = self.put({"weekStart": day}).get_json()
+            self.assertEqual(data["weekStart"], str(day))
+            status = self.admin.get("/api/mealie/status").get_json()["weekStart"]
+            self.assertEqual((status["day"], status["source"]), (day, "setting"))
+        for empty in (None, ""):
+            self.put({"weekStart": 6})
+            self.assertEqual(self.put({"weekStart": empty}).get_json()["weekStart"], "", repr(empty))
+        self.assertEqual(self.admin.get("/api/mealie/status").get_json()["weekStart"]["source"], "default")
+
+    def test_bad_input(self):
+        self.put({"weekStart": 6})
+        for value in (True, False, 7, -1, "ma", "6", 1.5, [1], {"day": 1}):
+            self.assertEqual(self.put({"weekStart": value}).status_code, 400, repr(value))
+        self.assertEqual(self.get()["weekStart"], "6", "niets veranderd")
+        self.assertIn("weekStart", self.put({"weekStart": "zondag"}).get_json()["error"])
+
+    def test_only_the_owner_chooses_but_everyone_gets_the_week(self):
+        anna = self.join()
+        self.assertEqual(self.put({"weekStart": 6}, anna).status_code, 403)
+        self.assertEqual(self.get()["weekStart"], "")
+        self.put({"weekStart": 6})
+        week = anna.get("/api/mealie/status")
+        self.assertEqual(week.status_code, 200)
+        self.assertEqual(week.get_json()["weekStart"]["day"], 6, "het weekmenu van een gebruiker begint op dezelfde dag")
+        self.assertEqual(server_settings.auth.get_setting(mealie.SETTING_WEEK_START), "6")
