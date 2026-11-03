@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v2.96.0
+
+### Nieuw in 2.96.0
+
+*English summary: the week menu now starts on the first day of the week of your household in Mealie, the same day as the meal planner in Mealie (from Mealie 3.30). MealieShopper reads it from Mealie (GET /api/households/preferences), at most once every ten minutes and at once with Check link; if Mealie is not linked or does not answer, the week starts on Monday as before. Mealie's default is Sunday, so the owner can also pick a fixed day under Settings, Link, Mealie, First day of the week (As in Mealie is the default). The choice applies to everyone, to the MCP tool get_week_menu and goes into the backup. Offers keep AH's Bonus week from Monday to Sunday and show the Bonus week that overlaps the chosen week most. Reload the page once after updating.*
+
+- **De week begint op de eerste dag uit Mealie.** In Mealie stel je bij je huishouden de eerste dag van de week in, en sinds Mealie 3.30 begint de weekplanner daar ook op. Het weekmenu in MealieShopper volgt nu dezelfde dag, ook bij het bladeren door de weken en na een wijziging.
+  - MealieShopper vraagt de dag aan Mealie (`GET /api/households/preferences`, veld `firstDayOfWeek`; elke token mag dat lezen) en onthoudt hem tien minuten. **Koppeling controleren** haalt hem meteen opnieuw op.
+  - Is Mealie niet gekoppeld of niet bereikbaar, dan begint de week op maandag, zoals tot nu toe.
+- **Eerste dag van de week kiezen** (alleen de beheerder): onder **Instellingen > Koppelen > Mealie** staat de keuzelijst *Eerste dag van de week*, met *Zoals in Mealie* (standaard, met de dag die Mealie nu geeft) of een vaste dag. Handig omdat Mealie standaard op zondag staat. De keuze geldt voor iedereen en gaat mee in de back-up (`WEEK_START`).
+- **MCP**: `get_week_menu` begint zonder `start_date` op dezelfde eerste dag van de week in plaats van op maandag.
+- **Aanbiedingen** houden de bonusweek van AH, van maandag t/m zondag. Begint het weekmenu op een andere dag, dan hoort er de bonusweek bij die er het meest mee overlapt (de week waarin de middelste dag valt): bij za 7 t/m vr 13 nov is dat ma 9 t/m zo 15 nov. Met maandag als eerste dag verandert er niets.
+- **API**: `GET /api/mealie/status` geeft `weekStart` (`day`, 0 = zondag t/m 6 = zaterdag, met `source`: `setting`, `mealie` of `default`); `GET` en `PUT /api/server-settings` hebben `weekStart` (leeg = zoals in Mealie, of 0 t/m 6).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v2.95.0
 
 ### Nieuw in 2.95.0

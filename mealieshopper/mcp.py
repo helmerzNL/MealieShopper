@@ -39,8 +39,9 @@ class ToolError(Exception):
 
 # --- tools ---------------------------------------------------------------------------------------
 
-def _monday(day: datetime.date) -> datetime.date:
-    return day - datetime.timedelta(days=day.weekday())
+def _week_start(day: datetime.date, first: int) -> datetime.date:
+    """De eerste dag van de week waar `day` in valt; `first` telt zoals Mealie (0 = zondag, 1 = maandag ... 6 = zaterdag)."""
+    return day - datetime.timedelta(days=(day.isoweekday() - first) % 7)
 
 
 def _parse_date(value: Any, default: datetime.date) -> datetime.date:
@@ -57,7 +58,11 @@ def _text(value: Any, limit: int = 300) -> str:
 
 
 def tool_week_menu(args: dict[str, Any]) -> Any:
-    start = _parse_date(args.get("start_date"), _monday(datetime.date.today()))
+    if args.get("start_date") in (None, ""):
+        # Alleen dan is de eerste dag van de week nodig (die kan Mealie vragen).
+        start = _week_start(datetime.date.today(), mealie.week_start()["day"])
+    else:
+        start = _parse_date(args.get("start_date"), datetime.date.today())
     days = max(1, min(14, int(args.get("days") or 7)))
     end = start + datetime.timedelta(days=days - 1)
     entries = mealie.get_meal_plan_with_recipes(start.isoformat(), end.isoformat())
@@ -647,10 +652,10 @@ READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": T
 
 TOOLS: dict[str, dict[str, Any]] = {
     "get_week_menu": {
-        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week (maandag t/m zondag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
+        "description": "Het weekmenu uit Mealie: per dag en maaltijd het id, het recept (of de notitie), de porties, de link en de ingrediënten (omgerekend naar de porties uit de planner van Mealie). Standaard de huidige week, vanaf de eerste dag van de week die in MealieShopper of Mealie is ingesteld (anders maandag). Plannen gaat met plan_meal, weghalen met remove_planned_meal.",
         "inputSchema": _schema(
             {
-                "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de maandag van deze week."},
+                "start_date": {"type": "string", "description": "Eerste dag, JJJJ-MM-DD. Standaard de eerste dag van deze week (zoals ingesteld in MealieShopper of Mealie, anders maandag)."},
                 "days": {"type": "integer", "minimum": 1, "maximum": 14, "description": "Aantal dagen, standaard 7."},
             }
         ),

@@ -1,5 +1,6 @@
 const state = {
   weekOffset: 0,
+  firstDayOfWeek: 1, // waar de week begint, zoals Mealie telt (0 = zondag, 1 = maandag); komt uit /api/mealie/status
   entries: null,
   planAutoLoaded: false, // het weekmenu is na het koppelen van Mealie eenmaal vanzelf geladen
   auth: null,
@@ -458,20 +459,25 @@ function localIsoDate(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function mondayOf(date) {
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dow = monday.getDay();
-  monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1));
-  return monday;
+// De eerste dag van de week waarin `date` valt. `firstDay` telt zoals Mealie en getDay(): 0 = zondag, 1 = maandag ... 6 = zaterdag.
+function weekStartOf(date, firstDay = state.firstDayOfWeek) {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  start.setDate(start.getDate() - ((start.getDay() - firstDay + 7) % 7));
+  return start;
 }
 
+// De zeven dagen vanaf `start`, met het begin en eind (JJJJ-MM-DD) en een label als "7 nov - 13 nov".
+function weekFrom(start) {
+  const days = Array.from({ length: 7 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
+  const label = (d) => `${d.getDate()} ${monthShort(d)}`;
+  return { start: localIsoDate(days[0]), end: localIsoDate(days[6]), days: days.map(localIsoDate), label: `${label(days[0])} - ${label(days[6])}` };
+}
+
+// De week van het weekmenu, `offset` weken van de huidige. Ze begint op de eerste dag uit Mealie of de instelling van de beheerder.
 function getWeekBounds(offset = 0) {
   const today = new Date();
   today.setDate(today.getDate() + offset * 7);
-  const monday = mondayOf(today);
-  const days = Array.from({ length: 7 }, (_, index) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index));
-  const label = (d) => `${d.getDate()} ${monthShort(d)}`;
-  return { start: localIsoDate(days[0]), end: localIsoDate(days[6]), days: days.map(localIsoDate), label: `${label(days[0])} - ${label(days[6])}` };
+  return weekFrom(weekStartOf(today));
 }
 
 // "Deze week", "Volgende week", "+2 weken": hoe ver een week van de huidige af ligt. Het weekmenu en Aanbiedingen gebruiken dezelfde tekst.
@@ -740,7 +746,7 @@ function fetchMealPlan(week) {
 // Na een wijziging in het weekmenu: de week van elke geraakte dag opnieuw ophalen, en de getoonde week zonder flikkeren vernieuwen.
 async function refreshMealPlanAfterChange(dates) {
   for (const date of dates.filter(Boolean)) {
-    const start = localIsoDate(mondayOf(new Date(`${date}T00:00:00`)));
+    const start = localIsoDate(weekStartOf(new Date(`${date}T00:00:00`)));
     mealPlanCache.delete(start);
     mealPlanInflight.delete(start);
   }
@@ -1662,16 +1668,71 @@ async function refreshAhStatus() {
   }
 }
 
+// De volledige naam van een dag (0 = zondag ... 6 = zaterdag) in de gekozen taal. 4 januari 2026 is een zondag.
+function weekdayName(day) {
+  return new Date(2026, 0, 4 + day).toLocaleDateString(I18N.locale(), { weekday: "long" });
+}
+
+// De keuzelijst bij Mealie: zoals in Mealie (met de dag die Mealie nu zegt) of een vaste dag, maandag eerst.
+function renderWeekStartChoice(weekStart) {
+  const select = $("#mealie-week-start");
+  if (!select || !weekStart) return;
+  const follow =
+    weekStart.source === "mealie"
+      ? t("mealie.week_start_mealie", { day: weekdayName(weekStart.day) })
+      : weekStart.source === "default"
+        ? t("mealie.week_start_unknown", { day: weekdayName(weekStart.day) })
+        : t("mealie.week_start_follow");
+  select.replaceChildren(new Option(follow, ""), ...[1, 2, 3, 4, 5, 6, 0].map((day) => new Option(weekdayName(day), String(day))));
+  select.value = weekStart.setting || "";
+}
+
+// Waar de week begint, uit /api/mealie/status: een vaste dag van de beheerder, anders die uit Mealie, anders maandag.
+// Geeft true als de week nu op een andere dag begint.
+function applyWeekStart(weekStart) {
+  if (!weekStart) return false;
+  renderWeekStartChoice(weekStart);
+  const day = Number.isInteger(weekStart.day) && weekStart.day >= 0 && weekStart.day <= 6 ? weekStart.day : 1;
+  if (day === state.firstDayOfWeek) return false;
+  state.firstDayOfWeek = day;
+  updateWeekLabel();
+  if (typeof offersWeekStartChanged === "function") offersWeekStartChanged();
+  return true;
+}
+
+async function saveWeekStart(event) {
+  const select = event.currentTarget;
+  message("#mealie-week-start-message", "");
+  select.disabled = true;
+  try {
+    await jsonFetch("/api/server-settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weekStart: select.value === "" ? null : Number(select.value) }),
+    });
+    message("#mealie-week-start-message", t("mealie.week_start_saved"), "success");
+  } catch (error) {
+    message("#mealie-week-start-message", error.message);
+  } finally {
+    select.disabled = false;
+  }
+  await refreshMealieStatus();
+}
+
 function renderMealieStatus(data, { verified = false } = {}) {
   const setup = $("#mealie-setup");
   if (setup) setup.hidden = Boolean(data.configured);
   state.linkedStores.mealie = Boolean(data.configured); // Recepten zoeken zoekt dan ook in Mealie
+  // Eerst de eerste dag van de week, zodat het weekmenu meteen de goede week ophaalt.
+  const weekChanged = applyWeekStart(data.weekStart);
   // Het weekmenu laadt vanzelf zodra Mealie gekoppeld is; zonder koppeling vervalt wat we onthouden hadden.
   if (!data.configured) {
     mealPlanCache.clear();
     state.planAutoLoaded = false;
   } else if (!state.planAutoLoaded) {
     state.planAutoLoaded = true;
+    loadMealPlan();
+  } else if (weekChanged) {
     loadMealPlan();
   }
   $("#mealie-unlink").hidden = data.source !== "ui";
@@ -2625,6 +2686,7 @@ $("#check-ah").addEventListener("click", checkAhConnection);
 $("#mealie-form").addEventListener("submit", linkMealie);
 $("#check-mealie").addEventListener("click", checkMealieConnection);
 $("#mealie-unlink").addEventListener("click", unlinkMealie);
+$("#mealie-week-start").addEventListener("change", saveWeekStart);
 $("#open-mealie-setup").addEventListener("click", () => {
   openSettings();
   state.storeFold.mealie = true;
