@@ -214,6 +214,28 @@
       </div>
     </dialog>
 
+    <dialog id="bulk-dialog" class="product-dialog bulk-dialog" aria-labelledby="bulk-dialog-title">
+      <div class="product-dialog__inner">
+        <div>
+          <h3 id="bulk-dialog-title" data-i18n="bulk.title">Importeren in Mealie</h3>
+          <div class="bulk-intro" id="bulk-dialog-intro"></div>
+        </div>
+        <div class="bulk-progress" id="bulk-progress" hidden>
+          <p id="bulk-progress-label"></p>
+          <progress id="bulk-progress-bar" max="1" value="0"></progress>
+          <p class="muted" id="bulk-progress-counts"></p>
+        </div>
+        <div id="bulk-dialog-message" role="status" aria-live="polite"></div>
+        <ul class="import-report bulk-report" id="bulk-report"></ul>
+        <div class="product-dialog__actions import-dialog__actions">
+          <button class="button button--danger" type="button" id="bulk-stop" hidden data-i18n="bulk.stop">Stoppen</button>
+          <span class="import-dialog__spacer"></span>
+          <button class="button button--secondary" type="button" id="bulk-close" data-i18n="common.close">Sluiten</button>
+          <button class="button" type="button" id="bulk-run" data-i18n="bulk.run">Importeren</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="import-dialog" class="product-dialog import-dialog" aria-labelledby="import-dialog-title">
       <div class="product-dialog__inner">
         <div>
@@ -682,8 +704,20 @@
             <input class="input" id="ah-recipe-filter" type="search" placeholder="Zoek in je recepten" autocomplete="off" enterkeyhint="search" disabled data-i18n-attr="placeholder:ah.recipes.search_ph">
           </label>
           <p class="muted" id="ah-recipes-status">Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen &gt; Koppelen &gt; Albert Heijn.</p>
+          <div class="bulk-tools" data-bulk-tools="ah" hidden>
+            <button class="button button--secondary" type="button" data-bulk-select="ah" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-group="ah" hidden></button>
+            <button class="button button--secondary bulk-status" type="button" data-bulk-status="ah" hidden></button>
+          </div>
           <div id="ah-recipes-message"></div>
           <div id="ah-recipes" class="recipe-grid recipe-grid--compact"></div>
+          <div class="bulk-bar" data-bulk-bar="ah" hidden>
+            <span class="bulk-bar__count" data-bulk-count="ah" role="status" aria-live="polite"></span>
+            <button class="button button--secondary" type="button" data-bulk-all="ah" data-i18n="bulk.select_all">Alles selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-clear="ah" data-i18n="bulk.select_done">Klaar</button>
+            <button class="button" type="button" data-bulk-import="ah" disabled></button>
+            <p class="bulk-bar__note" data-bulk-note="ah" role="status" aria-live="polite" hidden></p>
+          </div>
         </div>
         <div class="box box--wide" id="ah-recipe-view" hidden>
           <div class="list-header">
@@ -822,9 +856,21 @@
           </div>
           <p class="muted" data-i18n="jumbo.favorites.intro">Je receptenlijsten op jumbo.com: Favorieten en je eigen lijstjes. Bekijk een recept voor de ingrediënten en de bereiding, of plan het in je weekmenu; dan komt het ook in Mealie. Zoeken in alle Jumbo-recepten doe je bij Recepten zoeken.</p>
           <p class="muted" id="jumbo-favorites-status"></p>
+          <div class="bulk-tools" data-bulk-tools="jumbo" hidden>
+            <button class="button button--secondary" type="button" data-bulk-select="jumbo" aria-pressed="false" hidden data-i18n="bulk.select">Selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-group="jumbo" hidden></button>
+            <button class="button button--secondary bulk-status" type="button" data-bulk-status="jumbo" hidden></button>
+          </div>
           <div id="jumbo-favorites-message"></div>
           <div id="jumbo-favorites" class="recipe-grid recipe-grid--compact"></div>
           <p><button class="button button--secondary" id="jumbo-favorites-more" type="button" hidden data-i18n="rsearch.more">Meer recepten</button></p>
+          <div class="bulk-bar" data-bulk-bar="jumbo" hidden>
+            <span class="bulk-bar__count" data-bulk-count="jumbo" role="status" aria-live="polite"></span>
+            <button class="button button--secondary" type="button" data-bulk-all="jumbo" data-i18n="bulk.select_all">Alles selecteren</button>
+            <button class="button button--secondary" type="button" data-bulk-clear="jumbo" data-i18n="bulk.select_done">Klaar</button>
+            <button class="button" type="button" data-bulk-import="jumbo" disabled></button>
+            <p class="bulk-bar__note" data-bulk-note="jumbo" role="status" aria-live="polite" hidden></p>
+          </div>
         </div>
         <div class="box box--wide" id="jumbo-recipe-view" hidden>
           <div class="list-header">
@@ -1541,6 +1587,7 @@
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='recipe_bulk.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>

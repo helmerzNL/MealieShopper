@@ -48,6 +48,17 @@ class FindBySourceTest(ReuseTestCase):
             "queryFilter": 'org_url LIKE "%/r-r1199999/%" OR org_url LIKE "%/r-r1199999"', "page": 1, "perPage": 1,
         })
 
+    def test_jumbo_is_found_by_its_number(self):
+        # De link op een kaart, die van het recept zelf en de kale link /recepten/<nummer>: allemaal hetzelfde recept.
+        expected = (
+            'org_url LIKE "%jumbo.com/recepten/%-504898" OR org_url LIKE "%jumbo.com/recepten/%-504898/" '
+            'OR org_url LIKE "%jumbo.com/recepten/504898" OR org_url LIKE "%jumbo.com/recepten/504898/"'
+        )
+        for url in ("https://www.jumbo.com/recepten/romige-pasta-504898", "https://www.jumbo.com/recepten/504898"):
+            with mock.patch.object(mealie.requests, "get", return_value=response(body={"items": [{"slug": "romige-pasta"}]})) as get:
+                self.assertEqual(mealie.find_recipe_by_source(url), "romige-pasta")
+            self.assertEqual(get.call_args.kwargs["params"]["queryFilter"], expected, url)
+
     def test_other_links_are_matched_as_a_whole(self):
         with mock.patch.object(mealie.requests, "get", return_value=response(body={"items": []})) as get:
             self.assertIsNone(mealie.find_recipe_by_source(hellofresh.source_url(HF_KEY)))

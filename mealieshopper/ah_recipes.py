@@ -202,6 +202,23 @@ def get(force: bool = False, fetch_if_missing: bool = True) -> dict[str, Any]:
         raise
 
 
+def recipe_number(recipe: dict[str, Any]) -> int | None:
+    """Het Allerhande-receptnummer van een bewaard recept: het id als dat een getal is, anders uit de link.
+
+    Zoals `ahRecipeNumber` in static/app.js; bij het ophalen kan het id een link zijn (`str(id or url)`).
+    """
+    key = str(recipe.get("id") or "").strip()
+    if key.isdigit() and len(key) <= 12:
+        return int(key)
+    return ah.allerhande_recipe_id(str(recipe.get("url") or "")) or ah.allerhande_recipe_id(key)
+
+
+def group_by_id(groups: list[dict[str, Any]], group_id: Any) -> dict[str, Any] | None:
+    """Een receptgroep op precies dit id (voor een aanvraag uit de app; `resolve_group` zoekt ook op naam)."""
+    wanted = str(group_id or "").strip()
+    return next((group for group in groups if wanted and group["id"] == wanted), None)
+
+
 def resolve_group(groups: list[dict[str, Any]], wanted: Any) -> dict[str, Any] | None:
     """Een receptgroep op id of (deel van de) naam; zonder opgave None (= alle recepten)."""
     text = " ".join(str(wanted or "").split())

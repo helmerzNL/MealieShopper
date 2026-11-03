@@ -73,14 +73,28 @@ def _not_linked() -> RuntimeError:
     )
 
 
+class JumboBlocked(RuntimeError):
+    """Jumbo weigert de aanvraag (`where`: 403, 429, of geen JSON terug). Bij 403 en 429 helpt aandringen niet."""
+
+    def __init__(self, message: str, where: str = "") -> None:
+        super().__init__(message)
+        self.where = where
+
+    @property
+    def refused(self) -> bool:
+        """Een firewall of te veel verzoeken: stop, ook met een andere clientnaam."""
+        return self.where in ("403", "429")
+
+
 def _blocked(where: str) -> RuntimeError:
-    return RuntimeError(
+    return JumboBlocked(
         tr(
             f"Jumbo weigert het verzoek ({where}). Jumbo weert soms server- en datacenter-adressen; "
             "probeer het later opnieuw of vanaf een thuisnetwerk.",
             f"Jumbo refuses the request ({where}). Jumbo sometimes blocks server and datacenter "
             "addresses; try again later or from a home network.",
-        )
+        ),
+        where,
     )
 
 
@@ -311,8 +325,8 @@ def _graphql(
             response = requests.get(GRAPHQL_URL, params=params, headers=headers, timeout=30)
         else:
             response = requests.post(GRAPHQL_URL, json=payload, headers=headers, timeout=30)
-        if response.status_code == 403:
-            raise _blocked("403")
+        if response.status_code in (403, 429):
+            raise _blocked(str(response.status_code))
         if response.status_code == 401 and attempt == 0:
             continue  # het token kan net verlopen zijn: één keer vernieuwen
         if not response.ok:
@@ -881,6 +895,11 @@ def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any
             data = _graphql(None, variables, operation, client, extensions, method)
         except JumboAuthError:
             raise  # de koppeling zelf is stuk: een andere clientnaam helpt niet
+        except JumboBlocked as exc:
+            if exc.refused:
+                raise  # Jumbo weert ons (403 of 429): elke andere combinatie is nog een verzoek dat geweigerd wordt
+            last = exc
+            continue
         except JumboPersistedQueryError as exc:
             last, not_found = exc, True
             continue

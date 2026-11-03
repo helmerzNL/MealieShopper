@@ -5,6 +5,7 @@ import math
 import re
 import sqlite3
 import time
+import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from os import environ
@@ -224,12 +225,15 @@ class MealieImportError(RuntimeError):
         self.status_code = status_code
 
 
-def import_via_jsonld(url: str, recipe: dict[str, Any]) -> str:
-    """Importeer een schema.org Recipe (JSON-LD); Mealie hoeft de pagina dan niet op te halen."""
-    return _post_html_or_json(url, json.dumps(recipe))
+def import_via_jsonld(url: str, recipe: dict[str, Any], catalog: "Catalog | None" = None) -> str:
+    """Importeer een schema.org Recipe (JSON-LD); Mealie hoeft de pagina dan niet op te halen.
+
+    `catalog`: bij een reeks imports (de bulkimport) de eenheden en ingrediënten van Mealie, één keer opgehaald.
+    """
+    return _post_html_or_json(url, json.dumps(recipe), catalog)
 
 
-def _post_html_or_json(url: str, data: str) -> str:
+def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None) -> str:
     response = requests.post(
         f"{mealie_url()}/api/recipes/create/html-or-json",
         headers=auth_headers(),
@@ -243,7 +247,8 @@ def _post_html_or_json(url: str, data: str) -> str:
     )
     if not response.ok:
         raise MealieImportError(f"Mealie import mislukt ({response.status_code}): {response.text}", response.status_code)
-    return parse_imported_ingredients(response.json())
+    slug = response.json()
+    return parse_imported_ingredients(slug) if catalog is None else parse_imported_ingredients(slug, catalog)
 
 
 def import_from_url(url: str) -> str:
@@ -278,34 +283,178 @@ def import_from_url(url: str) -> str:
     raise RuntimeError("; ".join(errors))
 
 
-def find_recipe_by_source(source_url: Any) -> str | None:
-    """De slug van een recept dat al uit deze bron in Mealie staat, of None.
+class MealieLookupError(RuntimeError):
+    """Mealie kon niet zoeken op bron. Bij een bulkimport stoppen we dan: anders komt alles er dubbel in."""
+
+
+_JUMBO_BARE_URL = re.compile(r"^https?://(?:www\.)?jumbo\.com/recepten/(\d{1,20}(?:-\d{1,3})?)/?$", re.I)
+
+
+def _source_filter(url: str) -> str:
+    """Het `queryFilter` waarmee Mealie een recept uit deze bron vindt.
+
+    Allerhande en Jumbo op het receptnummer: de link staat er met of zonder (dezelfde) naam in, en Jumbo past de naam
+    in de link aan als een recept een andere titel krijgt. Andere links als geheel.
+    """
+    recipe_id = ah.allerhande_recipe_id(url)
+    if recipe_id:
+        return f'org_url LIKE "%/r-r{recipe_id}/%" OR org_url LIKE "%/r-r{recipe_id}"'
+    jumbo_id = jumbo_recipes.recipe_id_from_url(url) or next(iter(_JUMBO_BARE_URL.findall(url)), None)
+    if jumbo_id:
+        return (
+            f'org_url LIKE "%jumbo.com/recepten/%-{jumbo_id}" OR org_url LIKE "%jumbo.com/recepten/%-{jumbo_id}/" '
+            f'OR org_url LIKE "%jumbo.com/recepten/{jumbo_id}" OR org_url LIKE "%jumbo.com/recepten/{jumbo_id}/"'
+        )
+    return f'org_url LIKE "{url}"'
+
+
+def find_recipe_summary_by_source(source_url: Any, *, strict: bool = False) -> dict[str, Any] | None:
+    """Het recept (zoals in de receptenlijst van Mealie, met `slug`, `tags` en `recipeCategory`) dat al uit deze bron
+    in Mealie staat, of None.
 
     Mealie bewaart bij elke import de meegegeven link als `org_url` en kan daarop zoeken (`queryFilter` met `LIKE`,
-    hoofdletterongevoelig). Allerhande zoeken we op het receptnummer, want de link staat er met of zonder naam in.
-    Best effort: lukt het zoeken niet (een oudere Mealie, een vreemde link), dan None en wordt er gewoon geïmporteerd.
+    hoofdletterongevoelig); zie `_source_filter`. Lukt het zoeken niet (een oudere Mealie, Mealie niet bereikbaar),
+    dan None, of met `strict` een `MealieLookupError`. Een link die niet te zoeken is (leeg, te lang, met een
+    aanhalingsteken) geeft altijd None.
     """
     url = str(source_url or "").strip()
     if not url or '"' in url or len(url) > 1000 or not mealie_url() or not mealie_token():
         return None
-    recipe_id = ah.allerhande_recipe_id(url)
-    query = f'org_url LIKE "%/r-r{recipe_id}/%" OR org_url LIKE "%/r-r{recipe_id}"' if recipe_id else f'org_url LIKE "{url}"'
     try:
         response = requests.get(
             f"{mealie_url()}/api/recipes",
             headers=auth_headers(),
-            params={"queryFilter": query, "page": 1, "perPage": 1},
+            params={"queryFilter": _source_filter(url), "page": 1, "perPage": 1},
             timeout=15,
         )
         if not response.ok:
-            log.info("Mealie kon niet zoeken op bron (%s); er wordt geïmporteerd.", response.status_code)
+            log.info("Mealie kon niet zoeken op bron (%s).", response.status_code)
+            if strict:
+                raise MealieLookupError(f"Zoeken op bron mislukt ({response.status_code})")
             return None
         items = (response.json() or {}).get("items") or []
     except (requests.RequestException, ValueError, AttributeError) as exc:
-        log.info("Zoeken op bron in Mealie mislukt (%s); er wordt geïmporteerd.", exc)
+        log.info("Zoeken op bron in Mealie mislukt (%s).", exc)
+        if strict:
+            raise MealieLookupError(f"Zoeken op bron mislukt ({type(exc).__name__})") from exc
         return None
-    slug = items[0].get("slug") if items and isinstance(items[0], dict) else None
-    return str(slug) if slug else None
+    found = items[0] if items and isinstance(items[0], dict) and items[0].get("slug") else None
+    return found
+
+
+def find_recipe_by_source(source_url: Any) -> str | None:
+    """De slug van een recept dat al uit deze bron in Mealie staat, of None.
+
+    Best effort: lukt het zoeken niet (een oudere Mealie, een vreemde link), dan None en wordt er gewoon geïmporteerd.
+    """
+    found = find_recipe_summary_by_source(source_url)
+    return str(found["slug"]) if found else None
+
+
+class OrganizerError(RuntimeError):
+    """Mealie geeft of maakt een tag of categorie niet. `forbidden`: de gekoppelde gebruiker mag niet organiseren."""
+
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def forbidden(self) -> bool:
+        return self.status in (401, 403)
+
+
+def _organizer_slug(name: str) -> str:
+    """Ongeveer het slug dat Mealie van een naam maakt (kleine letters, zonder accenten, met streepjes)."""
+    text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+
+
+def _organizer_ref(item: Any) -> dict[str, str] | None:
+    if not isinstance(item, dict) or not item.get("id") or not str(item.get("name") or "").strip():
+        return None
+    return {"id": str(item["id"]), "name": str(item["name"]).strip(), "slug": str(item.get("slug") or "")}
+
+
+def _organizer(kind: str, name: Any) -> dict[str, str]:
+    """De tag of categorie (`kind`: tags of categories) met deze naam, hoofdletters maken niet uit; anders een nieuwe.
+
+    Eerst zoeken op naam, dan op slug (een oudere Mealie kent `search` niet), en pas daarna aanmaken. Aanmaken vraagt
+    in Mealie het recht *organiseren*; zonder dat recht volgt een `OrganizerError` met `forbidden`.
+    """
+    label = " ".join(str(name or "").split())[:100]
+    if not label:
+        raise ValueError("Naam ontbreekt")
+    base = f"{mealie_url()}/api/organizers/{kind}"
+    wanted = label.casefold()
+    response = requests.get(base, headers=auth_headers(), params={"search": label, "page": 1, "perPage": 100}, timeout=15)
+    if response.status_code in (401, 403):
+        raise OrganizerError(f"{kind} opzoeken geweigerd ({response.status_code})", response.status_code)
+    if response.ok:
+        items = (response.json() or {}).get("items") or []
+        for item in items:
+            found = _organizer_ref(item)
+            if found and found["name"].casefold() == wanted:
+                return found
+    slug = _organizer_slug(label)
+    if slug:
+        response = requests.get(f"{base}/slug/{slug}", headers=auth_headers(), timeout=15)
+        found = _organizer_ref(response.json()) if response.ok else None
+        if found and found["name"].casefold() == wanted:
+            return found
+    response = requests.post(base, headers=auth_headers(), json={"name": label}, timeout=15)
+    if not response.ok:
+        raise OrganizerError(f"{kind} aanmaken mislukt ({response.status_code})", response.status_code)
+    created = _organizer_ref(response.json())
+    if not created:
+        raise OrganizerError(f"{kind} aanmaken gaf geen id terug")
+    return created
+
+
+def ensure_tag(name: Any) -> dict[str, str]:
+    """De tag met deze naam in Mealie (`{id, name, slug}`); bestaat hij nog niet, dan wordt hij aangemaakt."""
+    return _organizer("tags", name)
+
+
+def ensure_category(name: Any) -> dict[str, str]:
+    """De categorie met deze naam in Mealie (`{id, name, slug}`); bestaat ze nog niet, dan wordt ze aangemaakt."""
+    return _organizer("categories", name)
+
+
+def add_organizers(
+    slug: str,
+    tags: list[dict[str, str]] | None = None,
+    categories: list[dict[str, str]] | None = None,
+    current: dict[str, Any] | None = None,
+) -> bool:
+    """Zet tags en categorieën bij een recept, naast wat het al heeft. Geeft True als er iets bij kwam.
+
+    `current`: het recept zoals Mealie het in de lijst geeft (uit `find_recipe_summary_by_source`); staan de tags en
+    categorieën daarin, dan hoeft het niet opnieuw opgehaald te worden. Er gaat alleen een PATCH uit als er iets
+    ontbreekt (op id of op naam), zodat niets dubbel komt. Bewust niet `bulk-actions/tag` van Mealie: dat voegt toe
+    zonder te kijken wat het recept al heeft.
+    """
+    if not tags and not categories:
+        return False
+    known = isinstance(current, dict) and isinstance(current.get("tags"), list) and isinstance(current.get("recipeCategory"), list)
+    recipe = current if known else _fetch_recipe(slug)
+    changes: dict[str, list[dict[str, Any]]] = {}
+    for field, wanted in (("tags", tags or []), ("recipeCategory", categories or [])):
+        current = [item for item in (recipe.get(field) or []) if isinstance(item, dict)]
+        ids = {str(item.get("id")) for item in current if item.get("id")}
+        names = {str(item.get("name") or "").strip().casefold() for item in current}
+        slugs = {str(item.get("slug") or "") for item in current if item.get("slug")}
+        missing = [
+            item for item in wanted
+            if item["id"] not in ids and item["name"].casefold() not in names and not (item.get("slug") and item["slug"] in slugs)
+        ]
+        if missing:
+            changes[field] = current + missing
+    if not changes:
+        return False
+    response = requests.patch(f"{mealie_url()}/api/recipes/{slug}", headers=auth_headers(), json=changes, timeout=30)
+    if not response.ok:
+        raise RuntimeError(f"Tags en categorieën zetten mislukt ({response.status_code})")
+    return True
 
 
 def _catalog(kind: str) -> list[dict[str, Any]]:
@@ -374,7 +523,29 @@ def _link_to_catalog(parsed: dict[str, Any], units: dict[str, Any], foods: dict[
     return linked
 
 
-def parse_imported_ingredients(slug: str) -> str:
+class Catalog:
+    """De eenheden en ingrediënten van Mealie, één keer opgehaald voor een reeks imports (de bulkimport).
+
+    Zonder dit object haalt elke import de hele lijst opnieuw op. Wat tijdens het koppelen wordt aangemaakt, komt er
+    meteen bij (`_link_to_catalog` werkt de indexen bij), zodat het volgende recept het niet nog eens aanmaakt.
+    """
+
+    def __init__(self) -> None:
+        self.units: dict[str, dict[str, Any]] | None = None
+        self.foods: dict[str, dict[str, Any]] | None = None
+
+    def reset(self) -> None:
+        self.units = self.foods = None
+
+    def indexes(self) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        if self.units is None:
+            self.units = _catalog_index(_catalog("units"))
+        if self.foods is None:
+            self.foods = _catalog_index(_catalog("foods"))
+        return self.units, self.foods
+
+
+def parse_imported_ingredients(slug: str, catalog: Catalog | None = None) -> str:
     """Zet de ingrediëntregels van een net geïmporteerd recept om in aantal, eenheid en ingrediënt.
 
     Mealie bewaart een geïmporteerde regel als losse tekst ("200 ml melk") in de notitie. Hier halen we aantal,
@@ -388,8 +559,10 @@ def parse_imported_ingredients(slug: str) -> str:
         parsed_lines = [ingredients.normalize(line) for line in lines or []]
         if not any(new is not old for new, old in zip(parsed_lines, lines or [])):
             return slug
-        units = _catalog_index(_catalog("units"))
-        foods = _catalog_index(_catalog("foods"))
+        if catalog is not None:
+            units, foods = catalog.indexes()
+        else:
+            units, foods = _catalog_index(_catalog("units")), _catalog_index(_catalog("foods"))
         linked = [
             _link_to_catalog(new, units, foods) if new is not old else old
             for new, old in zip(parsed_lines, lines)
@@ -404,6 +577,8 @@ def parse_imported_ingredients(slug: str) -> str:
             raise RuntimeError(f"Recept bijwerken mislukt ({response.status_code}): {response.text[:200]}")
     except Exception as exc:  # noqa: BLE001 - het recept is al geïmporteerd; analyseren is een extra
         log.warning("Ingrediënten van %s niet geanalyseerd: %s", slug, exc)
+        if catalog is not None:
+            catalog.reset()  # bijvoorbeeld een ingrediënt dat iemand anders net aanmaakte: het volgende recept haalt opnieuw op
     return slug
 
 

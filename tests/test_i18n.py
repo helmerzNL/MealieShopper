@@ -23,6 +23,7 @@ SOURCES = {
     "picnic.js": (STATIC / "picnic.js").read_text(encoding="utf-8"),
     "recipe_search.js": (STATIC / "recipe_search.js").read_text(encoding="utf-8"),
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
+    "recipe_bulk.js": (STATIC / "recipe_bulk.js").read_text(encoding="utf-8"),
     "crisp.js": (STATIC / "crisp.js").read_text(encoding="utf-8"),
     "mealkits.js": (STATIC / "mealkits.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),

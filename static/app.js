@@ -2276,7 +2276,7 @@ function renderSavedRecipeCard(recipe) {
   const image = recipe.image || "";
   const id = ahRecipeNumber(recipe);
   return `
-    <article class="recipe-card">
+    <article class="recipe-card"${id ? ` data-store-recipe="ah:${escapeHtml(id)}"` : ""}>
       ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
       <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
       ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image)) : ""}
@@ -2315,6 +2315,7 @@ function renderSavedRecipes() {
   $("#ah-recipes").innerHTML = recipes.length
     ? recipes.map(renderSavedRecipeCard).join("")
     : "";
+  if (typeof recipeBulkDecorate === "function") recipeBulkDecorate("ah"); // selecteren en in bulk importeren (recipe_bulk.js)
   if (!all.length) return;
   let text = "";
   if (!inGroup.length) text = t("ah.recipes.group_empty");

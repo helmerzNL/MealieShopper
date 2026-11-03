@@ -164,6 +164,7 @@ function renderJumboFavorites() {
   $("#jumbo-favorites-status").textContent = data.recipes.length ? t("rsearch.count", { shown: I18N.formatNumber(data.recipes.length), total: I18N.formatNumber(data.total) }) : "";
   $("#jumbo-favorites-more").hidden = !data.hasNext;
   if (data.loaded && !data.recipes.length) message("#jumbo-favorites-message", t("jumbo.favorites.none"), "success");
+  if (typeof recipeBulkDecorate === "function") recipeBulkDecorate("jumbo"); // selecteren en in bulk importeren (recipe_bulk.js)
 }
 
 async function loadJumboFavorites(append = false) {
