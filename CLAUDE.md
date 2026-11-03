@@ -8,7 +8,7 @@ Afspraken voor het werken aan MealieShopper (voor Claude Code en andere AI-hulpe
 
 - Werk op een eigen branch en richt de pull request op `beta` (nooit op `main`).
 - Elke push naar `beta` bouwt de container `ghcr.io/helmerznl/mealieshopper:beta` (en `X.Y.Z-beta`) en maakt een pre-release `vX.Y.Z-beta` (`docker.yml` en `release.yml`).
-- `main` is de stabiele lijn. Die krijgt alleen een pull request vanuit `beta` (de promotie), op verzoek van de gebruiker. Dat bouwt `latest` en de stabiele release `vX.Y.Z`. `pr-target.yml` laat elke andere pull request naar `main` falen.
+- `main` is de stabiele lijn. Die krijgt alleen een pull request vanuit `beta` (de promotie), op verzoek van de gebruiker. Dat bouwt `latest` en de stabiele release `vX.Y.Z`. `pr-target.yml` laat elke andere pull request naar `main` falen, behalve die van Dependabot: zijn beveiligingsupdates gaan altijd naar `main`, dus de check zet ze over naar `beta` (of sluit ze als de update al in `beta` staat).
 - De check `Pull request target` en het verbod op rechtstreeks pushen naar `main` zet de eigenaar aan in de branch protection van GitHub; dat kan niet vanuit de code.
 
 ## Releases
