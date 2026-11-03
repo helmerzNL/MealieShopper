@@ -732,6 +732,7 @@
           <div class="toolbar">
             <h2 data-i18n="orders.title">Bestellingen en kassabonnen</h2>
             <button class="icon-button" id="sync-orders" type="button" aria-label="Synchroniseren" title="Synchroniseren" data-i18n-attr="aria-label:common.sync;title:common.sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z"/></svg></button>
+            <button class="button button--secondary orders-import" id="orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
           <p class="muted" id="ah-orders-intro" data-i18n="orders.intro">Je aankomende en afgelopen bestellingen bij Albert Heijn en je kassabonnen uit de winkel. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met AH bekijken. Synchroniseren haalt alleen nieuwe gegevens op.</p>
           <p class="muted" id="jumbo-orders-intro" hidden data-i18n="orders.intro_jumbo">Je Jumbo-bestellingen met de producten. Ze worden bewaard in MealieShopper, dus je kunt ze ook zonder verbinding met Jumbo bekijken. Synchroniseren haalt de lijst en de producten van de nieuwste bestellingen op; herhaal het tot alles binnen is.</p>
@@ -840,6 +841,7 @@
           <div class="toolbar">
             <h2 data-i18n="picnic.orders.title">Bestellingen van Picnic</h2>
             <button class="button button--secondary" id="sync-picnic-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
+            <button class="button button--secondary orders-import" id="picnic-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
           <p class="muted" data-i18n="picnic.orders.intro">Je aankomende bezorgingen bij Picnic (live opgehaald) en je afgeleverde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Picnic; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Picnic-mandje; bestellen doe je in de Picnic-app.</p>
           <p class="muted" id="picnic-orders-synced"></p>
@@ -884,6 +886,7 @@
           <div class="toolbar">
             <h2 data-i18n="crisp.orders.title">Bestellingen van Crisp</h2>
             <button class="button button--secondary" id="sync-crisp-orders" type="button" data-i18n="common.sync">Synchroniseren</button>
+            <button class="button button--secondary orders-import" id="crisp-orders-import" type="button" data-admin-only><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiArchiveOutline"><path d="M20 21H4V10H6V19H18V10H20V21M3 3H21V9H3V3M9.5 11H14.5C14.78 11 15 11.22 15 11.5V13H9V11.5C9 11.22 9.22 11 9.5 11M5 5V7H19V5H5Z"/></svg><span data-i18n="offers.import.open">Oude aankopen importeren</span></button>
           </div>
           <p class="muted" data-i18n="crisp.orders.intro">Je aankomende bestellingen bij Crisp (live opgehaald) en je bezorgde bestellingen. Die laatste bewaart MealieShopper lokaal, dus ze blijven te bekijken zonder verbinding met Crisp; Synchroniseren haalt alleen nieuwe gegevens op. Open een bestelling voor de producten en zet ze met één knop opnieuw in je Crisp-mandje; bestellen doe je in de Crisp-app.</p>
           <p class="muted" id="crisp-orders-synced"></p>

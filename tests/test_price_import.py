@@ -1,14 +1,16 @@
 """Oude aankopen inlezen uit bevestigingsmails (#178): de JSON van een assistent, zonder dubbele bestellingen."""
 import json
 import os
+import re
 import tempfile
 import unittest
 from contextlib import closing
+from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, i18n, price_import, prices  # noqa: E402
+from mealieshopper import ah_orders, auth, i18n, jumbo_orders, price_import, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 NOW = "2026-10-20T08:00:00+00:00"
@@ -164,7 +166,83 @@ class HistoryTest(ImportCase):
         self.assertEqual(prices.history("ah", "", 50, today=TODAY, bought=True)["total"], 2)
 
 
+class OrdersTest(ImportCase):
+    """De ingelezen bestellingen bij Bestellingen: in de lijst, te openen, te doorzoeken en een voor een te verwijderen."""
+
+    def test_imported_orders_are_listed_newest_first_like_an_order(self):
+        self.run_import(mail_order(), mail_order(number=None, day="2025-04-01", total=None))
+        orders = price_import.list_orders("ah")["orders"]
+        self.assertEqual([(o["ref"], o["number"], o["date"], o["total"], o["itemCount"], o["imported"]) for o in orders], [
+            ("dag:2025-04-01", None, "2025-04-01", 42.38, 2, True),  # zonder totaal in de mail: wat je voor de producten betaalde
+            ("225301", "225301", "2025-03-14", 141.53, 2, True),
+        ])
+        self.assertEqual((orders[1]["units"], orders[1]["importedAt"]), (18, NOW))
+        self.assertEqual(price_import.list_orders("jumbo")["orders"], [])
+
+    def test_an_imported_order_opens_with_its_products(self):
+        self.run_import(mail_order())
+        order = price_import.get_order("ah", "225301")
+        self.assertEqual(order["deliveryDate"], "2025-03-14")
+        self.assertEqual(order["items"], [
+            {"title": "AH Bananen tros", "quantity": 2, "paid": 1.19, "price": 1.19, "amount": 2.38, "bonus": False},
+            {"title": "AH Greenfields Beefburger naturel 2 stuks", "quantity": 16, "paid": 2.5, "price": 4.99, "amount": 40.0, "bonus": True},
+        ])
+        self.assertIsNone(price_import.get_order("ah", "999"))
+        self.assertIsNone(price_import.get_order("jumbo", "225301"))
+
+    def test_an_imported_order_that_later_comes_from_the_account_is_not_listed_twice(self):
+        self.run_import(mail_order(number="225301", day="2026-09-01"), mail_order(number="777", day="2026-09-08"))
+        self.ah_order(225301, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 2, "price": 1.19, "amount": 2.38})
+        self.ah_order(888, "2026-09-08", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.19, "amount": 1.19})
+        self.assertEqual(price_import.list_orders("ah")["orders"], [])
+        self.assertIsNone(price_import.get_order("ah", "225301"))
+
+    def test_one_imported_order_can_be_removed_on_its_own(self):
+        self.run_import(mail_order(), mail_order(number="777", day="2025-05-01"))
+        self.assertEqual(price_import.remove("ah", "225301"), {"store": "ah", "removed": 1, "ref": "225301"})
+        self.assertEqual([o["ref"] for o in price_import.list_orders("ah")["orders"]], ["777"])
+        self.assertEqual(price_import.remove("ah", "bestaat-niet")["removed"], 0)
+        self.assertEqual(price_import.summary("ah")["orders"], 1)
+        self.assertEqual(prices.history("ah", "beefburger", 50, today=TODAY)["products"][0]["timesBought"], 1, "ook weg uit de Prijsgeschiedenis")
+
+    def test_the_purchase_search_finds_imported_lines(self):
+        self.run_import(mail_order())
+        self.ah_order(101, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.29, "amount": 1.29})
+        found = ah_orders.search_purchases("bananen")
+        self.assertEqual([(o["id"], o["date"], o.get("imported", False)) for o in found["occurrences"]],
+                         [("101", "2026-09-01", False), ("225301", "2025-03-14", True)])
+        self.assertEqual(found["products"][0]["times"], 2)
+        self.run_import(mail_order(items=[{"name": "Jumbo Kipfilet", "quantity": 1, "price": 5.0}]), store="jumbo")
+        jumbo = jumbo_orders.search_purchases("kipfilet")["occurrences"]
+        self.assertEqual([(o["id"], o["amount"], o["imported"]) for o in jumbo], [("225301", 5.0, True)])
+        self.assertEqual(jumbo_orders.search_purchases("bananen")["occurrences"], [])
+
+    def test_the_purchase_search_skips_an_imported_order_the_account_also_has(self):
+        self.run_import(mail_order(number="225301", day="2026-09-01"))
+        self.ah_order(225301, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 2, "price": 1.19, "amount": 2.38})
+        self.assertEqual([o["id"] for o in ah_orders.search_purchases("bananen")["occurrences"]], ["225301"])
+        self.assertFalse(ah_orders.search_purchases("bananen")["occurrences"][0].get("imported"))
+
+
 class RouteTest(ImportCase):
+    def test_the_routes_for_imported_orders(self):
+        client = create_app().test_client()
+        self.run_import(mail_order(), mail_order(number="AB/12", day="2025-05-01"), mail_order(number=None, day="2025-06-01", total=9.5))
+        listed = client.get("/api/imported-orders/ah").get_json()["orders"]
+        self.assertEqual([o["ref"] for o in listed], ["dag:2025-06-01:9.50", "AB/12", "225301"])
+        self.assertEqual(client.get("/api/imported-orders/ah/AB%2F12").get_json()["number"], "AB/12")
+        self.assertEqual(len(client.get("/api/imported-orders/ah/dag:2025-06-01:9.50").get_json()["items"]), 2)
+        self.assertEqual(client.get("/api/imported-orders/ah/999").status_code, 404)
+        self.assertEqual(client.get("/api/imported-orders/lidl").status_code, 400)
+        self.assertEqual(client.delete("/api/prices/import?store=ah&ref=AB%2F12").get_json(), {"store": "ah", "removed": 1, "ref": "AB/12"})
+        self.assertEqual(len(client.get("/api/imported-orders/ah").get_json()["orders"]), 2)
+
+    def test_everyone_sees_imported_orders_and_only_the_administrator_removes_them(self):
+        self.assertFalse(auth.admin_only("/api/imported-orders/ah"))
+        self.assertFalse(auth.admin_only("/api/imported-orders/ah/225301"))
+        self.assertTrue(auth.admin_only("/api/prices/import"))
+
+
     def test_the_routes(self):
         client = create_app().test_client()
         summary = client.get("/api/prices/import?store=ah").get_json()
@@ -182,6 +260,23 @@ class RouteTest(ImportCase):
     def test_only_the_administrator_may_import(self):
         self.assertTrue(auth.admin_only("/api/prices/import"))
         self.assertFalse(auth.admin_only("/api/prices/history"))
+
+
+class OrdersPageTest(unittest.TestCase):
+    """De knop staat ook bij Bestellingen van elke winkel, alleen voor de beheerder, en opent de dialoog voor die winkel."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_every_orders_page_has_the_import_button(self):
+        html = (self.ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        scripts = {name: (self.ROOT / "static" / name).read_text(encoding="utf-8") for name in ("orders.js", "picnic.js", "crisp.js")}
+        for button, script, store in (("orders-import", "orders.js", "ordersStore()"), ("picnic-orders-import", "picnic.js", '"picnic"'),
+                                      ("crisp-orders-import", "crisp.js", '"crisp"')):
+            tag = re.search(rf'<button[^>]*id="{button}"[^>]*>', html)
+            self.assertIsNotNone(tag, button)
+            self.assertIn("data-admin-only", tag.group(0), button)
+            self.assertIn(f'$("#{button}").addEventListener("click", () => openPriceImport({store}));', scripts[script])
+            self.assertIn("importedOrderCard(order", scripts[script], f"{script}: de ingelezen bestellingen staan bij de afgelopen")
 
 
 if __name__ == "__main__":

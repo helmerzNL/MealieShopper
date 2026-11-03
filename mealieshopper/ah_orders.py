@@ -23,7 +23,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import ah, ah_lists, auth
+from . import ah, ah_lists, auth, price_import
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
@@ -665,6 +665,7 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "source": "kassabon", "product": row["name"], "brand": None, "quantity": row["quantity"],
                     "amount": row["amount"], "date": (row["date_time"] or "")[:10], "id": row["receipt_id"], "open": False,
                 })
+        occurrences += price_import.search_lines(conn, "ah", words, ah_lists._fold)  # oude bestellingen uit je bevestigingsmails
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:

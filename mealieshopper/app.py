@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-74")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-75")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -500,7 +500,24 @@ def create_app() -> Flask:
 
     @app.delete("/api/prices/import")
     def prices_import_remove():
-        return import_action(lambda: price_import.remove(request.args.get("store") or "ah"))
+        # Met ?ref= alleen die ene ingelezen bestelling (de prullenbak bij Bestellingen), zonder alle van de winkel.
+        return import_action(lambda: price_import.remove(request.args.get("store") or "ah", request.args.get("ref")))
+
+    # De ingelezen bestellingen bij Bestellingen, naast die uit je account. Lezen mag iedereen, net als de bestellingen zelf;
+    # importeren en verwijderen gaan via /api/prices/import en zijn van de beheerder.
+    @app.get("/api/imported-orders/<store>")
+    def imported_orders_list(store: str):
+        return import_action(lambda: price_import.list_orders(store))
+
+    @app.get("/api/imported-orders/<store>/<path:ref>")
+    def imported_order_detail(store: str, ref: str):
+        try:
+            order = price_import.get_order(store, ref)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not order:
+            return jsonify({"error": tr("Bestelling niet gevonden", "Order not found")}), 404
+        return jsonify(order)
 
     @app.get("/api/prices/compare")
     def prices_compare():
