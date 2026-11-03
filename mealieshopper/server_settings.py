@@ -1,9 +1,10 @@
-"""Instellingen van de server die de beheerder in de app kan wijzigen: het publieke adres en de MCP-server.
+"""Instellingen van de server die de beheerder in de app kan wijzigen: het publieke adres, de MCP-server en de eerste dag van de week.
 
 Voorrang bij het publieke adres: wat de beheerder in de app instelt, dan de omgevingsvariabele
 `MEALIESHOPPER_PUBLIC_BASE_URL`, en anders het adres waarmee de pagina is geopend (via de
 `X-Forwarded-*`-headers van de reverse proxy). Bij de MCP-server geldt de schakelaar in de app; is die
-nooit gezet, dan bepaalt `MEALIESHOPPER_MCP` (standaard aan).
+nooit gezet, dan bepaalt `MEALIESHOPPER_MCP` (standaard aan). De eerste dag van de week volgt standaard Mealie;
+de beheerder kan een vaste dag kiezen (zie `mealie.week_start`).
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
 
-from . import auth
+from . import auth, mealie
 from .i18n import tr
 
 SETTING_BASE_URL = "PUBLIC_BASE_URL"
@@ -111,6 +112,7 @@ def settings_payload() -> dict[str, Any]:
         "mcpEnabled": enabled,
         "mcpSource": mcp_source,
         "mcpTools": tools_payload(),
+        "weekStart": mealie.week_start_setting(),  # "" = zoals in Mealie, "0".."6" = vaste dag (0 = zondag)
         "loginOn": auth.auth_required() and auth.credentials_exist(),
     }
 
@@ -124,7 +126,7 @@ def register_routes(app: Flask) -> None:
     @app.put("/api/server-settings")
     def server_settings_put():
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or not ({"publicBaseUrl", "mcpEnabled", "mcpTools"} & set(body)):
+        if not isinstance(body, dict) or not ({"publicBaseUrl", "mcpEnabled", "mcpTools", "weekStart"} & set(body)):
             return jsonify({"error": tr("Geen instelling opgegeven.", "No setting given.")}), 400
         updates: dict[str, str] = {}
         if "publicBaseUrl" in body:
@@ -140,6 +142,18 @@ def register_routes(app: Flask) -> None:
             if not isinstance(body["mcpEnabled"], bool):
                 return jsonify({"error": tr("mcpEnabled moet waar of onwaar zijn.", "mcpEnabled must be true or false.")}), 400
             updates[SETTING_MCP] = "1" if body["mcpEnabled"] else "0"
+        if "weekStart" in body:
+            # null of "" = zoals in Mealie; 0 (zondag) t/m 6 (zaterdag) = een vaste dag.
+            day = body["weekStart"]
+            if day is None or day == "":
+                updates[mealie.SETTING_WEEK_START] = ""
+            elif mealie._weekday(day) is not None:
+                updates[mealie.SETTING_WEEK_START] = str(day)
+            else:
+                return jsonify({"error": tr(
+                    "weekStart moet leeg zijn (zoals in Mealie) of een dag van 0 (zondag) t/m 6 (zaterdag).",
+                    "weekStart must be empty (as in Mealie) or a day from 0 (Sunday) to 6 (Saturday).",
+                )}), 400
         tool_changes: dict[str, bool] = {}
         if "mcpTools" in body:
             from . import mcp  # lokaal: mcp importeert dit module

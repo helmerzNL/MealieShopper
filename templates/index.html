@@ -1147,6 +1147,14 @@
               </div>
             </form>
             <p class="muted" data-i18n="mealie.note">De token wordt versleuteld opgeslagen en nooit meer getoond. Het adres en de token worden eerst bij Mealie gecontroleerd; klopt er iets niet, dan wordt er niets bewaard.</p>
+            <div class="auth-form">
+            <label class="field">
+              <span data-i18n="mealie.week_start_label">Eerste dag van de week</span>
+              <select class="input" id="mealie-week-start"></select>
+            </label>
+            <p class="muted" data-i18n="mealie.week_start_note">Het weekmenu (en de MCP-tool get_week_menu) begint op deze dag. Standaard volgt MealieShopper de eerste dag die je in Mealie bij je huishouden instelt; daar staat die standaard op zondag. Aanbiedingen houdt de bonusweek van maandag t/m zondag.</p>
+            <div id="mealie-week-start-message"></div>
+            </div>
           </div>
         </div>
         <div class="box fold" id="ah-login-box">

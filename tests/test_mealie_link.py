@@ -24,8 +24,14 @@ def response(status=200, body=None, text="", headers=None, json_error=False):
 
 
 def mealie_ok(version="v2.4.1", username="helmer"):
-    """Antwoorden van /api/users/self en /api/app/about, in die volgorde."""
-    return [response(body={"username": username, "email": "x@y.nl"}), response(body={"version": version})]
+    """Antwoorden van /api/users/self en /api/app/about, in die volgorde, en daarna /api/households/preferences (de eerste dag
+    van de week, die de status meegeeft)."""
+    return [response(body={"username": username, "email": "x@y.nl"}), response(body={"version": version}), preferences()]
+
+
+def preferences(first_day=1):
+    """Het antwoord van /api/households/preferences: de voorkeuren van het huishouden in Mealie (0 = zondag, 1 = maandag)."""
+    return response(body={"privateHousehold": True, "firstDayOfWeek": first_day, "recipePublic": True, "id": "voorkeuren"})
 
 
 class MealieTestCase(unittest.TestCase):
@@ -39,6 +45,8 @@ class MealieTestCase(unittest.TestCase):
         for key in ("MEALIE_URL", "MEALIE_API_TOKEN", "JWT_SECRET"):
             os.environ.pop(key, None)
         auth._INITIALIZED = False
+        mealie._week_start_cache.clear()
+        self.addCleanup(mealie._week_start_cache.clear)
         self.client = create_app().test_client()
 
 
@@ -294,7 +302,9 @@ class StatusTest(MealieTestCase):
     def test_never_contains_the_token(self):
         auth.set_secret("MEALIE_URL", URL)
         auth.set_secret("MEALIE_API_TOKEN", TOKEN)
-        self.assertNotIn(TOKEN, repr(mealie.status()))
+        with mock.patch.object(mealie.requests, "get", return_value=preferences()):
+            self.assertNotIn(TOKEN, repr(mealie.status()))
+        mealie._week_start_cache.clear()
         with mock.patch.object(mealie.requests, "get", side_effect=mealie_ok()):
             self.assertNotIn(TOKEN, repr(mealie.status(verify=True)))
 
@@ -304,9 +314,10 @@ class StatusTest(MealieTestCase):
         with mock.patch.object(mealie.requests, "get", side_effect=mealie_ok()):
             data = mealie.status(verify=True)
         self.assertEqual((data["connected"], data["username"], data["version"]), (True, "helmer", "v2.4.1"))
-        with mock.patch.object(mealie.requests, "get", side_effect=[response(401)]):
+        with mock.patch.object(mealie.requests, "get", side_effect=[response(401), response(401)]):
             data = mealie.status(verify=True)
         self.assertFalse(data["connected"])
+        self.assertEqual(data["weekStart"]["source"], "default", "zonder antwoord van Mealie begint de week op maandag")
         self.assertIn("weigert de token", data["error"])
 
     def test_verify_without_configuration_makes_no_request(self):
@@ -316,7 +327,8 @@ class StatusTest(MealieTestCase):
     def test_clear_falls_back_to_the_environment(self):
         auth.set_secret("MEALIE_URL", URL)
         auth.set_secret("MEALIE_API_TOKEN", TOKEN)
-        with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl", "MEALIE_API_TOKEN": "env-token"}):
+        with mock.patch.dict(os.environ, {"MEALIE_URL": "https://env.example.nl", "MEALIE_API_TOKEN": "env-token"}), \
+                mock.patch.object(mealie.requests, "get", return_value=preferences()):
             self.assertEqual(mealie.status()["source"], "ui")
             data = mealie.clear()
             self.assertEqual((data["source"], data["url"]), ("env", "https://env.example.nl"))

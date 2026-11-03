@@ -1,7 +1,7 @@
 // Het tabblad Aanbiedingen: de aanbiedingen van een winkel (AH Bonus, Picnic, Jumbo en Crisp) per categorie, en receptvoorstellen
 // waarvan ingredienten in de aanbieding zijn. Alles komt uit een lokale kopie; die wordt elke dag ververst en kan de
 // beheerder onder Instellingen > Koppelen meteen synchroniseren.
-// Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekOffsetText en setPlanWeek uit app.js.
+// Laadt na basket.js en gebruikt STORES, state, formatPrice, formatSyncTime, getWeekBounds, weekFrom, weekStartOf, weekOffsetText en setPlanWeek uit app.js.
 //
 // Bij AH staan ook je persoonlijke aanbiedingen (de Bonus Box) in de lijst, bovenaan en met een eigen label; met de schakelaar
 // "Alleen Bonus Box" zie je alleen die. De schakelaar onthoudt deze browser.
@@ -54,13 +54,25 @@ function offersWeekOffset() {
   return Math.max(0, state.weekOffset);
 }
 
+// De aanbiedingen lopen per week van maandag t/m zondag (de bonusweek van AH), ook als het weekmenu op een andere dag begint.
+// Bij een weekmenu-week hoort de bonusweek waar haar middelste dag in valt: die overlapt het meest (za 7 t/m vr 13 nov: ma 9 t/m zo 15 nov).
+function bonusWeekOf(planWeek) {
+  return weekFrom(weekStartOf(new Date(`${planWeek.days[3]}T00:00:00`), 1));
+}
+
 function offersWeek() {
-  return getWeekBounds(offersWeekOffset());
+  return bonusWeekOf(getWeekBounds(offersWeekOffset()));
+}
+
+// De week begint nu op een andere dag (zie applyWeekStart). Hoort er daardoor een andere bonusweek bij, dan die opnieuw laden.
+function offersWeekStartChanged() {
+  if (offersState.weekStart && offersState.weekStart !== offersWeek().start) showOffers();
+  else renderOffersWeek();
 }
 
 function renderOffersWeek() {
   const offset = offersWeekOffset();
-  const week = getWeekBounds(offset);
+  const week = offersWeek();
   document.querySelectorAll(".offers-week").forEach((bar) => {
     bar.querySelector(".offers-week__range").textContent = week.label;
     bar.querySelector(".offers-week__offset").textContent = weekOffsetText(offset);

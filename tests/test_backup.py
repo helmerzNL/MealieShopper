@@ -208,6 +208,7 @@ class RoundTripTest(BackupCase):
             auth.set_secret(key, value)
         auth.set_setting("AI_PROVIDER", "anthropic")
         auth.set_setting("MCP_ENABLED", "0")
+        auth.set_setting("WEEK_START", "6")
         before = self.snapshot()
         self.assertTrue(all(before[table] for table in backup.DATA_TABLES))
         response, data = self.make(links=True, passphrase=PASSPHRASE)
@@ -221,6 +222,7 @@ class RoundTripTest(BackupCase):
         for key in SECRETS:
             auth.delete_secret(key)
         auth.set_setting("AI_PROVIDER", "openai")
+        auth.set_setting("WEEK_START", "")
 
         job = self.restore(data, PASSPHRASE)
         self.assertEqual(job["status"], "done", job)
@@ -234,6 +236,7 @@ class RoundTripTest(BackupCase):
             self.assertEqual(auth.get_secret(key), value, key)
         self.assertEqual(auth.get_setting("AI_PROVIDER"), "anthropic")
         self.assertEqual(auth.get_setting("MCP_ENABLED"), "0")
+        self.assertEqual(auth.get_setting("WEEK_START"), "6", "de eerste dag van de week gaat mee terug")
         self.assertEqual(self.admin.get("/api/backup/jobs/latest").get_json()["job"]["status"], "done")  # nog niet weggeklikt
 
     def test_the_links_work_on_another_server_with_another_secret_key(self):
