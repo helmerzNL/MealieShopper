@@ -30,7 +30,7 @@ from datetime import UTC, datetime, timedelta
 from os import environ
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from PIL import Image, UnidentifiedImageError
@@ -63,6 +63,7 @@ MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 40_000_000  # meer pixels openen we niet (een "decompressiebom")
 TIMEOUT = (5, 15)
 CONCURRENCY = 2
+MAX_REDIRECTS = 3
 PACE_SECONDS = 0.3  # op afroep: minstens zoveel tussen twee verzoeken op dezelfde host, plus jitter
 PACE_JITTER = 0.2
 BACKGROUND_PACE = (2.0, 5.0)  # in de achtergrondtaak
@@ -336,25 +337,36 @@ def _measure(data: bytes) -> tuple[int, int]:
 
 def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
     """(inhoud, type) van de winkel. Een ValueError voor wat geen bruikbare afbeelding is, een requests.HTTPError met de status
-    voor een antwoord dat geen 200 is."""
-    with _session(host).get(
-        url, headers=HEADERS[store], timeout=TIMEOUT, stream=True
-    ) as response:
-        if response.status_code != 200:
-            error = requests.HTTPError(f"HTTP {response.status_code}")
-            error.status = response.status_code  # type: ignore[attr-defined]
-            raise error
-        content_type = (
-            str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
-        )
-        if not content_type.startswith("image/") or content_type == "image/svg+xml":
-            raise ValueError(f"geen afbeelding ({content_type or 'zonder type'})")
-        chunks, size = [], 0
-        for chunk in response.iter_content(64 * 1024):
-            size += len(chunk)
-            if size > MAX_DOWNLOAD_BYTES:
-                raise ValueError("afbeelding is te groot")
-            chunks.append(chunk)
+    voor een antwoord dat geen 200 is. Een doorverwijzing volgen we zelf (hooguit `MAX_REDIRECTS`), en alleen naar een adres van
+    een winkel: zo kan een CDN de app nooit naar een intern adres sturen."""
+    session = _session(host)
+    for _hop in range(MAX_REDIRECTS + 1):
+        with session.get(url, headers=HEADERS[store], timeout=TIMEOUT, stream=True, allow_redirects=False) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                target = urljoin(url, str(response.headers.get("Location") or ""))
+                if not store_for(target):
+                    raise ValueError(f"doorverwijzing naar een onbekende host ({urlsplit(target).hostname or '?'})")
+                url = target
+                continue
+            return _read_image(response)
+    raise ValueError("te veel doorverwijzingen")
+
+
+def _read_image(response: requests.Response) -> tuple[bytes, str]:
+    """(inhoud, type) uit een antwoord van de winkel, met de grenzen op type en grootte."""
+    if response.status_code != 200:
+        error = requests.HTTPError(f"HTTP {response.status_code}")
+        error.status = response.status_code  # type: ignore[attr-defined]
+        raise error
+    content_type = str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
+    if not content_type.startswith("image/") or content_type == "image/svg+xml":
+        raise ValueError(f"geen afbeelding ({content_type or 'zonder type'})")
+    chunks, size = [], 0
+    for chunk in response.iter_content(64 * 1024):
+        size += len(chunk)
+        if size > MAX_DOWNLOAD_BYTES:
+            raise ValueError("afbeelding is te groot")
+        chunks.append(chunk)
     return b"".join(chunks), content_type
 
 

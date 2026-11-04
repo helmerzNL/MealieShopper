@@ -44,6 +44,7 @@ class FetchCase(Case):
     def setUp(self):
         super().setUp()
         self.served: dict[str, tuple[int, str, bytes]] = {}
+        self.redirects: dict[str, str] = {}
         get = mock.patch.object(image_cache.requests.Session, "get", side_effect=self.get_response, autospec=True)
         self.get = get.start()
         self.addCleanup(get.stop)
@@ -59,7 +60,7 @@ class FetchCase(Case):
         status, content_type, data = self.served.get(url, (404, "text/plain", b"nope"))
         response = mock.Mock()
         response.status_code = status
-        response.headers = {"Content-Type": content_type}
+        response.headers = {"Content-Type": content_type, **({"Location": self.redirects[url]} if url in self.redirects else {})}
         response.iter_content = lambda size: (data[i : i + size] for i in range(0, len(data), size))
         response.__enter__ = lambda self_: self_
         response.__exit__ = lambda *args: False
@@ -226,6 +227,26 @@ class FetchTest(FetchCase):
         self.serve(third, 200, "image/png", picture(4, 4))
         image_cache.fetch(third, now=NOW, background=True)
         self.assertTrue(2.0 <= self.sleep.call_args.args[0] <= 5.0, self.sleep.call_args)
+
+    def test_a_redirect_is_followed_only_to_a_store_host(self):
+        # Een winkel-CDN mag doorverwijzen naar een ander winkeladres, nooit naar iets anders (een intern adres bijvoorbeeld).
+        moved = "https://static.ah.nl/dam/product/moved"
+        self.serve(moved, 302, "text/plain", b"")
+        self.redirects[moved] = "https://static.ah.nl/dam/product/final"
+        self.serve("https://static.ah.nl/dam/product/final", 200, "image/png", picture(4, 4))
+        row = image_cache.fetch(moved, now=NOW)
+        self.assertEqual((row["url"], row["width"]), (moved, 4))
+        self.assertFalse(self.get.call_args_list[0].kwargs.get("allow_redirects", True), "requests mag zelf geen redirect volgen")
+        bad = "https://static.ah.nl/dam/product/bad"
+        self.serve(bad, 302, "text/plain", b"")
+        self.redirects[bad] = "http://127.0.0.1:8000/api/system/images"
+        self.assertIsNone(image_cache.fetch(bad, now=NOW))
+        self.assertNotIn("127.0.0.1", " ".join(call.args[1] for call in self.get.call_args_list))
+        loop = "https://static.ah.nl/dam/product/loop"
+        self.serve(loop, 302, "text/plain", b"")
+        self.redirects[loop] = loop
+        self.assertIsNone(image_cache.fetch(loop, now=NOW))
+        self.assertLessEqual(sum(1 for call in self.get.call_args_list if call.args[1] == loop), image_cache.MAX_REDIRECTS + 1)
 
     def test_the_images_folder_is_created_on_first_use(self):
         self.assertFalse(image_cache.images_dir().exists())
