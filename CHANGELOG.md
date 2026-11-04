@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v3.3.2
+## v3.3.3
 
-### Opgelost in 3.3.2
+### Opgelost in 3.3.3
 
 *English summary: for eggs the check list showed nothing under the suggestion, and Prefer organic said no organic option was found although "AH Biologisch Eieren S M L" was in the results. The kind of product came from the suggestion's whole name ("witte vrije uitloopeieren m"), so no other eggs counted. The kind now follows the ingredient when the suggestion names it, egg sizes S, M and L are a size, and at Albert Heijn the product must be in the same AH main category. Cheaper eggs per piece now appear under the suggestion, and Prefer organic suggests the organic eggs. Other ingredients such as milk, rice, olive oil, butter and yoghurt also get more options; buttermilk does not count as milk, and apple sauce "0% sugar" does not count as sugar.*
 
@@ -17,6 +17,20 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - **Ook bij andere ingrediënten meer keus.** Getoetst tegen de echte zoekresultaten van AH: bij melk, rijst, olijfolie, roomboter en yoghurt staan er nu meer opties van dezelfde soort; bij rundergehakt, spaghetti, ui en kaas verandert niets.
 - **Ontwikkeling**: `test_offers_stores` faalde af en toe met `OSError: Directory not empty`. Na een synchronisatie startte de test een echte thread die foto's in de tijdelijke map zette terwijl die werd opgeruimd (sinds de afbeeldingencache uit 3.2.0). Die tests zetten `image_cache.prefetch_async` nu stil, zoals de andere tests al deden.
 - Issue: [#223](https://github.com/helmerzNL/MealieShopper/issues/223). Pull request: [#225](https://github.com/helmerzNL/MealieShopper/pull/225).
+
+## v3.3.2
+
+### Opgelost in 3.3.2
+
+*English summary: Import old purchases no longer skips an order that is in your account without products. Old Jumbo orders (January 2022, for example) are listed under Orders as "products not fetched yet", because Jumbo refuses their details; Check called such an order "is already in your orders" or "your account already has an order on this day", so its products ended up nowhere. Only an order from your account with products now counts as a duplicate, by order number and by date, for all stores. The imported order then shows under Orders, in the Price history and in the purchase search. If MealieShopper fetches the products from the store later after all, the imported version drops out again, so nothing counts twice. An order from your account with products still blocks the import.*
+
+- **Oude aankopen importeren: een bestelling zonder producten in je account telt niet meer als dubbel** (issue [#222](https://github.com/helmerzNL/MealieShopper/issues/222)). Oude Jumbo-bestellingen (bijvoorbeeld van januari 2022) staan bij **Bestellingen** als *producten nog niet opgehaald*, omdat Jumbo de details ervan weigert. **Controleren** zei bij zo'n bestelling *staat al in je bestellingen* of *op deze dag staat al een bestelling in je account*, en **Importeren** bleef uit; de producten kwamen zo nergens terecht, niet uit je account en niet uit de import.
+  - Alleen een bestelling uit je account **met** producten telt nu als dubbel, op bestelnummer en op datum. Dat geldt voor alle winkels (AH, Jumbo, Picnic en Crisp).
+  - De ingelezen bestelling staat daarna bij **Bestellingen**, in de **Prijsgeschiedenis** en in het zoeken op aankopen.
+  - Haalt MealieShopper de producten later alsnog bij de winkel op, dan valt de ingelezen versie op die drie plekken weer weg, zodat niets dubbel telt.
+  - Een bestelling uit je account met producten houdt de import nog steeds tegen.
+- **Handleiding**: de regel voor dubbele bestellingen bij *Oude aankopen importeren*.
+- Issue: [#222](https://github.com/helmerzNL/MealieShopper/issues/222). Pull request: [#224](https://github.com/helmerzNL/MealieShopper/pull/224).
 
 ## v3.3.1
 
