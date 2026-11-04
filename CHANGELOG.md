@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.2.0
+
+### Nieuw in 3.2.0
+
+*English summary: product photos of the stores (AH, Jumbo, Picnic, Crisp) no longer load straight from the store. The app fetches each photo once, as a browser would, keeps it for good in the `images` folder of the data folder and serves it from there (`GET /api/images/<token>`). A nightly round fills in what is missing at a calm pace, a small round runs after every sync of orders or receipts, and a 403 or 429 pauses that store for twelve hours. Receipt lines that are linked to a webshop product now carry its photo, and the nightly task also links receipt lines (it only did so after a manual sync). The cache is not part of the backup and is removed by a factory reset. `MEALIESHOPPER_IMAGE_PREFETCH=false` turns the background rounds off. The container now serves with four gunicorn threads.*
+
+- **Winkelfoto's uit de eigen cache.** De productfoto's van AH, Jumbo, Picnic en Crisp (bestellingen, het mandje, aanbiedingen, de prijsgeschiedenis, zoekresultaten en recepten) laadt de browser niet meer rechtstreeks van de winkel. MealieShopper haalt elke foto één keer op, zoals een browser dat zou doen, bewaart het origineel voor altijd in de map `images` van de data-map en serveert hem daarna van schijf (`GET /api/images/<token>`, het token is het winkeladres in base64). Een foto van een andere host (Mealie, een maaltijdbox) blijft zoals hij was.
+- **Rustig bij de winkel.** Hooguit twee verzoeken tegelijk, een korte pauze tussen twee verzoeken aan dezelfde winkel en in de achtergrond twee tot vijf seconden. Geeft een winkel een 403 of 429, dan wacht de cache twaalf uur met die winkel. Een foto die niet lukt, probeert hij na een dag opnieuw, vanaf drie keer na een week en vanaf tien keer niet meer.
+- **De nachtelijke taak vult de cache aan**, na de aanbiedingen: hooguit 300 foto's per nacht, de nieuwste eerst. Na elke synchronisatie van bestellingen of kassabonnen volgt een kleine ronde (40), zodat de foto's er al staan voordat je een bestelling opent. Elke ronde staat in het auditlog. `MEALIESHOPPER_IMAGE_PREFETCH=false` zet de rondes uit. Op afroep ophalen blijft werken.
+- **Foto's op de kassabon.** Een regel die aan een webwinkelproduct gekoppeld is, krijgt de foto van dat product mee (`product.image` in `GET /api/ah/receipts/<id>`). Oude koppelingen zonder foto vult de nachtelijke taak aan, 25 per verzoek.
+- **Fix: de nachtelijke taak koppelt nu ook de kassabonregels.** Dat gebeurde alleen na een handmatige synchronisatie van de aanbiedingen. De geplande run sloeg het over.
+- **Instellingen > Systeem** toont hoeveel foto's er in de cache staan en hoeveel ruimte dat is. De cache gaat niet mee in de back-up (hij wordt opnieuw opgebouwd) en verdwijnt bij het terugzetten van de fabrieksinstellingen.
+- **Container**: gunicorn draait met vier threads (`--threads 4`), zodat een foto die nog bij de winkel vandaan moet de rest van de app niet ophoudt.
+- **Handleiding en README**: de foto's en `MEALIESHOPPER_IMAGE_PREFETCH`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#217](https://github.com/helmerzNL/MealieShopper/pull/217), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
+
 ## v3.1.0
 
 ### Nieuw in 3.1.0

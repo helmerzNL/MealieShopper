@@ -133,7 +133,7 @@ function renderCrispFavoriteCard(product) {
   const meta = [product.unitSize, product.price ? formatPrice(product.price) : ""].filter(Boolean).join(" · ");
   return `
     <article class="product-card" data-crisp-favorite="${escapeHtml(product.id)}">
-      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${product.image ? `<img src="${escapeHtml(storeImage(product.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -290,7 +290,7 @@ function renderCrispOrderItem(item) {
   const meta = [item.quantity > 1 ? `${item.quantity}×` : "", item.unitSize, item.price ? formatPrice(item.price) : ""].filter(Boolean).join(" · ");
   return `
     <article class="product-card">
-      ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${item.image ? `<img src="${escapeHtml(storeImage(item.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <strong>${escapeHtml(item.title || "")}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}

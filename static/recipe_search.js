@@ -58,7 +58,7 @@ function renderStoreRecipeCard(store, recipe) {
   const meta = storeRecipeMeta(recipe);
   return `
     <article class="recipe-card" data-store-recipe="${store}:${escapeHtml(recipe.id)}">
-      ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
+      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="${escapeHtml(recipe.name)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.name)}</h3>
       ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
       ${recipeCardActions(`${store}:${recipe.id}`, recipePlanAttrs(store, recipe))}
@@ -234,7 +234,7 @@ function renderStoreRecipeDetail(store, recipe, host) {
   ].join("");
   $(`#${prefix}-body`).innerHTML = `
     <div class="picnic-recipe">
-      ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(recipe.image)}" alt="" data-hide-on-error>` : ""}
+      ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(storeImage(recipe.image))}" alt="" data-hide-on-error>` : ""}
       ${facts.length ? `<p class="muted">${escapeHtml(facts.join(" \u00b7 "))}</p>` : ""}
       ${recipe.description ? `<p>${escapeHtml(recipe.description)}</p>` : ""}
       <div class="recipe-detail__actions">${actions}</div>

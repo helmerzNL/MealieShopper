@@ -46,7 +46,7 @@ function purchaseItem(item, store = "ah") {
   const name = title ? `<a href="${escapeHtml(priceHistoryPath(store, title, item.productId || ""))}" data-route>${escapeHtml(title)}</a>` : "";
   return `
     <article class="product-card">
-      ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy">` : ""}
+      ${item.image ? `<img src="${escapeHtml(storeImage(item.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <strong>${escapeHtml(item.quantity)}x ${name}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
