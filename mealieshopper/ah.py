@@ -709,30 +709,52 @@ def _words(value: Any) -> list[str]:
     return _WORD_RE.findall("".join(ch for ch in text if not unicodedata.combining(ch)))
 
 
-def _search_rank(query_words: list[str], item: dict[str, Any], position: int) -> tuple[bool, bool, int]:
-    """Sorteersleutel voor een zoekresultaat; lager is beter.
-
-    1. Een product dat precies zo heet als de zoekterm, ook met AH's eigen merk ervoor ("penne" is "AH Penne",
-       "spaghetti" is "AH Biologisch Spaghetti"). Alleen het eigen merk: "Pringles Paprika" is geen paprika.
-    2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
-       samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
-    3. Verder de volgorde van AH. Of de zoekwoorden in de titel staan, telt bewust niet: "Milner Jong belegen" is
-       kaas zonder "kaas" in de naam, en "Kruiden roomkaas" zou er dan voor komen.
-    """
+def _is_exact(query_words: list[str], item: dict[str, Any]) -> bool:
+    """Heet het product precies zoals de zoekterm, ook met AH's eigen merk ervoor? "penne" is "AH Penne", "spaghetti" is
+    "AH Biologisch Spaghetti". Alleen het eigen merk: "Pringles Paprika" is geen paprika."""
     title = _words(item.get("title"))
     brand = _words(item.get("brand"))
     own_brand = brand[:1] == ["ah"] and title[: len(brand)] == brand
     name = title[len(brand):] if own_brand else title
-    exact = bool(query_words) and query_words in (title, name)
-    return (not exact, bool(item.get("isVirtualBundle")), position)
+    return bool(query_words) and query_words in (title, name)
+
+
+def _names_ingredient(ingredient: list[str], item: dict[str, Any]) -> bool:
+    """Noemt de naam van het product het ingrediënt? Elk woord ervan staat in de titel, ook als deel van een woord, zoals bij
+    `prices._same_kind`: bij "eieren" wel "AH Witte vrije uitloopeieren M", niet "AH Nederlandse aardbeien"."""
+    title = _words(item.get("title"))
+    return bool(ingredient) and all(any(word in other for other in title) for word in ingredient)
 
 
 def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]:
-    """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan; zie `_search_rank`."""
+    """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan.
+
+    1. Een product dat precies zo heet als de zoekterm (`_is_exact`).
+    2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
+       samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
+    3. Zette AH bovenaan, vóór het eerste losse product, een multipack van het ingrediënt (`_names_ingredient`), dan gaan
+       binnen de losse producten (en binnen de multipacks) de producten die het ingrediënt noemen voor. Anders kwam bovenaan
+       wat AH na die multipacks had, ook als dat iets anders is: AH zoekt ruim, zette bij "eieren" "AH Biologisch Eieren S M L
+       4-pack" bovenaan en daarna "AH Nederlandse aardbeien", en de eerste losse doos eieren stond zo pas op plek 6 (#220).
+    4. Verder de volgorde van AH. Buiten geval 3 telt het bewust niet of de zoekwoorden in de titel staan: "Milner Jong
+       belegen" is kaas zonder "kaas" in de naam, en "Kruiden roomkaas" zou er dan voor komen.
+    """
     items = [item for item in products if isinstance(item, dict)]
     query_words = _words(query)
-    ranked = sorted(enumerate(items), key=lambda pair: _search_rank(query_words, pair[1], pair[0]))
-    return [item for _, item in ranked]
+    ingredient = query_words[1:] if query_words[:1] == ["ah"] else query_words  # "AH Penne" is penne
+    first_single = next((index for index, item in enumerate(items) if not item.get("isVirtualBundle")), len(items))
+    ingredient_on_top = any(_names_ingredient(ingredient, item) for item in items[:first_single])
+
+    def rank(pair: tuple[int, dict[str, Any]]) -> tuple[bool, bool, bool, int]:
+        position, item = pair
+        return (
+            not _is_exact(query_words, item),
+            bool(item.get("isVirtualBundle")),
+            ingredient_on_top and not _names_ingredient(ingredient, item),
+            position,
+        )
+
+    return [item for _, item in sorted(enumerate(items), key=rank)]
 
 
 class AhHttpError(RuntimeError):
