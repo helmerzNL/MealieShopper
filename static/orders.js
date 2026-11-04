@@ -249,8 +249,17 @@ function fitPurchaseTable() {
   wrap.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
+// De bon zo hoog als er onder de kop past, zonder dat de pagina schuift (op een smal scherm doet de inhoud het).
+function fitReceiptPaper() {
+  const paper = $("#ah-order-items .receipt");
+  if (!paper) return;
+  const height = pageFitHeight(paper);
+  paper.style.minHeight = height === null ? "" : `${height}px`;
+}
+
 window.addEventListener("resize", () => {
   if (ordersState.loaded) fitPurchaseTable();
+  fitReceiptPaper();
 });
 
 async function loadOrders() {
@@ -449,6 +458,7 @@ async function openPurchase(kind, id) {
       const words = foldText(ordersState.query).split(/\s+/).filter(Boolean);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
       $("#ah-order-items").innerHTML = receipt.items.length ? receiptPaper(receipt, words) : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+      requestAnimationFrame(fitReceiptPaper);
       if (receipt.items.some((line) => !line.product && line.productId)) resolveReceiptProducts(receipt.id, words);
     }
     $("#ah-order-title").focus({ preventScroll: true });
@@ -467,6 +477,7 @@ async function resolveReceiptProducts(id, words) {
     const open = ordersState.open;
     if (!open || open.kind !== "receipt" || open.id !== String(id) || !receipt.items.length) return;
     $("#ah-order-items").innerHTML = receiptPaper(receipt, words);
+    requestAnimationFrame(fitReceiptPaper);
   } catch {
     // De bon staat er al; een koppeling die niet lukt, krijgt een volgende keer een nieuwe kans.
   }

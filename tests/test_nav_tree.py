@@ -111,11 +111,14 @@ class ReceiptsTest(unittest.TestCase):
         self.assertIn("window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom)", app)
 
     def test_the_receipt_paper_fills_its_frame_on_a_wide_screen(self):
+        # Zo breed als het kader, en op een breed scherm precies zo hoog als er onder de kop past: gemeten (pageFitHeight), niet
+        # geraden met 100vh, want een vaste aftrek geeft een schuifbalk over de hele pagina.
         self.assertRegex(CSS, r"\.receipt \{\n(?:.*\n)*?  width: 100%;")
-        self.assertRegex(
-            CSS,
-            r"@media \(min-width: 1024px\) \{\n  \.receipt \{\n    min-height: calc\(100vh - \d+px\);",
-        )
+        self.assertNotRegex(CSS, r"\.receipt \{\n(?:.*\n)*?    min-height: calc\(100vh")
+        orders = (ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+        self.assertIn("function fitReceiptPaper()", orders)
+        self.assertIn("pageFitHeight(paper)", orders)
+        self.assertIn("if (ordersState.loaded) fitPurchaseTable();\n  fitReceiptPaper();", orders)
 
 
 if __name__ == "__main__":
