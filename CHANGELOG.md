@@ -15,6 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - **Bij Albert Heijn ook dezelfde hoofdcategorie.** *AH Appelmoes 0% suiker toegevoegd* noemt suiker, maar staat bij AH niet bij de suiker; zo'n product komt er niet bij. Vleeswaren en vers vlees blijven daardoor ook gescheiden. Picnic, Jumbo en Crisp geven geen categorie; daar telt alleen het ingrediënt.
   - Noemt het voorstel het ingrediënt niet (*Milner Jong belegen* bij kaas), dan blijft het zoals het was: de soort van het voorstel.
   - **Ook bij andere ingrediënten meer keus.** Getoetst tegen de echte zoekresultaten van AH: bij melk, rijst, olijfolie, roomboter en yoghurt staan er nu meer opties van dezelfde soort; bij rundergehakt, spaghetti, ui en kaas verandert niets.
+- **Ontwikkeling**: `test_offers_stores` faalde af en toe met `OSError: Directory not empty`. Na een synchronisatie startte de test een echte thread die foto's in de tijdelijke map zette terwijl die werd opgeruimd (sinds de afbeeldingencache uit 3.2.0). Die tests zetten `image_cache.prefetch_async` nu stil, zoals de andere tests al deden.
 - Issue: [#223](https://github.com/helmerzNL/MealieShopper/issues/223). Pull request: [#225](https://github.com/helmerzNL/MealieShopper/pull/225).
 
 ## v3.3.1
