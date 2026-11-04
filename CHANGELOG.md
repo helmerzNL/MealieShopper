@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.7.0
+
+### Nieuw en opgelost in 3.7.0
+
+*English summary: a receipt opens as a narrow paper strip again (it had grown as wide as the page) and gets a second view, Products: the same lines as product cards with the webshop name and photo, the bonus lines below, and the item count, total, payment method and bonus amount under the title; the choice is remembered. Receipt photos no longer wait for the nightly round alone: opening a receipt fetches the photos of its own lines, opening the receipts list starts a small background round, and the nightly round does five hundred instead of two hundred. In the purchases overview the photo strip moved to the right at a fixed width, so every row starts its text at the same place. Reload the page once after updating.*
+
+- **Kassabon als bonnetje én als producten.** Een bon opent weer als een smalle strook papier in het midden (hij was zo breed als de pagina geworden en zag er niet meer uit als een bon). Met de twee knopjes rechts van de titel wissel je naar **Producten**: dezelfde regels als productkaarten met de naam en de foto van het webwinkelproduct waaraan de regel gekoppeld is (een regel die nog niet gekoppeld is houdt de afgekorte naam van de bon), de bonusregels eronder, en onder de titel het aantal artikelen, het totaal, de betaalwijze en het bonusbedrag. De keuze blijft bewaard in je browser. Bij zoeken lichten de gevonden regels in beide weergaven op. Op een breed scherm scrolt de bon in zijn eigen vak, zodat de pagina niet schuift.
+- **Bonfoto's komen sneller.** De foto's bij gekoppelde bonregels kwamen alleen uit de nachtelijke ronde (200 per nacht): met tweeduizend gekoppelde regels bleven de bonnen maanden zonder foto. Het openen van een bon haalt nu de foto's van zijn eigen regels op (`POST /api/ah/receipts/<id>/products` geeft `images`), het openen van de lijst met aankopen start een kleine ronde op de achtergrond (hooguit vier verzoeken aan AH, honderd producten), en de nachtelijke ronde doet er vijfhonderd.
+- **Overzicht: de foto's rechts.** In het overzicht van de aankopen staat de strook foto's rechts, op een vaste breedte, en de details links: een bon zonder foto's (een icoon) en een bestelling met zes foto's beginnen hun tekst nu op dezelfde plek. Op een telefoon staan de foto's onder de details.
+- **Handleiding** in beide talen en een nieuw screenshot (`receipt-products.png`).
+
 ## v3.6.2
 
 ### Aangepast en verwijderd in 3.6.2
