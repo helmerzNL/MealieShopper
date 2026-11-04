@@ -223,6 +223,13 @@ class OrdersTest(ImportCase):
         self.assertEqual((orders[1]["units"], orders[1]["importedAt"]), (18, NOW))
         self.assertEqual(price_import.list_orders("jumbo")["orders"], [])
 
+    def test_the_imported_list_route_carries_the_first_four_names(self):
+        items = [{"name": f"Product {n}", "quantity": 1, "price": 1.0, "total": 1.0, "discount": 0} for n in range(1, 7)]
+        self.run_import(mail_order(items=items))
+        listed = create_app().test_client().get("/api/imported-orders/ah").get_json()["orders"][0]
+        self.assertEqual(listed["productNames"], ["Product 1", "Product 2", "Product 3", "Product 4"])
+        self.assertNotIn("productNames", price_import.list_orders("ah")["orders"][0])
+
     def test_an_imported_order_opens_with_its_products(self):
         self.run_import(mail_order())
         order = price_import.get_order("ah", "225301")

@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-84")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-85")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -413,7 +413,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/orders")
     def ah_orders_list():
-        return jsonify(ah_orders.list_orders())
+        return jsonify(ah_orders.list_orders(summary=True))
 
     @app.get("/api/ah/orders/<int:order_id>")
     def ah_order_detail(order_id: int):
@@ -428,7 +428,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/receipts")
     def ah_receipts_list():
-        return jsonify(ah_orders.list_receipts())
+        return jsonify(ah_orders.list_receipts(summary=True))
 
     @app.get("/api/ah/receipts/<receipt_id>")
     def ah_receipt_detail(receipt_id: str):
@@ -585,7 +585,7 @@ def create_app() -> Flask:
     # importeren en verwijderen gaan via /api/prices/import en zijn van de beheerder.
     @app.get("/api/imported-orders/<store>")
     def imported_orders_list(store: str):
-        return import_action(lambda: price_import.list_orders(store))
+        return import_action(lambda: price_import.list_orders(store, summary=True))
 
     @app.get("/api/imported-orders/<store>/<path:ref>")
     def imported_order_detail(store: str, ref: str):
@@ -1559,7 +1559,7 @@ def create_app() -> Flask:
 
     @app.get("/api/jumbo/orders")
     def jumbo_orders_list():
-        return jsonify(jumbo_orders.list_orders())
+        return jsonify(jumbo_orders.list_orders(summary=True))
 
     @app.get("/api/jumbo/orders/<order_id>")
     def jumbo_order_detail(order_id: str):
