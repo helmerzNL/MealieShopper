@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.6.1
+
+### Aangepast in 3.6.1
+
+*English summary: for an imported order the archive icon now comes after the word "Order" instead of before it, so "Order" lines up in the Kind column of the table, on the cards and in the overview.*
+
+- **Het archief-icoon staat achter *Bestelling*.** Bij een ingelezen bestelling stond het icoon in 3.5.0 vóór het woord, waardoor *Bestelling* in de kolom Soort niet onder die van de andere bestellingen uitlijnde. Nu staat het erachter, in de tabel, op de kaarten en in het overzicht (`purchaseKindLabel`). De tooltip en de schermlezertekst (*Geïmporteerd uit je bevestigingsmails*) zijn hetzelfde gebleven. Bij Picnic en Crisp staat het icoon nog steeds voor de datum op de kaart.
+- **Handleiding** (NL en EN): *archiefdoos erachter*.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Vervolg op issue [#229](https://github.com/helmerzNL/MealieShopper/issues/229) en pull request [#230](https://github.com/helmerzNL/MealieShopper/pull/230).
+
 ## v3.6.0
 
 ### Nieuw in 3.6.0
