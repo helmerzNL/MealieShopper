@@ -276,7 +276,9 @@ class OrdersPageTest(unittest.TestCase):
             self.assertIsNotNone(tag, button)
             self.assertIn("data-admin-only", tag.group(0), button)
             self.assertIn(f'$("#{button}").addEventListener("click", () => openPriceImport({store}));', scripts[script])
-            self.assertIn("importedOrderCard(order", scripts[script], f"{script}: de ingelezen bestellingen staan bij de afgelopen")
+            # Bij AH en Jumbo staan de ingelezen bestellingen als rij in de aankopentabel, bij Picnic en Crisp als kaart bij de afgelopen.
+            listed = 'kind: "imported", id: String(order.ref)' if script == "orders.js" else "importedOrderCard(order"
+            self.assertIn(listed, scripts[script], f"{script}: de ingelezen bestellingen staan tussen de afgelopen")
 
 
 if __name__ == "__main__":

@@ -631,6 +631,18 @@ class SearchTest(AhOrdersTestCase):
         self.assertEqual([r["id"] for r in both["receipts"]], ["R2", "R1", "R0"][: both["total"]])
         self.assertEqual(self.client.get("/api/ah/receipts/search?q=").get_json(), {"query": "", "receipts": [], "total": 0, "unsearched": 0})
 
+    def test_the_table_asks_for_every_hit_with_limit_all(self):
+        self.client.post("/api/ah/receipts/sync")
+        with mock.patch.object(ah_orders, "search_purchases", wraps=ah_orders.search_purchases) as search:
+            self.client.get("/api/ah/purchases/search?q=melk&limit=all")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=7")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=nope")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 7, 50])
+        with mock.patch.object(ah_orders, "search_receipts", wraps=ah_orders.search_receipts) as search:
+            self.client.get("/api/ah/receipts/search?q=melk&limit=all")
+            self.client.get("/api/ah/receipts/search?q=melk")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 200])
+
     def test_receipts_without_their_lines_are_counted_as_not_searched(self):
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R9", "dateTime": "2026-10-19T10:00:00", "total": 4.0}]), mock.patch.object(ah, "get_receipt", side_effect=RuntimeError("AH even weg")):
             self.client.post("/api/ah/receipts/sync")

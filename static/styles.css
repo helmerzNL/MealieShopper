@@ -3713,85 +3713,134 @@ body.has-onboarding {
   text-align: left;
 }
 
-.receipt-hits {
-  margin: 4px 0 0;
-  padding-left: 18px;
+/* Winkels > Bestellingen: de aankopentabel (bestellingen en kassabonnen samen) met de filters erboven. Op een groot scherm
+   vult de tabel de rest van het scherm en scrolt hij in zijn eigen vak (fitPurchaseTable in orders.js). */
+.purchase-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0 0 10px;
+}
+
+.purchase-filters__check {
+  align-items: center;
+  min-height: 0;
+}
+
+.purchase-filters__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.input--amount {
+  width: 6.5em;
+}
+
+.purchase-status {
+  margin: 0 0 8px;
   font-size: 14px;
 }
 
-/* De lijst met bonnen onder Bestellingen: een regel per bon (datum, bedrag, aantal), de hele regel is de link. Op een groot scherm
-   vult de lijst de rest van het scherm en scrolt hij in zijn eigen vak; op een telefoon loopt hij gewoon met de pagina mee. */
-.receipt-rows {
-  display: grid;
-  gap: 4px;
-  margin-top: 12px;
-}
-
-.receipt-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 36px;
-  padding: 4px 12px;
+.purchase-table-wrap {
+  overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  color: inherit;
-  text-decoration: none;
+  border-radius: var(--radius-card);
+  overscroll-behavior: contain;
 }
 
-.receipt-row:hover {
+.purchase-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.purchase-table th,
+.purchase-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.purchase-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.purchase-table__row {
+  cursor: pointer;
+}
+
+.purchase-table__row:hover {
   background: var(--selection);
-  border-color: var(--success-border);
 }
 
-.receipt-row strong {
+.purchase-table__row:last-child td {
+  border-bottom: 0;
+}
+
+.purchase-table__row td:first-child a {
   color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
   white-space: nowrap;
 }
 
-.receipt-row span {
-  font-variant-numeric: tabular-nums;
-}
-
-.receipt-row small {
-  color: var(--muted);
-  font-size: 13px;
+.purchase-table .purchase-table__amount {
   text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-@media (min-width: 640px) {
-  .receipt-row small {
-    min-width: 7em; /* de bedragen onder elkaar, wat het aantal ook is */
-  }
+.purchase-table__actions {
+  width: 1%;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 
-/* Op een telefoon past de datum niet naast het bedrag: de datum op de eerste regel, bedrag en aantal eronder. */
+.purchase-table__action {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+}
+
+.purchase-table__badge {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
+}
+
+/* Op een telefoon vallen de kolommen Soort en Status weg: de datum, de producten en het bedrag blijven. */
 @media (max-width: 639px) {
-  .receipt-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 0;
+  .purchase-table th:nth-child(2),
+  .purchase-table td:nth-child(2),
+  .purchase-table th:nth-child(3),
+  .purchase-table td:nth-child(3) {
+    display: none;
   }
 
-  .receipt-row strong {
-    grid-column: 1 / -1;
+  .purchase-table th,
+  .purchase-table td {
+    padding: 8px 6px;
   }
-}
 
-@media (min-width: 1024px) {
-  .receipt-rows {
-    max-height: calc(100vh - 150px);
-    padding-right: 4px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+  .purchase-table__row td:first-child a {
+    white-space: normal;
   }
-}
 
-.receipt__hit {
-  margin: 0 -4px;
-  padding: 0 4px;
-  background: #ffe97a;
-  border-radius: 2px;
+  .purchase-table__actions:empty {
+    padding: 0;
+  }
 }
 
 /* Updatecheck (Instellingen > Updates): een bolletje bij de tab en een melding als er een nieuwe versie is */

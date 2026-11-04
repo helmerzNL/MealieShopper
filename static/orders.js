@@ -115,36 +115,9 @@ function ordersStore() {
   return ordersAreJumbo() ? "jumbo" : "ah";
 }
 
-function orderCard(order) {
-  if (order.imported) return importedOrderCard(order, ordersStore());
-  const lines = [
-    order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
-    [slotLabel(order.slotStart, order.slotEnd), money(order.total)].filter(Boolean).join(" · "),
-    order.itemsSynced ? tn("list.items", order.itemCount) : t("orders.items_pending"),
-  ].filter(Boolean);
-  return `
-    <div class="list-card">
-      <a class="list-card__open" data-order-id="${escapeHtml(order.id)}" href="${escapeHtml(storesPath(ordersStore(), "orders", order.id))}" data-nav>
-        <strong>${escapeHtml(dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }))}</strong>
-        ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}
-      </a>
-    </div>`;
-}
-
-// Aankomende bestellingen (nog open, nieuwste eerst) en afgelopen bestellingen (geleverd, nieuwste eerst), met de ingelezen oude
-// bestellingen ertussen op hun datum
-function renderOrderList() {
-  const upcoming = ordersState.orders.filter((order) => order.kind === "open").sort((a, b) => String(a.deliveryDate || "").localeCompare(String(b.deliveryDate || "")));
-  const past = importedOrdersMerge(ordersState.orders.filter((order) => order.kind !== "open"), ordersState.imported);
-  const never = !ordersState.ordersSyncedAt && !ordersState.imported.length;
-  const empty = (text) => `<p class="muted">${escapeHtml(never ? t("orders.never_synced") : text)}</p>`;
-  $("#ah-order-upcoming").innerHTML = upcoming.length ? upcoming.map(orderCard).join("") : empty(t("orders.upcoming_none"));
-  $("#ah-order-list").innerHTML = past.length ? past.map(orderCard).join("") : empty(ordersAreJumbo() ? t("orders.none_jumbo") : t("orders.none"));
-}
-
 // Zonder hoofdletters en accenten, zoals de server zoekt
 function foldText(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return String(value || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 function matchesQuery(name, words) {
@@ -157,34 +130,128 @@ function receiptDay(receipt) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" });
 }
 
-function renderReceiptList() {
-  const target = $("#ah-receipt-list");
-  if (!ordersState.receipts.length) {
-    target.innerHTML = `<p class="muted">${escapeHtml(ordersState.receiptsSyncedAt ? t("orders.receipts_none") : t("orders.never_synced"))}</p>`;
-    return;
+// ---- de aankopentabel: je bestellingen (uit je account en ingelezen uit je mails) en je kassabonnen samen, de nieuwste eerst.
+// Erboven de filters: welke soorten, een bedrag van en tot, en het zoekveld dat op de producten in een bestelling of bon zoekt
+// (op de server, zie searchPurchases); de tabel laat dan alleen de aankopen met dat product zien, met de gevonden regels erin.
+// De filters werken in de browser op de lijst die er al staat: een paar honderd rijen, in een keer getekend, zonder herladen.
+const purchaseFilters = { orders: true, receipts: true, min: "", max: "" };
+
+function purchaseRows() {
+  const store = ordersStore();
+  const rows = ordersState.orders.map((order) => ({
+    kind: "order", id: String(order.id), date: order.deliveryDate || "", open: order.kind === "open",
+    label: dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }),
+    status: [order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"), slotLabel(order.slotStart, order.slotEnd)].filter(Boolean).join(" · "),
+    total: order.total, items: order.itemsSynced ? order.itemCount : null,
+    href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
+  }));
+  for (const order of ordersState.imported) {
+    rows.push({
+      kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order), status: "", ref: order.ref,
+      total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
+    });
   }
-  // Een regel per bon, de hele regel is de link: zo passen er veel op een scherm en scrolt de lijst in zijn eigen vak.
-  target.innerHTML = ordersState.receipts
-    .map(
-      (receipt) => `
-        <a class="receipt-row" data-receipt-id="${escapeHtml(receipt.id)}" href="${escapeHtml(storesPath("ah", "receipts", receipt.id))}" data-nav>
-          <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
-          <span>${escapeHtml(money(receipt.total))}</span>
-          <small>${escapeHtml(receipt.detailsSynced ? tn("list.items", receipt.itemCount) : t("orders.items_pending"))}</small>
-        </a>`
-    )
-    .join("");
+  if (!ordersAreJumbo()) {
+    for (const receipt of ordersState.receipts) {
+      rows.push({
+        kind: "receipt", id: String(receipt.id), date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
+        total: receipt.total, items: receipt.detailsSynced ? receipt.itemCount : null,
+        href: storesPath("ah", "receipts", receipt.id), attr: `data-receipt-id="${escapeHtml(receipt.id)}"`,
+      });
+    }
+  }
+  // Open bestellingen bovenaan (hun bezorgdag ligt in de toekomst), daarna op datum, de nieuwste eerst.
+  return rows.sort((a, b) => Number(b.open) - Number(a.open) || String(b.date).localeCompare(String(a.date)));
+}
+
+function purchaseAmount(value) {
+  const number = Number.parseFloat(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function purchaseVisible(row, hits) {
+  if (row.kind === "receipt" ? !purchaseFilters.receipts : !purchaseFilters.orders) return false;
+  const min = purchaseAmount(purchaseFilters.min);
+  const max = purchaseAmount(purchaseFilters.max);
+  if (min !== null && !(row.total >= min)) return false;
+  if (max !== null && !(row.total <= max)) return false;
+  return !hits || hits.has(`${row.kind}:${row.id}`);
+}
+
+// De gevonden regels per aankoop (kind:id), of null zonder zoekopdracht: dan tellen alleen de andere filters.
+function purchaseHits() {
+  const hits = ordersState.hits;
+  if (!ordersState.query.trim() || !hits) return null;
+  const map = new Map();
+  for (const entry of hits.occurrences) {
+    const key = `${entry.source === "kassabon" ? "receipt" : entry.imported ? "imported" : "order"}:${entry.id}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(entry);
+  }
+  return map;
+}
+
+function purchaseProductsCell(row, matches) {
+  if (matches) {
+    const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);
+    if (matches.length > 3) shown.push(t("orders.more", { count: matches.length - 3 }));
+    return `<span class="purchase-table__hits">${escapeHtml(shown.join(", "))}</span>`;
+  }
+  return row.items === null ? `<span class="muted">${escapeHtml(t("orders.items_pending"))}</span>` : escapeHtml(tn("list.items", row.items));
+}
+
+function purchaseRow(row, matches) {
+  const kind = row.kind === "imported"
+    ? `${mdiIcon(MDI_ARCHIVE_OUTLINE, "mdi purchase-table__badge")}${escapeHtml(t("orders.kind.imported"))}`
+    : escapeHtml(t(row.kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order"));
+  const remove = t("orders.imported.delete");
+  const action = row.kind === "imported" && priceImportIsOwner()
+    ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`
+    : "";
+  return `<tr class="purchase-table__row${row.open ? " is-open" : ""}" ${row.attr}>
+      <td><a href="${escapeHtml(row.href)}" data-nav>${escapeHtml(row.label)}</a></td>
+      <td>${kind}</td>
+      <td>${escapeHtml(row.status)}</td>
+      <td>${purchaseProductsCell(row, matches)}</td>
+      <td class="purchase-table__amount">${escapeHtml(money(row.total))}</td>
+      <td class="purchase-table__actions">${action}</td>
+    </tr>`;
 }
 
 function renderOrders() {
   const jumbo = ordersAreJumbo();
   $("#ah-orders-intro").hidden = jumbo;
   $("#jumbo-orders-intro").hidden = !jumbo;
-  $("#ah-receipts-block").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
-  renderOrderList();
-  if (!jumbo) renderReceiptList();
-  if (ordersState.query.trim()) renderPurchaseResults(ordersState.hits);
+  $("#ah-filter-receipts-label").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
+  const rows = purchaseRows();
+  const hits = purchaseHits();
+  const visible = rows.filter((row) => purchaseVisible(row, hits));
+  const query = ordersState.query.trim();
+  const never = !ordersState.ordersSyncedAt && !ordersState.receiptsSyncedAt && !ordersState.imported.length;
+  let empty = "";
+  if (!rows.length) empty = escapeHtml(never ? t("orders.never_synced") : t(jumbo ? "orders.none_jumbo" : "orders.none"));
+  else if (query && !hits) empty = escapeHtml(t("orders.searching"));
+  else if (!visible.length) empty = query ? th("orders.search_none", { query }) : escapeHtml(t("orders.filter_none"));
+  $("#ah-purchase-rows").innerHTML = empty
+    ? `<tr><td colspan="6" class="muted">${empty}</td></tr>`
+    : visible.map((row) => purchaseRow(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
+  const notes = [rows.length ? t("orders.shown", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(rows.length) }) : ""];
+  if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.length), total: I18N.formatNumber(hits.size) }));
+  if (hits && ordersState.hits.unsearched) notes.push(tn("orders.search_unsearched", ordersState.hits.unsearched));
+  $("#ah-purchase-status").textContent = notes.filter(Boolean).join(" · ");
+  window.requestAnimationFrame(fitPurchaseTable);
 }
+
+// De tabel vult het scherm tot onderaan en scrolt in zijn eigen vak (pageFitHeight in app.js); op een smal scherm scrolt de pagina.
+function fitPurchaseTable() {
+  const wrap = $("#ah-purchase-table-wrap");
+  const height = pageFitHeight(wrap);
+  wrap.style.maxHeight = height === null ? "" : `${height}px`;
+}
+
+window.addEventListener("resize", () => {
+  if (ordersState.loaded) fitPurchaseTable();
+});
 
 async function loadOrders() {
   message("#ah-orders-message", "");
@@ -253,74 +320,25 @@ async function syncOrders() {
   setBusy(button, false);
 }
 
-// ---- zoeken in alles wat je kocht
+// ---- zoeken op product: de server zoekt in de regels van alle bestellingen en bonnen (alle woorden moeten erin staan) en
+// geeft elke gevonden regel met de aankoop waar hij op staat; de tabel filtert daarop. Een kwart seconde na de laatste toets,
+// en een antwoord op een oudere zoekopdracht wordt genegeerd.
 let purchaseTimer = null;
 let purchaseSeq = 0;
-
-function renderPurchaseResults(data) {
-  const box = $("#ah-purchase-results");
-  const query = ordersState.query.trim();
-  box.hidden = !query;
-  $("#ah-orders-main").hidden = Boolean(query);
-  if (!query) return;
-  if (!data) {
-    box.innerHTML = "";
-    return;
-  }
-  if (!data.products.length && !data.receiptHits?.total) {
-    box.innerHTML = `<p class="muted">${th("orders.search_none", { query })}</p>`;
-    return;
-  }
-  const products = data.products
-    .map(
-      (product) => `<div class="credential-row"><div><strong>${escapeHtml(product.product)}</strong>
-        <small>${escapeHtml([t("orders.last_bought", { date: dayLabel(product.lastDate) }), tn("orders.times", product.times), t("orders.quantity", { count: I18N.formatNumber(product.totalQuantity) })].join(" · "))}</small></div></div>`
-    )
-    .join("");
-  const orderHits = data.occurrences.filter((entry) => entry.source === "bestelling");
-  const occurrences = orderHits
-    .map(
-      (entry) => `<div class="credential-row"><div><strong>${escapeHtml(entry.product)}</strong>
-        <small>${escapeHtml([dayLabel(entry.date), t("orders.source.order"), entry.quantity ? `${entry.quantity}x` : "", money(entry.amount)].filter(Boolean).join(" · "))}</small></div>
-        <button class="button button--secondary" type="button" ${entry.imported ? "data-imported-order" : "data-order-id"}="${escapeHtml(entry.id)}">${escapeHtml(t("orders.view"))}</button></div>`
-    )
-    .join("");
-  const found = data.receiptHits || { receipts: [], total: 0, unsearched: 0 };
-  const receipts = found.receipts
-    .map(
-      (receipt) => `<div class="credential-row">
-        <div>
-          <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
-          <small>${escapeHtml(money(receipt.total))}</small>
-          <ul class="receipt-hits">${receipt.matches.map((line) => `<li>${escapeHtml(line.quantity)}x ${escapeHtml(line.name)}${line.amount === null ? "" : ` · ${escapeHtml(money(line.amount))}`}</li>`).join("")}</ul>
-        </div>
-        <button class="button button--secondary" type="button" data-receipt-id="${escapeHtml(receipt.id)}">${escapeHtml(t("orders.view"))}</button></div>`
-    )
-    .join("");
-  box.innerHTML = `<p class="muted">${escapeHtml(t("orders.search_summary", { products: data.products.length, total: data.total }))}</p>
-    <div class="credential-list">${products}</div>
-    ${found.total ? `<h3>${escapeHtml(tn("orders.search_receipts", found.total))}</h3><div class="credential-list">${receipts}</div>` : ""}
-    ${found.unsearched ? `<p class="muted">${escapeHtml(tn("orders.search_unsearched", found.unsearched))}</p>` : ""}
-    ${occurrences ? `<h3>${escapeHtml(t("orders.occurrences"))}</h3><div class="credential-list">${occurrences}</div>` : ""}`;
-}
 
 async function searchPurchases() {
   const seq = ++purchaseSeq;
   const query = ordersState.query.trim();
   if (!query) {
     ordersState.hits = null;
-    renderPurchaseResults(null);
+    renderOrders();
     return;
   }
   try {
-    const q = encodeURIComponent(query);
-    const [data, receiptHits] = await Promise.all([
-      jsonFetch(`${ordersApi()}/purchases/search?q=${q}`),
-      ordersAreJumbo() ? { receipts: [], total: 0, unsearched: 0 } : jsonFetch("/api/ah/receipts/search?q=" + q),
-    ]);
+    const data = await jsonFetch(`${ordersApi()}/purchases/search?${new URLSearchParams({ q: query, limit: "all" })}`);
     if (seq !== purchaseSeq) return;
-    ordersState.hits = { ...data, receiptHits };
-    renderPurchaseResults(ordersState.hits);
+    ordersState.hits = data;
+    renderOrders();
   } catch (error) {
     if (seq === purchaseSeq) message("#ah-orders-message", error.message);
   }
@@ -330,10 +348,27 @@ $("#ah-purchase-filter").addEventListener("input", (event) => {
   ordersState.query = event.target.value;
   ordersState.hits = null;
   purchaseSeq++;
-  renderPurchaseResults(null);
   clearTimeout(purchaseTimer);
+  if (!ordersState.query.trim()) {
+    renderOrders();
+    return;
+  }
+  $("#ah-purchase-status").textContent = t("orders.searching");
   purchaseTimer = setTimeout(searchPurchases, 250);
 });
+
+for (const [id, key] of [["ah-filter-orders", "orders"], ["ah-filter-receipts", "receipts"]]) {
+  $(`#${id}`).addEventListener("change", (event) => {
+    purchaseFilters[key] = event.target.checked;
+    if (ordersState.loaded) renderOrders();
+  });
+}
+for (const [id, key] of [["ah-filter-min", "min"], ["ah-filter-max", "max"]]) {
+  $(`#${id}`).addEventListener("input", (event) => {
+    purchaseFilters[key] = event.target.value;
+    if (ordersState.loaded) renderOrders();
+  });
+}
 
 // ---- een kassabon zoals op papier: kolommen, bonusregels, totaal en betaalwijze
 function receiptMethod(method) {
@@ -604,8 +639,6 @@ function resetOrders() {
   Object.assign(ordersState, { basket: null, orders: [], imported: [], receipts: [], ordersSyncedAt: null, receiptsSyncedAt: null, query: "", hits: null, loaded: false });
   purchaseSeq++;
   $("#ah-purchase-filter").value = "";
-  $("#ah-purchase-results").hidden = true;
-  $("#ah-orders-main").hidden = false;
   showPurchaseOverview();
   message("#ah-orders-message", "");
   if (document.querySelector("#ah-items-bestellingen.is-active")) loadOrders();

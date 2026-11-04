@@ -390,22 +390,13 @@ function renderOfferHistory() {
 }
 
 // Op een breed scherm passen de lijst en het product samen precies op het scherm: elke kolom krijgt de hoogte van waar de
-// kolommen beginnen tot waar de pagina ophoudt, en scrolt daarbinnen. Zo staat er nooit een scrollbalk over de hele pagina.
-// Waar de kolommen beginnen hangt van de tekst erboven af, wat eronder komt (de rand van het kader en van de pagina) is vast,
-// dus allebei worden gemeten. Op een smal scherm geldt het maximum uit styles.css.
+// kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
+// kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
 function offerHistoryFitList(list) {
-  const detail = $("#offers-history-detail");
-  if (!window.matchMedia("(min-width: 900px)").matches) {
-    list.style.maxHeight = "";
-    detail.style.maxHeight = "";
-    return;
-  }
-  const layout = list.parentElement.getBoundingClientRect();
-  const shell = layout.height ? document.querySelector("main.shell").getBoundingClientRect() : layout;
-  const below = shell.bottom - layout.bottom;
-  const height = `${Math.max(240, window.innerHeight - (layout.top + window.scrollY) - below)}px`;
-  list.style.maxHeight = height;
-  detail.style.maxHeight = height;
+  const height = pageFitHeight(list.parentElement, { minWidth: 900 });
+  const value = height === null ? "" : `${height}px`;
+  list.style.maxHeight = value;
+  $("#offers-history-detail").style.maxHeight = value;
 }
 
 async function loadOfferHistory() {

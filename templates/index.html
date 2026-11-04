@@ -775,17 +775,31 @@
             <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/></svg>
             <input class="input" id="ah-purchase-filter" type="search" placeholder="Zoek op product, bijvoorbeeld frisdrank" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:orders.search_ph">
           </label>
-          <div id="ah-orders-message"></div>
-          <div id="ah-purchase-results" hidden></div>
-          <div id="ah-orders-main">
-            <h3 data-i18n="orders.upcoming_title">Aankomende bestellingen</h3>
-            <div id="ah-order-upcoming" class="list-grid"></div>
-            <h3 data-i18n="orders.past_title">Afgelopen bestellingen</h3>
-            <div id="ah-order-list" class="list-grid"></div>
-            <div id="ah-receipts-block">
-              <h3 data-i18n="orders.receipts_title">Kassabonnen</h3>
-              <div id="ah-receipt-list" class="receipt-rows"></div>
+          <div class="purchase-filters">
+            <label class="check purchase-filters__check"><input type="checkbox" id="ah-filter-orders" checked> <span data-i18n="orders.part.orders">Bestellingen</span></label>
+            <label class="check purchase-filters__check" id="ah-filter-receipts-label"><input type="checkbox" id="ah-filter-receipts" checked> <span data-i18n="orders.part.receipts">Kassabonnen</span></label>
+            <div class="purchase-filters__amount">
+              <span data-i18n="orders.filter.amount">Bedrag</span>
+              <input class="input input--amount" id="ah-filter-min" type="number" min="0" step="0.01" inputmode="decimal" placeholder="van" aria-label="Bedrag van" data-i18n-attr="placeholder:orders.filter.min;aria-label:orders.filter.min_label">
+              <input class="input input--amount" id="ah-filter-max" type="number" min="0" step="0.01" inputmode="decimal" placeholder="tot" aria-label="Bedrag tot" data-i18n-attr="placeholder:orders.filter.max;aria-label:orders.filter.max_label">
             </div>
+          </div>
+          <div id="ah-orders-message"></div>
+          <p class="muted purchase-status" id="ah-purchase-status"></p>
+          <div class="purchase-table-wrap" id="ah-purchase-table-wrap">
+            <table class="purchase-table">
+              <thead>
+                <tr>
+                  <th data-i18n="orders.col.date">Datum</th>
+                  <th data-i18n="orders.col.kind">Soort</th>
+                  <th data-i18n="orders.col.status">Status</th>
+                  <th data-i18n="orders.col.products">Producten</th>
+                  <th class="purchase-table__amount" data-i18n="orders.col.amount">Bedrag</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="ah-purchase-rows"></tbody>
+            </table>
           </div>
         </div>
         <div class="box box--wide" id="ah-order-detail" hidden>

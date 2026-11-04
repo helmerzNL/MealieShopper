@@ -702,6 +702,10 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "amount": row["amount"], "date": (row["date_time"] or "")[:10], "id": row["receipt_id"], "open": False,
                 })
         occurrences += price_import.search_lines(conn, "ah", words, ah_lists._fold)  # oude bestellingen uit je bevestigingsmails
+        # Bonnen en bestellingen waarvan de regels nog niet zijn opgehaald: die kunnen nog niet worden doorzocht.
+        unsearched = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0) + (SELECT COUNT(*) FROM ah_orders WHERE items_synced = 0)"
+        ).fetchone()[0]
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:
@@ -714,4 +718,5 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
         "products": sorted(grouped.values(), key=lambda group: group["lastDate"], reverse=True),
         "occurrences": occurrences[: max(1, int(limit))],
         "total": len(occurrences),
+        "unsearched": unsearched,
     }

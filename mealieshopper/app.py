@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-81")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-82")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -450,13 +450,20 @@ def create_app() -> Flask:
     def ah_receipts_sync():
         return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
 
+    def search_limit(default: int) -> int:
+        # De aankopentabel vraagt alles (limit=all) en filtert zelf; zonder limit blijft het de korte lijst.
+        value = (request.args.get("limit") or "").strip().lower()
+        if value == "all":
+            return 100000
+        return max(1, min(int(value), 100000)) if value.isdigit() else default
+
     @app.get("/api/ah/receipts/search")
     def ah_receipts_search():
-        return jsonify(ah_orders.search_receipts(request.args.get("q") or ""))
+        return jsonify(ah_orders.search_receipts(request.args.get("q") or "", limit=search_limit(200)))
 
     @app.get("/api/ah/purchases/search")
     def ah_purchases_search():
-        return jsonify(ah_orders.search_purchases(request.args.get("q") or ""))
+        return jsonify(ah_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     @app.post("/api/ah/explore")
     def ah_explore_routes():
@@ -1528,7 +1535,7 @@ def create_app() -> Flask:
 
     @app.get("/api/jumbo/purchases/search")
     def jumbo_purchases_search():
-        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or ""))
+        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     # Recepten: zoekresultaten, één recept met ingrediënten en bereiding, en importeren in Mealie.
 

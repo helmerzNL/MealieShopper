@@ -67,18 +67,26 @@ class NavTreeTest(unittest.TestCase):
 
 
 class ReceiptsTest(unittest.TestCase):
-    def test_a_receipt_in_the_list_is_one_row_and_the_row_is_the_link(self):
-        self.assertIn('<div id="ah-receipt-list" class="receipt-rows"></div>', HTML)
-        self.assertIn(
-            '<a class="receipt-row" data-receipt-id="${escapeHtml(receipt.id)}" href="${escapeHtml(storesPath("ah", "receipts", receipt.id))}" data-nav>',
-            ORDERS,
-        )
-        self.assertNotIn('class="button button--secondary" data-receipt-id', ORDERS)
-        # Op een groot scherm vult de lijst de rest van het scherm en scrolt hij in zijn eigen vak.
-        self.assertRegex(
-            CSS,
-            r"@media \(min-width: 1024px\) \{\n  \.receipt-rows \{\n    max-height: calc\(100vh - \d+px\);\n    padding-right: 4px;\n    overflow-y: auto;",
-        )
+    def test_orders_and_receipts_share_one_table_with_filters(self):
+        # Vinkjes voor de soorten, een bedrag van en tot, en de tabel met de kolommen.
+        for needle in ('id="ah-filter-orders"', 'id="ah-filter-receipts"', 'id="ah-filter-min"', 'id="ah-filter-max"',
+                       '<table class="purchase-table">', 'id="ah-purchase-rows"', 'id="ah-purchase-table-wrap"'):
+            self.assertIn(needle, HTML)
+        self.assertNotIn('id="ah-receipt-list"', HTML)
+        self.assertNotIn('id="ah-order-upcoming"', HTML)
+        # Elke rij is een bestelling, een ingelezen bestelling of een kassabon, met de link die het detail opent.
+        for needle in ('attr: `data-order-id="${escapeHtml(order.id)}"`', 'attr: `data-imported-order="${escapeHtml(order.ref)}"`',
+                       'attr: `data-receipt-id="${escapeHtml(receipt.id)}"`', "function purchaseVisible(row, hits)",
+                       'row.kind === "receipt" ? !purchaseFilters.receipts : !purchaseFilters.orders'):
+            self.assertIn(needle, ORDERS)
+        # Zoeken op product: een verzoek met alles erin, een kwart seconde na de laatste toets, en de tabel filtert op de hits.
+        self.assertIn('limit: "all"', ORDERS)
+        self.assertIn("purchaseTimer = setTimeout(searchPurchases, 250);", ORDERS)
+        self.assertIn("return !hits || hits.has(`${row.kind}:${row.id}`);", ORDERS)
+        # De tabel vult het scherm tot onderaan en scrolt in zijn eigen vak.
+        self.assertIn("const height = pageFitHeight(wrap);", ORDERS)
+        self.assertRegex(CSS, r"\.purchase-table-wrap \{\n  overflow: auto;")
+        self.assertRegex(CSS, r"\.purchase-table thead th \{\n  position: sticky;")
 
     def test_a_receipt_line_links_to_the_webshop_product_by_id_or_not_at_all(self):
         self.assertIn(
@@ -97,9 +105,10 @@ class ReceiptsTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 900px\) \{\n  \.ohc-detail \{\n    overflow-y: auto;")
         history = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
         self.assertIn("window.requestAnimationFrame(() => offerHistoryFitList(list));", history)
-        self.assertIn("const below = shell.bottom - layout.bottom;", history)
-        self.assertIn("window.innerHeight - (layout.top + window.scrollY) - below", history)
-        self.assertIn("detail.style.maxHeight = height;", history)
+        self.assertIn('const height = pageFitHeight(list.parentElement, { minWidth: 900 });', history)
+        self.assertIn('$("#offers-history-detail").style.maxHeight = value;', history)
+        app = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom)", app)
 
     def test_the_receipt_paper_fills_its_frame_on_a_wide_screen(self):
         self.assertRegex(CSS, r"\.receipt \{\n(?:.*\n)*?  width: 100%;")
