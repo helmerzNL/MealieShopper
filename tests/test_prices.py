@@ -450,6 +450,33 @@ class VerdictTest(PricesCase):
         self.assertEqual((verdict["timesThisYear"], verdict["often"], verdict["bestInYear"]), (6, True, True))
         self.assertFalse(self.annotate(deal("1", "AH Pindakaas", 2.79, 2.99, "nu 2,79"))["1"]["verdict"]["bestInYear"])
 
+    def test_the_badge_takes_the_measured_difference_and_says_where_it_comes_from(self):
+        self.observe("2026-10-10", "1", "AH Penne", 1.19)
+        badge = self.annotate(deal("1", "AH Penne", 0.89, 1.19, "25% korting"))["1"]["badge"]
+        self.assertEqual(badge, {"percent": 25, "source": "history", "claimed": 25, "inflated": False})
+
+    def test_without_history_the_badge_is_the_claim_of_the_store(self):
+        badge = self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]
+        self.assertEqual(badge, {"percent": 25, "source": "store", "claimed": 25, "inflated": False})
+
+    def test_an_inflated_price_before_gives_a_lower_badge_than_the_claim(self):
+        self.observe("2026-10-05", "1", "AH Kaas", 1.10)
+        badge = self.annotate(deal("1", "AH Kaas", 0.88, 1.50, "nu 0,88"))["1"]["badge"]
+        self.assertEqual((badge["percent"], badge["claimed"], badge["inflated"], badge["source"]), (20, 41, True, "history"))
+
+    def test_the_claim_of_a_bundle_deal_follows_the_mechanic(self):
+        self.assertEqual(self.annotate(deal("1", "AH Soep", 2.00, None, "1+1 gratis"))["1"]["badge"]["claimed"], 50)
+        self.assertEqual(self.annotate(deal("2", "AH Hummus", 2.00, None, "2 voor 3,00"))["2"]["badge"]["claimed"], 25)
+        self.assertEqual(self.annotate(deal("3", "AH Thee", 2.00, None, "2e halve prijs"))["3"]["badge"]["claimed"], 25)
+
+    def test_without_a_verdict_there_is_no_badge(self):
+        self.assertIsNone(self.annotate(deal("p1", "Picnic yoghurt", 1.20, None, "20% korting"), store="picnic")["p1"]["badge"])
+
+    def test_a_zero_difference_keeps_a_badge_of_zero(self):
+        self.observe("2026-10-10", "1", "AH Kaas", 1.10)
+        badge = self.annotate(deal("1", "AH Kaas", 1.12, 1.50, "nu 1,12"))["1"]["badge"]
+        self.assertEqual((badge["percent"], badge["inflated"]), (0, True))
+
     def test_a_bigger_pack_that_is_cheaper_per_kilo(self):
         self.observe("2026-10-15", "big", "AH Zalmfilet", 7.00, size="500 g")  # €14/kg
         self.observe("2026-10-15", "other", "Kerstmis Zalmfilet", 5.00, size="500 g", brand="Vishandel")  # ander merk: telt niet

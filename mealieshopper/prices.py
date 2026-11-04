@@ -863,6 +863,21 @@ def _effective(offer: dict[str, Any]) -> float | None:
     return None
 
 
+def _claimed_percent(offer: dict[str, Any]) -> int | None:
+    """De korting volgens de winkel: `(van - voor) / van`, of bij een actie zonder "van"-prijs ("1+1 gratis", "2 voor 3,00") wat de
+    actietekst zegt, zoals het userscript dat ook berekent. None als er niets te berekenen valt."""
+    price, before = _number(offer.get("price")), _number(offer.get("priceBefore"))
+    if price is not None and before:
+        return max(0, round((before - price) / before * 100))
+    if price is None or price <= 0:
+        return None
+    mechanic = deals.parse_mechanic(offer.get("promoLabel"))
+    per_item = _number(deals.effective_unit_price(mechanic, price, price))
+    if per_item is None or mechanic["type"] == deals.UNKNOWN:
+        return None
+    return max(0, round((1 - per_item / price) * 100))
+
+
 def _stated_regular(offer: dict[str, Any]) -> float | None:
     """De gewone prijs die de winkel bij de aanbieding noemt. AH geeft bij een actie met een minimumaantal ("2 voor 3", "1+1 gratis")
     geen prijs ervoor maar de gewone prijs als prijs; dan is de prijs hoger dan wat een stuk bij de actie kost."""
@@ -967,6 +982,12 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             verdict["percent"] = max(0, round(ratio * 100))
             verdict["kind"] = "none" if effective >= lowest - 0.005 else ("good" if ratio >= GOOD_DISCOUNT - 1e-9 else "small")
             verdict["inflated"] = stated is not None and stated > lowest + 0.005
+        # De badge op de kaart: het gemeten verschil, of de claim van de winkel als de app geen gewone prijs van het product kent.
+        measured = any(_number(price) is not None for price in regulars.get(product_id, []))
+        offer["badge"] = None if verdict["kind"] == "unknown" else {
+            "percent": verdict["percent"], "source": "history" if measured else "store", "claimed": _claimed_percent(offer),
+            "inflated": verdict["inflated"],
+        }
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
         started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
         verdict["timesThisYear"] = max(len(started), 1)
