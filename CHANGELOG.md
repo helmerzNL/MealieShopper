@@ -15,6 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API.** `GET /api/ah/orders`, `GET /api/jumbo/orders`, `GET /api/ah/receipts` en `GET /api/imported-orders/<winkel>` geven per aankoop een samenvatting mee: `images` (hooguit zes), `productNames` (hooguit vier), `savings` en `bonusCount` (bestellingen), `payment` (bonnen). De MCP-tools geven dezelfde lijsten zonder die velden.
 - **Handleiding**: de drie weergaven, met nieuwe screenshots.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#227](https://github.com/helmerzNL/MealieShopper/pull/227), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216) en [#217](https://github.com/helmerzNL/MealieShopper/pull/217).
 
 ## v3.3.3
 
