@@ -480,5 +480,24 @@ class OrdersPageTest(unittest.TestCase):
             self.assertIn(listed, scripts[script], f"{script}: de ingelezen bestellingen staan tussen de afgelopen")
 
 
+class ImportDialogTest(unittest.TestCase):
+    """De importdialoog heeft geen knop om alle ingelezen aankopen in een keer te verwijderen: elke ingelezen bestelling heeft bij
+    Bestellingen haar eigen prullenbak (3.6.2)."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_the_dialog_has_no_button_to_remove_everything(self):
+        html = (self.ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        dialog = re.search(r'<dialog[^>]*id="import-dialog".*?</dialog>', html, re.S)
+        self.assertIsNotNone(dialog)
+        self.assertNotIn("import-remove", dialog.group(0))
+        for name in ("offers_history.js", "i18n/nl.js", "i18n/en.js"):
+            source = (self.ROOT / "static" / name).read_text(encoding="utf-8")
+            self.assertNotIn("import-remove", source, name)
+            self.assertNotIn('"offers.import.remove', source, name)
+        orders = (self.ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+        self.assertIn("data-imported-delete", orders, "de prullenbak per ingelezen bestelling blijft")
+
+
 if __name__ == "__main__":
     unittest.main()

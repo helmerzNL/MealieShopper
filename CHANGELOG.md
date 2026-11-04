@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.6.2
+
+### Verwijderd in 3.6.2
+
+*English summary: the Import old purchases dialog no longer has the button "Remove imported purchases", which removed every imported order of a store at once. Each imported order has its own bin under Orders, so you remove them one at a time there.*
+
+- **De knop *Ingelezen aankopen verwijderen* is weg uit de dialoog *Oude aankopen importeren*.** Die haalde alle ingelezen bestellingen van een winkel in één keer weg. Elke ingelezen bestelling heeft bij **Bestellingen** haar eigen prullenbak, dus daar verwijder je ze een voor een. De teksten van de knop (`offers.import.remove`, `offers.import.remove_confirm`, `offers.import.removed`) zijn ook weg. Een nieuwe test (`ImportDialogTest`) faalt als de knop terugkomt.
+- **Handleiding** (NL en EN): weghalen gaat per bestelling, met haar eigen prullenbak.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.6.1
 
 ### Aangepast in 3.6.1

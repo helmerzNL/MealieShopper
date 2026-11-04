@@ -638,7 +638,6 @@ function renderPriceImportStatus(summary) {
   $("#import-dialog-status").textContent = summary.orders
     ? tn("offers.import.status", summary.orders, { store, first: priceImportDay(summary.first), last: priceImportDay(summary.last) })
     : t("offers.import.status_none", { store });
-  $("#import-remove").hidden = !summary.orders;
 }
 
 function renderPriceImportReport(report) {
@@ -726,19 +725,6 @@ async function runPriceImport() {
   }
 }
 
-async function removePriceImport() {
-  if (!window.confirm(t("offers.import.remove_confirm", { store: priceImportStoreName() }))) return;
-  try {
-    const result = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`, { method: "DELETE" });
-    $("#import-report").innerHTML = "";
-    message("#import-dialog-message", tn("offers.import.removed", result.removed), "success");
-    await loadPriceImportSummary();
-    importedOrdersChanged(priceImport.store);
-  } catch (error) {
-    message("#import-dialog-message", error.message);
-  }
-}
-
 async function copyPriceImportPrompt() {
   try {
     await navigator.clipboard.writeText(priceImport.prompt);
@@ -750,15 +736,15 @@ async function copyPriceImportPrompt() {
 }
 
 $("#offers-history-import").addEventListener("click", () => openPriceImport(offersState.store));
-// Ingelezen of verwijderd, hier of bij Bestellingen: de Prijsgeschiedenis opnieuw als die openstaat (anders laadt het subtab hem
-// toch opnieuw bij het openen).
+// Hier ingelezen, of bij Bestellingen met de prullenbak van een bestelling verwijderd: de Prijsgeschiedenis opnieuw als die
+// openstaat (anders laadt het subtab hem toch opnieuw bij het openen). Alles in één keer weghalen kan niet meer in de dialoog:
+// elke ingelezen bestelling heeft haar eigen prullenbak.
 window.addEventListener("ms:imported-orders", () => {
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
 });
 $("#import-copy").addEventListener("click", copyPriceImportPrompt);
 $("#import-check").addEventListener("click", checkPriceImport);
 $("#import-run").addEventListener("click", runPriceImport);
-$("#import-remove").addEventListener("click", removePriceImport);
 $("#import-data").addEventListener("input", () => {
   $("#import-run").disabled = priceImport.checked === null || priceImport.checked !== $("#import-data").value;
 });
