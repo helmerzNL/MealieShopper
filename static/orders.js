@@ -573,11 +573,12 @@ function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliver
 }
 
 // Status en tijdvak van een ingelezen bestelling zoals AH en Jumbo ze bij een eigen bestelling tonen ("Afgeleverd · 18:00-20:00").
-// Noemde de mail ze niet, dan die van de bestelling uit je account die erdoor wegviel (`from`).
+// Een ingelezen bestelling is altijd afgeleverd: ze telt als gekocht, en een geannuleerde wordt niet ingelezen (de server geeft
+// dan ook altijd "delivered", ook bij een import van vóór 3.5.0). Noemde de mail geen tijdvak, dan dat van de bestelling uit je
+// account die erdoor wegviel (`from`).
 function importedOrderStatus(order, from = null) {
-  const delivered = order.status === "delivered" || (!order.status && Boolean(from) && from.kind !== "open");
   const slot = slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
-  return [delivered ? t("orders.kind.delivered") : "", slot].filter(Boolean).join(" · ");
+  return [t("orders.kind.delivered"), slot].filter(Boolean).join(" · ");
 }
 
 function importedOrderTitle(order) {
@@ -639,13 +640,13 @@ async function deleteImportedOrder(store, ref, button) {
 // Een ingelezen bestelling in de vorm van een bestelling uit je account van Picnic of Crisp (#229), zodat ze door dezelfde code
 // gaat: de lijstkaart, het detail en Alles in mandje. `status` is de status van die winkel voor een afgeleverde bestelling. De regels
 // krijgen het product waar ze bij horen als `id` (Alles in mandje) en het bedrag van de hele regel als `price`, zoals Picnic en
-// Crisp het bewaren. Noemde de mail geen status of tijdvak, dan die van de bestelling uit je account die erdoor wegviel (`from`).
+// Crisp het bewaren. Noemde de mail geen tijdvak, dan dat van de bestelling uit je account die erdoor wegviel (`from`).
 function importedStoreOrder(order, from, status) {
   const items = (order.items || []).map((item) => ({ ...item, id: item.productId || null, price: item.amount }));
   return {
     ...order,
     items,
-    status: order.status === "delivered" ? status : from?.status || "",
+    status, // altijd afgeleverd, zie importedOrderStatus
     windowStart: order.slotStart || from?.windowStart || null,
     windowEnd: order.slotEnd || (order.slotStart ? null : from?.windowEnd) || null,
     itemCount: order.units ?? order.itemCount, // Picnic en Crisp tellen stuks, geen regels

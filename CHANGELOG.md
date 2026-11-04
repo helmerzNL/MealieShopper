@@ -4,9 +4,11 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 ## v3.6.2
 
-### Verwijderd in 3.6.2
+### Aangepast en verwijderd in 3.6.2
 
-*English summary: the Import old purchases dialog no longer has the button "Remove imported purchases", which removed every imported order of a store at once. Each imported order has its own bin under Orders, so you remove them one at a time there.*
+*English summary: an imported order now always shows as Delivered, also when it was imported before 3.5.0 or the email named no status, so old imports get a status without importing them again. The Import old purchases dialog no longer has the button "Remove imported purchases", which removed every imported order of a store at once. Each imported order has its own bin under Orders, so you remove them one at a time there.*
+
+- **Een ingelezen bestelling staat altijd als *Afgeleverd*.** Bij een bestelling die je vóór 3.5.0 inlas, of waarvan de mail geen status noemde, bleef de status leeg, terwijl een afgelopen bestelling uit je account altijd *Afgeleverd* toont. Een ingelezen bestelling telt als gekocht en een geannuleerde wordt niet ingelezen, dus `GET /api/imported-orders/<winkel>` geeft nu altijd `status: "delivered"`. Bij AH en Jumbo staat er *Afgeleverd*, bij Picnic en Crisp de status van die winkel. Je hoeft oude imports dus niet opnieuw in te lezen. Alleen het tijdvak komt nog steeds uit de mail, of anders van de bestelling uit je account zonder producten die erdoor wegvalt.
 
 - **De knop *Ingelezen aankopen verwijderen* is weg uit de dialoog *Oude aankopen importeren*.** Die haalde alle ingelezen bestellingen van een winkel in één keer weg. Elke ingelezen bestelling heeft bij **Bestellingen** haar eigen prullenbak, dus daar verwijder je ze een voor een. De teksten van de knop (`offers.import.remove`, `offers.import.remove_confirm`, `offers.import.removed`) zijn ook weg. Een nieuwe test (`ImportDialogTest`) faalt als de knop terugkomt.
 - **Handleiding** (NL en EN): weghalen gaat per bestelling, met haar eigen prullenbak.
