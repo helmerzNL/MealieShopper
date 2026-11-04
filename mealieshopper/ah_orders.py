@@ -717,8 +717,9 @@ _RECEIPT_SUMMARY_SQL = f"""
         LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
         WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF(p.title, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
     (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
-    (SELECT -SUM(json_extract(value, '$.amount')) FROM json_each(COALESCE(r.discounts, '[]'))) AS summary_savings,
-    json_extract(COALESCE(r.payments, '[]'), '$[0].method') AS summary_payment
+    (SELECT -SUM(json_extract(value, '$.amount'))
+        FROM json_each(CASE WHEN json_valid(r.discounts) THEN r.discounts ELSE '[]' END)) AS summary_savings,
+    json_extract(CASE WHEN json_valid(r.payments) THEN r.payments ELSE '[]' END, '$[0].method') AS summary_payment
 """
 
 

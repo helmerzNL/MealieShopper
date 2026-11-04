@@ -3961,6 +3961,18 @@ body.has-onboarding {
   }
 }
 
+/* De kaart en de rij knippen hun inhoud af, dus de focusring van de link erin zou wegvallen: de kaart tekent hem zelf. */
+.purchase-card:focus-within,
+.purchase-overview__row:focus-within {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.purchase-card__link:focus-visible,
+.purchase-overview__link:focus-visible {
+  outline: none;
+}
+
 /* De collage: een vierkant met 1, 2, 3, 4, 5 of 6 foto's; de eerste foto krijgt bij 3 en 5 de linkerkolom. */
 .purchase-collage {
   display: grid;

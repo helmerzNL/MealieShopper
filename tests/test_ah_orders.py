@@ -412,6 +412,14 @@ class ReceiptsCacheTest(AhOrdersTestCase):
             conn.execute("DELETE FROM ah_receipt_items")
         self.assertIsNone(self.client.get("/api/ah/receipts").get_json()["receipts"][0]["savings"])
 
+    def test_a_receipt_with_broken_discount_json_does_not_break_the_list(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 4.5}]])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipts SET discounts = 'rommel', payments = ''")
+        response = self.client.get("/api/ah/receipts")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.get_json()["receipts"][0]["savings"], response.get_json()["receipts"][0]["payment"]), (0.0, None))
+
     def test_only_new_receipts_are_fetched_next_time(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 5.0}]])
         calls = []

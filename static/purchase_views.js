@@ -180,7 +180,7 @@ function purchaseCollage(row, count) {
 function purchaseDetailLines(row, matches, { names = true, amount = true } = {}) {
   const lines = [];
   if (purchaseView.options.status) {
-    const status = row.kind === "receipt" ? row.payment : row.status;
+    const status = row.kind === "receipt" ? receiptMethod(row.payment) : row.status; // zoals op de bon zelf: PINNEN, niet PIN
     if (status) lines.push(escapeHtml(status));
   }
   const count = row.items === null ? t("orders.items_pending") : tn("list.items", row.items);

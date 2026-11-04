@@ -98,6 +98,16 @@ class PurchaseOverviewTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  flex: none;", "een rij mag in de kolom niet krimpen")
         self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip img:nth-child\(n \+ 5\) \{\n    display: none;")
 
+    def test_the_keyboard_focus_ring_is_drawn_around_the_card_and_the_row_not_clipped_inside(self):
+        # De kaart en de rij knippen hun inhoud af (overflow hidden): de ring van de link erin zou wegvallen. Daarom tekent de
+        # kaart zelf de ring (focus-within) en laat de link de zijne weg.
+        self.assertRegex(CSS, r"\.purchase-card:focus-within,\n\.purchase-overview__row:focus-within \{\n  outline: 3px solid var\(--primary\);")
+        self.assertRegex(CSS, r"\.purchase-card__link:focus-visible,\n\.purchase-overview__link:focus-visible \{\n  outline: none;")
+
+    def test_a_receipt_shows_its_payment_method_the_way_the_paper_does(self):
+        self.assertIn("receiptMethod(row.payment)", VIEWS)
+        self.assertNotIn('row.kind === "receipt" ? row.payment : row.status', VIEWS)
+
     def test_every_view_draws_from_the_same_rows(self):
         self.assertIn('const panes = { table: $("#ah-purchase-table-wrap"), cards: $("#ah-purchase-cards"), overview: $("#ah-purchase-overview") };', VIEWS)
         self.assertIn("renderPurchaseOverview(visible, hits)", VIEWS.split("function renderPurchaseView")[1].split("\n}\n")[0])
