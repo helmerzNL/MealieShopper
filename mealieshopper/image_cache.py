@@ -445,6 +445,10 @@ def fetch(url: str, *, now: str | None = None) -> dict[str, Any] | None:
         register(url, now)
         row = lookup(url)
     if row and row.get("path"):
+        if (images_dir() / row["path"]).is_file():
+            # Een ander verzoek heeft de foto net opgehaald, tussen onze eerste blik (nog geen rij) en het registreren. Dat pad
+            # is goed: niet wissen, anders halen we de foto een tweede keer op.
+            return row
         with (
             closing(_connect()) as conn,
             conn,
