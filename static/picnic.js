@@ -210,7 +210,7 @@ function renderPicnicFavoriteCard(product) {
   const meta = [product.unitSize, product.price ? formatPrice(product.price) : ""].filter(Boolean).join(" \u00b7 ");
   return `
     <article class="product-card" data-picnic-favorite="${escapeHtml(product.id)}">
-      ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${product.image ? `<img src="${escapeHtml(storeImage(product.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -307,16 +307,29 @@ function picnicOrderStatus(status) {
   return known[String(status || "").toUpperCase()] || String(status || "");
 }
 
-function picnicOrderDay(order) {
-  return dayLabel(order.deliveredStart || order.windowStart || order.etaStart);
+// De dag van een bestelling uit je account; een ingelezen bestelling heeft haar dag uit de mail.
+function picnicOrderDate(order) {
+  return order.imported ? order.date : order.deliveredStart || order.windowStart || order.etaStart;
 }
 
+function picnicOrderDay(order) {
+  return dayLabel(picnicOrderDate(order));
+}
+
+// Een ingelezen bestelling (zie importedStoreOrder in orders.js) in de vorm van een afgeleverde bestelling van Picnic.
+function picnicImportedOrder(order, from) {
+  return importedStoreOrder(order, from, "COMPLETED");
+}
+
+// `source`: "live" (aankomend), "local" (uit de lokale kopie) of "imported" (ingelezen uit je mails: dezelfde kaart, met het
+// archief-icoon en de prullenbak, zie importedOrderCard in orders.js).
 function picnicOrderCard(order, source) {
   const lines = [
     picnicOrderStatus(order.status),
     [slotLabel(order.windowStart, order.windowEnd), money(order.total)].filter(Boolean).join(" \u00b7 "),
-    source === "local" ? (order.itemsSynced ? tn("list.items", order.itemCount || 0) : t("orders.items_pending")) : "",
+    source === "live" ? "" : order.itemsSynced ? tn("list.items", order.itemCount || 0) : t("orders.items_pending"),
   ].filter(Boolean);
+  if (source === "imported") return importedOrderCard(order, "picnic", lines);
   return `
     <div class="list-card">
       <button type="button" class="list-card__open" data-picnic-order="${escapeHtml(order.id)}" data-source="${source}">
@@ -328,13 +341,13 @@ function picnicOrderCard(order, source) {
 
 function renderPicnicOrders() {
   const { upcoming, syncedAt, loaded } = picnicOrders;
-  const past = importedOrdersMerge(picnicOrders.past, picnicOrders.imported, (order) => order.deliveredStart || order.windowStart || order.etaStart);
+  const past = importedOrdersMerge(picnicOrders.past, picnicOrders.imported, picnicOrderDate, picnicImportedOrder);
   const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
   $("#picnic-orders-upcoming").innerHTML = upcoming.length
     ? upcoming.map((order) => picnicOrderCard(order, "live")).join("")
     : empty(picnicOrders.upcomingFailed ? t("picnic.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
   $("#picnic-orders-past").innerHTML = past.length
-    ? past.map((order) => (order.imported ? importedOrderCard(order, "picnic") : picnicOrderCard(order, "local"))).join("")
+    ? past.map((order) => picnicOrderCard(order, order.imported ? "imported" : "local")).join("")
     : empty(syncedAt ? t("picnic.orders.none") : t("picnic.orders.never_synced"));
   $("#picnic-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
 }
@@ -401,7 +414,7 @@ function renderPicnicOrderItem(item) {
   const meta = [item.quantity > 1 ? `${item.quantity}\u00d7` : "", item.unitSize, item.price ? formatPrice(item.price) : ""].filter(Boolean).join(" \u00b7 ");
   return `
     <article class="product-card">
-      ${item.image ? `<img src="${escapeHtml(item.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${item.image ? `<img src="${escapeHtml(storeImage(item.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <strong>${escapeHtml(item.title || "")}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -409,8 +422,13 @@ function renderPicnicOrderItem(item) {
     </article>`;
 }
 
-// Een bewaarde bestelling lezen we uit de lokale kopie; staan de producten daar nog niet, dan proberen we Picnic zelf.
+// Een bewaarde bestelling lezen we uit de lokale kopie; staan de producten daar nog niet, dan proberen we Picnic zelf. Een ingelezen
+// bestelling komt uit je mails, in de vorm van een Picnic-bestelling (met de producten waar de regels bij horen).
 async function fetchPicnicOrder(id, source) {
+  if (source === "imported") {
+    const order = await jsonFetch(`/api/imported-orders/picnic/${encodeURIComponent(id)}`);
+    return picnicImportedOrder(order, importedOrdersCover(picnicOrders.past, [order], picnicOrderDate).covered.get(order.ref));
+  }
   if (source === "local") {
     const order = await jsonFetch(`/api/picnic/orders/${encodeURIComponent(id)}`);
     if (order.itemsSynced) return order;
@@ -439,7 +457,7 @@ async function openPicnicOrder(id, source) {
     const items = order.items || [];
     picnicOrders.detail = order;
     $("#picnic-order-title").textContent = picnicOrderDay(order) || t("picnic.orders.order_title", { id });
-    $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0)].filter(Boolean).join(" \u00b7 ");
+    $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0), order.imported ? t("orders.imported.at", { when: formatSyncTime(order.importedAt) }) : ""].filter(Boolean).join(" \u00b7 ");
     $("#picnic-order-items").innerHTML = items.map(renderPicnicOrderItem).join("");
     $("#picnic-order-add-all").hidden = !items.some((item) => item.id);
     if (!items.length) message("#picnic-order-message", order.itemsSynced === false ? t("picnic.orders.items_not_synced") : t("picnic.orders.no_items"), "success");
@@ -449,11 +467,10 @@ async function openPicnicOrder(id, source) {
   }
 }
 
-// Een ingelezen oude bestelling (zie openImportedStoreOrder in orders.js): zonder producten van Picnic, dus zonder Alles in mandje.
+// Een ingelezen oude bestelling opent als elke andere (#229): met de producten waar de regels uit de mail bij horen, en Alles in
+// mandje voor die producten.
 function openPicnicImportedOrder(ref) {
-  picnicOrders.detail = null;
-  const open = ++picnicOrders.run;
-  openImportedStoreOrder("picnic", ref, () => open === picnicOrders.run);
+  openPicnicOrder(ref, "imported");
 }
 
 // De producten van een bestelling opnieuw in je Picnic-mandje; er wordt nooit een bestelling geplaatst.
@@ -467,7 +484,7 @@ async function addPicnicOrderToBasket() {
     const items = order.items.filter((item) => item.id).map((item) => ({ query: item.title || "", productId: item.id, quantity: item.quantity }));
     const data = await postJson("/api/picnic/cart", { items });
     const failed = (data.failed || []).length;
-    message("#picnic-order-message", [t("picnic.orders.added", { count: data.added || 0 }), failed ? t("picnic.orders.added_failed", { count: failed }) : ""].filter(Boolean).join(" "), failed ? "error" : "success");
+    message("#picnic-order-message", [t("picnic.orders.added", { count: data.added || 0 }), failed ? t("picnic.orders.added_failed", { count: failed }) : "", importedUnlinkedNote(order)].filter(Boolean).join(" "), failed ? "error" : "success");
   } catch (error) {
     message("#picnic-order-message", error.message);
   } finally {

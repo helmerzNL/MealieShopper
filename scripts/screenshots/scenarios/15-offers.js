@@ -39,29 +39,46 @@ const PER_CATEGORY = {
   brood_bakkerij: 187, diepvries: 176, huishouden: 167, drogisterie: 145, koffie_thee: 142, bier_wijn: 131, vis: 99,
 };
 // Het oordeel per aanbieding (zie prices.annotate), op titel: [soort, procent onder de laagste gewone prijs van 30 dagen, die prijs,
-// extra]. Extra: best (laagste actieprijs in een jaar), often (zo vaak dit jaar), inflated (de prijs ervoor is hoger dan wat het de
-// laatste 30 dagen kostte), pack (een verpakking die per eenheid goedkoper is: [titel, inhoud, prijs]).
+// extra]. Extra: often (zo vaak dit jaar), inflated (de prijs ervoor is hoger dan wat het de laatste 30 dagen kostte), store (de app
+// kent geen gewone prijs: de badge is de claim van de winkel), pack (een verpakking die per eenheid goedkoper is: [titel, inhoud, prijs]).
 const VERDICTS = {
-  Kipfilet: ["good", 25, 11.98, { best: true }],
+  Kipfilet: ["good", 25, 11.98],
   "Halfvolle melk": ["small", 13, 1.19],
   "Spaghetti n° 5": ["good", 32, 2.19, { often: 7 }],
   Rundergehakt: ["none", 0, 4.99, { inflated: true, pack: ["Rundergehakt", "1000 g", 8.98] }],
-  Komkommer: ["good", 30, 0.99],
+  Komkommer: ["good", 30, 0.99, { store: true }],
   "Jong belegen kaas plakken": ["small", 9, 3.85, { often: 9 }],
-  "Volkoren tijgerbrood": ["good", 50, 2.69, { best: true }],
+  "Volkoren tijgerbrood": ["good", 50, 2.69],
   "Cola zero": ["small", 15, 2.35],
   Koffiebonen: ["good", 26, 18.99],
   Kerstomaten: ["none", 0, 1.49, { inflated: true }],
   "Pesto alla Genovese": ["good", 25, 2.79],
   Zalmfilet: ["small", 8, 5.99],
 };
+// Het prijslabel uit de geschiedenis (prices.price_label), op titel: elke trede één keer.
+const LABELS = {
+  Kipfilet: { kind: "lowest_ever", coveredSince: "2024-03-02" },
+  "Volkoren tijgerbrood": { kind: "lowest_12m", coveredSince: "2025-01-13" },
+  Koffiebonen: { kind: "lowest_6m", coveredSince: "2026-02-09" },
+  "Pesto alla Genovese": { kind: "lowest_seen", month: "2026-08", coveredSince: "2026-08-12" },
+  Zalmfilet: { kind: "lower_before", price: 4.99, month: "2026-05", coveredSince: "2025-01-10" },
+};
 function verdictOf(title) {
   const [kind, percent, lowestRegular, extra = {}] = VERDICTS[title] || ["unknown", null, null];
   const pack = extra.pack ? { productId: "wi-pack", title: extra.pack[0], unitSize: extra.pack[1], price: extra.pack[2], unitPrice: perUnit(extra.pack[2], extra.pack[1]), onOffer: false } : null;
   return {
     kind, percent, lowestRegular, inflated: Boolean(extra.inflated), timesThisYear: extra.often || 2, often: Boolean(extra.often),
-    bestInYear: Boolean(extra.best), cheaperPack: pack,
+    cheaperPack: pack,
   };
+}
+function badgeOf(title, price, priceBefore) {
+  const [kind, percent, , extra = {}] = VERDICTS[title] || ["unknown", null, null];
+  if (kind === "unknown") return null;
+  const claimed = priceBefore ? Math.round(((priceBefore - price) / priceBefore) * 100) : null;
+  return { percent, source: extra.store ? "store" : "history", claimed, inflated: Boolean(extra.inflated) };
+}
+function labelOf(title) {
+  return { kind: null, price: null, month: null, coveredSince: null, ...(LABELS[title] || {}) };
 }
 
 const toOffer = ([title, brand, unitSize, price, priceBefore, promoLabel, category, color, kind, minQuantity = 1, unitPrice = null], at) => ({
@@ -69,7 +86,7 @@ const toOffer = ([title, brand, unitSize, price, priceBefore, promoLabel, catego
   image: product(color, kind), url: `https://www.example.nl/producten/product/wi${100000 + at}`,
   validFrom: WEEK[0], validUntil: WEEK[6], validity: "current", minQuantity, unitPrice: unitPrice || price,
   mechanic: /voor \d/.test(promoLabel) && minQuantity === 1 ? "fixed" : "discount",
-  unitPricePer: perUnit(unitPrice || price, unitSize), verdict: verdictOf(title),
+  unitPricePer: perUnit(unitPrice || price, unitSize), verdict: verdictOf(title), badge: badgeOf(title, price, priceBefore), priceLabel: labelOf(title),
 });
 const offers = BONUS.map(toOffer);
 for (const [category, count] of Object.entries(PER_CATEGORY)) {
@@ -281,13 +298,29 @@ const compareAnswer = {
 module.exports = [
   {
     name: "offers",
-    routes: { "/api/offers*": offersAnswer },
+    routes: { "/api/offers*": offersAnswer, "/api/prices/history*": historyAnswer },
+    run: async (page, { device }) => {
+      await page.click('[data-tab="offers"]');
+      await page.evaluate(() => localStorage.setItem("ms-offers-view", "cards"));
+      await page.click('#offers-view [data-view="cards"]');
+      await page.waitForSelector("#offers-products .offer-card");
+      // Op het bureaublad de werkbalk, de categorieën en de eerste rij kaarten met badge en prijslabel; op de telefoon passen de
+      // categorieën en de kaarten niet samen, daar staan de kaarten bovenaan.
+      const [selector, offset] = device === "phone" ? ["#offers-products", 160] : ["#offers-products", 300];
+      await page.evaluate(([sel, off]) => window.scrollTo(0, document.querySelector(sel).getBoundingClientRect().top + window.scrollY - off), [selector, offset]);
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    // De compacte lijst: één regel per aanbieding met de kopregel erboven.
+    name: "offers-compact",
+    routes: { "/api/offers*": offersAnswer, "/api/prices/history*": historyAnswer },
     run: async (page, { device }) => {
       await page.click('[data-tab="offers"]');
       await page.waitForSelector("#offers-products .product-card");
-      // Op het bureaublad de categorieën en de eerste rij producten met hun prijs per eenheid en oordeel; op de telefoon passen de
-      // categorieën en de producten niet samen, daar staan de producten bovenaan.
-      const [selector, offset] = device === "phone" ? ["#offers-products", 160] : ["#offers-products", 215];
+      await page.click('#offers-view [data-view="compact"]');
+      await page.waitForSelector("#offers-products .offer-row:not(.offer-row--head)"); // de kopregel is op de telefoon verborgen
+      const [selector, offset] = device === "phone" ? ["#offers-products", 160] : ["#offers-products", 300];
       await page.evaluate(([sel, off]) => window.scrollTo(0, document.querySelector(sel).getBoundingClientRect().top + window.scrollY - off), [selector, offset]);
       await page.waitForTimeout(400);
     },

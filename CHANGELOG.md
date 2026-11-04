@@ -2,6 +2,190 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.6.2
+
+### Aangepast en verwijderd in 3.6.2
+
+*English summary: an imported order now always shows as Delivered, also when it was imported before 3.5.0 or the email named no status, so old imports get a status without importing them again. The Import old purchases dialog no longer has the button "Remove imported purchases", which removed every imported order of a store at once. Each imported order has its own bin under Orders, so you remove them one at a time there.*
+
+- **Een ingelezen bestelling staat altijd als *Afgeleverd*.** Bij een bestelling die je vóór 3.5.0 inlas, of waarvan de mail geen status noemde, bleef de status leeg, terwijl een afgelopen bestelling uit je account altijd *Afgeleverd* toont. Een ingelezen bestelling telt als gekocht en een geannuleerde wordt niet ingelezen, dus `GET /api/imported-orders/<winkel>` geeft nu altijd `status: "delivered"`. Bij AH en Jumbo staat er *Afgeleverd*, bij Picnic en Crisp de status van die winkel. Je hoeft oude imports dus niet opnieuw in te lezen. Alleen het tijdvak komt nog steeds uit de mail, of anders van de bestelling uit je account zonder producten die erdoor wegvalt.
+
+- **De knop *Ingelezen aankopen verwijderen* is weg uit de dialoog *Oude aankopen importeren*.** Die haalde alle ingelezen bestellingen van een winkel in één keer weg. Elke ingelezen bestelling heeft bij **Bestellingen** haar eigen prullenbak, dus daar verwijder je ze een voor een. De teksten van de knop (`offers.import.remove`, `offers.import.remove_confirm`, `offers.import.removed`) zijn ook weg. Een nieuwe test (`ImportDialogTest`) faalt als de knop terugkomt.
+- **Handleiding** (NL en EN): weghalen gaat per bestelling, met haar eigen prullenbak.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
+## v3.6.1
+
+### Aangepast in 3.6.1
+
+*English summary: for an imported order the archive icon now comes after the word "Order" instead of before it, so "Order" lines up in the Kind column of the table, on the cards and in the overview.*
+
+- **Het archief-icoon staat achter *Bestelling*.** Bij een ingelezen bestelling stond het icoon in 3.5.0 vóór het woord, waardoor *Bestelling* in de kolom Soort niet onder die van de andere bestellingen uitlijnde. Nu staat het erachter, in de tabel, op de kaarten en in het overzicht (`purchaseKindLabel`). De tooltip en de schermlezertekst (*Geïmporteerd uit je bevestigingsmails*) zijn hetzelfde gebleven. Bij Picnic en Crisp staat het icoon nog steeds voor de datum op de kaart.
+- **Handleiding** (NL en EN): *archiefdoos erachter*.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Vervolg op issue [#229](https://github.com/helmerzNL/MealieShopper/issues/229) en pull request [#230](https://github.com/helmerzNL/MealieShopper/pull/230).
+
+## v3.6.0
+
+### Nieuw in 3.6.0
+
+*English summary: the Offers page is built to scan. Every offer is a card with the photo on top, a coloured discount badge (the percentage below the lowest regular price of the last 30 days, outlined when the app only knows the store's claim) and a price label from the history: Lowest price ever, Lowest in 12 months, Lowest in 6 months, Lowest since <month>, or "€6.99 in May" when it has been lower before. Hovering the photo (tapping on a phone) shows the large photo with a one-year price sparkline. Above the cards: a search field, an "Only real deals" switch, sorting by store order, biggest discount, lowest price per unit or lowest ever first, and a switch to a compact one-line-per-offer list. `GET /api/offers` gives `badge` and `priceLabel` per offer (`bestInYear` is gone), and `GET /api/prices/history` takes `product=<id>` for one product. Reload the page once after updating.*
+
+- **De aanbiedingen scannen.** Elke aanbieding is nu een kaart met het plaatje bovenaan, groot genoeg om het product te herkennen, en de links *Vergelijk verpakkingen* en *Prijsgeschiedenis* netjes op één rij onderaan.
+- **Kortingsbadge.** Linksboven op het plaatje staat de korting als getal: het verschil met de laagste gewone prijs van de laatste 30 dagen, in de kleuren van het userscript *Albert Heijn kortingspercentages* (donkergroen vanaf 50%, lichtgroen 35%, geel 20%, oranje 10%, rood daaronder). Kent de app nog geen gewone prijs van het product, dan staat de claim van de winkel erop, omlijnd. De uitleg (het oordeel, de prijs waarmee vergeleken is, een opgepompte prijs ervoor) staat in de tooltip.
+- **Prijslabel uit de geschiedenis.** Rechtsonder op het plaatje: *Laagste prijs ooit*, *Laagste in 12 mnd*, *Laagste in 6 mnd* (groen), *Laagste sinds mei* of *€6,99 in mei* (grijs: was al eens lager). Uit de eerdere aanbiedingen, de bewaarde prijzen en je aankopen, ook de ingelezen. Een venster telt pas als de app het product zo lang volgt. *Laagste actieprijs in een jaar* vervalt (`bestInYear` in `GET /api/offers`). *n× dit jaar* blijft als chip.
+- **Hover-zoom.** Ga met de muis over het plaatje: het grote plaatje met daaronder het prijsverloop van het afgelopen jaar (gewone prijs, aanbiedingen, aankopen, de prijs van nu). Op een telefoon opent een tik hetzelfde als venster. `GET /api/prices/history?store=<winkel>&product=<id>` geeft één product.
+- **Zoeken, filteren en sorteren.** Een zoekveld over alle categorieën, de schakelaar *Alleen echt voordelig* (met het aantal achter de status), en sorteren op winkelvolgorde, hoogste korting, laagste prijs per eenheid of laagste ooit eerst. De keuzes blijven bewaard in je browser.
+- **Compacte lijst.** Een schakelaar naast de sortering wisselt naar één regel per aanbieding met een kopregel: plaatje, korting, product, prijs, per eenheid, geschiedenis en twee iconen.
+- **Handleiding en README**: de badge, de labels, de werkbalk en de twee weergaven.
+- Pull request [#231](https://github.com/helmerzNL/MealieShopper/pull/231).
+
+## v3.5.0
+
+### Nieuw en opgelost in 3.5.0
+
+*English summary: imported orders (from your confirmation emails) now look like orders from your account, at every store (issue #229). An old Jumbo order that is in your account without products is no longer listed twice next to its imported version: the empty one drops out of the list. The import also reads the status and the delivery time from the email and shows them like the store does ("Delivered · 18:00-20:00"); a cancelled order is not imported. Every line of an imported order is matched by name to a product of the store, as in the Price history, so the order gets the same photos, brand and size, and at Picnic and Crisp the same card and "Add all to basket". The kind is now simply "Order", with the archive icon in front.*
+
+- **Geen dubbele bestelling meer.** Sinds 3.3.1 (#222) kun je een oude Jumbo-bestelling inlezen die zonder producten in je account staat. Daarna stond ze twee keer bij Bestellingen: *producten nog niet opgehaald* en de ingelezen versie. Nu valt een bestelling uit je account zonder producten weg uit de lijst als er een ingelezen bestelling is met hetzelfde nummer of op dezelfde dag (dezelfde regel als `price_import.account_orders`, omgekeerd). Ze blijft wel bewaard: haalt MealieShopper de producten later toch op, dan staat ze er weer en valt de ingelezen versie weg. Dat geldt voor alle winkels, met de datum van elke winkel (`importedOrdersCover` in `orders.js`).
+- **Status en bezorgmoment uit de mail.** De prompt vraagt nu ook om `status` (`delivered`, `cancelled` of null) en `deliveryWindow` (`start` en `end` als UU:MM). Een ingelezen bestelling toont ze zoals de winkel dat bij een eigen bestelling doet: *Afgeleverd · 18:00-20:00* bij AH en Jumbo, de status van Picnic of Crisp met het tijdvak. **Controleren** laat ze al zien. Een geannuleerde bestelling wordt niet ingelezen; een status of tijd die niet te lezen is, blijft leeg, met een opmerking. Noemde de mail geen status of tijd, dan neemt de lijst die over van de bestelling uit je account die erdoor wegviel. Ze staan in drie nieuwe kolommen van `imported_purchases` (`status`, `slot_start`, `slot_end`); een database of back-up van daarvoor werkt gewoon, de oude rijen houden ze leeg.
+- **Dezelfde weergave als een bestelling uit je account.** Elke regel uit de mail wordt bij het lezen op naam gekoppeld aan een product van de winkel, met dezelfde koppeling als de Prijsgeschiedenis (`prices.link_names`). Zo krijgt een ingelezen bestelling in de tabel, de kaarten en het overzicht de foto's, het voordeel en de bonus, en in het detail per product de foto, het merk, de inhoud en de link naar zijn prijsgeschiedenis. Zonder foto van de winkel komt de bewaarde afbeelding. Bij Picnic en Crisp heeft een ingelezen bestelling dezelfde kaart en hetzelfde detail als een bezorgde bestelling, en zet **Alles in mandje** de gekoppelde producten in je mandje; de melding noemt hoeveel regels bij geen product horen.
+- **Soort *Bestelling*, met het archief-icoon ervoor.** Het woord *Geïmporteerd* is weg uit de tabel, de kaarten en het overzicht. Het archief-icoon zegt als tooltip en voor een schermlezer *Geïmporteerd uit je bevestigingsmails*; de grijze kleur van de soort en de prullenbak blijven.
+- **API.** `GET /api/imported-orders/<winkel>` geeft per bestelling ook `status`, `slotStart`, `slotEnd`, `images`, `savings` en `bonusCount`; `GET /api/imported-orders/<winkel>/<ref>` per regel ook `productId`, `image`, `brand` en `unitSize`. Het rapport van `POST /api/prices/import` geeft per bestelling `status`, `slotStart`, `slotEnd` en `notes`.
+- **Handleiding** (NL en EN): ingelezen bestellingen bij Bestellingen, de weergaven en *Oude aankopen importeren*.
+- **Ontwikkeling**: nieuwe tests in `tests/test_price_import.py` (status en bezorgmoment, annulering, de migratie, de koppeling voor AH, Jumbo, Picnic en Crisp) en `tests/test_imported_orders_ui.py` (in Node: het verbergen, de status, het label, de vorm voor Picnic en Crisp).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Issue: [#229](https://github.com/helmerzNL/MealieShopper/issues/229), vervolg op [#222](https://github.com/helmerzNL/MealieShopper/issues/222).
+
+## v3.4.1
+
+### Opgelost in 3.4.1
+
+*English summary: in rare cases the image cache fetched the same store photo twice. A request that found no photo, but took over the download just after another request had finished it, fetched it again. The request that takes over the download now checks the cache once more first. This also fixes the image-cache test that failed now and then. The Home Assistant add-on files of 3.4.0 contained leftover merge-conflict markers and two version lines, so Home Assistant could not read them; they are clean again.*
+
+- **Een winkelfoto wordt niet meer soms twee keer opgehaald.** Vroegen twee verzoeken tegelijk dezelfde foto op, dan wachtte het tweede op de download van het eerste. Keek het tweede verzoek net in de cache voordat de foto er was, maar pakte het het slot pas nadat de eerste download klaar was, dan zag het geen lopende download meer en haalde het de foto opnieuw bij de winkel op. Nu kijkt het verzoek dat de download op zich neemt eerst nog één keer in de cache (`image_cache.fetch`). Het ging alleen om een overbodige download; de foto zelf was altijd goed.
+- **Ontwikkeling**: `test_image_cache.FetchTest.test_two_requests_for_the_same_missing_image_share_one_download` faalde daardoor af en toe. Een nieuwe test speelt precies die volgorde na: zonder de fix twee downloads, met de fix één.
+- **De Home Assistant-add-ons zijn weer leesbaar.** In 3.4.0 stonden in beide `config.yaml`'s (`homeassistant/mealieshopper` en `homeassistant/mealieshopper-beta`) nog conflictmarkeringen van een merge, met twee `version:`-regels. Dat is geen geldige YAML, dus de Supervisor van Home Assistant kon de add-on niet lezen. Ze zijn weer schoon, en een nieuwe test (`test_the_addon_files_have_no_merge_conflict_left`) faalt als het weer gebeurt.
+- Pull request: [#228](https://github.com/helmerzNL/MealieShopper/pull/228).
+
+## v3.4.0
+
+### Nieuw in 3.4.0
+
+*English summary: under Stores > Orders the same filtered list now comes in three views, as in Sonarr: the table, cards with a collage of product photos, and an overview with a photo strip and the details per purchase. A switch above the list, a Sort menu (date, amount, products, ascending or descending, also by clicking a table header) and an Options menu (card size, what a card shows) remember your choice in the browser. Each kind of purchase has a small colour mark: green for an order, yellow for a receipt, grey for an imported order, next to the text. The list routes carry a summary per purchase (photos, product names, amount saved, payment method) so no request per purchase is needed. The MCP tools are unchanged.*
+
+- **Drie weergaven van je aankopen.** Onder **Winkels > Bestellingen** staat dezelfde gefilterde lijst als **Tabel**, als **Kaarten** met een collage van productfoto's (vier, of zes bij grote kaarten) en als **Overzicht** met een strook foto's en de details per aankoop. Een schakelaar rechts boven de lijst wisselt, en de keuze blijft bewaard in je browser. Kassabonnen tonen de foto's van de gekoppelde webwinkelproducten. Een ingelezen bestelling of een bon zonder koppelingen krijgt het pictogram van zijn soort en de eerste productnamen.
+- **Sorteren en opties.** Het menu **Sorteren** kiest datum, bedrag of aantal producten, oplopend of aflopend (een klik op een kolomkop in de tabel doet hetzelfde). Een aankoop waarvan de producten nog niet zijn opgehaald staat onderaan. Het menu **Opties** kiest de kaartgrootte (klein, middel, groot) en wat een kaart laat zien: status en bezorgmoment (of de betaalwijze van een bon), het bespaarde bonusbedrag en de productnamen. Bij zoeken tonen de kaarten en het overzicht de gevonden regels.
+- **Een kleur per soort.** Een bolletje in de tabel en bij de vinkjes, een streep op de kaarten en in het overzicht: groen voor een bestelling, geel voor een kassabon, grijs voor een ingelezen bestelling. De tekst van de soort blijft overal staan.
+- **Snel.** Wisselen van weergave of sorteren tekent opnieuw uit de lijst die er al staat, zonder verzoek. De foto's laden lui en alleen wat in beeld is wordt opgebouwd. Elke weergave vult het scherm en schuift in zijn eigen vak.
+- **API.** `GET /api/ah/orders`, `GET /api/jumbo/orders`, `GET /api/ah/receipts` en `GET /api/imported-orders/<winkel>` geven per aankoop een samenvatting mee: `images` (hooguit zes), `productNames` (hooguit vier), `savings` en `bonusCount` (bestellingen), `payment` (bonnen). De MCP-tools geven dezelfde lijsten zonder die velden.
+- **Handleiding**: de drie weergaven, met nieuwe screenshots.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#227](https://github.com/helmerzNL/MealieShopper/pull/227), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216) en [#217](https://github.com/helmerzNL/MealieShopper/pull/217).
+
+## v3.3.3
+
+### Opgelost in 3.3.3
+
+*English summary: for eggs the check list showed nothing under the suggestion, and Prefer organic said no organic option was found although "AH Biologisch Eieren S M L" was in the results. The kind of product came from the suggestion's whole name ("witte vrije uitloopeieren m"), so no other eggs counted. The kind now follows the ingredient when the suggestion names it, egg sizes S, M and L are a size, and at Albert Heijn the product must be in the same AH main category. Cheaper eggs per piece now appear under the suggestion, and Prefer organic suggests the organic eggs. Other ingredients such as milk, rice, olive oil, butter and yoghurt also get more options; buttermilk does not count as milk, and apple sauce "0% sugar" does not count as sugar. For chicken and turkey breast the check list now suggests fresh meat instead of cold cuts: at Albert Heijn fresh meat comes before cold cuts when a single piece of fresh meat names the ingredient; ham and roast beef stay cold cuts.*
+
+- **Bij eieren staan er weer andere eieren onder het voorstel, en *Liever biologisch* vindt biologische eieren** (issue [#223](https://github.com/helmerzNL/MealieShopper/issues/223)). De soort kwam uit de hele naam van het voorstel: bij *AH Witte vrije uitloopeieren M* moesten "witte", "vrije", "uitloopeieren" en "m" allemaal in een ander product staan, dus telde geen enkel ander ei mee.
+  - **De soort volgt het ingrediënt** als het voorstel dat noemt. Bij eieren tellen dus alle eieren mee: *Natuurfarm de Boed Maïs scharreleieren* (€ 0,28 per ei) staat nu als *goedkoper per eenheid* onder het voorstel (€ 0,33), en met *Liever biologisch* is *AH Biologisch Eieren S M L* het voorstel. De soort komt uit het gewone voorstel, ook als het biologische product anders heet.
+  - **De eimaten S, M en L zijn een maat**, net als een gewicht: *AH Witte vrije uitloopeieren L* is hetzelfde product als *… M*.
+  - **Een los woord blijft een los woord.** Noemt het voorstel het ingrediënt als los woord (*AH Halfvolle melk*), dan telt een samenstelling niet mee: karnemelk is geen melk. Noemt het voorstel het als deel van een woord (*uitloopeieren*), dan tellen andere samenstellingen wel mee (*scharreleieren*).
+  - **Bij Albert Heijn ook dezelfde hoofdcategorie.** *AH Appelmoes 0% suiker toegevoegd* noemt suiker, maar staat bij AH niet bij de suiker; zo'n product komt er niet bij. Vleeswaren en vers vlees blijven daardoor ook gescheiden. Picnic, Jumbo en Crisp geven geen categorie; daar telt alleen het ingrediënt.
+  - Noemt het voorstel het ingrediënt niet (*Milner Jong belegen* bij kaas), dan blijft het zoals het was: de soort van het voorstel.
+  - **Ook bij andere ingrediënten meer keus.** Getoetst tegen de echte zoekresultaten van AH: bij melk, rijst, olijfolie, roomboter en yoghurt staan er nu meer opties van dezelfde soort; bij rundergehakt, spaghetti, ui en kaas verandert niets.
+- **Bij kipfilet rauwe kipfilet, geen vleeswaren** (issue [#226](https://github.com/helmerzNL/MealieShopper/issues/226)). Bij "kipfilet" stelde de controlelijst *AH Biologisch Kipfilet ca. 100 g* voor: plakjes voor op brood. AH zet bij "kipfilet" zelf vleeswaren en multipacks bovenaan, en *AH Biologisch Kipfilet* heet precies "kipfilet". De rauwe *AH Scharrel kipfilet 2 stuks* stond pas op plek 11.
+  - **Nu:** bij Albert Heijn gaat vers vlees (AH's categorie *Vlees*) voor vleeswaren (*Vleeswaren*), als een los stuk vers vlees het ingrediënt noemt. Zo wordt kipfilet *AH Scharrel kipfilet 2 stuks*, kalkoenfilet *AH Kalkoenfilet schnitzel* en speklapjes *AH Speklapjes à la minute*.
+  - Ham, rosbief, salami, fricandeau en ontbijtspek koop je als vleeswaren: daar noemt geen los stuk vers vlees het ingrediënt, dus daar verandert niets. Getoetst tegen de echte zoekresultaten van AH voor 34 ingrediënten: alleen bij kipfilet, kalkoenfilet, speklapjes en gerookte kipfilet verandert het voorstel.
+- **Ontwikkeling**: `test_offers_stores` faalde af en toe met `OSError: Directory not empty`. Na een synchronisatie startte de test een echte thread die foto's in de tijdelijke map zette terwijl die werd opgeruimd (sinds de afbeeldingencache uit 3.2.0). Die tests zetten `image_cache.prefetch_async` nu stil, zoals de andere tests al deden.
+- Issues: [#223](https://github.com/helmerzNL/MealieShopper/issues/223) en [#226](https://github.com/helmerzNL/MealieShopper/issues/226). Pull request: [#225](https://github.com/helmerzNL/MealieShopper/pull/225).
+
+## v3.3.2
+
+### Opgelost in 3.3.2
+
+*English summary: Import old purchases no longer skips an order that is in your account without products. Old Jumbo orders (January 2022, for example) are listed under Orders as "products not fetched yet", because Jumbo refuses their details; Check called such an order "is already in your orders" or "your account already has an order on this day", so its products ended up nowhere. Only an order from your account with products now counts as a duplicate, by order number and by date, for all stores. The imported order then shows under Orders, in the Price history and in the purchase search. If MealieShopper fetches the products from the store later after all, the imported version drops out again, so nothing counts twice. An order from your account with products still blocks the import.*
+
+- **Oude aankopen importeren: een bestelling zonder producten in je account telt niet meer als dubbel** (issue [#222](https://github.com/helmerzNL/MealieShopper/issues/222)). Oude Jumbo-bestellingen (bijvoorbeeld van januari 2022) staan bij **Bestellingen** als *producten nog niet opgehaald*, omdat Jumbo de details ervan weigert. **Controleren** zei bij zo'n bestelling *staat al in je bestellingen* of *op deze dag staat al een bestelling in je account*, en **Importeren** bleef uit; de producten kwamen zo nergens terecht, niet uit je account en niet uit de import.
+  - Alleen een bestelling uit je account **met** producten telt nu als dubbel, op bestelnummer en op datum. Dat geldt voor alle winkels (AH, Jumbo, Picnic en Crisp).
+  - De ingelezen bestelling staat daarna bij **Bestellingen**, in de **Prijsgeschiedenis** en in het zoeken op aankopen.
+  - Haalt MealieShopper de producten later alsnog bij de winkel op, dan valt de ingelezen versie op die drie plekken weer weg, zodat niets dubbel telt.
+  - Een bestelling uit je account met producten houdt de import nog steeds tegen.
+- **Handleiding**: de regel voor dubbele bestellingen bij *Oude aankopen importeren*.
+- Issue: [#222](https://github.com/helmerzNL/MealieShopper/issues/222). Pull request: [#224](https://github.com/helmerzNL/MealieShopper/pull/224).
+
+## v3.3.1
+
+### Opgelost in 3.3.1
+
+*English summary: for eggs ("eieren") the check list at Albert Heijn suggested "AH Nederlandse aardbeien" (strawberries), and no eggs were in the drop-down. AH searches broadly and also finds "aardbeien" for "eieren". It does put eggs on top, but nearly all as multipacks, and since 2.87.1 MealieShopper puts a single product before a multipack, so the strawberries, liquid egg white and strawberry yoghurt moved up and the first single box of eggs ended up sixth. Now, when AH puts a multipack of the ingredient on top (before its first single product), the products whose name contains the ingredient come first, also as part of a word ("uitloopeieren"): for "eieren" that is "AH Witte vrije uitloopeieren M". Otherwise AH's order stays as it was; whether the ingredient is in the product name still does not count. Checked against AH's real results for 196 ingredients: only "eieren" gets another suggestion. This applies to the check list, Search for another product, `POST /api/ah/cart` for a line without a product and the MCP tool `search_products` (at Albert Heijn).*
+
+- **Bij "eieren" stelt de controlelijst weer eieren voor.** Bij Albert Heijn stond *AH Nederlandse aardbeien* als voorstel voor eieren, en in de keuzelijst stonden geen eieren. AH zoekt ruim en vindt bij "eieren" ook "aardbeien". De eieren zet AH wel bovenaan, maar bijna allemaal als multipack ("4-pack"), en sinds 2.87.1 komt bij MealieShopper een los product vóór een multipack. Zo schoven de aardbeien, het vloeibare eiwit en de aardbeiyoghurt naar boven en stond de eerste losse doos eieren pas op plek 6.
+  - **Nu:** zet AH bovenaan (vóór het eerste losse product) een multipack van het ingrediënt, dan komen de producten waarvan de naam het ingrediënt noemt eerst, ook als deel van een woord ("uitloopeieren", "scharreleieren"). Bij "eieren" is het voorstel *AH Witte vrije uitloopeieren M*, en in *Zoek een ander product* staan bovenaan vijf dozen eieren.
+  - **Verder blijft de volgorde van AH**, zoals sinds 2.87.1: of het ingrediënt in de productnaam staat, telt alleen in het geval hierboven. Kaas van Milner heet "Jong belegen 35+ plakken" en blijft voor "Kruiden roomkaas" staan.
+  - **Getoetst** tegen de echte zoekresultaten van AH voor 196 ingrediënten: alleen bij "eieren" verandert het voorstel. In de eerste vijf van *Zoek een ander product* schuift verder alleen iets bij "thee" (theesoorten met "thee" in de naam vóór "Clipper Warming pumpkin spice") en bij "bier" (alleen multipacks onderling).
+- Geldt voor de controlelijst van het weekmenu (met en zonder *Liever biologisch*), *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
+- **Handleiding**: de volgorde van de zoekresultaten bij Albert Heijn, onder *Weekmenu naar je mandje*.
+- Issue: [#220](https://github.com/helmerzNL/MealieShopper/issues/220). Pull request: [#221](https://github.com/helmerzNL/MealieShopper/pull/221).
+
+## v3.3.0
+
+### Nieuw in 3.3.0
+
+*English summary: the week menu can now prefer organic products. Next to the basket button is a Prefer organic switch; when it is on, the check list suggests an organic product of the same kind for each ingredient, when the store has one (for minced beef "AH Biologisch Rundergehakt", not the organic meatballs). Albert Heijn's own organic property counts, and otherwise "biologisch", "bio" or "organic" in the name or brand (also at Picnic, Jumbo and Crisp). Without an organic product in the results, MealieShopper searches once more with "biologisch" in front; if that finds nothing either, the regular product stays with the note "No organic option found". The regular product stays in the drop-down as cheaper per unit, and organic products are marked organic. Every user has their own switch, kept in the profile and part of the backup. Reload the page once after updating.*
+
+- **Liever biologisch** in het weekmenu (issue [#218](https://github.com/helmerzNL/MealieShopper/issues/218)). Naast de knop van het mandje staat de schakelaar *Liever biologisch*. Staat hij aan, dan stelt de controlelijst per ingrediënt eerst een biologisch product van dezelfde soort voor, als de winkel het heeft.
+  - **Wat telt als biologisch:** bij Albert Heijn het eigen kenmerk *biologisch* van AH ("AH Biologisch Spaghetti" heeft het), en verder, ook bij Picnic, Jumbo en Crisp, "biologisch", "bio" of "organic" in de naam of het merk. Niet elk biologisch product van AH heeft het kenmerk: "AH Biologisch Rundergehakt balletjes" niet.
+  - **Welk product:** het eerste biologische product van dezelfde soort uit de zoekresultaten, en eerst precies dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt", niet de biologische gehaktballetjes. Is het voorgestelde product al biologisch, dan blijft het staan.
+  - **Niet tussen de resultaten:** dan zoekt MealieShopper voor dat ingrediënt één keer op "biologisch rundergehakt". Geeft ook dat niets (of lukt die zoekopdracht niet), dan blijft het gewone product staan met de melding *Geen biologische variant gevonden*.
+  - **De gewone variant blijft te kiezen:** in de keuzelijst staat hij als *goedkoper per eenheid*, zodat je ziet wat biologisch kost. Is het gekozen product biologisch, dan wijst de regel *Per kg goedkoper* alleen op een goedkopere biologische optie.
+  - Biologische producten hebben in de keuzelijst het woord *biologisch*, ook bij *Zoek een ander product*.
+  - **Per gebruiker bewaard:** de schakelaar staat in je profiel en blijft zoals je hem achterliet. Hij gaat mee in de back-up (een nieuwe kolom in het profiel; een oudere back-up terugzetten kan nog steeds, de schakelaar staat dan uit).
+
+### Gewijzigd in 3.3.0
+
+*English summary: "biologisch" no longer counts as part of the kind of product, so Compare pack sizes and the check list see "AH Biologisch rundergehakt" and "AH Rundergehakt" as the same kind.*
+
+- **"Biologisch" hoort niet bij de soort.** *Vergelijk verpakkingen* en de controlelijst zien "AH Biologisch rundergehakt" en "AH Rundergehakt" nu als hetzelfde soort product. Vergelijk je een biologisch product, dan staat de gewone variant er dus ook bij (als *zelfde soort*).
+- **API**: `PUT /api/profile/preferences` met `{"preferOrganic": true}`; `GET /api/auth/status` en `GET /api/profile` geven `preferOrganic`. `POST /api/<winkel>/cart/preview` neemt `"organic": true` (alleen samen met `"compare": true`) en geeft per regel `organic` en `organicMissing`, en per product `organic`.
+- **Handleiding**: *Liever biologisch* onder *Weekmenu naar je mandje*.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Issue: [#218](https://github.com/helmerzNL/MealieShopper/issues/218). Pull request: [#219](https://github.com/helmerzNL/MealieShopper/pull/219).
+
+## v3.2.0
+
+### Nieuw in 3.2.0
+
+*English summary: product photos of the stores (AH, Jumbo, Picnic, Crisp) no longer load straight from the store. The app fetches each photo once, as a browser would, keeps it for good in the `images` folder of the data folder and serves it from there (`GET /api/images/<token>`). A nightly round fills in what is missing at a calm pace, a small round runs after every sync of orders or receipts, and a 403 or 429 pauses that store for twelve hours. Receipt lines that are linked to a webshop product now carry its photo, and the nightly task also links receipt lines (it only did so after a manual sync). The cache is not part of the backup and is removed by a factory reset. `MEALIESHOPPER_IMAGE_PREFETCH=false` turns the background rounds off. The container now serves with four gunicorn threads.*
+
+- **Winkelfoto's uit de eigen cache.** De productfoto's van AH, Jumbo, Picnic en Crisp (bestellingen, het mandje, aanbiedingen, de prijsgeschiedenis, zoekresultaten en recepten) laadt de browser niet meer rechtstreeks van de winkel. MealieShopper haalt elke foto één keer op, zoals een browser dat zou doen, bewaart het origineel voor altijd in de map `images` van de data-map en serveert hem daarna van schijf (`GET /api/images/<token>`, het token is het winkeladres in base64). Een foto van een andere host (Mealie, een maaltijdbox) blijft zoals hij was.
+- **Rustig bij de winkel.** Hooguit twee verzoeken tegelijk, een korte pauze tussen twee verzoeken aan dezelfde winkel en in de achtergrond twee tot vijf seconden. Geeft een winkel een 403 of 429, dan wacht de cache twaalf uur met die winkel. Een foto die niet lukt, probeert hij na een dag opnieuw, vanaf drie keer na een week en vanaf tien keer niet meer.
+- **De nachtelijke taak vult de cache aan**, na de aanbiedingen: hooguit 300 foto's per nacht, de nieuwste eerst. Na elke synchronisatie van bestellingen of kassabonnen volgt een kleine ronde (40), zodat de foto's er al staan voordat je een bestelling opent. Elke ronde staat in het auditlog. `MEALIESHOPPER_IMAGE_PREFETCH=false` zet de rondes uit. Op afroep ophalen blijft werken.
+- **Foto's op de kassabon.** Een regel die aan een webwinkelproduct gekoppeld is, krijgt de foto van dat product mee (`product.image` in `GET /api/ah/receipts/<id>`). Oude koppelingen zonder foto vult de nachtelijke taak aan, 25 per verzoek.
+- **Fix: de nachtelijke taak koppelt nu ook de kassabonregels.** Dat gebeurde alleen na een handmatige synchronisatie van de aanbiedingen. De geplande run sloeg het over.
+- **Instellingen > Systeem** toont hoeveel foto's er in de cache staan en hoeveel ruimte dat is. De cache gaat niet mee in de back-up (hij wordt opnieuw opgebouwd) en verdwijnt bij het terugzetten van de fabrieksinstellingen.
+- **Container**: gunicorn draait met vier threads (`--threads 4`), zodat een foto die nog bij de winkel vandaan moet de rest van de app niet ophoudt.
+- **Handleiding en README**: de foto's en `MEALIESHOPPER_IMAGE_PREFETCH`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#217](https://github.com/helmerzNL/MealieShopper/pull/217), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
+
+## v3.1.0
+
+### Nieuw in 3.1.0
+
+*English summary: on a wide screen (from 1024px) the side menu now lists the parts of each section underneath it: Week menu and Find recipes under Recipes, Offers and Price history under Offers, and Recipes, Lists and Orders under Stores (for the chosen store), so one click opens Orders. The bar of sub-tabs above the page disappears; only a choice in it (the store under Stores and Offers) stays. The bar returns when you collapse the menu to icons, below 1024px, or when the tree does not fit the height of the screen. On a receipt, a line now links to the price history of the web shop product its article number is linked to (by id, pinned), instead of a search on the abbreviated receipt name that found nothing for DAVITAMON or COTTAGE CH. Opening a receipt looks up the lines that are not linked yet (at most five searches at AH, within the existing budget and pause) and redraws the receipt with the new links; a line AH does not know stays plain text. Under Stores > Orders your upcoming and past orders, imported orders and receipts now share one table (date, kind, status, products, amount), newest first, with filters above it: checkboxes for orders and receipts, an amount from and to, and the search field, which searches the products in your orders and receipts and shows only the purchases with that product, with the matching lines in the Products column. On a wide screen the table fills the rest of the screen and scrolls in its own box, and the receipt itself uses the full width and height of its frame. In the Price history the list of found products on the left now uses the full height of the screen (it was 420px) and stays put while you look at the product on the right. Reload the page once after updating.*
+
+- **Zijmenu met de onderdelen eronder.** Op een breed scherm (vanaf 1024px) staan onder elk onderdeel van het zijmenu zijn tabbladen: *Weekmenu* en *Recepten zoeken* onder **Recepten**, *Aanbiedingen* en *Prijsgeschiedenis* onder **Aanbiedingen**, en *Recepten*, *Lijstjes* en *Bestellingen* onder **Winkels** (van de gekozen winkel). Eén klik op *Bestellingen* is genoeg. De tabbladenbalk boven de pagina verdwijnt dan; alleen een keuze erin (de winkel bij Winkels en Aanbiedingen) blijft staan. De balk komt terug als je het menu inklapt tot pictogrammen, onder 1024px, of als de boom niet in de hoogte van het scherm past.
+- **Kassabon: regels linken naar het product.** Een regel op de bon linkt naar de prijsgeschiedenis van het webwinkelproduct waaraan het artikelnummer gekoppeld is (op id, vastgepind), niet meer naar een zoekopdracht op de afgekorte bonnaam, die bij *DAVITAMON* of *COTTAGE CH* niets vond. Bij het openen van een bon zoekt MealieShopper de regels op die nog niet gekoppeld zijn (hooguit vijf zoekopdrachten bij AH, binnen het bestaande budget en dezelfde pauze als de nachtelijke taak) en tekent de bon opnieuw met de links die erbij kwamen. Een regel die AH niet kent, blijft gewone tekst.
+- **Prijsgeschiedenis: de productlijst zo hoog als het scherm.** Op een breed scherm gebruikt de lijst met gevonden producten links de hele schermhoogte (was 420px) en blijft hij staan terwijl je het product rechts bekijkt.
+- **Bestellingen en kassabonnen in één tabel.** Onder **Winkels > Bestellingen** staan je aankomende en afgelopen bestellingen, de ingelezen bestellingen en je kassabonnen samen in één tabel (datum, soort, status, producten, bedrag), de nieuwste bovenaan; een klik op een rij opent de bestelling of de bon. Erboven staan de filters: vinkjes voor *Bestellingen* en *Kassabonnen*, een bedrag *van* en *tot*, en het zoekveld. Dat zoekt op de producten in je bestellingen en bonnen en laat alleen de aankopen met dat product zien, met de gevonden regels in de kolom Producten. Het zoeken gebeurt op de server, een kwart seconde na de laatste toets; de andere filters werken direct in de browser. Op een breed scherm vult de tabel de rest van het scherm en scrolt hij in zijn eigen vak. Op een telefoon vallen de kolommen Soort en Status weg.
+- **De bon zelf ruimer.** De kassabon gebruikt de hele breedte van het kader en op een breed scherm ook de hoogte.
+- **API**: `GET /api/ah/purchases/search` en `GET /api/jumbo/purchases/search` nemen `limit` (een getal of `all`), en de AH-zoekopdracht geeft `unsearched` (bonnen en bestellingen waarvan de producten nog niet zijn opgehaald). `GET /api/ah/receipts/search` neemt ook `limit`. `GET /api/ah/receipts/<id>` geeft per regel `product` (`id` en `title` van het webwinkelproduct, of `null`); `POST /api/ah/receipts/<id>/products` zoekt de niet-gekoppelde regels op en geeft de bon terug met `products` (het resultaat van het zoeken, of `null` als dat misging).
+- **Handleiding**: het zijmenu en de links op de kassabon.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
+
 ## v3.0.0
 
 ### De stabiele release in het kort: alles sinds 2.97.1

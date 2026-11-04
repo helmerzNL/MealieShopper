@@ -1,4 +1,4 @@
-"""Profiel van een gebruiker: displaynaam en avatar.
+"""Profiel van een gebruiker: displaynaam, avatar en eigen voorkeuren (*Liever biologisch*, #218).
 
 Inloggen blijft met de gebruikersnaam; de displaynaam is alleen wat er in het menu en in de gebruikerslijst staat.
 De avatar is een kleine afbeelding (PNG, JPEG of WebP) die in de database bewaard wordt. De browser verkleint hem
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   avatar BLOB,
   avatar_type TEXT,
   avatar_version INTEGER NOT NULL DEFAULT 0,
+  prefer_organic INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
 """
@@ -35,6 +36,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 def _connect() -> sqlite3.Connection:
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(user_profiles)")}
+    if "prefer_organic" not in columns:  # database van voor *Liever biologisch* (#218)
+        conn.execute("ALTER TABLE user_profiles ADD COLUMN prefer_organic INTEGER NOT NULL DEFAULT 0")
     return conn
 
 
@@ -58,12 +62,17 @@ def sniff(data: bytes) -> str | None:
 def get(user_id: str) -> dict[str, Any]:
     with closing(_connect()) as conn:
         row = conn.execute(
-            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version FROM user_profiles WHERE user_id = ?",
+            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic FROM user_profiles WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if not row:
-        return {"displayName": "", "hasAvatar": False, "avatarVersion": 0}
-    return {"displayName": row["display_name"], "hasAvatar": bool(row["has_avatar"]), "avatarVersion": int(row["avatar_version"])}
+        return {"displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False}
+    return {
+        "displayName": row["display_name"],
+        "hasAvatar": bool(row["has_avatar"]),
+        "avatarVersion": int(row["avatar_version"]),
+        "preferOrganic": bool(row["prefer_organic"]),
+    }
 
 
 def info_map() -> dict[str, dict[str, Any]]:
@@ -90,6 +99,11 @@ def set_display_name(user_id: str, name: Any) -> str:
     name = clean_name(name)
     _upsert(user_id, display_name=name)
     return name
+
+
+def set_prefer_organic(user_id: str, value: bool) -> None:
+    """*Liever biologisch* (#218): stelt de controlelijst van het weekmenu eerst een biologisch product voor."""
+    _upsert(user_id, prefer_organic=1 if value else 0)
 
 
 def set_avatar(user_id: str, data: bytes, content_type: str) -> None:
@@ -140,6 +154,16 @@ def register_routes(app: Flask) -> None:
         body = request.get_json(silent=True) or {}
         user_id = auth.acting_user_id()
         set_display_name(user_id, body.get("displayName"))
+        return jsonify(payload(user_id))
+
+    @app.put("/api/profile/preferences")
+    def profile_preferences_put():
+        # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body.get("preferOrganic"), bool):
+            return jsonify({"error": tr("preferOrganic moet waar of onwaar zijn.", "preferOrganic must be true or false.")}), 400
+        user_id = auth.acting_user_id()
+        set_prefer_organic(user_id, body["preferOrganic"])
         return jsonify(payload(user_id))
 
     @app.post("/api/profile/avatar")

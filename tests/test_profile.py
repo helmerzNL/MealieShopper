@@ -2,6 +2,7 @@ import base64
 import os
 import tempfile
 import unittest
+from contextlib import closing
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
@@ -55,6 +56,29 @@ class ProfileTest(unittest.TestCase):
             self.assertEqual(response.status_code, 400, content_type)
         self.assertEqual(self.client.post("/api/profile/avatar", data=PNG + b"0" * profile.MAX_AVATAR_BYTES, content_type="image/png").status_code, 413)
         self.assertEqual(self.client.post("/api/profile/avatar", data=WEBP, content_type="image/webp").status_code, 200)
+
+    def test_prefer_organic_is_kept_without_touching_the_display_name(self):
+        self.client.put("/api/profile", json={"displayName": "Helmer"})
+        self.assertFalse(self.client.get("/api/auth/status").get_json()["preferOrganic"])  # standaard uit
+        reply = self.client.put("/api/profile/preferences", json={"preferOrganic": True})
+        self.assertEqual((reply.status_code, reply.get_json()["preferOrganic"], reply.get_json()["displayName"]), (200, True, "Helmer"))
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["preferOrganic"], status["displayName"]), (True, "Helmer"))
+        for bad in ({}, {"preferOrganic": "ja"}, {"preferOrganic": 1}):
+            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
+        self.assertFalse(self.client.put("/api/profile/preferences", json={"preferOrganic": False}).get_json()["preferOrganic"])
+
+    def test_an_older_database_gets_the_prefer_organic_column(self):
+        with closing(auth.connect()) as conn, conn:  # zoals de tabel was voor #218
+            conn.execute("DROP TABLE IF EXISTS user_profiles")
+            conn.execute(
+                "CREATE TABLE user_profiles (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '', avatar BLOB, "
+                "avatar_type TEXT, avatar_version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)"
+            )
+            conn.execute("INSERT INTO user_profiles (user_id, display_name, updated_at) VALUES ('owner', 'Oud', '2026-01-01')")
+        self.assertEqual(profile.get("owner")["preferOrganic"], False)
+        profile.set_prefer_organic("owner", True)
+        self.assertEqual((profile.get("owner")["preferOrganic"], profile.get("owner")["displayName"]), (True, "Oud"))
 
     def test_users_list_carries_the_profile_and_deleting_a_user_removes_it(self):
         users.create_user("u1", "anna")

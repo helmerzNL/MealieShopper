@@ -55,6 +55,16 @@ class AddonFilesTest(unittest.TestCase):
         self.assertEqual(top_level(text, "image"), "ghcr.io/helmerznl/mealieshopper")
         self.assertNotEqual(block(text, "ports"), block(self.config(ha_addon.STABLE), "ports"))
 
+    def test_the_addon_files_have_no_merge_conflict_left(self):
+        # Een merge in beta liet conflictmarkeringen en twee `version:`-regels achter in beide config.yaml's: geen geldige YAML
+        # meer voor de Supervisor, en de tests hierboven lezen alleen de eerste `version:` (#228).
+        files = [ROOT / "repository.yaml"] + sorted(path for folder in (ha_addon.STABLE, ha_addon.BETA) for path in folder.rglob("*.yaml"))
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"(?m)^(<{7}|={7}|>{7})( |$)", path)
+            keys = re.findall(r"(?m)^([A-Za-z_][\w-]*):", text)
+            self.assertEqual(sorted(keys), sorted(set(keys)), f"een sleutel staat dubbel in {path}")
+
     def test_beta_addon_is_derived_from_the_stable_one(self):
         self.assertEqual(ha_addon.differences(VERSION), [], "draai: python scripts/ha_addon.py")
 

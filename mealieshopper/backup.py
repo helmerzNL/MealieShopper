@@ -91,6 +91,7 @@ EXCLUDED_TABLES = frozenset({
     "hellofresh_menus",  # kopie van openbare menu's van HelloFresh: herlaadbaar, dus niet in de back-up
     "marleyspoon_menus",  # idem voor Marley Spoon
     "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
+    "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.

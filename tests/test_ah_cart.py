@@ -252,12 +252,94 @@ class SearchRankTest(unittest.TestCase):
         self.assertEqual(self.titles("kaas", products), ["Milner Jong belegen 35+ plakken", "AH Kruiden roomkaas"])
         self.assertEqual(self.titles("", self.PENNE)[-1], "AH Guacamole seasoning mix 3-pack")
 
+    # Zo gaf AH ze echt terug voor "eieren" (4 november 2026, ingekort). AH zoekt ruim en vindt ook "aardbeien"; de eieren staan
+    # bovenaan, maar bijna allemaal als multipack.
+    EGGS = [
+        ah_product(1, "AH Biologisch Eieren S M L 4-pack", brand="AH Biologisch", bundle=True),
+        ah_product(2, "AH Nederlandse aardbeien"),
+        ah_product(3, "AH Vloeibaar eiwit"),
+        ah_product(4, "AH Excellent Gekleurde scharreleieren 3-pack", brand="AH Excellent", bundle=True),
+        ah_product(5, "Melkunie Breaker aardbei yoghurt", brand="Melkunie"),
+        ah_product(6, "Johma Ei salade", brand="Johma"),
+        ah_product(7, "AH Verse scharreleieren M L 3-pack", bundle=True),
+        ah_product(8, "AH Brabantse eierkoeken 4-pack", bundle=True),
+        ah_product(9, "AH Witte vrije uitloopeieren M"),
+        ah_product(10, "AH Biologisch Eieren S M L", brand="AH Biologisch"),
+        ah_product(11, "AH Verse scharreleieren M L"),
+    ]
+
+    def test_a_multipack_of_the_ingredient_on_top_puts_single_ones_first(self):
+        # Issue #220: zonder de multipacks kwamen de aardbeien, het eiwit en de aardbeiyoghurt voor de eieren.
+        found, _ = self.search("eieren", self.EGGS, 1)
+        self.assertEqual(found[0]["title"], "AH Witte vrije uitloopeieren M")
+        self.assertEqual(
+            [item["webshopId"] for item in ah.rank_search_results("eieren", self.EGGS)],
+            [9, 10, 11, 2, 3, 5, 6, 1, 4, 7, 8],
+        )
+        self.assertEqual(self.titles("AH Eieren", self.EGGS)[0], "AH Witte vrije uitloopeieren M")
+
+    def test_only_a_multipack_of_the_ingredient_on_top_counts(self):
+        milner = ah_product(1, "Milner Jong belegen 35+ plakken", brand="Milner")
+        roomkaas = ah_product(2, "AH Kruiden roomkaas")
+        cheese = ah_product(3, "AH Jong belegen kaas plakken 3-pack", bundle=True)
+        guacamole = ah_product(4, "AH Guacamole seasoning mix 3-pack", bundle=True)
+        ids = lambda products: [item["webshopId"] for item in ah.rank_search_results("kaas", products)]
+        # Een multipack van iets anders bovenaan, of een los product boven de multipack kaas: de volgorde van AH.
+        self.assertEqual(ids([guacamole, milner, roomkaas]), [1, 2, 4])
+        self.assertEqual(ids([milner, cheese, roomkaas]), [1, 2, 3])
+
+    @staticmethod
+    def meat(webshop_id, title, category, brand="AH", bundle=False):
+        return {**ah_product(webshop_id, title, brand=brand, bundle=bundle), "mainCategory": category}
+
+    def test_fresh_meat_comes_before_cold_cuts(self):
+        # Issue #226: zo gaf AH ze echt terug voor "kipfilet" (4 november 2026, ingekort). Vleeswaren en multipacks bovenaan, en
+        # "AH Biologisch Kipfilet" (vleeswaren) heet precies "kipfilet"; de rauwe kipfilet stond pas op plek 11.
+        chicken = [
+            self.meat(1, "AH Scharrel kipfilet blokjes 3-pack", "Vlees", bundle=True),
+            self.meat(2, "AH Scharrel roasted kipfilet 2-pack", "Vleeswaren", bundle=True),
+            self.meat(3, "AH Scharrel kipfilet naturel", "Vleeswaren"),
+            self.meat(4, "AH Biologisch Kipfilet", "Vleeswaren", brand="AH Biologisch"),
+            self.meat(5, "AH Scharrel kipfilet 2 stuks", "Vlees"),
+            self.meat(6, "AH Scharrel kipfilet 3 stuks", "Vlees"),
+        ]
+        self.assertEqual([item["webshopId"] for item in ah.rank_search_results("kipfilet", chicken)], [5, 6, 1, 4, 3, 2])
+
+    def test_cold_cuts_stay_when_no_fresh_meat_names_the_ingredient(self):
+        ids = lambda query, products: [item["webshopId"] for item in ah.rank_search_results(query, products)]
+        # Ham en rosbief koop je als vleeswaren: geen los stuk vers vlees noemt het ingrediënt, dus de volgorde blijft.
+        ham = [self.meat(1, "AH Schouderham 2-pack", "Vleeswaren", bundle=True), self.meat(2, "AH Achterham", "Vleeswaren"),
+               self.meat(3, "AH Hamlappen", "Vlees")]
+        self.assertEqual(ids("achterham", ham)[0], 2)
+        # Alleen een multipack vers vlees noemt het ingrediënt: dat telt niet, de gerookte plakjes blijven voorop.
+        smoked = [self.meat(1, "AH Gerookte kipfilet", "Vleeswaren"),
+                  self.meat(2, "AH Scharrel gerookte kipfiletflakes 3-pack", "Vlees", bundle=True)]
+        self.assertEqual(ids("gerookte kipfilet", smoked), [1, 2])
+        # Zonder categorie (oude gegevens) verandert er niets.
+        plain = [ah_product(1, "AH Biologisch Kipfilet", brand="AH Biologisch"), ah_product(2, "AH Scharrel kipfilet 2 stuks")]
+        self.assertEqual(ids("kipfilet", plain), [1, 2])
+
     def test_the_limit_is_kept(self):
         found, params = self.search("AH Penne", self.PENNE, 2)
         self.assertEqual([item["title"] for item in found], ["AH Penne", "AH Biologisch Mini penne volkoren"])
         found, params = self.search("AH Penne", self.PENNE, 50)
         self.assertEqual(params["size"], 50)
         self.assertEqual(found[-1]["title"], "AH Guacamole seasoning mix 3-pack")
+
+
+class OrganicFlagTest(unittest.TestCase):
+    """#218: AH zegt zelf of een product biologisch is, met het kenmerk "biologisch" in `propertyIcons`."""
+
+    def test_the_organic_property_icon(self):
+        for icons, expected in ((["vegan", "biologisch"], True), (["Biologisch"], True), (["vegan"], False), (None, False), ([{"x": 1}], False)):
+            item = {**ah_product(1, "AH Spaghetti"), "propertyIcons": icons}
+            self.assertEqual(ah._search_product_dict(item, "spaghetti")["organic"], expected, icons)
+
+    def test_the_main_category_comes_along(self):
+        # #223: de controlelijst vergelijkt bij AH alleen binnen dezelfde hoofdcategorie.
+        item = {**ah_product(1, "Van Gilse Fijne kristalsuiker"), "mainCategory": "Maaltijden, salades", "subCategory": "Suiker"}
+        self.assertEqual(ah._search_product_dict(item, "suiker")["category"], "Maaltijden, salades")
+        self.assertIsNone(ah._search_product_dict(ah_product(2, "AH Penne"), "penne")["category"])
 
 
 class CartRouteTest(unittest.TestCase):

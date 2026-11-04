@@ -640,6 +640,10 @@ def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
         "brand": item.get("brand"),
         "unitSize": unit_size,
         "isBonus": bool(item.get("isBonus")),
+        # AH's eigen kenmerk; "AH Biologisch Spaghetti" heeft ["vegan", "biologisch"] (#218).
+        "organic": "biologisch" in [str(icon).casefold() for icon in item.get("propertyIcons") or [] if isinstance(icon, str)],
+        # AH's hoofdcategorie ("Zuivel, eieren"): de controlelijst vergelijkt alleen binnen dezelfde (#223).
+        "category": item.get("mainCategory") or None,
     }
     if product["isBonus"]:
         product["promo"] = _bonus_promo(item)
@@ -707,30 +711,66 @@ def _words(value: Any) -> list[str]:
     return _WORD_RE.findall("".join(ch for ch in text if not unicodedata.combining(ch)))
 
 
-def _search_rank(query_words: list[str], item: dict[str, Any], position: int) -> tuple[bool, bool, int]:
-    """Sorteersleutel voor een zoekresultaat; lager is beter.
-
-    1. Een product dat precies zo heet als de zoekterm, ook met AH's eigen merk ervoor ("penne" is "AH Penne",
-       "spaghetti" is "AH Biologisch Spaghetti"). Alleen het eigen merk: "Pringles Paprika" is geen paprika.
-    2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
-       samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
-    3. Verder de volgorde van AH. Of de zoekwoorden in de titel staan, telt bewust niet: "Milner Jong belegen" is
-       kaas zonder "kaas" in de naam, en "Kruiden roomkaas" zou er dan voor komen.
-    """
+def _is_exact(query_words: list[str], item: dict[str, Any]) -> bool:
+    """Heet het product precies zoals de zoekterm, ook met AH's eigen merk ervoor? "penne" is "AH Penne", "spaghetti" is
+    "AH Biologisch Spaghetti". Alleen het eigen merk: "Pringles Paprika" is geen paprika."""
     title = _words(item.get("title"))
     brand = _words(item.get("brand"))
     own_brand = brand[:1] == ["ah"] and title[: len(brand)] == brand
     name = title[len(brand):] if own_brand else title
-    exact = bool(query_words) and query_words in (title, name)
-    return (not exact, bool(item.get("isVirtualBundle")), position)
+    return bool(query_words) and query_words in (title, name)
+
+
+def _names_ingredient(ingredient: list[str], item: dict[str, Any]) -> bool:
+    """Noemt de naam van het product het ingrediënt? Elk woord ervan staat in de titel, ook als deel van een woord, zoals bij
+    `prices._same_kind`: bij "eieren" wel "AH Witte vrije uitloopeieren M", niet "AH Nederlandse aardbeien"."""
+    title = _words(item.get("title"))
+    return bool(ingredient) and all(any(word in other for other in title) for word in ingredient)
+
+
+# AH's hoofdcategorieën voor vers vlees en voor vleeswaren (plakjes voor op brood); zie `rank_search_results` (#226).
+FRESH_MEAT = "Vlees"
+COLD_CUTS = "Vleeswaren"
 
 
 def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]:
-    """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan; zie `_search_rank`."""
+    """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan.
+
+    0. Vers vlees voor vleeswaren, als een los product uit AH's categorie *Vlees* het ingrediënt noemt (#226). Een recept
+       vraagt rauwe kipfilet, maar AH zet bij "kipfilet" vleeswaren bovenaan: "AH Scharrel kipfilet naturel" (150 g) als
+       eerste losse product, en "AH Biologisch Kipfilet" heet precies "kipfilet". De rauwe "AH Scharrel kipfilet 2 stuks"
+       stond pas op plek 11. Noemt geen los stuk vers vlees het ingrediënt, zoals bij ham en rosbief, dan verandert er niets.
+    1. Een product dat precies zo heet als de zoekterm (`_is_exact`).
+    2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
+       samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
+    3. Zette AH bovenaan, vóór het eerste losse product, een multipack van het ingrediënt (`_names_ingredient`), dan gaan
+       binnen de losse producten (en binnen de multipacks) de producten die het ingrediënt noemen voor. Anders kwam bovenaan
+       wat AH na die multipacks had, ook als dat iets anders is: AH zoekt ruim, zette bij "eieren" "AH Biologisch Eieren S M L
+       4-pack" bovenaan en daarna "AH Nederlandse aardbeien", en de eerste losse doos eieren stond zo pas op plek 6 (#220).
+    4. Verder de volgorde van AH. Buiten geval 3 telt het bewust niet of de zoekwoorden in de titel staan: "Milner Jong
+       belegen" is kaas zonder "kaas" in de naam, en "Kruiden roomkaas" zou er dan voor komen.
+    """
     items = [item for item in products if isinstance(item, dict)]
     query_words = _words(query)
-    ranked = sorted(enumerate(items), key=lambda pair: _search_rank(query_words, pair[1], pair[0]))
-    return [item for _, item in ranked]
+    ingredient = query_words[1:] if query_words[:1] == ["ah"] else query_words  # "AH Penne" is penne
+    first_single = next((index for index, item in enumerate(items) if not item.get("isVirtualBundle")), len(items))
+    ingredient_on_top = any(_names_ingredient(ingredient, item) for item in items[:first_single])
+    fresh_first = any(
+        item.get("mainCategory") == FRESH_MEAT and not item.get("isVirtualBundle") and _names_ingredient(ingredient, item)
+        for item in items
+    )
+
+    def rank(pair: tuple[int, dict[str, Any]]) -> tuple[bool, bool, bool, bool, int]:
+        position, item = pair
+        return (
+            fresh_first and item.get("mainCategory") == COLD_CUTS,
+            not _is_exact(query_words, item),
+            bool(item.get("isVirtualBundle")),
+            ingredient_on_top and not _names_ingredient(ingredient, item),
+            position,
+        )
+
+    return [item for _, item in sorted(enumerate(items), key=rank)]
 
 
 class AhHttpError(RuntimeError):
@@ -770,16 +810,18 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
 HQ_SEARCH_WINDOW = 100
 
 
-def search_hq_ids(query: str) -> list[tuple[int, int, str]]:
-    """(hqId, webshopId, titel) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van de
-    webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend."""
+def search_hq_ids(query: str) -> list[tuple[int, int, str, str]]:
+    """(hqId, webshopId, titel, foto) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van
+    de webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend.
+    De foto is het adres van de eerste afbeelding (zoals `get_products_by_ids`), of "" zonder foto."""
     found = []
     for item in _search_json(query, HQ_SEARCH_WINDOW).get("products") or []:
         if not isinstance(item, dict):
             continue
         hq_id, webshop_id = item.get("hqId"), item.get("webshopId") or item.get("id")
         if isinstance(hq_id, int) and hq_id > 0 and isinstance(webshop_id, int) and webshop_id > 0:
-            found.append((hq_id, webshop_id, str(item.get("title") or "").strip()))
+            image = ((item.get("images") or [{}])[0] or {}).get("url") if isinstance(item.get("images"), list) else None
+            found.append((hq_id, webshop_id, str(item.get("title") or "").strip(), str(image or "")))
     return found
 
 

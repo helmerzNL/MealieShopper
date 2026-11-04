@@ -14,11 +14,16 @@ AH geeft in de app en de API alleen de bestellingen van de laatste maanden. Wat 
 - **Ook bij Bestellingen.** Een ingelezen bestelling staat bij de afgelopen bestellingen van die winkel (`list_orders`, `get_order`),
   net als een bestelling uit je account, en de regels tellen mee als je in je aankopen zoekt (`search_lines`). Een ingelezen
   bestelling die de app inmiddels ook uit je account kent, staat er niet nog een keer. `remove(store, ref)` haalt één bestelling weg.
+- **Zoals een bestelling uit je account (#229).** De mail noemt ook de status en het bezorgmoment: die lezen we in (`status`,
+  `slot_start`, `slot_end`) en tonen we zoals de winkel ze bij een eigen bestelling toont. Een geannuleerde bestelling lezen we niet
+  in. Elke regel koppelen we bij het lezen op naam aan een product van de winkel (`prices.link_names`, dezelfde koppeling als in de
+  Prijsgeschiedenis), zodat een ingelezen bestelling dezelfde foto's, merken en inhoud heeft als een bestelling uit je account.
 """
 from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any
@@ -46,10 +51,26 @@ CREATE TABLE IF NOT EXISTS imported_purchases (
   regular REAL,
   order_total REAL,
   imported_at TEXT NOT NULL,
+  status TEXT,
+  slot_start TEXT,
+  slot_end TEXT,
   PRIMARY KEY (store, order_ref, position)
 );
 CREATE INDEX IF NOT EXISTS imported_purchases_day ON imported_purchases (store, day);
 """
+
+# Kolommen die er later bij kwamen (#229): de status en het bezorgmoment uit de mail, net als `order_total` per regel. Een database
+# van daarvoor krijgt ze bij het eerste gebruik; de rijen van toen houden NULL.
+_ADDED_COLUMNS = (("status", "TEXT"), ("slot_start", "TEXT"), ("slot_end", "TEXT"))
+
+# De status uit de mail, in de woorden die een assistent kan gebruiken, naar de twee die we bewaren. Een bestelling die bezorgd of
+# afgehaald is, heet "delivered"; een geannuleerde lezen we niet in.
+STATUS_DELIVERED, STATUS_CANCELLED = "delivered", "cancelled"
+_STATUS_WORDS = {
+    **dict.fromkeys(("delivered", "collected", "picked up", "picked_up", "completed", "done", "bezorgd", "afgeleverd", "geleverd",
+                     "afgehaald", "opgehaald"), STATUS_DELIVERED),
+    **dict.fromkeys(("cancelled", "canceled", "cancel", "geannuleerd"), STATUS_CANCELLED),
+}
 
 STORE_NAMES = {"ah": "Albert Heijn", "jumbo": "Jumbo", "picnic": "Picnic", "crisp": "Crisp"}
 
@@ -57,45 +78,57 @@ _PROMPT_NL = """Je krijgt een of meer bevestigingsmails van bestellingen bij {st
 Geef alleen de JSON, zonder uitleg ervoor of erna.
 
 {{"store": "{key}", "orders": [
-  {{"orderNumber": "123456789", "date": "2025-03-14", "total": 141.53, "items": [
+  {{"orderNumber": "123456789", "date": "2025-03-14", "status": "delivered", "deliveryWindow": {{"start": "18:00", "end": "20:00"}},
+    "total": 141.53, "items": [
     {{"name": "AH Bananen tros", "quantity": 2, "price": 1.19, "total": 2.38, "discount": 0}},
     {{"name": "AH Greenfields Beefburger naturel 2 stuks", "quantity": 16, "price": 4.99, "total": 79.84, "discount": 39.92}}
   ]}}
 ]}}
 
 Regels:
-1. Eén object per bestelling. Komt dezelfde bestelling in meer mails voor (bevestiging, wijziging), neem dan alleen de laatste versie.
+1. Eén object per bestelling. Komt dezelfde bestelling in meer mails voor (bevestiging, wijziging, annulering), neem dan alleen de
+   laatste versie.
 2. "date" is verplicht: de bezorg- of afhaaldatum van de bestelling als JJJJ-MM-DD. Staat die er niet in, neem dan de datum van de mail.
    MealieShopper herkent aan deze datum (en aan het bestelnummer) een bestelling die er al is, zodat niets dubbel telt.
 3. "orderNumber" is het bestelnummer uit de mail, als tekst. Staat er geen nummer in, gebruik dan null.
-4. "total" is het totaalbedrag van de bestelling dat je betaalde, of null als dat er niet staat.
-5. Per product: "name" precies zoals in de mail, "quantity" het aantal, "price" de prijs per stuk zonder korting, "total" het
+4. "status": "delivered" voor een bestelling die bezorgd of afgehaald is, ook als de mail alleen de bevestiging is en de datum voorbij
+   is; "cancelled" als de mail zegt dat de bestelling geannuleerd is (die leest MealieShopper niet in); anders null.
+5. "deliveryWindow" is het bezorg- of afhaalmoment uit de mail, met "start" en "end" als UU:MM (bij "Tussen 18:00 en 20:00 uur" is
+   "start" 18:00 en "end" 20:00). Staat er één tijd, laat "end" dan null; staat er geen tijd, gebruik null.
+6. "total" is het totaalbedrag van de bestelling dat je betaalde, of null als dat er niet staat.
+7. Per product: "name" precies zoals in de mail, "quantity" het aantal, "price" de prijs per stuk zonder korting, "total" het
    regelbedrag zonder korting en "discount" de korting op dit product (uit het Bonusvoordeel of een vergelijkbaar overzicht) als
    positief getal, of 0.
-6. Laat weg: statiegeld, tasjes, bezorg- en servicekosten, koopzegels, klapkratten en producten die gratis zijn toegevoegd.
-7. Bedragen als getal met een punt (1.29), zonder euroteken."""
+8. Laat weg: statiegeld, tasjes, bezorg- en servicekosten, koopzegels, klapkratten en producten die gratis zijn toegevoegd.
+9. Bedragen als getal met een punt (1.29), zonder euroteken."""
 
 _PROMPT_EN = """You get one or more order confirmation emails from {store}. Turn them into JSON, exactly in the shape below.
 Give only the JSON, with no explanation before or after it.
 
 {{"store": "{key}", "orders": [
-  {{"orderNumber": "123456789", "date": "2025-03-14", "total": 141.53, "items": [
+  {{"orderNumber": "123456789", "date": "2025-03-14", "status": "delivered", "deliveryWindow": {{"start": "18:00", "end": "20:00"}},
+    "total": 141.53, "items": [
     {{"name": "AH Bananen tros", "quantity": 2, "price": 1.19, "total": 2.38, "discount": 0}},
     {{"name": "AH Greenfields Beefburger naturel 2 stuks", "quantity": 16, "price": 4.99, "total": 79.84, "discount": 39.92}}
   ]}}
 ]}}
 
 Rules:
-1. One object per order. When the same order is in more than one email (confirmation, change), only take the last version.
+1. One object per order. When the same order is in more than one email (confirmation, change, cancellation), only take the last
+   version.
 2. "date" is required: the delivery or pick-up date of the order as YYYY-MM-DD. When it is not in the email, use the date of the email.
    MealieShopper uses this date (and the order number) to recognise an order it already has, so nothing is counted twice.
 3. "orderNumber" is the order number from the email, as text. When there is no number, use null.
-4. "total" is the total amount of the order that you paid, or null when it is not there.
-5. Per product: "name" exactly as in the email, "quantity" the number of items, "price" the price per item without discount, "total"
+4. "status": "delivered" for an order that was delivered or picked up, also when the email is only the confirmation and the date has
+   passed; "cancelled" when the email says the order was cancelled (MealieShopper does not import those); otherwise null.
+5. "deliveryWindow" is the delivery or pick-up time from the email, with "start" and "end" as HH:MM (with "Between 18:00 and 20:00"
+   "start" is 18:00 and "end" is 20:00). With one time, make "end" null; without a time, use null.
+6. "total" is the total amount of the order that you paid, or null when it is not there.
+7. Per product: "name" exactly as in the email, "quantity" the number of items, "price" the price per item without discount, "total"
    the line amount without discount and "discount" the discount on this product (from the Bonus savings or a similar overview) as a
    positive number, or 0.
-6. Leave out: deposits, bags, delivery and service costs, savings stamps, crates and products that were added for free.
-7. Amounts as a number with a dot (1.29), without a euro sign."""
+8. Leave out: deposits, bags, delivery and service costs, savings stamps, crates and products that were added for free.
+9. Amounts as a number with a dot (1.29), without a euro sign."""
 
 
 def _now() -> str:
@@ -106,7 +139,20 @@ def _connect():
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    present = {row["name"] for row in conn.execute("PRAGMA table_info(imported_purchases)")}
+    for name, kind in _ADDED_COLUMNS:
+        if name not in present:
+            _add_column(conn, name, kind)
     return conn
+
+
+def _add_column(conn, name: str, kind: str) -> None:
+    """De migratie; twee threads die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
+    try:
+        conn.execute(f"ALTER TABLE imported_purchases ADD COLUMN {name} {kind}")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc):
+            raise
 
 
 def _store(value: Any) -> str:
@@ -151,6 +197,47 @@ def _day(value: Any, today: date) -> str | None:
     return day.isoformat() if date(2000, 1, 1) <= day <= today else None
 
 
+def _status(value: Any) -> tuple[str | None, bool]:
+    """(status, herkend) uit de mail: "delivered", "cancelled" of None. Een onbekende tekst geeft (None, False)."""
+    text = " ".join(str(value or "").strip().lower().split())
+    if not text or text in {"null", "none", "onbekend", "unknown"}:
+        return None, True
+    status = _STATUS_WORDS.get(text)
+    return status, status is not None
+
+
+_CLOCK = re.compile(r"(?<!\d)(\d{1,2})[:.](\d{2})(?!\d)")
+
+
+def _clock(value: Any) -> str | None:
+    """Een tijd als UU:MM ("18:00", "8.30", "2025-03-14T18:00:00"), of None."""
+    match = _CLOCK.search(str(value or ""))
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    return f"{hour:02d}:{minute:02d}" if hour < 24 and minute < 60 else None
+
+
+def _window(value: Any) -> tuple[str | None, str | None, bool]:
+    """(begin, eind, bruikbaar) van het bezorgmoment uit de mail: {"start": "18:00", "end": "20:00"} of de tekst "18:00-20:00".
+    Zonder tijd is dat (None, None, True); een tijd die niet te lezen is of een eind voor het begin (None, None, False)."""
+    if value in (None, "", {}) or (isinstance(value, str) and value.strip().lower() in {"null", "none"}):
+        return None, None, True
+    if isinstance(value, dict):
+        raw_start, raw_end = value.get("start"), value.get("end")
+    else:
+        times = _CLOCK.findall(str(value))
+        raw_start, raw_end = (":".join(times[0]) if times else value), (":".join(times[1]) if len(times) > 1 else None)
+    start, end = _clock(raw_start), _clock(raw_end)
+    if (raw_start not in (None, "") and start is None) or (raw_end not in (None, "") and end is None):
+        return None, None, False
+    if start is None and end is not None:
+        start, end = end, None
+    if start and end and end <= start:
+        return None, None, False
+    return start, end, True
+
+
 def _order_ref(number: Any, day: str, total: float | None) -> str:
     text = str(number).strip() if number not in (None, "") else ""
     if text and text.lower() not in {"null", "none"}:
@@ -181,7 +268,8 @@ def _item(raw: Any) -> dict[str, Any] | None:
 
 def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[dict[str, Any]], list[str]]:
     """(winkel, bestellingen, problemen) uit de JSON van de assistent: tekst of al gelezen. Een bestelling zonder bruikbare datum of
-    zonder producten slaan we over en staat in de problemen."""
+    zonder producten, of een geannuleerde, slaan we over en staat in de problemen. Een status of bezorgmoment dat niet te lezen is,
+    laten we leeg; de bestelling telt wel, met een opmerking in `notes`."""
     key = _store(store)
     today = today or datetime.now(timezone.utc).date()
     if isinstance(data, str):
@@ -210,15 +298,25 @@ def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[d
             problems.append(tr(f"Bestelling {index}: geen geldige datum (JJJJ-MM-DD, niet in de toekomst).",
                                f"Order {index}: no valid date (YYYY-MM-DD, not in the future)."))
             continue
+        status, known = _status(raw.get("status"))
+        if status == STATUS_CANCELLED:
+            problems.append(tr(f"Bestelling {index} ({day}): geannuleerd, niet ingelezen.", f"Order {index} ({day}): cancelled, not imported."))
+            continue
         raw_items = raw.get("items") if isinstance(raw.get("items"), list) else []
         items = [item for item in (_item(entry) for entry in raw_items[:MAX_ITEMS]) if item]
         if not items:
             problems.append(tr(f"Bestelling {index} ({day}): geen bruikbare producten.", f"Order {index} ({day}): no usable products."))
             continue
+        notes = [] if known else [tr(f"status \"{str(raw.get('status'))[:40]}\" onbekend, leeg gelaten",
+                                     f"status \"{str(raw.get('status'))[:40]}\" unknown, left empty")]
+        slot_start, slot_end, readable = _window(raw.get("deliveryWindow"))
+        if not readable:
+            notes.append(tr("bezorgmoment niet te lezen, leeg gelaten", "delivery time not readable, left empty"))
         total = _amount(raw.get("total"))
         orders.append({
             "ref": _order_ref(raw.get("orderNumber"), day, total), "number": str(raw.get("orderNumber") or "") or None,
             "date": day, "total": round(total, 2) if total is not None else None, "items": items,
+            "status": status, "slotStart": slot_start, "slotEnd": slot_end, "notes": notes,
         })
     return key, orders, problems
 
@@ -228,12 +326,20 @@ def _tables(conn) -> set[str]:
 
 
 def account_orders(conn, store: str) -> tuple[set[str], set[str]]:
-    """(bestelnummers, dagen) van de bestellingen die de app uit je account van de winkel heeft."""
-    table = f"{store}_orders"
-    if table not in _tables(conn):
+    """(bestelnummers, dagen) van de bestellingen die de app met producten uit je account van de winkel heeft.
+
+    Een bestelling waarvan de app de producten (nog) niet kon ophalen, telt niet mee (#222): Jumbo weigert de details van oude
+    bestellingen, die dan alleen als kop in `jumbo_orders` staan. Zo'n bestelling is er voor de prijzen nog niet, dus de ingelezen
+    versie uit je mails mag erbij. Komen de producten later toch binnen, dan telt de bestelling weer mee en valt de ingelezen versie
+    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt."""
+    table, items = f"{store}_orders", f"{store}_order_items"
+    if not {table, items} <= _tables(conn):
         return set(), set()
     numbers, days = set(), set()
-    for row in conn.execute(f"SELECT CAST(order_id AS TEXT) AS id, substr(COALESCE(delivery_date, ''), 1, 10) AS day FROM {table}"):
+    for row in conn.execute(
+        f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
+            WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)"""
+    ):
         numbers.add(str(row["id"]))
         if row["day"]:
             days.add(row["day"])
@@ -266,16 +372,19 @@ def run(data: Any, store: Any, dry_run: bool = False, now: str | None = None) ->
             reason = _duplicate(conn, key, order, seen, numbers, days)
             seen.add(order["ref"])
             report.append({"ref": order["ref"], "date": order["date"], "total": order["total"], "items": len(order["items"]),
-                           "new": reason is None, "reason": reason})
+                           "status": order["status"], "slotStart": order["slotStart"], "slotEnd": order["slotEnd"],
+                           "notes": order["notes"], "new": reason is None, "reason": reason})
             if reason is None:
                 fresh.append(order)
         if not dry_run and fresh:
             with conn:
                 conn.executemany(
-                    """INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total,
+                                                       imported_at, status, slot_start, slot_end)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     [(key, order["ref"], position, order["date"], item["title"], item["quantity"], item["paid"], item["regular"],
-                      order["total"], now) for order in fresh for position, item in enumerate(order["items"])],
+                      order["total"], now, order["status"], order["slotStart"], order["slotEnd"])
+                     for order in fresh for position, item in enumerate(order["items"])],
                 )
     return {
         "store": key, "dryRun": bool(dry_run), "orders": report, "new": len(fresh), "duplicates": len(report) - len(fresh),
@@ -314,53 +423,120 @@ def _quantity(value: Any) -> int | float:
     return int(number) if number.is_integer() else number
 
 
-def _order_rows(conn, store: str, ref: str | None = None) -> list[Any]:
+SUMMARY_NAMES = 4  # zoveel productnamen per aankoop in de lijst (de kaarten en het overzicht); de foto's staan in ah_orders
+SUMMARY_IMAGES = 6  # zoals ah_orders en jumbo_orders: zoveel foto's per bestelling in de lijst
+
+
+def split_lines(value: Any) -> list[str]:
+    """Een GROUP_CONCAT met een regeleinde als scheiding terug als lijst, zonder lege waarden (ook voor de andere lijstroutes)."""
+    return [part for part in str(value or "").split("\n") if part]
+
+
+def _order_rows(conn, store: str, ref: str | None = None, summary: bool = False) -> list[Any]:
     """Per ingelezen bestelling één rij. Een bestelling met hetzelfde nummer of op dezelfde dag als een bestelling uit je account
-    staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij."""
+    staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij. Met `summary` ook de eerste namen."""
     numbers, days = account_orders(conn, store)
     where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
+    names = f"""(SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM imported_purchases n
+                    WHERE n.store = p.store AND n.order_ref = p.order_ref AND title != '' ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,"""
     rows = conn.execute(
         f"""SELECT order_ref, MIN(day) AS day, MAX(order_total) AS order_total, MIN(imported_at) AS imported_at, COUNT(*) AS lines,
+                   {names if summary else ""}
+                   MAX(status) AS status, MAX(slot_start) AS slot_start, MAX(slot_end) AS slot_end,
                    SUM(quantity) AS units, SUM(COALESCE(paid, 0) * quantity) AS paid_total
-            FROM imported_purchases WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
+            FROM imported_purchases p WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
         args,
     ).fetchall()
     return [row for row in rows if row["order_ref"] not in numbers and row["day"] not in days]
 
 
-def _order_json(store: str, row: Any) -> dict[str, Any]:
+def _moment(day: str, clock: Any) -> str | None:
+    """Dag en tijd van het bezorgmoment zonder tijdzone ("2022-01-12T18:00"), zoals AH ze geeft: de tijd uit de mail is de lokale."""
+    return f"{day}T{clock}" if clock else None
+
+
+def _bonus(paid: Any, regular: Any) -> bool:
+    return paid is not None and regular is not None and paid < regular - 0.004
+
+
+def _order_json(store: str, row: Any, summary: bool = False) -> dict[str, Any]:
     ref = row["order_ref"]
     total = row["order_total"] if row["order_total"] is not None else round(row["paid_total"] or 0, 2)
     return {
         "id": ref, "ref": ref, "store": store, "imported": True, "kind": "imported", "number": None if ref.startswith("dag:") else ref,
         "date": row["day"], "deliveryDate": row["day"], "total": total, "itemCount": row["lines"], "units": _quantity(row["units"]),
-        "importedAt": row["imported_at"],
+        # Een ingelezen bestelling is altijd een aankoop die je deed: ze telt in de Prijsgeschiedenis als gekocht, en een geannuleerde
+        # lezen we niet in. Zonder status uit de mail (zoals bij een import van vóór 3.5.0) is ze dus afgeleverd, zoals elke
+        # afgelopen bestelling uit je account.
+        "status": row["status"] or STATUS_DELIVERED,
+        "slotStart": _moment(row["day"], row["slot_start"]), "slotEnd": _moment(row["day"], row["slot_end"]),
+        "importedAt": row["imported_at"], **({"productNames": split_lines(row["summary_names"])} if summary else {}),
     }
 
 
-def list_orders(store: Any) -> dict[str, Any]:
-    """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan."""
+def _lines(conn, store: str, ref: str | None = None) -> list[Any]:
+    where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
+    return conn.execute(
+        f"SELECT order_ref, title, quantity, paid, regular FROM imported_purchases WHERE {where} ORDER BY order_ref, position", args
+    ).fetchall()
+
+
+def _summary(lines: list[Any], linked: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """`images`, `savings` en `bonusCount` van een bestelling, zoals `jumbo_orders` ze voor de lijst geeft: de foto's van de
+    gekoppelde producten, wat de korting op de producten scheelde en hoeveel regels korting hadden."""
+    images: list[str] = []
+    for line in lines:
+        image = linked.get(line["title"], {}).get("image")
+        if image and image not in images and len(images) < SUMMARY_IMAGES:
+            images.append(image)
+    bonus = [line for line in lines if _bonus(line["paid"], line["regular"])]
+    savings = sum((line["regular"] - line["paid"]) * line["quantity"] for line in bonus)
+    return {"images": images, "savings": round(savings, 2), "bonusCount": len(bonus)}
+
+
+def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
+    """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan. Met `summary`
+    (de lijstroute) per bestelling ook `productNames` (de eerste vier namen), `images`, `savings` en `bonusCount`, voor de tabel,
+    de kaarten en het overzicht."""
+    from . import prices  # prices leest ook price_import; pas hier ophalen houdt de import rond
+
     key = _store(store)
     with closing(_connect()) as conn:
-        return {"store": key, "orders": [_order_json(key, row) for row in _order_rows(conn, key)]}
+        rows = _order_rows(conn, key, summary=summary)
+        if not summary or not rows:
+            return {"store": key, "orders": [_order_json(key, row, summary) for row in rows]}
+        per_order: dict[str, list[Any]] = {}
+        for line in _lines(conn, key):
+            per_order.setdefault(line["order_ref"], []).append(line)
+    linked = prices.link_names(key, {line["title"] for lines in per_order.values() for line in lines})
+    return {"store": key, "orders": [
+        {**_order_json(key, row, summary), **_summary(per_order.get(row["order_ref"], []), linked)} for row in rows
+    ]}
 
 
 def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
-    """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is."""
+    """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
+    een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`)."""
+    from . import prices
+
     key = _store(store)
     ref = str(ref or "")
     with closing(_connect()) as conn:
         rows = _order_rows(conn, key, ref)
         if not rows:
             return None
-        lines = conn.execute(
-            "SELECT title, quantity, paid, regular FROM imported_purchases WHERE store = ? AND order_ref = ? ORDER BY position", (key, ref)
-        ).fetchall()
-    items = [{
-        "title": line["title"], "quantity": _quantity(line["quantity"]), "paid": line["paid"], "price": line["regular"],
-        "amount": round(line["paid"] * line["quantity"], 2) if line["paid"] is not None else None,
-        "bonus": line["paid"] is not None and line["regular"] is not None and line["paid"] < line["regular"] - 0.004,
-    } for line in lines]
+        lines = _lines(conn, key, ref)
+    linked = prices.link_names(key, {line["title"] for line in lines})
+    items = []
+    for line in lines:
+        product = linked.get(line["title"], {})
+        items.append({
+            "title": line["title"], "quantity": _quantity(line["quantity"]), "paid": line["paid"], "price": line["regular"],
+            "amount": round(line["paid"] * line["quantity"], 2) if line["paid"] is not None else None,
+            "bonus": _bonus(line["paid"], line["regular"]),
+            "productId": product.get("productId"), "image": product.get("image"), "brand": product.get("brand"),
+            "unitSize": product.get("unitSize"),
+        })
     return {**_order_json(key, rows[0]), "items": items}
 
 

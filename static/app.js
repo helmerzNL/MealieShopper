@@ -34,6 +34,10 @@ const MDI_PLUS = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
 const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
 const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
+const MDI_VIEW_GRID_OUTLINE = "M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z";
+const MDI_VIEW_LIST_OUTLINE = "M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z";
+const MDI_COMPARE_HORIZONTAL = "M9 14H2V16H9V19L13 15L9 11V14M15 13V10H22V8H15V5L11 9L15 13Z";
+const MDI_CHART_LINE = "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
 const MDI_PENCIL_OUTLINE =
   "M14.06,9L15,9.94L5.92,19H5V18.08L14.06,9M17.66,3C17.41,3 17.15,3.1 16.96,3.29L15.13,5.12L18.88,8.87L20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18.17,3.09 17.92,3 17.66,3M14.06,6.19L3,17.25V21H6.75L17.81,9.94L14.06,6.19Z";
@@ -92,6 +96,26 @@ function mealLabel(type) {
 
 function $(selector) {
   return document.querySelector(selector);
+}
+
+// Een productfoto van een winkel via de eigen cache (/api/images/<token>, zie image_cache.py): de server haalt hem een keer op
+// en serveert hem daarna van schijf, zodat de browser niet bij de winkel hotlinkt. Een adres van een andere host (Mealie, een
+// maaltijdbox) blijft zoals het is. Het token is het adres in URL-veilige base64 zonder "=".
+const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/];
+
+function storeImage(url) {
+  if (!url) return url;
+  let host = "";
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return url;
+    host = parsed.hostname;
+  } catch {
+    return url;
+  }
+  if (!STORE_IMAGE_HOSTS.some((pattern) => pattern.test(host))) return url;
+  const token = btoa(unescape(encodeURIComponent(String(url)))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return `/api/images/${token}`;
 }
 
 function escapeHtml(value) {
@@ -705,13 +729,35 @@ function renderMealPlan(entries) {
         </ul>
         <div class="toolbar ingredients__actions">
           <span id="cart-store-slot"></span>
+          <label class="switch-row cart-organic" title="${escapeHtml(t("cart.organic_toggle_title"))}">
+            <input type="checkbox" id="cart-organic"${state.auth?.preferOrganic ? " checked" : ""}>
+            <span>${escapeHtml(t("cart.organic_toggle"))}</span>
+          </label>
           <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
         </div>
       </div>
     `
     : "";
   $("#add-cart")?.addEventListener("click", addToCart);
+  $("#cart-organic")?.addEventListener("change", (event) => savePreferOrganic(event.target));
   renderStoreChoice();
+}
+
+// *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
+async function savePreferOrganic(input) {
+  const wanted = input.checked;
+  state.auth = { ...state.auth, preferOrganic: wanted };
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferOrganic: wanted }),
+    });
+    state.auth = { ...state.auth, preferOrganic: Boolean(data.preferOrganic) };
+  } catch (error) {
+    // Niet bewaard: de schakelaar geldt dan alleen nu, en de gebruiker ziet waarom.
+    message("#planner-message", t("cart.organic_save_failed", { error: error.message }), "error");
+  }
 }
 
 // Een weekmenu verandert zelden: elke week wordt na het ophalen bewaard, zodat bladeren door de weken direct gaat.
@@ -1069,17 +1115,22 @@ function cartCandidateLabel(candidate) {
   // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
   const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
   const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, why].filter(Boolean).join(" \u2013 ");
+  const organic = candidate.organic ? t("cart.organic") : ""; // #218
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean).join(" \u2013 ");
 }
 
 // De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
 function reviewCheaperIndex(row, chosen) {
   const mine = row.candidates[chosen]?.unitPrice;
   if (!mine) return -1;
+  // Met Liever biologisch (#218) en een biologische keuze telt alleen een goedkopere biologische: dat de gewone variant
+  // goedkoper is, weet je al, en die staat er in de keuzelijst als "goedkoper per eenheid" bij.
+  const organicOnly = Boolean(row.organic && row.candidates[chosen].organic);
   let best = -1;
   row.candidates.forEach((candidate, index) => {
     const unit = candidate.unitPrice;
     if (index === chosen || !unit || unit.unit !== mine.unit || unit.value >= mine.value * 0.98) return;
+    if (organicOnly && !candidate.organic) return;
     if (best < 0 || unit.value < row.candidates[best].unitPrice.value) best = index;
   });
   return best;
@@ -1304,7 +1355,7 @@ function reviewThumbHtml(candidate) {
   // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
   // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
   const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
-  const src = candidate.image ? ` src="${escapeHtml(candidate.image)}"` : " hidden";
+  const src = candidate.image ? ` src="${escapeHtml(storeImage(candidate.image))}"` : " hidden";
   return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
 }
 
@@ -1315,7 +1366,7 @@ function showReviewThumb(button, candidate) {
   button.setAttribute("aria-label", label);
   button.title = label;
   img.hidden = !candidate.image;
-  if (candidate.image) img.src = candidate.image;
+  if (candidate.image) img.src = storeImage(candidate.image);
   else img.removeAttribute("src");
 }
 
@@ -1325,9 +1376,9 @@ function openReviewPhoto(candidate) {
   const image = $("#photo-dialog-image");
   const large = candidate.imageLarge || candidate.image;
   if (!large) return;
-  image.dataset.fallback = large !== candidate.image ? candidate.image : "";
+  image.dataset.fallback = large !== candidate.image ? storeImage(candidate.image) : "";
   image.hidden = false;
-  image.src = large;
+  image.src = storeImage(large);
   $("#photo-dialog-title").textContent = candidate.title;
   $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
   $("#photo-dialog").showModal();
@@ -1353,6 +1404,7 @@ function reviewRowHtml(row, index) {
       <div class="review-ingredient">
         <strong>${escapeHtml(row.display)}</strong>
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+        ${row.organicMissing ? `<small class="review-organic-missing">${escapeHtml(t("cart.organic_missing"))}</small>` : ""}
         <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
@@ -1537,6 +1589,8 @@ async function addToCart() {
       body: JSON.stringify({
         // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
         compare: true,
+        // Liever biologisch (#218): eerst een biologisch product van dezelfde soort, als de winkel het heeft.
+        organic: Boolean(state.auth?.preferOrganic),
         items: ingredients.map((ingredient) => ({
           query: ingredient.food?.name || ingredient.display,
           display: ingredient.display || ingredient.food?.name || "",
@@ -1597,7 +1651,7 @@ function renderRecipeCard(recipe) {
   const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card">
-      ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(recipe.title)}" loading="lazy">` : ""}
+      ${imageUrl ? `<img src="${escapeHtml(storeImage(imageUrl))}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       ${recipe.description ? `<p class="muted">${escapeHtml(recipe.description)}</p>` : ""}
       ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
@@ -1835,6 +1889,17 @@ async function checkAhConnection() {
   } catch (error) {
     message("#ah-status", error.message);
   }
+}
+
+// De hoogte waarmee een element precies tot de onderkant van de pagina reikt, zodat het daarbinnen scrolt in plaats van de
+// pagina: van waar het begint tot waar de pagina ophoudt, met wat er onder het element nog komt (de rand van het kader, de
+// marge van de pagina) meegerekend. Op een scherm smaller dan `minWidth` of voor een verborgen element null: dan scrolt de
+// pagina gewoon. De aankopentabel (orders.js) en de prijsgeschiedenis (offers_history.js) gebruiken dit.
+function pageFitHeight(element, { minWidth = 1024, min = 240 } = {}) {
+  if (!window.matchMedia(`(min-width: ${minWidth}px)`).matches || !element.offsetParent) return null;
+  const rect = element.getBoundingClientRect();
+  const shell = document.querySelector("main.shell").getBoundingClientRect();
+  return Math.max(min, window.innerHeight - (rect.top + window.scrollY) - (shell.bottom - rect.bottom));
 }
 
 function formatSyncTime(value) {
@@ -2155,7 +2220,7 @@ function renderAhListItem(item, editable = false) {
   const url = item.url || product.url || "";
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const body = `
-    ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
+    ${product.image ? `<img src="${escapeHtml(storeImage(product.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
     <div>
       <strong>${editable ? "" : `${escapeHtml(item.quantity)}x `}${escapeHtml(title)}</strong>
       ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -2277,7 +2342,7 @@ function renderSavedRecipeCard(recipe) {
   const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card"${id ? ` data-store-recipe="ah:${escapeHtml(id)}"` : ""}>
-      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
+      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="${escapeHtml(recipe.title || "")}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
       ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image)) : ""}
     </article>
@@ -2495,6 +2560,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();
     if (subtab.dataset.subtab === "settings-audit" && typeof loadAudit === "function") loadAudit();
     if (subtab.dataset.subtab === "settings-system" && typeof loadBackup === "function") loadBackup();
+    if (subtab.dataset.subtab === "settings-system" && typeof loadImageCacheStatus === "function") loadImageCacheStatus();
     if (subtab.dataset.subtab === "ah-items-bestellingen" && typeof loadOrders === "function") loadOrders();
     if (subtab.dataset.subtab === "ah-items-picnic" && typeof loadPicnicRecipes === "function" && !picnicRecipes.loaded) loadPicnicRecipes();
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });

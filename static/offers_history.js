@@ -306,7 +306,7 @@ function offerHistoryDetail(product) {
     : "";
   return `
     <div class="ohc-head">
-      ${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
@@ -386,6 +386,17 @@ function renderOfferHistory() {
     .join("");
   const chosen = products.find((product) => offerHistoryKey(product) === offerHistory.selected);
   detail.innerHTML = chosen ? offerHistoryDetail(chosen) : "";
+  window.requestAnimationFrame(() => offerHistoryFitList(list)); // na dit tekenen verdwijnt de laadmelding erboven nog
+}
+
+// Op een breed scherm passen de lijst en het product samen precies op het scherm: elke kolom krijgt de hoogte van waar de
+// kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
+// kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
+function offerHistoryFitList(list) {
+  const height = pageFitHeight(list.parentElement, { minWidth: 900 });
+  const value = height === null ? "" : `${height}px`;
+  list.style.maxHeight = value;
+  $("#offers-history-detail").style.maxHeight = value;
 }
 
 async function loadOfferHistory() {
@@ -627,13 +638,13 @@ function renderPriceImportStatus(summary) {
   $("#import-dialog-status").textContent = summary.orders
     ? tn("offers.import.status", summary.orders, { store, first: priceImportDay(summary.first), last: priceImportDay(summary.last) })
     : t("offers.import.status_none", { store });
-  $("#import-remove").hidden = !summary.orders;
 }
 
 function renderPriceImportReport(report) {
   const orders = (report.orders || []).map((order) => {
-    const what = [priceImportDay(order.date), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
-    const state = order.new ? t("offers.import.new") : order.reason;
+    // De status en het bezorgmoment uit de mail (#229), zoals ze straks bij Bestellingen staan, en wat er niet te lezen was.
+    const what = [priceImportDay(order.date), slotLabel(order.slotStart, order.slotEnd), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
+    const state = [order.new ? t("offers.import.new") : order.reason, order.status === "delivered" ? t("orders.kind.delivered") : "", ...(order.notes || [])].filter(Boolean).join(" · ");
     return `<li class="${order.new ? "is-new" : "is-known"}"><span>${escapeHtml(what)}</span> <small>${escapeHtml(state || "")}</small></li>`;
   });
   const problems = (report.problems || []).map((problem) => `<li class="is-problem"><small>${escapeHtml(problem)}</small></li>`);
@@ -714,19 +725,6 @@ async function runPriceImport() {
   }
 }
 
-async function removePriceImport() {
-  if (!window.confirm(t("offers.import.remove_confirm", { store: priceImportStoreName() }))) return;
-  try {
-    const result = await jsonFetch(`/api/prices/import?${new URLSearchParams({ store: priceImport.store })}`, { method: "DELETE" });
-    $("#import-report").innerHTML = "";
-    message("#import-dialog-message", tn("offers.import.removed", result.removed), "success");
-    await loadPriceImportSummary();
-    importedOrdersChanged(priceImport.store);
-  } catch (error) {
-    message("#import-dialog-message", error.message);
-  }
-}
-
 async function copyPriceImportPrompt() {
   try {
     await navigator.clipboard.writeText(priceImport.prompt);
@@ -738,15 +736,15 @@ async function copyPriceImportPrompt() {
 }
 
 $("#offers-history-import").addEventListener("click", () => openPriceImport(offersState.store));
-// Ingelezen of verwijderd, hier of bij Bestellingen: de Prijsgeschiedenis opnieuw als die openstaat (anders laadt het subtab hem
-// toch opnieuw bij het openen).
+// Hier ingelezen, of bij Bestellingen met de prullenbak van een bestelling verwijderd: de Prijsgeschiedenis opnieuw als die
+// openstaat (anders laadt het subtab hem toch opnieuw bij het openen). Alles in één keer weghalen kan niet meer in de dialoog:
+// elke ingelezen bestelling heeft haar eigen prullenbak.
 window.addEventListener("ms:imported-orders", () => {
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
 });
 $("#import-copy").addEventListener("click", copyPriceImportPrompt);
 $("#import-check").addEventListener("click", checkPriceImport);
 $("#import-run").addEventListener("click", runPriceImport);
-$("#import-remove").addEventListener("click", removePriceImport);
 $("#import-data").addEventListener("input", () => {
   $("#import-run").disabled = priceImport.checked === null || priceImport.checked !== $("#import-data").value;
 });

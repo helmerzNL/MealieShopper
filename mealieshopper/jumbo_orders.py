@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, jumbo, price_import
+from . import auth, image_cache, jumbo, price_import
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -169,6 +169,7 @@ def sync_orders() -> dict[str, Any]:
             (_now(),),
         )
         remaining = conn.execute("SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0").fetchone()[0]
+    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {
         "orders": len(orders), "new": new, "remaining": remaining, "storeReceipts": listed["storeReceipts"],
         **({"detailError": detail_error} if detail_error else {}),
@@ -185,16 +186,44 @@ def _order_json(row: Any, count: int | None = None) -> dict[str, Any]:
     }
 
 
-def list_orders() -> dict[str, Any]:
+SUMMARY_IMAGES = 6  # zoals ah_orders: zoveel foto's en namen per bestelling in de lijst
+SUMMARY_NAMES = 4
+
+_ORDER_SUMMARY_SQL = f"""
+    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT image FROM jumbo_order_items i WHERE i.order_id = o.order_id AND image != ''
+        ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
+    (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM jumbo_order_items i WHERE i.order_id = o.order_id AND title != ''
+        ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
+    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+        FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
+    (SELECT SUM(bonus) FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
+"""
+
+
+def _order_summary(row: Any) -> dict[str, Any]:
+    savings = row["summary_savings"]
+    return {
+        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
+        "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+    }
+
+
+def list_orders(summary: bool = False) -> dict[str, Any]:
+    """Alle bestellingen, de nieuwste eerst. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings`
+    en `bonusCount` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
     with closing(_connect()) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT o.*, (SELECT COUNT(*) FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS item_count
+            {"," + _ORDER_SUMMARY_SQL if summary else ""}
             FROM jumbo_orders o
             ORDER BY COALESCE(NULLIF(o.delivery_date, ''), o.first_seen) DESC, o.order_id DESC
             """
         ).fetchall()
-    return {"syncedAt": synced_at(), "orders": [_order_json(row, row["item_count"]) for row in rows]}
+    return {
+        "syncedAt": synced_at(),
+        "orders": [{**_order_json(row, row["item_count"]), **(_order_summary(row) if summary else {})} for row in rows],
+    }
 
 
 def get_order(order_id: Any) -> dict[str, Any] | None:

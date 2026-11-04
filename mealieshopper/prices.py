@@ -393,6 +393,45 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     return found
 
 
+def _product_details(conn, store: str, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Wat de app van deze producten weet: `title`, `brand`, `unitSize` en `image`, per veld de nieuwste waarde uit je bestellingen,
+    dan de bewaarde prijzen, dan de aanbiedingen. Zonder foto van de winkel de nieuwste bewaarde afbeelding (`product_images`)."""
+    found: dict[str, dict[str, Any]] = {product_id: {} for product_id in ids}
+    if not ids:
+        return found
+    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(conn, store)] + [
+        ("SELECT product_id, title, brand, unit_size, image, day FROM price_observations WHERE store = ?", (store,)),
+        ("SELECT product_id, title, brand, unit_size, image, last_seen AS day FROM offer_history WHERE store = ?", (store,)),
+    ]
+    fields = (("title", "title"), ("brand", "brand"), ("unitSize", "unit_size"), ("image", "image"))
+    for sql, args in sources:
+        for row in conn.execute(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) ORDER BY day DESC", (*args, *ids)):
+            details = found[str(row["product_id"])]
+            for key, column in fields:
+                if not details.get(key) and row[column]:
+                    details[key] = row[column]
+    missing = [product_id for product_id, details in found.items() if not details.get("image")]
+    for product_id, images in (_saved_images(conn, store, missing) if missing else {}).items():
+        found[product_id]["image"] = images[0]["url"]
+    return found
+
+
+def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Per naam uit een bevestigingsmail (`imported_purchases.title`) het product van de winkel waar hij bij hoort, met wat de app
+    ervan weet: {"productId", "title", "brand", "unitSize", "image"}. Dezelfde koppeling op naam als de Prijsgeschiedenis
+    (`_receipt_rows`), dus de link naar de prijsgeschiedenis komt bij hetzelfde product uit. Een naam die nergens bij past, ontbreekt.
+    Zo ziet een ingelezen bestelling eruit als een bestelling uit je account (#229)."""
+    names = {name for name in names if name}
+    if not names:
+        return {}
+    with closing(_connect()) as conn:
+        index = _name_index(conn, store)
+        bare = _bare_index(index, store)
+        matched = {name: product_id for name in names if (product_id := _match_name(index, bare, store, _fold_name(name)))}
+        details = _product_details(conn, store, sorted(set(matched.values())))
+    return {name: {"productId": product_id, **details.get(product_id, {})} for name, product_id in matched.items()}
+
+
 def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
     """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`)."""
     found: set[str] = set()
@@ -637,8 +676,11 @@ def _lookup_receipt_names(lookup: Callable[[list[str]], Any], wanted: "_Query", 
 
 
 def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
-            lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any]:
+            lookup: Callable[[list[str]], Any] | None = None, product: Any = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
+
+    Met `product` (een product-id) alleen dat ene product, zonder zoekterm en zonder `lookup`: zo haalt de kaart van een aanbieding
+    het prijsverloop voor de hover-zoom op.
 
     Een product past als elk woord van de zoekterm in een van zijn namen staat (uit de aanbiedingen, een zoekopdracht of een aankoop) en,
     als de zoekterm een maat noemt ("Gehakt 500 gram"), zijn verpakking die maat heeft; zie `_Query`. Met `bought` blijven alleen de
@@ -654,7 +696,8 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
     wanted = _Query(query)
     limit = _limit(limit)
     today = today or _now()[:10]
-    if lookup and wanted.words and "ah" in stores:
+    only = str(product) if product not in (None, "") else None
+    if lookup and wanted.words and "ah" in stores and only is None:
         _lookup_receipt_names(lookup, wanted, today)
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
@@ -663,6 +706,8 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
         for name in stores:
             keep = _bought(conn, name, today, receipts[name]) if bought else None
             for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items():
+                if only is not None and product_id != only:
+                    continue
                 if keep is None or product_id in keep:
                     candidates[(name, product_id)] = day
         ranked = sorted(candidates, key=lambda key: (candidates[key], key[0], key[1]), reverse=True)
@@ -687,6 +732,9 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
 
 VERDICT_DAYS = 30  # de gewone prijs om mee te vergelijken: de laagste van de laatste 30 dagen (zoals de regel voor een "van"-prijs)
 YEAR_DAYS = 365
+EVER_DAYS = 365  # "laagste prijs ooit" pas als de app het product minstens zo lang volgt
+HALF_YEAR_DAYS = 182  # "laagste in 6 maanden" pas bij een half jaar dekking
+SEEN_DAYS = 30  # "laagste sinds <maand>": de milde trede voor een installatie die nog kort meet
 GOOD_DISCOUNT = 0.20  # vanaf 20% onder de laagste gewone prijs van de laatste 30 dagen is het echt voordelig
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
@@ -698,6 +746,7 @@ COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergeha
 _PACK_WORDS = frozenset({
     "voordeelverpakking", "voordeelpak", "voordeel", "multipack", "familieverpakking", "familiepak", "grootverpakking", "navulling",
     "pack", "xl", "xxl", "groot", "grote", "klein", "kleine", "mini", "per", "stuk", "stuks", "st", "x",
+    "s", "m", "l",  # de maat van een ei: "AH Witte vrije uitloopeieren M" en "... L" zijn hetzelfde product (#223)
 })
 _SIZE_RE = re.compile(
     r"\b\d+(?:[.,]\d+)?\s*(?:x|\u00d7)?\s*(?:\d+(?:[.,]\d+)?\s*)?"
@@ -729,11 +778,29 @@ def base_title(title: Any) -> str:
 
 _STORE_WORDS = frozenset({"ah", "jumbo", "picnic", "crisp"})
 
+# Woorden die zeggen dat een product biologisch is (#218). Ze horen niet bij de soort: "AH Biologisch rundergehakt" is
+# rundergehakt, net als "AH Rundergehakt".
+ORGANIC_WORDS = frozenset({"biologisch", "biologische", "bio", "organic", "eko"})
+
+
+def is_organic(product: dict[str, Any]) -> bool:
+    """Biologisch: AH zegt het zelf (`organic`, het kenmerk "biologisch" in de zoekresultaten); anders, en bij de andere winkels, een
+    woord als "biologisch" of "bio" in de naam of het merk. Niet elk biologisch product van AH heeft het kenmerk: "AH Biologisch
+    Rundergehakt balletjes" niet."""
+    if product.get("organic"):
+        return True
+    text = ah_lists._fold(f"{product.get('title') or ''} {product.get('brand') or ''}")
+    return any(word in ORGANIC_WORDS for word in re.findall(r"[a-z0-9]+", text))
+
 
 def _kind_words(title: Any, brand: Any) -> list[str]:
-    """De woorden die zeggen wat voor product het is: de naam zonder merk, winkel, maten en verpakkingswoorden ("rundergehakt")."""
+    """De woorden die zeggen wat voor product het is: de naam zonder merk, winkel, maten, verpakkingswoorden en "biologisch"
+    ("rundergehakt")."""
     brand_words = set(re.findall(r"[a-z0-9]+", ah_lists._fold(brand or "")))
-    return [word for word in base_title(title).split() if word not in brand_words and word not in _STORE_WORDS]
+    return [
+        word for word in base_title(title).split()
+        if word not in brand_words and word not in _STORE_WORDS and word not in ORGANIC_WORDS
+    ]
 
 
 def _same_kind(kind: list[str], other_title: Any) -> bool:
@@ -741,6 +808,43 @@ def _same_kind(kind: list[str], other_title: Any) -> bool:
     "AH Rundergehakt 1000 g" en "AH Biologisch rundergehakt", maar niet "AH Hamburgers" of "AH Half-om-half gehakt"."""
     words = base_title(other_title).split()
     return all(any(word in other for other in words) for word in kind)
+
+
+def _forms(word: str) -> list[str]:
+    """Het woord en zijn meervoud, langste eerst: "ei" is ook "eieren", "ui" ook "uien"."""
+    return sorted({word, word + "en", word + "eren", word + "s", word + "n"}, key=len, reverse=True)
+
+
+def _ingredient_kind(first: dict[str, Any], query: Any) -> list[tuple[str, bool]] | None:
+    """De soort voor de controlelijst, uit het ingrediënt waar het voorstel `first` bij hoort (#223): per woord van het ingrediënt
+    (woord, mag deel van een samenstelling zijn). None als het voorstel het ingrediënt niet noemt ("Milner Jong belegen" bij
+    "kaas"); dan geldt de soort van het voorstel zelf (`_kind_words`).
+
+    Zo maken eigenschappen als "witte" en "vrije" de soort niet te smal: bij "eieren" en "AH Witte vrije uitloopeieren M" is de
+    soort "eieren", en omdat het voorstel het als deel van een samenstelling noemt, horen ook "scharreleieren" en "AH Biologisch
+    Eieren" erbij. Noemt het voorstel het ingrediënt als los woord ("AH Halfvolle melk"), dan moet een ander product het ook als
+    los woord noemen: "AH Karnemelk" is geen melk. Bij "rundergehakt" dus geen "AH Half-om-half gehakt" (#178)."""
+    words = [w for w in base_title(query).split() if w not in ORGANIC_WORDS and w not in _STORE_WORDS]
+    title = _kind_words(first.get("title"), first.get("brand"))
+    kind = []
+    for word in words:
+        for form in _forms(word):
+            found = next(((form, other != form) for other in title if other == form or other.endswith(form)), None)
+            if found:
+                kind.append(found)
+                break
+    return kind or None
+
+
+def _matches(kind: list[tuple[str, bool]], word: str) -> bool:
+    return any(word == form or (compound and word.endswith(form)) for form, compound in kind)
+
+
+def _same_ingredient(kind: list[tuple[str, bool]], other_title: Any) -> bool:
+    """Hoort het product bij de soort uit `_ingredient_kind`? Elk woord moet erin staan, als los woord of (als het mag) als
+    einde van een samenstelling."""
+    words = base_title(other_title).split()
+    return all(any(_matches([part], word) for word in words) for part in kind)
 
 
 def _same_product(base: str, other_title: Any) -> bool:
@@ -768,6 +872,21 @@ def _effective(offer: dict[str, Any]) -> float | None:
     return None
 
 
+def _claimed_percent(offer: dict[str, Any]) -> int | None:
+    """De korting volgens de winkel: `(van - voor) / van`, of bij een actie zonder "van"-prijs ("1+1 gratis", "2 voor 3,00") wat de
+    actietekst zegt, zoals het userscript dat ook berekent. None als er niets te berekenen valt."""
+    price, before = _number(offer.get("price")), _number(offer.get("priceBefore"))
+    if price is not None and before:
+        return max(0, round((before - price) / before * 100))
+    if price is None or price <= 0:
+        return None
+    mechanic = deals.parse_mechanic(offer.get("promoLabel"))
+    per_item = _number(deals.effective_unit_price(mechanic, price, price))
+    if per_item is None or mechanic["type"] == deals.UNKNOWN:
+        return None
+    return max(0, round((1 - per_item / price) * 100))
+
+
 def _stated_regular(offer: dict[str, Any]) -> float | None:
     """De gewone prijs die de winkel bij de aanbieding noemt. AH geeft bij een actie met een minimumaantal ("2 voor 3", "1+1 gratis")
     geen prijs ervoor maar de gewone prijs als prijs; dan is de prijs hoger dan wat een stuk bij de actie kost."""
@@ -782,8 +901,14 @@ def _days_ago(today: str, days: int) -> str:
 
 
 def _episode_effective(row: Any) -> float | None:
+    """Wat een stuk kostte bij een periode uit `offer_history`: uit de actietekst, en zonder "van"-prijs zoals `_effective` dat bij
+    de aanbieding zelf doet ("1+1 gratis" met de gewone prijs als prijs), anders de prijs van de periode."""
     described = deals.describe(row["promo_label"], price_now=row["price"], price_before=row["price_before"])
-    return _number(described["unitPrice"]) if _number(described["unitPrice"]) is not None else _number(row["price"])
+    if _number(described["unitPrice"]) is not None:
+        return _number(described["unitPrice"])
+    as_offer = {"price": row["price"], "priceBefore": row["price_before"], "promoLabel": row["promo_label"]}
+    effective = _effective(as_offer)
+    return effective if effective is not None else _number(row["price"])
 
 
 def signature(store: Any) -> str:
@@ -807,8 +932,10 @@ def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) 
     `verdict.kind` is `good` (minstens 20% onder de laagste gewone prijs van de laatste 30 dagen), `small` (wel lager, maar minder),
     `none` (niet lager dan de gewone prijs van de laatste 30 dagen) of `unknown` (de actieprijs per stuk of de gewone prijs is niet bekend).
     Daarnaast: `percent`, `lowestRegular` (de laagste gewone prijs van de laatste 30 dagen), `inflated` (de prijs ervoor die de winkel noemt
-    is hoger dan die laagste), `timesThisYear`, `often`, `bestInYear` en `cheaperPack` (een andere verpakking van hetzelfde product die
-    per eenheid goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Een fout laat de aanbiedingen staan zonder oordeel.
+    is hoger dan die laagste), `timesThisYear`, `often` en `cheaperPack` (een andere verpakking van hetzelfde product die per eenheid
+    goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Daarnaast `badge` (het getal op de kaart: `percent`, `source`
+    `history` of `store`, `claimed`, `inflated`) en `priceLabel` (de ladder uit de geschiedenis, zie `price_label`). Een fout laat de
+    aanbiedingen staan zonder oordeel.
     """
     try:
         _annotate(store, items, today or _now()[:10])
@@ -817,9 +944,74 @@ def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) 
     return items
 
 
+def _history_points(conn, store: str, today: str) -> dict[str, list[tuple[str, float]]]:
+    """Per product de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun begindag, wat
+    een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt niet). De lopende
+    aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag."""
+    points: dict[str, list[tuple[str, float]]] = {}
+
+    def add(product_id: Any, day: Any, price: Any) -> None:
+        value = _number(price)
+        if product_id and day and value is not None and value > 0 and str(day)[:10] <= today:
+            points.setdefault(str(product_id), []).append((str(day)[:10], value))
+
+    for row in conn.execute("SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL ORDER BY product_id, first_seen, id", (store,)):
+        add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row))
+    for row in conn.execute("SELECT product_id, day, price FROM price_observations WHERE store = ?", (store,)):
+        add(row["product_id"], row["day"], row["price"])
+    for sql in _purchase_sources(conn, store):
+        for row in conn.execute(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0"):
+            add(row["product_id"], row["day"], row["paid"])
+    for row in _receipt_rows(conn, store, today):
+        add(row["product_id"], row["day"], row["paid"])
+    return {product_id: sorted(found) for product_id, found in points.items()}
+
+
+def _lowest_since(points: list[tuple[str, float]], since: str) -> float | None:
+    """De laagste prijs op of na een dag, of None als er in dat venster geen meting is."""
+    inside = [price for day, price in points if day >= since]
+    return min(inside) if inside else None
+
+
+def price_label(effective: float | None, points: list[tuple[str, float]], today: str) -> dict[str, Any]:
+    """De trede op de ladder van de prijsgeschiedenis voor een actieprijs: `lowest_ever`, `lowest_12m`, `lowest_6m`, `lowest_seen`,
+    `lower_before` of None, als `{"kind", "price", "month", "coveredSince"}`.
+
+    Alleen de strengste trede die waar is. Een venster telt pas als de app het product langer dan dat venster volgt (`coveredSince`)
+    en er in dat venster een meting is: na een week is "laagste in 6 maanden" anders triviaal waar, en één aankoop uit 2022 maakt een
+    prijs van nu geen "laagste ooit" (daarvoor moet er een meting in het afgelopen jaar zijn). `lower_before` geeft de laagste eerdere
+    prijs en de maand waarin die het laatst gold. Prijzen binnen een halve cent zijn gelijk.
+    """
+    empty: dict[str, Any] = {"kind": None, "price": None, "month": None, "coveredSince": None}
+    value = _number(effective)
+    if value is None or not points:
+        return empty
+    ordered = sorted(points)
+    since = ordered[0][0]
+    covered = (date.fromisoformat(today) - date.fromisoformat(since)).days
+    lowest_all = min(price for _, price in ordered)
+    lowest_year: float | None = _lowest_since(ordered, _days_ago(today, YEAR_DAYS))
+    lowest_half: float | None = _lowest_since(ordered, _days_ago(today, HALF_YEAR_DAYS))
+    is_lowest = value <= lowest_all + 0.005
+    label = {**empty, "coveredSince": since}
+    if covered >= EVER_DAYS and is_lowest and lowest_year is not None:
+        return {**label, "kind": "lowest_ever"}
+    if covered >= YEAR_DAYS and lowest_year is not None and value <= lowest_year + 0.005:
+        return {**label, "kind": "lowest_12m"}
+    if covered >= HALF_YEAR_DAYS and lowest_half is not None and value <= lowest_half + 0.005:
+        return {**label, "kind": "lowest_6m"}
+    if covered >= SEEN_DAYS and is_lowest:
+        return {**label, "kind": "lowest_seen", "month": since[:7]}
+    if lowest_all < value - 0.005:
+        latest = max(day for day, price in ordered if price == lowest_all)
+        return {**label, "kind": "lower_before", "price": lowest_all, "month": latest[:7]}
+    return label
+
+
 def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
     since30, since_year, since_pack = _days_ago(today, VERDICT_DAYS), _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
     regulars: dict[str, list[float]] = {}
+    measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
     with closing(_connect()) as conn:
@@ -827,10 +1019,12 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             latest[row["product_id"]] = row
             if row["day"] >= since30:
                 regulars.setdefault(row["product_id"], []).append(row["price"])
+                measured.add(str(row["product_id"]))
         for sql in _purchase_sources(conn, store):
             for row in conn.execute(f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND day <= ? AND regular IS NOT NULL", (since30, today)):
                 if _number(row["regular"]) is not None:
                     regulars.setdefault(row["product_id"], []).append(row["regular"])
+                    measured.add(str(row["product_id"]))
         for row in conn.execute(
             "SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? ORDER BY product_id, first_seen, id",
             (store, since_year),
@@ -839,6 +1033,7 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             span = offers._episode_span(row)
             if _number(row["price_before"]) is not None and (span["end"] is None or span["end"] >= since30) and (span["start"] or "") <= today:
                 regulars.setdefault(row["product_id"], []).append(row["price_before"])
+        points = _history_points(conn, store, today)
 
     # Wat elke verpakking per eenheid kost: de gewone prijs uit de bewaarde prijzen en de actieprijs van de andere aanbiedingen.
     packs_known: list[dict[str, Any]] = [
@@ -872,13 +1067,16 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             verdict["percent"] = max(0, round(ratio * 100))
             verdict["kind"] = "none" if effective >= lowest - 0.005 else ("good" if ratio >= GOOD_DISCOUNT - 1e-9 else "small")
             verdict["inflated"] = stated is not None and stated > lowest + 0.005
+        # De badge op de kaart: het gemeten verschil, of de claim van de winkel als de app geen gewone prijs van het product kent.
+        offer["badge"] = None if verdict["kind"] == "unknown" else {
+            "percent": verdict["percent"], "source": "history" if product_id in measured else "store", "claimed": _claimed_percent(offer),
+            "inflated": verdict["inflated"],
+        }
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]
         started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
         verdict["timesThisYear"] = max(len(started), 1)
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
-        others = [price for row in episodes.get(product_id, []) if row["ended_at"] is not None
-                  for price in [_episode_effective(row)] if price is not None]
-        verdict["bestInYear"] = bool(others) and effective is not None and effective <= min(others) + 0.005
+        offer["priceLabel"] = price_label(effective, points.get(product_id, []), today)
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]
         base = base_title(offer.get("title"))
@@ -985,6 +1183,67 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
 
 CHECK_LIST_SIZE = 5  # zoveel producten toont de controlelijst zonder vergelijking (zoals voorheen)
 CHECK_LIST_EXTRAS = 6  # hooguit zoveel vergelijkingsopties onder het voorgestelde product
+ORGANIC_QUERY = "biologisch"  # de extra zoekopdracht met *Liever biologisch*: "biologisch rundergehakt"
+
+
+def _kind_test(first: dict[str, Any], query: Any) -> tuple[Callable[[dict[str, Any]], bool], Callable[[dict[str, Any]], bool]] | None:
+    """(hetzelfde soort, precies dat soort) voor de controlelijst: uit het ingrediënt (`_ingredient_kind`) als het voorstel `first`
+    het noemt, anders uit de naam van het voorstel. "Precies" betekent zonder extra woorden: "AH Biologisch Rundergehakt", niet
+    "AH Biologisch Rundergehakt balletjes". None als er geen soort is."""
+    ingredient = _ingredient_kind(first, query) if query else None
+    if ingredient:
+        # Bij AH ook dezelfde hoofdcategorie: "Van Gilse Fijne kristalsuiker" en "AH Appelmoes 0% suiker toegevoegd" noemen allebei
+        # suiker, maar de appelmoes staat bij AH ergens anders. Zonder categorie (Picnic, Jumbo, Crisp) telt alleen het ingrediënt.
+        category = first.get("category")
+
+        def same_kind(c: dict[str, Any]) -> bool:
+            other = c.get("category")
+            return _same_ingredient(ingredient, c.get("title")) and (not category or not other or other == category)
+
+        return (
+            same_kind,
+            lambda c: all(_matches(ingredient, word) for word in _kind_words(c.get("title"), c.get("brand"))),
+        )
+    kind = _kind_words(first.get("title"), first.get("brand"))
+    if not kind:
+        return None
+    return (
+        lambda c: _same_kind(kind, c.get("title")),
+        lambda c: set(_kind_words(c.get("title"), c.get("brand"))) == set(kind),
+    )
+
+
+def _organic_pick(first: dict[str, Any], candidates: list[dict[str, Any]], query: Any = None) -> dict[str, Any] | None:
+    """Het biologische product van dezelfde soort als het gewone voorstel `first`, in de volgorde van de winkel. Eerst precies
+    dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt 500g" en niet "AH Biologisch Rundergehakt balletjes"."""
+    test = _kind_test(first, query)
+    if test is None:
+        return None
+    same_kind, exact_kind = test
+    same = [c for c in candidates if c.get("organic") and same_kind(c)]
+    exact = [c for c in same if exact_kind(c)]
+    return (exact or same or [None])[0]
+
+
+def organic_first(
+    candidates: list[dict[str, Any]], search_more: Callable[[], list[dict[str, Any]]], query: Any = None
+) -> tuple[list[dict[str, Any]], bool]:
+    """Met *Liever biologisch* (#218): een biologisch product van dezelfde soort vooraan, als de winkel het heeft.
+
+    De kandidaten hebben `organic` (zie `is_organic`). Is het voorstel al biologisch, dan blijft alles zoals het is. Anders het
+    eerste biologische product van dezelfde soort uit de zoekresultaten; zit dat er niet bij, dan één extra zoekopdracht
+    (`search_more`, "biologisch rundergehakt"). Geeft ook die niets, dan blijft het gewone product voorop. Geeft (kandidaten,
+    gevonden) terug; het gewone product blijft in de lijst, zodat de vergelijking het als goedkoper per eenheid kan tonen."""
+    if not candidates:
+        return candidates, False
+    first = candidates[0]
+    if first.get("organic"):
+        return candidates, True
+    pick = _organic_pick(first, candidates, query) or _organic_pick(first, search_more(), query)
+    if pick is None:
+        return candidates, False
+    key = str(pick.get("productId"))
+    return [pick] + [c for c in candidates if str(c.get("productId")) != key], True
 
 
 def per_item_price(candidate: dict[str, Any]) -> float | None:
@@ -1001,13 +1260,19 @@ def per_item_price(candidate: dict[str, Any]) -> float | None:
     return price
 
 
-def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> list[dict[str, Any]]:
+def check_list_candidates(
+    candidates: list[dict[str, Any]], compare: bool, query: Any = None, kind_of: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """De producten voor één regel van de controlelijst, elk met zijn prijs per kilo, liter of stuk (`unitPrice`).
 
     Zonder `compare` (zelf zoeken met *Zoek een ander product*) blijven de eerste vijf zoals ze zijn. Met `compare` (het weekmenu in het
     mandje) komt na het voorgestelde product alleen wat **hetzelfde product** is in een andere maat (`same`) of **per eenheid goedkoper**
-    (`cheaper`), en alleen hetzelfde soort product (`_same_kind`): bij rundergehakt dus geen gemengd gehakt of gehaktballen. De
+    (`cheaper`), en alleen hetzelfde soort product (`_kind_test`, uit het ingrediënt `query` als het voorstel dat noemt): bij
+    rundergehakt dus geen gemengd gehakt of gehaktballen, bij eieren wel alle eieren (#223). De
     goedkoopste per eenheid eerst, hooguit `CHECK_LIST_EXTRAS`. Andere zoekresultaten vallen weg; die vind je met *Zoek een ander product*.
+
+    `kind_of` is het product waaruit de soort volgt, standaard het voorstel. Met *Liever biologisch* is dat het gewone voorstel: zo blijft
+    de soort dezelfde als het biologische product anders heet ("AH Biologisch Eieren" tegenover "AH Witte vrije uitloopeieren M").
     """
     for candidate in candidates:
         candidate["unitPrice"] = unit_price(per_item_price(candidate), candidate.get("unitSize"))
@@ -1015,7 +1280,7 @@ def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> li
         return candidates[:CHECK_LIST_SIZE]
     first = candidates[0]
     first["suggested"] = True
-    kind = _kind_words(first.get("title"), first.get("brand"))
+    test = _kind_test(kind_of or first, query)
     base = base_title(first.get("title"))
     brand = ah_lists._fold(first.get("brand") or "")
     mine = first["unitPrice"]
@@ -1023,7 +1288,7 @@ def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> li
     extras = []
     for candidate in candidates[1:]:
         key = str(candidate.get("productId"))
-        if key in seen or not _same_kind(kind, candidate.get("title")):
+        if key in seen or not (test[0](candidate) if test else _same_kind([], candidate.get("title"))):
             continue
         seen.add(key)
         other_brand = ah_lists._fold(candidate.get("brand") or "")
