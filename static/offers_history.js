@@ -389,16 +389,23 @@ function renderOfferHistory() {
   window.requestAnimationFrame(() => offerHistoryFitList(list)); // na dit tekenen verdwijnt de laadmelding erboven nog
 }
 
-// Op een breed scherm vult de lijst het scherm vanaf waar hij begint tot onderaan, zodat hij zelf nooit de pagina langer maakt
-// dan het scherm. Waar hij begint hangt van de tekst erboven af, dus dat meet dit hier, aan de kolommen om de lijst heen: die
-// staan niet vastgeplakt zoals de lijst zelf. Op een smal scherm geldt het maximum uit styles.css.
+// Op een breed scherm passen de lijst en het product samen precies op het scherm: elke kolom krijgt de hoogte van waar de
+// kolommen beginnen tot waar de pagina ophoudt, en scrolt daarbinnen. Zo staat er nooit een scrollbalk over de hele pagina.
+// Waar de kolommen beginnen hangt van de tekst erboven af, wat eronder komt (de rand van het kader en van de pagina) is vast,
+// dus allebei worden gemeten. Op een smal scherm geldt het maximum uit styles.css.
 function offerHistoryFitList(list) {
+  const detail = $("#offers-history-detail");
   if (!window.matchMedia("(min-width: 900px)").matches) {
     list.style.maxHeight = "";
+    detail.style.maxHeight = "";
     return;
   }
-  const top = list.parentElement.getBoundingClientRect().top + window.scrollY;
-  list.style.maxHeight = `${Math.max(240, window.innerHeight - top - 24)}px`;
+  const layout = list.parentElement.getBoundingClientRect();
+  const shell = layout.height ? document.querySelector("main.shell").getBoundingClientRect() : layout;
+  const below = shell.bottom - layout.bottom;
+  const height = `${Math.max(240, window.innerHeight - (layout.top + window.scrollY) - below)}px`;
+  list.style.maxHeight = height;
+  detail.style.maxHeight = height;
 }
 
 async function loadOfferHistory() {
