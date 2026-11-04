@@ -5797,8 +5797,8 @@ body.has-onboarding {
   margin-top: 2px;
 }
 
-/* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. Gedeeld met de weergaven van de
-   aankopen. */
+/* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. De weergaven van de aankopen
+   (#purchase-view-switch) hebben hun eigen knoppen met tekst, deze is voor de aanbiedingen. */
 .segment-control {
   display: inline-flex;
   margin-left: auto;
