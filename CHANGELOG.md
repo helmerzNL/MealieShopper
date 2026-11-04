@@ -10,6 +10,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 
 - **Een winkelfoto wordt niet meer soms twee keer opgehaald.** Vroegen twee verzoeken tegelijk dezelfde foto op, dan wachtte het tweede op de download van het eerste. Keek het tweede verzoek net in de cache voordat de foto er was, maar pakte het het slot pas nadat de eerste download klaar was, dan zag het geen lopende download meer en haalde het de foto opnieuw bij de winkel op. Nu kijkt het verzoek dat de download op zich neemt eerst nog één keer in de cache (`image_cache.fetch`). Het ging alleen om een overbodige download; de foto zelf was altijd goed.
 - **Ontwikkeling**: `test_image_cache.FetchTest.test_two_requests_for_the_same_missing_image_share_one_download` faalde daardoor af en toe. Een nieuwe test speelt precies die volgorde na: zonder de fix twee downloads, met de fix één.
+- Pull request: [#228](https://github.com/helmerzNL/MealieShopper/pull/228).
 
 ## v3.3.3
 
