@@ -728,9 +728,18 @@ def _names_ingredient(ingredient: list[str], item: dict[str, Any]) -> bool:
     return bool(ingredient) and all(any(word in other for other in title) for word in ingredient)
 
 
+# AH's hoofdcategorieën voor vers vlees en voor vleeswaren (plakjes voor op brood); zie `rank_search_results` (#226).
+FRESH_MEAT = "Vlees"
+COLD_CUTS = "Vleeswaren"
+
+
 def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]:
     """AH's zoekresultaten met de beste match voor een ingrediënt bovenaan.
 
+    0. Vers vlees voor vleeswaren, als een los product uit AH's categorie *Vlees* het ingrediënt noemt (#226). Een recept
+       vraagt rauwe kipfilet, maar AH zet bij "kipfilet" vleeswaren bovenaan: "AH Scharrel kipfilet naturel" (150 g) als
+       eerste losse product, en "AH Biologisch Kipfilet" heet precies "kipfilet". De rauwe "AH Scharrel kipfilet 2 stuks"
+       stond pas op plek 11. Noemt geen los stuk vers vlees het ingrediënt, zoals bij ham en rosbief, dan verandert er niets.
     1. Een product dat precies zo heet als de zoekterm (`_is_exact`).
     2. Een los product voor een multipack (`isVirtualBundle`, "AH Zalmfilet 3-pack"). Zo'n pakket stelt AH online
        samen uit losse producten; voor een recept wil je er één, en het aantal verpakkingen rekenen we zelf uit.
@@ -746,10 +755,15 @@ def rank_search_results(query: str, products: list[Any]) -> list[dict[str, Any]]
     ingredient = query_words[1:] if query_words[:1] == ["ah"] else query_words  # "AH Penne" is penne
     first_single = next((index for index, item in enumerate(items) if not item.get("isVirtualBundle")), len(items))
     ingredient_on_top = any(_names_ingredient(ingredient, item) for item in items[:first_single])
+    fresh_first = any(
+        item.get("mainCategory") == FRESH_MEAT and not item.get("isVirtualBundle") and _names_ingredient(ingredient, item)
+        for item in items
+    )
 
-    def rank(pair: tuple[int, dict[str, Any]]) -> tuple[bool, bool, bool, int]:
+    def rank(pair: tuple[int, dict[str, Any]]) -> tuple[bool, bool, bool, bool, int]:
         position, item = pair
         return (
+            fresh_first and item.get("mainCategory") == COLD_CUTS,
             not _is_exact(query_words, item),
             bool(item.get("isVirtualBundle")),
             ingredient_on_top and not _names_ingredient(ingredient, item),
