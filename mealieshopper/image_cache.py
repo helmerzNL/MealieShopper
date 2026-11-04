@@ -34,6 +34,8 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 from PIL import Image, UnidentifiedImageError
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 
 from . import ah, audit, auth
 
@@ -344,12 +346,27 @@ def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
         with session.get(url, headers=HEADERS[store], timeout=TIMEOUT, stream=True, allow_redirects=False) as response:
             if response.status_code in (301, 302, 303, 307, 308):
                 target = urljoin(url, str(response.headers.get("Location") or ""))
-                if not store_for(target):
+                if not _safe_redirect(target):
                     raise ValueError(f"doorverwijzing naar een onbekende host ({urlsplit(target).hostname or '?'})")
                 url = target
                 continue
             return _read_image(response)
     raise ValueError("te veel doorverwijzingen")
+
+
+def _safe_redirect(target: str) -> bool:
+    """Mag een doorverwijzing hierheen? Alleen https naar een winkelhost, en de parser die het verzoek verstuurt (urllib3) moet
+    dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af."""
+    if not store_for(target) or urlsplit(target).scheme != "https":
+        return False
+    try:
+        sent = parse_url(target)
+    except LocationParseError:
+        return False
+    authority = urlsplit(target).netloc
+    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
+        return False
+    return bool(sent.host) and sent.host == urlsplit(target).hostname and sent.scheme == "https"
 
 
 def _read_image(response: requests.Response) -> tuple[bytes, str]:

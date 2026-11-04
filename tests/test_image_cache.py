@@ -248,6 +248,24 @@ class FetchTest(FetchCase):
         self.assertIsNone(image_cache.fetch(loop, now=NOW))
         self.assertLessEqual(sum(1 for call in self.get.call_args_list if call.args[1] == loop), image_cache.MAX_REDIRECTS + 1)
 
+    def test_a_redirect_target_is_checked_with_the_parser_that_sends_the_request(self):
+        # Een adres dat de ene parser als static.ah.nl leest en de andere als iets anders, en een stap terug naar http: nooit.
+        for location in (
+            "https://static.ah.nl\\@127.0.0.1/dam/x",
+            "https://static.ah.nl@127.0.0.1/dam/x",
+            "https://static.ah.nl /dam/x",
+            "https://static.ah.nl%0d%0a/dam/x",
+            "http://static.ah.nl/dam/plain",
+        ):
+            with self.subTest(location=location):
+                self.get.reset_mock()
+                moved = f"https://static.ah.nl/dam/product/moved-{abs(hash(location))}"
+                self.serve(moved, 302, "text/plain", b"")
+                self.redirects[moved] = location
+                self.serve(location, 200, "image/png", picture(4, 4))
+                self.assertIsNone(image_cache.fetch(moved, now=NOW))
+                self.assertEqual([call.args[1] for call in self.get.call_args_list], [moved], "na de doorverwijzing geen verzoek meer")
+
     def test_the_images_folder_is_created_on_first_use(self):
         self.assertFalse(image_cache.images_dir().exists())
         self.serve(AH, 200, "image/png", picture(4, 4))
