@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.1.0
+
+### Nieuw in 3.1.0
+
+*English summary: on a wide screen (from 1024px) the side menu now lists the parts of each section underneath it: Week menu and Find recipes under Recipes, Offers and Price history under Offers, and Recipes, Lists and Orders under Stores (for the chosen store), so one click opens Orders. The bar of sub-tabs above the page disappears; only a choice in it (the store under Stores and Offers) stays. The bar returns when you collapse the menu to icons, below 1024px, or when the tree does not fit the height of the screen. On a receipt, a line now links to the price history of the web shop product its article number is linked to (by id, pinned), instead of a search on the abbreviated receipt name that found nothing for DAVITAMON or COTTAGE CH. Opening a receipt looks up the lines that are not linked yet (at most five searches at AH, within the existing budget and pause) and redraws the receipt with the new links; a line AH does not know stays plain text. Under Orders every receipt is one row (date, amount, number of items) and the whole row is the link; on a wide screen the list fills the rest of the screen and scrolls in its own box, and the receipt itself uses the full width and height of its frame. Reload the page once after updating.*
+
+- **Zijmenu met de onderdelen eronder.** Op een breed scherm (vanaf 1024px) staan onder elk onderdeel van het zijmenu zijn tabbladen: *Weekmenu* en *Recepten zoeken* onder **Recepten**, *Aanbiedingen* en *Prijsgeschiedenis* onder **Aanbiedingen**, en *Recepten*, *Lijstjes* en *Bestellingen* onder **Winkels** (van de gekozen winkel). Eén klik op *Bestellingen* is genoeg. De tabbladenbalk boven de pagina verdwijnt dan; alleen een keuze erin (de winkel bij Winkels en Aanbiedingen) blijft staan. De balk komt terug als je het menu inklapt tot pictogrammen, onder 1024px, of als de boom niet in de hoogte van het scherm past.
+- **Kassabon: regels linken naar het product.** Een regel op de bon linkt naar de prijsgeschiedenis van het webwinkelproduct waaraan het artikelnummer gekoppeld is (op id, vastgepind), niet meer naar een zoekopdracht op de afgekorte bonnaam, die bij *DAVITAMON* of *COTTAGE CH* niets vond. Bij het openen van een bon zoekt MealieShopper de regels op die nog niet gekoppeld zijn (hooguit vijf zoekopdrachten bij AH, binnen het bestaande budget en dezelfde pauze als de nachtelijke taak) en tekent de bon opnieuw met de links die erbij kwamen. Een regel die AH niet kent, blijft gewone tekst.
+- **Bonnenlijst en bon ruimer.** Onder **Bestellingen** is elke kassabon één regel (datum, bedrag, aantal) en is de hele regel de link, in plaats van een kaart met een knop *Bekijken*. Op een breed scherm vult de lijst de rest van het scherm en scrolt hij in zijn eigen vak. De bon zelf gebruikt de hele breedte van het kader en op een breed scherm ook de hoogte.
+- **API**: `GET /api/ah/receipts/<id>` geeft per regel `product` (`id` en `title` van het webwinkelproduct, of `null`); `POST /api/ah/receipts/<id>/products` zoekt de niet-gekoppelde regels op en geeft de bon terug met `products` (het resultaat van het zoeken, of `null` als dat misging).
+- **Handleiding**: het zijmenu en de links op de kassabon.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v3.0.0
 
 ### De stabiele release in het kort: alles sinds 2.97.1

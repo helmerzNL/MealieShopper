@@ -577,6 +577,11 @@ a.subtab-menu__item[hidden] {
   display: none;
 }
 
+/* De boom onder een onderdeel van het zijmenu (nav_tree.js): alleen op een groot scherm, zie verderop. */
+.tab-tree {
+  display: none;
+}
+
 .panel,
 .subpanel {
   display: none;
@@ -3597,14 +3602,14 @@ body.has-onboarding {
   --ink: #202020;
   position: relative;
   box-sizing: border-box;
-  width: min(100%, 400px);
+  width: 100%;
   margin: 12px auto 28px;
   padding: 22px 18px 20px;
   background: var(--paper);
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
   filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.22));
 }
 
@@ -3642,8 +3647,16 @@ body.has-onboarding {
 
 .receipt__row {
   display: grid;
-  grid-template-columns: 5.5ch minmax(0, 1fr) 6ch 7ch;
+  grid-template-columns: 5.5ch minmax(0, 1fr) 8ch 9ch;
   gap: 0 8px;
+}
+
+/* Op een groot scherm vult de bon het kader: zo breed als de pagina en minstens zo hoog als het scherm. */
+@media (min-width: 1024px) {
+  .receipt {
+    min-height: calc(100vh - 230px);
+    padding: 28px 32px 26px;
+  }
 }
 
 .receipt__row > span {
@@ -3704,6 +3717,74 @@ body.has-onboarding {
   margin: 4px 0 0;
   padding-left: 18px;
   font-size: 14px;
+}
+
+/* De lijst met bonnen onder Bestellingen: een regel per bon (datum, bedrag, aantal), de hele regel is de link. Op een groot scherm
+   vult de lijst de rest van het scherm en scrolt hij in zijn eigen vak; op een telefoon loopt hij gewoon met de pagina mee. */
+.receipt-rows {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.receipt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: inherit;
+  text-decoration: none;
+}
+
+.receipt-row:hover {
+  background: var(--selection);
+  border-color: var(--success-border);
+}
+
+.receipt-row strong {
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.receipt-row span {
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt-row small {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
+@media (min-width: 640px) {
+  .receipt-row small {
+    min-width: 7em; /* de bedragen onder elkaar, wat het aantal ook is */
+  }
+}
+
+/* Op een telefoon past de datum niet naast het bedrag: de datum op de eerste regel, bedrag en aantal eronder. */
+@media (max-width: 639px) {
+  .receipt-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0;
+  }
+
+  .receipt-row strong {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .receipt-rows {
+    max-height: calc(100vh - 150px);
+    padding-right: 4px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 .receipt__hit {
@@ -4287,6 +4368,55 @@ body.has-onboarding {
   html.nav-collapsed .tabs .update-dot {
     top: 6px;
     right: 6px;
+  }
+
+  /* De boom (nav_tree.js): onder een onderdeel zijn subtabs, ingesprongen tot onder de naam. Alleen met het menu open en
+     als de boom in de hoogte past (html.nav-tree); anders staan de subtabbalken boven de inhoud zoals altijd. */
+  html.nav-tree:not(.nav-collapsed) .tab-tree {
+    display: grid;
+    gap: 1px;
+    padding: 2px 0 6px 40px;
+  }
+
+  .tab-tree__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px 0 12px;
+    border-radius: var(--radius-control);
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .tab-tree__item:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+
+  /* Het open subtab: een bolletje voor de naam, de kleur van het actieve onderdeel. */
+  .tab-tree__item.is-current {
+    color: var(--primary-strong);
+    font-weight: 700;
+  }
+
+  .tab-tree__item.is-current::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary);
+    transform: translateY(-50%);
+  }
+
+  html.nav-tree:not(.nav-collapsed) .subtabs--tree > a.subtab,
+  html.nav-tree:not(.nav-collapsed) .subtabs--tree.subtabs--empty {
+    display: none;
   }
 }
 

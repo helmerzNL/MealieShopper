@@ -163,16 +163,15 @@ function renderReceiptList() {
     target.innerHTML = `<p class="muted">${escapeHtml(ordersState.receiptsSyncedAt ? t("orders.receipts_none") : t("orders.never_synced"))}</p>`;
     return;
   }
+  // Een regel per bon, de hele regel is de link: zo passen er veel op een scherm en scrolt de lijst in zijn eigen vak.
   target.innerHTML = ordersState.receipts
     .map(
       (receipt) => `
-        <div class="credential-row">
-          <div>
-            <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
-            <small>${escapeHtml([money(receipt.total), receipt.detailsSynced ? tn("list.items", receipt.itemCount) : t("orders.items_pending")].filter(Boolean).join(" · "))}</small>
-          </div>
-          <a class="button button--secondary" data-receipt-id="${escapeHtml(receipt.id)}" href="${escapeHtml(storesPath("ah", "receipts", receipt.id))}" data-nav>${escapeHtml(t("orders.view"))}</a>
-        </div>`
+        <a class="receipt-row" data-receipt-id="${escapeHtml(receipt.id)}" href="${escapeHtml(storesPath("ah", "receipts", receipt.id))}" data-nav>
+          <strong>${escapeHtml(receiptDay(receipt) || receipt.id)}</strong>
+          <span>${escapeHtml(money(receipt.total))}</span>
+          <small>${escapeHtml(receipt.detailsSynced ? tn("list.items", receipt.itemCount) : t("orders.items_pending"))}</small>
+        </a>`
     )
     .join("");
 }
@@ -345,11 +344,15 @@ function receiptMethod(method) {
 function receiptPaper(receipt, words = []) {
   const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
   const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
-  // De omschrijving linkt naar de prijsgeschiedenis van dat product (op naam: op een bon staat geen id van de webwinkel).
+  // De omschrijving linkt naar de prijsgeschiedenis van het webwinkelproduct, zodra het artikelnummer op de bon daaraan gekoppeld
+  // is (ah_receipt_products; bij het openen zoekt resolveReceiptProducts de rest op). Zonder koppeling is het gewone tekst: zoeken
+  // op een afgekorte bonnaam als "COTTAGE CH" vindt toch niets.
   const lines = receipt.items.map((line) =>
     row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`).replace(
       `<span class="receipt__c1">${escapeHtml(line.name)}</span>`,
-      `<span class="receipt__c1"><a href="${escapeHtml(priceHistoryPath("ah", line.name))}" data-route>${escapeHtml(line.name)}</a></span>`
+      line.product
+        ? `<span class="receipt__c1"><a href="${escapeHtml(priceHistoryPath("ah", line.product.title, line.product.id))}" data-route title="${escapeHtml(line.product.title)}">${escapeHtml(line.name)}</a></span>`
+        : `<span class="receipt__c1">${escapeHtml(line.name)}</span>`
     )
   );
   const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
@@ -408,16 +411,29 @@ async function openPurchase(kind, id) {
       $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`; // altijd met producten
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
+      const words = foldText(ordersState.query).split(/\s+/).filter(Boolean);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
-      $("#ah-order-items").innerHTML = receipt.items.length
-        ? receiptPaper(receipt, foldText(ordersState.query).split(/\s+/).filter(Boolean))
-        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+      $("#ah-order-items").innerHTML = receipt.items.length ? receiptPaper(receipt, words) : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+      if (receipt.items.some((line) => !line.product && line.productId)) resolveReceiptProducts(receipt.id, words);
     }
     $("#ah-order-title").focus({ preventScroll: true });
   } catch (error) {
     $("#ah-order-items").innerHTML = "";
     showPurchaseOverview();
     message("#ah-orders-message", error.message);
+  }
+}
+
+// De regels van een open bon die nog bij geen webwinkelproduct horen, opzoeken bij AH (zuinig: een paar zoekopdrachten per keer)
+// en de bon opnieuw tekenen met de links die erbij kwamen. Staat intussen iets anders open, dan blijft dat zo.
+async function resolveReceiptProducts(id, words) {
+  try {
+    const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}/products`, { method: "POST" });
+    const open = ordersState.open;
+    if (!open || open.kind !== "receipt" || open.id !== String(id) || !receipt.items.length) return;
+    $("#ah-order-items").innerHTML = receiptPaper(receipt, words);
+  } catch {
+    // De bon staat er al; een koppeling die niet lukt, krijgt een volgende keer een nieuwe kans.
   }
 }
 

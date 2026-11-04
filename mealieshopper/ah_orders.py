@@ -21,7 +21,7 @@ import time
 from collections import deque
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from . import ah, ah_lists, auth, price_import
 
@@ -421,6 +421,7 @@ RECEIPT_PRODUCTS_RECHECK_DAYS = 30  # een artikelnummer dat AH niet vond, prober
 RECEIPT_PRODUCTS_BACKOFF_HOURS = 12
 RECEIPT_PRODUCTS_PER_HOUR = 120  # alle zoekopdrachten samen (na een bon-sync, 's nachts en bij het zoeken in de Prijsgeschiedenis)
 RECEIPT_PRODUCTS_LOOKUP_SEARCHES = 2  # bij een zoekopdracht in de Prijsgeschiedenis: de namen op de bon die erbij passen
+RECEIPT_PRODUCTS_OPEN_SEARCHES = 5  # bij het openen van een bon: de regels die nog niet gekoppeld zijn (binnen de pauze van 10 s)
 SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
 # Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
 # werd een nieuwe kans, zonder 30 dagen te wachten.
@@ -566,7 +567,8 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
 
 
 def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES) -> dict[str, Any]:
-    """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND").
+    """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND")
+    of een bon opent (`get_receipt`).
     Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
     (die wacht `RECEIPT_PRODUCTS_RECHECK_DAYS`)."""
     keys = {_name_key(name) for name in names if str(name).strip()}
@@ -604,17 +606,51 @@ def list_receipts() -> dict[str, Any]:
     return {"syncedAt": synced_at("receipts"), "receipts": [_receipt_json(row, row["item_count"]) for row in rows]}
 
 
-def get_receipt(receipt_id: str) -> dict[str, Any] | None:
+def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
+    """De regels van een bon, elk met het webwinkelproduct (`product`: id en titel) als het artikelnummer al gekoppeld is, anders None."""
+    rows = conn.execute(
+        """
+        SELECT l.*, p.product_id AS webshop_id, p.title AS webshop_title FROM ah_receipt_items l
+        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.receipt_id = ? ORDER BY l.position
+        """,
+        (receipt_id,),
+    ).fetchall()
+    return [
+        {
+            "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
+            "product": {"id": row["webshop_id"], "title": row["webshop_title"]} if row["webshop_id"] else None,
+        }
+        for row in rows
+    ]
+
+
+def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any] | None:
+    """Een bon met zijn regels. Met `lookup` (bij het openen van de bon) worden de regels die nog bij geen webwinkelproduct horen
+    eerst bij AH opgezocht (`resolve_receipt_names`, hooguit `RECEIPT_PRODUCTS_OPEN_SEARCHES` zoekopdrachten); het resultaat staat
+    in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen."""
+    receipt_id = str(receipt_id)
     with closing(_connect()) as conn:
-        row = conn.execute("SELECT * FROM ah_receipts WHERE receipt_id = ?", (str(receipt_id),)).fetchone()
+        row = conn.execute("SELECT * FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone()
         if not row:
             return None
-        lines = conn.execute("SELECT * FROM ah_receipt_items WHERE receipt_id = ? ORDER BY position", (str(receipt_id),)).fetchall()
+        lines = _receipt_lines(conn, receipt_id)
+    result: dict[str, Any] = {}
+    if lookup:
+        unlinked = [line["name"] for line in lines if line["product"] is None and line["productId"]]
+        try:
+            result["products"] = lookup(unlinked) if unlinked else {"found": 0, "missing": 0, "failed": 0, "searches": 0}
+        except Exception:  # noqa: BLE001 - de koppeling is een extraatje; de bon zelf is wat je wilde zien
+            result["products"] = None
+        if unlinked:
+            with closing(_connect()) as conn:
+                lines = _receipt_lines(conn, receipt_id)
     return {
         **_receipt_json(row, len(lines)),
-        "items": [{"productId": l["product_id"], "name": l["name"], "quantity": l["quantity"], "price": l["price"], "amount": l["amount"]} for l in lines],
+        "items": lines,
         "discounts": json.loads(row["discounts"] or "[]"),
         "payments": json.loads(row["payments"] or "[]"),
+        **result,
     }
 
 

@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261103-77")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-78")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -433,6 +433,15 @@ def create_app() -> Flask:
     @app.get("/api/ah/receipts/<receipt_id>")
     def ah_receipt_detail(receipt_id: str):
         receipt = ah_orders.get_receipt(receipt_id)
+        if not receipt:
+            return jsonify({"error": tr("Kassabon niet gevonden", "Receipt not found")}), 404
+        return jsonify(receipt)
+
+    @app.post("/api/ah/receipts/<receipt_id>/products")
+    def ah_receipt_products(receipt_id: str):
+        # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
+        # ah_orders.resolve_receipt_names) en de bon met de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
+        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES))
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
