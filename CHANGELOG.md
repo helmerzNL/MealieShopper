@@ -16,6 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: `GET /api/ah/purchases/search` en `GET /api/jumbo/purchases/search` nemen `limit` (een getal of `all`), en de AH-zoekopdracht geeft `unsearched` (bonnen en bestellingen waarvan de producten nog niet zijn opgehaald). `GET /api/ah/receipts/search` neemt ook `limit`. `GET /api/ah/receipts/<id>` geeft per regel `product` (`id` en `title` van het webwinkelproduct, of `null`); `POST /api/ah/receipts/<id>/products` zoekt de niet-gekoppelde regels op en geeft de bon terug met `products` (het resultaat van het zoeken, of `null` als dat misging).
 - **Handleiding**: het zijmenu en de links op de kassabon.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
 
 ## v3.0.0
 
