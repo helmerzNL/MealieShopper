@@ -413,7 +413,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/orders")
     def ah_orders_list():
-        return jsonify(ah_orders.list_orders())
+        return jsonify(ah_orders.list_orders(summary=True))
 
     @app.get("/api/ah/orders/<int:order_id>")
     def ah_order_detail(order_id: int):
@@ -428,7 +428,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/receipts")
     def ah_receipts_list():
-        return jsonify(ah_orders.list_receipts())
+        return jsonify(ah_orders.list_receipts(summary=True))
 
     @app.get("/api/ah/receipts/<receipt_id>")
     def ah_receipt_detail(receipt_id: str):

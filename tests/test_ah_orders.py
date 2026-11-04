@@ -205,6 +205,34 @@ class OrdersCacheTest(AhOrdersTestCase):
             self.sync([{"id": 1, "state": "SUBMITTED", "deliveryDate": "2026-10-10", "slotStart": None, "slotEnd": None, "total": 1.0}])
         prefetch.assert_called_once_with(limit=40)
 
+    def test_the_list_route_carries_a_summary_but_the_function_does_not_by_default(self):
+        def details(order_id):
+            return {**fake_details(order_id), "items": [{**fake_details(order_id)["items"][0], "image": "https://static.ah.nl/dam/1"}]}
+
+        self.sync([fulfillment(1)], details)
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        self.assertEqual((listed["images"], listed["productNames"], listed["bonusCount"]), (["https://static.ah.nl/dam/1"], ["Halfvolle melk"], 1))
+        self.assertAlmostEqual(listed["savings"], 0.32)  # (1.45 - 1.29) * 2
+        self.assertNotIn("images", ah_orders.list_orders()["orders"][0])
+
+    def test_the_summary_keeps_the_order_of_the_lines_and_stops_at_six_photos_and_four_names(self):
+        def line(n, image=True):
+            return {"productId": n, "title": f"Product {n}", "brand": "AH", "unitSize": "1 st", "quantity": 1, "amount": 1.0, "price": 1.0,
+                    "priceBeforeBonus": None, "bonus": False, "taxonomy": "", "image": f"https://static.ah.nl/dam/{n}" if image else ""}
+
+        def details(order_id):
+            return {**fake_details(order_id), "items": [line(n, image=n != 3) for n in range(1, 9)]}
+
+        self.sync([fulfillment(1)], details)
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        self.assertEqual(listed["images"], [f"https://static.ah.nl/dam/{n}" for n in (1, 2, 4, 5, 6, 7)])
+        self.assertEqual(listed["productNames"], ["Product 1", "Product 2", "Product 3", "Product 4"])
+        self.assertEqual((listed["savings"], listed["bonusCount"]), (0.0, 0))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("DELETE FROM ah_order_items")
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        self.assertEqual((listed["images"], listed["productNames"], listed["savings"], listed["bonusCount"]), ([], [], None, 0))
+
     def test_open_orders_are_stored_with_their_products(self):
         response = self.sync([fulfillment(1)])
         self.assertEqual(response.get_json(), {"open": 1, "archived": 0, "remaining": 0, "unfinished": 0})
@@ -360,6 +388,29 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         self.assertEqual([(r["id"], r["itemCount"], r["detailsSynced"]) for r in listed["receipts"]], [("R2", 1, True), ("R1", 1, True)])
         receipt = self.client.get("/api/ah/receipts/R2").get_json()
         self.assertEqual((receipt["items"][0]["name"], receipt["payments"][0]["method"]), ("AH Halfvolle melk", "PIN"))
+
+    def test_the_receipt_list_carries_photos_of_linked_lines_the_names_the_savings_and_the_payment(self):
+        detail = lambda rid: {"id": rid, "items": [  # noqa: E731
+            {"productId": 11, "name": "MELK", "quantity": 1, "price": 1.0, "amount": 1.0},
+            {"productId": 12, "name": "KAAS", "quantity": 1, "price": 2.0, "amount": 2.0},
+            {"productId": 13, "name": "BROOD", "quantity": 1, "price": 3.0, "amount": 3.0},
+        ], "discounts": [{"name": "Bonus", "amount": -0.5}, {"name": "Bonus", "amount": -1.0}], "payments": [{"method": "PIN", "amount": 4.5}]}
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 4.5}]], detail)
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("DELETE FROM ah_receipt_products")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (12, 4183, 'AH Halfvolle melk 1 l', 'x', 'https://static.ah.nl/dam/kaas')")
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        self.assertEqual(listed["images"], ["https://static.ah.nl/dam/kaas"])
+        self.assertEqual(listed["productNames"], ["MELK", "AH Halfvolle melk 1 l", "BROOD"])
+        self.assertEqual((listed["savings"], listed["payment"]), (1.5, "PIN"))
+        self.assertNotIn("images", ah_orders.list_receipts()["receipts"][0])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipts SET discounts = '[]', payments = '[]'")
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        self.assertEqual((listed["savings"], listed["payment"]), (0.0, None))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("DELETE FROM ah_receipt_items")
+        self.assertIsNone(self.client.get("/api/ah/receipts").get_json()["receipts"][0]["savings"])
 
     def test_only_new_receipts_are_fetched_next_time(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 5.0}]])

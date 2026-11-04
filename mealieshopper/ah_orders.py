@@ -356,16 +356,51 @@ def _order_json(row: Any, count: int | None = None) -> dict[str, Any]:
     }
 
 
-def list_orders() -> dict[str, Any]:
+SUMMARY_IMAGES = 6  # zoveel foto's per aankoop in de lijst (de kaarten en het overzicht)
+SUMMARY_NAMES = 4
+
+# De samenvatting per bestelling voor de kaarten en het overzicht, in dezelfde query: de eerste foto's en namen in de volgorde van
+# de bestelling (GROUP_CONCAT over een gesorteerde subquery, een regel per adres), het bespaarde bedrag en het aantal bonusregels.
+_ORDER_SUMMARY_SQL = f"""
+    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT image FROM ah_order_items i WHERE i.order_id = o.order_id AND image != ''
+        ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
+    (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM ah_order_items i WHERE i.order_id = o.order_id AND title != ''
+        ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
+    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+        FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
+    (SELECT SUM(bonus) FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
+"""
+
+
+def _split(value: Any) -> list[str]:
+    """Een GROUP_CONCAT met een regeleinde als scheiding terug als lijst, zonder lege waarden."""
+    return [part for part in str(value or "").split("\n") if part]
+
+
+def _order_summary(row: Any) -> dict[str, Any]:
+    savings = row["summary_savings"]
+    return {
+        "images": _split(row["summary_images"]), "productNames": _split(row["summary_names"]),
+        "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+    }
+
+
+def list_orders(summary: bool = False) -> dict[str, Any]:
+    """Alle bestellingen, open bovenaan. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings` en
+    `bonusCount` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
     with closing(_connect()) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT o.*, (SELECT COUNT(*) FROM ah_order_items i WHERE i.order_id = o.order_id) AS item_count
+            {"," + _ORDER_SUMMARY_SQL if summary else ""}
             FROM ah_orders o
             ORDER BY (o.kind = 'open') DESC, COALESCE(NULLIF(o.delivery_date, ''), o.first_seen) DESC, o.order_id DESC
             """
         ).fetchall()
-    return {"syncedAt": synced_at("orders"), "orders": [_order_json(row, row["item_count"]) for row in rows]}
+    return {
+        "syncedAt": synced_at("orders"),
+        "orders": [{**_order_json(row, row["item_count"]), **(_order_summary(row) if summary else {})} for row in rows],
+    }
 
 
 def get_order(order_id: int) -> dict[str, Any] | None:
@@ -677,15 +712,44 @@ def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
     }
 
 
-def list_receipts() -> dict[str, Any]:
+# De samenvatting per bon: de foto's van de gekoppelde webwinkelproducten en de namen (die van de webwinkel als ze er zijn), in de
+# volgorde van de bon; het bedrag van de bonusregels (positief) en de betaalwijze uit de JSON-kolommen.
+_RECEIPT_SUMMARY_SQL = f"""
+    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT p.image FROM ah_receipt_items l
+        JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.receipt_id = r.receipt_id AND p.image != '' ORDER BY l.position LIMIT {SUMMARY_IMAGES})) AS summary_images,
+    (SELECT GROUP_CONCAT(name, char(10)) FROM (SELECT COALESCE(NULLIF(p.title, ''), l.name) AS name FROM ah_receipt_items l
+        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF(p.title, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
+    (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
+    (SELECT -SUM(json_extract(value, '$.amount')) FROM json_each(COALESCE(r.discounts, '[]'))) AS summary_savings,
+    json_extract(COALESCE(r.payments, '[]'), '$[0].method') AS summary_payment
+"""
+
+
+def _receipt_summary(row: Any) -> dict[str, Any]:
+    savings = row["summary_savings"]
+    return {
+        "images": _split(row["summary_images"]), "productNames": _split(row["summary_names"]),
+        "savings": None if not row["summary_lines"] else round(float(savings or 0), 2),
+        "payment": row["summary_payment"] or None,
+    }
+
+
+def list_receipts(summary: bool = False) -> dict[str, Any]:
+    """Alle bonnen, de nieuwste eerst. Met `summary` (de lijstroute) per bon ook `images`, `productNames`, `savings` en `payment`."""
     with closing(_connect()) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT r.*, (SELECT COUNT(*) FROM ah_receipt_items i WHERE i.receipt_id = r.receipt_id) AS item_count
+            {"," + _RECEIPT_SUMMARY_SQL if summary else ""}
             FROM ah_receipts r ORDER BY r.date_time DESC
             """
         ).fetchall()
-    return {"syncedAt": synced_at("receipts"), "receipts": [_receipt_json(row, row["item_count"]) for row in rows]}
+    return {
+        "syncedAt": synced_at("receipts"),
+        "receipts": [{**_receipt_json(row, row["item_count"]), **(_receipt_summary(row) if summary else {})} for row in rows],
+    }
 
 
 def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
