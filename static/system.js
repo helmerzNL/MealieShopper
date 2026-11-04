@@ -3,6 +3,19 @@
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, base64urlToBuffer, ...).
 
 const factoryResetState = { info: null, busy: false };
+
+// De regel onder Opschonen: hoeveel winkelfoto's de afbeeldingencache op schijf heeft (image_cache.py). Mislukt het, dan blijft de
+// regel leeg: het is informatie, geen functie.
+async function loadImageCacheStatus() {
+  const line = $("#system-images");
+  if (!line) return;
+  try {
+    const stats = await jsonFetch("/api/system/images");
+    line.textContent = t("system.images_line", { count: stats.count, size: (stats.bytes / (1024 * 1024)).toFixed(1) });
+  } catch {
+    line.textContent = "";
+  }
+}
 const FACTORY_RESET_POLL_MS = 2000;
 const FACTORY_RESET_GIVE_UP_MS = 90000;
 

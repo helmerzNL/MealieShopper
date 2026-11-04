@@ -9,10 +9,10 @@ from urllib.parse import quote_plus
 import sqlite3
 
 import requests
-from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-78")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-84")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -434,6 +434,15 @@ def create_app() -> Flask:
     def ah_receipt_detail(receipt_id: str):
         receipt = ah_orders.get_receipt(receipt_id)
         if not receipt:
+            return jsonify({"error": tr("Kassabon niet gevonden", "Receipt not found")}), 404
+        return jsonify(receipt)
+
+    @app.post("/api/ah/receipts/<receipt_id>/products")
+    def ah_receipt_products(receipt_id: str):
+        # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
+        # ah_orders.resolve_receipt_names) en de bon met de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
+        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES))
+        if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
 
@@ -441,13 +450,20 @@ def create_app() -> Flask:
     def ah_receipts_sync():
         return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
 
+    def search_limit(default: int) -> int:
+        # De aankopentabel vraagt alles (limit=all) en filtert zelf; zonder limit blijft het de korte lijst.
+        value = (request.args.get("limit") or "").strip().lower()
+        if value == "all":
+            return 100000
+        return max(1, min(int(value), 100000)) if value.isdigit() else default
+
     @app.get("/api/ah/receipts/search")
     def ah_receipts_search():
-        return jsonify(ah_orders.search_receipts(request.args.get("q") or ""))
+        return jsonify(ah_orders.search_receipts(request.args.get("q") or "", limit=search_limit(200)))
 
     @app.get("/api/ah/purchases/search")
     def ah_purchases_search():
-        return jsonify(ah_orders.search_purchases(request.args.get("q") or ""))
+        return jsonify(ah_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     @app.post("/api/ah/explore")
     def ah_explore_routes():
@@ -523,6 +539,25 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable" if request.args.get("v") else "private, max-age=3600"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
+
+    @app.get("/api/images/<token>")
+    def cached_image(token: str):
+        # Een productfoto van een winkel uit de eigen cache (image_cache.py): het token is het winkeladres in base64. Staat de foto
+        # er nog niet, dan haalt de server hem nu op (zoals een browser dat zou doen) en bewaart hem voor altijd. Een onbekende
+        # host, een host in pauze na een 403 of een mislukking geven 404; de <img> verbergt zich dan (data-hide-on-error).
+        url = image_cache.url_for(token)
+        found = image_cache.fetch(url) if url else None
+        if not found:
+            return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
+        response = send_file(image_cache.images_dir() / found["path"], mimetype=found["content_type"], conditional=True, etag=found["digest"], max_age=31536000)
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @app.get("/api/system/images")
+    def cached_images_status():
+        # Voor de regel onder Instellingen > Systeem: hoeveel winkelfoto's er in de cache staan (image_cache.py).
+        return jsonify(image_cache.stats())
 
     # Oude aankopen inlezen uit bevestigingsmails (zie price_import.py). Alleen de beheerder: /api/prices/import staat in
     # auth.ADMIN_PREFIXES, want het schrijft (en wist) gegevens van het hele huishouden.
@@ -1537,7 +1572,7 @@ def create_app() -> Flask:
 
     @app.get("/api/jumbo/purchases/search")
     def jumbo_purchases_search():
-        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or ""))
+        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     # Recepten: zoekresultaten, één recept met ingrediënten en bereiding, en importeren in Mealie.
 

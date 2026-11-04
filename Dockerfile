@@ -29,4 +29,5 @@ EXPOSE 8000
 
 # De entrypoint zet de opties van de Home Assistant-add-on om in omgevingsvariabelen (buiten Home Assistant doet hij niets).
 ENTRYPOINT ["python", "/app/docker-entrypoint.py"]
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "120", "run:app"]
+# Vier threads: een productfoto die de app nog bij de winkel moet ophalen (image_cache.py) houdt anders de hele app vast.
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "120", "--threads", "4", "run:app"]

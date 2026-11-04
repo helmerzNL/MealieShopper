@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_explore, ah_orders, auth_password  # noqa: E402
+from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ACTIVE = {
@@ -58,6 +58,9 @@ class AhOrdersTestCase(unittest.TestCase):
         pace = mock.patch.dict(ah_orders._PACE, {"last": float("-inf"), "recent": ah_orders.deque()})
         pace.start()
         self.addCleanup(pace.stop)
+        prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij AH ophaalt
+        prefetch.start()
+        self.addCleanup(prefetch.stop)
         self.client = create_app().test_client()
 
 
@@ -196,6 +199,11 @@ class OrdersCacheTest(AhOrdersTestCase):
 
         with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=details):
             return self.client.post("/api/ah/orders/sync")
+
+    def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
+        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+            self.sync([{"id": 1, "state": "SUBMITTED", "deliveryDate": "2026-10-10", "slotStart": None, "slotEnd": None, "total": 1.0}])
+        prefetch.assert_called_once_with(limit=40)
 
     def test_open_orders_are_stored_with_their_products(self):
         response = self.sync([fulfillment(1)])
@@ -390,6 +398,96 @@ class ReceiptsCacheTest(AhOrdersTestCase):
 
     def test_unknown_receipt(self):
         self.assertEqual(self.client.get("/api/ah/receipts/nope").status_code, 404)
+        self.assertEqual(self.client.post("/api/ah/receipts/nope/products").status_code, 404)
+
+    def test_a_line_carries_the_webshop_product_once_it_is_linked(self):
+        # Op de bon staat het artikelnummer (hqId); de koppeling naar het webwinkelproduct komt uit ah_receipt_products.
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        line = self.client.get("/api/ah/receipts/R1").get_json()["items"][0]
+        self.assertEqual((line["productId"], line["product"]), (1, None))
+        with closing(ah_orders._connect()) as conn, conn:  # de sync probeerde het al (niet gevonden); nu is het er wel
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, title = 'AH Halfvolle melk 1 l' WHERE receipt_product_id = 1")
+        line = self.client.get("/api/ah/receipts/R1").get_json()["items"][0]
+        self.assertEqual(line["product"], {"id": 4183, "title": "AH Halfvolle melk 1 l", "image": ""})
+
+    def test_opening_a_receipt_looks_up_the_lines_that_are_not_linked_yet(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:  # alsof de sync het nog niet geprobeerd had
+            conn.execute("DELETE FROM ah_receipt_products")
+        self.search_hq_ids.reset_mock()
+        self.search_hq_ids.return_value = [(1, 4183, "AH Halfvolle melk 1 l", "")]
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual(data["items"][0]["product"], {"id": 4183, "title": "AH Halfvolle melk 1 l", "image": ""})
+        self.assertEqual((data["products"]["found"], data["products"]["searches"]), (1, 1))
+        self.assertEqual(self.search_hq_ids.call_args.args[0], "AH Halfvolle melk")
+        # Alles gekoppeld: geen zoekopdracht meer.
+        self.search_hq_ids.reset_mock()
+        again = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((again["products"]["searches"], self.search_hq_ids.call_count), (0, 0))
+
+    def test_a_sync_starts_a_small_prefetch_round(self):
+        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+            self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        prefetch.assert_called_once_with(limit=40)
+
+    def test_an_old_database_gets_the_image_column_once_even_from_two_connections(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute("DROP TABLE IF EXISTS ah_receipt_products")
+            conn.execute("CREATE TABLE ah_receipt_products (receipt_product_id INTEGER PRIMARY KEY, product_id INTEGER, title TEXT, checked_at TEXT NOT NULL)")
+        with closing(ah_orders._connect()) as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}
+        self.assertIn("image", columns)
+        with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste: geen "duplicate column name"
+            ah_orders._add_image_column(conn)
+
+    def test_linking_keeps_the_product_image_and_the_receipt_shows_it(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("DELETE FROM ah_receipt_products")
+        self.search_hq_ids.return_value = [(1, 4183, "AH Halfvolle melk 1 l", "https://static.ah.nl/dam/product/x?rendition=800x800_WEBP")]
+        self.client.post("/api/ah/receipts/R1/products")
+        line = self.client.get("/api/ah/receipts/R1").get_json()["items"][0]
+        self.assertEqual(line["product"], {"id": 4183, "title": "AH Halfvolle melk 1 l", "image": "https://static.ah.nl/dam/product/x?rendition=800x800_WEBP"})
+
+    def test_old_links_without_an_image_are_filled_in_batches_of_25(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, 'x')", [(n, 1000 + n, f"P{n}") for n in range(30)])
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (99, 1099, 'P99', 'x', 'https://static.ah.nl/done')")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (98, NULL, NULL, 'x')")
+        with mock.patch.object(ah, "get_products_by_ids", side_effect=lambda ids: [{"id": i, "title": f"P{i - 1000}", "image": f"https://static.ah.nl/{i}"} for i in ids if i != 1005]) as lookup:
+            result = ah_orders.backfill_receipt_images("2026-11-04T03:00:00+00:00")
+        self.assertEqual([len(call.args[0]) for call in lookup.call_args_list], [25, 5])
+        self.assertEqual(result, {"products": 29, "requests": 2, "failed": 0})
+        with closing(ah_orders._connect()) as conn:
+            self.assertEqual(conn.execute("SELECT image FROM ah_receipt_products WHERE product_id = 1005").fetchone()[0], "")
+            self.assertEqual(conn.execute("SELECT image FROM ah_receipt_products WHERE product_id = 1007").fetchone()[0], "https://static.ah.nl/1007")
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL").fetchone()[0], 0)
+        with mock.patch.object(ah, "get_products_by_ids") as lookup:
+            self.assertEqual(ah_orders.backfill_receipt_images("2026-11-04T04:00:00+00:00"), {"products": 0, "requests": 0, "failed": 0})
+        lookup.assert_not_called()
+
+    def test_the_backfill_shares_the_pause_and_the_hourly_budget(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (1, 4183, 'P', 'x')")
+        with mock.patch.object(ah, "get_products_by_ids", side_effect=ah.AhHttpError("te veel", 429)):
+            result = ah_orders.backfill_receipt_images("2026-11-04T03:00:00+00:00")
+        self.assertEqual((result["failed"], result["requests"], result["pausedUntil"]), (1, 1, "2026-11-04T15:00:00+00:00"))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R9', '2026-10-01', 0, 1, 'x')")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R9', 0, 20960, 'BLOEMKOOL', 1, 1.0, 1.0)")
+        self.search_hq_ids.reset_mock()
+        self.assertEqual(ah_orders.resolve_receipt_products("2026-11-04T04:00:00+00:00")["pausedUntil"], "2026-11-04T15:00:00+00:00")
+        self.search_hq_ids.assert_not_called()
+        with mock.patch.object(ah, "get_products_by_ids") as lookup:
+            self.assertEqual(ah_orders.backfill_receipt_images("2026-11-04T04:00:00+00:00")["pausedUntil"], "2026-11-04T15:00:00+00:00")
+        lookup.assert_not_called()
+
+    def test_a_failing_lookup_still_returns_the_receipt(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with mock.patch.object(ah_orders, "resolve_receipt_names", side_effect=RuntimeError("kapot")):
+            reply = self.client.post("/api/ah/receipts/R1/products")
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual((reply.get_json()["items"][0]["name"], reply.get_json()["products"]), ("AH Halfvolle melk", None))
 
 
 class ReceiptProductsTest(AhOrdersTestCase):
@@ -410,8 +508,8 @@ class ReceiptProductsTest(AhOrdersTestCase):
     def test_only_a_result_with_the_same_article_number_is_linked(self):
         self.receipt("R1", (20960, "BLOEMKOOL"), (20961, "BROCCOLI"))
         self.search_hq_ids.side_effect = lambda name: {
-            "BLOEMKOOL": [(532357, 186629, "AH Biologisch Bloemkool"), (20960, 4183, "AH Bloemkool")],
-            "BROCCOLI": [(999, 1, "AH Broccoli rijst")],
+            "BLOEMKOOL": [(532357, 186629, "AH Biologisch Bloemkool", ""), (20960, 4183, "AH Bloemkool", "")],
+            "BROCCOLI": [(999, 1, "AH Broccoli rijst", "")],
         }[name]
         result = ah_orders.resolve_receipt_products("2026-10-02T00:00:00+00:00")
         self.assertEqual(result, {"found": 1, "missing": 1, "failed": 0, "searches": 2})
@@ -422,13 +520,13 @@ class ReceiptProductsTest(AhOrdersTestCase):
         ah_orders.resolve_receipt_products("2026-10-02T00:00:00+00:00")
         ah_orders.resolve_receipt_products("2026-10-20T00:00:00+00:00")
         self.assertEqual(self.search_hq_ids.call_count, 1)
-        self.search_hq_ids.return_value = [(20961, 210154, "AH Broccoli")]
+        self.search_hq_ids.return_value = [(20961, 210154, "AH Broccoli", "")]
         ah_orders.resolve_receipt_products("2026-11-02T00:00:00+00:00")
         self.assertEqual((self.search_hq_ids.call_count, self.links()), (2, {20961: 210154}))
 
     def test_an_article_number_found_by_another_search_is_not_searched(self):
         self.receipt("R1", (20960, "BLOEMKOOL"), (20960, "BLOEMKOOL"), (4711, "AH BLOEMKOOLROOSJES"))
-        self.search_hq_ids.return_value = [(20960, 4183, "AH Bloemkool"), (4711, 121475, "AH Bloemkoolroosjes")]
+        self.search_hq_ids.return_value = [(20960, 4183, "AH Bloemkool", ""), (4711, 121475, "AH Bloemkoolroosjes", "")]
         result = ah_orders.resolve_receipt_products("2026-10-02T00:00:00+00:00")
         self.assertEqual((result["found"], self.search_hq_ids.call_args_list), (2, [mock.call("BLOEMKOOL")]), "de vaakst gekochte eerst")
         ah_orders.resolve_receipt_products("2026-10-03T00:00:00+00:00")
@@ -448,7 +546,7 @@ class ReceiptProductsTest(AhOrdersTestCase):
     def test_the_receipts_sync_links_and_never_fails_on_it(self):
         detail = {"id": "R1", "items": [{"productId": 20960, "name": "BLOEMKOOL", "quantity": 1, "price": 1.99, "amount": 1.99}], "discounts": [], "payments": []}
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 1.99}]), mock.patch.object(ah, "get_receipt", return_value=detail):
-            self.search_hq_ids.return_value = [(20960, 4183, "AH Bloemkool")]
+            self.search_hq_ids.return_value = [(20960, 4183, "AH Bloemkool", "")]
             self.assertEqual(ah_orders.sync_receipts()["products"], {"found": 1, "missing": 0, "failed": 0, "searches": 1})
             with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")):
                 self.assertEqual(ah_orders.sync_receipts()["failed"], 0)
@@ -472,15 +570,15 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
     def test_one_search_per_name_on_the_receipt(self):
         # "REDBAND" en "RED BAND" staan op de bon bij verschillende artikelnummers: een zoekopdracht per naam (spaties tellen niet).
         self.receipt("R1", (501520, "REDBAND"), (854572, "REDBAND"), (77234, "RED BAND"))
-        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes"), (854572, 410055, "Red Band Zoete aardbeien"),
-                                           (77234, 547751, "Red Band Winegums original")]
+        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes", ""), (854572, 410055, "Red Band Zoete aardbeien", ""),
+                                           (77234, 547751, "Red Band Winegums original", "")]
         result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
         self.assertEqual((result["found"], result["searches"]), (3, 1))
         self.assertEqual(self.search_hq_ids.call_count, 1, "REDBAND en RED BAND zijn een naam")
 
     def test_an_abbreviated_name_gets_a_second_try_with_its_longest_word(self):
         self.receipt("R1", (511669, "RB PICOLIENT"))
-        self.search_hq_ids.side_effect = lambda query: {"PICOLIENT": [(511669, 4242, "Red Band Picolient")]}.get(query, [])
+        self.search_hq_ids.side_effect = lambda query: {"PICOLIENT": [(511669, 4242, "Red Band Picolient", "")]}.get(query, [])
         result = ah_orders.resolve_receipt_products("2026-11-03T12:00:00+00:00")
         self.assertEqual([c.args[0] for c in self.search_hq_ids.call_args_list], ["RB PICOLIENT", "PICOLIENT"])
         self.assertEqual((result["found"], self.links()), (1, {511669: 4242}))
@@ -530,7 +628,7 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
 
     def test_names_from_a_search_are_looked_up_right_away(self):
         self.receipt("R1", (501520, "REDBAND"), (77234, "RED BAND"), (20960, "BLOEMKOOL"))
-        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes"), (77234, 547751, "Red Band Winegums original")]
+        self.search_hq_ids.return_value = [(501520, 88624, "Red Band Schatkistjes", ""), (77234, 547751, "Red Band Winegums original", "")]
         result = ah_orders.resolve_receipt_names(["REDBAND", "RED BAND"])
         self.assertEqual((result["found"], self.search_hq_ids.call_count), (2, 1), "alleen deze namen, een zoekopdracht")
         self.assertIn(self.search_hq_ids.call_args.args[0], ("REDBAND", "RED BAND"))
@@ -551,13 +649,13 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
 class SearchHqIdsTest(unittest.TestCase):
     def test_only_real_article_numbers_are_kept(self):
         raw = {"products": [
-            {"webshopId": 4183, "hqId": 20960, "title": "AH Bloemkool"},
+            {"webshopId": 4183, "hqId": 20960, "title": "AH Bloemkool", "images": [{"url": "https://static.ah.nl/bloemkool", "width": 200}]},
             {"webshopId": 615270, "hqId": 0, "title": "AH Bloemkoolrijst kleinverpakking 3-pack"},
             {"webshopId": 1, "title": "zonder hqId"},
             "geen product",
         ]}
         with mock.patch.object(ah, "_search_json", return_value=raw) as search:
-            self.assertEqual(ah.search_hq_ids("BLOEMKOOL"), [(20960, 4183, "AH Bloemkool")])
+            self.assertEqual(ah.search_hq_ids("BLOEMKOOL"), [(20960, 4183, "AH Bloemkool", "https://static.ah.nl/bloemkool")])
         search.assert_called_once_with("BLOEMKOOL", ah.HQ_SEARCH_WINDOW)
 
 
@@ -597,6 +695,18 @@ class SearchTest(AhOrdersTestCase):
         both = self.client.get("/api/ah/receipts/search?q=a").get_json()
         self.assertEqual([r["id"] for r in both["receipts"]], ["R2", "R1", "R0"][: both["total"]])
         self.assertEqual(self.client.get("/api/ah/receipts/search?q=").get_json(), {"query": "", "receipts": [], "total": 0, "unsearched": 0})
+
+    def test_the_table_asks_for_every_hit_with_limit_all(self):
+        self.client.post("/api/ah/receipts/sync")
+        with mock.patch.object(ah_orders, "search_purchases", wraps=ah_orders.search_purchases) as search:
+            self.client.get("/api/ah/purchases/search?q=melk&limit=all")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=7")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=nope")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 7, 50])
+        with mock.patch.object(ah_orders, "search_receipts", wraps=ah_orders.search_receipts) as search:
+            self.client.get("/api/ah/receipts/search?q=melk&limit=all")
+            self.client.get("/api/ah/receipts/search?q=melk")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 200])
 
     def test_receipts_without_their_lines_are_counted_as_not_searched(self):
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R9", "dateTime": "2026-10-19T10:00:00", "total": 4.0}]), mock.patch.object(ah, "get_receipt", side_effect=RuntimeError("AH even weg")):

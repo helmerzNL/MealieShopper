@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v3.1.0
+## v3.3.0
 
-### Nieuw in 3.1.0
+### Nieuw in 3.3.0
 
 *English summary: the week menu can now prefer organic products. Next to the basket button is a Prefer organic switch; when it is on, the check list suggests an organic product of the same kind for each ingredient, when the store has one (for minced beef "AH Biologisch Rundergehakt", not the organic meatballs). Albert Heijn's own organic property counts, and otherwise "biologisch", "bio" or "organic" in the name or brand (also at Picnic, Jumbo and Crisp). Without an organic product in the results, MealieShopper searches once more with "biologisch" in front; if that finds nothing either, the regular product stays with the note "No organic option found". The regular product stays in the drop-down as cheaper per unit, and organic products are marked organic. Every user has their own switch, kept in the profile and part of the backup. Reload the page once after updating.*
 
@@ -16,7 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Biologische producten hebben in de keuzelijst het woord *biologisch*, ook bij *Zoek een ander product*.
   - **Per gebruiker bewaard:** de schakelaar staat in je profiel en blijft zoals je hem achterliet. Hij gaat mee in de back-up (een nieuwe kolom in het profiel; een oudere back-up terugzetten kan nog steeds, de schakelaar staat dan uit).
 
-### Gewijzigd in 3.1.0
+### Gewijzigd in 3.3.0
 
 *English summary: "biologisch" no longer counts as part of the kind of product, so Compare pack sizes and the check list see "AH Biologisch rundergehakt" and "AH Rundergehakt" as the same kind.*
 
@@ -25,6 +25,39 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding**: *Liever biologisch* onder *Weekmenu naar je mandje*.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
 - Issue: [#218](https://github.com/helmerzNL/MealieShopper/issues/218). Pull request: [#219](https://github.com/helmerzNL/MealieShopper/pull/219).
+
+## v3.2.0
+
+### Nieuw in 3.2.0
+
+*English summary: product photos of the stores (AH, Jumbo, Picnic, Crisp) no longer load straight from the store. The app fetches each photo once, as a browser would, keeps it for good in the `images` folder of the data folder and serves it from there (`GET /api/images/<token>`). A nightly round fills in what is missing at a calm pace, a small round runs after every sync of orders or receipts, and a 403 or 429 pauses that store for twelve hours. Receipt lines that are linked to a webshop product now carry its photo, and the nightly task also links receipt lines (it only did so after a manual sync). The cache is not part of the backup and is removed by a factory reset. `MEALIESHOPPER_IMAGE_PREFETCH=false` turns the background rounds off. The container now serves with four gunicorn threads.*
+
+- **Winkelfoto's uit de eigen cache.** De productfoto's van AH, Jumbo, Picnic en Crisp (bestellingen, het mandje, aanbiedingen, de prijsgeschiedenis, zoekresultaten en recepten) laadt de browser niet meer rechtstreeks van de winkel. MealieShopper haalt elke foto één keer op, zoals een browser dat zou doen, bewaart het origineel voor altijd in de map `images` van de data-map en serveert hem daarna van schijf (`GET /api/images/<token>`, het token is het winkeladres in base64). Een foto van een andere host (Mealie, een maaltijdbox) blijft zoals hij was.
+- **Rustig bij de winkel.** Hooguit twee verzoeken tegelijk, een korte pauze tussen twee verzoeken aan dezelfde winkel en in de achtergrond twee tot vijf seconden. Geeft een winkel een 403 of 429, dan wacht de cache twaalf uur met die winkel. Een foto die niet lukt, probeert hij na een dag opnieuw, vanaf drie keer na een week en vanaf tien keer niet meer.
+- **De nachtelijke taak vult de cache aan**, na de aanbiedingen: hooguit 300 foto's per nacht, de nieuwste eerst. Na elke synchronisatie van bestellingen of kassabonnen volgt een kleine ronde (40), zodat de foto's er al staan voordat je een bestelling opent. Elke ronde staat in het auditlog. `MEALIESHOPPER_IMAGE_PREFETCH=false` zet de rondes uit. Op afroep ophalen blijft werken.
+- **Foto's op de kassabon.** Een regel die aan een webwinkelproduct gekoppeld is, krijgt de foto van dat product mee (`product.image` in `GET /api/ah/receipts/<id>`). Oude koppelingen zonder foto vult de nachtelijke taak aan, 25 per verzoek.
+- **Fix: de nachtelijke taak koppelt nu ook de kassabonregels.** Dat gebeurde alleen na een handmatige synchronisatie van de aanbiedingen. De geplande run sloeg het over.
+- **Instellingen > Systeem** toont hoeveel foto's er in de cache staan en hoeveel ruimte dat is. De cache gaat niet mee in de back-up (hij wordt opnieuw opgebouwd) en verdwijnt bij het terugzetten van de fabrieksinstellingen.
+- **Container**: gunicorn draait met vier threads (`--threads 4`), zodat een foto die nog bij de winkel vandaan moet de rest van de app niet ophoudt.
+- **Handleiding en README**: de foto's en `MEALIESHOPPER_IMAGE_PREFETCH`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#217](https://github.com/helmerzNL/MealieShopper/pull/217), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
+
+## v3.1.0
+
+### Nieuw in 3.1.0
+
+*English summary: on a wide screen (from 1024px) the side menu now lists the parts of each section underneath it: Week menu and Find recipes under Recipes, Offers and Price history under Offers, and Recipes, Lists and Orders under Stores (for the chosen store), so one click opens Orders. The bar of sub-tabs above the page disappears; only a choice in it (the store under Stores and Offers) stays. The bar returns when you collapse the menu to icons, below 1024px, or when the tree does not fit the height of the screen. On a receipt, a line now links to the price history of the web shop product its article number is linked to (by id, pinned), instead of a search on the abbreviated receipt name that found nothing for DAVITAMON or COTTAGE CH. Opening a receipt looks up the lines that are not linked yet (at most five searches at AH, within the existing budget and pause) and redraws the receipt with the new links; a line AH does not know stays plain text. Under Stores > Orders your upcoming and past orders, imported orders and receipts now share one table (date, kind, status, products, amount), newest first, with filters above it: checkboxes for orders and receipts, an amount from and to, and the search field, which searches the products in your orders and receipts and shows only the purchases with that product, with the matching lines in the Products column. On a wide screen the table fills the rest of the screen and scrolls in its own box, and the receipt itself uses the full width and height of its frame. In the Price history the list of found products on the left now uses the full height of the screen (it was 420px) and stays put while you look at the product on the right. Reload the page once after updating.*
+
+- **Zijmenu met de onderdelen eronder.** Op een breed scherm (vanaf 1024px) staan onder elk onderdeel van het zijmenu zijn tabbladen: *Weekmenu* en *Recepten zoeken* onder **Recepten**, *Aanbiedingen* en *Prijsgeschiedenis* onder **Aanbiedingen**, en *Recepten*, *Lijstjes* en *Bestellingen* onder **Winkels** (van de gekozen winkel). Eén klik op *Bestellingen* is genoeg. De tabbladenbalk boven de pagina verdwijnt dan; alleen een keuze erin (de winkel bij Winkels en Aanbiedingen) blijft staan. De balk komt terug als je het menu inklapt tot pictogrammen, onder 1024px, of als de boom niet in de hoogte van het scherm past.
+- **Kassabon: regels linken naar het product.** Een regel op de bon linkt naar de prijsgeschiedenis van het webwinkelproduct waaraan het artikelnummer gekoppeld is (op id, vastgepind), niet meer naar een zoekopdracht op de afgekorte bonnaam, die bij *DAVITAMON* of *COTTAGE CH* niets vond. Bij het openen van een bon zoekt MealieShopper de regels op die nog niet gekoppeld zijn (hooguit vijf zoekopdrachten bij AH, binnen het bestaande budget en dezelfde pauze als de nachtelijke taak) en tekent de bon opnieuw met de links die erbij kwamen. Een regel die AH niet kent, blijft gewone tekst.
+- **Prijsgeschiedenis: de productlijst zo hoog als het scherm.** Op een breed scherm gebruikt de lijst met gevonden producten links de hele schermhoogte (was 420px) en blijft hij staan terwijl je het product rechts bekijkt.
+- **Bestellingen en kassabonnen in één tabel.** Onder **Winkels > Bestellingen** staan je aankomende en afgelopen bestellingen, de ingelezen bestellingen en je kassabonnen samen in één tabel (datum, soort, status, producten, bedrag), de nieuwste bovenaan; een klik op een rij opent de bestelling of de bon. Erboven staan de filters: vinkjes voor *Bestellingen* en *Kassabonnen*, een bedrag *van* en *tot*, en het zoekveld. Dat zoekt op de producten in je bestellingen en bonnen en laat alleen de aankopen met dat product zien, met de gevonden regels in de kolom Producten. Het zoeken gebeurt op de server, een kwart seconde na de laatste toets; de andere filters werken direct in de browser. Op een breed scherm vult de tabel de rest van het scherm en scrolt hij in zijn eigen vak. Op een telefoon vallen de kolommen Soort en Status weg.
+- **De bon zelf ruimer.** De kassabon gebruikt de hele breedte van het kader en op een breed scherm ook de hoogte.
+- **API**: `GET /api/ah/purchases/search` en `GET /api/jumbo/purchases/search` nemen `limit` (een getal of `all`), en de AH-zoekopdracht geeft `unsearched` (bonnen en bestellingen waarvan de producten nog niet zijn opgehaald). `GET /api/ah/receipts/search` neemt ook `limit`. `GET /api/ah/receipts/<id>` geeft per regel `product` (`id` en `title` van het webwinkelproduct, of `null`); `POST /api/ah/receipts/<id>/products` zoekt de niet-gekoppelde regels op en geeft de bon terug met `products` (het resultaat van het zoeken, of `null` als dat misging).
+- **Handleiding**: het zijmenu en de links op de kassabon.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Pull request [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
 
 ## v3.0.0
 

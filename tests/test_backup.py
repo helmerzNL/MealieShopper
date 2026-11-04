@@ -15,7 +15,7 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, mealie, mealie_images, oauth, profile  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -179,7 +179,7 @@ class ClassificationTest(BackupCase):
     def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self):
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         backup.ensure_schemas()
-        for module in (audit, mealie_images, oauth):
+        for module in (audit, mealie_images, oauth, image_cache):
             with closing(module._connect()):
                 pass
         with closing(self.connect()) as conn:

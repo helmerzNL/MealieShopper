@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, jumbo, price_import
+from . import auth, image_cache, jumbo, price_import
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -169,6 +169,7 @@ def sync_orders() -> dict[str, Any]:
             (_now(),),
         )
         remaining = conn.execute("SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0").fetchone()[0]
+    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {
         "orders": len(orders), "new": new, "remaining": remaining, "storeReceipts": listed["storeReceipts"],
         **({"detailError": detail_error} if detail_error else {}),

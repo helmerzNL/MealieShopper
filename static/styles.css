@@ -577,6 +577,11 @@ a.subtab-menu__item[hidden] {
   display: none;
 }
 
+/* De boom onder een onderdeel van het zijmenu (nav_tree.js): alleen op een groot scherm, zie verderop. */
+.tab-tree {
+  display: none;
+}
+
 .panel,
 .subpanel {
   display: none;
@@ -3605,14 +3610,14 @@ body.has-onboarding {
   --ink: #202020;
   position: relative;
   box-sizing: border-box;
-  width: min(100%, 400px);
+  width: 100%;
   margin: 12px auto 28px;
   padding: 22px 18px 20px;
   background: var(--paper);
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
   filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.22));
 }
 
@@ -3650,8 +3655,16 @@ body.has-onboarding {
 
 .receipt__row {
   display: grid;
-  grid-template-columns: 5.5ch minmax(0, 1fr) 6ch 7ch;
+  grid-template-columns: 5.5ch minmax(0, 1fr) 8ch 9ch;
   gap: 0 8px;
+}
+
+/* Op een groot scherm vult de bon het kader: zo breed als de pagina en zo hoog als er onder de kop past (fitReceiptPaper in
+   orders.js meet dat, zodat de pagina zelf niet schuift). */
+@media (min-width: 1024px) {
+  .receipt {
+    padding: 28px 32px 26px;
+  }
 }
 
 .receipt__row > span {
@@ -3708,17 +3721,134 @@ body.has-onboarding {
   text-align: left;
 }
 
-.receipt-hits {
-  margin: 4px 0 0;
-  padding-left: 18px;
+/* Winkels > Bestellingen: de aankopentabel (bestellingen en kassabonnen samen) met de filters erboven. Op een groot scherm
+   vult de tabel de rest van het scherm en scrolt hij in zijn eigen vak (fitPurchaseTable in orders.js). */
+.purchase-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0 0 10px;
+}
+
+.purchase-filters__check {
+  align-items: center;
+  min-height: 0;
+}
+
+.purchase-filters__amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.input--amount {
+  width: 6.5em;
+}
+
+.purchase-status {
+  margin: 0 0 8px;
   font-size: 14px;
 }
 
-.receipt__hit {
-  margin: 0 -4px;
-  padding: 0 4px;
-  background: #ffe97a;
-  border-radius: 2px;
+.purchase-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overscroll-behavior: contain;
+}
+
+.purchase-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.purchase-table th,
+.purchase-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.purchase-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.purchase-table__row {
+  cursor: pointer;
+}
+
+.purchase-table__row:hover {
+  background: var(--selection);
+}
+
+.purchase-table__row:last-child td {
+  border-bottom: 0;
+}
+
+.purchase-table__row td:first-child a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.purchase-table .purchase-table__amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.purchase-table__actions {
+  width: 1%;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.purchase-table__action {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+}
+
+.purchase-table__badge {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
+}
+
+/* Op een telefoon vallen de kolommen Soort en Status weg: de datum, de producten en het bedrag blijven. */
+@media (max-width: 639px) {
+  .purchase-table th:nth-child(2),
+  .purchase-table td:nth-child(2),
+  .purchase-table th:nth-child(3),
+  .purchase-table td:nth-child(3) {
+    display: none;
+  }
+
+  .purchase-table th,
+  .purchase-table td {
+    padding: 8px 6px;
+  }
+
+  .purchase-table__row td:first-child a {
+    white-space: normal;
+  }
+
+  .purchase-table__actions:empty {
+    padding: 0;
+  }
 }
 
 /* Updatecheck (Instellingen > Updates): een bolletje bij de tab en een melding als er een nieuwe versie is */
@@ -4301,6 +4431,55 @@ body.has-onboarding {
     top: 6px;
     right: 6px;
   }
+
+  /* De boom (nav_tree.js): onder een onderdeel zijn subtabs, ingesprongen tot onder de naam. Alleen met het menu open en
+     als de boom in de hoogte past (html.nav-tree); anders staan de subtabbalken boven de inhoud zoals altijd. */
+  html.nav-tree:not(.nav-collapsed) .tab-tree {
+    display: grid;
+    gap: 1px;
+    padding: 2px 0 6px 40px;
+  }
+
+  .tab-tree__item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px 0 12px;
+    border-radius: var(--radius-control);
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .tab-tree__item:hover {
+    background: var(--selection);
+    color: var(--primary-strong);
+  }
+
+  /* Het open subtab: een bolletje voor de naam, de kleur van het actieve onderdeel. */
+  .tab-tree__item.is-current {
+    color: var(--primary-strong);
+    font-weight: 700;
+  }
+
+  .tab-tree__item.is-current::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary);
+    transform: translateY(-50%);
+  }
+
+  html.nav-tree:not(.nav-collapsed) .subtabs--tree > a.subtab,
+  html.nav-tree:not(.nav-collapsed) .subtabs--tree.subtabs--empty {
+    display: none;
+  }
 }
 
 @media (min-width: 1024px) and (prefers-reduced-motion: reduce) {
@@ -4408,6 +4587,14 @@ body.has-onboarding {
   max-height: 420px;
   overflow-y: auto;
   list-style: none;
+}
+
+/* Op een breed scherm passen de lijst en het product samen op het scherm en scrolt elke kolom in zijn eigen vak
+   (offerHistoryFitList zet de hoogte, want waar de kolommen beginnen hangt van de tekst erboven af). */
+@media (min-width: 900px) {
+  .ohc-detail {
+    overflow-y: auto;
+  }
 }
 
 .ohc-item {

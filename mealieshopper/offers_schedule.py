@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from os import environ
 from typing import Any
 
-from . import ah_orders, auth, offers
+from . import ah_orders, auth, image_cache, offers
 
 log = logging.getLogger(__name__)
 
@@ -83,15 +83,32 @@ def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) 
         )
 
 
-def sync_now(trigger: str = "manual") -> dict[str, Any]:
-    """Haal alle aanbiedingen op en onthoud de uitkomst (voor de statusregel onder Koppelen)."""
+def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool = True) -> dict[str, Any]:
+    """De dagelijkse run: alle aanbiedingen, daarna de extraatjes die in hetzelfde rustige tempo bij de winkels langsgaan: een deel
+    van de artikelnummers op de kassabonnen koppelen (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de
+    afbeeldingencache aanvullen (image_cache.prefetch). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
     result = offers.sync_all()
-    # Daarna een deel van de artikelnummers op de kassabonnen aan producten koppelen (zie ah_orders.resolve_receipt_products).
-    linked = ah_orders.resolve_receipt_products_nightly()
-    if linked is not None:
-        result = {**result, "receiptProducts": linked}
-    _record(trigger, result)
+    extras = (
+        ("receiptProducts", ah_orders.resolve_receipt_products_nightly),
+        ("receiptImages", ah_orders.backfill_receipt_images_nightly),
+    )
+    for key, task in extras:
+        outcome = task()
+        if outcome is not None:
+            result = {**result, key: outcome}
+    if wait_for_images:
+        images = image_cache.prefetch_nightly()
+        if images is not None:
+            result = {**result, "images": images}
+    else:  # de knop: een gewone aanvraag mag niet tien minuten duren, de foto's gaan in een eigen thread
+        image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
+    _record(trigger, result, now)
     return result
+
+
+def sync_now(trigger: str = "manual") -> dict[str, Any]:
+    """Haal alle aanbiedingen op (de knop onder Koppelen) en onthoud de uitkomst voor de statusregel."""
+    return run_all(trigger, wait_for_images=False)
 
 
 def status(now: datetime | None = None) -> dict[str, Any]:
@@ -129,7 +146,7 @@ def run_if_due(now: datetime | None = None) -> bool:
     now = now or _local_now()
     if not _claim(now):
         return False
-    _record("scheduled", offers.sync_all(), now)
+    run_all("scheduled", now)
     return True
 
 

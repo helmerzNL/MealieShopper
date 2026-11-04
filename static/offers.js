@@ -200,7 +200,7 @@ function offerProductCard(offer) {
   const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
   return `
     <article class="product-card offer-card">
-      ${offer.image ? `<img src="${escapeHtml(offer.image)}" alt="" loading="lazy" data-hide-on-error>` : ""}
+      ${offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <span>
         ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -421,7 +421,7 @@ function offerRecipeCard(recipe, index) {
   const missing = recipe.missing && recipe.missing.length ? `<p class="muted">${escapeHtml(t("offers.recipe.missing", { list: recipe.missing.join(", ") }))}</p>` : "";
   return `
     <article class="recipe-card">
-      ${recipe.image ? `<img src="${escapeHtml(recipe.image)}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
+      ${recipe.image ? `<img src="${escapeHtml(storeImage(recipe.image))}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       <p class="muted">${escapeHtml(t("offers.match", { matched: recipe.matchedCount, total: recipe.ingredientCount }))}</p>
       <p class="muted">${escapeHtml(t("offers.recipe_from", { source: t(`offers.source.${recipe.source}`) }))}${alsoIn}</p>
@@ -446,7 +446,7 @@ function openOfferProduct(recipe, item) {
   $("#offer-product-conditions").textContent = offerConditionsText(offer);
   const image = $("#offer-product-image");
   image.hidden = !offer.image;
-  if (offer.image) image.src = offer.image;
+  if (offer.image) image.src = storeImage(offer.image);
   else image.removeAttribute("src");
   $("#offer-product-match").textContent = t("offers.product.match", { ingredient: item.ingredient, recipe: recipe.title });
   const open = $("#offer-product-open");
