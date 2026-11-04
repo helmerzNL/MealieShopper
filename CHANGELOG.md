@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.3.1
+
+### Opgelost in 3.3.1
+
+*English summary: Import old purchases no longer skips an order that is in your account without products. Old Jumbo orders (January 2022, for example) are listed under Orders as "products not fetched yet", because Jumbo refuses their details; Check called such an order "is already in your orders" or "your account already has an order on this day", so its products ended up nowhere. Only an order from your account with products now counts as a duplicate, by order number and by date, for all stores. The imported order then shows under Orders, in the Price history and in the purchase search. If MealieShopper fetches the products from the store later after all, the imported version drops out again, so nothing counts twice. An order from your account with products still blocks the import.*
+
+- **Oude aankopen importeren: een bestelling zonder producten in je account telt niet meer als dubbel** (issue [#222](https://github.com/helmerzNL/MealieShopper/issues/222)). Oude Jumbo-bestellingen (bijvoorbeeld van januari 2022) staan bij **Bestellingen** als *producten nog niet opgehaald*, omdat Jumbo de details ervan weigert. **Controleren** zei bij zo'n bestelling *staat al in je bestellingen* of *op deze dag staat al een bestelling in je account*, en **Importeren** bleef uit; de producten kwamen zo nergens terecht, niet uit je account en niet uit de import.
+  - Alleen een bestelling uit je account **met** producten telt nu als dubbel, op bestelnummer en op datum. Dat geldt voor alle winkels (AH, Jumbo, Picnic en Crisp).
+  - De ingelezen bestelling staat daarna bij **Bestellingen**, in de **Prijsgeschiedenis** en in het zoeken op aankopen.
+  - Haalt MealieShopper de producten later alsnog bij de winkel op, dan valt de ingelezen versie op die drie plekken weer weg, zodat niets dubbel telt.
+  - Een bestelling uit je account met producten houdt de import nog steeds tegen.
+- **Handleiding**: de regel voor dubbele bestellingen bij *Oude aankopen importeren*.
+- Issue: [#222](https://github.com/helmerzNL/MealieShopper/issues/222).
+
 ## v3.3.0
 
 ### Nieuw in 3.3.0

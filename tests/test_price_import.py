@@ -40,6 +40,22 @@ class ImportCase(unittest.TestCase):
         with closing(ah_orders._connect()) as conn, conn:
             ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items))
 
+    def jumbo_order(self, order_id, day, items=None, total=128.84):
+        """Een Jumbo-bestelling uit je account. `items=None`: alleen de kop, zoals bij een oude bestelling waarvan Jumbo de details
+        weigert (*producten nog niet opgehaald*)."""
+        with closing(jumbo_orders._connect()) as conn, conn:
+            jumbo_orders._save_order(conn, {"id": order_id, "deliveryDate": day, "total": total}, items)
+
+
+def jumbo_mail_order(number="6005201234", day="2022-01-12"):
+    return mail_order(number=number, day=day, total=128.84, items=[
+        {"name": "Jumbo Kipfilet 500g", "quantity": 2, "price": 5.49, "total": 10.98},
+        {"name": "Jumbo Halfvolle Melk 1L", "quantity": 3, "price": 1.15, "total": 3.45},
+    ])
+
+
+KIPFILET = {"productId": "123KIP", "title": "Jumbo Kipfilet 500g", "quantity": 2, "price": 5.49, "amount": 10.98}
+
 
 class PromptTest(unittest.TestCase):
     def test_the_prompt_asks_for_the_date_and_the_order_number_so_nothing_counts_twice(self):
@@ -125,6 +141,23 @@ class RunTest(ImportCase):
         self.assertEqual([o["reason"] for o in report["orders"]],
                          ["staat al in je bestellingen", "op deze dag staat al een bestelling in je account", None])
 
+    def test_an_account_order_without_products_does_not_block_the_import(self):
+        # #222: oude Jumbo-bestellingen staan alleen als kop in je account (Jumbo weigert de details). Op nummer en op datum.
+        self.jumbo_order("6005201234", "2022-01-12")
+        self.jumbo_order("6005209999", "2022-01-05", items=[])  # wel opgehaald, maar zonder één regel
+        report = self.run_import(jumbo_mail_order(), jumbo_mail_order(number=None, day="2022-01-05"), store="jumbo", dry_run=True)
+        self.assertEqual([(o["new"], o["reason"]) for o in report["orders"]], [(True, None), (True, None)])
+        self.assertEqual((report["new"], report["duplicates"], report["lines"]), (2, 0, 4))
+        self.assertEqual(self.run_import(jumbo_mail_order(), store="jumbo")["imported"], 2)
+
+    def test_an_account_order_with_products_still_blocks_the_import(self):
+        self.jumbo_order("6005201234", "2022-01-12", items=[KIPFILET])
+        self.jumbo_order("6005205555", "2022-01-19", items=[KIPFILET])
+        report = self.run_import(jumbo_mail_order(), jumbo_mail_order(number="777", day="2022-01-19"), store="jumbo")
+        self.assertEqual([o["reason"] for o in report["orders"]],
+                         ["staat al in je bestellingen", "op deze dag staat al een bestelling in je account"])
+        self.assertEqual(report["imported"], 0)
+
     def test_nothing_usable_is_an_error(self):
         with self.assertRaises(ValueError):
             self.run_import(mail_order(day=None))
@@ -159,6 +192,17 @@ class HistoryTest(ImportCase):
         self.ah_order(225301, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 2, "price": 1.19, "amount": 2.38})
         products = self.history("bananen")["products"]
         self.assertEqual([(p["productId"], p["timesBought"]) for p in products], [("4183", 1)])
+
+    def test_an_imported_order_counts_while_the_account_order_has_no_products(self):
+        # #222: de bestelling staat zonder producten in je account; de ingelezen versie telt, tot de producten alsnog binnenkomen.
+        self.jumbo_order("6005201234", "2022-01-12")
+        self.run_import(jumbo_mail_order(), store="jumbo")
+        found = prices.history("jumbo", "kipfilet", 50, today=TODAY)["products"]
+        self.assertEqual([(p["productId"], p["timesBought"], p["purchases"][0]["source"]) for p in found],
+                         [("import:jumbo kipfilet 500g", 1, "import")])
+        self.jumbo_order("6005201234", "2022-01-12", items=[KIPFILET])
+        found = prices.history("jumbo", "kipfilet", 50, today=TODAY)["products"]
+        self.assertEqual([(p["productId"], p["timesBought"], p["purchases"][0]["source"]) for p in found], [("123KIP", 1, "order")])
 
     def test_imported_purchases_count_as_bought(self):
         self.run_import(mail_order())
@@ -196,6 +240,22 @@ class OrdersTest(ImportCase):
         self.ah_order(888, "2026-09-08", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.19, "amount": 1.19})
         self.assertEqual(price_import.list_orders("ah")["orders"], [])
         self.assertIsNone(price_import.get_order("ah", "225301"))
+
+    def test_an_imported_order_is_listed_while_the_account_order_has_no_products(self):
+        # #222: op nummer (12 jan) en op datum (5 jan) staat er een accountbestelling zonder producten; de ingelezen versie staat erbij.
+        self.jumbo_order("6005201234", "2022-01-12")
+        self.jumbo_order("6005209999", "2022-01-05")
+        self.run_import(jumbo_mail_order(), jumbo_mail_order(number="777", day="2022-01-05"), store="jumbo")
+        self.assertEqual([o["ref"] for o in price_import.list_orders("jumbo")["orders"]], ["6005201234", "777"])
+        self.assertEqual(len(price_import.get_order("jumbo", "6005201234")["items"]), 2)
+        self.assertEqual([(o["id"], o.get("imported", False)) for o in jumbo_orders.search_purchases("kipfilet")["occurrences"]],
+                         [("6005201234", True), ("777", True)])
+        # Haalt de app de producten later alsnog op, dan valt de ingelezen versie weg: niets dubbel.
+        self.jumbo_order("6005201234", "2022-01-12", items=[KIPFILET])
+        self.assertEqual([o["ref"] for o in price_import.list_orders("jumbo")["orders"]], ["777"])
+        self.assertIsNone(price_import.get_order("jumbo", "6005201234"))
+        self.assertEqual([(o["id"], o.get("imported", False)) for o in jumbo_orders.search_purchases("kipfilet")["occurrences"]],
+                         [("6005201234", False), ("777", True)])
 
     def test_one_imported_order_can_be_removed_on_its_own(self):
         self.run_import(mail_order(), mail_order(number="777", day="2025-05-01"))
