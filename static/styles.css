@@ -4274,10 +4274,11 @@ body.has-onboarding {
   min-height: 0;
 }
 
-/* Het archief-icoon voor "Bestelling" bij een ingelezen bestelling (tabel, kaarten, overzicht): het enige dat de herkomst noemt. */
+/* Het archief-icoon achter "Bestelling" bij een ingelezen bestelling (tabel, kaarten, overzicht): het enige dat de herkomst noemt.
+   Achter het woord, zodat "Bestelling" in de kolom Soort onder elkaar uitlijnt. */
 .purchase-kind-badge {
   display: inline-flex;
-  margin-right: 4px;
+  margin-left: 4px;
   vertical-align: -0.2em;
   color: var(--muted);
 }

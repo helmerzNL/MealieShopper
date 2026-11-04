@@ -160,19 +160,20 @@ function purchaseKindIcon(kind) {
   return kind === "receipt" ? MDI_RECEIPT : kind === "imported" ? MDI_ARCHIVE_OUTLINE : MDI_CART;
 }
 
-// Een ingelezen bestelling is ook gewoon een Bestelling (#229); alleen het archief-icoon ervoor (purchaseKindLabel), de grijze
+// Een ingelezen bestelling is ook gewoon een Bestelling (#229); alleen het archief-icoon erachter (purchaseKindLabel), de grijze
 // kleur van de soort en de prullenbak laten zien dat ze uit je bevestigingsmails komt.
 function purchaseKindText(kind) {
   return t(kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order");
 }
 
 // De soort als HTML, voor de tabel, de kaarten en het overzicht. Het archief-icoon zegt als tooltip en voor een schermlezer waar
-// een ingelezen bestelling vandaan komt: de tekst ernaast is dezelfde als bij een bestelling uit je account.
+// een ingelezen bestelling vandaan komt: de tekst ervoor is dezelfde als bij een bestelling uit je account. Het icoon staat achter
+// het woord, zodat "Bestelling" in de kolom Soort onder elkaar uitlijnt.
 function purchaseKindLabel(kind) {
   const text = escapeHtml(purchaseKindText(kind));
   if (kind !== "imported") return text;
   const badge = escapeHtml(t("orders.imported.badge"));
-  return `<span class="purchase-kind-badge" role="img" aria-label="${badge}" title="${badge}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>${text}`;
+  return `${text}<span class="purchase-kind-badge" role="img" aria-label="${badge}" title="${badge}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>`;
 }
 
 // De collage: hooguit `count` foto's (4 als 2x2, 6 als 3x2; minder foto's worden groter, zie de CSS per aantal). Zonder foto's

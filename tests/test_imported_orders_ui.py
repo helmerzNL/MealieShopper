@@ -1,6 +1,6 @@
 """Ingelezen bestellingen bij Bestellingen (#229), echt gedraaid in Node: een bestelling uit je account zonder producten valt weg
 naast haar ingelezen versie (op nummer of dag, met de datum van elke winkel), de status en het tijdvak komen uit de mail of anders
-uit die weggevallen bestelling, de soort heet gewoon Bestelling met het archief-icoon ervoor, en bij Picnic en Crisp krijgt een
+uit die weggevallen bestelling, de soort heet gewoon Bestelling met het archief-icoon erachter, en bij Picnic en Crisp krijgt een
 ingelezen bestelling de vorm van een eigen bestelling (met de producten voor Alles in mandje). Zonder Node slaan de tests over."""
 
 import json
@@ -97,10 +97,10 @@ class ImportedOrdersUiTest(unittest.TestCase):
                             "console.log(JSON.stringify(imported.map((o) => importedOrderStatus(o, covered.get(o.ref)))));")
         self.assertEqual(found, ["Afgeleverd · 18:00-20:00", "Afgeleverd · 18:00-21:00", "", ""])
 
-    def test_the_kind_is_order_with_the_archive_icon_in_front(self):
+    def test_the_kind_is_order_with_the_archive_icon_behind_it(self):
         found = self.run_js('console.log(JSON.stringify(["imported", "order", "receipt"].map(purchaseKindLabel)));')
         imported, order, receipt = found
-        self.assertTrue(imported.endswith("Bestelling"), imported)
+        self.assertTrue(imported.startswith("Bestelling<span"), "het icoon staat achter het woord, zodat Bestelling uitlijnt")
         self.assertIn('role="img" aria-label="Geïmporteerd uit je bevestigingsmails" title="Geïmporteerd uit je bevestigingsmails"', imported)
         self.assertIn("ARCHIEF", imported)
         self.assertEqual((order, receipt), ("Bestelling", "Kassabon"))
