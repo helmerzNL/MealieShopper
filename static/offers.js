@@ -14,16 +14,21 @@ const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer 
 const OFFERS_PERSONAL_KEY = "ms-offers-personal";
 const OFFERS_GOOD_KEY = "ms-offers-good";
 const OFFERS_SORT_KEY = "ms-offers-sort";
+const OFFERS_VIEW_KEY = "ms-offers-view";
 const OFFERS_SORTS = ["store", "discount", "unit", "lowest"];
+const OFFERS_VIEWS = ["cards", "compact"];
+const OFFER_COMPACT_ROWS = 8; // in de compacte weergave staan er per "rij" van de knop Meer zoveel regels
 const offersState = {
   store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
-  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "store",
+  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "store", view: "cards",
 };
 try {
   offersState.personalOnly = localStorage.getItem(OFFERS_PERSONAL_KEY) === "1";
   offersState.goodOnly = localStorage.getItem(OFFERS_GOOD_KEY) === "1";
   const sort = localStorage.getItem(OFFERS_SORT_KEY);
   if (OFFERS_SORTS.includes(sort)) offersState.sort = sort;
+  const view = localStorage.getItem(OFFERS_VIEW_KEY);
+  if (OFFERS_VIEWS.includes(view)) offersState.view = view;
 } catch {
   // Zonder opslag staan de schakelaars uit en is de volgorde die van de winkel.
 }
@@ -310,10 +315,12 @@ function offerCardFoot(offer) {
   return `<div class="offer-card__foot">${compare}${history}</div>`;
 }
 
-// Het plaatje van een aanbieding met de badge en het prijslabel erop; zonder plaatje een leeg vlak van dezelfde hoogte.
-function offerThumb(offer, extraClass = "") {
+// Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij); zonder plaatje een leeg vlak
+// van dezelfde hoogte.
+function offerThumb(offer, extraClass = "", bare = false) {
   const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : "";
-  return `<a class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" href="${escapeHtml(offer.url || "#")}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-zoom="${escapeHtml(offer.id)}">${image}${offerBadge(offer)}${offerPriceLabelHtml(offer)}</a>`;
+  const overlay = bare ? "" : `${offerBadge(offer)}${offerPriceLabelHtml(offer)}`;
+  return `<a class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" href="${escapeHtml(offer.url || "#")}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-zoom="${escapeHtml(offer.id)}">${image}${overlay}</a>`;
 }
 
 // De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als de app
@@ -353,6 +360,40 @@ function offerProductCard(offer) {
     </article>`;
 }
 
+// De compacte weergave: één regel per aanbieding, met de badge als eigen kolom, de titel met inhoud en actie, de prijs, de prijs per
+// eenheid, het prijslabel (of de chip "n× dit jaar") en twee iconen voor Vergelijk verpakkingen en Prijsgeschiedenis.
+function offerProductRow(offer) {
+  const name = `<strong>${escapeHtml(offer.title)}</strong>`;
+  const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
+  const promo = offer.promoLabel ? `<b class="offer-row__promo">${escapeHtml(offer.promoLabel)}</b>` : "";
+  const meta = [offer.unitSize ? escapeHtml(offer.unitSize) : "", promo].filter(Boolean).join(" · ");
+  const perUnit = offerPerUnitText(offer.unitPricePer);
+  const label = offerPriceLabel(offer);
+  const often = offerVerdictLines(offer).find((line) => line.cls.includes("verdict--often"));
+  const history = label
+    ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>`
+    : often ? `<small class="${often.cls}" title="${escapeHtml(often.title)}">${escapeHtml(often.text)}</small>` : "";
+  const compare = offer.unitPricePer
+    ? `<button class="icon-button" type="button" data-compare="${escapeHtml(offer.id)}" title="${escapeHtml(t("offers.compare.open"))}" aria-label="${escapeHtml(t("offers.compare.open"))}">${mdiIcon(MDI_COMPARE_HORIZONTAL)}</button>`
+    : "";
+  const chart = `<a class="icon-button" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route title="${escapeHtml(t("offers.card.history"))}" aria-label="${escapeHtml(t("offers.card.history"))}">${mdiIcon(MDI_CHART_LINE)}</a>`;
+  return `
+    <article class="product-card offer-row">
+      ${offerThumb(offer, "offer-row__thumb", true)}
+      <span class="offer-row__badge">${offerBadge(offer)}</span>
+      <div class="offer-row__product">${title}${meta ? `<small>${meta}</small>` : ""}${offerPersonalBadge(offer)}</div>
+      <span class="offer-row__price">${offerPriceHtml(offer)}</span>
+      <small class="offer-row__unit">${escapeHtml(perUnit)}</small>
+      <span class="offer-row__history">${history}</span>
+      <div class="offer-row__links">${compare}${chart}</div>
+    </article>`;
+}
+
+function offerRowHead() {
+  const cells = ["", t("offers.row.discount"), t("offers.row.product"), t("offers.row.price"), t("offers.row.unit"), t("offers.row.history"), ""];
+  return `<div class="offer-row offer-row--head" aria-hidden="true">${cells.map((cell) => `<span>${escapeHtml(cell)}</span>`).join("")}</div>`;
+}
+
 // Hoeveel producten er in een rij van het raster passen; een verborgen raster geeft de ruwe waarde, dan gokken we.
 function offerColumns() {
   const columns = getComputedStyle($("#offers-products")).gridTemplateColumns;
@@ -385,8 +426,12 @@ function renderOfferCategories() {
 function renderOfferGrid() {
   const base = offersFiltered();
   const shown = offersSorted(offersState.category === "all" ? base : base.filter((offer) => offer.category === offersState.category));
-  const limit = offersState.rows * offerColumns();
-  $("#offers-products").innerHTML = shown.slice(0, limit).map(offerProductCard).join("");
+  const compact = offersState.view === "compact";
+  const limit = offersState.rows * (compact ? OFFER_COMPACT_ROWS : offerColumns());
+  const grid = $("#offers-products");
+  grid.classList.toggle("product-grid--compact", compact);
+  const cards = shown.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
+  grid.innerHTML = compact && shown.length ? offerRowHead() + cards : cards;
   $("#offers-more").hidden = shown.length <= limit;
 }
 
@@ -443,6 +488,9 @@ function renderOffersTools() {
     const active = chip.dataset.sort === offersState.sort;
     chip.classList.toggle("is-active", active);
     chip.setAttribute("aria-pressed", String(active));
+  });
+  $("#offers-view").querySelectorAll("[data-view]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.view === offersState.view));
   });
 }
 
@@ -791,6 +839,13 @@ $("#offers-sort").addEventListener("click", (event) => {
   if (!chip || !OFFERS_SORTS.includes(chip.dataset.sort)) return;
   offersState.sort = chip.dataset.sort;
   offersRemember(OFFERS_SORT_KEY, offersState.sort);
+  offersRedraw();
+});
+$("#offers-view").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button || !OFFERS_VIEWS.includes(button.dataset.view)) return;
+  offersState.view = button.dataset.view;
+  offersRemember(OFFERS_VIEW_KEY, offersState.view);
   offersRedraw();
 });
 let offersResizeFrame = 0;

@@ -5711,8 +5711,199 @@ body.has-onboarding {
 }
 
 .offer-cats--sort {
-  flex-basis: 100%;
+  flex: 1 1 auto;
   margin-top: 2px;
+}
+
+/* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. Gedeeld met de weergaven van de
+   aankopen. */
+.segment-control {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.segment-control__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segment-control__button + .segment-control__button {
+  border-left: 1px solid var(--border);
+}
+
+.segment-control__button svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.segment-control__button:hover {
+  color: var(--text);
+}
+
+.segment-control__button[aria-pressed="true"] {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
+.product-grid--compact {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.offer-row {
+  display: grid;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 72px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 4px 10px;
+}
+
+.offer-row--head {
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 2px;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.offer-row--head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-row .offer-row__thumb {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.offer-row .offer-row__thumb img {
+  padding: 2px;
+}
+
+.offer-row .offer-badge {
+  position: static;
+  display: inline-block;
+  width: 52px;
+  padding: 4px 0;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+.offer-row__product {
+  min-width: 0;
+}
+
+.offer-row__product strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.offer-row__product small {
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-row__promo {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.offer-row .product-card__price {
+  margin-top: 0;
+  font-size: 15px;
+}
+
+.offer-row .offer-row__unit {
+  margin-top: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.offer-row .offer-label,
+.offer-row .verdict {
+  position: static;
+  margin: 0;
+}
+
+.offer-row__links {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.offer-row__links .icon-button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  box-shadow: none;
+}
+
+.offer-row__links .icon-button:hover {
+  background: var(--surface-muted);
+  color: var(--primary-strong);
+  box-shadow: none;
+}
+
+.offer-row__links .icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+@media (max-width: 640px) {
+  .offer-row {
+    grid-template-columns: 48px 60px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+
+  .offer-row__price,
+  .offer-row__unit,
+  .offer-row__history {
+    grid-column: 3;
+  }
+
+  .offer-row__price,
+  .offer-row__unit {
+    display: inline;
+  }
+
+  .offer-row--head,
+  .offer-row__links {
+    display: none;
+  }
 }
 
 @media (max-width: 640px) {
