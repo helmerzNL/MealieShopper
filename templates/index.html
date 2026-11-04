@@ -594,12 +594,25 @@
           <p class="muted" id="offers-status"></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
-          <div class="ohc-tools offers-personal" id="offers-personal" hidden>
+          <div class="offers-tools">
+            <input class="input offers-tools__search" id="offers-search" type="search" autocomplete="off" placeholder="Zoek in de aanbiedingen" aria-label="Zoek in de aanbiedingen" data-i18n-attr="placeholder:offers.search;aria-label:offers.search">
+            <div class="offers-personal" id="offers-personal" hidden>
+              <label class="ohc-filter">
+                <input type="checkbox" id="offers-personal-only" role="switch">
+                <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+              </label>
+              <span class="muted offers-personal__note" id="offers-personal-note"></span>
+            </div>
             <label class="ohc-filter">
-              <input type="checkbox" id="offers-personal-only" role="switch">
-              <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+              <input type="checkbox" id="offers-good-only" role="switch">
+              <span data-i18n="offers.good_only">Alleen echt voordelig</span>
             </label>
-            <span class="muted offers-personal__note" id="offers-personal-note"></span>
+            <div id="offers-sort" class="offer-cats offer-cats--sort" role="group" aria-label="Sorteren" data-i18n-attr="aria-label:offers.sort.label">
+              <button class="offer-chip is-active" type="button" data-sort="store" aria-pressed="true" data-i18n="offers.sort.store">Winkelvolgorde</button>
+              <button class="offer-chip" type="button" data-sort="discount" aria-pressed="false" data-i18n="offers.sort.discount">Hoogste korting</button>
+              <button class="offer-chip" type="button" data-sort="unit" aria-pressed="false" data-i18n="offers.sort.unit">Laagste prijs per eenheid</button>
+              <button class="offer-chip" type="button" data-sort="lowest" aria-pressed="false" data-i18n="offers.sort.lowest">Laagste ooit eerst</button>
+            </div>
           </div>
           <div id="offers-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>

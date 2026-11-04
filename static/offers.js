@@ -12,14 +12,28 @@
 const OFFERS_STORES = ["ah", "picnic", "jumbo", "crisp"];
 const OFFER_ROWS = 3; // zoveel rijen aanbiedingen staan er eerst; de knop Meer voegt er steeds zoveel toe
 const OFFERS_PERSONAL_KEY = "ms-offers-personal";
+const OFFERS_GOOD_KEY = "ms-offers-good";
+const OFFERS_SORT_KEY = "ms-offers-sort";
+const OFFERS_SORTS = ["store", "discount", "unit", "lowest"];
 const offersState = {
   store: "ah", supported: true, offers: [], categories: [], category: "all", course: "all", recipes: [], rows: OFFER_ROWS, weekStart: "",
-  personal: null, personalOnly: false,
+  personal: null, personalOnly: false, search: "", goodOnly: false, sort: "store",
 };
 try {
   offersState.personalOnly = localStorage.getItem(OFFERS_PERSONAL_KEY) === "1";
+  offersState.goodOnly = localStorage.getItem(OFFERS_GOOD_KEY) === "1";
+  const sort = localStorage.getItem(OFFERS_SORT_KEY);
+  if (OFFERS_SORTS.includes(sort)) offersState.sort = sort;
 } catch {
-  // Zonder opslag staat de schakelaar uit.
+  // Zonder opslag staan de schakelaars uit en is de volgorde die van de winkel.
+}
+
+function offersRemember(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // De keuze geldt dan alleen tot je de pagina herlaadt.
+  }
 }
 
 // Alleen de persoonlijke aanbiedingen (de Bonus Box): als de schakelaar aan staat en de winkel ze heeft.
@@ -27,18 +41,61 @@ function offersPersonalOnly() {
   return offersState.personalOnly && Boolean(offersState.personal && offersState.personal.supported);
 }
 
-// De aanbiedingen die de schakelaar doorlaat, en hun categorieën met het aantal daarin (in de volgorde van de hele lijst).
-function offersShown() {
-  return offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
+// De aanbiedingen die de schakelaars en het zoekveld doorlaten, in de volgorde van de winkel: de Bonus Box, het zoekveld (elk woord
+// moet in de naam of het merk staan, zonder hoofdletters en accenten) en "alleen echt voordelig" (het oordeel is good).
+function offersFiltered() {
+  let shown = offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
+  const search = offersState.search.trim();
+  if (search) shown = shown.filter((offer) => matchesWords(offer.searchText || "", search));
+  if (offersState.goodOnly) shown = shown.filter((offer) => offer.verdict && offer.verdict.kind === "good");
+  return shown;
 }
 
+// De categorieën met het aantal dat ook door de schakelaars en het zoekveld komt; een categorie zonder treffers valt weg.
 function offersShownCategories() {
-  if (!offersPersonalOnly()) return offersState.categories;
   const counts = {};
-  offersShown().forEach((offer) => {
+  offersFiltered().forEach((offer) => {
     counts[offer.category] = (counts[offer.category] || 0) + 1;
   });
   return offersState.categories.filter((category) => counts[category.id]).map((category) => ({ id: category.id, count: counts[category.id] }));
+}
+
+// De sorteerkeuze. Winkelvolgorde is de lijst zoals hij is. Hoogste korting: de badge aflopend, gemeten voor claim bij gelijk, zonder
+// badge onderaan. Laagste prijs per eenheid: eerst kilo, dan liter, dan stuk (zoals het userscript), daarbinnen oplopend, zonder
+// eenheid onderaan. Laagste ooit eerst: de trede van het prijslabel, daarbinnen op korting. Stabiel: bij gelijk blijft de winkelvolgorde.
+const OFFER_UNIT_ORDER = { kg: 0, l: 1, stuk: 2 };
+const OFFER_LABEL_ORDER = { lowest_ever: 0, lowest_12m: 1, lowest_6m: 2, lowest_seen: 3 };
+
+function offerDiscountKey(offer) {
+  const badge = offer.badge;
+  if (!badge || typeof badge.percent !== "number") return [1, 0, 1];
+  return [0, -badge.percent, badge.source === "history" ? 0 : 1];
+}
+
+function offerSortKey(offer) {
+  if (offersState.sort === "discount") return offerDiscountKey(offer);
+  if (offersState.sort === "unit") {
+    const per = offer.unitPricePer;
+    return per && typeof per.value === "number" ? [0, OFFER_UNIT_ORDER[per.unit] ?? 3, per.value] : [1, 3, 0];
+  }
+  if (offersState.sort === "lowest") {
+    const kind = offer.priceLabel && offer.priceLabel.kind;
+    return [OFFER_LABEL_ORDER[kind] ?? 4, ...offerDiscountKey(offer)];
+  }
+  return [0];
+}
+
+function offersSorted(list) {
+  if (offersState.sort === "store") return list;
+  const keyed = list.map((offer, index) => ({ offer, index, key: offerSortKey(offer) }));
+  keyed.sort((a, b) => {
+    for (let at = 0; at < Math.max(a.key.length, b.key.length); at += 1) {
+      const diff = (a.key[at] ?? 0) - (b.key[at] ?? 0);
+      if (diff) return diff;
+    }
+    return a.index - b.index;
+  });
+  return keyed.map((item) => item.offer);
 }
 
 // Het label van een persoonlijke aanbieding: groen als ze geactiveerd is, geel als dat nog moet in de app van de winkel.
@@ -307,7 +364,7 @@ function offerCategoryLabel(id) {
 }
 
 function renderOfferCategories() {
-  const total = offersShown().length;
+  const total = offersFiltered().length;
   const categories = offersShownCategories();
   if (offersState.category !== "all" && !categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
@@ -326,8 +383,8 @@ function renderOfferCategories() {
 }
 
 function renderOfferGrid() {
-  const base = offersShown();
-  const shown = offersState.category === "all" ? base : base.filter((offer) => offer.category === offersState.category);
+  const base = offersFiltered();
+  const shown = offersSorted(offersState.category === "all" ? base : base.filter((offer) => offer.category === offersState.category));
   const limit = offersState.rows * offerColumns();
   $("#offers-products").innerHTML = shown.slice(0, limit).map(offerProductCard).join("");
   $("#offers-more").hidden = shown.length <= limit;
@@ -378,10 +435,42 @@ function offersTogglePersonal(on) {
   renderOfferGrid();
 }
 
+// De werkbalk: het zoekveld, de schakelaar "alleen echt voordelig" en de sorteerchips, zoals de keuzes nu staan.
+function renderOffersTools() {
+  $("#offers-search").value = offersState.search;
+  $("#offers-good-only").checked = offersState.goodOnly;
+  $("#offers-sort").querySelectorAll("[data-sort]").forEach((chip) => {
+    const active = chip.dataset.sort === offersState.sort;
+    chip.classList.toggle("is-active", active);
+    chip.setAttribute("aria-pressed", String(active));
+  });
+}
+
+// Na een keuze in de werkbalk: terug naar de eerste rijen en de categorieën en het raster opnieuw tekenen.
+function offersRedraw() {
+  offersState.rows = OFFER_ROWS;
+  renderOffersTools();
+  renderOffersStatusGood();
+  renderOfferCategories();
+  renderOfferGrid();
+}
+
+// Achter de status ("631 aanbiedingen, opgehaald op ..."): hoeveel daarvan echt voordelig zijn, als die schakelaar aan staat.
+function renderOffersStatusGood() {
+  const status = $("#offers-status");
+  const base = status.dataset.base || "";
+  if (!base) return;
+  const good = offersState.goodOnly ? offersFiltered().length : 0;
+  status.textContent = offersState.goodOnly ? `${base} ${t("offers.status.good", { count: I18N.formatNumber(good) })}` : base;
+}
+
 function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
   offersState.categories = data.categories || [];
+  offersState.offers.forEach((offer) => {
+    offer.searchText = foldText(`${offer.title || ""} ${offer.brand || ""}`);
+  });
   offersState.personal = data.personal || null;
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   offersState.rows = OFFER_ROWS;
@@ -397,7 +486,10 @@ function renderOffers(data) {
   $("#offers-period").textContent = periodText;
   $("#offers-period").hidden = !periodText;
   renderOffersWeekNotes(data);
+  status.dataset.base = data.supported ? status.textContent : "";
+  renderOffersStatusGood();
   renderOffersPersonal();
+  renderOffersTools();
   renderOfferCategories();
   renderOfferGrid();
 }
@@ -685,6 +777,22 @@ $("#offers-categories").addEventListener("click", (event) => {
   if (chip) offersChooseCategory(chip.dataset.cat);
 });
 $("#offers-personal-only").addEventListener("change", (event) => offersTogglePersonal(event.target.checked));
+$("#offers-search").addEventListener("input", (event) => {
+  offersState.search = event.target.value;
+  offersRedraw();
+});
+$("#offers-good-only").addEventListener("change", (event) => {
+  offersState.goodOnly = event.target.checked;
+  offersRemember(OFFERS_GOOD_KEY, offersState.goodOnly ? "1" : "0");
+  offersRedraw();
+});
+$("#offers-sort").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-sort]");
+  if (!chip || !OFFERS_SORTS.includes(chip.dataset.sort)) return;
+  offersState.sort = chip.dataset.sort;
+  offersRemember(OFFERS_SORT_KEY, offersState.sort);
+  offersRedraw();
+});
 let offersResizeFrame = 0;
 window.addEventListener("resize", () => {
   if (!offersTabActive()) return;

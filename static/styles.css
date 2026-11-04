@@ -5679,12 +5679,50 @@ body.has-onboarding {
 }
 
 /* De schakelaar "Alleen Bonus Box" boven de categorieën, met wat er over je Bonus Box te zeggen is. */
-.ohc-tools.offers-personal {
-  justify-content: flex-start;
+/* De werkbalk boven de categorieën: het zoekveld, de schakelaars (Bonus Box, alleen echt voordelig) en de sorteerchips. */
+.offers-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 12px 0 0;
 }
 
-.offers-personal .ohc-filter {
-  margin-bottom: 0;
+.offers-tools__search {
+  flex: 1 1 220px;
+  max-width: 360px;
+  min-height: var(--control-height);
+  padding: 0 12px;
+}
+
+.offers-tools .ohc-filter {
+  margin: 0;
+}
+
+.offers-personal {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.offers-personal[hidden] {
+  display: none;
+}
+
+.offer-cats--sort {
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .offers-tools {
+    align-items: stretch;
+  }
+
+  .offers-tools__search {
+    max-width: none;
+  }
 }
 
 .offers-personal__note {
