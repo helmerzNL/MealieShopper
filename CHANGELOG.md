@@ -17,6 +17,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Container**: gunicorn draait met vier threads (`--threads 4`), zodat een foto die nog bij de winkel vandaan moet de rest van de app niet ophoudt.
 - **Handleiding en README**: de foto's en `MEALIESHOPPER_IMAGE_PREFETCH`.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#217](https://github.com/helmerzNL/MealieShopper/pull/217), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216).
 
 ## v3.1.0
 
