@@ -15,6 +15,7 @@ Veiligheid in het kort:
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -49,6 +50,10 @@ def wipe_data() -> list[str]:
         except FileNotFoundError:
             continue
         removed.append(name)
+    images = auth.data_dir() / "images"  # de afbeeldingencache (image_cache.py): bestanden op schijf, geen gegevens, maar wel van deze installatie
+    if images.is_dir():
+        shutil.rmtree(images, ignore_errors=True)
+        removed.append("images")
     for path in auth.data_dir().glob(".restore-*"):  # een klaargezette back-up bevat ook gegevens
         try:
             path.unlink()

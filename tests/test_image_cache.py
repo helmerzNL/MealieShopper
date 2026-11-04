@@ -4,6 +4,7 @@ import io
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from contextlib import closing
 from unittest import mock
 
@@ -262,6 +263,16 @@ class RoutesTest(FetchCase):
     def test_a_failed_download_gives_404(self):
         self.serve(AH, 200, "text/html", b"<html>")
         self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 404)
+
+    def test_the_system_page_sees_how_big_the_cache_is(self):
+        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 0, "bytes": 0})
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        self.client.get(f"/api/images/{image_cache.token_for(AH)}")
+        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 1, "bytes": len(picture(4, 4))})
+
+    def test_the_container_serves_with_four_threads_so_a_slow_store_does_not_block_the_app(self):
+        dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn('"--threads", "4"', dockerfile)
 
     def test_the_route_needs_a_login_like_the_rest_of_the_api(self):
         with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):

@@ -65,6 +65,13 @@ class StoreImageTest(unittest.TestCase):
         ):
             self.assertEqual(pattern.findall(source(script)), [], script)
 
+    def test_the_system_page_shows_the_cache_line(self):
+        system = source("system.js")
+        self.assertIn('jsonFetch("/api/system/images")', system)
+        self.assertIn('t("system.images_line"', system)
+        self.assertIn("loadImageCacheStatus()", source("app.js"))
+        self.assertIn('id="system-images"', (STATIC.parent / "templates" / "index.html").read_text(encoding="utf-8"))
+
     def test_every_store_image_hides_itself_when_it_fails(self):
         for script in (
             "orders.js",

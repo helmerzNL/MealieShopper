@@ -58,6 +58,9 @@ class AhOrdersTestCase(unittest.TestCase):
         pace = mock.patch.dict(ah_orders._PACE, {"last": float("-inf"), "recent": ah_orders.deque()})
         pace.start()
         self.addCleanup(pace.stop)
+        prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij AH ophaalt
+        prefetch.start()
+        self.addCleanup(prefetch.stop)
         self.client = create_app().test_client()
 
 

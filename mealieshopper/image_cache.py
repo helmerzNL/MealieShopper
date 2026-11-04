@@ -446,13 +446,8 @@ def fetch(
 
 
 def enabled() -> bool:
-    """Of de achtergrondtaak foto's vooruit mag ophalen (`MEALIESHOPPER_IMAGE_PREFETCH`, standaard aan). Onder de tests
-    (`MEALIESHOPPER_TESTING`) staat hij uit tenzij een test hem expliciet aanzet: een synchronisatie start anders een thread die
-    echt naar de winkel gaat."""
-    value = environ.get("MEALIESHOPPER_IMAGE_PREFETCH")
-    if value is None:
-        return not environ.get("MEALIESHOPPER_TESTING")
-    return value.strip().lower() not in {"0", "false", "no", "off"}
+    """Of de achtergrondtaak foto's vooruit mag ophalen (`MEALIESHOPPER_IMAGE_PREFETCH`, standaard aan)."""
+    return environ.get("MEALIESHOPPER_IMAGE_PREFETCH", "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def collect_known(now: str | None = None) -> int:

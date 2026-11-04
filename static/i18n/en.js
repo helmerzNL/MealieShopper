@@ -1175,6 +1175,7 @@ I18N.add("en", {
   "system.reset_done_restart": "Everything is erased. The app is restarting; this page reloads by itself as soon as the app is back.",
   "system.reset_done_manual": "Everything is erased. Restart the app now (for example the container) and then refresh this page; you will begin at the onboarding again.",
   "system.reset_waiting_timeout": "The app is not back yet. Refresh this page once it is running again.",
+  "system.images_line": "{count} store photos in the cache ({size} MB in the images folder of the data folder). They are not part of the backup and are fetched again when missing.",
   "backup.title": "Backup and restore",
   "backup.intro": "Take all the data of this installation with you in one file and restore it later, for example on a new server: the links with Mealie, Albert Heijn, Picnic and Jumbo, your lists, orders and receipts and the whole history of the offers. This is your own copy; it does not replace a backup of the whole data folder.",
   "backup.make_title": "Make a backup",

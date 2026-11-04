@@ -79,6 +79,9 @@ class TempDataDirTest(unittest.TestCase):
         jumbo._persisted_route.clear()
         jumbo._working_order_detail.clear()
         auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+        prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij Jumbo ophaalt
+        prefetch.start()
+        self.addCleanup(prefetch.stop)
 
 
 class OrderListTest(TempDataDirTest):

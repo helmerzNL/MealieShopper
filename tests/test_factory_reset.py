@@ -55,6 +55,15 @@ class PasswordResetTest(FactoryResetCase):
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
 
+    def test_the_image_cache_folder_goes_too(self):
+        cached = self.data / "images" / "ab" / "abcd.webp"
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(b"x")
+        removed = factory_reset.wipe_data()
+        self.assertIn("images", removed)
+        self.assertFalse((self.data / "images").exists())
+        self.assertNotIn("images", factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
+
     def test_the_app_starts_over_as_a_new_installation_without_a_restart(self):
         self.reset({"password": PASSWORD})
         client = self.app.test_client()
