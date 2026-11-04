@@ -260,6 +260,15 @@ class SearchRankTest(unittest.TestCase):
         self.assertEqual(found[-1]["title"], "AH Guacamole seasoning mix 3-pack")
 
 
+class OrganicFlagTest(unittest.TestCase):
+    """#218: AH zegt zelf of een product biologisch is, met het kenmerk "biologisch" in `propertyIcons`."""
+
+    def test_the_organic_property_icon(self):
+        for icons, expected in ((["vegan", "biologisch"], True), (["Biologisch"], True), (["vegan"], False), (None, False), ([{"x": 1}], False)):
+            item = {**ah_product(1, "AH Spaghetti"), "propertyIcons": icons}
+            self.assertEqual(ah._search_product_dict(item, "spaghetti")["organic"], expected, icons)
+
+
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

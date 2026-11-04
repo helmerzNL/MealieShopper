@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-83")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-84")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -753,6 +753,8 @@ def create_app() -> Flask:
         # Het weekmenu in het mandje (`compare`): na het voorgestelde product alleen hetzelfde product in een andere maat of wat per
         # eenheid goedkoper is (#178). Zelf zoeken met "Zoek een ander product" laat de eerste vijf zoekresultaten zien, zoals voorheen.
         compare = bool(body.get("compare"))
+        # *Liever biologisch* (#218): bij het weekmenu eerst een biologisch product van dezelfde soort, als de winkel het heeft.
+        organic = compare and body.get("organic") is True
 
         def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
@@ -763,14 +765,30 @@ def create_app() -> Flask:
                 "unit": item.get("unit"),
                 "candidates": [],
             }
+
+            def candidates_of(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+                return [
+                    {**make_candidate(product, item.get("quantity"), item.get("unit")), "organic": prices.is_organic(product)}
+                    for product in products
+                ]
+
+            def search_organic() -> list[dict[str, Any]]:
+                try:
+                    return candidates_of(search(f"{prices.ORGANIC_QUERY} {query}", prices.COMPARE_LIMIT))
+                except Exception:  # noqa: BLE001 - lukt de extra zoekopdracht niet, dan blijft het gewone product staan
+                    return []
+
             try:
                 products = search(query, prices.COMPARE_LIMIT if compare else prices.CHECK_LIST_SIZE)
             except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
                 result["error"] = str(exc)
                 return result
-            result["candidates"] = prices.check_list_candidates(
-                [make_candidate(product, item.get("quantity"), item.get("unit")) for product in products], compare
-            )
+            candidates = candidates_of(products)
+            if organic and candidates:
+                candidates, found = prices.organic_first(candidates, search_organic)
+                result["organic"] = True
+                result["organicMissing"] = not found
+            result["candidates"] = prices.check_list_candidates(candidates, compare)
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:

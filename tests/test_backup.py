@@ -15,7 +15,7 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -399,6 +399,23 @@ class FileContentTest(BackupCase):
             conn.execute("UPDATE app_settings SET value = 'gAAAAB-een-andere-sleutel' WHERE key = ?", (mealie.SECRET_TOKEN,))
         _, data = self.make(links=True, passphrase=PASSPHRASE)
         self.assertEqual(json.loads(data)["secrets"]["links"], [])
+
+
+class OlderBackupTest(BackupCase):
+    def test_a_backup_from_before_prefer_organic_still_restores(self):
+        # #218 gaf user_profiles de kolom prefer_organic; een back-up van daarvoor heeft hem niet en zet de schakelaar uit.
+        self.seed()
+        with closing(self.connect()) as conn, conn:
+            conn.execute("UPDATE user_profiles SET prefer_organic = 1")
+        _, data = self.make()
+
+        def older(doc):
+            for row in doc["tables"]["user_profiles"]:
+                del row["prefer_organic"]
+
+        job = self.restore(self.tweak(data, older))
+        self.assertEqual(job["status"], "done", job)
+        self.assertFalse(profile.get("owner")["preferOrganic"])
 
 
 class RefusalTest(BackupCase):

@@ -725,13 +725,35 @@ function renderMealPlan(entries) {
         </ul>
         <div class="toolbar ingredients__actions">
           <span id="cart-store-slot"></span>
+          <label class="switch-row cart-organic" title="${escapeHtml(t("cart.organic_toggle_title"))}">
+            <input type="checkbox" id="cart-organic"${state.auth?.preferOrganic ? " checked" : ""}>
+            <span>${escapeHtml(t("cart.organic_toggle"))}</span>
+          </label>
           <button class="button" id="add-cart">${escapeHtml(cartButtonLabel())}</button>
         </div>
       </div>
     `
     : "";
   $("#add-cart")?.addEventListener("click", addToCart);
+  $("#cart-organic")?.addEventListener("change", (event) => savePreferOrganic(event.target));
   renderStoreChoice();
+}
+
+// *Liever biologisch* (#218): per gebruiker bewaard in het profiel, zodat de schakelaar de volgende keer nog zo staat.
+async function savePreferOrganic(input) {
+  const wanted = input.checked;
+  state.auth = { ...state.auth, preferOrganic: wanted };
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferOrganic: wanted }),
+    });
+    state.auth = { ...state.auth, preferOrganic: Boolean(data.preferOrganic) };
+  } catch (error) {
+    // Niet bewaard: de schakelaar geldt dan alleen nu, en de gebruiker ziet waarom.
+    message("#planner-message", t("cart.organic_save_failed", { error: error.message }), "error");
+  }
 }
 
 // Een weekmenu verandert zelden: elke week wordt na het ophalen bewaard, zodat bladeren door de weken direct gaat.
@@ -1089,17 +1111,22 @@ function cartCandidateLabel(candidate) {
   // De prijs per kilo, liter of stuk en waarom een vergelijkingsoptie erbij staat (#178): zelfde product of goedkoper per eenheid.
   const perUnit = candidate.unitPrice ? offerPerUnitText(candidate.unitPrice) : "";
   const why = [candidate.same ? t("offers.compare.same") : "", candidate.cheaper ? t("offers.compare.cheaper") : ""].filter(Boolean).join(", ");
-  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, why].filter(Boolean).join(" \u2013 ");
+  const organic = candidate.organic ? t("cart.organic") : ""; // #218
+  return [candidate.title, candidate.unitSize, formatPrice(candidate.price), perUnit, deal, organic, why].filter(Boolean).join(" \u2013 ");
 }
 
 // De goedkoopste optie per eenheid van een regel, als die duidelijk (2%) goedkoper is dan de gekozen; anders -1.
 function reviewCheaperIndex(row, chosen) {
   const mine = row.candidates[chosen]?.unitPrice;
   if (!mine) return -1;
+  // Met Liever biologisch (#218) en een biologische keuze telt alleen een goedkopere biologische: dat de gewone variant
+  // goedkoper is, weet je al, en die staat er in de keuzelijst als "goedkoper per eenheid" bij.
+  const organicOnly = Boolean(row.organic && row.candidates[chosen].organic);
   let best = -1;
   row.candidates.forEach((candidate, index) => {
     const unit = candidate.unitPrice;
     if (index === chosen || !unit || unit.unit !== mine.unit || unit.value >= mine.value * 0.98) return;
+    if (organicOnly && !candidate.organic) return;
     if (best < 0 || unit.value < row.candidates[best].unitPrice.value) best = index;
   });
   return best;
@@ -1373,6 +1400,7 @@ function reviewRowHtml(row, index) {
       <div class="review-ingredient">
         <strong>${escapeHtml(row.display)}</strong>
         <small class="review-note">${escapeHtml(first.doubt || "")}</small>
+        ${row.organicMissing ? `<small class="review-organic-missing">${escapeHtml(t("cart.organic_missing"))}</small>` : ""}
         <small class="review-cheaper" role="status">${reviewCheaperHtml(row, 0)}</small>
         <button class="link-button review-search-toggle" type="button" aria-expanded="false">${escapeHtml(t("cart.search_other"))}</button>
       </div>
@@ -1557,6 +1585,8 @@ async function addToCart() {
       body: JSON.stringify({
         // Vergelijk de verpakkingen: na het voorgestelde product alleen hetzelfde product of wat per eenheid goedkoper is.
         compare: true,
+        // Liever biologisch (#218): eerst een biologisch product van dezelfde soort, als de winkel het heeft.
+        organic: Boolean(state.auth?.preferOrganic),
         items: ingredients.map((ingredient) => ({
           query: ingredient.food?.name || ingredient.display,
           display: ingredient.display || ingredient.food?.name || "",
