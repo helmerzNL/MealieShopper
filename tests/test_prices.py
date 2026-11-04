@@ -330,6 +330,17 @@ class RouteAndToolTest(PricesCase):
         self.assertEqual(client.get("/api/prices/history?store=lidl").status_code, 400)
         self.assertEqual(client.get("/api/prices/history?limit=abc").status_code, 200)
 
+    def test_one_product_by_id_skips_the_search_and_the_lookup(self):
+        prices.record("ah", [{"id": "1", "title": "Kipfilet", "price": 5.49}, {"id": "2", "title": "Kipdij", "price": 4.49}])
+        lookup = mock.Mock()
+        reply = prices.history("ah", "", 50, today=TODAY, lookup=lookup, product="2")
+        self.assertEqual([p["productId"] for p in reply["products"]], ["2"])
+        self.assertEqual(reply["total"], 1)
+        lookup.assert_not_called()
+        self.assertEqual(prices.history("ah", "", 50, today=TODAY, product="nope")["products"], [])
+        client = create_app().test_client()
+        self.assertEqual(client.get("/api/prices/history?store=ah&product=1").get_json()["products"][0]["regularPrice"], 5.49)
+
     def test_the_check_list_of_the_week_menu_records_the_regular_price(self):
         found = [{"webshopId": "42", "title": "AH Penne", "price": {"now": 1.19}, "unitSize": "500 g", "images": [], "isBonus": False}]
         with mock.patch.object(ah, "search_products", return_value=found):
@@ -446,9 +457,110 @@ class VerdictTest(PricesCase):
             self.sync_offer(f"{start}T05:00:00+00:00", offer("1", "AH Pindakaas", 2.49, 2.99, "nu 2,49", validFrom=start, validUntil=end))
             self.sync_offer(f"{end}T23:00:00+00:00")
         self.sync_offer("2026-10-19T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99", validFrom="2026-10-19", validUntil="2026-10-25"))
-        verdict = self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99"))["1"]["verdict"]
-        self.assertEqual((verdict["timesThisYear"], verdict["often"], verdict["bestInYear"]), (6, True, True))
-        self.assertFalse(self.annotate(deal("1", "AH Pindakaas", 2.79, 2.99, "nu 2,79"))["1"]["verdict"]["bestInYear"])
+        annotated = self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99"))["1"]
+        verdict = annotated["verdict"]
+        self.assertEqual((verdict["timesThisYear"], verdict["often"]), (6, True))
+        self.assertEqual(annotated["priceLabel"]["kind"], "lowest_6m")
+        higher = self.annotate(deal("1", "AH Pindakaas", 2.79, 2.99, "nu 2,79"))["1"]
+        self.assertEqual(higher["priceLabel"]["kind"], "lower_before")
+
+    def test_the_price_label_ladder(self):
+        cases = [  # (punten, effectieve prijs, verwachte trede)
+            ([("2025-09-20", 2.49), ("2026-03-01", 2.29), ("2026-09-01", 2.19)], 1.99, "lowest_ever"),
+            ([("2025-09-20", 1.89), ("2026-03-01", 2.29), ("2026-09-01", 2.19)], 1.99, "lowest_12m"),
+            ([("2025-09-20", 2.49), ("2026-03-01", 1.89), ("2026-09-01", 2.19)], 1.99, "lowest_6m"),
+            ([("2026-07-12", 2.49), ("2026-09-01", 2.19)], 1.99, "lowest_seen"),
+            ([("2026-07-12", 1.89), ("2026-09-01", 2.19)], 1.99, "lower_before"),
+            ([("2026-10-10", 2.49)], 1.99, None),
+        ]
+        for points, effective, kind in cases:
+            self.assertEqual(prices.price_label(effective, points, TODAY)["kind"], kind, points)
+
+    def test_the_price_label_carries_the_price_the_month_and_the_coverage(self):
+        label = prices.price_label(1.99, [("2026-06-03", 1.89), ("2026-09-01", 2.29)], TODAY)
+        self.assertEqual(label, {"kind": "lower_before", "price": 1.89, "month": "2026-06", "coveredSince": "2026-06-03"})
+        # Een jaar dekking en een lagere prijs van langer dan een jaar geleden: wel de laagste in 12 maanden, niet ooit.
+        self.assertEqual(prices.price_label(1.99, [("2025-06-03", 1.89), ("2026-03-01", 2.29)], TODAY)["kind"], "lowest_12m")
+        seen = prices.price_label(1.99, [("2026-08-12", 2.49), ("2026-09-01", 2.19)], TODAY)
+        self.assertEqual(seen, {"kind": "lowest_seen", "price": None, "month": "2026-08", "coveredSince": "2026-08-12"})
+        empty = {"kind": None, "price": None, "month": None, "coveredSince": None}
+        self.assertEqual(prices.price_label(1.99, [], TODAY), empty)
+        self.assertEqual(prices.price_label(None, [("2026-08-12", 2.49)], TODAY)["kind"], None)
+
+    def test_a_lower_price_that_came_back_names_its_latest_month(self):
+        label = prices.price_label(1.99, [("2025-06-03", 1.89), ("2026-02-10", 1.89), ("2026-03-01", 2.29)], TODAY)
+        self.assertEqual((label["price"], label["month"]), (1.89, "2026-02"))
+
+    def test_one_old_purchase_is_not_the_lowest_price_ever(self):
+        # Eén aankoop uit 2022 geeft geen "laagste prijs ooit": zonder meting in het afgelopen jaar valt de ladder terug op
+        # "laagste sinds", en "laagste in 12 maanden" heeft net zo goed een meting in dat jaar nodig.
+        label = prices.price_label(2.50, [("2022-05-31", 2.59)], TODAY)
+        self.assertEqual((label["kind"], label["month"]), ("lowest_seen", "2022-05"))
+        recent = prices.price_label(2.50, [("2022-05-31", 2.59), ("2026-06-01", 2.79)], TODAY)
+        self.assertEqual(recent["kind"], "lowest_ever")
+
+    def test_a_half_cent_counts_as_equal(self):
+        self.assertEqual(prices.price_label(1.99, [("2025-06-03", 1.994), ("2026-03-01", 2.29)], TODAY)["kind"], "lowest_ever")
+
+    def test_history_points_come_from_offers_prices_and_purchases_and_skip_the_running_offer(self):
+        self.sync_offer("2026-01-05T05:00:00+00:00", offer("1", "AH Pindakaas", 2.49, 2.99, "nu 2,49", validFrom="2026-01-05", validUntil="2026-01-11"))
+        self.sync_offer("2026-01-11T23:00:00+00:00")
+        self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.ah_order(101, "delivered", "2026-07-07", order_item(1, "AH Pindakaas", 2.79, quantity=2, before=2.99, bonus=True))
+        self.ah_order(102, "delivered", "2026-08-07", order_item(1, "AH Pindakaas", 0.0, quantity=1))  # gratis: telt niet
+        self.sync_offer("2026-10-19T05:00:00+00:00", offer("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99", validFrom="2026-10-19", validUntil="2026-10-25"))
+        with closing(prices._connect()) as conn:
+            points = prices._history_points(conn, "ah", TODAY)["1"]
+        self.assertEqual(points, [("2026-01-05", 2.49), ("2026-05-01", 2.99), ("2026-07-07", 2.79)])
+
+    def test_a_bundle_episode_counts_with_its_price_per_item(self):
+        self.sync_offer("2026-03-02T05:00:00+00:00", offer("1", "AH Soep", 2.00, None, "1+1 gratis", validFrom="2026-03-02", validUntil="2026-03-08"))
+        self.sync_offer("2026-03-08T23:00:00+00:00")
+        with closing(prices._connect()) as conn:
+            self.assertEqual(prices._history_points(conn, "ah", TODAY)["1"], [("2026-03-02", 1.0)])
+
+    def test_annotate_sets_the_price_label_and_drops_best_in_year(self):
+        self.sync_offer("2026-01-05T05:00:00+00:00", offer("1", "AH Pindakaas", 2.49, 2.99, "nu 2,49", validFrom="2026-01-05", validUntil="2026-01-11"))
+        self.sync_offer("2026-01-11T23:00:00+00:00")
+        annotated = self.annotate(deal("1", "AH Pindakaas", 1.99, 2.99, "nu 1,99"))["1"]
+        # Dekking vanaf 5 januari (288 dagen), maar geen meetpunt in de laatste zes maanden: dan "laagste sinds januari".
+        self.assertEqual((annotated["priceLabel"]["kind"], annotated["priceLabel"]["month"]), ("lowest_seen", "2026-01"))
+        self.assertNotIn("bestInYear", annotated["verdict"])
+        self.assertEqual(self.annotate(deal("9", "AH Nieuw", 1.00, 1.50, "nu 1,00"))["9"]["priceLabel"]["kind"], None)
+
+    def test_the_badge_takes_the_measured_difference_and_says_where_it_comes_from(self):
+        self.observe("2026-10-10", "1", "AH Penne", 1.19)
+        badge = self.annotate(deal("1", "AH Penne", 0.89, 1.19, "25% korting"))["1"]["badge"]
+        self.assertEqual(badge, {"percent": 25, "source": "history", "claimed": 25, "inflated": False})
+
+    def test_without_history_the_badge_is_the_claim_of_the_store(self):
+        badge = self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]
+        self.assertEqual(badge, {"percent": 25, "source": "store", "claimed": 25, "inflated": False})
+
+    def test_the_price_before_of_an_earlier_offer_is_a_claim_and_not_a_measurement(self):
+        self.sync_offer("2026-10-05T05:00:00+00:00", offer("1", "AH Rijst", 1.50, 2.00, "25% korting", validFrom="2026-10-05", validUntil="2026-10-11"))
+        self.sync_offer("2026-10-11T23:00:00+00:00")
+        self.assertEqual(self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]["source"], "store")
+        self.ah_order(101, "delivered", "2026-10-12", order_item(1, "AH Rijst", 2.00, quantity=1))
+        self.assertEqual(self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]["source"], "history")
+
+    def test_an_inflated_price_before_gives_a_lower_badge_than_the_claim(self):
+        self.observe("2026-10-05", "1", "AH Kaas", 1.10)
+        badge = self.annotate(deal("1", "AH Kaas", 0.88, 1.50, "nu 0,88"))["1"]["badge"]
+        self.assertEqual((badge["percent"], badge["claimed"], badge["inflated"], badge["source"]), (20, 41, True, "history"))
+
+    def test_the_claim_of_a_bundle_deal_follows_the_mechanic(self):
+        self.assertEqual(self.annotate(deal("1", "AH Soep", 2.00, None, "1+1 gratis"))["1"]["badge"]["claimed"], 50)
+        self.assertEqual(self.annotate(deal("2", "AH Hummus", 2.00, None, "2 voor 3,00"))["2"]["badge"]["claimed"], 25)
+        self.assertEqual(self.annotate(deal("3", "AH Thee", 2.00, None, "2e halve prijs"))["3"]["badge"]["claimed"], 25)
+
+    def test_without_a_verdict_there_is_no_badge(self):
+        self.assertIsNone(self.annotate(deal("p1", "Picnic yoghurt", 1.20, None, "20% korting"), store="picnic")["p1"]["badge"])
+
+    def test_a_zero_difference_keeps_a_badge_of_zero(self):
+        self.observe("2026-10-10", "1", "AH Kaas", 1.10)
+        badge = self.annotate(deal("1", "AH Kaas", 1.12, 1.50, "nu 1,12"))["1"]["badge"]
+        self.assertEqual((badge["percent"], badge["inflated"]), (0, True))
 
     def test_a_bigger_pack_that_is_cheaper_per_kilo(self):
         self.observe("2026-10-15", "big", "AH Zalmfilet", 7.00, size="500 g")  # €14/kg

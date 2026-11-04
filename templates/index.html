@@ -179,6 +179,20 @@
       </div>
     </dialog>
 
+    <dialog id="offer-zoom-dialog" class="product-dialog photo-dialog offer-zoom-dialog" aria-labelledby="offer-zoom-title">
+      <div class="product-dialog__inner">
+        <img id="offer-zoom-image" class="photo-dialog__image" alt="">
+        <div>
+          <h3 id="offer-zoom-title"></h3>
+          <p class="muted" id="offer-zoom-meta"></p>
+        </div>
+        <div class="offer-zoom__chart" id="offer-zoom-dialog-chart"></div>
+        <div class="product-dialog__actions">
+          <button class="button button--secondary" type="button" id="offer-zoom-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="photo-dialog" class="product-dialog photo-dialog" aria-labelledby="photo-dialog-title">
       <div class="product-dialog__inner">
         <img id="photo-dialog-image" class="photo-dialog__image" alt="">
@@ -594,16 +608,34 @@
           <p class="muted" id="offers-status"></p>
           <p class="muted offers-later" id="offers-later" hidden><span id="offers-later-text"></span> <button class="link-button link-button--inline" id="offers-later-show" type="button" data-i18n="offers.later.show">Bekijk de week erna</button></p>
           <div id="offers-message"></div>
-          <div class="ohc-tools offers-personal" id="offers-personal" hidden>
+          <div class="offers-tools">
+            <input class="input offers-tools__search" id="offers-search" type="search" autocomplete="off" placeholder="Zoek in de aanbiedingen" aria-label="Zoek in de aanbiedingen" data-i18n-attr="placeholder:offers.search;aria-label:offers.search">
+            <div class="offers-personal" id="offers-personal" hidden>
+              <label class="ohc-filter">
+                <input type="checkbox" id="offers-personal-only" role="switch">
+                <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+              </label>
+              <span class="muted offers-personal__note" id="offers-personal-note"></span>
+            </div>
             <label class="ohc-filter">
-              <input type="checkbox" id="offers-personal-only" role="switch">
-              <span id="offers-personal-label" data-i18n="offers.personal.switch">Alleen Bonus Box</span>
+              <input type="checkbox" id="offers-good-only" role="switch">
+              <span data-i18n="offers.good_only">Alleen echt voordelig</span>
             </label>
-            <span class="muted offers-personal__note" id="offers-personal-note"></span>
+            <div id="offers-sort" class="offer-cats offer-cats--sort" role="group" aria-label="Sorteren" data-i18n-attr="aria-label:offers.sort.label">
+              <button class="offer-chip is-active" type="button" data-sort="store" aria-pressed="true" data-i18n="offers.sort.store">Winkelvolgorde</button>
+              <button class="offer-chip" type="button" data-sort="discount" aria-pressed="false" data-i18n="offers.sort.discount">Hoogste korting</button>
+              <button class="offer-chip" type="button" data-sort="unit" aria-pressed="false" data-i18n="offers.sort.unit">Laagste prijs per eenheid</button>
+              <button class="offer-chip" type="button" data-sort="lowest" aria-pressed="false" data-i18n="offers.sort.lowest">Laagste ooit eerst</button>
+            </div>
+            <div id="offers-view" class="segment-control" role="group" aria-label="Weergave" data-i18n-attr="aria-label:offers.view.label">
+              <button class="segment-control__button" type="button" data-view="cards" aria-pressed="true" title="Kaarten" aria-label="Kaarten" data-i18n-attr="title:offers.view.cards;aria-label:offers.view.cards"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
+              <button class="segment-control__button" type="button" data-view="compact" aria-pressed="false" title="Compact" aria-label="Compact" data-i18n-attr="title:offers.view.compact;aria-label:offers.view.compact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z"/></svg></button>
+            </div>
           </div>
           <div id="offers-categories" class="offer-cats" role="group" aria-label="Categorieën" data-i18n-attr="aria-label:offers.categories"></div>
           <div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>
-          <div id="offers-products" class="product-grid"></div>
+          <div id="offers-products" class="product-grid product-grid--offers"></div>
+          <div id="offer-zoom" class="offer-zoom" hidden aria-hidden="true"></div>
           <p><button class="button button--secondary" id="offers-more" type="button" hidden data-i18n="offers.more">Meer</button></p>
         </div>
         </div>

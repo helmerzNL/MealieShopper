@@ -296,12 +296,12 @@ class BonusBoxSwitchTest(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
     def test_the_switch_filters_the_offers_and_their_categories(self):
-        functions = "\n".join(function_source(self.script, name) for name in ("offersPersonalOnly", "offersShown", "offersShownCategories", "offerPersonalBadge"))
+        functions = "\n".join(function_source(self.script, name) for name in ("offersPersonalOnly", "offersFiltered", "offersShownCategories", "offerPersonalBadge"))
         program = f"""
 const t = (key) => key;
 const escapeHtml = (value) => String(value);
 const offersState = {{
-  personalOnly: false, personal: {{ supported: true }},
+  personalOnly: false, personal: {{ supported: true }}, search: "", goodOnly: false,
   offers: [
     {{ id: "9", category: "zuivel_eieren", personal: true, activated: true }},
     {{ id: "8", category: "dranken", personal: true, activated: false }},
@@ -311,13 +311,13 @@ const offersState = {{
   categories: [{{ id: "zuivel_eieren", count: 2 }}, {{ id: "vlees", count: 1 }}, {{ id: "dranken", count: 1 }}],
 }};
 {functions}
-const result = {{ all: offersShown().map((o) => o.id), allCats: offersShownCategories() }};
+const result = {{ all: offersFiltered().map((o) => o.id), allCats: offersShownCategories() }};
 offersState.personalOnly = true;
-result.box = offersShown().map((o) => o.id);
+result.box = offersFiltered().map((o) => o.id);
 result.boxCats = offersShownCategories();
 result.badges = offersState.offers.map(offerPersonalBadge);
 offersState.personal = {{ supported: false }};
-result.otherStore = offersShown().map((o) => o.id);
+result.otherStore = offersFiltered().map((o) => o.id);
 console.log(JSON.stringify(result));
 """
         output = subprocess.run(["node", "-e", program], capture_output=True, text=True, check=True).stdout

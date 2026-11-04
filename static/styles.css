@@ -5480,10 +5480,259 @@ body.has-onboarding {
   font-weight: 600;
 }
 
-.offer-card .offer-card__compare,
-.offer-card .offer-card__history {
-  margin-top: 4px;
+/* De kaart van een aanbieding: het plaatje boven, groot genoeg om het product te herkennen, met de badge en het prijslabel erop,
+   de tekst eronder en de twee links op één rij onderaan. Smaller dan een gewone productkaart, dus meer per rij. */
+.product-grid--offers {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.offer-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  content-visibility: auto;
+  contain-intrinsic-size: 200px 380px;
+}
+
+.offer-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.offer-card__body > small:first-of-type {
+  margin-top: 2px;
+}
+
+.offer-card__thumb {
+  position: relative;
+  display: block;
+  height: 140px;
+  margin: -10px -10px 4px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  overflow: hidden;
+}
+
+.offer-card__thumb--empty {
+  background: var(--surface-muted);
+}
+
+.offer-card__thumb-link {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.offer-card__thumb img {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 0;
+  outline: none;
+}
+
+/* De kortingsbadge: de kleurschaal van het userscript, hard en niet uit het thema, zodat hij in licht en donker gelijk blijft.
+   Omlijnd als het de claim van de winkel is en niet een gemeten verschil. */
+.offer-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  border-radius: 8px;
+  padding: 3px 7px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  cursor: help;
+}
+
+.offer-badge--50 {
+  background: #16803c;
+  color: #fff;
+}
+
+.offer-badge--35 {
+  background: #7ac943;
+  color: #102a12;
+}
+
+.offer-badge--20 {
+  background: #ffd447;
+  color: #332600;
+}
+
+.offer-badge--10 {
+  background: #ff8a00;
+  color: #fff;
+}
+
+.offer-badge--1 {
+  background: #d64545;
+  color: #fff;
+}
+
+.offer-badge--0 {
+  background: var(--surface-muted);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.offer-badge--store {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.offer-badge--store.offer-badge--50 {
+  color: #16803c;
+}
+
+.offer-badge--store.offer-badge--35 {
+  color: #4f9a1f;
+}
+
+.offer-badge--store.offer-badge--20 {
+  color: #b88f00;
+}
+
+.offer-badge--store.offer-badge--10 {
+  color: #ff8a00;
+}
+
+.offer-badge--store.offer-badge--1 {
+  color: #d64545;
+}
+
+/* Het prijslabel uit de geschiedenis, rechtsonder op het plaatje. */
+.offer-label {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.offer-label--green {
+  background: var(--success-bg);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+  color: var(--success-text);
+}
+
+.offer-label--grey {
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+
+/* De hover-zoom naast een kaart: het grote plaatje met daaronder het prijsverloop van een jaar. Vast op het scherm, nooit buiten
+   beeld (offers.js rekent de plek uit), en zonder muisgevoeligheid zodat hij niet zelf de hover vasthoudt. */
+.offer-zoom {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.offer-zoom[hidden] {
+  display: none;
+}
+
+.offer-zoom img {
+  display: block;
+  width: 100%;
+  height: 284px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: var(--radius-control);
+}
+
+.offer-zoom__chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 70px;
+  margin-top: 6px;
+}
+
+.offer-zoom__none {
   font-size: 13px;
+}
+
+.offer-spark {
+  display: block;
+  width: 100%;
+  height: 70px;
+}
+
+.offer-spark__offer {
+  stroke: var(--primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.offer-spark__paid {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.offer-spark__now {
+  fill: var(--primary-strong);
+}
+
+.offer-spark__text {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.offer-zoom-dialog .offer-zoom__chart {
+  height: 80px;
+}
+
+.offer-zoom-dialog .offer-spark {
+  width: 100%;
+  height: 80px;
+}
+
+.offer-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 8px;
+  white-space: nowrap;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.offer-card__foot .link-button {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 /* Een persoonlijke aanbieding (AH: de Bonus Box): groen als je haar in de AH-app hebt geactiveerd, geel als dat nog moet. */
@@ -5512,12 +5761,284 @@ body.has-onboarding {
 }
 
 /* De schakelaar "Alleen Bonus Box" boven de categorieën, met wat er over je Bonus Box te zeggen is. */
-.ohc-tools.offers-personal {
-  justify-content: flex-start;
+/* De werkbalk boven de categorieën: het zoekveld, de schakelaars (Bonus Box, alleen echt voordelig) en de sorteerchips. */
+.offers-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  margin: 12px 0 0;
 }
 
-.offers-personal .ohc-filter {
-  margin-bottom: 0;
+.offers-tools__search {
+  flex: 1 1 220px;
+  max-width: 360px;
+  min-height: var(--control-height);
+  padding: 0 12px;
+}
+
+.offers-tools .ohc-filter {
+  margin: 0;
+}
+
+.offers-personal {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.offers-personal[hidden] {
+  display: none;
+}
+
+.offer-cats--sort {
+  flex: 1 1 auto;
+  margin-top: 2px;
+}
+
+/* Een segmentknop: iconen naast elkaar in één rand, de actieve gevuld zoals een actief subtab. De weergaven van de aankopen
+   (#purchase-view-switch) hebben hun eigen knoppen met tekst, deze is voor de aanbiedingen. */
+.segment-control {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.segment-control__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segment-control__button + .segment-control__button {
+  border-left: 1px solid var(--border);
+}
+
+.segment-control__button svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.segment-control__button:hover {
+  color: var(--text);
+}
+
+.segment-control__button[aria-pressed="true"] {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
+.product-grid--compact {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.offer-row {
+  display: grid;
+  grid-template-columns: 48px 60px minmax(0, 1fr) 110px 100px 150px 72px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 4px 10px;
+}
+
+.offer-row--head {
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 2px;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.offer-row--head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-row .offer-row__thumb {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+
+.offer-row .offer-row__thumb img {
+  padding: 2px;
+}
+
+.offer-row .offer-badge {
+  position: static;
+  display: inline-block;
+  width: 52px;
+  padding: 4px 0;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+.offer-row__product {
+  min-width: 0;
+}
+
+.offer-row__product strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.offer-row__product small {
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offer-row__promo {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.offer-row .product-card__price {
+  margin-top: 0;
+  font-size: 15px;
+}
+
+.offer-row .offer-row__unit {
+  margin-top: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.offer-row .offer-label,
+.offer-row .verdict {
+  position: static;
+  margin: 0;
+}
+
+.offer-row__links {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.offer-row__links .icon-button {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  box-shadow: none;
+}
+
+.offer-row__links .icon-button:hover {
+  background: var(--surface-muted);
+  color: var(--primary-strong);
+  box-shadow: none;
+}
+
+.offer-row__links .icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* Op een tablet past de kolom Geschiedenis niet meer naast de rest: die gaat onder de productnaam. */
+@media (max-width: 960px) {
+  .offer-row {
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
+    row-gap: 2px;
+  }
+
+  .offer-row__history {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .offer-row__history:empty {
+    display: none;
+  }
+
+  .offer-row--head span:nth-child(6) {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Twee kaarten naast elkaar op een telefoon, met een lager plaatje. De compacte lijst blijft één kolom. */
+  .product-grid--offers:not(.product-grid--compact) {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 8px;
+  }
+
+  .offer-card__thumb {
+    height: 110px;
+  }
+
+  /* Op een smalle kaart staan de twee links onder elkaar, elk op een eigen regel. */
+  .offer-card__foot {
+    flex-direction: column;
+    align-items: flex-start;
+    white-space: normal;
+  }
+
+  .offer-card__foot .link-button {
+    font-size: 12.5px;
+    text-align: left;
+  }
+
+  .offer-row {
+    grid-template-columns: 48px 60px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+
+  .offer-row__price,
+  .offer-row__unit,
+  .offer-row__history {
+    grid-column: 3;
+  }
+
+  .offer-row__price,
+  .offer-row__unit {
+    display: inline;
+  }
+
+  .offer-row--head,
+  .offer-row__links {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .offers-tools {
+    align-items: stretch;
+  }
+
+  .offers-tools__search {
+    max-width: none;
+  }
 }
 
 .offers-personal__note {
@@ -5567,6 +6088,12 @@ body.has-onboarding {
   box-shadow: inset 0 0 0 1px var(--warning-border);
   color: var(--warning-text);
   white-space: normal;
+}
+
+.product-card .verdict--often {
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1px var(--warning-border);
+  color: var(--warning-text);
 }
 
 /* Verpakkingen vergelijken: de prijs per eenheid voorop, gekleurd naar plek in de lijst. */

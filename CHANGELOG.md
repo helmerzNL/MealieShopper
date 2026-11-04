@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.6.0
+
+### Nieuw in 3.6.0
+
+*English summary: the Offers page is built to scan. Every offer is a card with the photo on top, a coloured discount badge (the percentage below the lowest regular price of the last 30 days, outlined when the app only knows the store's claim) and a price label from the history: Lowest price ever, Lowest in 12 months, Lowest in 6 months, Lowest since <month>, or "€6.99 in May" when it has been lower before. Hovering the photo (tapping on a phone) shows the large photo with a one-year price sparkline. Above the cards: a search field, an "Only real deals" switch, sorting by store order, biggest discount, lowest price per unit or lowest ever first, and a switch to a compact one-line-per-offer list. `GET /api/offers` gives `badge` and `priceLabel` per offer (`bestInYear` is gone), and `GET /api/prices/history` takes `product=<id>` for one product. Reload the page once after updating.*
+
+- **De aanbiedingen scannen.** Elke aanbieding is nu een kaart met het plaatje bovenaan, groot genoeg om het product te herkennen, en de links *Vergelijk verpakkingen* en *Prijsgeschiedenis* netjes op één rij onderaan.
+- **Kortingsbadge.** Linksboven op het plaatje staat de korting als getal: het verschil met de laagste gewone prijs van de laatste 30 dagen, in de kleuren van het userscript *Albert Heijn kortingspercentages* (donkergroen vanaf 50%, lichtgroen 35%, geel 20%, oranje 10%, rood daaronder). Kent de app nog geen gewone prijs van het product, dan staat de claim van de winkel erop, omlijnd. De uitleg (het oordeel, de prijs waarmee vergeleken is, een opgepompte prijs ervoor) staat in de tooltip.
+- **Prijslabel uit de geschiedenis.** Rechtsonder op het plaatje: *Laagste prijs ooit*, *Laagste in 12 mnd*, *Laagste in 6 mnd* (groen), *Laagste sinds mei* of *€6,99 in mei* (grijs: was al eens lager). Uit de eerdere aanbiedingen, de bewaarde prijzen en je aankopen, ook de ingelezen. Een venster telt pas als de app het product zo lang volgt. *Laagste actieprijs in een jaar* vervalt (`bestInYear` in `GET /api/offers`). *n× dit jaar* blijft als chip.
+- **Hover-zoom.** Ga met de muis over het plaatje: het grote plaatje met daaronder het prijsverloop van het afgelopen jaar (gewone prijs, aanbiedingen, aankopen, de prijs van nu). Op een telefoon opent een tik hetzelfde als venster. `GET /api/prices/history?store=<winkel>&product=<id>` geeft één product.
+- **Zoeken, filteren en sorteren.** Een zoekveld over alle categorieën, de schakelaar *Alleen echt voordelig* (met het aantal achter de status), en sorteren op winkelvolgorde, hoogste korting, laagste prijs per eenheid of laagste ooit eerst. De keuzes blijven bewaard in je browser.
+- **Compacte lijst.** Een schakelaar naast de sortering wisselt naar één regel per aanbieding met een kopregel: plaatje, korting, product, prijs, per eenheid, geschiedenis en twee iconen.
+- **Handleiding en README**: de badge, de labels, de werkbalk en de twee weergaven.
+- Pull request [#231](https://github.com/helmerzNL/MealieShopper/pull/231).
+
 ## v3.5.0
 
 ### Nieuw en opgelost in 3.5.0
