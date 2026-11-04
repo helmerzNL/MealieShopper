@@ -386,6 +386,17 @@ function renderOfferHistory() {
     .join("");
   const chosen = products.find((product) => offerHistoryKey(product) === offerHistory.selected);
   detail.innerHTML = chosen ? offerHistoryDetail(chosen) : "";
+  window.requestAnimationFrame(() => offerHistoryFitList(list)); // na dit tekenen verdwijnt de laadmelding erboven nog
+}
+
+// Op een breed scherm passen de lijst en het product samen precies op het scherm: elke kolom krijgt de hoogte van waar de
+// kolommen beginnen tot waar de pagina ophoudt (pageFitHeight in app.js, gemeten aan de kolommen samen, want de lijst alleen
+// kan korter zijn dan het product) en scrolt daarbinnen. Op een smal scherm geldt het maximum uit styles.css.
+function offerHistoryFitList(list) {
+  const height = pageFitHeight(list.parentElement, { minWidth: 900 });
+  const value = height === null ? "" : `${height}px`;
+  list.style.maxHeight = value;
+  $("#offers-history-detail").style.maxHeight = value;
 }
 
 async function loadOfferHistory() {

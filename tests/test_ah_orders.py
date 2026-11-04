@@ -390,6 +390,39 @@ class ReceiptsCacheTest(AhOrdersTestCase):
 
     def test_unknown_receipt(self):
         self.assertEqual(self.client.get("/api/ah/receipts/nope").status_code, 404)
+        self.assertEqual(self.client.post("/api/ah/receipts/nope/products").status_code, 404)
+
+    def test_a_line_carries_the_webshop_product_once_it_is_linked(self):
+        # Op de bon staat het artikelnummer (hqId); de koppeling naar het webwinkelproduct komt uit ah_receipt_products.
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        line = self.client.get("/api/ah/receipts/R1").get_json()["items"][0]
+        self.assertEqual((line["productId"], line["product"]), (1, None))
+        with closing(ah_orders._connect()) as conn, conn:  # de sync probeerde het al (niet gevonden); nu is het er wel
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, title = 'AH Halfvolle melk 1 l' WHERE receipt_product_id = 1")
+        line = self.client.get("/api/ah/receipts/R1").get_json()["items"][0]
+        self.assertEqual(line["product"], {"id": 4183, "title": "AH Halfvolle melk 1 l"})
+
+    def test_opening_a_receipt_looks_up_the_lines_that_are_not_linked_yet(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:  # alsof de sync het nog niet geprobeerd had
+            conn.execute("DELETE FROM ah_receipt_products")
+        self.search_hq_ids.reset_mock()
+        self.search_hq_ids.return_value = [(1, 4183, "AH Halfvolle melk 1 l")]
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual(data["items"][0]["product"], {"id": 4183, "title": "AH Halfvolle melk 1 l"})
+        self.assertEqual((data["products"]["found"], data["products"]["searches"]), (1, 1))
+        self.assertEqual(self.search_hq_ids.call_args.args[0], "AH Halfvolle melk")
+        # Alles gekoppeld: geen zoekopdracht meer.
+        self.search_hq_ids.reset_mock()
+        again = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((again["products"]["searches"], self.search_hq_ids.call_count), (0, 0))
+
+    def test_a_failing_lookup_still_returns_the_receipt(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with mock.patch.object(ah_orders, "resolve_receipt_names", side_effect=RuntimeError("kapot")):
+            reply = self.client.post("/api/ah/receipts/R1/products")
+        self.assertEqual(reply.status_code, 200)
+        self.assertEqual((reply.get_json()["items"][0]["name"], reply.get_json()["products"]), ("AH Halfvolle melk", None))
 
 
 class ReceiptProductsTest(AhOrdersTestCase):
@@ -597,6 +630,18 @@ class SearchTest(AhOrdersTestCase):
         both = self.client.get("/api/ah/receipts/search?q=a").get_json()
         self.assertEqual([r["id"] for r in both["receipts"]], ["R2", "R1", "R0"][: both["total"]])
         self.assertEqual(self.client.get("/api/ah/receipts/search?q=").get_json(), {"query": "", "receipts": [], "total": 0, "unsearched": 0})
+
+    def test_the_table_asks_for_every_hit_with_limit_all(self):
+        self.client.post("/api/ah/receipts/sync")
+        with mock.patch.object(ah_orders, "search_purchases", wraps=ah_orders.search_purchases) as search:
+            self.client.get("/api/ah/purchases/search?q=melk&limit=all")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=7")
+            self.client.get("/api/ah/purchases/search?q=melk&limit=nope")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 7, 50])
+        with mock.patch.object(ah_orders, "search_receipts", wraps=ah_orders.search_receipts) as search:
+            self.client.get("/api/ah/receipts/search?q=melk&limit=all")
+            self.client.get("/api/ah/receipts/search?q=melk")
+        self.assertEqual([call.kwargs["limit"] for call in search.call_args_list], [100000, 200])
 
     def test_receipts_without_their_lines_are_counted_as_not_searched(self):
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R9", "dateTime": "2026-10-19T10:00:00", "total": 4.0}]), mock.patch.object(ah, "get_receipt", side_effect=RuntimeError("AH even weg")):
