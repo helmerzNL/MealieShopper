@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.4.0
+
+### Nieuw in 3.4.0
+
+*English summary: under Stores > Orders the same filtered list now comes in three views, as in Sonarr: the table, cards with a collage of product photos, and an overview with a photo strip and the details per purchase. A switch above the list, a Sort menu (date, amount, products, ascending or descending, also by clicking a table header) and an Options menu (card size, what a card shows) remember your choice in the browser. Each kind of purchase has a small colour mark: green for an order, yellow for a receipt, grey for an imported order, next to the text. The list routes carry a summary per purchase (photos, product names, amount saved, payment method) so no request per purchase is needed. The MCP tools are unchanged.*
+
+- **Drie weergaven van je aankopen.** Onder **Winkels > Bestellingen** staat dezelfde gefilterde lijst als **Tabel**, als **Kaarten** met een collage van productfoto's (vier, of zes bij grote kaarten) en als **Overzicht** met een strook foto's en de details per aankoop. Een schakelaar rechts boven de lijst wisselt, en de keuze blijft bewaard in je browser. Kassabonnen tonen de foto's van de gekoppelde webwinkelproducten. Een ingelezen bestelling of een bon zonder koppelingen krijgt het pictogram van zijn soort en de eerste productnamen.
+- **Sorteren en opties.** Het menu **Sorteren** kiest datum, bedrag of aantal producten, oplopend of aflopend (een klik op een kolomkop in de tabel doet hetzelfde). Een aankoop waarvan de producten nog niet zijn opgehaald staat onderaan. Het menu **Opties** kiest de kaartgrootte (klein, middel, groot) en wat een kaart laat zien: status en bezorgmoment (of de betaalwijze van een bon), het bespaarde bonusbedrag en de productnamen. Bij zoeken tonen de kaarten en het overzicht de gevonden regels.
+- **Een kleur per soort.** Een bolletje in de tabel en bij de vinkjes, een streep op de kaarten en in het overzicht: groen voor een bestelling, geel voor een kassabon, grijs voor een ingelezen bestelling. De tekst van de soort blijft overal staan.
+- **Snel.** Wisselen van weergave of sorteren tekent opnieuw uit de lijst die er al staat, zonder verzoek. De foto's laden lui en alleen wat in beeld is wordt opgebouwd. Elke weergave vult het scherm en schuift in zijn eigen vak.
+- **API.** `GET /api/ah/orders`, `GET /api/jumbo/orders`, `GET /api/ah/receipts` en `GET /api/imported-orders/<winkel>` geven per aankoop een samenvatting mee: `images` (hooguit zes), `productNames` (hooguit vier), `savings` en `bonusCount` (bestellingen), `payment` (bonnen). De MCP-tools geven dezelfde lijsten zonder die velden.
+- **Handleiding**: de drie weergaven, met nieuwe screenshots.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#227](https://github.com/helmerzNL/MealieShopper/pull/227), bouwt op [#216](https://github.com/helmerzNL/MealieShopper/pull/216) en [#217](https://github.com/helmerzNL/MealieShopper/pull/217).
+
 ## v3.3.3
 
 ### Opgelost in 3.3.3

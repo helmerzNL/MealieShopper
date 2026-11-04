@@ -3749,8 +3749,461 @@ body.has-onboarding {
 }
 
 .purchase-status {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 14px;
+}
+
+/* De balk boven de lijst: links de statusregel, rechts de weergave, het sorteren en de opties. */
+.purchase-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 8px;
+}
+
+.purchase-bar__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.purchase-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.purchase-view-switch .subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+.purchase-view-switch .subtab .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* De menu's rechts in de balk klappen naar links open, anders steken ze buiten het kader (en de pagina) uit. */
+.purchase-bar__tools .subtab-menu__list {
+  right: 0;
+  left: auto;
+  transform-origin: top right;
+}
+
+.subtab-menu__rule {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.purchase-options {
+  min-width: 220px;
+}
+
+.purchase-options__title {
+  padding: 6px 10px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.purchase-options__check {
+  padding: 4px 10px;
+  min-height: 0;
+  font-size: 14px;
+}
+
+/* De kleur per soort aankoop: een bolletje in de tabel en bij de vinkjes, een streep op een kaart en in het overzicht. */
+.purchase-kind {
+  --purchase-kind: var(--muted);
+  display: inline-block;
+  flex: none;
+  background: var(--purchase-kind);
+}
+
+.purchase-kind--order {
+  --purchase-kind: var(--primary);
+}
+
+.purchase-kind--receipt {
+  --purchase-kind: var(--lemon);
+}
+
+.purchase-kind--imported {
+  --purchase-kind: var(--muted);
+}
+
+.purchase-kind--dot {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.purchase-kind--stripe {
+  display: block;
+}
+
+/* Kaarten: een raster van kaarten met een fotocollage; de breedte per kaartgrootte, op een telefoon twee naast elkaar. */
+.purchase-cards {
+  --purchase-card-width: 190px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--purchase-card-width), 1fr));
+  gap: 12px;
+  overflow: auto;
+  padding: 2px;
+  overscroll-behavior: contain;
+}
+
+.purchase-cards--small {
+  --purchase-card-width: 150px;
+}
+
+.purchase-cards--medium {
+  --purchase-card-width: 190px;
+}
+
+.purchase-cards--large {
+  --purchase-card-width: 240px;
+}
+
+.purchase-cards__empty {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.purchase-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  content-visibility: auto;
+  contain-intrinsic-size: 0 280px;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+
+.purchase-card .purchase-kind--stripe {
+  height: 3px;
+}
+
+.purchase-card__link {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.purchase-card__date {
+  margin-top: 6px;
+  color: var(--primary);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.purchase-card__kind,
+.purchase-card__line {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.purchase-card__names,
+.purchase-card__hits {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.purchase-card__hits {
+  color: var(--text);
+}
+
+.purchase-card__savings {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.purchase-card__action {
+  position: absolute;
+  top: 9px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (hover: hover) {
+  .purchase-card:hover {
+    box-shadow: var(--shadow-lg);
+    transform: translateY(-1px);
+  }
+}
+
+/* De kaart en de rij knippen hun inhoud af, dus de focusring van de link erin zou wegvallen: de kaart tekent hem zelf. */
+.purchase-card:focus-within,
+.purchase-overview__row:focus-within {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.purchase-card__link:focus-visible,
+.purchase-overview__link:focus-visible {
+  outline: none;
+}
+
+/* De collage: een vierkant met 1, 2, 3, 4, 5 of 6 foto's; de eerste foto krijgt bij 3 en 5 de linkerkolom. */
+.purchase-collage {
+  display: grid;
+  gap: 2px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+  grid-template-columns: repeat(2, 1fr);
+  grid-auto-rows: 1fr;
+}
+
+.purchase-collage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.purchase-collage--1 {
+  grid-template-columns: 1fr;
+}
+
+.purchase-collage--3 img:first-child,
+.purchase-collage--5 img:first-child {
+  grid-row: span 2;
+}
+
+.purchase-collage--5,
+.purchase-collage--6 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.purchase-collage--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.purchase-collage__icon {
+  width: 36px;
+  height: 36px;
+  fill: currentColor;
+  opacity: 0.6;
+}
+
+.purchase-collage--empty small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .purchase-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Overzicht: rijen met een strook foto's links en de details rechts; de streep in de kleur van de soort aan de linkerrand. */
+.purchase-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding: 2px;
+  overscroll-behavior: contain;
+}
+
+.purchase-overview > p {
+  margin: 0;
+}
+
+.purchase-overview__row {
+  position: relative;
+  display: flex;
+  flex: none; /* in de kolom van de lijst: anders krimpen 500 rijen samen tot streepjes */
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  content-visibility: auto;
+  contain-intrinsic-size: 0 84px;
+}
+
+.purchase-overview__row .purchase-kind--stripe {
+  width: 3px;
+  flex: none;
+  align-self: stretch;
+}
+
+.purchase-overview__link {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 44px 10px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.purchase-overview__strip {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  min-width: 56px;
+  min-height: 56px;
+}
+
+.purchase-overview__strip img {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid var(--border);
+}
+
+.purchase-overview__icon {
+  width: 32px;
+  height: 32px;
+  margin: 12px;
+  fill: var(--muted);
+  opacity: 0.6;
+}
+
+.purchase-overview__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.purchase-overview__head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.purchase-overview__head strong {
+  color: var(--primary);
+  font-size: 15px;
+}
+
+.purchase-overview__amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.purchase-overview__meta,
+.purchase-overview__names {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.purchase-overview__names--hits {
+  color: var(--text);
+}
+
+.purchase-overview__action {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  transform: translateY(-50%);
+}
+
+@media (hover: hover) {
+  .purchase-overview__row:hover {
+    background: var(--selection);
+  }
+}
+
+@media (max-width: 640px) {
+  .purchase-overview__strip img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .purchase-overview__strip img:nth-child(n + 5) {
+    display: none;
+  }
+
+  /* Op een telefoon past de strook niet naast de tekst: de foto's boven, de details eronder. */
+  .purchase-overview__link {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding-right: 40px;
+  }
+
+  .purchase-overview__row {
+    contain-intrinsic-size: 0 120px;
+  }
+}
+
+.purchase-table__sort {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.purchase-table th[aria-sort] .purchase-table__sort {
+  color: var(--primary);
+}
+
+.purchase-table th[aria-sort="descending"] .purchase-table__sort::after {
+  content: " ↓";
+}
+
+.purchase-table th[aria-sort="ascending"] .purchase-table__sort::after {
+  content: " ↑";
 }
 
 .purchase-table-wrap {
