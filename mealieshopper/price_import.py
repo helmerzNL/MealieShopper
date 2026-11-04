@@ -465,7 +465,11 @@ def _order_json(store: str, row: Any, summary: bool = False) -> dict[str, Any]:
     return {
         "id": ref, "ref": ref, "store": store, "imported": True, "kind": "imported", "number": None if ref.startswith("dag:") else ref,
         "date": row["day"], "deliveryDate": row["day"], "total": total, "itemCount": row["lines"], "units": _quantity(row["units"]),
-        "status": row["status"], "slotStart": _moment(row["day"], row["slot_start"]), "slotEnd": _moment(row["day"], row["slot_end"]),
+        # Een ingelezen bestelling is altijd een aankoop die je deed: ze telt in de Prijsgeschiedenis als gekocht, en een geannuleerde
+        # lezen we niet in. Zonder status uit de mail (zoals bij een import van vóór 3.5.0) is ze dus afgeleverd, zoals elke
+        # afgelopen bestelling uit je account.
+        "status": row["status"] or STATUS_DELIVERED,
+        "slotStart": _moment(row["day"], row["slot_start"]), "slotEnd": _moment(row["day"], row["slot_end"]),
         "importedAt": row["imported_at"], **({"productNames": split_lines(row["summary_names"])} if summary else {}),
     }
 

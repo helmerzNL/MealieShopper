@@ -1,7 +1,8 @@
 """Ingelezen bestellingen bij Bestellingen (#229), echt gedraaid in Node: een bestelling uit je account zonder producten valt weg
-naast haar ingelezen versie (op nummer of dag, met de datum van elke winkel), de status en het tijdvak komen uit de mail of anders
-uit die weggevallen bestelling, de soort heet gewoon Bestelling met het archief-icoon erachter, en bij Picnic en Crisp krijgt een
-ingelezen bestelling de vorm van een eigen bestelling (met de producten voor Alles in mandje). Zonder Node slaan de tests over."""
+naast haar ingelezen versie (op nummer of dag, met de datum van elke winkel), een ingelezen bestelling is altijd afgeleverd met het
+tijdvak uit de mail of anders uit die weggevallen bestelling, de soort heet gewoon Bestelling met het archief-icoon erachter, en bij
+Picnic en Crisp krijgt een ingelezen bestelling de vorm van een eigen bestelling (met de producten voor Alles in mandje). Zonder
+Node slaan de tests over."""
 
 import json
 import re
@@ -92,10 +93,11 @@ class ImportedOrdersUiTest(unittest.TestCase):
         self.assertEqual(found, [["6005205555", None], ["888", None], ["6005204444", None], ["777", None], ["6005201234", "6005201234"],
                                  ["dag:2022-01-05", "6005209999"]])
 
-    def test_the_status_comes_from_the_mail_or_else_from_the_order_that_dropped_out(self):
+    def test_an_imported_order_is_delivered_with_the_time_from_the_mail_or_else_from_the_order_that_dropped_out(self):
+        # Altijd afgeleverd (ook zonder status uit de mail, 3.6.2); het tijdvak uit de mail, of anders van de weggevallen bestelling.
         found = self.run_js("const { covered } = importedOrdersCover(jumbo, imported);\n"
                             "console.log(JSON.stringify(imported.map((o) => importedOrderStatus(o, covered.get(o.ref)))));")
-        self.assertEqual(found, ["Afgeleverd · 18:00-20:00", "Afgeleverd · 18:00-21:00", "", ""])
+        self.assertEqual(found, ["Afgeleverd · 18:00-20:00", "Afgeleverd · 18:00-21:00", "Afgeleverd", "Afgeleverd"])
 
     def test_the_kind_is_order_with_the_archive_icon_behind_it(self):
         found = self.run_js('console.log(JSON.stringify(["imported", "order", "receipt"].map(purchaseKindLabel)));')
@@ -122,7 +124,8 @@ class ImportedOrdersUiTest(unittest.TestCase):
                          ("COMPLETED", "2022-01-12T17:20", "2022-01-12T17:40", 5, True))
         self.assertEqual([(i["id"], i["price"]) for i in shaped["items"]], [("s1001", 10.98), (None, 3.0)],
                          "het product voor Alles in mandje, en het bedrag van de hele regel zoals Picnic en Crisp het bewaren")
-        self.assertEqual(found["bare"], ["done", "2022-01-12T08:00:00+01:00", "2022-01-12T10:00:00+01:00"])
+        self.assertEqual(found["bare"], ["done", "2022-01-12T08:00:00+01:00", "2022-01-12T10:00:00+01:00"],
+                         "afgeleverd volgens Crisp, met het tijdvak van de weggevallen bestelling")
         self.assertEqual((found["note"], found["account"]), ("1 orders.imported.unlinked", ""))
 
 

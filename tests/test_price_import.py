@@ -337,7 +337,8 @@ class OrdersTest(ImportCase):
         listed = {o["ref"]: o for o in price_import.list_orders("ah")["orders"]}
         self.assertEqual((listed["225301"]["status"], listed["225301"]["slotStart"], listed["225301"]["slotEnd"]),
                          ("delivered", "2025-03-14T18:00", "2025-03-14T20:00"))
-        self.assertEqual((listed["777"]["status"], listed["777"]["slotStart"], listed["777"]["slotEnd"]), (None, "2025-04-01T17:20", None))
+        # Zonder status in de mail is een ingelezen bestelling toch afgeleverd: ze telt als gekocht (3.6.2).
+        self.assertEqual((listed["777"]["status"], listed["777"]["slotStart"], listed["777"]["slotEnd"]), ("delivered", "2025-04-01T17:20", None))
         opened = price_import.get_order("ah", "225301")
         self.assertEqual((opened["status"], opened["slotStart"], opened["slotEnd"]), ("delivered", "2025-03-14T18:00", "2025-03-14T20:00"))
 
@@ -349,7 +350,8 @@ class OrdersTest(ImportCase):
                             imported_at TEXT NOT NULL, PRIMARY KEY (store, order_ref, position))""")
             conn.execute("INSERT INTO imported_purchases VALUES ('ah', '225301', 0, '2025-03-14', 'AH Bananen tros', 2, 1.19, 1.19, 2.38, ?)", (NOW,))
         order = price_import.list_orders("ah")["orders"][0]
-        self.assertEqual((order["ref"], order["status"], order["slotStart"], order["slotEnd"]), ("225301", None, None, None))
+        self.assertEqual((order["ref"], order["status"], order["slotStart"], order["slotEnd"]), ("225301", "delivered", None, None),
+                         "een import van vóór 3.5.0 staat als afgeleverd, zonder tijdvak")
         with closing(auth.connect()) as conn:
             self.assertTrue({"status", "slot_start", "slot_end"} <= {row["name"] for row in conn.execute("PRAGMA table_info(imported_purchases)")})
         self.run_import({**mail_order(number="777", day="2025-04-01"), "status": "delivered"})
@@ -478,6 +480,25 @@ class OrdersPageTest(unittest.TestCase):
             # Bij AH en Jumbo staan de ingelezen bestellingen als rij in de aankopentabel, bij Picnic en Crisp als kaart bij de afgelopen.
             listed = 'kind: "imported", id: String(order.ref)' if script == "orders.js" else "importedOrderCard(order"
             self.assertIn(listed, scripts[script], f"{script}: de ingelezen bestellingen staan tussen de afgelopen")
+
+
+class ImportDialogTest(unittest.TestCase):
+    """De importdialoog heeft geen knop om alle ingelezen aankopen in een keer te verwijderen: elke ingelezen bestelling heeft bij
+    Bestellingen haar eigen prullenbak (3.6.2)."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_the_dialog_has_no_button_to_remove_everything(self):
+        html = (self.ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        dialog = re.search(r'<dialog[^>]*id="import-dialog".*?</dialog>', html, re.S)
+        self.assertIsNotNone(dialog)
+        self.assertNotIn("import-remove", dialog.group(0))
+        for name in ("offers_history.js", "i18n/nl.js", "i18n/en.js"):
+            source = (self.ROOT / "static" / name).read_text(encoding="utf-8")
+            self.assertNotIn("import-remove", source, name)
+            self.assertNotIn('"offers.import.remove', source, name)
+        orders = (self.ROOT / "static" / "orders.js").read_text(encoding="utf-8")
+        self.assertIn("data-imported-delete", orders, "de prullenbak per ingelezen bestelling blijft")
 
 
 if __name__ == "__main__":
