@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.3.1
+
+### Opgelost in 3.3.1
+
+*English summary: for eggs ("eieren") the check list at Albert Heijn suggested "AH Nederlandse aardbeien" (strawberries), and no eggs were in the drop-down. AH searches broadly and also finds "aardbeien" for "eieren". It does put eggs on top, but nearly all as multipacks, and since 2.87.1 MealieShopper puts a single product before a multipack, so the strawberries, liquid egg white and strawberry yoghurt moved up and the first single box of eggs ended up sixth. Now, when AH puts a multipack of the ingredient on top (before its first single product), the products whose name contains the ingredient come first, also as part of a word ("uitloopeieren"): for "eieren" that is "AH Witte vrije uitloopeieren M". Otherwise AH's order stays as it was; whether the ingredient is in the product name still does not count. Checked against AH's real results for 196 ingredients: only "eieren" gets another suggestion. This applies to the check list, Search for another product, `POST /api/ah/cart` for a line without a product and the MCP tool `search_products` (at Albert Heijn).*
+
+- **Bij "eieren" stelt de controlelijst weer eieren voor.** Bij Albert Heijn stond *AH Nederlandse aardbeien* als voorstel voor eieren, en in de keuzelijst stonden geen eieren. AH zoekt ruim en vindt bij "eieren" ook "aardbeien". De eieren zet AH wel bovenaan, maar bijna allemaal als multipack ("4-pack"), en sinds 2.87.1 komt bij MealieShopper een los product vóór een multipack. Zo schoven de aardbeien, het vloeibare eiwit en de aardbeiyoghurt naar boven en stond de eerste losse doos eieren pas op plek 6.
+  - **Nu:** zet AH bovenaan (vóór het eerste losse product) een multipack van het ingrediënt, dan komen de producten waarvan de naam het ingrediënt noemt eerst, ook als deel van een woord ("uitloopeieren", "scharreleieren"). Bij "eieren" is het voorstel *AH Witte vrije uitloopeieren M*, en in *Zoek een ander product* staan bovenaan vijf dozen eieren.
+  - **Verder blijft de volgorde van AH**, zoals sinds 2.87.1: of het ingrediënt in de productnaam staat, telt alleen in het geval hierboven. Kaas van Milner heet "Jong belegen 35+ plakken" en blijft voor "Kruiden roomkaas" staan.
+  - **Getoetst** tegen de echte zoekresultaten van AH voor 196 ingrediënten: alleen bij "eieren" verandert het voorstel. In de eerste vijf van *Zoek een ander product* schuift verder alleen iets bij "thee" (theesoorten met "thee" in de naam vóór "Clipper Warming pumpkin spice") en bij "bier" (alleen multipacks onderling).
+- Geldt voor de controlelijst van het weekmenu (met en zonder *Liever biologisch*), *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
+- **Handleiding**: de volgorde van de zoekresultaten bij Albert Heijn, onder *Weekmenu naar je mandje*.
+- Issue: [#220](https://github.com/helmerzNL/MealieShopper/issues/220).
+
 ## v3.3.0
 
 ### Nieuw in 3.3.0
