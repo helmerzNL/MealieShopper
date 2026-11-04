@@ -15,6 +15,7 @@ Het afleveradres bewaren we bewust niet; alleen datum en tijdvak.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -25,6 +26,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
 from . import ah, ah_lists, auth, image_cache, price_import
+
+log = logging.getLogger(__name__)
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
@@ -483,7 +486,10 @@ ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, 
   image = excluded.image
 """
 RECEIPT_IMAGES_BATCH = 25  # zoveel webwinkel-id's per verzoek aan `get_products_by_ids`
-RECEIPT_IMAGES_BATCHES = 8  # en zoveel verzoeken per nachtelijke ronde
+RECEIPT_IMAGES_BATCHES = 20  # en zoveel verzoeken per nachtelijke ronde (500 producten)
+RECEIPT_IMAGES_BATCHES_OPEN = 4  # en zoveel in de ronde op de achtergrond als de bonnenlijst opent (100 producten)
+_BACKFILL_LOCK = threading.Lock()
+_BACKFILL_THREADS: list[threading.Thread] = []  # hooguit een ronde op de achtergrond tegelijk
 _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
@@ -634,10 +640,11 @@ def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOO
     return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
 
 
-def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES) -> dict[str, Any]:
+def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None) -> dict[str, Any]:
     """De foto bij koppelingen van vóór de bonfoto's (`image` NULL): per `RECEIPT_IMAGES_BATCH` webwinkel-id's een verzoek aan AH,
-    hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Een id dat AH niet teruggeeft krijgt
-    "" (geen foto), zodat het niet elke nacht opnieuw gevraagd wordt."""
+    hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Met `only` alleen die webwinkel-id's
+    (de producten van een bon die opengaat). Een id dat AH niet teruggeeft krijgt "" (geen foto), zodat het niet elke nacht opnieuw
+    gevraagd wordt."""
     now = now or _now()
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
@@ -646,8 +653,8 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
     with closing(_connect()) as conn:
         todo = [int(row[0]) for row in conn.execute(
             "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
-            (RECEIPT_IMAGES_BATCH * batches,),
-        )]
+            (RECEIPT_IMAGES_BATCH * batches if only is None else -1,),
+        ) if only is None or int(row[0]) in only][: RECEIPT_IMAGES_BATCH * batches]
     for start in range(0, len(todo), RECEIPT_IMAGES_BATCH):
         ids = todo[start : start + RECEIPT_IMAGES_BATCH]
         try:
@@ -678,12 +685,41 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
     return result
 
 
+def _receipt_images_missing() -> bool:
+    with closing(_connect()) as conn:
+        return bool(conn.execute("SELECT 1 FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL LIMIT 1").fetchone())
+
+
+def backfill_receipt_images_async() -> None:
+    """Een kleine ronde in een eigen thread als de bonnenlijst opent en er nog foto's ontbreken (hooguit `RECEIPT_IMAGES_BATCHES_OPEN`
+    verzoeken, binnen het tempo en het uurbudget): zo komen de foto's in de lijst er met elke keer kijken bij, in plaats van alleen
+    's nachts. Loopt er al een ronde, dan niet nog een. Een fout blijft in de thread."""
+    with _BACKFILL_LOCK:
+        _BACKFILL_THREADS[:] = [worker for worker in _BACKFILL_THREADS if worker.is_alive()]
+        if _BACKFILL_THREADS:
+            return
+        try:
+            if not _receipt_images_missing():
+                return
+        except Exception:  # noqa: BLE001 - een database van vóór de bonnen: niets te doen
+            return
+
+        def run() -> None:
+            try:
+                backfill_receipt_images(batches=RECEIPT_IMAGES_BATCHES_OPEN)
+            except Exception:  # noqa: BLE001
+                log.exception("Bonfoto's: de ronde op de achtergrond mislukte")
+
+        worker = threading.Thread(target=run, name="receipt-images", daemon=True)
+        _BACKFILL_THREADS.append(worker)
+        worker.start()
+
+
 def backfill_receipt_images_nightly() -> dict[str, Any] | None:
     """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan."""
     try:
-        with closing(_connect()) as conn:
-            if not conn.execute("SELECT 1 FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL LIMIT 1").fetchone():
-                return None
+        if not _receipt_images_missing():
+            return None
         return backfill_receipt_images()
     except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
         return None
@@ -767,10 +803,17 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any] | None:
+_RECEIPT_IMAGES_MISSING_SQL = """
+SELECT DISTINCT p.product_id FROM ah_receipt_items l JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+WHERE l.receipt_id = ? AND p.image IS NULL AND p.product_id IS NOT NULL
+"""
+
+
+def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = None, images: bool = False) -> dict[str, Any] | None:
     """Een bon met zijn regels. Met `lookup` (bij het openen van de bon) worden de regels die nog bij geen webwinkelproduct horen
     eerst bij AH opgezocht (`resolve_receipt_names`, hooguit `RECEIPT_PRODUCTS_OPEN_SEARCHES` zoekopdrachten); het resultaat staat
-    in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen."""
+    in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen. Met `images` komen daarna
+    de foto's van de gekoppelde regels die nog geen foto hebben (een verzoek aan AH, `backfill_receipt_images`), in `images`."""
     receipt_id = str(receipt_id)
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone()
@@ -778,15 +821,25 @@ def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = Non
             return None
         lines = _receipt_lines(conn, receipt_id)
     result: dict[str, Any] = {}
+    changed = False
     if lookup:
         unlinked = [line["name"] for line in lines if line["product"] is None and line["productId"]]
         try:
             result["products"] = lookup(unlinked) if unlinked else {"found": 0, "missing": 0, "failed": 0, "searches": 0}
         except Exception:  # noqa: BLE001 - de koppeling is een extraatje; de bon zelf is wat je wilde zien
             result["products"] = None
-        if unlinked:
-            with closing(_connect()) as conn:
-                lines = _receipt_lines(conn, receipt_id)
+        changed = bool(unlinked)
+    if images:
+        with closing(_connect()) as conn:
+            missing = {int(row_id[0]) for row_id in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
+        try:
+            result["images"] = backfill_receipt_images(batches=1, only=missing) if missing else {"products": 0, "requests": 0, "failed": 0}
+        except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
+            result["images"] = None
+        changed = changed or bool(missing)
+    if changed:
+        with closing(_connect()) as conn:
+            lines = _receipt_lines(conn, receipt_id)
     return {
         **_receipt_json(row, len(lines)),
         "items": lines,

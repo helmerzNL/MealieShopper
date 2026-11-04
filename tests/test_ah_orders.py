@@ -52,6 +52,9 @@ class AhOrdersTestCase(unittest.TestCase):
         search = mock.patch.object(ah, "search_hq_ids", return_value=[])  # geen echte zoekopdrachten bij AH
         self.search_hq_ids = search.start()
         self.addCleanup(search.stop)
+        products = mock.patch.object(ah, "get_products_by_ids", return_value=[])  # en geen echte foto's ophalen
+        self.get_products_by_ids = products.start()
+        self.addCleanup(products.stop)
         sleep = mock.patch.object(ah_orders.time, "sleep")  # de pauze tussen zoekopdrachten
         self.sleep = sleep.start()
         self.addCleanup(sleep.stop)
@@ -483,6 +486,46 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         self.search_hq_ids.reset_mock()
         again = self.client.post("/api/ah/receipts/R1/products").get_json()
         self.assertEqual((again["products"]["searches"], self.search_hq_ids.call_count), (0, 0))
+
+    def test_opening_a_receipt_fetches_the_photos_of_its_linked_lines(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:  # gekoppeld voor de bonfoto's bestonden: nog geen foto opgezocht
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, title = 'AH Halfvolle melk 1 l', image = NULL WHERE receipt_product_id = 1")
+        self.get_products_by_ids.return_value = [{"id": 4183, "title": "AH Halfvolle melk 1 l", "image": "https://static.ah.nl/dam/melk"}]
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual(data["items"][0]["product"]["image"], "https://static.ah.nl/dam/melk")
+        self.assertEqual(data["images"], {"products": 1, "requests": 1, "failed": 0})
+        self.assertEqual(self.get_products_by_ids.call_args.args[0], [4183])
+        self.get_products_by_ids.reset_mock()
+        again = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((again["images"]["requests"], self.get_products_by_ids.call_count), (0, 0), "de foto staat er: niets meer te vragen")
+
+    def test_a_failing_photo_lookup_still_returns_the_receipt(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, image = NULL WHERE receipt_product_id = 1")
+        self.get_products_by_ids.side_effect = RuntimeError("503")
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((data["id"], data["items"][0]["product"]["image"], data["images"]["failed"]), ("R1", "", 1))
+
+    def test_the_receipt_list_starts_a_background_round_for_the_missing_photos(self):
+        with mock.patch.object(ah_orders, "backfill_receipt_images_async") as backfill:
+            self.client.get("/api/ah/receipts")
+        backfill.assert_called_once_with()
+
+    def test_the_background_round_runs_once_at_a_time_and_only_when_photos_are_missing(self):
+        with mock.patch.object(ah_orders, "backfill_receipt_images") as backfill:
+            ah_orders.backfill_receipt_images_async()
+            for worker in ah_orders._BACKFILL_THREADS:
+                worker.join(5)
+        backfill.assert_not_called()
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (1, 4183, 'P', 'x')")
+        with mock.patch.object(ah_orders, "backfill_receipt_images") as backfill:
+            ah_orders.backfill_receipt_images_async()
+            for worker in ah_orders._BACKFILL_THREADS:
+                worker.join(5)
+        backfill.assert_called_once_with(batches=ah_orders.RECEIPT_IMAGES_BATCHES_OPEN)
 
     def test_a_sync_starts_a_small_prefetch_round(self):
         with mock.patch.object(image_cache, "prefetch_async") as prefetch:
