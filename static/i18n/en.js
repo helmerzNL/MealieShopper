@@ -434,6 +434,7 @@ I18N.add("en", {
   "orders.options.status": "Status and delivery slot",
   "orders.options.savings": "Amount saved",
   "orders.options.names": "Product names",
+  "orders.saved": "{amount} bonus",
   "orders.col.date": "Date",
   "orders.col.kind": "Kind",
   "orders.col.status": "Status",

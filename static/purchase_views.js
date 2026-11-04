@@ -104,6 +104,20 @@ function purchaseSortBy(key, dir = null) {
   purchaseViewApply();
 }
 
+// Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js).
+function purchaseViewFit() {
+  for (const id of ["ah-purchase-cards", "ah-purchase-overview"]) {
+    const pane = $(`#${id}`);
+    if (!pane || pane.hidden) continue;
+    const height = pageFitHeight(pane);
+    pane.style.maxHeight = height === null ? "" : `${height}px`;
+  }
+}
+
+window.addEventListener("resize", () => {
+  if (ordersState.loaded) purchaseViewFit();
+});
+
 purchaseViewLoad();
 $("#purchase-view-switch").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
@@ -136,3 +150,79 @@ document.querySelector(".purchase-table thead").addEventListener("click", (event
   if (button) purchaseSortBy(button.dataset.sort);
 });
 purchaseViewSyncBar();
+
+// ---- Kaarten: een raster met per aankoop een collage van productfoto's en de belangrijkste gegevens eronder.
+
+const MDI_CART = "M17,18C15.89,18 15,18.89 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20C19,18.89 18.1,18 17,18M1,2V4H3L6.6,11.59L5.24,14.04C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42A0.25,0.25 0 0,1 7.17,14.75C7.17,14.7 7.18,14.66 7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.58 17.3,11.97L20.88,5.5C20.95,5.34 21,5.17 21,5A1,1 0 0,0 20,4H5.21L4.27,2M7,18C5.89,18 5,18.89 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20C9,18.89 8.1,18 7,18Z";
+const MDI_RECEIPT = "M3,22L4.5,20.5L6,22L7.5,20.5L9,22L10.5,20.5L12,22L13.5,20.5L15,22L16.5,20.5L18,22L19.5,20.5L21,22V2L19.5,3.5L18,2L16.5,3.5L15,2L13.5,3.5L12,2L10.5,3.5L9,2L7.5,3.5L6,2L4.5,3.5L3,2M18,9H6V7H18M18,13H6V11H18M18,17H6V15H18V17Z";
+
+function purchaseKindIcon(kind) {
+  return kind === "receipt" ? MDI_RECEIPT : kind === "imported" ? MDI_ARCHIVE_OUTLINE : MDI_CART;
+}
+
+function purchaseKindText(kind) {
+  return t(kind === "receipt" ? "orders.kind.receipt" : kind === "imported" ? "orders.kind.imported" : "orders.kind.order");
+}
+
+// De collage: hooguit `count` foto's (4 als 2x2, 6 als 3x2; minder foto's worden groter, zie de CSS per aantal). Zonder foto's
+// (een ingelezen bestelling, een bon zonder koppelingen, producten nog niet opgehaald) het pictogram van de soort en de eerste namen.
+function purchaseCollage(row, count) {
+  const urls = row.images.slice(0, count);
+  if (!urls.length) {
+    const names = row.names.slice(0, 2).join(", ");
+    return `<div class="purchase-collage purchase-collage--empty">${mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-collage__icon")}${names ? `<small>${escapeHtml(names)}</small>` : ""}</div>`;
+  }
+  return `<div class="purchase-collage purchase-collage--${urls.length}">${urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")}</div>`;
+}
+
+// De regels onder de collage, naar de opties: status en bezorgmoment (of de betaalwijze van een bon), producten en bedrag,
+// het bespaarde bedrag, en de productnamen (bij zoeken de gevonden regels).
+function purchaseDetailLines(row, matches, { names = true } = {}) {
+  const lines = [];
+  if (purchaseView.options.status) {
+    const status = row.kind === "receipt" ? row.payment : row.status;
+    if (status) lines.push(escapeHtml(status));
+  }
+  const count = row.items === null ? t("orders.items_pending") : tn("list.items", row.items);
+  lines.push(escapeHtml([count, money(row.total)].filter(Boolean).join(" · ")));
+  if (purchaseView.options.savings && row.savings > 0) lines.push(`<span class="purchase-card__savings">${escapeHtml(t("orders.saved", { amount: money(row.savings) }))}</span>`);
+  if (names && matches) {
+    const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);
+    if (matches.length > 3) shown.push(t("orders.more", { count: matches.length - 3 }));
+    lines.push(`<span class="purchase-card__hits">${escapeHtml(shown.join(", "))}</span>`);
+  } else if (names && purchaseView.options.names && row.names.length) {
+    lines.push(`<span class="purchase-card__names">${escapeHtml(row.names.join(", "))}</span>`);
+  }
+  return lines;
+}
+
+function purchaseDeleteButton(row, className) {
+  if (row.kind !== "imported" || !priceImportIsOwner()) return "";
+  const remove = t("orders.imported.delete");
+  return `<button type="button" class="icon-button ${className}" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`;
+}
+
+// De kaart: de link ligt over de hele kaart (purchase-card__link), de prullenbak van een ingelezen bestelling staat erbuiten,
+// zodat een klik erop niet ook de bestelling opent.
+function purchaseCard(row, matches) {
+  const count = purchaseView.options.size === "large" ? 6 : 4;
+  return `<article class="purchase-card${row.open ? " is-open" : ""}" ${row.attr}>
+      ${purchaseKindMarkup(row.kind, "stripe")}
+      <a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav>
+        ${purchaseCollage(row, count)}
+        <strong class="purchase-card__date">${escapeHtml(row.label)}</strong>
+        <span class="purchase-card__kind">${escapeHtml(purchaseKindText(row.kind))}</span>
+        ${purchaseDetailLines(row, matches).map((line) => `<span class="purchase-card__line">${line}</span>`).join("")}
+      </a>
+      ${purchaseDeleteButton(row, "purchase-card__action")}
+    </article>`;
+}
+
+function renderPurchaseCards(visible, hits) {
+  const grid = $("#ah-purchase-cards");
+  grid.className = `purchase-cards purchase-cards--${purchaseView.options.size}`;
+  grid.innerHTML = ordersState.empty
+    ? `<p class="muted purchase-cards__empty">${ordersState.empty}</p>`
+    : visible.map((row) => purchaseCard(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
+  window.requestAnimationFrame(purchaseViewFit);
+}

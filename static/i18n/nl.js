@@ -434,6 +434,7 @@ I18N.add("nl", {
   "orders.options.status": "Status en bezorgmoment",
   "orders.options.savings": "Bespaard bedrag",
   "orders.options.names": "Productnamen",
+  "orders.saved": "{amount} bonus",
   "orders.col.date": "Datum",
   "orders.col.kind": "Soort",
   "orders.col.status": "Status",

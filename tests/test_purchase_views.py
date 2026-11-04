@@ -60,5 +60,31 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
             self.assertIn(needle, ORDERS)
 
 
+class PurchaseCardsTest(unittest.TestCase):
+    def test_the_cards_are_links_with_a_collage_of_cached_photos(self):
+        self.assertIn('id="ah-purchase-cards"', HTML)
+        for needle in ("function purchaseCollage(row, count)", "function purchaseCard(row, matches)", "function renderPurchaseCards(visible, hits)",
+                       'src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error',
+                       '<a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav', 'purchaseKindMarkup(row.kind, "stripe")', "purchase-collage--empty"):
+            self.assertIn(needle, VIEWS)
+        self.assertIn('purchaseView.options.size === "large" ? 6 : 4', VIEWS)
+
+    def test_the_grid_sizes_and_the_phone_layout(self):
+        for size, width in (("small", 150), ("medium", 190), ("large", 240)):
+            self.assertRegex(CSS, rf"\.purchase-cards--{size} \{{\n  --purchase-card-width: {width}px;")
+        self.assertRegex(CSS, r"\.purchase-card \{\n(?:.*\n)*?  content-visibility: auto;")
+        self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-cards \{\n    grid-template-columns: repeat\(2, 1fr\);")
+
+    def test_the_options_decide_what_a_card_shows_and_search_shows_the_hits(self):
+        for needle in ("purchaseView.options.status", "purchaseView.options.savings", "purchaseView.options.names", "matches.slice(0, 3)", "row.savings > 0"):
+            self.assertIn(needle, VIEWS)
+
+    def test_a_purchase_without_photos_shows_the_icon_of_its_kind(self):
+        self.assertIn("purchaseKindIcon(row.kind)", VIEWS.split("function purchaseCollage")[1].split("function purchaseDetailLines")[0])
+        mapping = VIEWS.split("function purchaseKindIcon")[1].split("}")[0]
+        for needle in ("MDI_CART", "MDI_RECEIPT", "MDI_ARCHIVE_OUTLINE"):
+            self.assertIn(needle, mapping, needle)
+
+
 if __name__ == "__main__":
     unittest.main()
