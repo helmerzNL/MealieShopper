@@ -9,10 +9,10 @@ from urllib.parse import quote_plus
 import sqlite3
 
 import requests
-from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ai_match, ai_review, ah_explore, audit, backup, ah_lists, ah_orders, ah_recipes, auth_password, crisp, crisp_orders, factory_reset, hellofresh, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -537,6 +537,20 @@ def create_app() -> Flask:
         response = Response(data, mimetype=content_type)
         # Met ?v= (een stuk van de SHA-256 van de afbeelding) verandert het adres als de inhoud verandert.
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable" if request.args.get("v") else "private, max-age=3600"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @app.get("/api/images/<token>")
+    def cached_image(token: str):
+        # Een productfoto van een winkel uit de eigen cache (image_cache.py): het token is het winkeladres in base64. Staat de foto
+        # er nog niet, dan haalt de server hem nu op (zoals een browser dat zou doen) en bewaart hem voor altijd. Een onbekende
+        # host, een host in pauze na een 403 of een mislukking geven 404; de <img> verbergt zich dan (data-hide-on-error).
+        url = image_cache.url_for(token)
+        found = image_cache.fetch(url) if url else None
+        if not found:
+            return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
+        response = send_file(image_cache.images_dir() / found["path"], mimetype=found["content_type"], conditional=True, etag=found["digest"], max_age=31536000)
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 

@@ -11,7 +11,8 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, auth, image_cache
+from mealieshopper import ah, auth, image_cache  # noqa: E402
+from mealieshopper.app import create_app  # noqa: E402
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
 NOW = "2026-11-04T03:00:00+00:00"
@@ -230,6 +231,42 @@ class FetchTest(FetchCase):
         self.serve(AH, 200, "image/png", picture(4, 4))
         image_cache.fetch(AH, now=NOW)
         self.assertTrue(image_cache.images_dir().is_dir())
+
+
+class RoutesTest(FetchCase):
+    def setUp(self):
+        super().setUp()
+        self.client = create_app().test_client()
+
+    def test_the_route_serves_the_cached_file_with_a_long_cache_header(self):
+        self.serve(AH, 200, "image/webp", picture(8, 8, "WEBP"))
+        reply = self.client.get(f"/api/images/{image_cache.token_for(AH)}")
+        self.assertEqual((reply.status_code, reply.content_type, reply.headers["Cache-Control"]), (200, "image/webp", "private, max-age=31536000, immutable"))
+        self.assertEqual(reply.data, picture(8, 8, "WEBP"))
+        self.assertEqual(reply.headers["X-Content-Type-Options"], "nosniff")
+        again = self.client.get(f"/api/images/{image_cache.token_for(AH)}", headers={"If-None-Match": reply.headers["ETag"]})
+        self.assertEqual(again.status_code, 304)
+        self.assertEqual(self.get.call_count, 1)
+
+    def test_unknown_tokens_and_hosts_give_404_without_a_request(self):
+        for token in ("%%%", image_cache.token_for("https://mealie.local/x.png"), image_cache.token_for("ftp://static.ah.nl/x")):
+            self.assertEqual(self.client.get(f"/api/images/{token}").status_code, 404)
+        self.get.assert_not_called()
+
+    def test_a_paused_host_gives_404_without_a_request(self):
+        image_cache._pause("static.ah.nl", NOW)
+        with mock.patch.object(image_cache, "_now", return_value=NOW):
+            self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 404)
+        self.get.assert_not_called()
+
+    def test_a_failed_download_gives_404(self):
+        self.serve(AH, 200, "text/html", b"<html>")
+        self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 404)
+
+    def test_the_route_needs_a_login_like_the_rest_of_the_api(self):
+        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
+            self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 401)
+        self.get.assert_not_called()
 
 
 if __name__ == "__main__":
