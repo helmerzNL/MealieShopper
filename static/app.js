@@ -94,6 +94,26 @@ function $(selector) {
   return document.querySelector(selector);
 }
 
+// Een productfoto van een winkel via de eigen cache (/api/images/<token>, zie image_cache.py): de server haalt hem een keer op
+// en serveert hem daarna van schijf, zodat de browser niet bij de winkel hotlinkt. Een adres van een andere host (Mealie, een
+// maaltijdbox) blijft zoals het is. Het token is het adres in URL-veilige base64 zonder "=".
+const STORE_IMAGE_HOSTS = [/(^|\.)static\.ah\.nl$/, /(^|\.)jumbo\.com$/, /\.picnicinternational\.com$/, /(^|\.)crispapp\.nl$/];
+
+function storeImage(url) {
+  if (!url) return url;
+  let host = "";
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return url;
+    host = parsed.hostname;
+  } catch {
+    return url;
+  }
+  if (!STORE_IMAGE_HOSTS.some((pattern) => pattern.test(host))) return url;
+  const token = btoa(unescape(encodeURIComponent(String(url)))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  return `/api/images/${token}`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1304,7 +1324,7 @@ function reviewThumbHtml(candidate) {
   // altijd staan, zodat de kolommen gelijk blijven als er geen foto is of hij niet laadt; dan is hij uitgeschakeld.
   // De productnaam staat al in de keuzelijst, dus alt is leeg en de knop zegt wat hij doet.
   const label = escapeHtml(t("cart.photo_open", { title: candidate.title }));
-  const src = candidate.image ? ` src="${escapeHtml(candidate.image)}"` : " hidden";
+  const src = candidate.image ? ` src="${escapeHtml(storeImage(candidate.image))}"` : " hidden";
   return `<button class="review-thumb" type="button" aria-label="${label}" title="${label}"${candidate.image ? "" : " disabled"}><img${src} alt="" width="56" height="56" loading="lazy"></button>`;
 }
 
@@ -1315,7 +1335,7 @@ function showReviewThumb(button, candidate) {
   button.setAttribute("aria-label", label);
   button.title = label;
   img.hidden = !candidate.image;
-  if (candidate.image) img.src = candidate.image;
+  if (candidate.image) img.src = storeImage(candidate.image);
   else img.removeAttribute("src");
 }
 
@@ -1325,9 +1345,9 @@ function openReviewPhoto(candidate) {
   const image = $("#photo-dialog-image");
   const large = candidate.imageLarge || candidate.image;
   if (!large) return;
-  image.dataset.fallback = large !== candidate.image ? candidate.image : "";
+  image.dataset.fallback = large !== candidate.image ? storeImage(candidate.image) : "";
   image.hidden = false;
-  image.src = large;
+  image.src = storeImage(large);
   $("#photo-dialog-title").textContent = candidate.title;
   $("#photo-dialog-meta").textContent = [candidate.unitSize, formatPrice(candidate.price)].filter(Boolean).join(" · ");
   $("#photo-dialog").showModal();
@@ -1597,7 +1617,7 @@ function renderRecipeCard(recipe) {
   const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card">
-      ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(recipe.title)}" loading="lazy">` : ""}
+      ${imageUrl ? `<img src="${escapeHtml(storeImage(imageUrl))}" alt="${escapeHtml(recipe.title)}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title)}</h3>
       ${recipe.description ? `<p class="muted">${escapeHtml(recipe.description)}</p>` : ""}
       ${totalTime || recipe.servings ? `<p class="muted">${totalTime ? escapeHtml(t("recipe.minutes", { n: totalTime })) : ""}${totalTime && recipe.servings ? " | " : ""}${recipe.servings ? escapeHtml(t("recipe.servings", { n: recipe.servings })) : ""}</p>` : ""}
@@ -2166,7 +2186,7 @@ function renderAhListItem(item, editable = false) {
   const url = item.url || product.url || "";
   const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
   const body = `
-    ${product.image ? `<img src="${escapeHtml(product.image)}" alt="" loading="lazy">` : ""}
+    ${product.image ? `<img src="${escapeHtml(storeImage(product.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
     <div>
       <strong>${editable ? "" : `${escapeHtml(item.quantity)}x `}${escapeHtml(title)}</strong>
       ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
@@ -2288,7 +2308,7 @@ function renderSavedRecipeCard(recipe) {
   const id = ahRecipeNumber(recipe);
   return `
     <article class="recipe-card"${id ? ` data-store-recipe="ah:${escapeHtml(id)}"` : ""}>
-      ${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(recipe.title || "")}" loading="lazy">` : ""}
+      ${image ? `<img src="${escapeHtml(storeImage(image))}" alt="${escapeHtml(recipe.title || "")}" loading="lazy" data-hide-on-error>` : ""}
       <h3>${escapeHtml(recipe.title || t("recipe.unknown"))}</h3>
       ${id ? recipeCardActions(`ah:${id}`, planSourceAttrs("ah", id, recipe.title, image)) : ""}
     </article>
