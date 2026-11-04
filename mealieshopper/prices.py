@@ -1010,6 +1010,7 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
 def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
     since30, since_year, since_pack = _days_ago(today, VERDICT_DAYS), _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
     regulars: dict[str, list[float]] = {}
+    measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
     with closing(_connect()) as conn:
@@ -1017,10 +1018,12 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             latest[row["product_id"]] = row
             if row["day"] >= since30:
                 regulars.setdefault(row["product_id"], []).append(row["price"])
+                measured.add(str(row["product_id"]))
         for sql in _purchase_sources(conn, store):
             for row in conn.execute(f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND day <= ? AND regular IS NOT NULL", (since30, today)):
                 if _number(row["regular"]) is not None:
                     regulars.setdefault(row["product_id"], []).append(row["regular"])
+                    measured.add(str(row["product_id"]))
         for row in conn.execute(
             "SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? ORDER BY product_id, first_seen, id",
             (store, since_year),
@@ -1064,9 +1067,8 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             verdict["kind"] = "none" if effective >= lowest - 0.005 else ("good" if ratio >= GOOD_DISCOUNT - 1e-9 else "small")
             verdict["inflated"] = stated is not None and stated > lowest + 0.005
         # De badge op de kaart: het gemeten verschil, of de claim van de winkel als de app geen gewone prijs van het product kent.
-        measured = any(_number(price) is not None for price in regulars.get(product_id, []))
         offer["badge"] = None if verdict["kind"] == "unknown" else {
-            "percent": verdict["percent"], "source": "history" if measured else "store", "claimed": _claimed_percent(offer),
+            "percent": verdict["percent"], "source": "history" if product_id in measured else "store", "claimed": _claimed_percent(offer),
             "inflated": verdict["inflated"],
         }
         mine = [row for row in episodes.get(product_id, []) if not row["continued"]]

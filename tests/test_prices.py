@@ -529,6 +529,13 @@ class VerdictTest(PricesCase):
         badge = self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]
         self.assertEqual(badge, {"percent": 25, "source": "store", "claimed": 25, "inflated": False})
 
+    def test_the_price_before_of_an_earlier_offer_is_a_claim_and_not_a_measurement(self):
+        self.sync_offer("2026-10-05T05:00:00+00:00", offer("1", "AH Rijst", 1.50, 2.00, "25% korting", validFrom="2026-10-05", validUntil="2026-10-11"))
+        self.sync_offer("2026-10-11T23:00:00+00:00")
+        self.assertEqual(self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]["source"], "store")
+        self.ah_order(101, "delivered", "2026-10-12", order_item(1, "AH Rijst", 2.00, quantity=1))
+        self.assertEqual(self.annotate(deal("1", "AH Rijst", 1.50, 2.00, "25% korting"))["1"]["badge"]["source"], "history")
+
     def test_an_inflated_price_before_gives_a_lower_badge_than_the_claim(self):
         self.observe("2026-10-05", "1", "AH Kaas", 1.10)
         badge = self.annotate(deal("1", "AH Kaas", 0.88, 1.50, "nu 0,88"))["1"]["badge"]

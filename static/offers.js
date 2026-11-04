@@ -161,20 +161,15 @@ function offerPerUnitText(perUnit) {
   return t("offers.per_unit", { price: formatPrice(perUnit.value), unit: t(unit) });
 }
 
-// Het oordeel bij een aanbieding (#178): is de actieprijs lager dan de gewone prijs van de laatste 30 dagen, komt de aanbieding vaak
-// terug, en is een andere verpakking per eenheid goedkoper. Zie prices.annotate.
+// De chips onder de prijs (#178): komt de aanbieding vaak terug, en is een andere verpakking per eenheid goedkoper. Het oordeel zelf
+// (echt voordelig, klein voordeel, niet goedkoper) zit in de badge op het plaatje. Zie prices.annotate.
 function offerVerdictLines(offer) {
   const verdict = offer.verdict;
   if (!verdict) return [];
   const lines = [];
-  const reference = typeof verdict.lowestRegular === "number" ? t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }) : "";
-  const inflated = verdict.inflated && typeof offer.priceBefore === "number" ? t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }) : "";
-  const title = [reference, inflated].filter(Boolean).join(" ");
-  if (verdict.kind === "good") lines.push({ cls: "verdict verdict--good", text: t("offers.verdict.good", { percent: verdict.percent }), title });
-  if (verdict.kind === "small") lines.push({ cls: "verdict verdict--small", text: t("offers.verdict.small", { percent: verdict.percent }), title });
-  if (verdict.kind === "none") lines.push({ cls: "verdict verdict--none", text: t("offers.verdict.none"), title });
-  if (verdict.bestInYear) lines.push({ cls: "verdict-note", text: t("offers.verdict.best_in_year") });
-  if (verdict.often) lines.push({ cls: "verdict-note", text: t("offers.verdict.often", { count: verdict.timesThisYear }) });
+  if (verdict.often) {
+    lines.push({ cls: "verdict verdict--often", text: t("offers.label.often", { count: verdict.timesThisYear }), title: t("offers.verdict.often", { count: verdict.timesThisYear }) });
+  }
   const pack = verdict.cheaperPack;
   if (pack && pack.unitPrice) {
     lines.push({
@@ -185,34 +180,119 @@ function offerVerdictLines(offer) {
   return lines;
 }
 
+// De uitleg bij de badge: het oordeel, de laagste gewone prijs van 30 dagen waarmee vergeleken is, en de claim van de winkel als die
+// hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat.
+function offerBadgeTitle(offer) {
+  const verdict = offer.verdict;
+  const badge = offer.badge;
+  if (badge.source === "store") return t("offers.badge.title_store", { percent: badge.percent });
+  const kind = { good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
+  const parts = [kind ? t(kind, { percent: badge.percent }) : ""];
+  if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
+  if (badge.inflated && typeof offer.priceBefore === "number") {
+    parts.push(t("offers.verdict.inflated", { before: formatPrice(offer.priceBefore), price: formatPrice(verdict.lowestRegular) }));
+  }
+  return parts.filter(Boolean).join(" ");
+}
+
+// De kortingsbadge op het plaatje: één getal in de kleurschaal van het userscript (50, 35, 20, 10), omlijnd als het de claim van de
+// winkel is in plaats van een gemeten verschil, grijs bij 0%, niets als er geen oordeel is.
+function offerBadge(offer) {
+  const badge = offer.badge;
+  if (!badge || typeof badge.percent !== "number") return "";
+  const step = badge.percent >= 50 ? "50" : badge.percent >= 35 ? "35" : badge.percent >= 20 ? "20" : badge.percent >= 10 ? "10" : badge.percent >= 1 ? "1" : "0";
+  const cls = `offer-badge offer-badge--${step}${badge.source === "store" ? " offer-badge--store" : ""}`;
+  const text = badge.percent > 0 ? `-${badge.percent}%` : "0%";
+  return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
+}
+
+// "mei" of "mei 2025": de maand uit "YYYY-MM", met het jaar erbij als het niet dit jaar is.
+function offerMonthText(month) {
+  const date = new Date(`${month}-15T12:00:00`);
+  if (Number.isNaN(date.getTime())) return month;
+  const name = monthShort(date);
+  return date.getFullYear() === new Date().getFullYear() ? name : `${name} ${date.getFullYear()}`;
+}
+
+function offerDateText(day) {
+  const date = new Date(`${String(day).slice(0, 10)}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? String(day) : `${date.getDate()} ${monthShort(date)} ${date.getFullYear()}`;
+}
+
+// Het prijslabel uit de geschiedenis (prices.price_label): groen voor de laagste prijs ooit, in 12 of in 6 maanden, grijs voor
+// "laagste sinds we meten" en "was al eens lager".
+function offerPriceLabel(offer) {
+  const label = offer.priceLabel;
+  if (!label || !label.kind) return null;
+  const green = "offer-label offer-label--green";
+  const grey = "offer-label offer-label--grey";
+  if (label.kind === "lowest_ever") return { cls: green, text: t("offers.label.lowest_ever"), title: "" };
+  if (label.kind === "lowest_12m") return { cls: green, text: t("offers.label.lowest_12m"), title: "" };
+  if (label.kind === "lowest_6m") return { cls: green, text: t("offers.label.lowest_6m"), title: "" };
+  if (label.kind === "lowest_seen") {
+    return { cls: grey, text: t("offers.label.lowest_seen", { month: offerMonthText(label.month) }), title: t("offers.label.lowest_seen_title", { date: offerDateText(label.coveredSince) }) };
+  }
+  if (label.kind === "lower_before") {
+    const params = { price: formatPrice(label.price), month: offerMonthText(label.month) };
+    return { cls: grey, text: t("offers.label.lower_before", params), title: t("offers.label.lower_before_title", params) };
+  }
+  return null;
+}
+
+function offerPriceLabelHtml(offer) {
+  const label = offerPriceLabel(offer);
+  return label ? `<span class="${label.cls}"${label.title ? ` title="${escapeHtml(label.title)}"` : ""}>${escapeHtml(label.text)}</span>` : "";
+}
+
+// De rij onderaan de kaart: Vergelijk verpakkingen (een knop) en Prijsgeschiedenis (een link), in dezelfde stijl op één lijn.
+function offerCardFoot(offer) {
+  const compare = offer.unitPricePer
+    ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
+    : "<span></span>";
+  const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
+  return `<div class="offer-card__foot">${compare}${history}</div>`;
+}
+
+// Het plaatje van een aanbieding met de badge en het prijslabel erop; zonder plaatje een leeg vlak van dezelfde hoogte.
+function offerThumb(offer, extraClass = "") {
+  const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : "";
+  return `<a class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" href="${escapeHtml(offer.url || "#")}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-zoom="${escapeHtml(offer.id)}">${image}${offerBadge(offer)}${offerPriceLabelHtml(offer)}</a>`;
+}
+
+// De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als de app
+// die kent, anders de "van"-prijs van de winkel.
+function offerPriceHtml(offer) {
+  const now = typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : offer.price;
+  if (!now) return "";
+  const verdict = offer.verdict || {};
+  const before = typeof verdict.lowestRegular === "number" ? verdict.lowestRegular : offer.priceBefore;
+  const was = before && before > now + 0.005 ? ` <s>${escapeHtml(formatPrice(before))}</s>` : "";
+  return `<small class="product-card__price">${escapeHtml(formatPrice(now))}${was}</small>`;
+}
+
 function offerProductCard(offer) {
   const meta = [offer.brand, offer.unitSize].filter(Boolean).join(" · ");
-  const was = offer.priceBefore ? ` <s>${escapeHtml(formatPrice(offer.priceBefore))}</s>` : "";
   const name = `<strong>${escapeHtml(offer.title)}</strong>`;
   const title = offer.url ? `<a class="offer-card__link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer">${name}</a>` : name;
   const perUnit = offerPerUnitText(offer.unitPricePer);
-  const verdict = offerVerdictLines(offer)
+  const conditions = offerConditionsText(offer);
+  const chips = offerVerdictLines(offer)
     .map((line) => `<small class="${line.cls}"${line.title ? ` title="${escapeHtml(line.title)}"` : ""}>${escapeHtml(line.text)}</small>`)
     .join("");
-  const compare = offer.unitPricePer
-    ? `<button class="link-button offer-card__compare" type="button" data-compare="${escapeHtml(offer.id)}">${escapeHtml(t("offers.compare.open"))}</button>`
-    : "";
-  const history = `<a class="link-button offer-card__history" href="${escapeHtml(priceHistoryPath(offersState.store, offer.title, offer.id))}" data-route>${escapeHtml(t("offers.card.history"))}</a>`;
   return `
     <article class="product-card offer-card">
-      ${offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
-      <span>
+      ${offerThumb(offer)}
+      <div class="offer-card__body">
         ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
         ${offerPersonalBadge(offer)}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
-        ${offerConditionsText(offer) ? `<small>${escapeHtml(offerConditionsText(offer))}</small>` : ""}
-        ${offer.price ? `<small class="product-card__price">${escapeHtml(formatPrice(offer.price))}${was}</small>` : ""}
+        ${conditions ? `<small>${escapeHtml(conditions)}</small>` : ""}
+        ${offerPriceHtml(offer)}
         ${perUnit ? `<small class="offer-card__per-unit">${escapeHtml(perUnit)}</small>` : ""}
-        ${verdict}
-        ${compare}
-        ${history}
-      </span>
+        ${chips}
+      </div>
+      ${offerCardFoot(offer)}
     </article>`;
 }
 

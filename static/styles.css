@@ -5480,10 +5480,177 @@ body.has-onboarding {
   font-weight: 600;
 }
 
-.offer-card .offer-card__compare,
-.offer-card .offer-card__history {
-  margin-top: 4px;
+/* De kaart van een aanbieding: het plaatje boven, groot genoeg om het product te herkennen, met de badge en het prijslabel erop;
+   de tekst eronder en de twee links op één rij onderaan. Smaller dan een gewone productkaart, dus meer per rij. */
+.product-grid--offers {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.offer-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  content-visibility: auto;
+  contain-intrinsic-size: 200px 380px;
+}
+
+.offer-card__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.offer-card__body > small:first-of-type {
+  margin-top: 2px;
+}
+
+.offer-card__thumb {
+  position: relative;
+  display: block;
+  height: 140px;
+  margin: -10px -10px 4px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  overflow: hidden;
+}
+
+.offer-card__thumb--empty {
+  background: var(--surface-muted);
+}
+
+.offer-card__thumb img {
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 0;
+  outline: none;
+}
+
+/* De kortingsbadge: de kleurschaal van het userscript, hard en niet uit het thema, zodat hij in licht en donker gelijk blijft.
+   Omlijnd als het de claim van de winkel is en niet een gemeten verschil. */
+.offer-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  border-radius: 8px;
+  padding: 3px 7px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  cursor: help;
+}
+
+.offer-badge--50 {
+  background: #16803c;
+  color: #fff;
+}
+
+.offer-badge--35 {
+  background: #7ac943;
+  color: #102a12;
+}
+
+.offer-badge--20 {
+  background: #ffd447;
+  color: #332600;
+}
+
+.offer-badge--10 {
+  background: #ff8a00;
+  color: #fff;
+}
+
+.offer-badge--1 {
+  background: #d64545;
+  color: #fff;
+}
+
+.offer-badge--0 {
+  background: var(--surface-muted);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.offer-badge--store {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+.offer-badge--store.offer-badge--50 {
+  color: #16803c;
+}
+
+.offer-badge--store.offer-badge--35 {
+  color: #4f9a1f;
+}
+
+.offer-badge--store.offer-badge--20 {
+  color: #b88f00;
+}
+
+.offer-badge--store.offer-badge--10 {
+  color: #ff8a00;
+}
+
+.offer-badge--store.offer-badge--1 {
+  color: #d64545;
+}
+
+/* Het prijslabel uit de geschiedenis, rechtsonder op het plaatje. */
+.offer-label {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.offer-label--green {
+  background: var(--success-bg);
+  box-shadow: inset 0 0 0 1px var(--success-border);
+  color: var(--success-text);
+}
+
+.offer-label--grey {
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+
+.offer-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 8px;
+  white-space: nowrap;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
   font-size: 13px;
+  line-height: 1.2;
+}
+
+.offer-card__foot .link-button {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 /* Een persoonlijke aanbieding (AH: de Bonus Box): groen als je haar in de AH-app hebt geactiveerd, geel als dat nog moet. */
@@ -5567,6 +5734,12 @@ body.has-onboarding {
   box-shadow: inset 0 0 0 1px var(--warning-border);
   color: var(--warning-text);
   white-space: normal;
+}
+
+.product-card .verdict--often {
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1px var(--warning-border);
+  color: var(--warning-text);
 }
 
 /* Verpakkingen vergelijken: de prijs per eenheid voorop, gekleurd naar plek in de lijst. */
