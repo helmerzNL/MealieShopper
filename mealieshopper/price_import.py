@@ -228,12 +228,20 @@ def _tables(conn) -> set[str]:
 
 
 def account_orders(conn, store: str) -> tuple[set[str], set[str]]:
-    """(bestelnummers, dagen) van de bestellingen die de app uit je account van de winkel heeft."""
-    table = f"{store}_orders"
-    if table not in _tables(conn):
+    """(bestelnummers, dagen) van de bestellingen die de app met producten uit je account van de winkel heeft.
+
+    Een bestelling waarvan de app de producten (nog) niet kon ophalen, telt niet mee (#222): Jumbo weigert de details van oude
+    bestellingen, die dan alleen als kop in `jumbo_orders` staan. Zo'n bestelling is er voor de prijzen nog niet, dus de ingelezen
+    versie uit je mails mag erbij. Komen de producten later toch binnen, dan telt de bestelling weer mee en valt de ingelezen versie
+    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt."""
+    table, items = f"{store}_orders", f"{store}_order_items"
+    if not {table, items} <= _tables(conn):
         return set(), set()
     numbers, days = set(), set()
-    for row in conn.execute(f"SELECT CAST(order_id AS TEXT) AS id, substr(COALESCE(delivery_date, ''), 1, 10) AS day FROM {table}"):
+    for row in conn.execute(
+        f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
+            WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)"""
+    ):
         numbers.add(str(row["id"]))
         if row["day"]:
             days.add(row["day"])
