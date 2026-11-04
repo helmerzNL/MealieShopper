@@ -98,6 +98,15 @@ class PurchaseOverviewTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  flex: none;", "een rij mag in de kolom niet krimpen")
         self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip img:nth-child\(n \+ 5\) \{\n    display: none;")
 
+    def test_the_photo_strip_stands_right_so_every_row_starts_its_text_at_the_same_place(self):
+        # Een bon zonder gekoppelde foto's krijgt een icoon, een bestelling zes foto's: links zou de tekst per rij ergens anders
+        # beginnen. De strook staat daarom rechts, op een vaste breedte, en de tekst links.
+        row = VIEWS.split("function purchaseOverviewRow")[1].split("function renderPurchaseOverview")[0]
+        self.assertLess(row.index('<span class="purchase-overview__body">'), row.index('<span class="purchase-overview__strip">'))
+        self.assertRegex(CSS, r"\.purchase-overview__strip \{\n(?:.*\n)*?  justify-content: flex-end;")
+        self.assertRegex(CSS, r"\.purchase-overview__strip \{\n(?:.*\n)*?  width: 356px;", "zes foto's van 56 met vijf keer 4 ertussen")
+        self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip \{\n    width: auto;\n    justify-content: flex-start;")
+
     def test_the_keyboard_focus_ring_is_drawn_around_the_card_and_the_row_not_clipped_inside(self):
         # De kaart en de rij knippen hun inhoud af (overflow hidden): de ring van de link erin zou wegvallen. Daarom tekent de
         # kaart zelf de ring (focus-within) en laat de link de zijne weg.

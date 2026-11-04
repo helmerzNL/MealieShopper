@@ -4081,12 +4081,15 @@ body.has-onboarding {
   text-decoration: none;
 }
 
+/* De strook rechts, op de breedte van zes foto's (56 met 4 ertussen): zo begint de tekst links in elke rij op dezelfde plek, of
+   een aankoop nu zes foto's, een foto of alleen het icoon van zijn soort heeft. */
 .purchase-overview__strip {
   display: flex;
   flex: none;
   gap: 4px;
   align-items: center;
-  min-width: 56px;
+  justify-content: flex-end;
+  width: 356px;
   min-height: 56px;
 }
 
@@ -4172,7 +4175,12 @@ body.has-onboarding {
     display: none;
   }
 
-  /* Op een telefoon past de strook niet naast de tekst: de foto's boven, de details eronder. */
+  .purchase-overview__strip {
+    width: auto;
+    justify-content: flex-start;
+  }
+
+  /* Op een telefoon past de strook niet naast de tekst: de details boven, de foto's eronder. */
   .purchase-overview__link {
     flex-direction: column;
     align-items: stretch;
