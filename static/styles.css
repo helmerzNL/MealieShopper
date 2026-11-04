@@ -5631,6 +5631,82 @@ body.has-onboarding {
   color: var(--muted);
 }
 
+/* De hover-zoom naast een kaart: het grote plaatje met daaronder het prijsverloop van een jaar. Vast op het scherm, nooit buiten
+   beeld (offers.js rekent de plek uit), en zonder muisgevoeligheid zodat hij niet zelf de hover vasthoudt. */
+.offer-zoom {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.offer-zoom[hidden] {
+  display: none;
+}
+
+.offer-zoom img {
+  display: block;
+  width: 100%;
+  height: 284px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: var(--radius-control);
+}
+
+.offer-zoom__chart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 70px;
+  margin-top: 6px;
+}
+
+.offer-zoom__none {
+  font-size: 13px;
+}
+
+.offer-spark {
+  display: block;
+  width: 100%;
+  height: 70px;
+}
+
+.offer-spark__offer {
+  stroke: var(--primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.offer-spark__paid {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.offer-spark__now {
+  fill: var(--primary-strong);
+}
+
+.offer-spark__text {
+  fill: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.offer-zoom-dialog .offer-zoom__chart {
+  height: 80px;
+}
+
+.offer-zoom-dialog .offer-spark {
+  width: 100%;
+  height: 80px;
+}
+
 .offer-card__foot {
   display: flex;
   flex-wrap: wrap;

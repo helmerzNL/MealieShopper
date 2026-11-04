@@ -394,6 +394,161 @@ function offerRowHead() {
   return `<div class="offer-row offer-row--head" aria-hidden="true">${cells.map((cell) => `<span>${escapeHtml(cell)}</span>`).join("")}</div>`;
 }
 
+// ---- Hover-zoom: het grote plaatje naast de kaart met het prijsverloop van een jaar. Met een muis verschijnt het bij hover (na een
+// korte pauze), zonder muis opent een tik op het plaatje hetzelfde als een venster. Het prijsverloop komt per product van
+// /api/prices/history?product=..., één keer, en blijft in het geheugen van de pagina.
+
+const OFFER_ZOOM_DELAY = 150;
+const OFFER_ZOOM_WIDTH = 316; // 300 binnen plus de rand en de ruimte ernaast
+const OFFER_SPARK_DAYS = 365;
+const offerZoomCache = new Map();
+const offerZoom = { timer: 0, id: "", thumb: null };
+
+function offerZoomFinePointer() {
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+async function loadOfferZoomHistory(store, id) {
+  const key = `${store}|${id}`;
+  if (!offerZoomCache.has(key)) {
+    offerZoomCache.set(
+      key,
+      jsonFetch(`/api/prices/history?store=${encodeURIComponent(store)}&product=${encodeURIComponent(id)}`)
+        .then((data) => (data.products && data.products[0]) || null)
+        .catch(() => null) // de hover is een extraatje: zonder verloop blijft het grote plaatje staan
+    );
+  }
+  return offerZoomCache.get(key);
+}
+
+// Het prijsverloop van het afgelopen jaar als klein plaatje: de gewone prijs als trap, de aanbiedingen als dikke streepjes op de
+// actieprijs, de aankopen als stippen, een stip op vandaag voor de actieprijs van nu. Links de laagste prijs, rechts die van nu.
+function offerSparkline(product, nowPrice, width = 260, height = 70) {
+  const today = offerHistoryToday();
+  const xmin = today - OFFER_SPARK_DAYS;
+  const xmax = today + 1;
+  const clip = (day) => Math.min(xmax, Math.max(xmin, day));
+  const steps = (product.regular || [])
+    .map((segment) => ({ start: offerHistoryDay(segment.from), end: (offerHistoryDay(segment.to) ?? offerHistoryDay(segment.from)) + 1, price: segment.price }))
+    .filter((step) => step.start !== null && typeof step.price === "number" && step.end > xmin);
+  const bars = (product.episodes || [])
+    .map((episode) => ({ start: offerHistoryDay(episode.start), end: episode.open || !episode.end ? today : offerHistoryDay(episode.end), price: episode.price }))
+    .filter((bar) => bar.start !== null && typeof bar.price === "number" && Math.max(bar.start, bar.end) + 1 > xmin);
+  const dots = (product.purchases || [])
+    .map((purchase) => ({ day: offerHistoryDay(purchase.date), price: purchase.price }))
+    .filter((dot) => dot.day !== null && typeof dot.price === "number" && dot.day >= xmin);
+  const prices = [...steps.map((s) => s.price), ...bars.map((b) => b.price), ...dots.map((d) => d.price)];
+  if (!prices.length) return "";
+  if (typeof nowPrice === "number") prices.push(nowPrice);
+  const lowest = Math.min(...prices);
+  const highest = Math.max(...prices);
+  const left = 4;
+  const right = 4;
+  const top = 16;
+  const bottom = 6;
+  const x = (day) => left + ((clip(day) - xmin) / (xmax - xmin)) * (width - left - right);
+  const span = Math.max(highest - lowest, Math.max(0.5, highest * 0.1));
+  const y = (price) => top + (1 - (price - lowest) / span) * (height - top - bottom);
+  const parts = [];
+  steps.forEach((step, at) => {
+    parts.push(`<line class="ohc-regular" x1="${x(step.start)}" x2="${x(step.end)}" y1="${y(step.price)}" y2="${y(step.price)}"/>`);
+    const next = steps[at + 1];
+    if (next) parts.push(`<line class="ohc-regular" x1="${x(step.end)}" x2="${x(step.end)}" y1="${y(step.price)}" y2="${y(next.price)}"/>`);
+  });
+  bars.forEach((bar) => {
+    parts.push(`<line class="offer-spark__offer" x1="${x(bar.start)}" x2="${x(Math.max(bar.start, bar.end) + 1)}" y1="${y(bar.price)}" y2="${y(bar.price)}"/>`);
+  });
+  dots.forEach((dot) => parts.push(`<circle class="offer-spark__paid" cx="${x(dot.day + 0.5)}" cy="${y(dot.price)}" r="3"/>`));
+  if (typeof nowPrice === "number") parts.push(`<circle class="offer-spark__now" cx="${x(today + 0.5)}" cy="${y(nowPrice)}" r="4"/>`);
+  parts.push(`<text class="offer-spark__text" x="${left}" y="11" text-anchor="start">${escapeHtml(t("offers.zoom.lowest", { price: formatPrice(lowest) }))}</text>`);
+  if (typeof nowPrice === "number") {
+    parts.push(`<text class="offer-spark__text" x="${width - right}" y="11" text-anchor="end">${escapeHtml(t("offers.zoom.now", { price: formatPrice(nowPrice) }))}</text>`);
+  }
+  return `<svg class="offer-spark" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-hidden="true">${parts.join("")}</svg>`;
+}
+
+function offerZoomNowPrice(offer) {
+  return typeof offer.unitPrice === "number" && offer.unitPrice > 0 ? offer.unitPrice : typeof offer.price === "number" ? offer.price : null;
+}
+
+function offerZoomImageHtml(offer) {
+  return offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" data-hide-on-error>` : "";
+}
+
+// Vult de chart-ruimte zodra het verloop binnen is, als de zoom dan nog hetzelfde product toont.
+async function fillOfferZoomChart(container, offer) {
+  const product = await loadOfferZoomHistory(offersState.store, offer.id);
+  if (container.dataset.id !== String(offer.id)) return;
+  const svg = product ? offerSparkline(product, offerZoomNowPrice(offer)) : "";
+  container.innerHTML = svg || `<span class="muted offer-zoom__none">${escapeHtml(t("offers.zoom.none"))}</span>`;
+}
+
+function offerById(id) {
+  return offersState.offers.find((offer) => String(offer.id) === String(id)) || null;
+}
+
+function hideOfferZoom() {
+  clearTimeout(offerZoom.timer);
+  offerZoom.timer = 0;
+  offerZoom.id = "";
+  offerZoom.thumb = null;
+  const box = $("#offer-zoom");
+  box.hidden = true;
+  box.innerHTML = "";
+}
+
+function placeOfferZoom(box, thumb) {
+  const rect = thumb.getBoundingClientRect();
+  const height = box.offsetHeight;
+  let left;
+  let top;
+  if (window.innerWidth < 640) {
+    left = Math.max(8, Math.min(rect.left, window.innerWidth - OFFER_ZOOM_WIDTH - 8));
+    top = rect.bottom + 8;
+  } else {
+    left = rect.right + 8 + OFFER_ZOOM_WIDTH <= window.innerWidth ? rect.right + 8 : rect.left - 8 - OFFER_ZOOM_WIDTH;
+    top = rect.top;
+  }
+  top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
+  box.style.left = `${Math.round(left)}px`;
+  box.style.top = `${Math.round(top)}px`;
+}
+
+function showOfferZoom(thumb, offer) {
+  const box = $("#offer-zoom");
+  const chart = `<div class="offer-zoom__chart" data-id="${escapeHtml(offer.id)}"></div>`;
+  box.innerHTML = `${offerZoomImageHtml(offer)}${chart}`;
+  box.hidden = false;
+  offerZoom.id = String(offer.id);
+  offerZoom.thumb = thumb;
+  placeOfferZoom(box, thumb);
+  fillOfferZoomChart(box.querySelector(".offer-zoom__chart"), offer).then(() => {
+    if (!box.hidden && offerZoom.thumb === thumb) placeOfferZoom(box, thumb);
+  });
+}
+
+function scheduleOfferZoom(thumb) {
+  const offer = offerById(thumb.dataset.zoom);
+  if (!offer) return;
+  if (offerZoom.id === String(offer.id) && offerZoom.thumb === thumb) return;
+  clearTimeout(offerZoom.timer);
+  offerZoom.timer = setTimeout(() => showOfferZoom(thumb, offer), OFFER_ZOOM_DELAY);
+}
+
+function openOfferZoomDialog(offer) {
+  const dialog = $("#offer-zoom-dialog");
+  const image = $("#offer-zoom-image");
+  image.hidden = !offer.image;
+  if (offer.image) image.src = storeImage(offer.image);
+  $("#offer-zoom-title").textContent = offer.title || "";
+  $("#offer-zoom-meta").textContent = [offer.brand, offer.unitSize, formatPrice(offerZoomNowPrice(offer))].filter(Boolean).join(" · ");
+  const chart = $("#offer-zoom-dialog-chart");
+  chart.dataset.id = String(offer.id);
+  chart.innerHTML = "";
+  dialog.showModal();
+  fillOfferZoomChart(chart, offer);
+}
+
 // Hoeveel producten er in een rij van het raster passen; een verborgen raster geeft de ruwe waarde, dan gokken we.
 function offerColumns() {
   const columns = getComputedStyle($("#offers-products")).gridTemplateColumns;
@@ -427,9 +582,9 @@ function renderOfferGrid() {
   const base = offersFiltered();
   const shown = offersSorted(offersState.category === "all" ? base : base.filter((offer) => offer.category === offersState.category));
   const compact = offersState.view === "compact";
-  const limit = offersState.rows * (compact ? OFFER_COMPACT_ROWS : offerColumns());
   const grid = $("#offers-products");
-  grid.classList.toggle("product-grid--compact", compact);
+  grid.classList.toggle("product-grid--compact", compact); // eerst de klasse, dan pas de kolommen meten
+  const limit = offersState.rows * (compact ? OFFER_COMPACT_ROWS : offerColumns());
   const cards = shown.slice(0, limit).map(compact ? offerProductRow : offerProductCard).join("");
   grid.innerHTML = compact && shown.length ? offerRowHead() + cards : cards;
   $("#offers-more").hidden = shown.length <= limit;
@@ -496,6 +651,7 @@ function renderOffersTools() {
 
 // Na een keuze in de werkbalk: terug naar de eerste rijen en de categorieën en het raster opnieuw tekenen.
 function offersRedraw() {
+  hideOfferZoom();
   offersState.rows = OFFER_ROWS;
   renderOffersTools();
   renderOffersStatusGood();
@@ -840,6 +996,36 @@ $("#offers-sort").addEventListener("click", (event) => {
   offersState.sort = chip.dataset.sort;
   offersRemember(OFFERS_SORT_KEY, offersState.sort);
   offersRedraw();
+});
+// De hover-zoom: met een muis bij het aanwijzen van een plaatje, anders bij een tik erop (als venster).
+$("#offers-products").addEventListener("mouseover", (event) => {
+  if (!offerZoomFinePointer()) return;
+  const thumb = event.target.closest("[data-zoom]");
+  if (thumb) scheduleOfferZoom(thumb);
+});
+$("#offers-products").addEventListener("mouseout", (event) => {
+  const thumb = event.target.closest("[data-zoom]");
+  if (!thumb) return;
+  if (event.relatedTarget && thumb.contains(event.relatedTarget)) return;
+  hideOfferZoom();
+});
+$("#offers-products").addEventListener("click", (event) => {
+  const thumb = event.target.closest("[data-zoom]");
+  if (!thumb || offerZoomFinePointer()) return;
+  event.preventDefault();
+  const offer = offerById(thumb.dataset.zoom);
+  if (offer) openOfferZoomDialog(offer);
+});
+// Scrollen (ook in het vak dat scrolt, niet alleen het venster) haalt de zoom weg: de kaart staat dan ergens anders.
+document.addEventListener("scroll", hideOfferZoom, { capture: true, passive: true });
+// De zoom staat vast op het scherm; onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
+document.body.appendChild($("#offer-zoom"));
+$("#offer-zoom-close").addEventListener("click", () => $("#offer-zoom-dialog").close());
+$("#offer-zoom-dialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+$("#offer-zoom-image").addEventListener("error", (event) => {
+  event.target.hidden = true;
 });
 $("#offers-view").addEventListener("click", (event) => {
   const button = event.target.closest("[data-view]");
