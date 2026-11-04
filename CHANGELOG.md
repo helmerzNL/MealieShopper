@@ -15,6 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Zoeken, filteren en sorteren.** Een zoekveld over alle categorieën, de schakelaar *Alleen echt voordelig* (met het aantal achter de status), en sorteren op winkelvolgorde, hoogste korting, laagste prijs per eenheid of laagste ooit eerst. De keuzes blijven bewaard in je browser.
 - **Compacte lijst.** Een schakelaar naast de sortering wisselt naar één regel per aanbieding met een kopregel: plaatje, korting, product, prijs, per eenheid, geschiedenis en twee iconen.
 - **Handleiding en README**: de badge, de labels, de werkbalk en de twee weergaven.
+- Pull request [#231](https://github.com/helmerzNL/MealieShopper/pull/231).
 
 ## v3.5.0
 
