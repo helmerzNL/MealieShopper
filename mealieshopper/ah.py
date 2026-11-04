@@ -770,16 +770,18 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
 HQ_SEARCH_WINDOW = 100
 
 
-def search_hq_ids(query: str) -> list[tuple[int, int, str]]:
-    """(hqId, webshopId, titel) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van de
-    webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend."""
+def search_hq_ids(query: str) -> list[tuple[int, int, str, str]]:
+    """(hqId, webshopId, titel, foto) van de zoekresultaten. Het id op een kassabon is AH's `hqId` (artikelnummer), niet het id van
+    de webwinkel: "BLOEMKOOL" op de bon heeft 20960, "AH Bloemkool" in de webwinkel 4183 (issue #178). Een `hqId` van 0 is onbekend.
+    De foto is het adres van de eerste afbeelding (zoals `get_products_by_ids`), of "" zonder foto."""
     found = []
     for item in _search_json(query, HQ_SEARCH_WINDOW).get("products") or []:
         if not isinstance(item, dict):
             continue
         hq_id, webshop_id = item.get("hqId"), item.get("webshopId") or item.get("id")
         if isinstance(hq_id, int) and hq_id > 0 and isinstance(webshop_id, int) and webshop_id > 0:
-            found.append((hq_id, webshop_id, str(item.get("title") or "").strip()))
+            image = ((item.get("images") or [{}])[0] or {}).get("url") if isinstance(item.get("images"), list) else None
+            found.append((hq_id, webshop_id, str(item.get("title") or "").strip(), str(image or "")))
     return found
 
 

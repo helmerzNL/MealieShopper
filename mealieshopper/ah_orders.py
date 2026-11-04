@@ -21,7 +21,7 @@ import time
 from collections import deque
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from . import ah, ah_lists, auth, price_import
 
@@ -94,11 +94,13 @@ CREATE TABLE IF NOT EXISTS ah_receipt_items (
 
 -- Het id op een kassabon is AH's artikelnummer (`hqId`), niet het id van de webwinkel. Deze tabel koppelt ze, zodat "BLOEMKOOL" op de
 -- bon bij "AH Bloemkool" uit de bestellingen hoort (issue #178). `product_id` NULL: AH vond het artikelnummer niet (opnieuw na een tijd).
+-- `image`: de foto van het webwinkelproduct (NULL: nog niet opgezocht, "": geen foto), zodat een bon ook foto's kan tonen.
 CREATE TABLE IF NOT EXISTS ah_receipt_products (
   receipt_product_id INTEGER PRIMARY KEY,
   product_id INTEGER,
   title TEXT,
-  checked_at TEXT NOT NULL
+  checked_at TEXT NOT NULL,
+  image TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ah_orders_meta (
@@ -114,6 +116,9 @@ def _connect():
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    # Een database van vóór de bonfoto's heeft die kolom nog niet; `backfill_receipt_images` vult hem 's nachts.
+    if "image" not in {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}:
+        conn.execute("ALTER TABLE ah_receipt_products ADD COLUMN image TEXT")
     return conn
 
 
@@ -422,6 +427,8 @@ RECEIPT_PRODUCTS_BACKOFF_HOURS = 12
 RECEIPT_PRODUCTS_PER_HOUR = 120  # alle zoekopdrachten samen (na een bon-sync, 's nachts en bij het zoeken in de Prijsgeschiedenis)
 RECEIPT_PRODUCTS_LOOKUP_SEARCHES = 2  # bij een zoekopdracht in de Prijsgeschiedenis: de namen op de bon die erbij passen
 RECEIPT_PRODUCTS_OPEN_SEARCHES = 5  # bij het openen van een bon: de regels die nog niet gekoppeld zijn (binnen de pauze van 10 s)
+T = TypeVar("T")
+
 SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
 # Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
 # werd een nieuwe kans, zonder 30 dagen te wachten.
@@ -429,9 +436,12 @@ RECEIPT_PRODUCTS_VERSION = "2"
 SETTING_RECEIPT_PRODUCTS_VERSION = "receipt_products_version"
 
 _UPSERT_RECEIPT_PRODUCT = """
-INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, ?)
-ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, title = excluded.title, checked_at = excluded.checked_at
+INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, title = excluded.title, checked_at = excluded.checked_at,
+  image = excluded.image
 """
+RECEIPT_IMAGES_BATCH = 25  # zoveel webwinkel-id's per verzoek aan `get_products_by_ids`
+RECEIPT_IMAGES_BATCHES = 8  # en zoveel verzoeken per nachtelijke ronde
 _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
@@ -448,7 +458,8 @@ _PACE_LOCK = threading.Lock()
 _PACE = {"last": float("-inf"), "recent": deque()}
 
 
-def _polite_search(query: str) -> list[tuple[int, int, str]]:
+def _polite(call: Callable[[], T]) -> T:
+    """Een verzoek aan AH binnen het tempo en het uurbudget van het koppelen (de zoekopdrachten en het ophalen van foto's samen)."""
     with _PACE_LOCK:
         now = time.monotonic()
         recent = _PACE["recent"]
@@ -461,7 +472,11 @@ def _polite_search(query: str) -> list[tuple[int, int, str]]:
             time.sleep(wait)
         _PACE["last"] = time.monotonic()
         recent.append(_PACE["last"])
-        return ah.search_hq_ids(query)
+        return call()
+
+
+def _polite_search(query: str) -> list[tuple[int, int, str, str]]:
+    return _polite(lambda: ah.search_hq_ids(query))
 
 
 def _receipt_queries(name: str) -> list[str]:
@@ -552,9 +567,9 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
                 complete = False
                 break
             result["searches"] += 1
-            found = {hq_id for hq_id, _, _ in hits}
+            found = {hit[0] for hit in hits}
             with closing(_connect()) as conn, conn:
-                conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now) for hq_id, webshop_id, title in hits])
+                conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now, image) for hq_id, webshop_id, title, image in hits])
             result["found"] += sum(1 for product_id in left if product_id in found)
             left = [product_id for product_id in left if product_id not in found]
             if not left:
@@ -575,6 +590,61 @@ def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOO
     if not keys:
         return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
+
+
+def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES) -> dict[str, Any]:
+    """De foto bij koppelingen van vóór de bonfoto's (`image` NULL): per `RECEIPT_IMAGES_BATCH` webwinkel-id's een verzoek aan AH,
+    hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Een id dat AH niet teruggeeft krijgt
+    "" (geen foto), zodat het niet elke nacht opnieuw gevraagd wordt."""
+    now = now or _now()
+    result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
+    paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    if paused and paused > now:
+        return {**result, "pausedUntil": paused}
+    with closing(_connect()) as conn:
+        todo = [int(row[0]) for row in conn.execute(
+            "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
+            (RECEIPT_IMAGES_BATCH * batches,),
+        )]
+    for start in range(0, len(todo), RECEIPT_IMAGES_BATCH):
+        ids = todo[start : start + RECEIPT_IMAGES_BATCH]
+        try:
+            products = _polite(lambda: ah.get_products_by_ids(ids))
+        except _HourlyBudgetSpent:
+            return {**result, "limited": True}
+        except ah.AhHttpError as exc:
+            result["requests"] += 1
+            result["failed"] += 1
+            if exc.status in (403, 429):
+                until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
+                auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
+                return {**result, "pausedUntil": until}
+            return result
+        except Exception:  # noqa: BLE001 - de volgende nacht opnieuw
+            result["requests"] += 1
+            result["failed"] += 1
+            return result
+        result["requests"] += 1
+        images = {int(product["id"]): str(product.get("image") or "") for product in products if product.get("id") is not None}
+        with closing(_connect()) as conn, conn:
+            for product_id in ids:
+                conn.execute(
+                    "UPDATE ah_receipt_products SET image = ?, title = COALESCE(NULLIF(title, ''), ?) WHERE product_id = ? AND image IS NULL",
+                    (images.get(product_id, ""), next((p.get("title") for p in products if p.get("id") == product_id), None), product_id),
+                )
+        result["products"] += sum(1 for product_id in ids if images.get(product_id))  # met een foto
+    return result
+
+
+def backfill_receipt_images_nightly() -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan."""
+    try:
+        with closing(_connect()) as conn:
+            if not conn.execute("SELECT 1 FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL LIMIT 1").fetchone():
+                return None
+        return backfill_receipt_images()
+    except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
+        return None
 
 
 def resolve_receipt_products_nightly() -> dict[str, Any] | None:
@@ -610,7 +680,7 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
     """De regels van een bon, elk met het webwinkelproduct (`product`: id en titel) als het artikelnummer al gekoppeld is, anders None."""
     rows = conn.execute(
         """
-        SELECT l.*, p.product_id AS webshop_id, p.title AS webshop_title FROM ah_receipt_items l
+        SELECT l.*, p.product_id AS webshop_id, p.title AS webshop_title, p.image AS webshop_image FROM ah_receipt_items l
         LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
         WHERE l.receipt_id = ? ORDER BY l.position
         """,
@@ -619,7 +689,7 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
     return [
         {
             "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
-            "product": {"id": row["webshop_id"], "title": row["webshop_title"]} if row["webshop_id"] else None,
+            "product": {"id": row["webshop_id"], "title": row["webshop_title"], "image": row["webshop_image"] or ""} if row["webshop_id"] else None,
         }
         for row in rows
     ]
