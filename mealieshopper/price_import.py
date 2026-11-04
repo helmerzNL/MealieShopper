@@ -322,35 +322,47 @@ def _quantity(value: Any) -> int | float:
     return int(number) if number.is_integer() else number
 
 
-def _order_rows(conn, store: str, ref: str | None = None) -> list[Any]:
+SUMMARY_NAMES = 4  # zoveel productnamen per aankoop in de lijst (de kaarten en het overzicht); de foto's staan in ah_orders
+
+
+def split_lines(value: Any) -> list[str]:
+    """Een GROUP_CONCAT met een regeleinde als scheiding terug als lijst, zonder lege waarden (ook voor de andere lijstroutes)."""
+    return [part for part in str(value or "").split("\n") if part]
+
+
+def _order_rows(conn, store: str, ref: str | None = None, summary: bool = False) -> list[Any]:
     """Per ingelezen bestelling één rij. Een bestelling met hetzelfde nummer of op dezelfde dag als een bestelling uit je account
-    staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij."""
+    staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij. Met `summary` ook de eerste namen."""
     numbers, days = account_orders(conn, store)
     where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
+    names = f"""(SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM imported_purchases n
+                    WHERE n.store = p.store AND n.order_ref = p.order_ref AND title != '' ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,"""
     rows = conn.execute(
         f"""SELECT order_ref, MIN(day) AS day, MAX(order_total) AS order_total, MIN(imported_at) AS imported_at, COUNT(*) AS lines,
+                   {names if summary else ""}
                    SUM(quantity) AS units, SUM(COALESCE(paid, 0) * quantity) AS paid_total
-            FROM imported_purchases WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
+            FROM imported_purchases p WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
         args,
     ).fetchall()
     return [row for row in rows if row["order_ref"] not in numbers and row["day"] not in days]
 
 
-def _order_json(store: str, row: Any) -> dict[str, Any]:
+def _order_json(store: str, row: Any, summary: bool = False) -> dict[str, Any]:
     ref = row["order_ref"]
     total = row["order_total"] if row["order_total"] is not None else round(row["paid_total"] or 0, 2)
     return {
         "id": ref, "ref": ref, "store": store, "imported": True, "kind": "imported", "number": None if ref.startswith("dag:") else ref,
         "date": row["day"], "deliveryDate": row["day"], "total": total, "itemCount": row["lines"], "units": _quantity(row["units"]),
-        "importedAt": row["imported_at"],
+        "importedAt": row["imported_at"], **({"productNames": split_lines(row["summary_names"])} if summary else {}),
     }
 
 
-def list_orders(store: Any) -> dict[str, Any]:
-    """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan."""
+def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
+    """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan. Met `summary`
+    (de lijstroute) per bestelling ook `productNames`, de eerste vier namen, voor de kaarten en het overzicht."""
     key = _store(store)
     with closing(_connect()) as conn:
-        return {"store": key, "orders": [_order_json(key, row) for row in _order_rows(conn, key)]}
+        return {"store": key, "orders": [_order_json(key, row, summary) for row in _order_rows(conn, key, summary=summary)]}
 
 
 def get_order(store: Any, ref: Any) -> dict[str, Any] | None:

@@ -585,7 +585,7 @@ def create_app() -> Flask:
     # importeren en verwijderen gaan via /api/prices/import en zijn van de beheerder.
     @app.get("/api/imported-orders/<store>")
     def imported_orders_list(store: str):
-        return import_action(lambda: price_import.list_orders(store))
+        return import_action(lambda: price_import.list_orders(store, summary=True))
 
     @app.get("/api/imported-orders/<store>/<path:ref>")
     def imported_order_detail(store: str, ref: str):
@@ -1559,7 +1559,7 @@ def create_app() -> Flask:
 
     @app.get("/api/jumbo/orders")
     def jumbo_orders_list():
-        return jsonify(jumbo_orders.list_orders())
+        return jsonify(jumbo_orders.list_orders(summary=True))
 
     @app.get("/api/jumbo/orders/<order_id>")
     def jumbo_order_detail(order_id: str):

@@ -372,15 +372,10 @@ _ORDER_SUMMARY_SQL = f"""
 """
 
 
-def _split(value: Any) -> list[str]:
-    """Een GROUP_CONCAT met een regeleinde als scheiding terug als lijst, zonder lege waarden."""
-    return [part for part in str(value or "").split("\n") if part]
-
-
 def _order_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
-        "images": _split(row["summary_images"]), "productNames": _split(row["summary_names"]),
+        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
     }
 
@@ -730,7 +725,7 @@ _RECEIPT_SUMMARY_SQL = f"""
 def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
-        "images": _split(row["summary_images"]), "productNames": _split(row["summary_names"]),
+        "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": None if not row["summary_lines"] else round(float(savings or 0), 2),
         "payment": row["summary_payment"] or None,
     }
