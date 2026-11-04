@@ -14,7 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - **Getoetst** tegen de echte zoekresultaten van AH voor 196 ingrediënten: alleen bij "eieren" verandert het voorstel. In de eerste vijf van *Zoek een ander product* schuift verder alleen iets bij "thee" (theesoorten met "thee" in de naam vóór "Clipper Warming pumpkin spice") en bij "bier" (alleen multipacks onderling).
 - Geldt voor de controlelijst van het weekmenu (met en zonder *Liever biologisch*), *Zoek een ander product*, `POST /api/ah/cart` voor een regel zonder product en de MCP-tool `search_products` (bij Albert Heijn).
 - **Handleiding**: de volgorde van de zoekresultaten bij Albert Heijn, onder *Weekmenu naar je mandje*.
-- Issue: [#220](https://github.com/helmerzNL/MealieShopper/issues/220).
+- Issue: [#220](https://github.com/helmerzNL/MealieShopper/issues/220). Pull request: [#221](https://github.com/helmerzNL/MealieShopper/pull/221).
 
 ## v3.3.0
 
