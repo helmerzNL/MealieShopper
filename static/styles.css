@@ -4527,12 +4527,12 @@ body.has-onboarding {
   list-style: none;
 }
 
-/* Op een breed scherm gebruikt de lijst de hele schermhoogte en blijft hij staan terwijl het product rechts scrolt. */
+/* Op een breed scherm vult de lijst het scherm tot onderaan (offerHistoryFitList zet de hoogte, want waar de lijst begint hangt
+   van de tekst erboven af) en blijft hij staan terwijl het product rechts scrolt. */
 @media (min-width: 900px) {
   .ohc-list {
     position: sticky;
     top: 88px;
-    max-height: calc(100vh - 110px);
   }
 }
 

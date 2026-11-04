@@ -93,7 +93,13 @@ class ReceiptsTest(unittest.TestCase):
         self.assertIn('/products`, { method: "POST" }', ORDERS)
 
     def test_the_price_history_list_uses_the_screen_height_on_a_wide_screen(self):
-        self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 900px\) \{\n  \.ohc-list \{\n    position: sticky;\n    top: 88px;\n    max-height: calc\(100vh - \d+px\);")
+        self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 900px\) \{\n  \.ohc-list \{\n    position: sticky;\n    top: 88px;\n  \}")
+
+    def test_the_price_history_list_never_makes_the_page_taller_than_the_screen(self):
+        history = (ROOT / "static" / "offers_history.js").read_text(encoding="utf-8")
+        self.assertIn("list.style.maxHeight = `${Math.max(240, window.innerHeight - top - 24)}px`;", history)
+        self.assertIn("const top = list.parentElement.getBoundingClientRect().top + window.scrollY;", history)
+        self.assertIn("window.requestAnimationFrame(() => offerHistoryFitList(list));", history)
 
     def test_the_receipt_paper_fills_its_frame_on_a_wide_screen(self):
         self.assertRegex(CSS, r"\.receipt \{\n(?:.*\n)*?  width: 100%;")

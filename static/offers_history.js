@@ -386,6 +386,19 @@ function renderOfferHistory() {
     .join("");
   const chosen = products.find((product) => offerHistoryKey(product) === offerHistory.selected);
   detail.innerHTML = chosen ? offerHistoryDetail(chosen) : "";
+  window.requestAnimationFrame(() => offerHistoryFitList(list)); // na dit tekenen verdwijnt de laadmelding erboven nog
+}
+
+// Op een breed scherm vult de lijst het scherm vanaf waar hij begint tot onderaan, zodat hij zelf nooit de pagina langer maakt
+// dan het scherm. Waar hij begint hangt van de tekst erboven af, dus dat meet dit hier, aan de kolommen om de lijst heen: die
+// staan niet vastgeplakt zoals de lijst zelf. Op een smal scherm geldt het maximum uit styles.css.
+function offerHistoryFitList(list) {
+  if (!window.matchMedia("(min-width: 900px)").matches) {
+    list.style.maxHeight = "";
+    return;
+  }
+  const top = list.parentElement.getBoundingClientRect().top + window.scrollY;
+  list.style.maxHeight = `${Math.max(240, window.innerHeight - top - 24)}px`;
 }
 
 async function loadOfferHistory() {
