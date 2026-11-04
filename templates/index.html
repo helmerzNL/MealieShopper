@@ -776,8 +776,8 @@
             <input class="input" id="ah-purchase-filter" type="search" placeholder="Zoek op product, bijvoorbeeld frisdrank" autocomplete="off" enterkeyhint="search" data-i18n-attr="placeholder:orders.search_ph">
           </label>
           <div class="purchase-filters">
-            <label class="check purchase-filters__check"><input type="checkbox" id="ah-filter-orders" checked> <span data-i18n="orders.part.orders">Bestellingen</span></label>
-            <label class="check purchase-filters__check" id="ah-filter-receipts-label"><input type="checkbox" id="ah-filter-receipts" checked> <span data-i18n="orders.part.receipts">Kassabonnen</span></label>
+            <label class="check purchase-filters__check"><input type="checkbox" id="ah-filter-orders" checked> <span class="purchase-kind purchase-kind--dot purchase-kind--order" aria-hidden="true"></span><span data-i18n="orders.part.orders">Bestellingen</span></label>
+            <label class="check purchase-filters__check" id="ah-filter-receipts-label"><input type="checkbox" id="ah-filter-receipts" checked> <span class="purchase-kind purchase-kind--dot purchase-kind--receipt" aria-hidden="true"></span><span data-i18n="orders.part.receipts">Kassabonnen</span></label>
             <div class="purchase-filters__amount">
               <span data-i18n="orders.filter.amount">Bedrag</span>
               <input class="input input--amount" id="ah-filter-min" type="number" min="0" step="0.01" inputmode="decimal" placeholder="van" aria-label="Bedrag van" data-i18n-attr="placeholder:orders.filter.min;aria-label:orders.filter.min_label">
@@ -785,16 +785,49 @@
             </div>
           </div>
           <div id="ah-orders-message"></div>
-          <p class="muted purchase-status" id="ah-purchase-status"></p>
+          <div class="purchase-bar">
+            <p class="muted purchase-status" id="ah-purchase-status"></p>
+            <div class="purchase-bar__tools">
+              <div class="purchase-view-switch" id="purchase-view-switch" role="group" aria-label="Weergave" data-i18n-attr="aria-label:orders.view.label">
+                <button class="subtab" type="button" data-view="table" aria-pressed="true"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M5,4H19A2,2 0 0,1 21,6V18A2,2 0 0,1 19,20H5A2,2 0 0,1 3,18V6A2,2 0 0,1 5,4M5,8V12H11V8H5M13,8V12H19V8H13M5,14V18H11V14H5M13,14V18H19V14H13Z"/></svg><span data-i18n="orders.view.table">Tabel</span></button>
+                <button class="subtab" type="button" data-view="cards" aria-pressed="false"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3,11H11V3H3M3,21H11V13H3M13,21H21V13H13M13,3V11H21V3"/></svg><span data-i18n="orders.view.cards">Kaarten</span></button>
+                <button class="subtab" type="button" data-view="overview" aria-pressed="false"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M9,5V9H21V5M9,19H21V15H9M9,14H21V10H9M4,9H8V5H4M4,19H8V15H4M4,14H8V10H4V14Z"/></svg><span data-i18n="orders.view.overview">Overzicht</span></button>
+              </div>
+              <div class="subtab-menu" id="purchase-sort-menu">
+                <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="purchase-sort-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="purchase-sort-list"><span data-i18n="orders.sort.label">Sorteren</span>: <span id="purchase-sort-current"></span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+                <div class="subtab-menu__list" id="purchase-sort-list" hidden>
+                  <button class="subtab-menu__item" type="button" data-sort-key="date" data-i18n="orders.sort.date">Datum</button>
+                  <button class="subtab-menu__item" type="button" data-sort-key="amount" data-i18n="orders.sort.amount">Bedrag</button>
+                  <button class="subtab-menu__item" type="button" data-sort-key="items" data-i18n="orders.sort.items">Producten</button>
+                  <hr class="subtab-menu__rule">
+                  <button class="subtab-menu__item" type="button" data-sort-dir="desc" data-i18n="orders.sort.desc">Aflopend</button>
+                  <button class="subtab-menu__item" type="button" data-sort-dir="asc" data-i18n="orders.sort.asc">Oplopend</button>
+                </div>
+              </div>
+              <div class="subtab-menu" id="purchase-options-menu">
+                <button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="purchase-options-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="purchase-options-list"><span data-i18n="orders.options.label">Opties</span><svg class="subtab-menu__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button>
+                <div class="subtab-menu__list purchase-options" id="purchase-options-list" hidden>
+                  <span class="purchase-options__title" data-i18n="orders.options.size">Kaartgrootte</span>
+                  <button class="subtab-menu__item" type="button" data-size="small" data-i18n="orders.options.small">Klein</button>
+                  <button class="subtab-menu__item" type="button" data-size="medium" data-i18n="orders.options.medium">Middel</button>
+                  <button class="subtab-menu__item" type="button" data-size="large" data-i18n="orders.options.large">Groot</button>
+                  <hr class="subtab-menu__rule">
+                  <label class="check purchase-options__check"><input type="checkbox" data-option="status" checked> <span data-i18n="orders.options.status">Status en bezorgmoment</span></label>
+                  <label class="check purchase-options__check"><input type="checkbox" data-option="savings" checked> <span data-i18n="orders.options.savings">Bespaard bedrag</span></label>
+                  <label class="check purchase-options__check"><input type="checkbox" data-option="names" checked> <span data-i18n="orders.options.names">Productnamen</span></label>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="purchase-table-wrap" id="ah-purchase-table-wrap">
             <table class="purchase-table">
               <thead>
                 <tr>
-                  <th data-i18n="orders.col.date">Datum</th>
+                  <th aria-sort="descending"><button type="button" class="purchase-table__sort" data-sort="date" data-i18n="orders.col.date">Datum</button></th>
                   <th data-i18n="orders.col.kind">Soort</th>
                   <th data-i18n="orders.col.status">Status</th>
-                  <th data-i18n="orders.col.products">Producten</th>
-                  <th class="purchase-table__amount" data-i18n="orders.col.amount">Bedrag</th>
+                  <th><button type="button" class="purchase-table__sort" data-sort="items" data-i18n="orders.col.products">Producten</button></th>
+                  <th class="purchase-table__amount"><button type="button" class="purchase-table__sort" data-sort="amount" data-i18n="orders.col.amount">Bedrag</button></th>
                   <th></th>
                 </tr>
               </thead>
@@ -1599,6 +1632,7 @@
     <script src="{{ url_for('static', filename='users.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='ai.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='orders.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='purchase_views.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>

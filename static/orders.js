@@ -144,11 +144,13 @@ function purchaseRows() {
     status: [order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"), slotLabel(order.slotStart, order.slotEnd)].filter(Boolean).join(" · "),
     total: order.total, items: order.itemsSynced ? order.itemCount : null,
     href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
+    images: order.images || [], names: order.productNames || [], savings: order.savings, bonusCount: order.bonusCount || 0, payment: null,
   }));
   for (const order of ordersState.imported) {
     rows.push({
       kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order), status: "", ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
+      images: [], names: order.productNames || [], savings: null, bonusCount: 0, payment: null,
     });
   }
   if (!ordersAreJumbo()) {
@@ -157,11 +159,11 @@ function purchaseRows() {
         kind: "receipt", id: String(receipt.id), date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
         total: receipt.total, items: receipt.detailsSynced ? receipt.itemCount : null,
         href: storesPath("ah", "receipts", receipt.id), attr: `data-receipt-id="${escapeHtml(receipt.id)}"`,
+        images: receipt.images || [], names: receipt.productNames || [], savings: receipt.savings, bonusCount: 0, payment: receipt.payment || null,
       });
     }
   }
-  // Open bestellingen bovenaan (hun bezorgdag ligt in de toekomst), daarna op datum, de nieuwste eerst.
-  return rows.sort((a, b) => Number(b.open) - Number(a.open) || String(b.date).localeCompare(String(a.date)));
+  return rows; // de volgorde bepaalt purchaseSortRows (purchase_views.js)
 }
 
 function purchaseAmount(value) {
@@ -201,9 +203,9 @@ function purchaseProductsCell(row, matches) {
 }
 
 function purchaseRow(row, matches) {
-  const kind = row.kind === "imported"
+  const kind = purchaseKindMarkup(row.kind, "dot") + (row.kind === "imported"
     ? `${mdiIcon(MDI_ARCHIVE_OUTLINE, "mdi purchase-table__badge")}${escapeHtml(t("orders.kind.imported"))}`
-    : escapeHtml(t(row.kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order"));
+    : escapeHtml(t(row.kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order")));
   const remove = t("orders.imported.delete");
   const action = row.kind === "imported" && priceImportIsOwner()
     ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`
@@ -225,20 +227,26 @@ function renderOrders() {
   $("#ah-filter-receipts-label").hidden = jumbo; // winkelbonnen van Jumbo kan MealieShopper nog niet tonen
   const rows = purchaseRows();
   const hits = purchaseHits();
-  const visible = rows.filter((row) => purchaseVisible(row, hits));
+  const visible = purchaseSortRows(rows.filter((row) => purchaseVisible(row, hits)));
   const query = ordersState.query.trim();
   const never = !ordersState.ordersSyncedAt && !ordersState.receiptsSyncedAt && !ordersState.imported.length;
   let empty = "";
   if (!rows.length) empty = escapeHtml(never ? t("orders.never_synced") : t(jumbo ? "orders.none_jumbo" : "orders.none"));
   else if (query && !hits) empty = escapeHtml(t("orders.searching"));
   else if (!visible.length) empty = query ? th("orders.search_none", { query }) : escapeHtml(t("orders.filter_none"));
-  $("#ah-purchase-rows").innerHTML = empty
-    ? `<tr><td colspan="6" class="muted">${empty}</td></tr>`
-    : visible.map((row) => purchaseRow(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
+  ordersState.empty = empty;
+  renderPurchaseView(visible, hits);
   const notes = [rows.length ? t("orders.shown", { shown: I18N.formatNumber(visible.length), total: I18N.formatNumber(rows.length) }) : ""];
   if (hits) notes.push(t("orders.search_summary", { products: I18N.formatNumber(ordersState.hits.products.length), total: I18N.formatNumber(hits.size) }));
   if (hits && ordersState.hits.unsearched) notes.push(tn("orders.search_unsearched", ordersState.hits.unsearched));
   $("#ah-purchase-status").textContent = notes.filter(Boolean).join(" · ");
+}
+
+// De tabel: een rij per aankoop, of de melding waarom er niets staat (ordersState.empty, gezet door renderOrders).
+function renderPurchaseTable(visible, hits) {
+  $("#ah-purchase-rows").innerHTML = ordersState.empty
+    ? `<tr><td colspan="6" class="muted">${ordersState.empty}</td></tr>`
+    : visible.map((row) => purchaseRow(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
   window.requestAnimationFrame(fitPurchaseTable);
 }
 

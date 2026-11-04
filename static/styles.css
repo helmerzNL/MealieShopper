@@ -3749,8 +3749,126 @@ body.has-onboarding {
 }
 
 .purchase-status {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 14px;
+}
+
+/* De balk boven de lijst: links de statusregel, rechts de weergave, het sorteren en de opties. */
+.purchase-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 8px;
+}
+
+.purchase-bar__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.purchase-view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-muted);
+}
+
+.purchase-view-switch .subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+.purchase-view-switch .subtab .mdi {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.subtab-menu__rule {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.purchase-options {
+  min-width: 220px;
+}
+
+.purchase-options__title {
+  padding: 6px 10px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.purchase-options__check {
+  padding: 4px 10px;
+  min-height: 0;
+  font-size: 14px;
+}
+
+/* De kleur per soort aankoop: een bolletje in de tabel en bij de vinkjes, een streep op een kaart en in het overzicht. */
+.purchase-kind {
+  --purchase-kind: var(--muted);
+  display: inline-block;
+  flex: none;
+  background: var(--purchase-kind);
+}
+
+.purchase-kind--order {
+  --purchase-kind: var(--primary);
+}
+
+.purchase-kind--receipt {
+  --purchase-kind: var(--lemon);
+}
+
+.purchase-kind--imported {
+  --purchase-kind: var(--muted);
+}
+
+.purchase-kind--dot {
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.purchase-kind--stripe {
+  display: block;
+}
+
+.purchase-table__sort {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.purchase-table th[aria-sort] .purchase-table__sort {
+  color: var(--primary);
+}
+
+.purchase-table th[aria-sort="descending"] .purchase-table__sort::after {
+  content: " ↓";
+}
+
+.purchase-table th[aria-sort="ascending"] .purchase-table__sort::after {
+  content: " ↑";
 }
 
 .purchase-table-wrap {
