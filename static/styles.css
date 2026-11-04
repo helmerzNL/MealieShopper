@@ -4527,6 +4527,15 @@ body.has-onboarding {
   list-style: none;
 }
 
+/* Op een breed scherm gebruikt de lijst de hele schermhoogte en blijft hij staan terwijl het product rechts scrolt. */
+@media (min-width: 900px) {
+  .ohc-list {
+    position: sticky;
+    top: 88px;
+    max-height: calc(100vh - 110px);
+  }
+}
+
 .ohc-item {
   display: grid;
   gap: 2px;

@@ -92,6 +92,9 @@ class ReceiptsTest(unittest.TestCase):
         self.assertIn("resolveReceiptProducts(receipt.id, words)", ORDERS)
         self.assertIn('/products`, { method: "POST" }', ORDERS)
 
+    def test_the_price_history_list_uses_the_screen_height_on_a_wide_screen(self):
+        self.assertRegex(CSS, r"\.ohc-list \{\n  display: grid;(?:.*\n)*?  max-height: 420px;(?:.*\n)*?@media \(min-width: 900px\) \{\n  \.ohc-list \{\n    position: sticky;\n    top: 88px;\n    max-height: calc\(100vh - \d+px\);")
+
     def test_the_receipt_paper_fills_its_frame_on_a_wide_screen(self):
         self.assertRegex(CSS, r"\.receipt \{\n(?:.*\n)*?  width: 100%;")
         self.assertRegex(
