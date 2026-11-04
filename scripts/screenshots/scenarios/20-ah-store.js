@@ -147,25 +147,29 @@ const RECEIPTS = [
 
 const receiptList = { syncedAt: "2026-10-28T09:41:00", receipts: RECEIPTS };
 
-// De kassabon van 27 oktober, zoals op papier: aantal, omschrijving, prijs en bedrag.
+// De kassabon van 27 oktober, zoals op papier: aantal, omschrijving, prijs en bedrag. De meeste regels zijn gekoppeld aan een
+// webwinkelproduct (naam en foto, voor de productweergave); twee niet, die houden de afgekorte naam van de bon.
 const receiptDetail = {
   ...RECEIPTS[0],
   items: [
-    ["AH HALFVOLLE MELK", 2, 1.29, 2.58],
-    ["AH KIPFILET", 1, 4.49, 4.49],
-    ["AH KERSTOMATEN", 1, 1.99, 1.99],
-    ["AH SPAGHETTI", 2, 1.49, 2.98],
-    ["AH PESTO VERDE", 1, 2.19, 2.19],
-    ["GELDERSE ROOKWORST", 1, 2.39, 2.39],
-    ["AH GRIEKSE YOGHURT", 2, 1.89, 3.78],
-    ["AH VOLKORENBROOD", 1, 2.25, 2.25],
-    ["AH BIO EIEREN 10 ST", 1, 3.39, 3.39],
-    ["AVOCADO 2 STUKS", 2, 2.49, 4.98],
-    ["AH KIKKERERWTEN", 2, 0.99, 1.98],
-    ["AH KOKOSMELK", 1, 1.35, 1.35],
-    ["APPELSAP 1 L", 1, 1.65, 1.65],
-    ["AH FRISDRANK COLA ZERO", 3, 1.19, 3.57],
-  ].map(([name, quantity, price, amount], index) => ({ productId: `r${index}`, name, quantity, price, amount })),
+    ["AH HALFVOLLE MELK", 2, 1.29, 2.58, "AH Halfvolle melk 1 l"],
+    ["AH KIPFILET", 1, 4.49, 4.49, "AH Kipfilet 300 g"],
+    ["AH KERSTOMATEN", 1, 1.99, 1.99, "AH Kerstomaten 250 g"],
+    ["AH SPAGHETTI", 2, 1.49, 2.98, "AH Spaghetti 500 g"],
+    ["AH PESTO VERDE", 1, 2.19, 2.19, "AH Pesto verde 190 g"],
+    ["GELDERSE ROOKWORST", 1, 2.39, 2.39, "Gelderse rookworst 250 g"],
+    ["AH GRIEKSE YOGHURT", 2, 1.89, 3.78, "AH Griekse yoghurt 500 g"],
+    ["AH VOLKORENBROOD", 1, 2.25, 2.25, "AH Volkorenbrood heel"],
+    ["AH BIO EIEREN 10 ST", 1, 3.39, 3.39, "AH Biologisch scharreleieren 10 stuks"],
+    ["AVOCADO 2 STUKS", 2, 2.49, 4.98, null],
+    ["AH KIKKERERWTEN", 2, 0.99, 1.98, "AH Kikkererwten 400 g"],
+    ["AH KOKOSMELK", 1, 1.35, 1.35, "AH Kokosmelk 400 ml"],
+    ["APPELSAP 1 L", 1, 1.65, 1.65, null],
+    ["AH FRISDRANK COLA ZERO", 3, 1.19, 3.57, "AH Frisdrank cola zero 1,5 l"],
+  ].map(([name, quantity, price, amount, title], index) => ({
+    productId: `r${index}`, name, quantity, price, amount,
+    product: title ? { id: `p${index}`, title, image: LIST_ITEMS[index % LIST_ITEMS.length].product.image } : null,
+  })),
   discounts: [
     { name: "BONUS HALFVOLLE MELK", amount: -0.52 },
     { name: "BONUS ROOKWORST", amount: -0.48 },
@@ -371,6 +375,18 @@ module.exports = [
       await openStores("ah-items-bestellingen")(page);
       await page.click('[data-receipt-id="kb-1"]');
       await page.waitForTimeout(800);
+      await scrollTo(page, "#ah-order-detail");
+    },
+  },
+  {
+    name: "receipt-products",
+    routes,
+    run: async (page) => {
+      await openStores("ah-items-bestellingen")(page);
+      await page.click('[data-receipt-id="kb-1"]');
+      await page.waitForTimeout(800);
+      await page.click('#receipt-view [data-view="products"]');
+      await page.waitForTimeout(400);
       await scrollTo(page, "#ah-order-detail");
     },
   },

@@ -872,6 +872,10 @@
           <div class="list-header">
             <button class="icon-button" id="ah-order-back" type="button" aria-label="Terug" data-i18n-attr="aria-label:orders.back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button>
             <h2 id="ah-order-title" tabindex="-1"></h2>
+            <div id="receipt-view" class="segment-control" role="group" aria-label="Weergave van de bon" data-i18n-attr="aria-label:orders.receipt.view.label" hidden>
+              <button class="segment-control__button" type="button" data-view="paper" aria-pressed="true" title="Bonnetje" aria-label="Bonnetje" data-i18n-attr="title:orders.receipt.view.paper;aria-label:orders.receipt.view.paper"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3,22L4.5,20.5L6,22L7.5,20.5L9,22L10.5,20.5L12,22L13.5,20.5L15,22L16.5,20.5L18,22L19.5,20.5L21,22V2L19.5,3.5L18,2L16.5,3.5L15,2L13.5,3.5L12,2L10.5,3.5L9,2L7.5,3.5L6,2L4.5,3.5L3,2M18,9H6V7H18M18,13H6V11H18M18,17H6V15H18V17Z"/></svg></button>
+              <button class="segment-control__button" type="button" data-view="products" aria-pressed="false" title="Producten" aria-label="Producten" data-i18n-attr="title:orders.receipt.view.products;aria-label:orders.receipt.view.products"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z"/></svg></button>
+            </div>
           </div>
           <p class="muted" id="ah-order-meta"></p>
           <div id="ah-order-items"></div>

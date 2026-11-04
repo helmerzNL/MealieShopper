@@ -3604,21 +3604,54 @@ body.has-onboarding {
   accent-color: var(--primary);
 }
 
-/* Kassabon: een strook papier zoals uit de kassa, ook in de donkere modus licht */
+/* Kassabon: een smalle strook papier zoals uit de kassa, in het midden, ook in de donkere modus licht. Het vak eromheen
+   (#ah-order-items) scrolt op een breed scherm zelf (order-items--fit, fitReceiptBox in orders.js), zodat de pagina niet schuift. */
+.order-items--fit {
+  overflow-y: auto;
+}
+
 .receipt {
   --paper: #f7f4ea;
   --ink: #202020;
   position: relative;
   box-sizing: border-box;
-  width: 100%;
+  width: min(100%, 400px);
   margin: 12px auto 28px;
   padding: 22px 18px 20px;
   background: var(--paper);
   color: var(--ink);
   font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.45;
   filter: drop-shadow(0 2px 5px rgb(0 0 0 / 0.22));
+}
+
+/* Bij zoeken: de gevonden regel op papier, en het gevonden product in de productweergave. */
+.receipt__hit {
+  background: rgb(242 207 69 / 0.45);
+}
+
+.product-card.receipt__hit {
+  border-color: var(--lemon);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--lemon);
+}
+
+/* Onder de producten van een bon: de bonusregels met het bedrag. */
+.receipt-summary {
+  display: grid;
+  gap: 2px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt-summary__title {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .receipt::before,
@@ -3659,11 +3692,9 @@ body.has-onboarding {
   gap: 0 8px;
 }
 
-/* Op een groot scherm vult de bon het kader: zo breed als de pagina en zo hoog als er onder de kop past (fitReceiptPaper in
-   orders.js meet dat, zodat de pagina zelf niet schuift). */
 @media (min-width: 1024px) {
   .receipt {
-    padding: 28px 32px 26px;
+    padding: 28px 24px 26px;
   }
 }
 
