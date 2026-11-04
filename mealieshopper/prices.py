@@ -698,6 +698,7 @@ COMPARE_LIMIT = 30  # genoeg om ook de grote verpakking (zoals 1000 g rundergeha
 _PACK_WORDS = frozenset({
     "voordeelverpakking", "voordeelpak", "voordeel", "multipack", "familieverpakking", "familiepak", "grootverpakking", "navulling",
     "pack", "xl", "xxl", "groot", "grote", "klein", "kleine", "mini", "per", "stuk", "stuks", "st", "x",
+    "s", "m", "l",  # de maat van een ei: "AH Witte vrije uitloopeieren M" en "... L" zijn hetzelfde product (#223)
 })
 _SIZE_RE = re.compile(
     r"\b\d+(?:[.,]\d+)?\s*(?:x|\u00d7)?\s*(?:\d+(?:[.,]\d+)?\s*)?"
@@ -759,6 +760,43 @@ def _same_kind(kind: list[str], other_title: Any) -> bool:
     "AH Rundergehakt 1000 g" en "AH Biologisch rundergehakt", maar niet "AH Hamburgers" of "AH Half-om-half gehakt"."""
     words = base_title(other_title).split()
     return all(any(word in other for other in words) for word in kind)
+
+
+def _forms(word: str) -> list[str]:
+    """Het woord en zijn meervoud, langste eerst: "ei" is ook "eieren", "ui" ook "uien"."""
+    return sorted({word, word + "en", word + "eren", word + "s", word + "n"}, key=len, reverse=True)
+
+
+def _ingredient_kind(first: dict[str, Any], query: Any) -> list[tuple[str, bool]] | None:
+    """De soort voor de controlelijst, uit het ingrediënt waar het voorstel `first` bij hoort (#223): per woord van het ingrediënt
+    (woord, mag deel van een samenstelling zijn). None als het voorstel het ingrediënt niet noemt ("Milner Jong belegen" bij
+    "kaas"); dan geldt de soort van het voorstel zelf (`_kind_words`).
+
+    Zo maken eigenschappen als "witte" en "vrije" de soort niet te smal: bij "eieren" en "AH Witte vrije uitloopeieren M" is de
+    soort "eieren", en omdat het voorstel het als deel van een samenstelling noemt, horen ook "scharreleieren" en "AH Biologisch
+    Eieren" erbij. Noemt het voorstel het ingrediënt als los woord ("AH Halfvolle melk"), dan moet een ander product het ook als
+    los woord noemen: "AH Karnemelk" is geen melk. Bij "rundergehakt" dus geen "AH Half-om-half gehakt" (#178)."""
+    words = [w for w in base_title(query).split() if w not in ORGANIC_WORDS and w not in _STORE_WORDS]
+    title = _kind_words(first.get("title"), first.get("brand"))
+    kind = []
+    for word in words:
+        for form in _forms(word):
+            found = next(((form, other != form) for other in title if other == form or other.endswith(form)), None)
+            if found:
+                kind.append(found)
+                break
+    return kind or None
+
+
+def _matches(kind: list[tuple[str, bool]], word: str) -> bool:
+    return any(word == form or (compound and word.endswith(form)) for form, compound in kind)
+
+
+def _same_ingredient(kind: list[tuple[str, bool]], other_title: Any) -> bool:
+    """Hoort het product bij de soort uit `_ingredient_kind`? Elk woord moet erin staan, als los woord of (als het mag) als
+    einde van een samenstelling."""
+    words = base_title(other_title).split()
+    return all(any(_matches([part], word) for word in words) for part in kind)
 
 
 def _same_product(base: str, other_title: Any) -> bool:
@@ -1006,19 +1044,47 @@ CHECK_LIST_EXTRAS = 6  # hooguit zoveel vergelijkingsopties onder het voorgestel
 ORGANIC_QUERY = "biologisch"  # de extra zoekopdracht met *Liever biologisch*: "biologisch rundergehakt"
 
 
-def _organic_pick(first: dict[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Het biologische product van dezelfde soort als het gewone voorstel `first`, in de volgorde van de winkel. Eerst precies
-    dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt 500g" en niet "AH Biologisch Rundergehakt balletjes"."""
+def _kind_test(first: dict[str, Any], query: Any) -> tuple[Callable[[dict[str, Any]], bool], Callable[[dict[str, Any]], bool]] | None:
+    """(hetzelfde soort, precies dat soort) voor de controlelijst: uit het ingrediënt (`_ingredient_kind`) als het voorstel `first`
+    het noemt, anders uit de naam van het voorstel. "Precies" betekent zonder extra woorden: "AH Biologisch Rundergehakt", niet
+    "AH Biologisch Rundergehakt balletjes". None als er geen soort is."""
+    ingredient = _ingredient_kind(first, query) if query else None
+    if ingredient:
+        # Bij AH ook dezelfde hoofdcategorie: "Van Gilse Fijne kristalsuiker" en "AH Appelmoes 0% suiker toegevoegd" noemen allebei
+        # suiker, maar de appelmoes staat bij AH ergens anders. Zonder categorie (Picnic, Jumbo, Crisp) telt alleen het ingrediënt.
+        category = first.get("category")
+
+        def same_kind(c: dict[str, Any]) -> bool:
+            other = c.get("category")
+            return _same_ingredient(ingredient, c.get("title")) and (not category or not other or other == category)
+
+        return (
+            same_kind,
+            lambda c: all(_matches(ingredient, word) for word in _kind_words(c.get("title"), c.get("brand"))),
+        )
     kind = _kind_words(first.get("title"), first.get("brand"))
     if not kind:
         return None
-    same = [c for c in candidates if c.get("organic") and _same_kind(kind, c.get("title"))]
-    exact = [c for c in same if set(_kind_words(c.get("title"), c.get("brand"))) == set(kind)]
+    return (
+        lambda c: _same_kind(kind, c.get("title")),
+        lambda c: set(_kind_words(c.get("title"), c.get("brand"))) == set(kind),
+    )
+
+
+def _organic_pick(first: dict[str, Any], candidates: list[dict[str, Any]], query: Any = None) -> dict[str, Any] | None:
+    """Het biologische product van dezelfde soort als het gewone voorstel `first`, in de volgorde van de winkel. Eerst precies
+    dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt 500g" en niet "AH Biologisch Rundergehakt balletjes"."""
+    test = _kind_test(first, query)
+    if test is None:
+        return None
+    same_kind, exact_kind = test
+    same = [c for c in candidates if c.get("organic") and same_kind(c)]
+    exact = [c for c in same if exact_kind(c)]
     return (exact or same or [None])[0]
 
 
 def organic_first(
-    candidates: list[dict[str, Any]], search_more: Callable[[], list[dict[str, Any]]]
+    candidates: list[dict[str, Any]], search_more: Callable[[], list[dict[str, Any]]], query: Any = None
 ) -> tuple[list[dict[str, Any]], bool]:
     """Met *Liever biologisch* (#218): een biologisch product van dezelfde soort vooraan, als de winkel het heeft.
 
@@ -1031,7 +1097,7 @@ def organic_first(
     first = candidates[0]
     if first.get("organic"):
         return candidates, True
-    pick = _organic_pick(first, candidates) or _organic_pick(first, search_more())
+    pick = _organic_pick(first, candidates, query) or _organic_pick(first, search_more(), query)
     if pick is None:
         return candidates, False
     key = str(pick.get("productId"))
@@ -1052,13 +1118,19 @@ def per_item_price(candidate: dict[str, Any]) -> float | None:
     return price
 
 
-def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> list[dict[str, Any]]:
+def check_list_candidates(
+    candidates: list[dict[str, Any]], compare: bool, query: Any = None, kind_of: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """De producten voor één regel van de controlelijst, elk met zijn prijs per kilo, liter of stuk (`unitPrice`).
 
     Zonder `compare` (zelf zoeken met *Zoek een ander product*) blijven de eerste vijf zoals ze zijn. Met `compare` (het weekmenu in het
     mandje) komt na het voorgestelde product alleen wat **hetzelfde product** is in een andere maat (`same`) of **per eenheid goedkoper**
-    (`cheaper`), en alleen hetzelfde soort product (`_same_kind`): bij rundergehakt dus geen gemengd gehakt of gehaktballen. De
+    (`cheaper`), en alleen hetzelfde soort product (`_kind_test`, uit het ingrediënt `query` als het voorstel dat noemt): bij
+    rundergehakt dus geen gemengd gehakt of gehaktballen, bij eieren wel alle eieren (#223). De
     goedkoopste per eenheid eerst, hooguit `CHECK_LIST_EXTRAS`. Andere zoekresultaten vallen weg; die vind je met *Zoek een ander product*.
+
+    `kind_of` is het product waaruit de soort volgt, standaard het voorstel. Met *Liever biologisch* is dat het gewone voorstel: zo blijft
+    de soort dezelfde als het biologische product anders heet ("AH Biologisch Eieren" tegenover "AH Witte vrije uitloopeieren M").
     """
     for candidate in candidates:
         candidate["unitPrice"] = unit_price(per_item_price(candidate), candidate.get("unitSize"))
@@ -1066,7 +1138,7 @@ def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> li
         return candidates[:CHECK_LIST_SIZE]
     first = candidates[0]
     first["suggested"] = True
-    kind = _kind_words(first.get("title"), first.get("brand"))
+    test = _kind_test(kind_of or first, query)
     base = base_title(first.get("title"))
     brand = ah_lists._fold(first.get("brand") or "")
     mine = first["unitPrice"]
@@ -1074,7 +1146,7 @@ def check_list_candidates(candidates: list[dict[str, Any]], compare: bool) -> li
     extras = []
     for candidate in candidates[1:]:
         key = str(candidate.get("productId"))
-        if key in seen or not _same_kind(kind, candidate.get("title")):
+        if key in seen or not (test[0](candidate) if test else _same_kind([], candidate.get("title"))):
             continue
         seen.add(key)
         other_brand = ah_lists._fold(candidate.get("brand") or "")

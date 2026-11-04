@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.3.2
+
+### Opgelost in 3.3.2
+
+*English summary: for eggs the check list showed nothing under the suggestion, and Prefer organic said no organic option was found although "AH Biologisch Eieren S M L" was in the results. The kind of product came from the suggestion's whole name ("witte vrije uitloopeieren m"), so no other eggs counted. The kind now follows the ingredient when the suggestion names it, egg sizes S, M and L are a size, and at Albert Heijn the product must be in the same AH main category. Cheaper eggs per piece now appear under the suggestion, and Prefer organic suggests the organic eggs. Other ingredients such as milk, rice, olive oil, butter and yoghurt also get more options; buttermilk does not count as milk, and apple sauce "0% sugar" does not count as sugar.*
+
+- **Bij eieren staan er weer andere eieren onder het voorstel, en *Liever biologisch* vindt biologische eieren** (issue [#223](https://github.com/helmerzNL/MealieShopper/issues/223)). De soort kwam uit de hele naam van het voorstel: bij *AH Witte vrije uitloopeieren M* moesten "witte", "vrije", "uitloopeieren" en "m" allemaal in een ander product staan, dus telde geen enkel ander ei mee.
+  - **De soort volgt het ingrediënt** als het voorstel dat noemt. Bij eieren tellen dus alle eieren mee: *Natuurfarm de Boed Maïs scharreleieren* (€ 0,28 per ei) staat nu als *goedkoper per eenheid* onder het voorstel (€ 0,33), en met *Liever biologisch* is *AH Biologisch Eieren S M L* het voorstel. De soort komt uit het gewone voorstel, ook als het biologische product anders heet.
+  - **De eimaten S, M en L zijn een maat**, net als een gewicht: *AH Witte vrije uitloopeieren L* is hetzelfde product als *… M*.
+  - **Een los woord blijft een los woord.** Noemt het voorstel het ingrediënt als los woord (*AH Halfvolle melk*), dan telt een samenstelling niet mee: karnemelk is geen melk. Noemt het voorstel het als deel van een woord (*uitloopeieren*), dan tellen andere samenstellingen wel mee (*scharreleieren*).
+  - **Bij Albert Heijn ook dezelfde hoofdcategorie.** *AH Appelmoes 0% suiker toegevoegd* noemt suiker, maar staat bij AH niet bij de suiker; zo'n product komt er niet bij. Vleeswaren en vers vlees blijven daardoor ook gescheiden. Picnic, Jumbo en Crisp geven geen categorie; daar telt alleen het ingrediënt.
+  - Noemt het voorstel het ingrediënt niet (*Milner Jong belegen* bij kaas), dan blijft het zoals het was: de soort van het voorstel.
+  - **Ook bij andere ingrediënten meer keus.** Getoetst tegen de echte zoekresultaten van AH: bij melk, rijst, olijfolie, roomboter en yoghurt staan er nu meer opties van dezelfde soort; bij rundergehakt, spaghetti, ui en kaas verandert niets.
+- Issue: [#223](https://github.com/helmerzNL/MealieShopper/issues/223).
+
 ## v3.3.1
 
 ### Opgelost in 3.3.1

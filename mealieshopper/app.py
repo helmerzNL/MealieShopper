@@ -768,7 +768,11 @@ def create_app() -> Flask:
 
             def candidates_of(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 return [
-                    {**make_candidate(product, item.get("quantity"), item.get("unit")), "organic": prices.is_organic(product)}
+                    {
+                        **make_candidate(product, item.get("quantity"), item.get("unit")),
+                        "organic": prices.is_organic(product),
+                        "category": product.get("category"),  # alleen AH geeft een categorie (#223)
+                    }
                     for product in products
                 ]
 
@@ -784,11 +788,12 @@ def create_app() -> Flask:
                 result["error"] = str(exc)
                 return result
             candidates = candidates_of(products)
+            regular = candidates[0] if candidates else None  # het gewone voorstel bepaalt de soort, ook met Liever biologisch (#223)
             if organic and candidates:
-                candidates, found = prices.organic_first(candidates, search_organic)
+                candidates, found = prices.organic_first(candidates, search_organic, query)
                 result["organic"] = True
                 result["organicMissing"] = not found
-            result["candidates"] = prices.check_list_candidates(candidates, compare)
+            result["candidates"] = prices.check_list_candidates(candidates, compare, query, regular)
             return result
 
         with ThreadPoolExecutor(max_workers=6) as executor:

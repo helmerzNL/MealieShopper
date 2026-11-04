@@ -304,6 +304,12 @@ class OrganicFlagTest(unittest.TestCase):
             item = {**ah_product(1, "AH Spaghetti"), "propertyIcons": icons}
             self.assertEqual(ah._search_product_dict(item, "spaghetti")["organic"], expected, icons)
 
+    def test_the_main_category_comes_along(self):
+        # #223: de controlelijst vergelijkt bij AH alleen binnen dezelfde hoofdcategorie.
+        item = {**ah_product(1, "Van Gilse Fijne kristalsuiker"), "mainCategory": "Maaltijden, salades", "subCategory": "Suiker"}
+        self.assertEqual(ah._search_product_dict(item, "suiker")["category"], "Maaltijden, salades")
+        self.assertIsNone(ah._search_product_dict(ah_product(2, "AH Penne"), "penne")["category"])
+
 
 class CartRouteTest(unittest.TestCase):
     def setUp(self):
