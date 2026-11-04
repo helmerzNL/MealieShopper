@@ -252,6 +252,42 @@ class SearchRankTest(unittest.TestCase):
         self.assertEqual(self.titles("kaas", products), ["Milner Jong belegen 35+ plakken", "AH Kruiden roomkaas"])
         self.assertEqual(self.titles("", self.PENNE)[-1], "AH Guacamole seasoning mix 3-pack")
 
+    # Zo gaf AH ze echt terug voor "eieren" (4 november 2026, ingekort). AH zoekt ruim en vindt ook "aardbeien"; de eieren staan
+    # bovenaan, maar bijna allemaal als multipack.
+    EGGS = [
+        ah_product(1, "AH Biologisch Eieren S M L 4-pack", brand="AH Biologisch", bundle=True),
+        ah_product(2, "AH Nederlandse aardbeien"),
+        ah_product(3, "AH Vloeibaar eiwit"),
+        ah_product(4, "AH Excellent Gekleurde scharreleieren 3-pack", brand="AH Excellent", bundle=True),
+        ah_product(5, "Melkunie Breaker aardbei yoghurt", brand="Melkunie"),
+        ah_product(6, "Johma Ei salade", brand="Johma"),
+        ah_product(7, "AH Verse scharreleieren M L 3-pack", bundle=True),
+        ah_product(8, "AH Brabantse eierkoeken 4-pack", bundle=True),
+        ah_product(9, "AH Witte vrije uitloopeieren M"),
+        ah_product(10, "AH Biologisch Eieren S M L", brand="AH Biologisch"),
+        ah_product(11, "AH Verse scharreleieren M L"),
+    ]
+
+    def test_a_multipack_of_the_ingredient_on_top_puts_single_ones_first(self):
+        # Issue #220: zonder de multipacks kwamen de aardbeien, het eiwit en de aardbeiyoghurt voor de eieren.
+        found, _ = self.search("eieren", self.EGGS, 1)
+        self.assertEqual(found[0]["title"], "AH Witte vrije uitloopeieren M")
+        self.assertEqual(
+            [item["webshopId"] for item in ah.rank_search_results("eieren", self.EGGS)],
+            [9, 10, 11, 2, 3, 5, 6, 1, 4, 7, 8],
+        )
+        self.assertEqual(self.titles("AH Eieren", self.EGGS)[0], "AH Witte vrije uitloopeieren M")
+
+    def test_only_a_multipack_of_the_ingredient_on_top_counts(self):
+        milner = ah_product(1, "Milner Jong belegen 35+ plakken", brand="Milner")
+        roomkaas = ah_product(2, "AH Kruiden roomkaas")
+        cheese = ah_product(3, "AH Jong belegen kaas plakken 3-pack", bundle=True)
+        guacamole = ah_product(4, "AH Guacamole seasoning mix 3-pack", bundle=True)
+        ids = lambda products: [item["webshopId"] for item in ah.rank_search_results("kaas", products)]
+        # Een multipack van iets anders bovenaan, of een los product boven de multipack kaas: de volgorde van AH.
+        self.assertEqual(ids([guacamole, milner, roomkaas]), [1, 2, 4])
+        self.assertEqual(ids([milner, cheese, roomkaas]), [1, 2, 3])
+
     def test_the_limit_is_kept(self):
         found, params = self.search("AH Penne", self.PENNE, 2)
         self.assertEqual([item["title"] for item in found], ["AH Penne", "AH Biologisch Mini penne volkoren"])
