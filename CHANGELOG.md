@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.3.3
+
+### Opgelost in 3.3.3
+
+*English summary: for eggs the check list showed nothing under the suggestion, and Prefer organic said no organic option was found although "AH Biologisch Eieren S M L" was in the results. The kind of product came from the suggestion's whole name ("witte vrije uitloopeieren m"), so no other eggs counted. The kind now follows the ingredient when the suggestion names it, egg sizes S, M and L are a size, and at Albert Heijn the product must be in the same AH main category. Cheaper eggs per piece now appear under the suggestion, and Prefer organic suggests the organic eggs. Other ingredients such as milk, rice, olive oil, butter and yoghurt also get more options; buttermilk does not count as milk, and apple sauce "0% sugar" does not count as sugar. For chicken and turkey breast the check list now suggests fresh meat instead of cold cuts: at Albert Heijn fresh meat comes before cold cuts when a single piece of fresh meat names the ingredient; ham and roast beef stay cold cuts.*
+
+- **Bij eieren staan er weer andere eieren onder het voorstel, en *Liever biologisch* vindt biologische eieren** (issue [#223](https://github.com/helmerzNL/MealieShopper/issues/223)). De soort kwam uit de hele naam van het voorstel: bij *AH Witte vrije uitloopeieren M* moesten "witte", "vrije", "uitloopeieren" en "m" allemaal in een ander product staan, dus telde geen enkel ander ei mee.
+  - **De soort volgt het ingrediënt** als het voorstel dat noemt. Bij eieren tellen dus alle eieren mee: *Natuurfarm de Boed Maïs scharreleieren* (€ 0,28 per ei) staat nu als *goedkoper per eenheid* onder het voorstel (€ 0,33), en met *Liever biologisch* is *AH Biologisch Eieren S M L* het voorstel. De soort komt uit het gewone voorstel, ook als het biologische product anders heet.
+  - **De eimaten S, M en L zijn een maat**, net als een gewicht: *AH Witte vrije uitloopeieren L* is hetzelfde product als *… M*.
+  - **Een los woord blijft een los woord.** Noemt het voorstel het ingrediënt als los woord (*AH Halfvolle melk*), dan telt een samenstelling niet mee: karnemelk is geen melk. Noemt het voorstel het als deel van een woord (*uitloopeieren*), dan tellen andere samenstellingen wel mee (*scharreleieren*).
+  - **Bij Albert Heijn ook dezelfde hoofdcategorie.** *AH Appelmoes 0% suiker toegevoegd* noemt suiker, maar staat bij AH niet bij de suiker; zo'n product komt er niet bij. Vleeswaren en vers vlees blijven daardoor ook gescheiden. Picnic, Jumbo en Crisp geven geen categorie; daar telt alleen het ingrediënt.
+  - Noemt het voorstel het ingrediënt niet (*Milner Jong belegen* bij kaas), dan blijft het zoals het was: de soort van het voorstel.
+  - **Ook bij andere ingrediënten meer keus.** Getoetst tegen de echte zoekresultaten van AH: bij melk, rijst, olijfolie, roomboter en yoghurt staan er nu meer opties van dezelfde soort; bij rundergehakt, spaghetti, ui en kaas verandert niets.
+- **Bij kipfilet rauwe kipfilet, geen vleeswaren** (issue [#226](https://github.com/helmerzNL/MealieShopper/issues/226)). Bij "kipfilet" stelde de controlelijst *AH Biologisch Kipfilet ca. 100 g* voor: plakjes voor op brood. AH zet bij "kipfilet" zelf vleeswaren en multipacks bovenaan, en *AH Biologisch Kipfilet* heet precies "kipfilet". De rauwe *AH Scharrel kipfilet 2 stuks* stond pas op plek 11.
+  - **Nu:** bij Albert Heijn gaat vers vlees (AH's categorie *Vlees*) voor vleeswaren (*Vleeswaren*), als een los stuk vers vlees het ingrediënt noemt. Zo wordt kipfilet *AH Scharrel kipfilet 2 stuks*, kalkoenfilet *AH Kalkoenfilet schnitzel* en speklapjes *AH Speklapjes à la minute*.
+  - Ham, rosbief, salami, fricandeau en ontbijtspek koop je als vleeswaren: daar noemt geen los stuk vers vlees het ingrediënt, dus daar verandert niets. Getoetst tegen de echte zoekresultaten van AH voor 34 ingrediënten: alleen bij kipfilet, kalkoenfilet, speklapjes en gerookte kipfilet verandert het voorstel.
+- **Ontwikkeling**: `test_offers_stores` faalde af en toe met `OSError: Directory not empty`. Na een synchronisatie startte de test een echte thread die foto's in de tijdelijke map zette terwijl die werd opgeruimd (sinds de afbeeldingencache uit 3.2.0). Die tests zetten `image_cache.prefetch_async` nu stil, zoals de andere tests al deden.
+- Issues: [#223](https://github.com/helmerzNL/MealieShopper/issues/223) en [#226](https://github.com/helmerzNL/MealieShopper/issues/226). Pull request: [#225](https://github.com/helmerzNL/MealieShopper/pull/225).
+
 ## v3.3.2
 
 ### Opgelost in 3.3.2

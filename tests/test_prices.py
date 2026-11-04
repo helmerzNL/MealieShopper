@@ -710,5 +710,87 @@ class OrganicTest(PricesCase):
         self.assertNotIn("organicMissing", row)
 
 
+
+def egg(pid, title, price, size, category="Zuivel, eieren", brand="AH"):
+    return {**ah_found(pid, title, price, size, brand=brand), "category": category}
+
+
+class IngredientKindTest(PricesCase):
+    """#223: de soort in de controlelijst komt uit het ingrediënt als het voorstel dat noemt, met bij AH dezelfde hoofdcategorie."""
+
+    def preview(self, query, found, organic=False, quantity=None, unit=None):
+        body = {"compare": True, "organic": organic, "items": [{"query": query, "quantity": quantity, "unit": unit}]}
+        with mock.patch.object(ah, "search_products", side_effect=lambda q, limit: found if q == query else []):
+            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+        self.assertEqual(reply.status_code, 200)
+        return reply.get_json()["items"][0]
+
+    EGGS = [
+        egg("uit", "AH Witte vrije uitloopeieren M", 1.99, "6 stuks"),  # €0,33 per ei: het voorstel
+        egg("koek", "AH Brabantse eierkoeken", 0.99, "4 stuks", category="Koek, snoep, chocolade"),  # €0,25 per stuk, maar geen ei
+        egg("mais", "Natuurfarm de Boed Maïs scharreleieren M L", 8.49, "30 stuks", brand="Natuurfarm"),  # €0,28 per ei
+        egg("bio", "AH Biologisch Eieren S M L", 4.59, "10 stuks", brand="AH Biologisch"),
+        egg("L", "AH Witte vrije uitloopeieren L", 2.29, "6 stuks"),  # dezelfde eieren in maat L
+    ]
+
+    def test_cheaper_eggs_per_piece_come_under_the_suggestion(self):
+        row = self.preview("eieren", self.EGGS, quantity=6, unit="stuks")
+        rows = {c["productId"]: (c.get("same"), c.get("cheaper")) for c in row["candidates"][1:]}
+        self.assertEqual(row["candidates"][0]["productId"], "uit")
+        self.assertEqual(rows, {"mais": (False, True), "L": (True, False)})  # eierkoeken zijn geen eieren; maat L is hetzelfde product
+
+    def test_prefer_organic_finds_the_organic_eggs(self):
+        row = self.preview("eieren", self.EGGS, organic=True)
+        self.assertEqual((row["candidates"][0]["productId"], row["organicMissing"]), ("bio", False))
+        self.assertIn("mais", [c["productId"] for c in row["candidates"]])  # goedkoper per ei, dus erbij
+
+    def test_egg_sizes_are_a_size_not_a_kind(self):
+        self.assertEqual(prices._kind_words("AH Witte vrije uitloopeieren M", "AH"), ["witte", "vrije", "uitloopeieren"])
+        self.assertTrue(prices._same_product(prices.base_title("AH Witte vrije uitloopeieren M"), "AH Witte vrije uitloopeieren L"))
+        self.assertEqual(prices._ingredient_kind({"title": "AH Witte vrije uitloopeieren M", "brand": "AH"}, "ei"), [("eieren", True)])
+
+    def test_a_standalone_word_needs_a_standalone_word(self):
+        # "AH Halfvolle melk" noemt melk als los woord: karnemelk is dan geen melk, volle melk wel.
+        found = [egg("half", "AH Halfvolle melk", 1.79, "1,5 l"), egg("karne", "AH Karnemelk", 0.99, "1 l"), egg("vol", "AH Volle melk", 1.09, "1 l")]
+        row = self.preview("melk", found)
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["half", "vol"])
+
+    def test_at_ah_the_main_category_has_to_match(self):
+        found = [
+            egg("gilse", "Van Gilse Fijne kristalsuiker", 2.79, "1 kg", category="Maaltijden, salades", brand="Van Gilse"),
+            egg("moes", "AH Appelmoes 0% suiker toegevoegd", 0.79, "355 g", category="Conserven, soepen, sauzen"),
+            egg("kristal", "Van Gilse Kristalsuiker", 1.99, "1 kg", category="Maaltijden, salades", brand="Van Gilse"),
+        ]
+        row = self.preview("suiker", found)
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["gilse", "kristal"])  # appelmoes noemt suiker, maar is het niet
+        for item in found:
+            item.pop("category")  # zonder categorie (Picnic, Jumbo, Crisp) telt alleen het ingrediënt
+        self.assertIn("moes", [c["productId"] for c in self.preview("suiker", found)["candidates"]])
+
+    def test_minced_beef_keeps_its_kind(self):
+        # #178: bij rundergehakt geen gemengd gehakt, half-om-half of gehaktballen; #218: niet de biologische balletjes.
+        found = [
+            egg("rund", "AH Rundergehakt", 3.79, "300 g", category="Vlees"),
+            egg("hoh", "AH Half-om-half gehakt", 2.99, "500 g", category="Vlees"),
+            egg("ballen", "AH Rundergehaktballen", 2.49, "300 g", category="Vlees"),
+            egg("bal", "AH Biologisch Rundergehakt balletjes", 3.99, "200 g", category="Vlees", brand="AH Biologisch"),
+            egg("bio", "AH Biologisch Rundergehakt", 4.99, "250 g", category="Vlees", brand="AH Biologisch"),
+            egg("500", "AH Rundergehakt", 5.35, "500 g", category="Vlees"),
+        ]
+        row = self.preview("rundergehakt", found)
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["rund", "500"])
+        self.assertEqual(self.preview("rundergehakt", found, organic=True)["candidates"][0]["productId"], "bio")
+
+    def test_without_the_ingredient_in_the_name_the_suggestion_decides(self):
+        # "Milner Jong belegen" is kaas zonder "kaas" in de naam: dan geldt de soort van het voorstel, zoals voorheen.
+        found = [
+            egg("milner", "Milner Jong belegen 48+", 4.99, "400 g", category="Kaas", brand="Milner"),
+            egg("room", "AH Kruiden roomkaas", 1.29, "150 g", category="Kaas"),
+            egg("blok", "Milner Jong belegen 48+", 8.99, "800 g", category="Kaas", brand="Milner"),
+        ]
+        self.assertIsNone(prices._ingredient_kind({"title": "Milner Jong belegen 48+", "brand": "Milner"}, "kaas"))
+        row = self.preview("kaas", found)
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["milner", "blok"])
+
 if __name__ == "__main__":
     unittest.main()

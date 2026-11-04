@@ -17,6 +17,12 @@ class TempDataDirTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Geen thread die echt foto's ophaalt: na een synchronisatie (offers_schedule.sync_now, POST /api/offers/sync-all) start
+        # image_cache.prefetch_async er een, en die schreef soms nog in de tijdelijke map terwijl de test die opruimde
+        # ("OSError: Directory not empty"). Een test die de thread wil zien, zet zijn eigen mock eroverheen.
+        background = mock.patch.object(image_cache, "prefetch_async")
+        background.start()
+        self.addCleanup(background.stop)
         auth.init_db()
         jumbo._search_variant = 0
         jumbo._promo_dates = True
