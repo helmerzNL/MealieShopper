@@ -729,11 +729,29 @@ def base_title(title: Any) -> str:
 
 _STORE_WORDS = frozenset({"ah", "jumbo", "picnic", "crisp"})
 
+# Woorden die zeggen dat een product biologisch is (#218). Ze horen niet bij de soort: "AH Biologisch rundergehakt" is
+# rundergehakt, net als "AH Rundergehakt".
+ORGANIC_WORDS = frozenset({"biologisch", "biologische", "bio", "organic", "eko"})
+
+
+def is_organic(product: dict[str, Any]) -> bool:
+    """Biologisch: AH zegt het zelf (`organic`, het kenmerk "biologisch" in de zoekresultaten); anders, en bij de andere winkels, een
+    woord als "biologisch" of "bio" in de naam of het merk. Niet elk biologisch product van AH heeft het kenmerk: "AH Biologisch
+    Rundergehakt balletjes" niet."""
+    if product.get("organic"):
+        return True
+    text = ah_lists._fold(f"{product.get('title') or ''} {product.get('brand') or ''}")
+    return any(word in ORGANIC_WORDS for word in re.findall(r"[a-z0-9]+", text))
+
 
 def _kind_words(title: Any, brand: Any) -> list[str]:
-    """De woorden die zeggen wat voor product het is: de naam zonder merk, winkel, maten en verpakkingswoorden ("rundergehakt")."""
+    """De woorden die zeggen wat voor product het is: de naam zonder merk, winkel, maten, verpakkingswoorden en "biologisch"
+    ("rundergehakt")."""
     brand_words = set(re.findall(r"[a-z0-9]+", ah_lists._fold(brand or "")))
-    return [word for word in base_title(title).split() if word not in brand_words and word not in _STORE_WORDS]
+    return [
+        word for word in base_title(title).split()
+        if word not in brand_words and word not in _STORE_WORDS and word not in ORGANIC_WORDS
+    ]
 
 
 def _same_kind(kind: list[str], other_title: Any) -> bool:
@@ -985,6 +1003,39 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
 
 CHECK_LIST_SIZE = 5  # zoveel producten toont de controlelijst zonder vergelijking (zoals voorheen)
 CHECK_LIST_EXTRAS = 6  # hooguit zoveel vergelijkingsopties onder het voorgestelde product
+ORGANIC_QUERY = "biologisch"  # de extra zoekopdracht met *Liever biologisch*: "biologisch rundergehakt"
+
+
+def _organic_pick(first: dict[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Het biologische product van dezelfde soort als het gewone voorstel `first`, in de volgorde van de winkel. Eerst precies
+    dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt 500g" en niet "AH Biologisch Rundergehakt balletjes"."""
+    kind = _kind_words(first.get("title"), first.get("brand"))
+    if not kind:
+        return None
+    same = [c for c in candidates if c.get("organic") and _same_kind(kind, c.get("title"))]
+    exact = [c for c in same if set(_kind_words(c.get("title"), c.get("brand"))) == set(kind)]
+    return (exact or same or [None])[0]
+
+
+def organic_first(
+    candidates: list[dict[str, Any]], search_more: Callable[[], list[dict[str, Any]]]
+) -> tuple[list[dict[str, Any]], bool]:
+    """Met *Liever biologisch* (#218): een biologisch product van dezelfde soort vooraan, als de winkel het heeft.
+
+    De kandidaten hebben `organic` (zie `is_organic`). Is het voorstel al biologisch, dan blijft alles zoals het is. Anders het
+    eerste biologische product van dezelfde soort uit de zoekresultaten; zit dat er niet bij, dan één extra zoekopdracht
+    (`search_more`, "biologisch rundergehakt"). Geeft ook die niets, dan blijft het gewone product voorop. Geeft (kandidaten,
+    gevonden) terug; het gewone product blijft in de lijst, zodat de vergelijking het als goedkoper per eenheid kan tonen."""
+    if not candidates:
+        return candidates, False
+    first = candidates[0]
+    if first.get("organic"):
+        return candidates, True
+    pick = _organic_pick(first, candidates) or _organic_pick(first, search_more())
+    if pick is None:
+        return candidates, False
+    key = str(pick.get("productId"))
+    return [pick] + [c for c in candidates if str(c.get("productId")) != key], True
 
 
 def per_item_price(candidate: dict[str, Any]) -> float | None:

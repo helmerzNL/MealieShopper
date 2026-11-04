@@ -2,6 +2,29 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.1.0
+
+### Nieuw in 3.1.0
+
+*English summary: the week menu can now prefer organic products. Next to the basket button is a Prefer organic switch; when it is on, the check list suggests an organic product of the same kind for each ingredient, when the store has one (for minced beef "AH Biologisch Rundergehakt", not the organic meatballs). Albert Heijn's own organic property counts, and otherwise "biologisch", "bio" or "organic" in the name or brand (also at Picnic, Jumbo and Crisp). Without an organic product in the results, MealieShopper searches once more with "biologisch" in front; if that finds nothing either, the regular product stays with the note "No organic option found". The regular product stays in the drop-down as cheaper per unit, and organic products are marked organic. Every user has their own switch, kept in the profile and part of the backup. Reload the page once after updating.*
+
+- **Liever biologisch** in het weekmenu (issue [#218](https://github.com/helmerzNL/MealieShopper/issues/218)). Naast de knop van het mandje staat de schakelaar *Liever biologisch*. Staat hij aan, dan stelt de controlelijst per ingrediënt eerst een biologisch product van dezelfde soort voor, als de winkel het heeft.
+  - **Wat telt als biologisch:** bij Albert Heijn het eigen kenmerk *biologisch* van AH ("AH Biologisch Spaghetti" heeft het), en verder, ook bij Picnic, Jumbo en Crisp, "biologisch", "bio" of "organic" in de naam of het merk. Niet elk biologisch product van AH heeft het kenmerk: "AH Biologisch Rundergehakt balletjes" niet.
+  - **Welk product:** het eerste biologische product van dezelfde soort uit de zoekresultaten, en eerst precies dezelfde soort: bij rundergehakt "AH Biologisch Rundergehakt", niet de biologische gehaktballetjes. Is het voorgestelde product al biologisch, dan blijft het staan.
+  - **Niet tussen de resultaten:** dan zoekt MealieShopper voor dat ingrediënt één keer op "biologisch rundergehakt". Geeft ook dat niets (of lukt die zoekopdracht niet), dan blijft het gewone product staan met de melding *Geen biologische variant gevonden*.
+  - **De gewone variant blijft te kiezen:** in de keuzelijst staat hij als *goedkoper per eenheid*, zodat je ziet wat biologisch kost. Is het gekozen product biologisch, dan wijst de regel *Per kg goedkoper* alleen op een goedkopere biologische optie.
+  - Biologische producten hebben in de keuzelijst het woord *biologisch*, ook bij *Zoek een ander product*.
+  - **Per gebruiker bewaard:** de schakelaar staat in je profiel en blijft zoals je hem achterliet. Hij gaat mee in de back-up (een nieuwe kolom in het profiel; een oudere back-up terugzetten kan nog steeds, de schakelaar staat dan uit).
+
+### Gewijzigd in 3.1.0
+
+*English summary: "biologisch" no longer counts as part of the kind of product, so Compare pack sizes and the check list see "AH Biologisch rundergehakt" and "AH Rundergehakt" as the same kind.*
+
+- **"Biologisch" hoort niet bij de soort.** *Vergelijk verpakkingen* en de controlelijst zien "AH Biologisch rundergehakt" en "AH Rundergehakt" nu als hetzelfde soort product. Vergelijk je een biologisch product, dan staat de gewone variant er dus ook bij (als *zelfde soort*).
+- **API**: `PUT /api/profile/preferences` met `{"preferOrganic": true}`; `GET /api/auth/status` en `GET /api/profile` geven `preferOrganic`. `POST /api/<winkel>/cart/preview` neemt `"organic": true` (alleen samen met `"compare": true`) en geeft per regel `organic` en `organicMissing`, en per product `organic`.
+- **Handleiding**: *Liever biologisch* onder *Weekmenu naar je mandje*.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+
 ## v3.0.0
 
 ### De stabiele release in het kort: alles sinds 2.97.1

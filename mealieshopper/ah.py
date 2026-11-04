@@ -640,6 +640,8 @@ def _search_product_dict(item: dict[str, Any], query: str) -> dict[str, Any]:
         "brand": item.get("brand"),
         "unitSize": unit_size,
         "isBonus": bool(item.get("isBonus")),
+        # AH's eigen kenmerk; "AH Biologisch Spaghetti" heeft ["vegan", "biologisch"] (#218).
+        "organic": "biologisch" in [str(icon).casefold() for icon in item.get("propertyIcons") or [] if isinstance(icon, str)],
     }
     if product["isBonus"]:
         product["promo"] = _bonus_promo(item)

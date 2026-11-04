@@ -1740,6 +1740,14 @@ a.product-card__main:hover strong {
   font-size: 13px;
 }
 
+/* Liever biologisch (#218): geen biologische variant gevonden, dus het gewone product staat er */
+.review-organic-missing {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .review-row input[type="checkbox"] {
   width: 20px;
   height: 20px;
@@ -4171,6 +4179,11 @@ body.has-onboarding {
 .ingredients__actions {
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+.ingredients__actions .cart-organic {
+  margin: 0;
+  font-weight: 500;
 }
 
 /* Navigatiemenu links op een groot scherm. Het blijft een nav met dezelfde knoppen: onder 1024px staat het zoals altijd

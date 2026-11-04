@@ -617,5 +617,98 @@ class CheckListTest(PricesCase):
         result = prices.check_list_candidates([{"productId": f["webshopId"], "title": f["title"], "brand": "AH", "unitSize": f["unitSize"], "price": f["price"]["now"]} for f in found], True)
         self.assertEqual([c["productId"] for c in result], ["a", "b"])
 
+
+class OrganicTest(PricesCase):
+    """*Liever biologisch* (#218): de controlelijst van het weekmenu stelt eerst een biologisch product van dezelfde soort voor."""
+
+    REGULAR = [
+        ah_found("300", "AH Rundergehakt", 3.79, "300 g"),  # €12,63/kg: het gewone voorstel
+        ah_found("500", "AH Rundergehakt", 5.35, "500 g"),  # €10,70/kg
+        ah_found("ballen", "AH Biologisch Rundergehakt balletjes", 3.99, "200 g"),  # biologisch, maar balletjes
+        ah_found("bio", "AH Biologisch Rundergehakt", 4.99, "250 g", brand="AH Biologisch"),  # €19,96/kg
+        ah_found("gehakt", "AH Gemengd gehakt", 8.99, "1 kg"),
+    ]
+
+    def preview(self, results, organic=True, compare=True):
+        body = {"compare": compare, "organic": organic, "items": [{"query": "rundergehakt", "quantity": 500, "unit": "g"}]}
+        calls = []
+
+        def search(query, limit):
+            calls.append((query, limit))
+            found = results.get(query)
+            if isinstance(found, Exception):
+                raise found
+            return list(found or [])[:limit]
+
+        with mock.patch.object(ah, "search_products", side_effect=search):
+            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+        self.assertEqual(reply.status_code, 200)
+        return reply.get_json()["items"][0], calls
+
+    def test_what_counts_as_organic(self):
+        for product in (
+            {"title": "AH Spaghetti", "organic": True},  # AH's eigen kenmerk
+            {"title": "AH Biologisch Rundergehakt balletjes"},  # zonder kenmerk, maar met "Biologisch" in de naam
+            {"title": "Rundergehakt", "brand": "AH Biologisch"},
+            {"title": "Jumbo Biologische Halfvolle Melk 1L"},
+            {"title": "Bio yoghurt"},
+            {"title": "Organic Oat Drink"},
+        ):
+            self.assertTrue(prices.is_organic(product), product)
+        for product in ({"title": "AH Rundergehakt", "organic": False}, {"title": "Biografie"}, {"title": "Antibiotica"}, {}):
+            self.assertFalse(prices.is_organic(product), product)
+
+    def test_organic_is_not_part_of_the_kind(self):
+        self.assertEqual(prices._kind_words("AH Biologisch Rundergehakt 500g", "AH"), ["rundergehakt"])
+        self.assertEqual(prices._kind_words("Jumbo Biologische Halfvolle Melk 1L", None), ["halfvolle", "melk"])
+
+    def test_the_organic_product_of_the_same_kind_comes_first(self):
+        row, calls = self.preview({"rundergehakt": self.REGULAR})
+        self.assertEqual(calls, [("rundergehakt", prices.COMPARE_LIMIT)])  # het stond er al tussen: geen extra zoekopdracht
+        self.assertEqual(row["candidates"][0]["productId"], "bio")  # precies rundergehakt, niet de balletjes die eerder stonden
+        self.assertTrue(row["candidates"][0]["organic"] and row["candidates"][0]["suggested"])
+        self.assertEqual((row["organic"], row["organicMissing"]), (True, False))
+        regular = {c["productId"]: c for c in row["candidates"][1:]}
+        self.assertTrue(regular["300"]["cheaper"] and regular["500"]["cheaper"])  # zo zie je wat biologisch kost
+        self.assertFalse(regular["300"]["organic"])
+        self.assertNotIn("gehakt", regular)  # een andere soort blijft weg
+        self.assertEqual(row["candidates"][0]["packs"], 2)  # 500 g: twee keer 250 g
+
+    def test_otherwise_one_extra_search_for_organic(self):
+        regular = [c for c in self.REGULAR if c["webshopId"] not in ("bio", "ballen")]
+        extra = [ah_found("gb", "AH Biologisch Gehaktballen", 4.49, "300 g"), ah_found("bio2", "AH Biologisch Rundergehakt", 5.49, "300 g")]
+        row, calls = self.preview({"rundergehakt": regular, "biologisch rundergehakt": extra})
+        self.assertEqual(calls, [("rundergehakt", prices.COMPARE_LIMIT), ("biologisch rundergehakt", prices.COMPARE_LIMIT)])
+        self.assertEqual(row["candidates"][0]["productId"], "bio2")  # gehaktballen zijn een andere soort
+        self.assertFalse(row["organicMissing"])
+        self.assertIn("300", [c["productId"] for c in row["candidates"]])  # het gewone product blijft te kiezen
+
+    def test_without_organic_the_regular_product_stays_with_a_note(self):
+        regular = [c for c in self.REGULAR if c["webshopId"] not in ("bio", "ballen")]
+        for extra in ([ah_found("gb", "AH Biologisch Gehaktballen", 4.49, "300 g")], RuntimeError("AH is even weg")):
+            row, calls = self.preview({"rundergehakt": regular, "biologisch rundergehakt": extra})
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(row["candidates"][0]["productId"], "300")
+            self.assertTrue(row["organicMissing"])
+            self.assertNotIn("error", row)  # een mislukte extra zoekopdracht is geen fout van de regel
+
+    def test_an_organic_suggestion_needs_no_extra_search(self):
+        spaghetti = [ah_found("1", "AH Biologisch Spaghetti", 1.99, "500 g", brand="AH Biologisch"), ah_found("2", "AH Spaghetti", 1.29, "500 g")]
+        body = {"compare": True, "organic": True, "items": [{"query": "spaghetti"}]}
+        with mock.patch.object(ah, "search_products", return_value=spaghetti) as search:
+            row = create_app().test_client().post("/api/ah/cart/preview", json=body).get_json()["items"][0]
+        search.assert_called_once()
+        self.assertEqual((row["candidates"][0]["productId"], row["organicMissing"]), ("1", False))
+
+    def test_switched_off_or_searching_yourself_changes_nothing(self):
+        row, calls = self.preview({"rundergehakt": self.REGULAR}, organic=False)
+        self.assertEqual((len(calls), row["candidates"][0]["productId"]), (1, "300"))
+        self.assertNotIn("organicMissing", row)
+        row, calls = self.preview({"rundergehakt": self.REGULAR}, compare=False)
+        self.assertEqual([c["productId"] for c in row["candidates"]], ["300", "500", "ballen", "bio", "gehakt"])
+        self.assertEqual([c["organic"] for c in row["candidates"]], [False, False, True, True, False])  # wel het label
+        self.assertNotIn("organicMissing", row)
+
+
 if __name__ == "__main__":
     unittest.main()
