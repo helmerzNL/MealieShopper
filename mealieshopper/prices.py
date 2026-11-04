@@ -676,8 +676,11 @@ def _lookup_receipt_names(lookup: Callable[[list[str]], Any], wanted: "_Query", 
 
 
 def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
-            lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any]:
+            lookup: Callable[[list[str]], Any] | None = None, product: Any = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
+
+    Met `product` (een product-id) alleen dat ene product, zonder zoekterm en zonder `lookup`: zo haalt de kaart van een aanbieding
+    het prijsverloop voor de hover-zoom op.
 
     Een product past als elk woord van de zoekterm in een van zijn namen staat (uit de aanbiedingen, een zoekopdracht of een aankoop) en,
     als de zoekterm een maat noemt ("Gehakt 500 gram"), zijn verpakking die maat heeft; zie `_Query`. Met `bought` blijven alleen de
@@ -693,7 +696,8 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
     wanted = _Query(query)
     limit = _limit(limit)
     today = today or _now()[:10]
-    if lookup and wanted.words and "ah" in stores:
+    only = str(product) if product not in (None, "") else None
+    if lookup and wanted.words and "ah" in stores and only is None:
         _lookup_receipt_names(lookup, wanted, today)
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
@@ -702,6 +706,8 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
         for name in stores:
             keep = _bought(conn, name, today, receipts[name]) if bought else None
             for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items():
+                if only is not None and product_id != only:
+                    continue
                 if keep is None or product_id in keep:
                     candidates[(name, product_id)] = day
         ranked = sorted(candidates, key=lambda key: (candidates[key], key[0], key[1]), reverse=True)

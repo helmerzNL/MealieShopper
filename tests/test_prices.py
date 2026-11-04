@@ -330,6 +330,17 @@ class RouteAndToolTest(PricesCase):
         self.assertEqual(client.get("/api/prices/history?store=lidl").status_code, 400)
         self.assertEqual(client.get("/api/prices/history?limit=abc").status_code, 200)
 
+    def test_one_product_by_id_skips_the_search_and_the_lookup(self):
+        prices.record("ah", [{"id": "1", "title": "Kipfilet", "price": 5.49}, {"id": "2", "title": "Kipdij", "price": 4.49}])
+        lookup = mock.Mock()
+        reply = prices.history("ah", "", 50, today=TODAY, lookup=lookup, product="2")
+        self.assertEqual([p["productId"] for p in reply["products"]], ["2"])
+        self.assertEqual(reply["total"], 1)
+        lookup.assert_not_called()
+        self.assertEqual(prices.history("ah", "", 50, today=TODAY, product="nope")["products"], [])
+        client = create_app().test_client()
+        self.assertEqual(client.get("/api/prices/history?store=ah&product=1").get_json()["products"][0]["regularPrice"], 5.49)
+
     def test_the_check_list_of_the_week_menu_records_the_regular_price(self):
         found = [{"webshopId": "42", "title": "AH Penne", "price": {"now": 1.19}, "unitSize": "500 g", "images": [], "isBonus": False}]
         with mock.patch.object(ah, "search_products", return_value=found):
