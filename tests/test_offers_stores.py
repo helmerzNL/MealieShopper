@@ -518,6 +518,17 @@ class ScheduleTest(TempDataDirTest):
         self.assertEqual((result["receiptProducts"], result["receiptImages"], result["images"]), ({"found": 1}, {"products": 2}, {"fetched": 3}))
         self.assertEqual(result["stores"]["ah"]["count"], 1)
 
+    def test_the_button_does_not_wait_for_the_image_round(self):
+        # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
+             mock.patch.object(image_cache, "prefetch_nightly") as nightly, \
+             mock.patch.object(image_cache, "prefetch_async") as background:
+            result = offers_schedule.sync_now()
+        nightly.assert_not_called()
+        background.assert_called_once_with(limit=image_cache.PREFETCH_LIMIT)
+        self.assertNotIn("images", result)
+
     def test_the_manual_run_skips_what_has_nothing_to_do(self):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \

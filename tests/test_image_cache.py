@@ -223,10 +223,57 @@ class FetchTest(FetchCase):
         waited = [call.args[0] for call in self.sleep.call_args_list]
         self.assertEqual(len(waited), 1, "alleen tussen twee verzoeken op dezelfde host")
         self.assertTrue(0.3 <= waited[0] <= 0.5, waited)
-        third = "https://static.ah.nl/dam/third"
-        self.serve(third, 200, "image/png", picture(4, 4))
-        image_cache.fetch(third, now=NOW, background=True)
-        self.assertTrue(2.0 <= self.sleep.call_args.args[0] <= 5.0, self.sleep.call_args)
+
+    def test_the_pace_never_sleeps_while_holding_the_lock_or_a_slot(self):
+        # Een thread die wacht op zijn beurt bij een host mag een verzoek aan een andere host (of een ander verzoek) niet ophouden.
+        seen = []
+
+        def sleeping(seconds):
+            free = image_cache._PACE_LOCK.acquire(blocking=False)
+            if free:
+                image_cache._PACE_LOCK.release()
+            seen.append((free, image_cache._SLOTS._value))
+
+        self.sleep.side_effect = sleeping
+        other = "https://static.ah.nl/dam/other"
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        self.serve(other, 200, "image/png", picture(4, 4))
+        image_cache.fetch(AH, now=NOW)
+        image_cache.fetch(other, now=NOW)
+        self.assertEqual(seen, [(True, image_cache.CONCURRENCY)], "tijdens het slapen: lock vrij en geen slot bezet")
+
+    def test_a_cache_hit_does_not_write_to_the_database(self):
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        image_cache.fetch(AH, now=NOW)
+        with mock.patch.object(image_cache, "register") as register, mock.patch.object(image_cache, "_record_success") as success:
+            self.assertIsNotNone(image_cache.fetch(AH, now=NOW))
+        register.assert_not_called()
+        success.assert_not_called()
+
+    def test_a_disk_error_is_recorded_as_a_failure_and_leaves_no_part_file(self):
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        with mock.patch.object(image_cache.os, "replace", side_effect=PermissionError("alleen-lezen")):
+            self.assertIsNone(image_cache.fetch(AH, now=NOW))
+        row = image_cache.lookup(AH)
+        self.assertEqual((row["attempts"], row["path"]), (1, None))
+        self.assertIn("alleen-lezen", row["error"])
+        self.assertEqual(list(image_cache.images_dir().rglob("*.part")), [])
+        self.assertEqual(self.get.call_count, 1)
+        self.assertIsNone(image_cache.fetch(AH, now="2026-11-04T04:00:00+00:00"), "wacht nu een dag, geen tweede download")
+        self.assertEqual(self.get.call_count, 1)
+
+    def test_a_waiting_request_gives_up_after_ten_seconds(self):
+        timeouts = []
+
+        class Stuck:
+            def wait(self, timeout=None):
+                timeouts.append(timeout)
+                return False
+
+        with mock.patch.dict(image_cache._INFLIGHT, {AH: Stuck()}):
+            self.assertIsNone(image_cache.fetch(AH, now=NOW))
+        self.assertEqual(timeouts, [10])
+        self.get.assert_not_called()
 
     def test_a_redirect_is_followed_only_to_a_store_host(self):
         # Een winkel-CDN mag doorverwijzen naar een ander winkeladres, nooit naar iets anders (een intern adres bijvoorbeeld).
@@ -353,9 +400,36 @@ class PrefetchTest(FetchCase):
         result = image_cache.prefetch(limit=2, now=NOW)
         self.assertEqual(result, {"fetched": 2, "failed": 0, "skipped": 1, "paused": 0})
         self.assertEqual([call.args[1] for call in self.get.call_args_list], [urls[2], urls[0]], "nieuwste eerst, de wachtende overgeslagen")
-        self.assertTrue(2.0 <= self.sleep.call_args.args[0] <= 5.0, "het rustige tempo van de achtergrond")
+        self.assertTrue(any(2.0 <= call.args[0] <= 5.0 for call in self.sleep.call_args_list), "het rustige tempo van de achtergrond")
         result = image_cache.prefetch(limit=2, now=NOW)
         self.assertEqual(result, {"fetched": 0, "failed": 0, "skipped": 1, "paused": 0})
+
+    def test_prefetch_rests_two_to_five_seconds_between_fetches_but_not_before_the_first(self):
+        urls = [f"https://static.ah.nl/dam/product/{n}" for n in range(3)]
+        for url in urls:
+            image_cache.register(url, now=NOW)
+            self.serve(url, 200, "image/png", picture(4, 4))
+        image_cache.prefetch(now=NOW)
+        rests = [call.args[0] for call in self.sleep.call_args_list if call.args[0] >= 2.0]
+        self.assertEqual(len(rests), 2, "een rustpauze tussen elke twee foto's")
+        self.assertTrue(all(2.0 <= rest <= 5.0 for rest in rests), rests)
+
+    def test_only_one_prefetch_round_runs_at_a_time(self):
+        image_cache.register(AH, now=NOW)
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        self.assertTrue(image_cache._PREFETCH_RUNNING.acquire(blocking=False))
+        try:
+            self.assertEqual(image_cache.prefetch(now=NOW), {"fetched": 0, "failed": 0, "skipped": 0, "paused": 0, "running": True})
+        finally:
+            image_cache._PREFETCH_RUNNING.release()
+        self.get.assert_not_called()
+        self.assertEqual(image_cache.prefetch(now=NOW)["fetched"], 1)
+
+    def test_collect_known_survives_a_table_that_has_no_image_column_yet(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute("CREATE TABLE ah_receipt_products (receipt_product_id INTEGER PRIMARY KEY, product_id INTEGER, title TEXT, checked_at TEXT NOT NULL)")
+            conn.execute("INSERT INTO ah_receipt_products VALUES (1, 10, 'Melk', 'x')")
+        self.assertEqual(image_cache.collect_known(now=NOW), 0)
 
     def test_prefetch_counts_failures_and_paused_hosts(self):
         image_cache.register("https://static.ah.nl/dam/product/x", now=NOW)

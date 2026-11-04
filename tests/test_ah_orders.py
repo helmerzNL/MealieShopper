@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_explore, ah_orders, auth_password, image_cache  # noqa: E402
+from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ACTIVE = {
@@ -429,6 +429,16 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         with mock.patch.object(image_cache, "prefetch_async") as prefetch:
             self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
         prefetch.assert_called_once_with(limit=40)
+
+    def test_an_old_database_gets_the_image_column_once_even_from_two_connections(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute("DROP TABLE IF EXISTS ah_receipt_products")
+            conn.execute("CREATE TABLE ah_receipt_products (receipt_product_id INTEGER PRIMARY KEY, product_id INTEGER, title TEXT, checked_at TEXT NOT NULL)")
+        with closing(ah_orders._connect()) as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}
+        self.assertIn("image", columns)
+        with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste: geen "duplicate column name"
+            ah_orders._add_image_column(conn)
 
     def test_linking_keeps_the_product_image_and_the_receipt_shows_it(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import threading
 import time
 from collections import deque
@@ -118,8 +119,17 @@ def _connect():
     conn.executescript(SCHEMA)
     # Een database van vóór de bonfoto's heeft die kolom nog niet; `backfill_receipt_images` vult hem 's nachts.
     if "image" not in {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}:
-        conn.execute("ALTER TABLE ah_receipt_products ADD COLUMN image TEXT")
+        _add_image_column(conn)
     return conn
+
+
+def _add_image_column(conn) -> None:
+    """De migratie; twee threads die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
+    try:
+        conn.execute("ALTER TABLE ah_receipt_products ADD COLUMN image TEXT")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc):
+            raise
 
 
 def _now() -> str:

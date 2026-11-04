@@ -65,10 +65,11 @@ MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 40_000_000  # meer pixels openen we niet (een "decompressiebom")
 TIMEOUT = (5, 15)
 CONCURRENCY = 2
+WAIT_SECONDS = 10  # zo lang wacht een verzoek op een download die een ander verzoek al doet
 MAX_REDIRECTS = 3
 PACE_SECONDS = 0.3  # op afroep: minstens zoveel tussen twee verzoeken op dezelfde host, plus jitter
 PACE_JITTER = 0.2
-BACKGROUND_PACE = (2.0, 5.0)  # in de achtergrondtaak
+BACKGROUND_PACE = (2.0, 5.0)  # de rustpauze tussen twee foto's in de achtergrondtaak
 PAUSE_HOURS = 12  # na een 403 of 429
 RETRY_AFTER = {
     1: timedelta(days=1),
@@ -129,6 +130,7 @@ _SESSIONS: dict[str, requests.Session] = {}
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: dict[str, threading.Event] = {}  # adres -> het verzoek dat het nu ophaalt
 _PREFETCH_THREADS: list[threading.Thread] = []
+_PREFETCH_RUNNING = threading.Lock()  # hooguit een ronde tegelijk (de nachtelijke en die na een synchronisatie)
 
 
 def _now() -> str:
@@ -305,19 +307,17 @@ def _session(host: str) -> requests.Session:
         return session
 
 
-def _pace(host: str, background: bool) -> None:
-    """Wacht tot er genoeg tijd zit tussen dit verzoek en het vorige op dezelfde host."""
-    gap = (
-        random.uniform(*BACKGROUND_PACE)
-        if background
-        else PACE_SECONDS + random.uniform(0, PACE_JITTER)
-    )
+def _pace(host: str) -> None:
+    """Wacht tot er genoeg tijd zit tussen dit verzoek en het vorige op dezelfde host (`PACE_SECONDS` plus jitter). Onder de lock
+    reserveren we alleen ons tijdstip; het slapen gebeurt zonder lock en zonder slot, zodat een wachtende thread niemand anders
+    ophoudt. De rustpauze van de achtergrondtaak (2 tot 5 s) zit in `prefetch`, niet hier."""
+    gap = PACE_SECONDS + random.uniform(0, PACE_JITTER)
     with _PACE_LOCK:
-        last = _PACE.get(host)
-        wait = last + gap - time.monotonic() if last is not None else 0.0
-        if wait > 0:
-            time.sleep(wait)
-        _PACE[host] = time.monotonic()
+        start = max(time.monotonic(), _PACE.get(host, float("-inf")) + gap)
+        _PACE[host] = start
+    wait = start - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
 
 
 # --- ophalen ---------------------------------------------------------------------------------------
@@ -394,19 +394,23 @@ def _store_file(url: str, data: bytes, content_type: str) -> tuple[str, str]:
     target = images_dir() / path
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + ".part")
-    partial.write_bytes(data)
-    os.replace(partial, target)
+    try:
+        partial.write_bytes(data)
+        os.replace(partial, target)
+    except OSError:
+        partial.unlink(missing_ok=True)
+        raise
     return path, hashlib.sha256(data).hexdigest()
 
 
-def _fetch_once(url: str, now: str, background: bool) -> dict[str, Any] | None:
+def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
     store = store_for(url)
     host = urlsplit(url).hostname or ""
     if not store or _paused(host, now):
         return None
     try:
+        _pace(host)
         with _SLOTS:
-            _pace(host, background)
             data, content_type = _download(store, host, url)
     except requests.HTTPError as exc:
         status = getattr(exc, "status", 0)
@@ -419,27 +423,27 @@ def _fetch_once(url: str, now: str, background: bool) -> dict[str, Any] | None:
         return None
     try:
         width, height = _measure(data)
-    except ValueError as exc:
-        _record_failure(url, now, 1, str(exc))
+        path, digest = _store_file(url, data, content_type)
+    except (ValueError, OSError) as exc:  # geen afbeelding, of de schijf is vol of alleen-lezen: niet meteen opnieuw proberen
+        _record_failure(url, now, 1, str(exc) or exc.__class__.__name__)
         return None
-    path, digest = _store_file(url, data, content_type)
     _record_success(url, now, path, content_type, len(data), width, height, digest)
     return lookup(url)
 
 
-def fetch(
-    url: str, *, now: str | None = None, background: bool = False
-) -> dict[str, Any] | None:
+def fetch(url: str, *, now: str | None = None) -> dict[str, Any] | None:
     """De rij van een foto die op schijf staat, na hem zo nodig op te halen. None als dat niet kan: een onbekende host, een
     host in pauze, een adres dat na een mislukking nog wacht, of een mislukking nu. Vraagt een ander verzoek dezelfde foto
-    al op, dan wacht dit verzoek op dat resultaat."""
+    al op, dan wacht dit verzoek hooguit `WAIT_SECONDS` op dat resultaat. Een hit leest alleen: geen schrijfactie per foto."""
     if not store_for(url):
         return None
     now = now or _now()
-    register(url, now)
     row = lookup(url)
     if row and row.get("path") and (images_dir() / row["path"]).is_file():
         return row
+    if not row:
+        register(url, now)
+        row = lookup(url)
     if row and row.get("path"):
         with (
             closing(_connect()) as conn,
@@ -460,11 +464,11 @@ def fetch(
         else:
             owner = False
     if not owner:
-        running.wait(TIMEOUT[0] + TIMEOUT[1] + 5)
+        running.wait(WAIT_SECONDS)
         found = lookup(url)
         return found if found and found.get("path") else None
     try:
-        return _fetch_once(url, now, background)
+        return _fetch_once(url, now)
     finally:
         with _INFLIGHT_LOCK:
             _INFLIGHT.pop(url, None)
@@ -486,8 +490,8 @@ def collect_known(now: str | None = None) -> int:
     with closing(_connect()) as conn, conn:
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         for table, column in KNOWN_IMAGE_COLUMNS:
-            if table not in tables:
-                continue
+            if table not in tables or column not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                continue  # een database van vóór die kolom (de migratie volgt bij het eerste gebruik van die module)
             urls = {row[0] for row in conn.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != ''")}
             for url in urls:
                 if not store_for(url):
@@ -503,30 +507,37 @@ def prefetch(*, limit: int = PREFETCH_LIMIT, deadline_seconds: float = PREFETCH_
     """Haal in een rustig tempo op wat nog ontbreekt, nieuwste adressen eerst: hooguit `limit` verzoeken en `deadline_seconds` lang.
     `skipped` zijn adressen die na een mislukking nog wachten of op een host in pauze staan, `paused` het aantal hosts in pauze."""
     now = now or _now()
-    collect_known(now)
     result = {"fetched": 0, "failed": 0, "skipped": 0, "paused": 0}
-    with closing(_connect()) as conn:
-        rows = [dict(row) for row in conn.execute("SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC")]
-    paused_hosts: set[str] = set()
-    deadline = time.monotonic() + deadline_seconds
-    for row in rows:
-        if result["fetched"] + result["failed"] >= limit or time.monotonic() > deadline:
-            break
-        host = row["host"]
-        if host in paused_hosts or _paused(host, now):
-            paused_hosts.add(host)
-            result["skipped"] += 1
-            continue
-        if not due(row, now):
-            result["skipped"] += 1
-            continue
-        if fetch(row["url"], now=now, background=True):
-            result["fetched"] += 1
-        else:
-            result["failed"] += 1
-            if _paused(host, now):
+    if not _PREFETCH_RUNNING.acquire(blocking=False):
+        return {**result, "running": True}
+    try:
+        collect_known(now)
+        with closing(_connect()) as conn:
+            rows = [dict(row) for row in conn.execute("SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC")]
+        paused_hosts: set[str] = set()
+        deadline = time.monotonic() + deadline_seconds
+        for row in rows:
+            if result["fetched"] + result["failed"] >= limit or time.monotonic() > deadline:
+                break
+            host = row["host"]
+            if host in paused_hosts or _paused(host, now):
                 paused_hosts.add(host)
-    result["paused"] = len(paused_hosts)
+                result["skipped"] += 1
+                continue
+            if not due(row, now):
+                result["skipped"] += 1
+                continue
+            if result["fetched"] + result["failed"]:
+                time.sleep(random.uniform(*BACKGROUND_PACE))  # rustig aan: de winkel merkt ons liever niet op
+            if fetch(row["url"], now=now):
+                result["fetched"] += 1
+            else:
+                result["failed"] += 1
+                if _paused(host, now):
+                    paused_hosts.add(host)
+        result["paused"] = len(paused_hosts)
+    finally:
+        _PREFETCH_RUNNING.release()
     return result
 
 
