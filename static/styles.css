@@ -4026,6 +4026,153 @@ body.has-onboarding {
   }
 }
 
+/* Overzicht: rijen met een strook foto's links en de details rechts; de streep in de kleur van de soort aan de linkerrand. */
+.purchase-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding: 2px;
+  overscroll-behavior: contain;
+}
+
+.purchase-overview > p {
+  margin: 0;
+}
+
+.purchase-overview__row {
+  position: relative;
+  display: flex;
+  flex: none; /* in de kolom van de lijst: anders krimpen 500 rijen samen tot streepjes */
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  content-visibility: auto;
+  contain-intrinsic-size: 0 84px;
+}
+
+.purchase-overview__row .purchase-kind--stripe {
+  width: 3px;
+  flex: none;
+  align-self: stretch;
+}
+
+.purchase-overview__link {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 44px 10px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.purchase-overview__strip {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  min-width: 56px;
+  min-height: 56px;
+}
+
+.purchase-overview__strip img {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid var(--border);
+}
+
+.purchase-overview__icon {
+  width: 32px;
+  height: 32px;
+  margin: 12px;
+  fill: var(--muted);
+  opacity: 0.6;
+}
+
+.purchase-overview__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.purchase-overview__head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.purchase-overview__head strong {
+  color: var(--primary);
+  font-size: 15px;
+}
+
+.purchase-overview__amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.purchase-overview__meta,
+.purchase-overview__names {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.purchase-overview__names--hits {
+  color: var(--text);
+}
+
+.purchase-overview__action {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  transform: translateY(-50%);
+}
+
+@media (hover: hover) {
+  .purchase-overview__row:hover {
+    background: var(--selection);
+  }
+}
+
+@media (max-width: 640px) {
+  .purchase-overview__strip img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .purchase-overview__strip img:nth-child(n + 5) {
+    display: none;
+  }
+
+  /* Op een telefoon past de strook niet naast de tekst: de foto's boven, de details eronder. */
+  .purchase-overview__link {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding-right: 40px;
+  }
+
+  .purchase-overview__row {
+    contain-intrinsic-size: 0 120px;
+  }
+}
+
 .purchase-table__sort {
   padding: 0;
   border: 0;

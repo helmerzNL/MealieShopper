@@ -177,14 +177,14 @@ function purchaseCollage(row, count) {
 
 // De regels onder de collage, naar de opties: status en bezorgmoment (of de betaalwijze van een bon), producten en bedrag,
 // het bespaarde bedrag, en de productnamen (bij zoeken de gevonden regels).
-function purchaseDetailLines(row, matches, { names = true } = {}) {
+function purchaseDetailLines(row, matches, { names = true, amount = true } = {}) {
   const lines = [];
   if (purchaseView.options.status) {
     const status = row.kind === "receipt" ? row.payment : row.status;
     if (status) lines.push(escapeHtml(status));
   }
   const count = row.items === null ? t("orders.items_pending") : tn("list.items", row.items);
-  lines.push(escapeHtml([count, money(row.total)].filter(Boolean).join(" · ")));
+  lines.push(escapeHtml([count, amount ? money(row.total) : ""].filter(Boolean).join(" · ")));
   if (purchaseView.options.savings && row.savings > 0) lines.push(`<span class="purchase-card__savings">${escapeHtml(t("orders.saved", { amount: money(row.savings) }))}</span>`);
   if (names && matches) {
     const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);
@@ -224,5 +224,44 @@ function renderPurchaseCards(visible, hits) {
   grid.innerHTML = ordersState.empty
     ? `<p class="muted purchase-cards__empty">${ordersState.empty}</p>`
     : visible.map((row) => purchaseCard(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
+  window.requestAnimationFrame(purchaseViewFit);
+}
+
+// ---- Overzicht: een rij per aankoop met links een strook foto's en rechts de details op een paar regels.
+
+function purchaseOverviewRow(row, matches) {
+  const urls = row.images.slice(0, 6);
+  const strip = urls.length
+    ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")
+    : mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-overview__icon");
+  const lines = purchaseDetailLines(row, matches, { names: false, amount: false }); // het bedrag staat al in de kop
+  const meta = [escapeHtml(purchaseKindText(row.kind)), ...lines].join(" · ");
+  let names = "";
+  if (matches) {
+    const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);
+    if (matches.length > 3) shown.push(t("orders.more", { count: matches.length - 3 }));
+    names = `<span class="purchase-overview__names purchase-overview__names--hits">${escapeHtml(shown.join(", "))}</span>`;
+  } else if (purchaseView.options.names && row.names.length) {
+    names = `<span class="purchase-overview__names">${escapeHtml(row.names.join(", "))}</span>`;
+  }
+  return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr}>
+      ${purchaseKindMarkup(row.kind, "stripe")}
+      <a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav>
+        <span class="purchase-overview__strip">${strip}</span>
+        <span class="purchase-overview__body">
+          <span class="purchase-overview__head"><strong>${escapeHtml(row.label)}</strong><span class="purchase-overview__amount">${escapeHtml(money(row.total))}</span></span>
+          <span class="purchase-overview__meta">${meta}</span>
+          ${names}
+        </span>
+      </a>
+      ${purchaseDeleteButton(row, "purchase-overview__action")}
+    </article>`;
+}
+
+function renderPurchaseOverview(visible, hits) {
+  const list = $("#ah-purchase-overview");
+  list.innerHTML = ordersState.empty
+    ? `<p class="muted">${ordersState.empty}</p>`
+    : visible.map((row) => purchaseOverviewRow(row, hits ? hits.get(`${row.kind}:${row.id}`) : null)).join("");
   window.requestAnimationFrame(purchaseViewFit);
 }

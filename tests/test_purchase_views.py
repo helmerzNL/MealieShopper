@@ -86,5 +86,22 @@ class PurchaseCardsTest(unittest.TestCase):
             self.assertIn(needle, mapping, needle)
 
 
+class PurchaseOverviewTest(unittest.TestCase):
+    def test_the_overview_is_a_list_of_rows_with_a_photo_strip(self):
+        self.assertIn('id="ah-purchase-overview"', HTML)
+        for needle in ("function purchaseOverviewRow(row, matches)", "function renderPurchaseOverview(visible, hits)", "row.images.slice(0, 6)",
+                       "purchase-overview__strip", '<a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav'):
+            self.assertIn(needle, VIEWS)
+        self.assertIn("purchaseDetailLines(row, matches, { names: false, amount: false })", VIEWS, "het bedrag staat in de kop van de rij, niet nog een keer in de regel eronder")
+        self.assertRegex(CSS, r"\.purchase-overview__strip img \{\n(?:.*\n)*?  width: 56px;")
+        self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  content-visibility: auto;")
+        self.assertRegex(CSS, r"\.purchase-overview__row \{\n(?:.*\n)*?  flex: none;", "een rij mag in de kolom niet krimpen")
+        self.assertRegex(CSS, r"@media \(max-width: 640px\) \{\n(?:.*\n)*?  \.purchase-overview__strip img:nth-child\(n \+ 5\) \{\n    display: none;")
+
+    def test_every_view_draws_from_the_same_rows(self):
+        self.assertIn('const panes = { table: $("#ah-purchase-table-wrap"), cards: $("#ah-purchase-cards"), overview: $("#ah-purchase-overview") };', VIEWS)
+        self.assertIn("renderPurchaseOverview(visible, hits)", VIEWS.split("function renderPurchaseView")[1].split("\n}\n")[0])
+
+
 if __name__ == "__main__":
     unittest.main()
