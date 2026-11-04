@@ -726,6 +726,9 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
 
 VERDICT_DAYS = 30  # de gewone prijs om mee te vergelijken: de laagste van de laatste 30 dagen (zoals de regel voor een "van"-prijs)
 YEAR_DAYS = 365
+EVER_DAYS = 365  # "laagste prijs ooit" pas als de app het product minstens zo lang volgt
+HALF_YEAR_DAYS = 182  # "laagste in 6 maanden" pas bij een half jaar dekking
+SEEN_DAYS = 30  # "laagste sinds <maand>": de milde trede voor een installatie die nog kort meet
 GOOD_DISCOUNT = 0.20  # vanaf 20% onder de laagste gewone prijs van de laatste 30 dagen is het echt voordelig
 OFTEN_PER_YEAR = 6  # zo vaak of vaker per jaar in de aanbieding: het komt vaak terug
 PACK_DAYS = 60  # hoe oud een prijs van een andere verpakking mag zijn om mee te vergelijken
@@ -892,8 +895,14 @@ def _days_ago(today: str, days: int) -> str:
 
 
 def _episode_effective(row: Any) -> float | None:
+    """Wat een stuk kostte bij een periode uit `offer_history`: uit de actietekst, en zonder "van"-prijs zoals `_effective` dat bij
+    de aanbieding zelf doet ("1+1 gratis" met de gewone prijs als prijs), anders de prijs van de periode."""
     described = deals.describe(row["promo_label"], price_now=row["price"], price_before=row["price_before"])
-    return _number(described["unitPrice"]) if _number(described["unitPrice"]) is not None else _number(row["price"])
+    if _number(described["unitPrice"]) is not None:
+        return _number(described["unitPrice"])
+    as_offer = {"price": row["price"], "priceBefore": row["price_before"], "promoLabel": row["promo_label"]}
+    effective = _effective(as_offer)
+    return effective if effective is not None else _number(row["price"])
 
 
 def signature(store: Any) -> str:
@@ -917,14 +926,79 @@ def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) 
     `verdict.kind` is `good` (minstens 20% onder de laagste gewone prijs van de laatste 30 dagen), `small` (wel lager, maar minder),
     `none` (niet lager dan de gewone prijs van de laatste 30 dagen) of `unknown` (de actieprijs per stuk of de gewone prijs is niet bekend).
     Daarnaast: `percent`, `lowestRegular` (de laagste gewone prijs van de laatste 30 dagen), `inflated` (de prijs ervoor die de winkel noemt
-    is hoger dan die laagste), `timesThisYear`, `often`, `bestInYear` en `cheaperPack` (een andere verpakking van hetzelfde product die
-    per eenheid goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Een fout laat de aanbiedingen staan zonder oordeel.
+    is hoger dan die laagste), `timesThisYear`, `often` en `cheaperPack` (een andere verpakking van hetzelfde product die per eenheid
+    goedkoper is, uit de bewaarde prijzen en de andere aanbiedingen). Daarnaast `badge` (het getal op de kaart: `percent`, `source`
+    `history` of `store`, `claimed`, `inflated`) en `priceLabel` (de ladder uit de geschiedenis, zie `price_label`). Een fout laat de
+    aanbiedingen staan zonder oordeel.
     """
     try:
         _annotate(store, items, today or _now()[:10])
     except Exception:  # noqa: BLE001 - het oordeel is een extraatje; de aanbiedingen gaan altijd door
         log.warning("Oordeel bij de aanbiedingen mislukt voor %s", store, exc_info=True)
     return items
+
+
+def _history_points(conn, store: str, today: str) -> dict[str, list[tuple[str, float]]]:
+    """Per product de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun begindag, wat
+    een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt niet). De lopende
+    aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag."""
+    points: dict[str, list[tuple[str, float]]] = {}
+
+    def add(product_id: Any, day: Any, price: Any) -> None:
+        value = _number(price)
+        if product_id and day and value is not None and value > 0 and str(day)[:10] <= today:
+            points.setdefault(str(product_id), []).append((str(day)[:10], value))
+
+    for row in conn.execute("SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL ORDER BY product_id, first_seen, id", (store,)):
+        add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row))
+    for row in conn.execute("SELECT product_id, day, price FROM price_observations WHERE store = ?", (store,)):
+        add(row["product_id"], row["day"], row["price"])
+    for sql in _purchase_sources(conn, store):
+        for row in conn.execute(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0"):
+            add(row["product_id"], row["day"], row["paid"])
+    for row in _receipt_rows(conn, store, today):
+        add(row["product_id"], row["day"], row["paid"])
+    return {product_id: sorted(found) for product_id, found in points.items()}
+
+
+def _lowest_since(points: list[tuple[str, float]], since: str) -> float | None:
+    """De laagste prijs op of na een dag, of None als er in dat venster geen meting is."""
+    inside = [price for day, price in points if day >= since]
+    return min(inside) if inside else None
+
+
+def price_label(effective: float | None, points: list[tuple[str, float]], today: str) -> dict[str, Any]:
+    """De trede op de ladder van de prijsgeschiedenis voor een actieprijs: `lowest_ever`, `lowest_12m`, `lowest_6m`, `lowest_seen`,
+    `lower_before` of None, als `{"kind", "price", "month", "coveredSince"}`.
+
+    Alleen de strengste trede die waar is. Een venster telt pas als de app het product langer dan dat venster volgt (`coveredSince`)
+    en er in dat venster een meting is: na een week is "laagste in 6 maanden" anders triviaal waar. `lower_before` geeft de laagste
+    eerdere prijs en de maand waarin die het laatst gold. Prijzen binnen een halve cent zijn gelijk.
+    """
+    empty: dict[str, Any] = {"kind": None, "price": None, "month": None, "coveredSince": None}
+    value = _number(effective)
+    if value is None or not points:
+        return empty
+    ordered = sorted(points)
+    since = ordered[0][0]
+    covered = (date.fromisoformat(today) - date.fromisoformat(since)).days
+    lowest_all = min(price for _, price in ordered)
+    lowest_year: float | None = _lowest_since(ordered, _days_ago(today, YEAR_DAYS))
+    lowest_half: float | None = _lowest_since(ordered, _days_ago(today, HALF_YEAR_DAYS))
+    is_lowest = value <= lowest_all + 0.005
+    label = {**empty, "coveredSince": since}
+    if covered >= EVER_DAYS and is_lowest:
+        return {**label, "kind": "lowest_ever"}
+    if covered >= YEAR_DAYS and lowest_year is not None and value <= lowest_year + 0.005:
+        return {**label, "kind": "lowest_12m"}
+    if covered >= HALF_YEAR_DAYS and lowest_half is not None and value <= lowest_half + 0.005:
+        return {**label, "kind": "lowest_6m"}
+    if covered >= SEEN_DAYS and is_lowest:
+        return {**label, "kind": "lowest_seen", "month": since[:7]}
+    if lowest_all < value - 0.005:
+        latest = max(day for day, price in ordered if price == lowest_all)
+        return {**label, "kind": "lower_before", "price": lowest_all, "month": latest[:7]}
+    return label
 
 
 def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
@@ -949,6 +1023,7 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             span = offers._episode_span(row)
             if _number(row["price_before"]) is not None and (span["end"] is None or span["end"] >= since30) and (span["start"] or "") <= today:
                 regulars.setdefault(row["product_id"], []).append(row["price_before"])
+        points = _history_points(conn, store, today)
 
     # Wat elke verpakking per eenheid kost: de gewone prijs uit de bewaarde prijzen en de actieprijs van de andere aanbiedingen.
     packs_known: list[dict[str, Any]] = [
@@ -992,9 +1067,7 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
         started = [row for row in mine if (offers._episode_span(row)["start"] or "") >= since_year]
         verdict["timesThisYear"] = max(len(started), 1)
         verdict["often"] = verdict["timesThisYear"] >= OFTEN_PER_YEAR
-        others = [price for row in episodes.get(product_id, []) if row["ended_at"] is not None
-                  for price in [_episode_effective(row)] if price is not None]
-        verdict["bestInYear"] = bool(others) and effective is not None and effective <= min(others) + 0.005
+        offer["priceLabel"] = price_label(effective, points.get(product_id, []), today)
         verdict["cheaperPack"] = None
         mine_unit = offer["unitPricePer"]
         base = base_title(offer.get("title"))

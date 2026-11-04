@@ -60,7 +60,7 @@ function verdictOf(title) {
   const pack = extra.pack ? { productId: "wi-pack", title: extra.pack[0], unitSize: extra.pack[1], price: extra.pack[2], unitPrice: perUnit(extra.pack[2], extra.pack[1]), onOffer: false } : null;
   return {
     kind, percent, lowestRegular, inflated: Boolean(extra.inflated), timesThisYear: extra.often || 2, often: Boolean(extra.often),
-    bestInYear: Boolean(extra.best), cheaperPack: pack,
+    cheaperPack: pack,
   };
 }
 
