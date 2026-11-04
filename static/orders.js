@@ -138,7 +138,9 @@ const purchaseFilters = { orders: true, receipts: true, min: "", max: "" };
 
 function purchaseRows() {
   const store = ordersStore();
-  const rows = ordersState.orders.map((order) => ({
+  // Een bestelling uit je account zonder producten waarvan de ingelezen versie er is, staat er niet nog een keer (#229).
+  const { kept, covered } = importedOrdersCover(ordersState.orders, ordersState.imported);
+  const rows = kept.map((order) => ({
     kind: "order", id: String(order.id), date: order.deliveryDate || "", open: order.kind === "open",
     label: dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }),
     status: [order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"), slotLabel(order.slotStart, order.slotEnd)].filter(Boolean).join(" · "),
@@ -146,11 +148,14 @@ function purchaseRows() {
     href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
     images: order.images || [], names: order.productNames || [], savings: order.savings, bonusCount: order.bonusCount || 0, payment: null,
   }));
+  // Een ingelezen bestelling heeft dezelfde gegevens als een bestelling uit je account: status en tijdvak uit de mail, en de foto's,
+  // het voordeel en de bonus van de producten waar de regels bij horen (price_import.list_orders).
   for (const order of ordersState.imported) {
     rows.push({
-      kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order), status: "", ref: order.ref,
+      kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order),
+      status: importedOrderStatus(order, covered.get(order.ref)), ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
-      images: [], names: order.productNames || [], savings: null, bonusCount: 0, payment: null,
+      images: order.images || [], names: order.productNames || [], savings: order.savings ?? null, bonusCount: order.bonusCount || 0, payment: null,
     });
   }
   if (!ordersAreJumbo()) {
@@ -203,9 +208,7 @@ function purchaseProductsCell(row, matches) {
 }
 
 function purchaseRow(row, matches) {
-  const kind = purchaseKindMarkup(row.kind, "dot") + (row.kind === "imported"
-    ? `${mdiIcon(MDI_ARCHIVE_OUTLINE, "mdi purchase-table__badge")}${escapeHtml(t("orders.kind.imported"))}`
-    : escapeHtml(t(row.kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order")));
+  const kind = purchaseKindMarkup(row.kind, "dot") + purchaseKindLabel(row.kind);
   const remove = t("orders.imported.delete");
   const action = row.kind === "imported" && priceImportIsOwner()
     ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`
@@ -456,10 +459,12 @@ async function openPurchase(kind, id) {
         ? `<div class="product-grid">${order.items.map((item) => purchaseItem(item, ordersAreJumbo() ? "jumbo" : "ah")).join("")}</div>`
         : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
     } else if (kind === "imported") {
+      // Zoals een bestelling uit je account: status en tijdvak, en de producten met foto, merk en inhoud (price_import.get_order).
       const store = ordersStore();
       const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(id)}`);
+      const from = importedOrdersCover(ordersState.orders, [order]).covered.get(order.ref);
       $("#ah-order-title").textContent = importedOrderTitle(order);
-      $("#ah-order-meta").textContent = importedOrderMeta(order);
+      $("#ah-order-meta").textContent = importedOrderMeta(order, importedOrderStatus(order, from));
       $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`; // altijd met producten
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
@@ -531,23 +536,61 @@ async function importedOrdersFetch(store) {
   }
 }
 
-// De ingelezen bestellingen tussen de bestellingen uit je account, de nieuwste eerst. `dateOf` geeft de dag van een bestelling uit
-// je account; bij gelijke dagen blijft de volgorde van de server staan.
-function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliveryDate) {
+// #229: een bestelling uit je account zonder producten (Jumbo geeft de producten van oude bestellingen niet) en de ingelezen
+// versie uit je mails zijn dezelfde bestelling. Die uit je account valt dan weg uit de lijst, zodat de bestelling er één keer staat,
+// met de producten uit de mail. Zelfde regel als price_import.account_orders, maar omgekeerd: zelfde bestelnummer of zelfde dag
+// (`dateOf` geeft de dag van een bestelling uit je account). Komen de producten later toch uit je account, dan verbergt de server
+// de ingelezen versie en staat die uit je account er weer. Alleen in de lijst: de bestelling blijft bewaard, want de volgende
+// synchronisatie zou haar toch weer neerzetten.
+// Geeft { kept, covered }: de bestellingen die blijven, en per ingelezen bestelling (ref) de bestelling uit je account die erdoor
+// wegviel, zodat haar status en tijdvak kunnen invullen wat de mail niet noemde.
+function importedOrdersCover(orders, imported, dateOf = (order) => order.deliveryDate) {
+  const byNumber = new Map();
+  const byDay = new Map();
+  for (const order of imported) {
+    if (order.number) byNumber.set(String(order.number), order);
+    const day = String(order.date || "").slice(0, 10);
+    if (day && !byDay.has(day)) byDay.set(day, order);
+  }
+  const kept = [];
+  const covered = new Map();
+  for (const order of orders) {
+    const empty = order.kind !== "open" && (order.itemsSynced === false || order.itemCount === 0);
+    const match = empty ? byNumber.get(String(order.id)) || byDay.get(String(dateOf(order) || "").slice(0, 10)) : null;
+    if (!match) kept.push(order);
+    else if (!covered.has(match.ref)) covered.set(match.ref, order);
+  }
+  return { kept, covered };
+}
+
+// De ingelezen bestellingen tussen de bestellingen uit je account, de nieuwste eerst (Picnic en Crisp; AH en Jumbo: purchaseRows).
+// `shape(order, from)` maakt van een ingelezen bestelling er een in de vorm van die winkel, met `from` de bestelling uit je account
+// die erdoor wegviel (importedOrdersCover). Bij gelijke dagen blijft de volgorde van de server staan.
+function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliveryDate, shape = (order) => order) {
+  const { kept, covered } = importedOrdersCover(orders, imported, dateOf);
   const day = (order) => String((order.imported ? order.date : dateOf(order)) || "").slice(0, 10);
-  return [...orders, ...imported].sort((a, b) => day(b).localeCompare(day(a)));
+  return [...kept, ...imported.map((order) => shape(order, covered.get(order.ref)))].sort((a, b) => day(b).localeCompare(day(a)));
+}
+
+// Status en tijdvak van een ingelezen bestelling zoals AH en Jumbo ze bij een eigen bestelling tonen ("Afgeleverd · 18:00-20:00").
+// Noemde de mail ze niet, dan die van de bestelling uit je account die erdoor wegviel (`from`).
+function importedOrderStatus(order, from = null) {
+  const delivered = order.status === "delivered" || (!order.status && Boolean(from) && from.kind !== "open");
+  const slot = slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
+  return [delivered ? t("orders.kind.delivered") : "", slot].filter(Boolean).join(" · ");
 }
 
 function importedOrderTitle(order) {
   return dayLabel(order.date) || t("orders.order_title", { id: order.ref });
 }
 
-function importedOrderMeta(order) {
+// De regel onder de titel van een geopende ingelezen bestelling, zoals bij een bestelling uit je account, met wanneer ze is ingelezen.
+function importedOrderMeta(order, status = importedOrderStatus(order)) {
   return [
     order.number ? t("orders.order_title", { id: order.number }) : "",
-    t("orders.imported.at", { when: formatSyncTime(order.importedAt) }),
+    status,
     money(order.total),
-    tn("list.items", order.itemCount),
+    t("orders.imported.at", { when: formatSyncTime(order.importedAt) }),
   ].filter(Boolean).join(" · ");
 }
 
@@ -555,18 +598,15 @@ function importedOrderItems(order, store) {
   return order.items.map((item) => purchaseItem(item, store)).join("");
 }
 
-// Een kaart zoals die van een bestelling uit je account. Bij AH en Jumbo heeft de bestelling een eigen adres
-// (/stores/ah/imported/<ref>, zie router.js); Picnic en Crisp openen hem in hun eigen tabblad.
-function importedOrderCard(order, store) {
+// Een ingelezen bestelling bij Picnic en Crisp, met de regels van de kaart van die winkel (`lines`: status, tijdvak en bedrag,
+// aantal), het archief-icoon voor de datum en de prullenbak. Bij AH en Jumbo staat ze als rij in de aankopentabel (purchaseRow).
+function importedOrderCard(order, store, lines) {
   const title = importedOrderTitle(order);
   const badge = t("orders.imported.badge");
-  const lines = [[t("orders.kind.imported"), money(order.total)].filter(Boolean).join(" · "), tn("list.items", order.itemCount)];
   const body = `
         <strong><span class="list-card__badge" role="img" aria-label="${escapeHtml(badge)}" title="${escapeHtml(badge)}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>${escapeHtml(title)}</strong>
         ${lines.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}`;
-  const open = store === "ah" || store === "jumbo"
-    ? `<a class="list-card__open" data-imported-order="${escapeHtml(order.ref)}" href="${escapeHtml(storesPath(store, "imported", order.ref))}" data-nav>${body}</a>`
-    : `<button type="button" class="list-card__open" data-imported-order="${escapeHtml(order.ref)}">${body}</button>`;
+  const open = `<button type="button" class="list-card__open" data-imported-order="${escapeHtml(order.ref)}">${body}</button>`;
   const remove = t("orders.imported.delete");
   return `
     <div class="list-card list-card--imported">
@@ -596,25 +636,27 @@ async function deleteImportedOrder(store, ref, button) {
   }
 }
 
-// Picnic en Crisp: dezelfde opbouw (#picnic-order-view, #crisp-order-view), elk met een eigen teller tegen een trage oude aanvraag.
-async function openImportedStoreOrder(store, ref, current) {
-  $(`#${store}-orders-list-view`).hidden = true;
-  $(`#${store}-order-view`).hidden = false;
-  $(`#${store}-order-title`).textContent = t("orders.order_title", { id: ref });
-  $(`#${store}-order-meta`).textContent = "";
-  $(`#${store}-order-items`).innerHTML = "";
-  $(`#${store}-order-add-all`).hidden = true; // een regel uit een mail heeft geen product van de winkel
-  message(`#${store}-order-message`, "");
-  try {
-    const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(ref)}`);
-    if (!current()) return;
-    $(`#${store}-order-title`).textContent = importedOrderTitle(order);
-    $(`#${store}-order-meta`).textContent = importedOrderMeta(order);
-    $(`#${store}-order-items`).innerHTML = importedOrderItems(order, store);
-    $(`#${store}-order-title`).focus();
-  } catch (error) {
-    if (current()) message(`#${store}-order-message`, error.message);
-  }
+// Een ingelezen bestelling in de vorm van een bestelling uit je account van Picnic of Crisp (#229), zodat ze door dezelfde code
+// gaat: de lijstkaart, het detail en Alles in mandje. `status` is de status van die winkel voor een afgeleverde bestelling. De regels
+// krijgen het product waar ze bij horen als `id` (Alles in mandje) en het bedrag van de hele regel als `price`, zoals Picnic en
+// Crisp het bewaren. Noemde de mail geen status of tijdvak, dan die van de bestelling uit je account die erdoor wegviel (`from`).
+function importedStoreOrder(order, from, status) {
+  const items = (order.items || []).map((item) => ({ ...item, id: item.productId || null, price: item.amount }));
+  return {
+    ...order,
+    items,
+    status: order.status === "delivered" ? status : from?.status || "",
+    windowStart: order.slotStart || from?.windowStart || null,
+    windowEnd: order.slotEnd || (order.slotStart ? null : from?.windowEnd) || null,
+    itemCount: order.units ?? order.itemCount, // Picnic en Crisp tellen stuks, geen regels
+    itemsSynced: true,
+  };
+}
+
+// Bij Alles in mandje van een ingelezen bestelling: de regels uit de mail die bij geen product van de winkel horen, gaan er niet in.
+function importedUnlinkedNote(order) {
+  const unlinked = order.imported ? order.items.filter((item) => !item.id).length : 0;
+  return unlinked ? tn("orders.imported.unlinked", unlinked) : "";
 }
 
 // ---- verkenner (alleen de beheerder): welke AH-routes werken, en met welke velden?

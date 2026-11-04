@@ -160,12 +160,24 @@ function purchaseKindIcon(kind) {
   return kind === "receipt" ? MDI_RECEIPT : kind === "imported" ? MDI_ARCHIVE_OUTLINE : MDI_CART;
 }
 
+// Een ingelezen bestelling is ook gewoon een Bestelling (#229); alleen het archief-icoon ervoor (purchaseKindLabel), de grijze
+// kleur van de soort en de prullenbak laten zien dat ze uit je bevestigingsmails komt.
 function purchaseKindText(kind) {
-  return t(kind === "receipt" ? "orders.kind.receipt" : kind === "imported" ? "orders.kind.imported" : "orders.kind.order");
+  return t(kind === "receipt" ? "orders.kind.receipt" : "orders.kind.order");
+}
+
+// De soort als HTML, voor de tabel, de kaarten en het overzicht. Het archief-icoon zegt als tooltip en voor een schermlezer waar
+// een ingelezen bestelling vandaan komt: de tekst ernaast is dezelfde als bij een bestelling uit je account.
+function purchaseKindLabel(kind) {
+  const text = escapeHtml(purchaseKindText(kind));
+  if (kind !== "imported") return text;
+  const badge = escapeHtml(t("orders.imported.badge"));
+  return `<span class="purchase-kind-badge" role="img" aria-label="${badge}" title="${badge}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>${text}`;
 }
 
 // De collage: hooguit `count` foto's (4 als 2x2, 6 als 3x2; minder foto's worden groter, zie de CSS per aantal). Zonder foto's
-// (een ingelezen bestelling, een bon zonder koppelingen, producten nog niet opgehaald) het pictogram van de soort en de eerste namen.
+// (een ingelezen bestelling of een bon zonder gekoppelde producten, producten nog niet opgehaald) het pictogram van de soort en de
+// eerste namen.
 function purchaseCollage(row, count) {
   const urls = row.images.slice(0, count);
   if (!urls.length) {
@@ -211,7 +223,7 @@ function purchaseCard(row, matches) {
       <a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav>
         ${purchaseCollage(row, count)}
         <strong class="purchase-card__date">${escapeHtml(row.label)}</strong>
-        <span class="purchase-card__kind">${escapeHtml(purchaseKindText(row.kind))}</span>
+        <span class="purchase-card__kind">${purchaseKindLabel(row.kind)}</span>
         ${purchaseDetailLines(row, matches).map((line) => `<span class="purchase-card__line">${line}</span>`).join("")}
       </a>
       ${purchaseDeleteButton(row, "purchase-card__action")}
@@ -235,7 +247,7 @@ function purchaseOverviewRow(row, matches) {
     ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")
     : mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-overview__icon");
   const lines = purchaseDetailLines(row, matches, { names: false, amount: false }); // het bedrag staat al in de kop
-  const meta = [escapeHtml(purchaseKindText(row.kind)), ...lines].join(" · ");
+  const meta = [purchaseKindLabel(row.kind), ...lines].join(" · ");
   let names = "";
   if (matches) {
     const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);

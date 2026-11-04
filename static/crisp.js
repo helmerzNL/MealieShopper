@@ -204,16 +204,29 @@ function crispOrderStatus(status) {
   return known[String(status || "").toLowerCase()] || String(status || "");
 }
 
-function crispOrderDay(order) {
-  return dayLabel(order.windowStart || order.deliveryDate);
+// De dag van een bestelling uit je account; een ingelezen bestelling heeft haar dag uit de mail.
+function crispOrderDate(order) {
+  return order.imported ? order.date : order.windowStart || order.deliveryDate;
 }
 
+function crispOrderDay(order) {
+  return dayLabel(crispOrderDate(order));
+}
+
+// Een ingelezen bestelling (zie importedStoreOrder in orders.js) in de vorm van een bezorgde bestelling van Crisp.
+function crispImportedOrder(order, from) {
+  return importedStoreOrder(order, from, "done");
+}
+
+// `source`: "live" (aankomend), "local" (uit de lokale kopie) of "imported" (ingelezen uit je mails: dezelfde kaart, met het
+// archief-icoon en de prullenbak, zie importedOrderCard in orders.js).
 function crispOrderCard(order, source) {
   const lines = [
     crispOrderStatus(order.status),
     [slotLabel(order.windowStart, order.windowEnd), money(order.total)].filter(Boolean).join(" · "),
     order.itemsSynced ? tn("list.items", order.itemCount || 0) : source === "local" ? t("orders.items_pending") : "",
   ].filter(Boolean);
+  if (source === "imported") return importedOrderCard(order, "crisp", lines);
   return `
     <div class="list-card">
       <button type="button" class="list-card__open" data-crisp-order="${escapeHtml(order.id)}">
@@ -225,13 +238,13 @@ function crispOrderCard(order, source) {
 
 function renderCrispOrders() {
   const { upcoming, syncedAt, loaded } = crispOrders;
-  const past = importedOrdersMerge(crispOrders.past, crispOrders.imported, (order) => order.windowStart || order.deliveryDate);
+  const past = importedOrdersMerge(crispOrders.past, crispOrders.imported, crispOrderDate, crispImportedOrder);
   const empty = (text) => (loaded ? `<p class="muted">${escapeHtml(text)}</p>` : "");
   $("#crisp-orders-upcoming").innerHTML = upcoming.length
     ? upcoming.map((order) => crispOrderCard(order, "live")).join("")
     : empty(crispOrders.upcomingFailed ? t("crisp.orders.upcoming_offline") : t("picnic.orders.upcoming_none"));
   $("#crisp-orders-past").innerHTML = past.length
-    ? past.map((order) => (order.imported ? importedOrderCard(order, "crisp") : crispOrderCard(order, "local"))).join("")
+    ? past.map((order) => crispOrderCard(order, order.imported ? "imported" : "local")).join("")
     : empty(syncedAt ? t("crisp.orders.none") : t("crisp.orders.never_synced"));
   $("#crisp-orders-synced").textContent = loaded && syncedAt ? t("picnic.orders.synced_at", { when: new Date(syncedAt).toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) }) : "";
 }
@@ -298,7 +311,15 @@ function renderCrispOrderItem(item) {
     </article>`;
 }
 
-async function openCrispOrder(id) {
+// Een bestelling uit de lokale kopie, of (`source` "imported") een ingelezen bestelling uit je mails in de vorm van een
+// Crisp-bestelling, met de producten waar de regels bij horen.
+async function fetchCrispOrder(id, source) {
+  if (source !== "imported") return jsonFetch(`/api/crisp/orders/${encodeURIComponent(id)}`);
+  const order = await jsonFetch(`/api/imported-orders/crisp/${encodeURIComponent(id)}`);
+  return crispImportedOrder(order, importedOrdersCover(crispOrders.past, [order], crispOrderDate).covered.get(order.ref));
+}
+
+async function openCrispOrder(id, source = "local") {
   $("#crisp-orders-list-view").hidden = true;
   $("#crisp-order-view").hidden = false;
   $("#crisp-order-title").textContent = t("picnic.orders.order_title", { id });
@@ -309,12 +330,12 @@ async function openCrispOrder(id) {
   crispOrders.detail = null;
   const open = ++crispOrders.run;
   try {
-    const order = await jsonFetch(`/api/crisp/orders/${encodeURIComponent(id)}`);
+    const order = await fetchCrispOrder(id, source);
     if (open !== crispOrders.run) return;
     const items = order.items || [];
     crispOrders.detail = order;
     $("#crisp-order-title").textContent = crispOrderDay(order) || t("picnic.orders.order_title", { id });
-    $("#crisp-order-meta").textContent = [crispOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0)].filter(Boolean).join(" · ");
+    $("#crisp-order-meta").textContent = [crispOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0), order.imported ? t("orders.imported.at", { when: formatSyncTime(order.importedAt) }) : ""].filter(Boolean).join(" · ");
     $("#crisp-order-items").innerHTML = items.map(renderCrispOrderItem).join("");
     $("#crisp-order-add-all").hidden = !items.some((item) => item.id);
     if (!items.length) message("#crisp-order-message", order.itemsSynced === false ? t("crisp.orders.items_not_synced") : t("crisp.orders.no_items"), "success");
@@ -324,11 +345,10 @@ async function openCrispOrder(id) {
   }
 }
 
-// Een ingelezen oude bestelling (zie openImportedStoreOrder in orders.js): zonder producten van Crisp, dus zonder Alles in mandje.
+// Een ingelezen oude bestelling opent als elke andere (#229): met de producten waar de regels uit de mail bij horen, en Alles in
+// mandje voor die producten.
 function openCrispImportedOrder(ref) {
-  crispOrders.detail = null;
-  const open = ++crispOrders.run;
-  openImportedStoreOrder("crisp", ref, () => open === crispOrders.run);
+  openCrispOrder(ref, "imported");
 }
 
 // De producten van een bestelling opnieuw in je Crisp-mandje; er wordt nooit een bestelling geplaatst.
@@ -342,7 +362,7 @@ async function addCrispOrderToBasket() {
     const items = order.items.filter((item) => item.id).map((item) => ({ query: item.title || "", productId: item.id, quantity: item.quantity }));
     const data = await postJson("/api/crisp/cart", { items });
     const failed = (data.failed || []).length;
-    message("#crisp-order-message", [t("crisp.orders.added", { count: data.added || 0 }), failed ? t("picnic.orders.added_failed", { count: failed }) : ""].filter(Boolean).join(" "), failed ? "error" : "success");
+    message("#crisp-order-message", [t("crisp.orders.added", { count: data.added || 0 }), failed ? t("picnic.orders.added_failed", { count: failed }) : "", importedUnlinkedNote(order)].filter(Boolean).join(" "), failed ? "error" : "success");
   } catch (error) {
     message("#crisp-order-message", error.message);
   } finally {

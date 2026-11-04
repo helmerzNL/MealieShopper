@@ -4274,11 +4274,18 @@ body.has-onboarding {
   min-height: 0;
 }
 
-.purchase-table__badge {
-  width: 18px;
-  height: 18px;
-  margin-right: 6px;
-  vertical-align: -4px;
+/* Het archief-icoon voor "Bestelling" bij een ingelezen bestelling (tabel, kaarten, overzicht): het enige dat de herkomst noemt. */
+.purchase-kind-badge {
+  display: inline-flex;
+  margin-right: 4px;
+  vertical-align: -0.2em;
+  color: var(--muted);
+}
+
+.purchase-kind-badge svg {
+  width: 1.15em;
+  height: 1.15em;
+  fill: currentColor;
 }
 
 /* Op een telefoon vallen de kolommen Soort en Status weg: de datum, de producten en het bedrag blijven. */

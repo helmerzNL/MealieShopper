@@ -643,8 +643,9 @@ function renderPriceImportStatus(summary) {
 
 function renderPriceImportReport(report) {
   const orders = (report.orders || []).map((order) => {
-    const what = [priceImportDay(order.date), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
-    const state = order.new ? t("offers.import.new") : order.reason;
+    // De status en het bezorgmoment uit de mail (#229), zoals ze straks bij Bestellingen staan, en wat er niet te lezen was.
+    const what = [priceImportDay(order.date), slotLabel(order.slotStart, order.slotEnd), order.ref.startsWith("dag:") ? "" : `#${order.ref}`, tn("offers.import.items", order.items)].filter(Boolean).join(" · ");
+    const state = [order.new ? t("offers.import.new") : order.reason, order.status === "delivered" ? t("orders.kind.delivered") : "", ...(order.notes || [])].filter(Boolean).join(" · ");
     return `<li class="${order.new ? "is-new" : "is-known"}"><span>${escapeHtml(what)}</span> <small>${escapeHtml(state || "")}</small></li>`;
   });
   const problems = (report.problems || []).map((problem) => `<li class="is-problem"><small>${escapeHtml(problem)}</small></li>`);
