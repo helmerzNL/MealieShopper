@@ -393,6 +393,45 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     return found
 
 
+def _product_details(conn, store: str, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Wat de app van deze producten weet: `title`, `brand`, `unitSize` en `image`, per veld de nieuwste waarde uit je bestellingen,
+    dan de bewaarde prijzen, dan de aanbiedingen. Zonder foto van de winkel de nieuwste bewaarde afbeelding (`product_images`)."""
+    found: dict[str, dict[str, Any]] = {product_id: {} for product_id in ids}
+    if not ids:
+        return found
+    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(conn, store)] + [
+        ("SELECT product_id, title, brand, unit_size, image, day FROM price_observations WHERE store = ?", (store,)),
+        ("SELECT product_id, title, brand, unit_size, image, last_seen AS day FROM offer_history WHERE store = ?", (store,)),
+    ]
+    fields = (("title", "title"), ("brand", "brand"), ("unitSize", "unit_size"), ("image", "image"))
+    for sql, args in sources:
+        for row in conn.execute(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) ORDER BY day DESC", (*args, *ids)):
+            details = found[str(row["product_id"])]
+            for key, column in fields:
+                if not details.get(key) and row[column]:
+                    details[key] = row[column]
+    missing = [product_id for product_id, details in found.items() if not details.get("image")]
+    for product_id, images in (_saved_images(conn, store, missing) if missing else {}).items():
+        found[product_id]["image"] = images[0]["url"]
+    return found
+
+
+def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Per naam uit een bevestigingsmail (`imported_purchases.title`) het product van de winkel waar hij bij hoort, met wat de app
+    ervan weet: {"productId", "title", "brand", "unitSize", "image"}. Dezelfde koppeling op naam als de Prijsgeschiedenis
+    (`_receipt_rows`), dus de link naar de prijsgeschiedenis komt bij hetzelfde product uit. Een naam die nergens bij past, ontbreekt.
+    Zo ziet een ingelezen bestelling eruit als een bestelling uit je account (#229)."""
+    names = {name for name in names if name}
+    if not names:
+        return {}
+    with closing(_connect()) as conn:
+        index = _name_index(conn, store)
+        bare = _bare_index(index, store)
+        matched = {name: product_id for name in names if (product_id := _match_name(index, bare, store, _fold_name(name)))}
+        details = _product_details(conn, store, sorted(set(matched.values())))
+    return {name: {"productId": product_id, **details.get(product_id, {})} for name, product_id in matched.items()}
+
+
 def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
     """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`)."""
     found: set[str] = set()
