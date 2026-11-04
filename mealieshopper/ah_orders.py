@@ -23,7 +23,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
-from . import ah, ah_lists, auth, price_import
+from . import ah, ah_lists, auth, image_cache, price_import
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
@@ -324,6 +324,7 @@ def sync_orders() -> dict[str, Any]:
         _stamp(conn, "orders")
         remaining = conn.execute("SELECT COUNT(*) FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0").fetchone()[0]
         unfinished = sum(1 for order_id in gone if details.get(order_id) is None)
+    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {"open": len(open_orders), "archived": archived, "remaining": remaining, "unfinished": unfinished}
 
 
@@ -411,6 +412,7 @@ def sync_receipts() -> dict[str, Any]:
         products = resolve_receipt_products(now)
     except Exception:  # noqa: BLE001 - het koppelen van producten mag het ophalen van de bonnen nooit laten mislukken
         products = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
+    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de gekoppelde producten alvast in de cache
     return {"new": len(new), "total": len(listed), "remaining": remaining, "failed": failed, "products": products}
 
 

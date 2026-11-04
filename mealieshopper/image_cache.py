@@ -21,11 +21,13 @@ import base64
 import hashlib
 import io
 import os
+import logging
 import random
 import threading
 import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from os import environ
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -33,7 +35,9 @@ from urllib.parse import urlsplit
 import requests
 from PIL import Image, UnidentifiedImageError
 
-from . import ah, auth
+from . import ah, audit, auth
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS image_cache (
@@ -70,6 +74,17 @@ RETRY_AFTER = {
 GIVE_UP_AFTER = 10
 NOT_FOUND_COUNTS = 3
 SETTING_PAUSED = "image_cache_paused_until:"  # plus de host
+PREFETCH_LIMIT = 300  # per nachtelijke ronde
+PREFETCH_DEADLINE_SECONDS = 600
+PREFETCH_AFTER_SYNC = 40  # de kleine ronde na een synchronisatie van bestellingen of bonnen
+PREFETCH_AFTER_SYNC_SECONDS = 120
+
+# Waar de interface foto's van winkels laat zien: (tabel, kolom). Een tabel die er (nog) niet is slaan we over.
+KNOWN_IMAGE_COLUMNS = (
+    ("ah_order_items", "image"), ("ah_basket_items", "image"), ("ah_receipt_products", "image"),
+    ("offers", "image"), ("offer_history", "image"), ("offer_recipes", "image"),
+    ("jumbo_order_items", "image"), ("picnic_order_items", "image"), ("crisp_order_items", "image"),
+)
 
 _BROWSER_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
 _BROWSER_LANGUAGE = "nl-NL,nl;q=0.9,en;q=0.8"
@@ -110,6 +125,7 @@ _PACE: dict[str, float] = {}  # host -> monotonic tijdstip van het laatste verzo
 _SESSIONS: dict[str, requests.Session] = {}
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: dict[str, threading.Event] = {}  # adres -> het verzoek dat het nu ophaalt
+_PREFETCH_THREADS: list[threading.Thread] = []
 
 
 def _now() -> str:
@@ -424,3 +440,108 @@ def fetch(
         with _INFLIGHT_LOCK:
             _INFLIGHT.pop(url, None)
         running.set()
+
+
+# --- de achtergrondtaak ----------------------------------------------------------------------------
+
+
+def enabled() -> bool:
+    """Of de achtergrondtaak foto's vooruit mag ophalen (`MEALIESHOPPER_IMAGE_PREFETCH`, standaard aan). Onder de tests
+    (`MEALIESHOPPER_TESTING`) staat hij uit tenzij een test hem expliciet aanzet: een synchronisatie start anders een thread die
+    echt naar de winkel gaat."""
+    value = environ.get("MEALIESHOPPER_IMAGE_PREFETCH")
+    if value is None:
+        return not environ.get("MEALIESHOPPER_TESTING")
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def collect_known(now: str | None = None) -> int:
+    """Zet elk winkeladres uit de tabellen van de interface in `image_cache`; geeft het aantal nieuwe adressen."""
+    now = now or _now()
+    added = 0
+    with closing(_connect()) as conn, conn:
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        for table, column in KNOWN_IMAGE_COLUMNS:
+            if table not in tables:
+                continue
+            urls = {row[0] for row in conn.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != ''")}
+            for url in urls:
+                if not store_for(url):
+                    continue
+                cursor = conn.execute(
+                    "INSERT OR IGNORE INTO image_cache (url, host, seen_at) VALUES (?, ?, ?)", (url, urlsplit(url).hostname or "", now)
+                )
+                added += cursor.rowcount
+    return added
+
+
+def prefetch(*, limit: int = PREFETCH_LIMIT, deadline_seconds: float = PREFETCH_DEADLINE_SECONDS, now: str | None = None) -> dict[str, Any]:
+    """Haal in een rustig tempo op wat nog ontbreekt, nieuwste adressen eerst: hooguit `limit` verzoeken en `deadline_seconds` lang.
+    `skipped` zijn adressen die na een mislukking nog wachten of op een host in pauze staan, `paused` het aantal hosts in pauze."""
+    now = now or _now()
+    collect_known(now)
+    result = {"fetched": 0, "failed": 0, "skipped": 0, "paused": 0}
+    with closing(_connect()) as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC")]
+    paused_hosts: set[str] = set()
+    deadline = time.monotonic() + deadline_seconds
+    for row in rows:
+        if result["fetched"] + result["failed"] >= limit or time.monotonic() > deadline:
+            break
+        host = row["host"]
+        if host in paused_hosts or _paused(host, now):
+            paused_hosts.add(host)
+            result["skipped"] += 1
+            continue
+        if not due(row, now):
+            result["skipped"] += 1
+            continue
+        if fetch(row["url"], now=now, background=True):
+            result["fetched"] += 1
+        else:
+            result["failed"] += 1
+            if _paused(host, now):
+                paused_hosts.add(host)
+    result["paused"] = len(paused_hosts)
+    return result
+
+
+def prefetch_nightly() -> dict[str, Any] | None:
+    """Voor de nachtelijke taak (offers_schedule): de grote ronde, met een regel in het auditlog. None als de taak uitstaat of
+    misging; een fout laat de rest van de nachtelijke taak doorgaan."""
+    if not enabled():
+        return None
+    try:
+        result = prefetch()
+    except Exception:  # noqa: BLE001 - de cache is een extraatje
+        log.exception("Afbeeldingencache: de nachtelijke ronde mislukte")
+        return None
+    audit.record(kind="task", service="images", action="prefetch", detail=result)
+    return result
+
+
+def _prefetch_threads() -> list[threading.Thread]:
+    with _INFLIGHT_LOCK:
+        _PREFETCH_THREADS[:] = [worker for worker in _PREFETCH_THREADS if worker.is_alive()]
+        return list(_PREFETCH_THREADS)
+
+
+def prefetch_async(limit: int = PREFETCH_AFTER_SYNC) -> None:
+    """Een kleine ronde in een eigen thread, na een synchronisatie van bestellingen of bonnen: de nieuwe foto's staan er dan al
+    voordat iemand ze opent. Loopt er al een ronde, dan niet nog een."""
+    if not enabled():
+        return
+    with _INFLIGHT_LOCK:
+        _PREFETCH_THREADS[:] = [worker for worker in _PREFETCH_THREADS if worker.is_alive()]
+        if _PREFETCH_THREADS:
+            return
+
+        def run() -> None:
+            try:
+                prefetch(limit=limit, deadline_seconds=PREFETCH_AFTER_SYNC_SECONDS)
+            except Exception:  # noqa: BLE001
+                log.exception("Afbeeldingencache: de ronde na de synchronisatie mislukte")
+
+        worker = threading.Thread(target=run, name="image-prefetch", daemon=True)
+        _PREFETCH_THREADS.append(worker)
+        worker.start()

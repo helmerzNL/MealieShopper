@@ -11,7 +11,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import auth, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
+from mealieshopper import auth, image_cache, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 STREET = "Voorbeeldstraat"
@@ -234,6 +234,11 @@ class LocalCopyTest(TempDataDirTest):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page(listed_orders, receipts=receipts)), \
                 mock.patch.object(jumbo, "get_order", side_effect=get_order):
             return jumbo_orders.sync_orders()
+
+    def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
+        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+            self.sync([listed(1)], {"1": order(1, [line(1)])})
+        prefetch.assert_called_once_with(limit=40)
 
     def test_sync_stores_orders_with_their_products_newest_first_and_no_address(self):
         result = self.sync(

@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_explore, ah_orders, auth_password  # noqa: E402
+from mealieshopper import ah, ah_explore, ah_orders, auth_password, image_cache  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ACTIVE = {
@@ -196,6 +196,11 @@ class OrdersCacheTest(AhOrdersTestCase):
 
         with mock.patch.object(ah, "get_open_fulfillments", return_value=open_orders), mock.patch.object(ah, "get_closed_fulfillments", side_effect=pages), mock.patch.object(ah, "get_order_details", side_effect=details):
             return self.client.post("/api/ah/orders/sync")
+
+    def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
+        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+            self.sync([{"id": 1, "state": "SUBMITTED", "deliveryDate": "2026-10-10", "slotStart": None, "slotEnd": None, "total": 1.0}])
+        prefetch.assert_called_once_with(limit=40)
 
     def test_open_orders_are_stored_with_their_products(self):
         response = self.sync([fulfillment(1)])
@@ -416,6 +421,11 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         self.search_hq_ids.reset_mock()
         again = self.client.post("/api/ah/receipts/R1/products").get_json()
         self.assertEqual((again["products"]["searches"], self.search_hq_ids.call_count), (0, 0))
+
+    def test_a_sync_starts_a_small_prefetch_round(self):
+        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+            self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        prefetch.assert_called_once_with(limit=40)
 
     def test_linking_keeps_the_product_image_and_the_receipt_shows_it(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])

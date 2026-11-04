@@ -11,7 +11,7 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, auth, image_cache  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, image_cache, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
@@ -267,6 +267,82 @@ class RoutesTest(FetchCase):
         with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
             self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 401)
         self.get.assert_not_called()
+
+
+class PrefetchTest(FetchCase):
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {"MEALIESHOPPER_IMAGE_PREFETCH": "true"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def known(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_order_items (order_id, position, product_id, title, image) VALUES (1, 0, 10, 'Melk', ?)",
+                ("https://static.ah.nl/dam/product/melk",),
+            )
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (1, 10, 'Melk', 'x', 'https://static.ah.nl/dam/product/bon')")
+        with closing(offers._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offers (store, product_id, position, title, image) VALUES ('ah', '1', 0, 'Kaas', 'https://static.ah.nl/dam/product/kaas')"
+            )
+
+    def test_collect_known_finds_the_addresses_in_every_table(self):
+        self.known()
+        self.assertEqual(image_cache.collect_known(now=NOW), 3)
+        self.assertEqual(image_cache.collect_known(now=NOW), 0)
+        self.assertEqual(sorted(row["url"].rsplit("/", 1)[1] for row in image_cache._rows()), ["bon", "kaas", "melk"])
+
+    def test_prefetch_fetches_the_newest_first_up_to_the_limit_and_skips_what_waits(self):
+        urls = [f"https://static.ah.nl/dam/product/{n}" for n in range(3)]
+        for n, url in enumerate(urls):
+            image_cache.register(url, now=f"2026-11-0{n + 1}T00:00:00+00:00")
+            self.serve(url, 200, "image/png", picture(4, 4))
+        image_cache._record_failure(urls[1], "2026-11-04T02:00:00+00:00", 1, "oeps")  # wacht nog een dag
+        result = image_cache.prefetch(limit=2, now=NOW)
+        self.assertEqual(result, {"fetched": 2, "failed": 0, "skipped": 1, "paused": 0})
+        self.assertEqual([call.args[1] for call in self.get.call_args_list], [urls[2], urls[0]], "nieuwste eerst, de wachtende overgeslagen")
+        self.assertTrue(2.0 <= self.sleep.call_args.args[0] <= 5.0, "het rustige tempo van de achtergrond")
+        result = image_cache.prefetch(limit=2, now=NOW)
+        self.assertEqual(result, {"fetched": 0, "failed": 0, "skipped": 1, "paused": 0})
+
+    def test_prefetch_counts_failures_and_paused_hosts(self):
+        image_cache.register("https://static.ah.nl/dam/product/x", now=NOW)
+        image_cache.register("https://crispapp.nl/blob/y", now=NOW)
+        self.serve("https://static.ah.nl/dam/product/x", 200, "text/html", b"oeps")
+        image_cache._pause("crispapp.nl", NOW)
+        self.assertEqual(image_cache.prefetch(now=NOW), {"fetched": 0, "failed": 1, "skipped": 1, "paused": 1})
+
+    def test_prefetch_stops_at_the_deadline_and_can_be_switched_off(self):
+        image_cache.register(AH, now=NOW)
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        self.assertEqual(image_cache.prefetch(deadline_seconds=0, now=NOW)["fetched"], 0)
+        with mock.patch.dict(os.environ, {"MEALIESHOPPER_IMAGE_PREFETCH": "false"}):
+            self.assertFalse(image_cache.enabled())
+            self.assertIsNone(image_cache.prefetch_nightly())
+            with mock.patch.object(image_cache.threading, "Thread") as thread:
+                image_cache.prefetch_async()
+            thread.assert_not_called()
+        self.get.assert_not_called()
+
+    def test_the_nightly_round_runs_and_is_written_to_the_audit_log(self):
+        image_cache.register(AH, now=NOW)
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        with mock.patch.object(image_cache.audit, "record") as record:
+            result = image_cache.prefetch_nightly()
+        self.assertEqual(result["fetched"], 1)
+        self.assertEqual((record.call_args.kwargs["service"], record.call_args.kwargs["action"], record.call_args.kwargs["detail"]), ("images", "prefetch", result))
+
+    def test_prefetch_async_runs_a_small_round_in_a_daemon_thread(self):
+        image_cache.register(AH, now=NOW)
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        with mock.patch.object(image_cache.threading, "Thread", wraps=image_cache.threading.Thread) as thread:
+            image_cache.prefetch_async(limit=40)
+            self.assertTrue(thread.call_args.kwargs["daemon"])
+        for worker in image_cache._prefetch_threads():
+            worker.join(5)
+        self.assertEqual(self.get.call_count, 1)
 
 
 if __name__ == "__main__":
