@@ -468,6 +468,13 @@ def fetch(url: str, *, now: str | None = None) -> dict[str, Any] | None:
         found = lookup(url)
         return found if found and found.get("path") else None
     try:
+        # Nog een keer kijken: een ander verzoek kan de foto net hebben opgehaald, tussen onze eerste blik hierboven en het slot.
+        # Dan zag dit verzoek geen lopende download meer en zou het de foto een tweede keer ophalen.
+        latest = lookup(url)
+        if latest and latest.get("path") and (images_dir() / latest["path"]).is_file():
+            return latest
+        if not latest or not due(latest, now):
+            return None
         return _fetch_once(url, now)
     finally:
         with _INFLIGHT_LOCK:

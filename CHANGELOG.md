@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.4.1
+
+### Opgelost in 3.4.1
+
+*English summary: in rare cases the image cache fetched the same store photo twice. A request that found no photo, but took over the download just after another request had finished it, fetched it again. The request that takes over the download now checks the cache once more first. This also fixes the image-cache test that failed now and then. The Home Assistant add-on files of 3.4.0 contained leftover merge-conflict markers and two version lines, so Home Assistant could not read them; they are clean again.*
+
+- **Een winkelfoto wordt niet meer soms twee keer opgehaald.** Vroegen twee verzoeken tegelijk dezelfde foto op, dan wachtte het tweede op de download van het eerste. Keek het tweede verzoek net in de cache voordat de foto er was, maar pakte het het slot pas nadat de eerste download klaar was, dan zag het geen lopende download meer en haalde het de foto opnieuw bij de winkel op. Nu kijkt het verzoek dat de download op zich neemt eerst nog één keer in de cache (`image_cache.fetch`). Het ging alleen om een overbodige download; de foto zelf was altijd goed.
+- **Ontwikkeling**: `test_image_cache.FetchTest.test_two_requests_for_the_same_missing_image_share_one_download` faalde daardoor af en toe. Een nieuwe test speelt precies die volgorde na: zonder de fix twee downloads, met de fix één.
+- **De Home Assistant-add-ons zijn weer leesbaar.** In 3.4.0 stonden in beide `config.yaml`'s (`homeassistant/mealieshopper` en `homeassistant/mealieshopper-beta`) nog conflictmarkeringen van een merge, met twee `version:`-regels. Dat is geen geldige YAML, dus de Supervisor van Home Assistant kon de add-on niet lezen. Ze zijn weer schoon, en een nieuwe test (`test_the_addon_files_have_no_merge_conflict_left`) faalt als het weer gebeurt.
+- Pull request: [#228](https://github.com/helmerzNL/MealieShopper/pull/228).
+
 ## v3.4.0
 
 ### Nieuw in 3.4.0

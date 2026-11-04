@@ -214,6 +214,23 @@ class FetchTest(FetchCase):
         self.assertEqual(self.get.call_count, 1)
         self.assertEqual([row["path"] for row in results], [results[0]["path"]] * 2)
 
+    def test_a_request_that_saw_the_photo_missing_just_before_it_arrived_does_not_fetch_it_again(self):
+        # De volgorde die de test hierboven af en toe liet zien: verzoek B kijkt (geen foto), verzoek A haalt hem op en is klaar
+        # voordat B het slot pakt. B ziet dan geen lopende download meer en wordt zelf eigenaar; het moet eerst opnieuw kijken.
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        first = image_cache.fetch(AH, now=NOW)  # verzoek A
+        real_lookup = image_cache.lookup
+        stale = {**first, "path": None, "fetched_at": None}  # wat B zag, net voordat A klaar was
+        calls = []
+
+        def lookup(url):
+            calls.append(url)
+            return stale if len(calls) == 1 else real_lookup(url)
+
+        with mock.patch.object(image_cache, "lookup", side_effect=lookup):
+            second = image_cache.fetch(AH, now=NOW)  # verzoek B
+        self.assertEqual((second["path"], self.get.call_count), (first["path"], 1))
+
     def test_the_pace_sleeps_between_two_requests_on_the_same_host(self):
         other = "https://static.ah.nl/dam/other"
         self.serve(AH, 200, "image/png", picture(4, 4))
