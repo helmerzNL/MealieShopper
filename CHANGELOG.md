@@ -24,6 +24,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API**: `PUT /api/profile/preferences` met `{"preferOrganic": true}`; `GET /api/auth/status` en `GET /api/profile` geven `preferOrganic`. `POST /api/<winkel>/cart/preview` neemt `"organic": true` (alleen samen met `"compare": true`) en geeft per regel `organic` en `organicMissing`, en per product `organic`.
 - **Handleiding**: *Liever biologisch* onder *Weekmenu naar je mandje*.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`); ververs de pagina één keer.
+- Issue: [#218](https://github.com/helmerzNL/MealieShopper/issues/218). Pull request: [#219](https://github.com/helmerzNL/MealieShopper/pull/219).
 
 ## v3.0.0
 
