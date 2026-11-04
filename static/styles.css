@@ -5480,7 +5480,7 @@ body.has-onboarding {
   font-weight: 600;
 }
 
-/* De kaart van een aanbieding: het plaatje boven, groot genoeg om het product te herkennen, met de badge en het prijslabel erop;
+/* De kaart van een aanbieding: het plaatje boven, groot genoeg om het product te herkennen, met de badge en het prijslabel erop,
    de tekst eronder en de twee links op één rij onderaan. Smaller dan een gewone productkaart, dus meer per rij. */
 .product-grid--offers {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -5517,6 +5517,12 @@ body.has-onboarding {
 
 .offer-card__thumb--empty {
   background: var(--surface-muted);
+}
+
+.offer-card__thumb-link {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .offer-card__thumb img {
@@ -5981,8 +5987,8 @@ body.has-onboarding {
 }
 
 @media (max-width: 640px) {
-  /* Twee kaarten naast elkaar op een telefoon, met een lager plaatje. */
-  .product-grid--offers {
+  /* Twee kaarten naast elkaar op een telefoon, met een lager plaatje. De compacte lijst blijft één kolom. */
+  .product-grid--offers:not(.product-grid--compact) {
     grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
     gap: 8px;
   }

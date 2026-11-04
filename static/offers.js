@@ -51,12 +51,25 @@ function offersPersonalOnly() {
 function offersFiltered() {
   let shown = offersPersonalOnly() ? offersState.offers.filter((offer) => offer.personal) : offersState.offers;
   const search = offersState.search.trim();
-  if (search) shown = shown.filter((offer) => matchesWords(offer.searchText || "", search));
+  if (search) shown = shown.filter((offer) => matchesWords(offerSearchText(offer), search));
   if (offersState.goodOnly) shown = shown.filter((offer) => offer.verdict && offer.verdict.kind === "good");
   return shown;
 }
 
-// De categorieën met het aantal dat ook door de schakelaars en het zoekveld komt; een categorie zonder treffers valt weg.
+// De tekst waarop het zoekveld zoekt (naam en merk, gevouwen), per aanbieding één keer berekend. Niet op de aanbieding zelf gezet:
+// de lijst wordt vergeleken met het antwoord van de server om te zien of er iets veranderde (offersCache).
+const offerSearchTexts = new WeakMap();
+
+function offerSearchText(offer) {
+  let text = offerSearchTexts.get(offer);
+  if (text === undefined) {
+    text = foldText(`${offer.title || ""} ${offer.brand || ""}`);
+    offerSearchTexts.set(offer, text);
+  }
+  return text;
+}
+
+// De categorieën met het aantal dat ook door de schakelaars en het zoekveld komt. Een categorie zonder treffers valt weg.
 function offersShownCategories() {
   const counts = {};
   offersFiltered().forEach((offer) => {
@@ -247,8 +260,9 @@ function offerVerdictLines(offer) {
 function offerBadgeTitle(offer) {
   const verdict = offer.verdict;
   const badge = offer.badge;
-  if (badge.source === "store") return t("offers.badge.title_store", { percent: badge.percent });
-  const kind = { good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
+  // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen gewone prijs kent.
+  if (badge.source === "store" && !badge.inflated) return t("offers.badge.title_store", { percent: badge.percent });
+  const kind ={ good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
   const parts = [kind ? t(kind, { percent: badge.percent }) : ""];
   if (typeof verdict.lowestRegular === "number") parts.push(t("offers.verdict.reference", { price: formatPrice(verdict.lowestRegular) }));
   if (badge.inflated && typeof offer.priceBefore === "number") {
@@ -315,12 +329,16 @@ function offerCardFoot(offer) {
   return `<div class="offer-card__foot">${compare}${history}</div>`;
 }
 
-// Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij); zonder plaatje een leeg vlak
-// van dezelfde hoogte.
+// Het plaatje van een aanbieding met de badge en het prijslabel erop (of kaal, in de compacte rij). Zonder plaatje een leeg vlak
+// van dezelfde hoogte. De link naar de winkel zit alleen om het plaatje (de titel is de link voor schermlezers), de badge en het
+// label staan ernaast, zodat een schermlezer ze wel leest.
 function offerThumb(offer, extraClass = "", bare = false) {
   const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : "";
   const overlay = bare ? "" : `${offerBadge(offer)}${offerPriceLabelHtml(offer)}`;
-  return `<a class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" href="${escapeHtml(offer.url || "#")}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true" data-zoom="${escapeHtml(offer.id)}">${image}${overlay}</a>`;
+  const link = offer.url
+    ? `<a class="offer-card__thumb-link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">${image}</a>`
+    : `<span class="offer-card__thumb-link">${image}</span>`;
+  return `<div class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" data-zoom="${escapeHtml(offer.id)}">${link}${overlay}</div>`;
 }
 
 // De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als de app
@@ -502,13 +520,17 @@ function placeOfferZoom(box, thumb) {
   const height = box.offsetHeight;
   let left;
   let top;
-  if (window.innerWidth < 640) {
-    left = Math.max(8, Math.min(rect.left, window.innerWidth - OFFER_ZOOM_WIDTH - 8));
+  const fitsRight = rect.right + 8 + OFFER_ZOOM_WIDTH <= window.innerWidth;
+  const fitsLeft = rect.left - 8 - OFFER_ZOOM_WIDTH >= 0;
+  if (window.innerWidth < 640 || (!fitsRight && !fitsLeft)) {
+    // Smal scherm, of geen ruimte naast de kaart (een tablet): onder de kaart.
+    left = rect.left;
     top = rect.bottom + 8;
   } else {
-    left = rect.right + 8 + OFFER_ZOOM_WIDTH <= window.innerWidth ? rect.right + 8 : rect.left - 8 - OFFER_ZOOM_WIDTH;
+    left = fitsRight ? rect.right + 8 : rect.left - 8 - OFFER_ZOOM_WIDTH;
     top = rect.top;
   }
+  left = Math.max(8, Math.min(left, window.innerWidth - OFFER_ZOOM_WIDTH - 8));
   top = Math.max(8, Math.min(top, window.innerHeight - height - 8));
   box.style.left = `${Math.round(left)}px`;
   box.style.top = `${Math.round(top)}px`;
@@ -672,9 +694,6 @@ function renderOffers(data) {
   offersState.supported = data.supported;
   offersState.offers = data.offers || [];
   offersState.categories = data.categories || [];
-  offersState.offers.forEach((offer) => {
-    offer.searchText = foldText(`${offer.title || ""} ${offer.brand || ""}`);
-  });
   offersState.personal = data.personal || null;
   if (offersState.category !== "all" && !offersState.categories.some((category) => category.id === offersState.category)) offersState.category = "all";
   offersState.rows = OFFER_ROWS;
@@ -1018,7 +1037,7 @@ $("#offers-products").addEventListener("click", (event) => {
 });
 // Scrollen (ook in het vak dat scrolt, niet alleen het venster) haalt de zoom weg: de kaart staat dan ergens anders.
 document.addEventListener("scroll", hideOfferZoom, { capture: true, passive: true });
-// De zoom staat vast op het scherm; onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
+// De zoom staat vast op het scherm en hangt onder <body>, want binnen de inhoud rekent position: fixed vanaf het vak dat scrolt.
 document.body.appendChild($("#offer-zoom"));
 $("#offer-zoom-close").addEventListener("click", () => $("#offer-zoom-dialog").close());
 $("#offer-zoom-dialog").addEventListener("click", (event) => {

@@ -491,6 +491,14 @@ class VerdictTest(PricesCase):
         label = prices.price_label(1.99, [("2025-06-03", 1.89), ("2026-02-10", 1.89), ("2026-03-01", 2.29)], TODAY)
         self.assertEqual((label["price"], label["month"]), (1.89, "2026-02"))
 
+    def test_one_old_purchase_is_not_the_lowest_price_ever(self):
+        # Eén aankoop uit 2022 geeft geen "laagste prijs ooit": zonder meting in het afgelopen jaar valt de ladder terug op
+        # "laagste sinds", en "laagste in 12 maanden" heeft net zo goed een meting in dat jaar nodig.
+        label = prices.price_label(2.50, [("2022-05-31", 2.59)], TODAY)
+        self.assertEqual((label["kind"], label["month"]), ("lowest_seen", "2022-05"))
+        recent = prices.price_label(2.50, [("2022-05-31", 2.59), ("2026-06-01", 2.79)], TODAY)
+        self.assertEqual(recent["kind"], "lowest_ever")
+
     def test_a_half_cent_counts_as_equal(self):
         self.assertEqual(prices.price_label(1.99, [("2025-06-03", 1.994), ("2026-03-01", 2.29)], TODAY)["kind"], "lowest_ever")
 

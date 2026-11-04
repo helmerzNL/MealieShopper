@@ -978,8 +978,9 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
     `lower_before` of None, als `{"kind", "price", "month", "coveredSince"}`.
 
     Alleen de strengste trede die waar is. Een venster telt pas als de app het product langer dan dat venster volgt (`coveredSince`)
-    en er in dat venster een meting is: na een week is "laagste in 6 maanden" anders triviaal waar. `lower_before` geeft de laagste
-    eerdere prijs en de maand waarin die het laatst gold. Prijzen binnen een halve cent zijn gelijk.
+    en er in dat venster een meting is: na een week is "laagste in 6 maanden" anders triviaal waar, en één aankoop uit 2022 maakt een
+    prijs van nu geen "laagste ooit" (daarvoor moet er een meting in het afgelopen jaar zijn). `lower_before` geeft de laagste eerdere
+    prijs en de maand waarin die het laatst gold. Prijzen binnen een halve cent zijn gelijk.
     """
     empty: dict[str, Any] = {"kind": None, "price": None, "month": None, "coveredSince": None}
     value = _number(effective)
@@ -993,7 +994,7 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
     lowest_half: float | None = _lowest_since(ordered, _days_ago(today, HALF_YEAR_DAYS))
     is_lowest = value <= lowest_all + 0.005
     label = {**empty, "coveredSince": since}
-    if covered >= EVER_DAYS and is_lowest:
+    if covered >= EVER_DAYS and is_lowest and lowest_year is not None:
         return {**label, "kind": "lowest_ever"}
     if covered >= YEAR_DAYS and lowest_year is not None and value <= lowest_year + 0.005:
         return {**label, "kind": "lowest_12m"}

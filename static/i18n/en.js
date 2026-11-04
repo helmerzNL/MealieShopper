@@ -39,7 +39,7 @@ I18N.add("en", {
   "offers.verdict.inflated": "The store gives {before} as the price before, but in the last 30 days it also cost {price}.",
   "offers.verdict.often": "On offer {count}× this year: comes back often",
   "offers.verdict.cheaper_pack": "Cheaper per unit: {title} ({price})",
-  "offers.badge.title_store": "{percent}% off according to the store; the app does not know a regular price of this product yet",
+  "offers.badge.title_store": "{percent}% off according to the store. The app does not know a regular price of this product yet.",
   "offers.label.lowest_ever": "Lowest price ever",
   "offers.label.lowest_12m": "Lowest in 12 months",
   "offers.label.lowest_6m": "Lowest in 6 months",

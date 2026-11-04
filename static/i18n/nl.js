@@ -39,7 +39,7 @@ I18N.add("nl", {
   "offers.verdict.inflated": "De winkel noemt {before} als prijs ervoor, maar de laatste 30 dagen kostte het ook {price}.",
   "offers.verdict.often": "{count}× in de aanbieding dit jaar: komt vaak terug",
   "offers.verdict.cheaper_pack": "Per eenheid goedkoper: {title} ({price})",
-  "offers.badge.title_store": "{percent}% korting volgens de winkel; de app kent nog geen gewone prijs van dit product",
+  "offers.badge.title_store": "{percent}% korting volgens de winkel. De app kent nog geen gewone prijs van dit product.",
   "offers.label.lowest_ever": "Laagste prijs ooit",
   "offers.label.lowest_12m": "Laagste in 12 mnd",
   "offers.label.lowest_6m": "Laagste in 6 mnd",
