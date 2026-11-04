@@ -176,20 +176,37 @@ def store_for(url: Any) -> str | None:
     return None
 
 
+def safe_url(url: Any) -> bool:
+    """Mag de app dit adres ophalen? Alleen https naar een winkelhost (`store_for`), en de parser die het verzoek verstuurt (urllib3)
+    moet dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af. Dezelfde
+    eis voor een token uit de browser, een adres uit een tabel en een doorverwijzing van een CDN: een adres dat hier niet door komt,
+    krijgt nooit een verzoek."""
+    if not store_for(url) or urlsplit(url).scheme != "https":
+        return False
+    try:
+        sent = parse_url(url)
+    except LocationParseError:
+        return False
+    authority = urlsplit(url).netloc
+    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
+        return False
+    return bool(sent.host) and sent.host == urlsplit(url).hostname and sent.scheme == "https"
+
+
 def token_for(url: str) -> str:
     """Het winkeladres als URL-veilige base64 zonder `=`: het stuk achter /api/images/."""
     return base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
 
 
 def url_for(token: Any) -> str | None:
-    """Het adres achter een token, of None als het niet decodeert of geen foto van een winkel is."""
+    """Het adres achter een token, of None als het niet decodeert of geen adres van een winkel is dat de app mag ophalen (`safe_url`)."""
     if not isinstance(token, str) or not token:
         return None
     try:
         url = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
-    return url if store_for(url) else None
+    return url if safe_url(url) else None
 
 
 # --- de tabel --------------------------------------------------------------------------------------
@@ -346,27 +363,12 @@ def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
         with session.get(url, headers=HEADERS[store], timeout=TIMEOUT, stream=True, allow_redirects=False) as response:
             if response.status_code in (301, 302, 303, 307, 308):
                 target = urljoin(url, str(response.headers.get("Location") or ""))
-                if not _safe_redirect(target):
+                if not safe_url(target):
                     raise ValueError(f"doorverwijzing naar een onbekende host ({urlsplit(target).hostname or '?'})")
                 url = target
                 continue
             return _read_image(response)
     raise ValueError("te veel doorverwijzingen")
-
-
-def _safe_redirect(target: str) -> bool:
-    """Mag een doorverwijzing hierheen? Alleen https naar een winkelhost, en de parser die het verzoek verstuurt (urllib3) moet
-    dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af."""
-    if not store_for(target) or urlsplit(target).scheme != "https":
-        return False
-    try:
-        sent = parse_url(target)
-    except LocationParseError:
-        return False
-    authority = urlsplit(target).netloc
-    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
-        return False
-    return bool(sent.host) and sent.host == urlsplit(target).hostname and sent.scheme == "https"
 
 
 def _read_image(response: requests.Response) -> tuple[bytes, str]:
@@ -406,7 +408,7 @@ def _store_file(url: str, data: bytes, content_type: str) -> tuple[str, str]:
 def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
     store = store_for(url)
     host = urlsplit(url).hostname or ""
-    if not store or _paused(host, now):
+    if not store or not safe_url(url) or _paused(host, now):
         return None
     try:
         _pace(host)
@@ -435,7 +437,7 @@ def fetch(url: str, *, now: str | None = None) -> dict[str, Any] | None:
     """De rij van een foto die op schijf staat, na hem zo nodig op te halen. None als dat niet kan: een onbekende host, een
     host in pauze, een adres dat na een mislukking nog wacht, of een mislukking nu. Vraagt een ander verzoek dezelfde foto
     al op, dan wacht dit verzoek hooguit `WAIT_SECONDS` op dat resultaat. Een hit leest alleen: geen schrijfactie per foto."""
-    if not store_for(url):
+    if not safe_url(url):
         return None
     now = now or _now()
     row = lookup(url)
@@ -501,7 +503,7 @@ def collect_known(now: str | None = None) -> int:
                 continue  # een database van vóór die kolom (de migratie volgt bij het eerste gebruik van die module)
             urls = {row[0] for row in conn.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != ''")}
             for url in urls:
-                if not store_for(url):
+                if not safe_url(url):
                     continue
                 cursor = conn.execute(
                     "INSERT OR IGNORE INTO image_cache (url, host, seen_at) VALUES (?, ?, ?)", (url, urlsplit(url).hostname or "", now)
