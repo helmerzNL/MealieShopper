@@ -1033,7 +1033,11 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
             span = offers._episode_span(row)
             if _number(row["price_before"]) is not None and (span["end"] is None or span["end"] >= since30) and (span["start"] or "") <= today:
                 regulars.setdefault(row["product_id"], []).append(row["price_before"])
-        points = _history_points(conn, store, today)
+        try:
+            points = _history_points(conn, store, today)
+        except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
+            log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
+            points = {}
 
     # Wat elke verpakking per eenheid kost: de gewone prijs uit de bewaarde prijzen en de actieprijs van de andere aanbiedingen.
     packs_known: list[dict[str, Any]] = [
