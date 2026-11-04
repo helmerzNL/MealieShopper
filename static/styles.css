@@ -5856,10 +5856,10 @@ body.has-onboarding {
   box-shadow: none;
   background: none;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .offer-row--head span {
@@ -5959,7 +5959,50 @@ body.has-onboarding {
   fill: currentColor;
 }
 
+/* Op een tablet past de kolom Geschiedenis niet meer naast de rest: die gaat onder de productnaam. */
+@media (max-width: 960px) {
+  .offer-row {
+    grid-template-columns: 48px 60px minmax(0, 1fr) 100px 90px 72px;
+    row-gap: 2px;
+  }
+
+  .offer-row__history {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .offer-row__history:empty {
+    display: none;
+  }
+
+  .offer-row--head span:nth-child(6) {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
+  /* Twee kaarten naast elkaar op een telefoon, met een lager plaatje. */
+  .product-grid--offers {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    gap: 8px;
+  }
+
+  .offer-card__thumb {
+    height: 110px;
+  }
+
+  /* Op een smalle kaart staan de twee links onder elkaar, elk op een eigen regel. */
+  .offer-card__foot {
+    flex-direction: column;
+    align-items: flex-start;
+    white-space: normal;
+  }
+
+  .offer-card__foot .link-button {
+    font-size: 12.5px;
+    text-align: left;
+  }
+
   .offer-row {
     grid-template-columns: 48px 60px minmax(0, 1fr);
     row-gap: 2px;
