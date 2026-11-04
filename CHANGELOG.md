@@ -14,7 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Haalt MealieShopper de producten later alsnog bij de winkel op, dan valt de ingelezen versie op die drie plekken weer weg, zodat niets dubbel telt.
   - Een bestelling uit je account met producten houdt de import nog steeds tegen.
 - **Handleiding**: de regel voor dubbele bestellingen bij *Oude aankopen importeren*.
-- Issue: [#222](https://github.com/helmerzNL/MealieShopper/issues/222).
+- Issue: [#222](https://github.com/helmerzNL/MealieShopper/issues/222). Pull request: [#224](https://github.com/helmerzNL/MealieShopper/pull/224).
 
 ## v3.3.1
 
