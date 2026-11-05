@@ -256,10 +256,12 @@ function offerVerdictLines(offer) {
 }
 
 // De uitleg bij de badge: het oordeel, de laagste gewone prijs van 30 dagen waarmee vergeleken is, en de claim van de winkel als die
-// hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat.
+// hoger is. Kent de app geen gewone prijs, dan is het getal de claim van de winkel en zegt de uitleg dat. Een regel van een aankoop
+// heeft geen oordeel, alleen { badge: { percent, source } }: dan het percentage met het oordeel dat bij dat getal hoort, zonder
+// de vergelijkingsprijs.
 function offerBadgeTitle(offer) {
-  const verdict = offer.verdict;
   const badge = offer.badge;
+  const verdict = offer.verdict || { kind: badge.percent >= 20 ? "good" : badge.percent >= 1 ? "small" : "none" };
   // Alleen de claim van de winkel, en die niet opgepompt: dan zegt de uitleg dat de app geen gewone prijs kent.
   if (badge.source === "store" && !badge.inflated) return t("offers.badge.title_store", { percent: badge.percent });
   const kind ={ good: "offers.verdict.good", small: "offers.verdict.small", none: "offers.verdict.none" }[verdict.kind];
@@ -272,12 +274,13 @@ function offerBadgeTitle(offer) {
 }
 
 // De kortingsbadge op het plaatje: één getal in de kleurschaal van het userscript (50, 35, 20, 10), omlijnd als het de claim van de
-// winkel is in plaats van een gemeten verschil, grijs bij 0%, niets als er geen oordeel is.
-function offerBadge(offer) {
+// winkel is in plaats van een gemeten verschil, grijs bij 0%, niets als er geen oordeel is. `extraClass` "offer-badge--inline" zet
+// hem in de tekst (een regel van een aankoop) in plaats van op een plaatje.
+function offerBadge(offer, extraClass = "") {
   const badge = offer.badge;
   if (!badge || typeof badge.percent !== "number") return "";
   const step = badge.percent >= 50 ? "50" : badge.percent >= 35 ? "35" : badge.percent >= 20 ? "20" : badge.percent >= 10 ? "10" : badge.percent >= 1 ? "1" : "0";
-  const cls = `offer-badge offer-badge--${step}${badge.source === "store" ? " offer-badge--store" : ""}`;
+  const cls = `offer-badge offer-badge--${step}${badge.source === "store" ? " offer-badge--store" : ""}${extraClass ? ` ${extraClass}` : ""}`;
   const text = badge.percent > 0 ? `-${badge.percent}%` : "0%";
   return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
 }

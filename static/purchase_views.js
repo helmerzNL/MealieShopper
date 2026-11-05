@@ -27,20 +27,54 @@ function viewBarElement(prefix) {
 // dus de bestaande ms-purchases-*). `allowed` ({ views, sorts, sizes, options }) zegt welke waarden gelden: wat in localStorage
 // staat kan van een oudere versie zijn of met de hand aangepast. apply() bewaart en roept dan de functie aan die listen() kreeg
 // (de pagina tekent opnieuw). Die functie staat in een closure, zodat JSON.stringify(state) alleen de keuze geeft.
-function viewState(prefix, defaults, allowed) {
+//
+// Met `scopes` (zoals ["order", "receipt"]) is de weergave er een per soort: defaults.view en allowed.views zijn dan objecten per
+// scope, en ms-<prefix>s-view bewaart JSON ({ order: "table", receipt: "paper" }). `state.view` is de weergave van de scope die
+// useScope() koos. ViewFor() en setView() lezen en zetten die van een andere. Sortering en opties blijven één keuze per balk.
+function viewState(prefix, defaults, allowed, { scopes = null } = {}) {
   const keys = { view: `ms-${prefix}s-view`, sort: `ms-${prefix}s-sort`, options: `ms-${prefix}s-options` };
+  const views = scopes ? Object.fromEntries(scopes.map((scope) => [scope, defaults.view[scope]])) : null;
+  const fits = (scope, view) => (scopes ? (allowed.views[scope] || []) : allowed.views).includes(view);
+  let scope = scopes ? scopes[0] : null;
   let onChange = () => {};
   return {
-    view: defaults.view,
+    view: scopes ? views[scope] : defaults.view,
     sort: { ...defaults.sort },
     options: { ...defaults.options },
     listen(callback) {
       onChange = callback;
     },
+    viewFor(name) {
+      if (name === scope) return this.view;
+      return views ? views[name] : this.view;
+    },
+    setView(name, view) {
+      if (!views || !fits(name, view)) return;
+      views[name] = view;
+      if (name === scope) this.view = view;
+      this.apply();
+    },
+    useScope(name) {
+      if (!views || !(name in views)) return;
+      if (fits(scope, this.view)) views[scope] = this.view;
+      scope = name;
+      this.view = views[name];
+    },
     load() {
       try {
         const view = localStorage.getItem(keys.view);
-        if (allowed.views.includes(view)) this.view = view;
+        if (scopes) {
+          let stored = null;
+          try {
+            stored = JSON.parse(view || "null");
+          } catch {
+            // een waarde van voor de scopes (een kale weergave): de standaard per scope
+          }
+          if (stored && typeof stored === "object") for (const name of scopes) if (fits(name, stored[name])) views[name] = stored[name];
+          this.view = views[scope];
+        } else if (fits(null, view)) {
+          this.view = view;
+        }
         const sort = JSON.parse(localStorage.getItem(keys.sort) || "null");
         if (sort && allowed.sorts.includes(sort.key) && ["asc", "desc"].includes(sort.dir)) this.sort = { key: sort.key, dir: sort.dir };
         const options = JSON.parse(localStorage.getItem(keys.options) || "null");
@@ -53,8 +87,10 @@ function viewState(prefix, defaults, allowed) {
       }
     },
     save() {
+      // Een weergave die niet bij de scope past (Bon bij een bestelling) wordt niet bewaard.
+      if (views && fits(scope, this.view)) views[scope] = this.view;
       try {
-        localStorage.setItem(keys.view, this.view);
+        localStorage.setItem(keys.view, views ? JSON.stringify(views) : this.view);
         localStorage.setItem(keys.sort, JSON.stringify(this.sort));
         localStorage.setItem(keys.options, JSON.stringify(this.options));
       } catch {

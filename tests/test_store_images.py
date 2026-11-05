@@ -22,7 +22,8 @@ class StoreImageTest(unittest.TestCase):
     def test_every_store_image_goes_through_the_cache(self):
         # Elke <img src> met een product- of aanbiedingsfoto van een winkel gebruikt storeImage(...).
         wanted = {
-            "orders.js": ['src="${escapeHtml(storeImage(item.image))}"'],
+            "orders.js": ['src="${escapeHtml(storeImage(line.image))}"'],
+            "order_views.js": ['src="${escapeHtml(storeImage(line.image))}"'],
             "offers.js": [
                 'src="${escapeHtml(storeImage(offer.image))}"',
                 'src="${escapeHtml(storeImage(recipe.image))}"',
@@ -62,6 +63,7 @@ class StoreImageTest(unittest.TestCase):
             "crisp.js",
             "recipe_search.js",
             "jumbo.js",
+            "order_views.js",
         ):
             self.assertEqual(pattern.findall(source(script)), [], script)
 
@@ -81,6 +83,7 @@ class StoreImageTest(unittest.TestCase):
             "picnic.js",
             "crisp.js",
             "recipe_search.js",
+            "order_views.js",
         ):
             for line in source(script).splitlines():
                 if "storeImage(" in line and "<img" in line:

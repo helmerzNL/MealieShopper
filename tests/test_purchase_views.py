@@ -90,7 +90,7 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
     def test_the_state_is_remembered_and_bad_values_fall_back(self):
         for needle in ("`ms-${prefix}s-view`", "`ms-${prefix}s-sort`", "`ms-${prefix}s-options`",
                        'const PURCHASE_VIEWS = ["table", "cards", "overview"]', 'const PURCHASE_SORT_KEYS = ["date", "amount", "items"]',
-                       "function purchaseViewLoad()", "function viewState(prefix, defaults, allowed)"):
+                       "function purchaseViewLoad()", "function viewState(prefix, defaults, allowed, { scopes = null } = {})"):
             self.assertIn(needle, VIEWS)
         self.assertIn("} catch {", VIEWS)
 
