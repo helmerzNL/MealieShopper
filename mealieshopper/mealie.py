@@ -258,9 +258,9 @@ def _set_source(slug: str, source: str) -> None:
             f"{mealie_url()}/api/recipes/{slug}", headers=auth_headers(), json={"orgURL": source}, timeout=30
         )
         if not response.ok:
-            log.warning("Bron van %s niet gezet (%s): %s", slug, response.status_code, response.text[:200])
-    except requests.RequestException as exc:
-        log.warning("Bron van %s niet gezet: %s", slug, exc)
+            log.warning("Bron van %s niet gezet (%s)", slug, response.status_code)
+    except requests.RequestException:
+        log.warning("Bron van %s niet gezet door een verbindingsfout", slug)
 
 
 def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None, *, source: str | None = None) -> str:

@@ -140,6 +140,14 @@ class ImportFromUrlTest(unittest.TestCase):
                 mock.patch.object(mealie.requests, "post", return_value=self.response(body="ok")):
             self.assertEqual(mealie.import_from_url("https://example.com/r"), "ok")
 
+    def test_the_html_of_a_page_keeps_its_address_for_the_scraper_of_that_site(self):
+        page = mock.Mock(ok=True, status_code=200, text="<html>recept</html>")
+        with mock.patch.object(mealie.requests, "get", return_value=page), \
+                mock.patch.object(mealie.requests, "post", return_value=self.response(body="soep")) as post:
+            self.assertEqual(mealie.import_via_html("https://www.example.com/soep"), "soep")
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual((sent["data"], sent["url"]), ("<html>recept</html>", "https://www.example.com/soep"))
+
     def test_all_failures_are_reported_together(self):
         mealie_error = self.response(ok=False, status=400, body="Recipe scrape failed")
         page_error = self.response(ok=False, status=403, body="Access Denied")
@@ -213,8 +221,10 @@ class JsonLdSourceTest(unittest.TestCase):
             with self.subTest(failure=failure), \
                     mock.patch.object(mealie.requests, "post", return_value=self.response()), \
                     mock.patch.object(mealie.requests, "patch", **failure), \
-                    self.assertLogs(mealie.log, "WARNING"):
+                    self.assertLogs(mealie.log, "WARNING") as logs:
                 self.assertEqual(mealie.import_via_jsonld(picnic_recipes.source_url("r1"), self.LD), "pasta-pesto")
+            self.assertNotIn("Forbidden", " ".join(logs.output))
+            self.assertNotIn("weg", " ".join(logs.output))
 
 
 if __name__ == "__main__":
