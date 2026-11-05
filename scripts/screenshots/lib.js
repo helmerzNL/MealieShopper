@@ -12,8 +12,8 @@ const DESKTOP = { width: 930, height: 604 };
 const PHONE = { width: 390, height: 813 };
 const NOW = new Date("2026-10-28T10:30:00");
 
-// Een scenario heeft: name (bestandsnaam), routes, run(page, { lang, device }), path, theme ("dark"), desktopOnly en baseUrl
-// (een andere server, bijvoorbeeld voor de beta-badge).
+// Een scenario heeft: name (bestandsnaam), routes, run(page, { lang, device }), path, theme ("dark"), desktopOnly, keepMouse
+// (de muis blijft na run staan, voor een hovervenster) en baseUrl (een andere server, bijvoorbeeld voor de beta-badge).
 // Een route-sleutel is een pad met een * als jokerteken ("/api/offers*"); de waarde is JSON, een functie
 // (route, request) => ..., of { status, json }. Later toegevoegde routes gaan voor eerdere.
 async function install(page, routes) {
@@ -48,7 +48,8 @@ async function shoot(browser, scenario, lang, device, base) {
   await page.waitForTimeout(400);
   if (scenario.run) await scenario.run(page, { lang, device });
   await page.waitForTimeout(500);
-  await page.mouse.move(2, 2);
+  // Een hoverscenario (keepMouse) laat de muis staan: anders sluit het venster voor de foto.
+  if (!scenario.keepMouse) await page.mouse.move(2, 2);
   // Een foutmelding in beeld komt meestal door een nagebootst antwoord dat niet meer klopt met de app (zoals een winkel die erbij
   // kwam): meld die, zodat het screenshot niet ongemerkt een fout laat zien.
   // Alleen wat echt te zien is: binnen het venster en niet achter een dialoog of de installatiehulp.

@@ -4027,6 +4027,12 @@ body.has-onboarding {
   vertical-align: middle;
 }
 
+/* De omlijnde variant (alleen de prijs vóór bonus van de winkel) houdt in een regel zijn rand: de regel hierboven wint anders van
+   .offer-badge--store. */
+.offer-badge.offer-badge--inline.offer-badge--store {
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
 .product-grid--small {
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }

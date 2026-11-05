@@ -683,6 +683,14 @@ class OrderPageMarkupTest(unittest.TestCase):
     def test_the_line_badge_is_inline(self):
         self.assertIn("offer-badge--inline", ORDER_VIEWS + ORDERS)
 
+    def test_the_inline_store_badge_keeps_its_outline(self):
+        # .offer-badge.offer-badge--inline zet box-shadow op none en wint van .offer-badge--store (een klasse): zonder een regel
+        # met drie klassen verliest de omlijnde badge (alleen de prijs voor bonus van de winkel) in een regel zijn rand.
+        self.assertRegex(
+            CSS,
+            r"\.offer-badge\.offer-badge--inline\.offer-badge--store \{\n  box-shadow: inset 0 0 0 2px currentColor;",
+        )
+
     def test_both_languages_have_the_texts(self):
         for key in (
             "orders.view.category",
