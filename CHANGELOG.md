@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.8.1
+
+### Opgelost in 3.8.1
+
+*English summary: a Picnic recipe sent to Mealie arrived with only its title and photo, without ingredients and method. Mealie reads the recipe we send with the recipe-scrapers library, which picks its scraper by the host of the source link. For picnic.app it has its own scraper that only reads the Picnic website and ignores our schema.org data. MealieShopper now hands the recipe to Mealie under a neutral link, so the general schema.org scraper reads all of it, and then sets the link to Picnic as the source again. A Picnic recipe that reached Mealie empty before 3.8.1 stays empty: delete it in Mealie and send it again. Fixes [#242](https://github.com/helmerzNL/MealieShopper/issues/242).*
+
+- **Picnic-recepten komen weer compleet in Mealie** ([#242](https://github.com/helmerzNL/MealieShopper/issues/242)). Een recept van Picnic kwam in Mealie binnen met alleen de titel en de foto. MealieShopper stuurt het recept als schema.org Recipe (JSON-LD) naar Mealie (`POST /api/recipes/create/html-or-json`), en Mealie leest dat met de bibliotheek *recipe-scrapers*. Die kiest zijn scraper op de host van de meegegeven link (`https://picnic.app/#recipe-…`), en heeft voor `picnic.app` een eigen scraper die alleen de website van Picnic leest en de JSON-LD negeert. Ingrediënten en bereiding bleven daardoor leeg. Nu gaat zo'n recept onder een neutrale link naar Mealie (`https://mealieshopper.invalid/recipe`), zodat de algemene schema.org-scraper alles leest. Daarna zet MealieShopper de link naar Picnic terug als bron (`PATCH` van `orgURL`), zodat *Inplannen* het recept later weer vindt. De andere winkels en maaltijdboxen houden hun eigen link: daar leest recipe-scrapers de JSON-LD wel (nagekeken voor AH, Jumbo, Crisp, HelloFresh en Marley Spoon).
+- **Een Picnic-recept dat al leeg in Mealie staat**, blijft leeg: *Inplannen* gebruikt het recept dat er al staat. Verwijder het in Mealie en zet het opnieuw in Mealie.
+- **Handleiding** (NL en EN): wat er van een Picnic-recept in Mealie komt, en wat je doet met een recept dat leeg binnenkwam.
+
 ## v3.8.0
 
 ### Nieuw in 3.8.0
