@@ -8,7 +8,8 @@ het origineel in `<datamap>/images/<ab>/<sha256-van-het-adres>.<ext>` en serveer
 
 Zuinig voor de winkel: hooguit twee verzoeken tegelijk, op afroep minstens 0,3 s tussen twee verzoeken op dezelfde host en
 in de achtergrond 2 tot 5 s, en een 403 of 429 zet de host twaalf uur stil. Een adres dat mislukt wacht een dag, vanaf drie
-mislukkingen een week en vanaf tien nooit meer (een 404 telt voor drie).
+mislukkingen een week en vanaf tien nooit meer (een 404 telt voor drie). Een 403 met de XML-foutmelding van een opslag als Amazon S3
+(`AccessDenied`, zoals bij Picnic) is geen blokkade maar een foto die er niet is: die telt als een 404 en zet de host niet stil.
 
 De tabel `image_cache` (in auth.sqlite3) kent per adres de host, het pad, het type, de maten, wanneer het is opgehaald en de
 mislukkingen. Ze staat niet in de back-up (backup.EXCLUDED_TABLES): de cache is opnieuw op te bouwen. Een nachtelijke ronde
@@ -23,6 +24,7 @@ import io
 import os
 import logging
 import random
+import re
 import threading
 import time
 from contextlib import closing
@@ -122,6 +124,12 @@ _EXTENSIONS = {
     "image/gif": "gif",
 }
 _PICNIC_SUFFIX = ".picnicinternational.com"
+
+# Een opslag als Amazon S3 (de foto's van Picnic) antwoordt op een bestand dat er niet is met een 403 `AccessDenied` in XML, niet
+# met een 404: zonder leesrecht op de inhoud van de bucket verraadt hij niet welke bestanden er zijn. Zo'n 403 gaat over dat ene
+# adres en zegt niet dat de winkel de app weert; een blokkade van een winkel (HTML van een firewall, of een 429) wel (#236).
+_MISSING_OBJECT = re.compile(rb"<Error>\s*<Code>(?:AccessDenied|NoSuchKey)</Code>")
+_ERROR_BODY_BYTES = 4096
 
 _SLOTS = threading.BoundedSemaphore(CONCURRENCY)
 _PACE_LOCK = threading.Lock()
@@ -371,11 +379,29 @@ def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
     raise ValueError("te veel doorverwijzingen")
 
 
+def _missing_object(response: requests.Response) -> bool:
+    """Is dit antwoord de foutmelding van een opslag als S3 over een bestand dat er niet is (`_MISSING_OBJECT`)? We lezen hooguit
+    `_ERROR_BODY_BYTES` van de inhoud, en alleen bij XML."""
+    content_type = str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
+    if content_type not in ("application/xml", "text/xml"):
+        return False
+    head = b""
+    for chunk in response.iter_content(1024):
+        head += chunk
+        if len(head) >= _ERROR_BODY_BYTES:
+            break
+    return bool(_MISSING_OBJECT.search(head[:_ERROR_BODY_BYTES]))
+
+
 def _read_image(response: requests.Response) -> tuple[bytes, str]:
-    """(inhoud, type) uit een antwoord van de winkel, met de grenzen op type en grootte."""
+    """(inhoud, type) uit een antwoord van de winkel, met de grenzen op type en grootte. Een antwoord dat geen 200 is, wordt een
+    requests.HTTPError met `status`, en met `missing` als de foto er niet is: een 404, of een 403 van een opslag als S3."""
     if response.status_code != 200:
-        error = requests.HTTPError(f"HTTP {response.status_code}")
+        bucket_missing = response.status_code == 403 and _missing_object(response)
+        error = requests.HTTPError(f"HTTP {response.status_code}" + (" (de foto bestaat niet)" if bucket_missing else ""))
+        missing = response.status_code == 404 or bucket_missing
         error.status = response.status_code  # type: ignore[attr-defined]
+        error.missing = missing  # type: ignore[attr-defined]
         raise error
     content_type = str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
     if not content_type.startswith("image/") or content_type == "image/svg+xml":
@@ -416,9 +442,10 @@ def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
             data, content_type = _download(store, host, url)
     except requests.HTTPError as exc:
         status = getattr(exc, "status", 0)
-        if status in (403, 429):
+        missing = bool(getattr(exc, "missing", status == 404))
+        if status in (403, 429) and not missing:  # de winkel weert ons: de hele host even met rust laten
             _pause(host, now)
-        _record_failure(url, now, NOT_FOUND_COUNTS if status == 404 else 1, str(exc))
+        _record_failure(url, now, NOT_FOUND_COUNTS if missing else 1, str(exc))  # een foto die er niet is, telt voor drie
         return None
     except (requests.RequestException, ValueError, OSError) as exc:
         _record_failure(url, now, 1, str(exc) or exc.__class__.__name__)
