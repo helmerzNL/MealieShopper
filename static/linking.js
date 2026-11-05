@@ -58,6 +58,16 @@ function linkingSpent(budget) {
   return Number(budget?.limit) > 0 && Number(budget?.used) >= Number(budget.limit);
 }
 
+// De tellingen van wat er te doen is als woorden met hun meervoud ("1 artikel", "6 bonnen", "12 foto's"). `lines` telt de
+// artikelnummers zonder product (ah_orders._todo), geen bonregels.
+function linkingCounts(todo) {
+  return {
+    lines: tn("orders.linking.count.articles", Number(todo.lines) || 0),
+    receipts: tn("orders.linking.count.receipts", Number(todo.receipts) || 0),
+    images: tn("orders.linking.count.photos", Number(todo.images) || 0),
+  };
+}
+
 // De knop van de melding. Loopt er een ronde, dan een uitgeschakelde "Bezig met ophalen". Op een bon waarvan geen regel aan de beurt
 // is (`due` 0) een uitgeschakelde "Nu ophalen": een ronde zou niets opzoeken. Bij een pauze alleen de beheerder, met force (de route
 // weigert force van een ander met 403). Bij een leeg uurbudget uitgeschakeld tot het weer kan. Het getal op de knop van een bon is
@@ -73,7 +83,7 @@ function linkingButton(status, { receiptId = null, due = 0, admin = false, now =
   const wait = linkingSpent(status.budget)
     ? ` disabled title="${escapeHtml(t("orders.linking.wait", { reset: linkingClock(status.budget.resetAt, now) }))}"`
     : "";
-  const label = receiptId ? t("orders.linking.run_receipt", { count: due }) : t("orders.linking.run");
+  const label = receiptId ? tn("orders.linking.run_receipt", due) : t("orders.linking.run");
   return `<button class="button inline-button" type="button" data-linking-run${receipt} data-force="0"${wait}>${escapeHtml(label)}</button>`;
 }
 
@@ -91,13 +101,13 @@ function linkingNotice(status, { receiptId = null, unlinked = 0, due = unlinked,
   const spent = !waiting && !paused && linkingSpent(status.budget);
   if (!receiptId && !paused && !spent && !(todo.lines > 0)) return "";
   const parts = [];
-  if (receiptId) parts.push(t("orders.linking.receipt_todo", { unlinked, total }));
+  if (receiptId) parts.push(tn("orders.linking.receipt_todo", unlinked, { total }));
   if (waiting) parts.push(t("orders.linking.receipt_waiting"));
   if (paused) parts.push(linkingPauseText(status, now));
   else if (spent) parts.push(linkingBudgetText(status.budget, now));
-  if (!receiptId && (paused || spent) && todo.lines > 0) parts.push(t("orders.linking.todo_short", { lines: todo.lines, receipts: todo.receipts }));
+  if (!receiptId && (paused || spent) && todo.lines > 0) parts.push(t("orders.linking.todo_short", linkingCounts(todo)));
   if (!receiptId && !paused && !spent) {
-    parts.push(t("orders.linking.todo", { lines: todo.lines, receipts: todo.receipts, images: todo.images, next: linkingNext(status.nextRound, now) }));
+    parts.push(t("orders.linking.todo", { ...linkingCounts(todo), next: linkingNext(status.nextRound, now) }));
   }
   const kind = paused || spent ? "warning" : "success";
   const button = linkingButton(status, { receiptId, due, admin, now });
@@ -141,7 +151,7 @@ function linkingBox(status, now = new Date()) {
   return `<dl class="linking-facts">${[
     fact("settings.linking.state", escapeHtml(state)),
     fact("settings.linking.budget", meter),
-    fact("settings.linking.todo", escapeHtml(t("settings.linking.todo_text", { lines: todo.lines, receipts: todo.receipts, images: todo.images }))),
+    fact("settings.linking.todo", escapeHtml(t("settings.linking.todo_text", linkingCounts(todo)))),
     fact("settings.linking.last_round", escapeHtml(linkingLastRound(status.lastRound))),
     fact("settings.linking.next_round", escapeHtml(linkingNext(status.nextRound, now))),
   ].join("")}</dl>

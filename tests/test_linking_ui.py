@@ -45,6 +45,7 @@ def const_source(source, name):
 # De pure functies; de tijdnotatie (linkingClock, linkingNext) heeft zijn eigen tests en is in de rest een stub.
 PURE = (
     "linkingSpent",
+    "linkingCounts",
     "linkingPauseText",
     "linkingBudgetText",
     "linkingNotice",
@@ -66,6 +67,7 @@ def tag(pattern: str, html: str) -> str:
 def prelude(clock_stub=True):
     lines = [
         "const t = (key, params = {}) => key + (Object.keys(params).length ? ' ' + Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',') : '');",
+        "const tn = (key, count, params = {}) => t(`${key}.${Number(count) === 1 ? 'one' : 'other'}`, { count, ...params });",
         "const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');",
         'const badge = (kind, text) => `<span class="badge badge--${kind}">${escapeHtml(text)}</span>`;',
         "const formatSyncTime = (v) => (v ? 'date(' + v + ')' : '');",
@@ -153,7 +155,7 @@ class LinkingNoticeTest(NodeCase):
             "orders.linking.paused since=clock(2026-11-05T14:02:00+00:00),status=429,until=clock(2026-11-06T02:02:00+00:00)",
             html,
         )
-        self.assertIn("orders.linking.todo_short lines=19,receipts=6", html)
+        self.assertIn("orders.linking.todo_short lines=orders.linking.count.articles.other count=19,receipts=orders.linking.count.receipts.other count=6", html)
         self.assertIn("orders.linking.try_anyway", html)
         self.assertNotIn("data-receipt-id", html)
 
@@ -186,7 +188,7 @@ class LinkingNoticeTest(NodeCase):
         html = self.render(f"linkingNotice({TODO}, {{ admin: false }})")
         self.assertIn('class="message success message--action', html)
         self.assertIn(
-            "orders.linking.todo lines=19,receipts=6,images=12,next=next(2026-11-06T02:00:00+00:00)",
+            "orders.linking.todo lines=orders.linking.count.articles.other count=19,receipts=orders.linking.count.receipts.other count=6,images=orders.linking.count.photos.other count=12,next=next(2026-11-06T02:00:00+00:00)",
             html,
         )
         button = tag(r"<button[^>]*>", html)
@@ -198,8 +200,8 @@ class LinkingNoticeTest(NodeCase):
         html = self.render(
             f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 19, total: 40 }})'
         )
-        self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
-        self.assertIn("orders.linking.run_receipt count=19", html)
+        self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
+        self.assertIn("orders.linking.run_receipt.other count=19", html)
         self.assertIn('data-receipt-id="R1"', html)
         self.assertNotIn(
             "orders.linking.todo ", html, "op een bon niet het werk van alle bonnen"
@@ -210,8 +212,8 @@ class LinkingNoticeTest(NodeCase):
         html = self.render(
             f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 4, total: 40 }})'
         )
-        self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
-        self.assertIn("orders.linking.run_receipt count=4", html)
+        self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
+        self.assertIn("orders.linking.run_receipt.other count=4", html)
         self.assertNotIn("orders.linking.receipt_waiting", html)
         self.assertNotIn("disabled", tag(r"<button[^>]*>", html))
 
@@ -220,7 +222,7 @@ class LinkingNoticeTest(NodeCase):
             html = self.render(
                 f'linkingNotice({status}, {{ receiptId: "R1", unlinked: 19, due: 0, total: 40, admin: true }})'
             )
-            self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
+            self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
             self.assertIn("orders.linking.receipt_waiting", html)
             self.assertNotIn("orders.linking.run_receipt", html)
             self.assertNotIn("orders.linking.paused", html, "de pauze doet er voor deze bon niet toe")
@@ -250,7 +252,7 @@ class LinkingNoticeTest(NodeCase):
         html = self.render(
             f'linkingNotice({PAUSED}, {{ receiptId: "R1", unlinked: 19, total: 40, admin: true }})'
         )
-        self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
+        self.assertIn("orders.linking.receipt_todo.other count=19,total=40", html)
         self.assertIn("orders.linking.paused since=", html)
         self.assertIn('data-receipt-id="R1"', html)
         self.assertIn('data-force="1"', html)
@@ -299,6 +301,66 @@ class LinkingNoticeTest(NodeCase):
         self.assertEqual(counts, {"receiptId": "R1", "unlinked": 2, "due": 1, "total": 3})
 
 
+def dictionary_prelude(lang: str) -> str:
+    """De linkingfuncties met de echte teksten van `lang` en dezelfde `t`/`tn` als static/i18n.js (zonder DOM)."""
+    source = NL_JS if lang == "nl" else EN_JS
+    return "\n".join(
+        [
+            "const dictionaries = {};",
+            "const I18N = { add: (lang, entries) => { dictionaries[lang] = entries; }, locale: () => 'nl-NL' };",
+            source,
+            f"const messages = dictionaries[{json.dumps(lang)}];",
+            "const t = (key, params = {}) => (messages[key] ?? key).replace(/\\{(\\w+)\\}/g, (m, name) => (name in params ? String(params[name]) : m));",
+            "const tn = (key, count, params = {}) => t(`${key}.${Number(count) === 1 ? 'one' : 'other'}`, { count, ...params });",
+            "const escapeHtml = (v) => String(v ?? '');",
+            "const formatSyncTime = (v) => (v ? 'date(' + v + ')' : '');",
+            "const linkingClock = (v) => (v ? 'clock' : '');",
+            "const linkingNext = () => 'NEXT';",
+            const_source(LINKING, "LINKING_TRIGGERS"),
+        ]
+        + [function_source(LINKING, name) for name in PURE]
+    )
+
+
+def counts_status(lines: int, receipts: int, images: int, paused: bool = False) -> str:
+    base = PAUSED if paused else TODO
+    return base.replace("todo: { lines: 19, receipts: 6, images: 12 }", f"todo: {{ lines: {lines}, receipts: {receipts}, images: {images} }}")
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class LinkingPluralTest(unittest.TestCase):
+    """De tellingen in de melding met de echte teksten: geen "1 regels op 1 bonnen" of "1 zoekopdrachten"."""
+
+    def render(self, lang: str, expression: str) -> str:
+        done = subprocess.run(
+            ["node", "-e", f"{dictionary_prelude(lang)}\nconsole.log(JSON.stringify({expression}));"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_dutch_counts_take_the_singular_at_one(self):
+        self.assertIn("Nog 1 artikel op 1 bon zonder product, 1 foto te halen.", self.render("nl", f"linkingNotice({counts_status(1, 1, 1)})"))
+        self.assertIn("Nog 19 artikelen op 6 bonnen zonder product, 12 foto's te halen.", self.render("nl", f"linkingNotice({counts_status(19, 6, 12)})"))
+        self.assertIn("Nog 1 artikel op 1 bon zonder product.", self.render("nl", f"linkingNotice({counts_status(1, 1, 0, paused=True)}, {{ admin: true }})"))
+        one = self.render("nl", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 1, due: 1, total: 40 }})')
+        self.assertIn("1 van de 40 regels heeft nog geen product", one)
+        self.assertIn("Nu ophalen (1 zoekopdracht)<", one)
+        more = self.render("nl", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 2, total: 40 }})')
+        self.assertIn("3 van de 40 regels hebben nog geen product", more)
+        self.assertIn("Nu ophalen (2 zoekopdrachten)<", more)
+        self.assertIn("1 artikel op 1 bon zonder product, 1 foto te halen", self.render("nl", f"linkingBox({counts_status(1, 1, 1)})"))
+
+    def test_english_counts_take_the_singular_at_one(self):
+        self.assertIn("Still 1 article on 1 receipt without a product, 1 photo to fetch.", self.render("en", f"linkingNotice({counts_status(1, 1, 1)})"))
+        self.assertIn("Still 19 articles on 6 receipts without a product, 12 photos to fetch.", self.render("en", f"linkingNotice({counts_status(19, 6, 12)})"))
+        one = self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 1, due: 1, total: 40 }})')
+        self.assertIn("1 of the 40 lines has no product yet", one)
+        self.assertIn("Fetch now (1 search)<", one)
+        self.assertIn("Fetch now (2 searches)<", self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 2, total: 40 }})'))
+        self.assertIn("These lines were already searched in the last 30 days", self.render("en", f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 3, due: 0, total: 40 }})'))
+
+
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class LinkingBoxTest(NodeCase):
     def test_the_box_shows_state_meter_todo_last_and_next_round_and_both_buttons(self):
@@ -314,7 +376,7 @@ class LinkingBoxTest(NodeCase):
             "data-linking-images",
             "settings.linking.images",
             "settings.linking.meter used=37,limit=120",
-            "settings.linking.todo_text lines=19,receipts=6,images=12",
+            "settings.linking.todo_text lines=orders.linking.count.articles.other count=19,receipts=orders.linking.count.receipts.other count=6,images=orders.linking.count.photos.other count=12",
             "next(2026-11-06T02:00:00+00:00)",
             "settings.linking.never",
         ):
@@ -733,9 +795,12 @@ class LinkingMarkupTest(unittest.TestCase):
                 "paused",
                 "budget",
                 "todo",
-                "receipt_todo",
+                "receipt_todo.one",
+                "receipt_todo.other",
+                "receipt_waiting",
                 "run",
-                "run_receipt",
+                "run_receipt.one",
+                "run_receipt.other",
                 "try_anyway",
                 "running",
                 "busy",

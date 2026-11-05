@@ -111,7 +111,7 @@ function popoverGroup(group, small) {
   return `<li class="popover__cat cat--${escapeHtml(group.id)}">
       <i class="offer-chip__dot" aria-hidden="true"></i>
       <span class="popover__cat-name">${escapeHtml(categoryLabel(group.id))}</span>
-      <span class="popover__cat-count">${escapeHtml(t("popover.group", { units: group.units, kinds: group.kinds }))}</span>
+      <span class="popover__cat-count">${escapeHtml(t("popover.group", { units: tn("popover.units", group.units), kinds: tn("popover.kinds", group.kinds) }))}</span>
       ${popoverThumbs(group.lines, small)}
       <span class="popover__cat-amount">${escapeHtml(money(group.amount))}</span>
     </li>`;

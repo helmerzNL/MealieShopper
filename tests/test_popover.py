@@ -57,7 +57,7 @@ def prelude():
     return "\n".join(
         [
             "const t = (key, params = {}) => key + (Object.keys(params).length ? ' ' + Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',') : '');",
-            "const tn = (key, count, params = {}) => t(key, { count, ...params });",
+            "const tn = (key, count, params = {}) => t(`${key}.${Number(count) === 1 ? 'one' : 'other'}`, { count, ...params });",
             "const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');",
             "const money = (v) => (v === null || v === undefined ? '' : 'EUR ' + Number(v).toFixed(2));",
             "const storeImage = (url) => '/img/' + url;",
@@ -210,14 +210,14 @@ class PopoverNodeTest(unittest.TestCase):
         html = self.run_js(scenario)
         self.assertIn("zo 21 sep 2026", html)
         self.assertIn("badge--status-delivered", html)
-        self.assertIn('orders.page.products count=9', html)
-        self.assertIn('orders.page.categories count=2', html)
+        self.assertIn('orders.page.products.other count=9', html)
+        self.assertIn('orders.page.categories.other count=2', html)
         self.assertLess(
             html.index("cat--groente_fruit"),
             html.index("cat--vis"),
             "de volgorde van de categorieën",
         )
-        self.assertIn('popover.group units=8,kinds=8', html)
+        self.assertIn('popover.group units=popover.units.other count=8,kinds=popover.kinds.other count=8', html)
         self.assertEqual(html.count("/img/https://static.ah.nl/vis"), 6)
         self.assertIn('popover.more count=2', html)
         self.assertIn("EUR 16.00", html, "het subtotaal van de vis")
