@@ -29,6 +29,7 @@
   --primary: #176b45;
   --primary-strong: #105235;
   --selection: #eaf5ee;
+  --selection-border: #b8d8c6; /* rand om een selectievlak (actieve tab, tag): volgt de accentkleur */
   --lemon: #f2cf45; /* decoratief: niet als tekst op wit */
   --info: #1565c0;
 
@@ -96,6 +97,7 @@
   --primary: #4cc38a;
   --primary-strong: #7bd9ab;
   --selection: #1d3a2c;
+  --selection-border: #2a5c43;
   --info: #64b5f6;
 
   --bg: #0f1613;
@@ -140,6 +142,57 @@
   --placeholder: #8a9c91;
   --topbar-glass: rgba(15, 22, 19, 0.9);
   --page-glow: rgba(76, 195, 138, 0.08);
+}
+
+/* Donkergrijs in plaats van groen (Instellingen, Weergave): theme.js zet data-dark-bg="grey" op <html>. Alleen de neutrale
+   vlakken, tekst en randen wisselen, met hetzelfde contrast als het groene donkere thema; meldingen houden hun eigen kleur. */
+:root[data-theme="dark"][data-dark-bg="grey"] {
+  --bg: #121314;
+  --surface: #1b1c1e;
+  --surface-muted: #232527;
+  --text: #e8e9ea;
+  --muted: #a6a8ab;
+  --border: #343638;
+  --border-strong: #47494c;
+  --placeholder: #8f9194;
+
+  --tabbar-glass: rgba(27, 28, 30, 0.8);
+  --tabbar-ink: #bbbdc0;
+  --tabbar-solid: rgba(27, 28, 30, 0.97);
+  --topbar-bg: rgba(18, 19, 20, 0.96);
+  --gate-bg: rgba(18, 19, 20, 0.96);
+  --topbar-glass: rgba(18, 19, 20, 0.9);
+}
+
+/* Een eigen accentkleur (Instellingen, Weergave). theme.js zet de tinten op <html> (--accent-light, --accent-dark en hun
+   -strong, -on en -ink), al gecontroleerd op contrast, samen met data-accent. Zonder eigen keuze gelden de waarden hierboven. Wat
+   van de merkkleur afhangt volgt uit --primary; statussen (gelukt, fout, waarschuwing) volgen de accentkleur nooit. */
+:root[data-accent] {
+  --primary: var(--accent-light, #176b45);
+  --primary-strong: var(--accent-light-strong, #105235);
+  --on-primary: var(--accent-light-on, #fff);
+  --selection: color-mix(in srgb, var(--primary) 9%, #fff);
+  --selection-border: color-mix(in srgb, var(--primary) 30%, #fff);
+  --tabbar-tint: color-mix(in srgb, var(--primary) 14%, transparent);
+  --tabbar-ink-active: var(--accent-light-ink, #105235); /* leesbaar op het glas van de menubalk, ook boven een foto */
+  --btn-shadow: 0 1px 2px color-mix(in srgb, var(--primary-strong) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --btn-shadow-hover: 0 2px 8px color-mix(in srgb, var(--primary-strong) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --ring: color-mix(in srgb, var(--primary) 20%, transparent);
+  --page-glow: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+:root[data-accent][data-theme="dark"] {
+  --primary: var(--accent-dark, #4cc38a);
+  --primary-strong: var(--accent-dark-strong, #7bd9ab);
+  --on-primary: var(--accent-dark-on, #0b1f15);
+  --selection: color-mix(in srgb, var(--primary) 20%, var(--bg));
+  --selection-border: color-mix(in srgb, var(--primary) 35%, var(--surface));
+  --tabbar-tint: color-mix(in srgb, var(--primary) 18%, transparent);
+  --tabbar-ink-active: var(--accent-dark-ink, #7bd9ab);
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --btn-shadow-hover: 0 2px 10px color-mix(in srgb, var(--primary) 28%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --ring: color-mix(in srgb, var(--primary) 28%, transparent);
+  --page-glow: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* De ruimte voor de scrollbalk blijft altijd gereserveerd: de pagina verspringt niet als een scherm hoger wordt dan het venster. */
@@ -440,7 +493,7 @@ h2 {
 .tab.is-active {
   background: var(--selection);
   color: var(--primary-strong);
-  box-shadow: inset 0 0 0 1px var(--success-border);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
 }
 
 .subtab.is-active {
@@ -1085,7 +1138,7 @@ a.subtab-menu__item[hidden] {
 .tag {
   border-radius: 999px;
   background: var(--selection);
-  box-shadow: inset 0 0 0 1px var(--success-border);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
   color: var(--primary-strong);
   padding: 3px 10px;
   font-size: 12px;
@@ -3430,6 +3483,17 @@ body.has-onboarding {
   .lang-switch__button .flag {
     transition: none;
   }
+}
+
+/* De geinstalleerde app (html.is-standalone, zie de kop van de pagina). De pagina veert niet mee als je bovenaan naar
+   beneden sleept (of onderaan naar boven): zonder die rubberband blijft de titelbalk met de vlaggen en de themaknop aan de
+   bovenkant plakken, en Android ververst de pagina niet onder je duim. Scrollen gaat gewoon; knijp- en dubbeltikzoom niet,
+   zoals in een native app (de viewport zet het script in de kop). Lijsten en vensters met een eigen scroll houden hun
+   overscroll-behavior: contain. In de browser verandert er niets: daar blijven zoomen en verversen werken. */
+html.is-standalone,
+html.is-standalone body {
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
 }
 
 /* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
@@ -6762,7 +6826,7 @@ body.has-onboarding {
 
 .segment-control__button[aria-pressed="true"] {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 /* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
@@ -7399,5 +7463,252 @@ body.has-onboarding {
     flex: 1 1 auto;
     padding: 0 12px;
     white-space: nowrap;
+  }
+}
+
+/* Instellingen, Weergave (appearance.js): het thema, de donkere achtergrond en de accentkleur. Elke keuze is een echt
+   keuzerondje (pijltjestoetsen, schermlezers), alleen anders getekend; de gekozen optie heeft een rand en een vinkje, dus
+   niet alleen een kleur. */
+.appearance-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.appearance-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-height);
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease), background-color 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+
+.appearance-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.appearance-option:hover {
+  border-color: var(--primary);
+}
+
+.appearance-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+  color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.appearance-option:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.appearance-option .mdi {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: currentColor;
+}
+
+.appearance-option__check {
+  display: none;
+}
+
+.appearance-option:has(input:checked) .appearance-option__check {
+  display: inline-block;
+}
+
+/* Een voorbeeld van de donkere achtergrond: het vlak, een kaart en een streepje accent. Altijd donker, ook in het lichte thema. */
+.appearance-sample {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  width: 56px;
+  height: 36px;
+  padding: 5px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.appearance-sample i {
+  display: block;
+  border-radius: 3px;
+}
+
+.appearance-sample i:last-child {
+  width: 60%;
+  height: 4px;
+  background: var(--accent-dark, #4cc38a); /* de accentkleur zoals hij in het donkere thema is */
+}
+
+.appearance-sample--green {
+  background: #0f1613;
+}
+
+.appearance-sample--green i:first-child {
+  background: #1e2b24;
+}
+
+.appearance-sample--grey {
+  background: #121314;
+}
+
+.appearance-sample--grey i:first-child {
+  background: #232527;
+}
+
+.appearance-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.appearance-swatches__list {
+  display: contents;
+}
+
+.appearance-swatch {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(var(--shadow-ink), 0.18);
+  color: var(--swatch-on);
+  cursor: pointer;
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+
+.appearance-swatch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.appearance-swatch .mdi {
+  display: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.appearance-swatch:has(input:checked) {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.appearance-swatch:has(input:checked) .mdi {
+  display: block;
+}
+
+.appearance-swatch:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 5px;
+}
+
+@media (hover: hover) {
+  .appearance-swatch:hover {
+    transform: scale(1.06);
+  }
+}
+
+/* Eigen kleur: de kleurkiezer van het apparaat in een rondje, met een regenboog zolang hij niet gekozen is. */
+.appearance-custom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.appearance-custom__dot {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: 50%;
+  background: conic-gradient(#e5484d, #d9730d, #f2cf45, #2f9e44, #0c9aa6, #0a84ff, #6c5ce7, #bf5af2, #e5484d);
+  box-shadow: inset 0 0 0 1px rgba(var(--shadow-ink), 0.18);
+  color: var(--swatch-on, #fff);
+}
+
+.appearance-custom.is-chosen .appearance-custom__dot {
+  background: var(--swatch);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.appearance-custom__dot .mdi {
+  display: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.appearance-custom.is-chosen .appearance-custom__dot .mdi {
+  display: block;
+}
+
+.appearance-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: var(--control-height);
+  height: var(--control-height);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.appearance-custom:has(input:focus-visible) .appearance-custom__dot {
+  outline: 3px solid var(--primary);
+  outline-offset: 5px;
+}
+
+.appearance-current {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.appearance-current strong {
+  color: var(--text);
+}
+
+.appearance-current code {
+  font-size: 13px;
+}
+
+.appearance-actions {
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appearance-option,
+  .appearance-swatch {
+    transition: none;
+  }
+
+  .appearance-swatch:hover {
+    transform: none;
   }
 }

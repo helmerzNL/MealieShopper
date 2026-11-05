@@ -16,7 +16,7 @@ ROUTER = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
 PAGES = ["/recipes", "/recipes/search", "/offers", "/offers/history", "/import", "/stores", "/stores/ah/orders/225301",
-         "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/about"]
+         "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/settings/appearance", "/about"]
 
 
 class PageRoutesTest(unittest.TestCase):
@@ -49,8 +49,13 @@ class PageRoutesTest(unittest.TestCase):
             self.assertEqual(self.client.get("/nope").status_code, 404)
             self.assertEqual(self.client.get("/static/router.js").status_code, 200)
 
-    def test_settings_are_still_for_the_administrator_only(self):
-        self.assertIn('panel === "settings" && !routerIsOwner()', ROUTER)
+    def test_settings_are_for_the_administrator_except_appearance(self):
+        # Een gewone gebruiker komt op elk adres onder /settings uit bij Weergave; de rest blijft van de beheerder.
+        rule = ROUTER[ROUTER.index('if (panel === "settings" && !routerIsOwner()) {'):]
+        self.assertIn('subtab = "settings-appearance";', rule[:200])
+        self.assertIn('history.replaceState({ ms: true }, "", "/settings/appearance")', rule[:300], "het adres zegt wat er open staat")
+        self.assertIn('appearance: "settings-appearance"', ROUTER)
+        self.assertIn('"/settings/appearance"', HTML.replace("href=", ""))
 
 
 class LinkMarkupTest(unittest.TestCase):

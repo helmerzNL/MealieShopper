@@ -14,11 +14,12 @@ function applyRole() {
   document.querySelectorAll("[data-regular-only]").forEach((element) => {
     element.hidden = !(signedIn && !owner);
   });
-  // Staat het scherm of subtab niet meer open voor deze gebruiker (bijvoorbeeld na uitloggen), ga dan naar een plek die wel kan.
-  if (!(signedIn && owner) && $("#settings.is-active")) document.querySelector('.tab[data-tab="recipes"]').click();
-  const active = document.querySelector("#settings [data-subtab].is-active");
-  if (active?.hidden) document.querySelector('#settings [data-subtab="settings-link"]')?.click();
   document.documentElement.classList.toggle("is-regular-user", signedIn && !owner);
+  // Staat het scherm of subtab niet meer open voor deze gebruiker (bijvoorbeeld na uitloggen), ga dan naar een plek die wel kan.
+  // Van Instellingen blijft voor een gewone gebruiker alleen Weergave over.
+  if (!signedIn && $("#settings.is-active")) document.querySelector('.tab[data-tab="recipes"]').click();
+  const active = document.querySelector("#settings [data-subtab].is-active");
+  if (active?.hidden) document.querySelector("#settings .subtab[data-subtab]:not([hidden])")?.click();
   const nameInput = $("#pw-username");
   if (nameInput) nameInput.readOnly = signedIn && !owner; // alleen de beheerder kan de naam wijzigen
 }

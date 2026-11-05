@@ -147,6 +147,33 @@ de tekst.
 - **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
   (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
   bepaalt of de balk er is.
+- **Zoals een native app:** alleen in de geïnstalleerde app (de klasse `is-standalone` op `<html>`,
+  gezet door het script in de kop) staat de viewport op `maximum-scale=1, user-scalable=no` en
+  `html, body` op `touch-action: pan-x pan-y` (geen knijp- en dubbeltikzoom), en op
+  `overscroll-behavior: none`: de pagina veert niet mee als je bovenaan naar beneden sleept, dus de
+  plakkende titelbalk blijft staan en Android ververst de pagina niet. In een gewone browser blijft
+  zoomen werken; daar is het een kwestie van toegankelijkheid.
+
+## Weergave per gebruiker
+
+Onder **Instellingen, Weergave** kiest iedere gebruiker het thema, de achtergrond van het donkere
+thema en een accentkleur; de keuze staat bij het profiel (`theme`, `darkBackground`, `accent` in
+`PUT /api/profile/preferences`) en een kopie in `localStorage` (`ms-appearance`), zodat het script in
+de kop de kleuren voor de eerste weergave zet. Het basilicumgroen blijft de standaard en het merk: het
+logo, het manifest en de deelafbeelding veranderen niet.
+
+- **Accentkleur.** `static/theme.js` maakt van één kleur de tinten `--accent-light`, `--accent-dark` en
+  hun `-strong`, `-on` en `-ink`, en zet ze met `data-accent` op `<html>`. De lichtheid schuift (de tint
+  blijft) tot de kleur 4,5 : 1 haalt op wit, `--bg`, `--surface-muted` en het selectievlak, en in het
+  donkere thema op de vlakken van beide achtergronden. `-ink` is het label van de actieve tab in de
+  onderste menubalk, nagerekend op het glas boven een zwarte en een witte foto. De rest volgt in
+  `styles.css` uit `--primary` met `color-mix` (`--selection`, `--selection-border`, `--ring`,
+  `--page-glow`, `--tabbar-tint`, de knopschaduw). Meldingen (`--success-*`, `--danger-*`,
+  `--warning-*`), kortingsbadges en categoriekleuren volgen de accentkleur nooit.
+- **Donkergrijs.** `data-dark-bg="grey"` vervangt in het donkere thema alleen de neutrale vlakken,
+  tekst en randen (`#121314`, `#1B1C1E`, `#232527`), met hetzelfde contrast als het groene thema.
+- `tests/test_appearance.py` rekent de tinten na voor de tien keuzes en voor lastige eigen kleuren
+  (wit, zwart, citroen, felgroen ...).
 
 ## Taalkiezer
 

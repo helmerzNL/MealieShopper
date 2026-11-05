@@ -1,6 +1,9 @@
-"""Profiel van een gebruiker: displaynaam, avatar en eigen voorkeuren (*Liever biologisch*, #218).
+"""Profiel van een gebruiker: displaynaam, avatar en eigen voorkeuren (*Liever biologisch*, #218, en de weergave).
 
 Inloggen blijft met de gebruikersnaam; de displaynaam is alleen wat er in het menu en in de gebruikerslijst staat.
+De weergave (Instellingen, Weergave) is per gebruiker: licht, donker of het apparaat volgen, de achtergrond van het
+donkere thema (groen of donkergrijs) en de accentkleur. De browser leidt uit de accentkleur de tinten af die de
+contrastregels halen (static/theme.js); hier bewaren we alleen de keuze, en een waarde die niet klopt telt als geen keuze.
 De avatar is een kleine afbeelding (PNG, JPEG of WebP) die in de database bewaard wordt. De browser verkleint hem
 vooraf; hier controleren we nog het type aan de inhoud en de grootte. SVG wordt nooit geaccepteerd.
 """
@@ -19,6 +22,9 @@ from .i18n import tr
 MAX_NAME_LENGTH = 40
 MAX_AVATAR_BYTES = 256 * 1024
 AVATAR_TYPES = {"image/png", "image/jpeg", "image/webp"}
+THEMES = ("system", "light", "dark")
+DARK_BACKGROUNDS = ("green", "grey")
+ACCENT = re.compile(r"^#[0-9a-f]{6}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_profiles (
@@ -28,17 +34,29 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   avatar_type TEXT,
   avatar_version INTEGER NOT NULL DEFAULT 0,
   prefer_organic INTEGER NOT NULL DEFAULT 0,
+  theme TEXT,
+  dark_background TEXT NOT NULL DEFAULT 'green',
+  accent TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
 """
+
+# Kolommen die later bij user_profiles kwamen: een oudere database krijgt ze bij het openen.
+_ADDED_COLUMNS = {
+    "prefer_organic": "INTEGER NOT NULL DEFAULT 0",  # *Liever biologisch* (#218)
+    "theme": "TEXT",  # weergave: NULL is "nog niet gekozen", dan beslist de browser zoals voorheen
+    "dark_background": "TEXT NOT NULL DEFAULT 'green'",
+    "accent": "TEXT NOT NULL DEFAULT ''",  # leeg is het basilicumgroen van de huisstijl
+}
 
 
 def _connect() -> sqlite3.Connection:
     conn = auth.connect()
     conn.executescript(SCHEMA)
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(user_profiles)")}
-    if "prefer_organic" not in columns:  # database van voor *Liever biologisch* (#218)
-        conn.execute("ALTER TABLE user_profiles ADD COLUMN prefer_organic INTEGER NOT NULL DEFAULT 0")
+    for name, definition in _ADDED_COLUMNS.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}")
     return conn
 
 
@@ -59,19 +77,41 @@ def sniff(data: bytes) -> str | None:
     return None
 
 
+def clean_theme(value: Any) -> str | None:
+    return value if value in THEMES else None
+
+
+def clean_dark_background(value: Any) -> str:
+    return value if value in DARK_BACKGROUNDS else DARK_BACKGROUNDS[0]
+
+
+def clean_accent(value: Any) -> str:
+    """'#rrggbb' in kleine letters, of '' (de huisstijl). Een waarde die niet klopt (een oude of handmatig gewijzigde
+    back-up) mag de pagina nooit breken, dus die telt als geen keuze."""
+    text = str(value or "").strip().lower()
+    return text if ACCENT.match(text) else ""
+
+
 def get(user_id: str) -> dict[str, Any]:
     with closing(_connect()) as conn:
         row = conn.execute(
-            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic FROM user_profiles WHERE user_id = ?",
+            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent "
+            "FROM user_profiles WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if not row:
-        return {"displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False}
+        return {
+            "displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False,
+            "theme": None, "darkBackground": DARK_BACKGROUNDS[0], "accent": "",
+        }
     return {
         "displayName": row["display_name"],
         "hasAvatar": bool(row["has_avatar"]),
         "avatarVersion": int(row["avatar_version"]),
         "preferOrganic": bool(row["prefer_organic"]),
+        "theme": clean_theme(row["theme"]),
+        "darkBackground": clean_dark_background(row["dark_background"]),
+        "accent": clean_accent(row["accent"]),
     }
 
 
@@ -104,6 +144,44 @@ def set_display_name(user_id: str, name: Any) -> str:
 def set_prefer_organic(user_id: str, value: bool) -> None:
     """*Liever biologisch* (#218): stelt de controlelijst van het weekmenu eerst een biologisch product voor."""
     _upsert(user_id, prefer_organic=1 if value else 0)
+
+
+def set_appearance(user_id: str, *, theme: str | None = None, dark_background: str | None = None, accent: str | None = None) -> None:
+    """De weergave van één gebruiker; alleen wat is meegegeven verandert. De waarden zijn al gecontroleerd (zie de route)."""
+    fields: dict[str, Any] = {}
+    if theme is not None:
+        fields["theme"] = theme
+    if dark_background is not None:
+        fields["dark_background"] = dark_background
+    if accent is not None:
+        fields["accent"] = accent
+    if fields:
+        _upsert(user_id, **fields)
+
+
+def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
+    """De voorkeuren uit een verzoek, gecontroleerd. Geeft ValueError met een uitleg als er iets niet klopt."""
+    wanted: dict[str, Any] = {}
+    if "preferOrganic" in body:
+        if not isinstance(body["preferOrganic"], bool):
+            raise ValueError(tr("preferOrganic moet waar of onwaar zijn.", "preferOrganic must be true or false."))
+        wanted["prefer_organic"] = body["preferOrganic"]
+    if "theme" in body:
+        if body["theme"] not in THEMES:
+            raise ValueError(tr("theme moet system, light of dark zijn.", "theme must be system, light or dark."))
+        wanted["theme"] = body["theme"]
+    if "darkBackground" in body:
+        if body["darkBackground"] not in DARK_BACKGROUNDS:
+            raise ValueError(tr("darkBackground moet green of grey zijn.", "darkBackground must be green or grey."))
+        wanted["dark_background"] = body["darkBackground"]
+    if "accent" in body:
+        accent = body["accent"]
+        if not isinstance(accent, str) or (accent and not ACCENT.match(accent.lower())):
+            raise ValueError(tr("accent moet een kleur als #1a2b3c zijn, of leeg.", "accent must be a colour like #1a2b3c, or empty."))
+        wanted["accent"] = accent.lower()
+    if not wanted:
+        raise ValueError(tr("Geen voorkeur ontvangen.", "No preference received."))
+    return wanted
 
 
 def set_avatar(user_id: str, data: bytes, content_type: str) -> None:
@@ -159,11 +237,18 @@ def register_routes(app: Flask) -> None:
     @app.put("/api/profile/preferences")
     def profile_preferences_put():
         # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
-        body = request.get_json(silent=True) or {}
-        if not isinstance(body.get("preferOrganic"), bool):
-            return jsonify({"error": tr("preferOrganic moet waar of onwaar zijn.", "preferOrganic must be true or false.")}), 400
+        # Alleen wat in het verzoek staat verandert: *Liever biologisch* en de weergave (theme, darkBackground, accent).
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            wanted = parse_preferences(body)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         user_id = auth.acting_user_id()
-        set_prefer_organic(user_id, body["preferOrganic"])
+        if "prefer_organic" in wanted:
+            set_prefer_organic(user_id, wanted.pop("prefer_organic"))
+        set_appearance(user_id, **wanted)
         return jsonify(payload(user_id))
 
     @app.post("/api/profile/avatar")

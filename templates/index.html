@@ -22,6 +22,16 @@
         if (forced === "1" || (standalone && forced !== "0")) {
           document.documentElement.classList.add("has-tabbar");
         }
+        // Alleen in de geinstalleerde app: geen knijp- en dubbeltikzoom, zoals een native app (de viewport hieronder en
+        // touch-action in de stijlen), en de pagina veert niet mee als je bovenaan naar beneden sleept, zodat de titelbalk
+        // blijft staan (html.is-standalone). In de browser blijft zoomen gewoon werken.
+        if (standalone) {
+          document.documentElement.classList.add("is-standalone");
+          var viewport = document.querySelector('meta[name="viewport"]');
+          if (viewport) viewport.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
+          // Safari op iOS kent nog een eigen knijpgebaar; dat stoppen we alleen hier, in de app.
+          document.addEventListener("gesturestart", function (event) { event.preventDefault(); });
+        }
       })();
     </script>
     <script>
@@ -34,15 +44,28 @@
       })();
     </script>
     <script>
-      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Staat hier in de kop,
-      // zodat de pagina niet eerst licht flitst. static/theme.js regelt de knop.
+      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Daarbij de achtergrond van
+      // het donkere thema en de tinten van de accentkleur, uit de kopie die static/theme.js bewaart (ms-appearance). Staat
+      // hier in de kop, zodat de pagina niet eerst licht of groen flitst. static/theme.js regelt de rest.
       (function () {
-        var theme = null;
-        try { theme = window.localStorage.getItem("ms-theme"); } catch (e) { /* opslag geblokkeerd: het apparaat beslist */ }
+        var root = document.documentElement, theme = null, look = null;
+        try {
+          theme = window.localStorage.getItem("ms-theme");
+          look = JSON.parse(window.localStorage.getItem("ms-appearance") || "null");
+        } catch (e) { /* opslag geblokkeerd: het apparaat beslist en de huisstijl geldt */ }
         if (theme !== "dark" && theme !== "light") {
           theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
-        document.documentElement.setAttribute("data-theme", theme);
+        root.setAttribute("data-theme", theme);
+        if (!look || typeof look !== "object") return;
+        if (look.darkBackground === "grey") root.setAttribute("data-dark-bg", "grey");
+        var vars = look.vars, names = vars && typeof vars === "object" ? Object.keys(vars) : [], i;
+        for (i = 0; i < names.length; i++) {
+          if (!/^--accent-(light|dark)(-strong|-on|-ink)?$/.test(names[i]) || !/^#[0-9a-f]{6}$/i.test(vars[names[i]])) return;
+        }
+        if (names.length !== 8) return;
+        for (i = 0; i < names.length; i++) root.style.setProperty(names[i], vars[names[i]]);
+        root.setAttribute("data-accent", "");
       })();
     </script>
     <title>MealieShopper</title>
@@ -406,7 +429,7 @@
         <span><strong id="user-menu-who-name"></strong><small id="user-menu-who-user"></small></span>
       </div>
       <a role="menuitem" class="user-menu__item" data-user-action="profile" data-i18n="user.profile" href="/profile" data-nav>Profiel</a>
-      <a role="menuitem" class="user-menu__item" data-user-action="settings" data-admin-only href="/settings" data-nav><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
+      <a role="menuitem" class="user-menu__item" data-user-action="settings" href="/settings" data-nav><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="about" data-i18n="user.about" href="/about" data-nav>Over</a>
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout" data-i18n="auth.logout">Uitloggen</button>
     </div>
@@ -1176,6 +1199,7 @@
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
           <a class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit" href="/settings/audit" data-nav>Auditlog</a>
           <a class="subtab" data-subtab="settings-system" data-admin-only href="/settings/system" data-nav><span data-i18n="settings.tab.system">Systeem</span><span class="update-dot" id="update-dot-subtab" hidden></span></a>
+          <a class="subtab" data-subtab="settings-appearance" data-i18n="settings.tab.appearance" href="/settings/appearance" data-nav>Weergave</a>
         </nav>
 
         <div id="settings-link" class="subpanel is-active">
@@ -1643,6 +1667,39 @@
           <div id="reset-message"></div>
         </div>
         </div>
+
+        <div id="settings-appearance" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="appearance.theme.title">Thema</h2>
+          <p class="muted" data-i18n="appearance.theme.help">Licht, donker, of wat je apparaat gebruikt. De knop met de maan of de zon bovenaan wisselt ook tussen licht en donker.</p>
+          <fieldset class="appearance-options" id="appearance-theme">
+            <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+          </fieldset>
+        </div>
+        <div class="box">
+          <h2 data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</h2>
+          <p class="muted" data-i18n="appearance.dark_bg.help">Groen past bij het basilicum van MealieShopper; donkergrijs is neutraal en rustig bij elke accentkleur. Je ziet het verschil als het donkere thema aan staat.</p>
+          <fieldset class="appearance-options" id="appearance-dark-bg">
+            <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
+            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+          </fieldset>
+        </div>
+        <div class="box">
+          <h2 data-i18n="appearance.accent.title">Accentkleur</h2>
+          <p class="muted" data-i18n="appearance.accent.help">De kleur van knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur, zodat een fout altijd rood blijft. Een kleur die te licht of te donker is voor leesbare tekst, maakt MealieShopper een tint donkerder of lichter.</p>
+          <fieldset class="appearance-swatches" id="appearance-accent">
+            <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
+            <span class="appearance-swatches__list" id="appearance-accent-list"></span>
+          </fieldset>
+          <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
+          <div id="appearance-message"></div>
+        </div>
+        </div>
+
       </section>
 
       <section id="about" class="panel">
@@ -1690,6 +1747,7 @@
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers_history.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='appearance.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='backup.js', v=config.ASSET_VERSION) }}"></script>
