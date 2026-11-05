@@ -528,6 +528,40 @@ console.log(JSON.stringify({ before, after: timers.length, threw, timer: linking
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class RefreshReceiptTest(unittest.TestCase):
+    """Na een ronde voor een bon: refreshReceipt wist de details van die bon in het hovervenster (popover.js), anders toont de
+    hover na Terug de bon van voor de ronde."""
+
+    def test_refreshing_a_receipt_drops_its_popover_details(self):
+        popover = (ROOT / "static" / "popover.js").read_text(encoding="utf-8")
+        stubs = """
+const purchaseDetailCache = new Map([["ah:receipt:R1", 1], ["ah:receipt:R2", 2], ["ah:order:R1", 3]]);
+const jsonFetch = async () => ({ items: [] });
+const ordersState = { open: { kind: "receipt", id: "R1" } };
+const $ = () => ({});
+const receiptMeta = () => "";
+const renderOrderPage = () => {};
+const linkingNoticeRefresh = () => {};
+const receiptLinkCounts = () => ({});
+"""
+        full = "\n".join(
+            [
+                stubs,
+                function_source(popover, "purchaseDetailKey"),
+                function_source(popover, "popoverForget"),
+                function_source(ORDERS, "refreshReceipt"),
+                "refreshReceipt('R1').then(() => console.log(JSON.stringify([...purchaseDetailCache.keys()])));",
+            ]
+        )
+        done = subprocess.run(
+            ["node", "-e", full], capture_output=True, text=True, timeout=30, check=False
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout), ["ah:receipt:R2", "ah:order:R1"])
+        self.assertIn("popoverForget(", function_source(ORDERS, "refreshReceipt"), "via de helper van popover.js")
+
+
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class LinkingRunTest(unittest.TestCase):
     """De knoppen: wat linkingRun naar /api/ah/linking/run stuurt. "Foto's aanvullen" vraagt alleen foto's, zonder zoekopdrachten."""
 

@@ -47,6 +47,8 @@ POPOVER_FUNCTIONS = (
     "popoverThumbs",
     "popoverGroup",
     "purchaseDetail",
+    "purchaseDetailKey",
+    "popoverForget",
     "purchaseDetailUrl",
 )
 
@@ -310,6 +312,21 @@ class PopoverNodeTest(unittest.TestCase):
             "})();"
         )
         self.assertEqual(self.run_js(scenario), [2, {"ok": True}])
+
+    def test_forgetting_one_purchase_fetches_only_that_one_again(self):
+        scenario = (
+            "const urls = []; const jsonFetch = async (url) => { urls.push(url); return { url }; };\n"
+            "(async () => {\n"
+            "  await purchaseDetail('receipt', 'R1', 'ah'); await purchaseDetail('receipt', 'R2', 'ah');\n"
+            "  popoverForget(purchaseDetailKey('receipt', 'R1', 'ah'));\n"
+            "  await purchaseDetail('receipt', 'R1', 'ah'); await purchaseDetail('receipt', 'R2', 'ah');\n"
+            "  console.log(JSON.stringify(urls));\n"
+            "})();"
+        )
+        self.assertEqual(
+            self.run_js(scenario),
+            ["/api/ah/receipts/R1", "/api/ah/receipts/R2", "/api/ah/receipts/R1"],
+        )
 
 
 class PopoverMarkupTest(unittest.TestCase):

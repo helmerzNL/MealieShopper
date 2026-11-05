@@ -537,6 +537,8 @@ async function resolveReceiptProducts(id) {
 // Na een ronde op afroep voor deze bon (linking.js): de bon opnieuw ophalen en tekenen met de producten en foto's die erbij kwamen.
 // Zonder de pagina eerst leeg te maken (zoals openPurchase doet) en zonder nieuwe zoekopdrachten bij AH: die deed de ronde al.
 async function refreshReceipt(id) {
+  // De ronde veranderde de bon: het hovervenster (popover.js) haalt zijn details na Terug opnieuw op.
+  popoverForget(purchaseDetailKey("receipt", String(id), "ah"));
   try {
     const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
     const open = ordersState.open;

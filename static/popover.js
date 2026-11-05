@@ -48,10 +48,21 @@ function purchaseDetailUrl(kind, id, store) {
   return `/api/${encodeURIComponent(store)}/orders/${ref}`;
 }
 
+// De sleutel van een aankoop in purchaseDetailCache (purchaseDetail en popoverForget).
+function purchaseDetailKey(kind, id, store) {
+  return `${store}:${kind}:${id}`;
+}
+
+// Eén aankoop vergeten, zodat de volgende hover zijn details opnieuw ophaalt. refreshReceipt (orders.js) doet dat met een bon na
+// een ronde koppelen. loadOrders wist de hele cache.
+function popoverForget(key) {
+  purchaseDetailCache.delete(key);
+}
+
 // De details van een aankoop, één keer per aankoop per lading van de lijst. Een verzoek dat mislukt blijft niet bewaard, zodat
 // de volgende hover het opnieuw probeert.
 function purchaseDetail(kind, id, store) {
-  const key = `${store}:${kind}:${id}`;
+  const key = purchaseDetailKey(kind, id, store);
   if (!purchaseDetailCache.has(key)) {
     const request = jsonFetch(purchaseDetailUrl(kind, id, store));
     purchaseDetailCache.set(key, request);
