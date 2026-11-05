@@ -43,7 +43,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ DATA_TABLES = (
     "crisp_orders", "crisp_order_items", "crisp_orders_meta",
     "offers", "offer_history", "offers_meta",
     "price_observations", "product_images", "imported_purchases",
+    "product_links",  # je eigen koppelingen van bonregels en ingelezen aankopen aan een product (#238): werk van de gebruiker
     "offer_recipes", "offer_recipes_meta",
     "offer_rejections", "offer_verdicts",
     "ai_recipe_matches", "ai_recipe_runs",
@@ -126,12 +127,13 @@ COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "prices": ("price_observations",),
     "productImages": ("product_images",),
     "importedPurchases": ("imported_purchases",),
+    "productLinks": ("product_links",),
     "recipes": ("ah_saved_recipes", "offer_recipes"),
     "judgements": ("offer_rejections", "offer_verdicts", "ai_recipe_matches"),
     "profiles": ("user_profiles",),
 }
 
-SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, profile)
+SCHEMA_OWNERS = (ah_lists, ah_orders, ah_recipes, crisp_orders, hellofresh, jumbo_lists, jumbo_orders, marleyspoon, offers, offers_schedule, picnic_orders, price_import, prices, product_links, profile)
 
 JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS backup_jobs (

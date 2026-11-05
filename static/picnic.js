@@ -410,7 +410,8 @@ function showPicnicOrderList() {
   $("#picnic-orders-list-view").hidden = false;
 }
 
-function renderPicnicOrderItem(item) {
+// Met `imported` (een ingelezen bestelling) staat rechts de knop Koppelen of Ander product kiezen (#238, product_links.js).
+function renderPicnicOrderItem(item, imported = false) {
   const meta = [item.quantity > 1 ? `${item.quantity}\u00d7` : "", item.unitSize, item.price ? formatPrice(item.price) : ""].filter(Boolean).join(" \u00b7 ");
   return `
     <article class="product-card">
@@ -419,6 +420,7 @@ function renderPicnicOrderItem(item) {
         <strong>${escapeHtml(item.title || "")}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
       </div>
+      ${imported ? productLinkButton(importedLinkLine(item, "picnic")) : ""}
     </article>`;
 }
 
@@ -458,7 +460,7 @@ async function openPicnicOrder(id, source) {
     picnicOrders.detail = order;
     $("#picnic-order-title").textContent = picnicOrderDay(order) || t("picnic.orders.order_title", { id });
     $("#picnic-order-meta").textContent = [picnicOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0), order.imported ? t("orders.imported.at", { when: formatSyncTime(order.importedAt) }) : ""].filter(Boolean).join(" \u00b7 ");
-    $("#picnic-order-items").innerHTML = items.map(renderPicnicOrderItem).join("");
+    $("#picnic-order-items").innerHTML = items.map((item) => renderPicnicOrderItem(item, Boolean(order.imported))).join("");
     $("#picnic-order-add-all").hidden = !items.some((item) => item.id);
     if (!items.length) message("#picnic-order-message", order.itemsSynced === false ? t("picnic.orders.items_not_synced") : t("picnic.orders.no_items"), "success");
     $("#picnic-order-title").focus();
@@ -506,6 +508,13 @@ $("#picnic-orders-list-view").addEventListener("click", (event) => {
 $("#picnic-orders-import").addEventListener("click", () => openPriceImport("picnic"));
 window.addEventListener("ms:imported-orders", (event) => {
   if (picnicOrders.loaded && event.detail?.store === "picnic") loadPicnicOrders();
+});
+// Na een eigen koppeling (#238, product_links.js): de lijst opnieuw, en een open ingelezen bestelling opnieuw met het gekozen product.
+window.addEventListener("ms:product-links", (event) => {
+  if (event.detail?.store !== "picnic") return;
+  if (picnicOrders.loaded) loadPicnicOrders();
+  const open = picnicOrders.detail;
+  if (open?.imported && !$("#picnic-order-view").hidden) openPicnicOrder(open.ref, "imported");
 });
 
 // ---- Het Picnic-mandje bekijken en aanpassen (tabblad Mandje: aantallen, product weg, mandje legen)

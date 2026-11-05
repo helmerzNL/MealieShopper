@@ -228,6 +228,28 @@
       </div>
     </dialog>
 
+    <!-- Een regel van een bon of ingelezen bestelling zelf aan een product van de winkel koppelen (#238, static/product_links.js). -->
+    <dialog id="link-dialog" class="product-dialog link-dialog" aria-labelledby="link-dialog-title">
+      <div class="product-dialog__inner">
+        <div>
+          <h3 id="link-dialog-title" data-i18n="links.link">Product koppelen</h3>
+          <p class="muted" id="link-dialog-intro"></p>
+          <p class="link-dialog__current" id="link-dialog-current" hidden></p>
+        </div>
+        <form class="link-dialog__search" id="link-dialog-form" role="search">
+          <input class="input" id="link-dialog-query" type="search" autocomplete="off" aria-label="Zoek een product" placeholder="Zoek een product" data-i18n-attr="aria-label:links.search;placeholder:links.search">
+          <button class="button" type="submit" data-i18n="links.search_button">Zoeken</button>
+        </form>
+        <div id="link-dialog-message" role="status" aria-live="polite"></div>
+        <ul class="link-list" id="link-dialog-list"></ul>
+        <p class="muted link-dialog__note" data-i18n="links.note">Na het koppelen herkent MealieShopper deze regel ook op je andere en volgende bonnen en bestellingen.</p>
+        <div class="product-dialog__actions">
+          <button class="button button--secondary" type="button" id="link-dialog-unlink" hidden><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2,5.27L3.28,4L20,20.72L18.73,22L13.9,17.17L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L12.5,15.76L10.88,14.15C10.87,14.39 10.77,14.64 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C8.12,13.77 7.63,12.37 7.72,11L2,5.27M12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.79,8.97L9.38,7.55L12.71,4.22M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.2,10.54 16.61,12.5 16.06,14.23L14.28,12.46C14.23,11.78 13.94,11.11 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z"/></svg><span data-i18n="links.unlink">Ontkoppelen</span></button>
+          <button class="button button--secondary" type="button" id="link-dialog-close" data-i18n="common.close">Sluiten</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="bulk-dialog" class="product-dialog bulk-dialog" aria-labelledby="bulk-dialog-title">
       <div class="product-dialog__inner">
         <div>
@@ -1675,6 +1697,7 @@
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_bulk.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='crisp.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='product_links.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='mealkits.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='basket.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers.js', v=config.ASSET_VERSION) }}"></script>

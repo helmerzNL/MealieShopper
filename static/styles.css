@@ -3722,6 +3722,139 @@ body.has-onboarding {
   font-style: italic;
 }
 
+/* Je eigen koppeling (#238, product_links.js): de knop rechts in een productkaart van een bon of ingelezen bestelling, een klein
+   icoon achter een regel op het bonnetje, en het venster Koppelen met de producten van de winkel. */
+.product-card .product-link {
+  flex: none;
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  margin-left: auto;
+}
+
+.product-link svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.product-link--todo {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.receipt .product-link {
+  width: 24px;
+  min-height: 24px;
+  height: 24px;
+  margin: -2px 0 0 6px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  vertical-align: middle;
+}
+
+.receipt .product-link svg {
+  width: 16px;
+  height: 16px;
+}
+
+.link-dialog__current {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.link-dialog__search {
+  display: flex;
+  gap: 8px;
+}
+
+.link-dialog__search .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.link-list:empty {
+  display: none;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.link-item:hover,
+.link-item:focus-visible {
+  border-color: var(--primary);
+  background: var(--selection);
+}
+
+.link-item.is-self {
+  border-color: var(--primary);
+}
+
+.link-item img,
+.link-item__photo {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: var(--radius-control);
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.link-item__photo {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+
+.link-item__photo svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.link-item__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.link-item__body strong {
+  overflow-wrap: anywhere;
+}
+
+.link-item__body small {
+  color: var(--muted);
+}
+
+.link-dialog__note {
+  font-size: 13px;
+}
+
 .receipt__section {
   margin-top: 6px;
   font-weight: 700;
