@@ -420,6 +420,7 @@ I18N.add("nl", {
   "orders.linking.todo": "Nog {lines} regels op {receipts} bonnen zonder product, {images} foto's te halen. Volgende ronde {next}.",
   "orders.linking.todo_short": "Nog {lines} regels op {receipts} bonnen zonder product.",
   "orders.linking.receipt_todo": "{unlinked} van de {total} regels hebben nog geen product (alleen de afgekorte naam van de bon, geen foto).",
+  "orders.linking.receipt_waiting": "Deze regels zijn de laatste 30 dagen al opgezocht, de volgende poging komt vanzelf.",
   "orders.linking.run": "Nu ophalen",
   "orders.linking.run_receipt": "Nu ophalen ({count} zoekopdrachten)",
   "orders.linking.try_anyway": "Nu toch proberen",

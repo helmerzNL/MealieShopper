@@ -58,10 +58,13 @@ function linkingSpent(budget) {
   return Number(budget?.limit) > 0 && Number(budget?.used) >= Number(budget.limit);
 }
 
-// De knop van de melding. Loopt er een ronde, dan een uitgeschakelde "Bezig met ophalen". Bij een pauze alleen de beheerder, met
-// force (de route weigert force van een ander met 403). Bij een leeg uurbudget uitgeschakeld tot het weer kan.
-function linkingButton(status, { receiptId = null, unlinked = 0, admin = false, now = new Date() } = {}) {
+// De knop van de melding. Loopt er een ronde, dan een uitgeschakelde "Bezig met ophalen". Op een bon waarvan geen regel aan de beurt
+// is (`due` 0) een uitgeschakelde "Nu ophalen": een ronde zou niets opzoeken. Bij een pauze alleen de beheerder, met force (de route
+// weigert force van een ander met 403). Bij een leeg uurbudget uitgeschakeld tot het weer kan. Het getal op de knop van een bon is
+// `due`, de regels die een ronde opzoekt.
+function linkingButton(status, { receiptId = null, due = 0, admin = false, now = new Date() } = {}) {
   if (status.running) return `<button class="button inline-button" type="button" disabled>${escapeHtml(t("orders.linking.running"))}</button>`;
+  if (receiptId && !(due > 0)) return `<button class="button inline-button" type="button" disabled>${escapeHtml(t("orders.linking.run"))}</button>`;
   const receipt = receiptId ? ` data-receipt-id="${escapeHtml(receiptId)}"` : "";
   if (status.pausedUntil) {
     if (!admin) return "";
@@ -70,21 +73,26 @@ function linkingButton(status, { receiptId = null, unlinked = 0, admin = false, 
   const wait = linkingSpent(status.budget)
     ? ` disabled title="${escapeHtml(t("orders.linking.wait", { reset: linkingClock(status.budget.resetAt, now) }))}"`
     : "";
-  const label = receiptId ? t("orders.linking.run_receipt", { count: unlinked }) : t("orders.linking.run");
+  const label = receiptId ? t("orders.linking.run_receipt", { count: due }) : t("orders.linking.run");
   return `<button class="button inline-button" type="button" data-linking-run${receipt} data-force="0"${wait}>${escapeHtml(label)}</button>`;
 }
 
 // De melding boven de lijst (zonder receiptId) of op een bon. Leeg als er niets te melden is: op de lijst geen pauze, budget
 // over en geen werk; op een bon geen regels zonder product. Een pauze of een leeg budget is een waarschuwing, werk dat wacht een
-// succesmelding.
-function linkingNotice(status, { receiptId = null, unlinked = 0, total = 0, admin = false, now = new Date() } = {}) {
+// succesmelding. Op een bon is `unlinked` het aantal regels zonder product en `due` hoeveel daarvan een ronde nu opzoekt (zonder
+// `due` allemaal). Is dat nul, dan zocht AH ze de laatste 30 dagen al op: de melding zegt dat de volgende poging vanzelf komt, en
+// de pauze en het budget doen voor deze bon niet ter zake.
+function linkingNotice(status, { receiptId = null, unlinked = 0, due = unlinked, total = 0, admin = false, now = new Date() } = {}) {
   if (!status) return "";
   const todo = status.todo || { lines: 0, receipts: 0, images: 0 };
-  const paused = Boolean(status.pausedUntil);
-  const spent = !paused && linkingSpent(status.budget);
-  if (receiptId ? !(unlinked > 0) : !paused && !spent && !(todo.lines > 0)) return "";
+  if (receiptId && !(unlinked > 0)) return "";
+  const waiting = Boolean(receiptId) && !(due > 0);
+  const paused = !waiting && Boolean(status.pausedUntil);
+  const spent = !waiting && !paused && linkingSpent(status.budget);
+  if (!receiptId && !paused && !spent && !(todo.lines > 0)) return "";
   const parts = [];
   if (receiptId) parts.push(t("orders.linking.receipt_todo", { unlinked, total }));
+  if (waiting) parts.push(t("orders.linking.receipt_waiting"));
   if (paused) parts.push(linkingPauseText(status, now));
   else if (spent) parts.push(linkingBudgetText(status.budget, now));
   if (!receiptId && (paused || spent) && todo.lines > 0) parts.push(t("orders.linking.todo_short", { lines: todo.lines, receipts: todo.receipts }));
@@ -92,7 +100,7 @@ function linkingNotice(status, { receiptId = null, unlinked = 0, total = 0, admi
     parts.push(t("orders.linking.todo", { lines: todo.lines, receipts: todo.receipts, images: todo.images, next: linkingNext(status.nextRound, now) }));
   }
   const kind = paused || spent ? "warning" : "success";
-  const button = linkingButton(status, { receiptId, unlinked, admin, now });
+  const button = linkingButton(status, { receiptId, due, admin, now });
   return `<div class="message ${kind} message--action linking-notice"><span>${escapeHtml(parts.join(" "))}</span>${button}</div>`;
 }
 
@@ -143,10 +151,15 @@ function linkingBox(status, now = new Date()) {
   </div>`;
 }
 
-// De tellingen van een bon voor zijn melding: regels met een artikelnummer maar zonder webwinkelproduct, van het totaal.
+// De tellingen van een bon voor zijn melding: regels met een artikelnummer maar zonder webwinkelproduct (`unlinked`), hoeveel
+// daarvan een ronde nu opzoekt (`due`, uit `linkingTodo` van de route, ah_orders.receipt_linking_todo), van het totaal. Zonder
+// `linkingTodo` geldt elke regel zonder product als aan de beurt.
 function receiptLinkCounts(receipt) {
   const items = receipt.items || [];
-  return { receiptId: receipt.id, unlinked: items.filter((line) => line.productId && !line.product).length, total: items.length };
+  const unlinked = items.filter((line) => line.productId && !line.product).length;
+  const todo = receipt.linkingTodo || {};
+  const due = Number.isFinite(todo.due) ? Math.min(todo.due, unlinked) : unlinked;
+  return { receiptId: receipt.id, unlinked, due, total: items.length };
 }
 
 // ---- de pagina

@@ -420,6 +420,7 @@ I18N.add("en", {
   "orders.linking.todo": "Still {lines} lines on {receipts} receipts without a product, {images} photos to fetch. Next round {next}.",
   "orders.linking.todo_short": "Still {lines} lines on {receipts} receipts without a product.",
   "orders.linking.receipt_todo": "{unlinked} of the {total} lines have no product yet (only the abbreviated name on the receipt, no photo).",
+  "orders.linking.receipt_waiting": "These lines were already searched in the last 30 days, the next attempt comes by itself.",
   "orders.linking.run": "Fetch now",
   "orders.linking.run_receipt": "Fetch now ({count} searches)",
   "orders.linking.try_anyway": "Try anyway",

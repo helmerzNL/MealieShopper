@@ -584,19 +584,29 @@ def _receipt_queries(name: str) -> list[str]:
     return [text] + ([longest] if longest and longest.casefold() != text.casefold() else [])
 
 
+# Een bonregel `l` (met `ah_receipt_products p` erbij via een LEFT JOIN) zonder webwinkelproduct, en zo'n regel die aan de beurt is
+# om opgezocht te worden: met een naam, nooit opgezocht of langer dan `RECEIPT_PRODUCTS_RECHECK_DAYS` geleden niet gevonden (de
+# parameter is `_recheck_before`).
+_UNLINKED_SQL = "l.product_id IS NOT NULL AND l.product_id != 0 AND p.product_id IS NULL"
+_DUE_SQL = "COALESCE(l.name, '') != '' AND (p.receipt_product_id IS NULL OR p.checked_at < ?)"
+
+
+def _recheck_before(now: str) -> str:
+    """Wie vóór dit moment niet gevonden werd, mag opnieuw opgezocht worden."""
+    return (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+
+
 def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
-    """De artikelnummers die nog niet gekoppeld zijn, per naam op de bon (een naam als "REDBAND" hoort bij meer artikelnummers en
-    kost dan een zoekopdracht), de vaakst gekochte naam eerst."""
-    recheck = (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+    """De artikelnummers die nog niet gekoppeld zijn en aan de beurt zijn, per naam op de bon (een naam als "REDBAND" hoort bij
+    meer artikelnummers en kost dan een zoekopdracht), de vaakst gekochte naam eerst."""
     rows = conn.execute(
-        """
+        f"""
         SELECT l.product_id AS id, MAX(l.name) AS name, COUNT(*) AS bought FROM ah_receipt_items l
         LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.product_id IS NOT NULL AND l.product_id != 0 AND COALESCE(l.name, '') != ''
-          AND (p.receipt_product_id IS NULL OR (p.product_id IS NULL AND p.checked_at < ?))
+        WHERE {_UNLINKED_SQL} AND {_DUE_SQL}
         GROUP BY l.product_id
         """,
-        (recheck,),
+        (_recheck_before(now),),
     ).fetchall()
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -605,6 +615,21 @@ def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
         group["ids"].append(int(row["id"]))
         group["bought"] += row["bought"]
     return sorted(groups.values(), key=lambda group: (-group["bought"], group["name"]))
+
+
+def receipt_linking_todo(conn, receipt_id: str, now: str) -> dict[str, int]:
+    """De regels van een bon zonder webwinkelproduct (`unlinked`) en hoeveel daarvan een ronde nu zou opzoeken (`due`, dezelfde regel
+    als `_todo_by_name`). Een regel die AH de laatste `RECEIPT_PRODUCTS_RECHECK_DAYS` dagen niet vond, telt wel bij `unlinked` en
+    niet bij `due`: de knop op de bon zou er niets voor doen."""
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*), COALESCE(SUM(CASE WHEN {_DUE_SQL} THEN 1 ELSE 0 END), 0) FROM ah_receipt_items l
+        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.receipt_id = ? AND {_UNLINKED_SQL}
+        """,
+        (_recheck_before(now), receipt_id),
+    ).fetchone()
+    return {"unlinked": int(row[0]), "due": int(row[1])}
 
 
 def _linked(conn, ids: list[int]) -> set[int]:
@@ -1150,9 +1175,11 @@ def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = Non
     with closing(_connect()) as conn:
         lines = _receipt_lines(conn, receipt_id)
         enriched = _enrich_receipt(conn, row, lines)
+        linking_todo = receipt_linking_todo(conn, receipt_id, _now())
     return {
         **_receipt_json(row, len(lines)),
         "items": lines,
+        "linkingTodo": linking_todo,
         "discounts": _json_list(row["discounts"]),
         "payments": _json_list(row["payments"]),
         **enriched,

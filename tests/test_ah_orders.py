@@ -947,6 +947,23 @@ class LinkingStatusTest(AhOrdersTestCase):
         self.assertIsNotNone(status["nextRound"])
         self.assertGreater(status["nextRound"], self.NOW)
 
+    def test_a_receipt_counts_its_unlinked_lines_and_the_ones_that_are_due(self):
+        # 555 zocht AH gisteren en vond hem niet: ongekoppeld, maar pas na RECEIPT_PRODUCTS_RECHECK_DAYS weer aan de beurt. 556 is nooit
+        # opgezocht, 557 is gekoppeld, 558 werd 40 dagen geleden niet gevonden en is weer aan de beurt.
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', ?, ?, ?, 1, 1.0, 1.0)",
+                [(2, 557, "MELK"), (3, 558, "KAAS"), (4, None, "STATIEGELD")],
+            )
+            conn.executemany(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, ?)",
+                [(555, None, None, "2026-11-04T15:00:00+00:00"), (557, 4183, "AH Melk", "2026-11-04T15:00:00+00:00"), (558, None, None, "2026-09-26T15:00:00+00:00")],
+            )
+        with closing(ah_orders._connect()) as conn:
+            self.assertEqual(ah_orders.receipt_linking_todo(conn, "R1", self.NOW), {"unlinked": 3, "due": 2})
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        self.assertEqual(receipt["linkingTodo"], {"unlinked": 3, "due": 2})
+
     def test_an_expired_pause_is_no_pause(self):
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-05T02:02:00+00:00")
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "403@2026-11-04T14:02:00+00:00")

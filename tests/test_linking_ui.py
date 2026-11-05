@@ -196,7 +196,7 @@ class LinkingNoticeTest(NodeCase):
 
     def test_a_receipt_notice_counts_its_unlinked_lines(self):
         html = self.render(
-            f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, total: 40 }})'
+            f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 19, total: 40 }})'
         )
         self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
         self.assertIn("orders.linking.run_receipt count=19", html)
@@ -204,6 +204,29 @@ class LinkingNoticeTest(NodeCase):
         self.assertNotIn(
             "orders.linking.todo ", html, "op een bon niet het werk van alle bonnen"
         )
+
+    def test_the_receipt_button_counts_only_the_lines_a_round_would_search(self):
+        # 19 regels zonder product, 4 daarvan aan de beurt: de rest zocht AH de laatste 30 dagen al op.
+        html = self.render(
+            f'linkingNotice({TODO}, {{ receiptId: "R1", unlinked: 19, due: 4, total: 40 }})'
+        )
+        self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
+        self.assertIn("orders.linking.run_receipt count=4", html)
+        self.assertNotIn("orders.linking.receipt_waiting", html)
+        self.assertNotIn("disabled", tag(r"<button[^>]*>", html))
+
+    def test_a_receipt_whose_lines_were_all_searched_recently_waits_with_a_disabled_button(self):
+        for status in (TODO, PAUSED, SPENT):
+            html = self.render(
+                f'linkingNotice({status}, {{ receiptId: "R1", unlinked: 19, due: 0, total: 40, admin: true }})'
+            )
+            self.assertIn("orders.linking.receipt_todo unlinked=19,total=40", html)
+            self.assertIn("orders.linking.receipt_waiting", html)
+            self.assertNotIn("orders.linking.run_receipt", html)
+            self.assertNotIn("orders.linking.paused", html, "de pauze doet er voor deze bon niet toe")
+            button = tag(r"<button[^>]*>", html)
+            self.assertIn("disabled", button)
+            self.assertNotIn("data-linking-run", button, "een ronde zou niets opzoeken")
 
     def test_a_receipt_without_unlinked_lines_has_no_notice_even_with_work_elsewhere(
         self,
@@ -267,7 +290,13 @@ class LinkingNoticeTest(NodeCase):
         counts = self.render(
             'receiptLinkCounts({ id: "R1", items: [{ productId: 1, product: null }, { productId: 2, product: { id: 9 } }, { productId: null, product: null }, { productId: 3, product: null }] })'
         )
-        self.assertEqual(counts, {"receiptId": "R1", "unlinked": 2, "total": 4})
+        self.assertEqual(counts, {"receiptId": "R1", "unlinked": 2, "due": 2, "total": 4})
+
+    def test_the_counts_of_a_receipt_take_the_due_lines_from_the_route(self):
+        counts = self.render(
+            'receiptLinkCounts({ id: "R1", linkingTodo: { unlinked: 2, due: 1 }, items: [{ productId: 1, product: null }, { productId: 3, product: null }, { productId: 4, product: { id: 9 } }] })'
+        )
+        self.assertEqual(counts, {"receiptId": "R1", "unlinked": 2, "due": 1, "total": 3})
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
