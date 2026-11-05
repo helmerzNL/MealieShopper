@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, image_cache, jumbo, price_import
+from . import ah_orders, auth, image_cache, jumbo, price_import
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -59,6 +59,8 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 def _connect():
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    # De gewone prijs per regel, zoals bij AH (zie `ah_orders.REGULAR_COLUMNS`). Een oudere database krijgt de kolommen erbij.
+    ah_orders._ensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
     return conn
 
 

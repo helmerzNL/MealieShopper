@@ -540,7 +540,35 @@ class ReceiptsCacheTest(AhOrdersTestCase):
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}
         self.assertIn("image", columns)
         with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste: geen "duplicate column name"
-            ah_orders._add_image_column(conn)
+            ah_orders._add_column(conn, "ah_receipt_products", "image", "TEXT")
+
+    def test_the_schema_gains_the_regular_price_columns(self):
+        with closing(ah_orders._connect()) as conn:
+            for table in ("ah_order_items", "ah_receipt_items"):
+                names = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                self.assertLessEqual({"regular_price", "regular_checked_at"}, names)
+
+    def test_an_old_database_gains_the_regular_price_columns_and_keeps_its_lines(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute("DROP TABLE IF EXISTS ah_order_items")
+            conn.execute(
+                "CREATE TABLE ah_order_items (order_id INTEGER NOT NULL, position INTEGER NOT NULL, product_id INTEGER, title TEXT, brand TEXT, "
+                "unit_size TEXT, quantity INTEGER, amount REAL, price REAL, price_before_bonus REAL, bonus INTEGER, taxonomy TEXT, image TEXT, "
+                "PRIMARY KEY (order_id, position))"
+            )
+            conn.execute("INSERT INTO ah_order_items (order_id, position, product_id, title) VALUES (1, 0, 4183, 'AH Bloemkool')")
+        with closing(ah_orders._connect()) as conn:
+            row = dict(conn.execute("SELECT * FROM ah_order_items").fetchone())
+        self.assertEqual((row["title"], row["regular_price"], row["regular_checked_at"]), ("AH Bloemkool", None, None))
+        with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste
+            ah_orders._add_column(conn, "ah_order_items", "regular_price", "REAL")
+
+    def test_jumbo_order_lines_gain_the_regular_price_columns(self):
+        from mealieshopper import jumbo_orders
+
+        with closing(jumbo_orders._connect()) as conn:
+            names = {row["name"] for row in conn.execute("PRAGMA table_info(jumbo_order_items)")}
+        self.assertLessEqual({"regular_price", "regular_checked_at"}, names)
 
     def test_linking_keeps_the_product_image_and_the_receipt_shows_it(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])

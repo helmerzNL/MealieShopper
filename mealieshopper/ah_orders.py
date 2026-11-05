@@ -115,21 +115,34 @@ CREATE TABLE IF NOT EXISTS ah_orders_meta (
 
 ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount", "price", "price_before_bonus", "bonus", "taxonomy", "image")
 
+# De gewone prijs van een aankoopregel: de laagste van de 30 dagen voor de aankoopdag (`prices.fill_regular_prices` vult ze 's nachts).
+# `regular_price` NULL met een `regular_checked_at`: bepaald, maar er was geen gewone prijs bekend. Ook op `jumbo_order_items`.
+REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
+
 
 def _connect():
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
     # Een database van vóór de bonfoto's heeft die kolom nog niet; `backfill_receipt_images` vult hem 's nachts.
-    if "image" not in {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}:
-        _add_image_column(conn)
+    _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
+    for table in ("ah_order_items", "ah_receipt_items"):
+        _ensure_columns(conn, table, REGULAR_COLUMNS)
     return conn
 
 
-def _add_image_column(conn) -> None:
+def _ensure_columns(conn, table: str, columns: tuple[tuple[str, str], ...]) -> None:
+    """Voeg de kolommen toe die een oudere database nog niet heeft."""
+    present: set[str] = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for column, kind in columns:
+        if column not in present:
+            _add_column(conn, table, column, kind)
+
+
+def _add_column(conn, table: str, column: str, kind: str) -> None:
     """De migratie; twee threads die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
     try:
-        conn.execute("ALTER TABLE ah_receipt_products ADD COLUMN image TEXT")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
     except sqlite3.OperationalError as exc:
         if "duplicate column" not in str(exc):
             raise
