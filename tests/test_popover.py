@@ -39,6 +39,7 @@ def const_source(source, name):
 
 
 POPOVER_FUNCTIONS = (
+    "popoverAnchorLink",
     "popoverAllowed",
     "popoverPlace",
     "popoverProduct",
@@ -60,7 +61,6 @@ def prelude():
             "const storeImage = (url) => '/img/' + url;",
             "const priceHistoryPath = (store, title, id = '') => `/offers/history?store=${store}&q=${title}&product=${id}`;",
             "const I18N = { formatNumber: (n) => String(n) };",
-            "const offerDateText = (day) => 'day:' + String(day).slice(0, 10);",
             "const badge = (kind, text, title = '') => `<span class=\"badge badge--${kind}\">${escapeHtml(text)}</span>`;",
             "const offerBadge = (offer) => (offer.badge && typeof offer.badge.percent === 'number' ? `<span class=\"offer-badge\">-${offer.badge.percent}%</span>` : '');",
             "const purchaseStatusBadge = (row) => badge('status-' + row.statusKind, row.statusText || row.statusKind);",
@@ -234,7 +234,7 @@ class PopoverNodeTest(unittest.TestCase):
         scenario = (
             "const [line] = orderLines({ items: [{ title: 'AH Knijpfruit <appel>', brand: 'AH', unitSize: '4 x 90 g', category: 'groente_fruit', quantity: 2, price: 1.39, paidEach: 1.19, amount: 2.38,"
             " image: 'https://static.ah.nl/knijp.jpg', discount: 14, discountSource: 'history', timesBefore: 3 }] }, 'order', 'ah');\n"
-            "console.log(JSON.stringify(popoverProduct(line, '2026-09-07')));"
+            "console.log(JSON.stringify(popoverProduct(line)));"
         )
         html = self.run_js(scenario)
         self.assertIn("popover--product cat--groente_fruit", html)
@@ -248,7 +248,7 @@ class PopoverNodeTest(unittest.TestCase):
         )
         self.assertIn('<span class="offer-badge">-14%</span>', html)
         self.assertIn('popover.before count=3', html)
-        self.assertIn('popover.last price=EUR 1.19,date=day:2026-09-07', html)
+        self.assertNotIn("popover.last", html, "geen prijs en dag van een eerdere aankoop: die zou een extra verzoek kosten")
         self.assertNotIn("<button", html, "een tooltip heeft geen knoppen")
 
     def test_a_receipt_line_adds_up_what_was_paid_after_the_bonus(self):
@@ -256,21 +256,30 @@ class PopoverNodeTest(unittest.TestCase):
         scenario = (
             "const [line] = orderLines({ items: [{ name: 'AH RED VELV', product: { title: 'AH Red velvet aardbei taart', image: 'https://static.ah.nl/taart.jpg' }, category: 'brood_bakkerij',"
             " quantity: 1, price: 7.99, amount: 7.99, paidEach: 5.19, bonus: 2.8, discount: 35 }] }, 'receipt', 'ah');\n"
-            "console.log(JSON.stringify(popoverProduct(line, '2026-10-30T17:08')));"
+            "console.log(JSON.stringify(popoverProduct(line)));"
         )
         html = self.run_js(scenario)
         self.assertIn("popover.amount quantity=1,price=EUR 5.19,amount=EUR 5.19", html)
 
-    def test_a_product_bought_for_the_first_time_says_when_and_for_how_much(self):
+    def test_a_product_bought_for_the_first_time_has_no_history_line(self):
         scenario = (
             "const [line] = orderLines({ items: [{ title: 'Peen', category: 'groente_fruit', quantity: 1, price: 0.89, amount: 0.89, image: 'https://static.ah.nl/peen.jpg' }] }, 'order', 'ah');\n"
-            "console.log(JSON.stringify(popoverProduct(line, '2026-09-07')));"
+            "console.log(JSON.stringify(popoverProduct(line)));"
         )
         html = self.run_js(scenario)
         self.assertNotIn("popover.before", html)
-        self.assertIn(
-            'popover.bought price=EUR 0.89,date=day:2026-09-07', html
+        self.assertNotIn("popover__history", html)
+
+    def test_a_click_on_the_popover_goes_to_the_link_of_its_element(self):
+        # Een foto ligt binnen de link (kaart, overzicht), een tabelrij of rij heeft de link erin.
+        scenario = (
+            "const link = { href: '/stores/ah/orders/1' };\n"
+            "const photo = { closest: (s) => (s === 'a[data-nav]' ? link : null), querySelector: () => null };\n"
+            "const tr = { closest: () => null, querySelector: (s) => (s === 'a[data-nav]' ? link : null) };\n"
+            "const bare = { closest: () => null, querySelector: () => null };\n"
+            "console.log(JSON.stringify([popoverAnchorLink(photo) === link, popoverAnchorLink(tr) === link, popoverAnchorLink(bare)]));"
         )
+        self.assertEqual(self.run_js(scenario), [True, True, None])
 
     def test_details_come_from_the_route_of_each_kind_once_per_purchase(self):
         scenario = (
@@ -339,6 +348,16 @@ class PopoverMarkupTest(unittest.TestCase):
         scroll = source[source.index('addEventListener("scroll"'):]
         self.assertIn("timer = window.setTimeout(() => show(target), POPOVER_DELAY)", scroll)
         self.assertIn('target.matches(":hover")', source, "na het schuiven alleen als de muis er nog op staat")
+
+    def test_a_click_on_the_popover_is_forwarded_to_the_anchor_link_and_hides_it(self):
+        source = function_source(POPOVER, "hoverPopover")
+        click = source[source.index('popover.addEventListener("click"'):]
+        click = click[: click.index("});") + 3]
+        self.assertIn('event.target.closest("a, button")', click, "een link of knop in het venster doet zijn eigen werk")
+        self.assertIn("popoverAnchorLink(", click)
+        self.assertIn("hide()", click)
+        self.assertIn("link.click()", click, "via de router, zoals een klik op de link zelf")
+        self.assertIn("routerModified(event)", click, "met een toets erbij een nieuw tabblad, zoals de link zelf")
 
     def test_the_detail_cache_is_cleared_when_the_list_loads(self):
         self.assertIn(

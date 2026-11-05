@@ -499,8 +499,6 @@ I18N.add("en", {
   "popover.total": "Total {amount}",
   "popover.amount": "{quantity}x {price} = {amount}",
   "popover.before": "bought {count}x before",
-  "popover.last": "last {price} on {date}",
-  "popover.bought": "Bought for {price} on {date}",
   "popover.failed": "Could not load: {error}",
   "orders.kind.order": "Order",
   "orders.kind.receipt": "Receipt",

@@ -63,18 +63,16 @@ function purchaseDetail(kind, id, store) {
 }
 
 // Het productvenster: de foto op 180 px, naam, merk en inhoud, de categoriechip, "2x € 1,19 = € 2,38" met de kortingsbadge, en
-// hoe vaak je het eerder kocht met de prijs en de dag van deze aankoop (`day`). De linkerrand in de kleur van de categorie.
-function popoverProduct(line, day) {
+// hoe vaak je het eerder kocht (niets bij nul). De prijs en dag van die eerdere aankoop staan er niet: dat kost een verzoek per
+// product, en de prijs van deze aankoop staat al in de regel erboven. De linkerrand in de kleur van de categorie.
+function popoverProduct(line) {
   const meta = [line.brand, line.unitSize].filter(Boolean).join(" · ");
   // Wat je per stuk betaalde, en dat keer het aantal: op een bon is het bedrag van de regel de prijs vóór de bonus.
   const each = line.paidEach ?? line.price;
   const paid = each !== null && line.quantity > 0 ? Math.round(each * line.quantity * 100) / 100 : null;
   const amount = paid !== null ? t("popover.amount", { quantity: line.quantity, price: money(each), amount: money(paid) }) : money(line.amount);
   const discount = offerBadge({ badge: { percent: line.discount, source: line.discountSource } }, "offer-badge--inline");
-  const when = day ? offerDateText(day) : "";
-  const history = [];
-  if (line.timesBefore > 0) history.push(t("popover.before", { count: line.timesBefore }));
-  if (each !== null && when) history.push(t(line.timesBefore > 0 ? "popover.last" : "popover.bought", { price: money(each), date: when }));
+  const before = line.timesBefore > 0 ? t("popover.before", { count: line.timesBefore }) : "";
   const photo = line.image ? `<img class="popover__photo" src="${escapeHtml(storeImage(line.image))}" alt="" data-hide-on-error>` : "";
   return `<div class="popover--product cat--${escapeHtml(line.category)}">
       ${photo}
@@ -83,7 +81,7 @@ function popoverProduct(line, day) {
         ${meta ? `<small class="popover__meta">${escapeHtml(meta)}</small>` : ""}
         ${categoryChip({ id: line.category, label: categoryLabel(line.category) }, { tag: "span" })}
         <span class="popover__amount">${escapeHtml(amount)}${discount ? ` ${discount}` : ""}</span>
-        ${history.length ? `<small class="popover__history">${escapeHtml(history.join(", "))}</small>` : ""}
+        ${before ? `<small class="popover__history">${escapeHtml(before)}</small>` : ""}
       </div>
     </div>`;
 }
@@ -131,6 +129,11 @@ function popoverPurchase(row, detail) {
       ${groups.length ? `<ul class="popover__cats">${groups.map((group) => popoverGroup(group, small)).join("")}</ul>` : ""}
       ${saved || foot ? `<footer class="popover__foot">${saved}${foot}</footer>` : ""}
     </div>`;
+}
+
+// De link van het element onder een venster: een foto ligt binnen de link (kaart, overzicht), een rij of kaart heeft hem erin.
+function popoverAnchorLink(target) {
+  return target.closest("a[data-nav]") || target.querySelector("a[data-nav]") || null;
 }
 
 // Een hovervenster voor alles in `root` dat op `selector` past, met één mouseover- en één mouseout-handler (gedelegeerd, dus ook
@@ -217,6 +220,17 @@ function hoverPopover(root, selector, load) {
     if (target === anchor) leave();
   });
   popover.addEventListener("mouseenter", () => window.clearTimeout(graceTimer));
+  // Het venster ligt soms over het element zelf (past het boven noch onder, dan schuift het eroverheen). Een klik erop is dan een
+  // klik op de link van het element: dezelfde weg door de router, en met een toets erbij een nieuw tabblad. Een link of knop in
+  // het venster doet zijn eigen werk.
+  popover.addEventListener("click", (event) => {
+    if (event.target.closest("a, button")) return;
+    const link = shown ? popoverAnchorLink(shown) : null;
+    hide();
+    if (!link) return;
+    if (routerModified(event)) window.open(link.href, "_blank", "noopener");
+    else link.click();
+  });
   popover.addEventListener("mouseleave", (event) => {
     const to = event.relatedTarget;
     if (anchor && to && anchor.contains(to)) return;
@@ -255,7 +269,7 @@ async function purchasePopoverLoad(target) {
   const detail = await purchaseDetail(row.kind, row.id, row.store);
   if (target.dataset.popover !== "product") return popoverPurchase(row, detail);
   const line = orderLines(detail, row.kind, row.store).find((entry) => entry.image === target.dataset.image);
-  return line ? popoverProduct(line, row.date) : null;
+  return line ? popoverProduct(line) : null;
 }
 
 // Eén handler voor de hele lijst: de tabel, de kaarten en het overzicht staan in #ah-orders-view.

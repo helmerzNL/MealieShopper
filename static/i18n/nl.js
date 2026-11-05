@@ -499,8 +499,6 @@ I18N.add("nl", {
   "popover.total": "Totaal {amount}",
   "popover.amount": "{quantity}x {price} = {amount}",
   "popover.before": "{count}x eerder gekocht",
-  "popover.last": "laatst {price} op {date}",
-  "popover.bought": "Gekocht voor {price} op {date}",
   "popover.failed": "Niet te laden: {error}",
   "orders.kind.order": "Bestelling",
   "orders.kind.receipt": "Kassabon",
