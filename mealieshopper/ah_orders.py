@@ -1036,7 +1036,7 @@ _RECEIPT_SUMMARY_SQL = f"""
     (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
     (SELECT -SUM(json_extract(value, '$.amount'))
         FROM json_each(CASE WHEN json_valid(r.discounts) THEN r.discounts ELSE '[]' END)) AS summary_savings,
-    (SELECT SUM(MAX(l.regular_price - l.price, 0) * COALESCE(l.quantity, 1)) FROM ah_receipt_items l
+    (SELECT SUM(MAX(l.regular_price - COALESCE(l.price, l.amount / l.quantity), 0) * COALESCE(l.quantity, 1)) FROM ah_receipt_items l
         WHERE l.receipt_id = r.receipt_id AND l.regular_price IS NOT NULL) AS summary_history,
     json_extract(CASE WHEN json_valid(r.payments) THEN r.payments ELSE '[]' END, '$[0].method') AS summary_payment
 """
@@ -1046,8 +1046,9 @@ def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        # De bonusregels plus wat de regels met een gewone prijs van 30 dagen scheelden. Het is eenvoudiger dan de detailroute, die een
-        # bonusregel afkapt op het bedrag van zijn regel: bij een bon met meer bonus dan regelbedrag kan het centen verschillen.
+        # De bonusregels plus wat de regels met een gewone prijs van 30 dagen scheelden, met als prijs per stuk het bedrag gedeeld door
+        # het aantal als de bon geen prijs noemt (bij één stuk). Dezelfde som als de detailroute: die geeft een regel hooguit zijn eigen
+        # bedrag aan bonus en telt de rest in het totaal. Alleen als de gewone prijs onder de prijs vóór bonus ligt, kan het verschillen.
         "savings": None if not row["summary_lines"] else round(float(savings or 0) + float(row["summary_history"] or 0), 2),
         "payment": row["summary_payment"] or None,
         **_status_fields("receipt", row),

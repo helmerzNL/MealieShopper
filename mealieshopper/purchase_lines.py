@@ -70,11 +70,25 @@ def _assign_bonus(lines: list[dict[str, Any]], discounts: Any) -> tuple[dict[int
             unmatched += amount
         else:
             found[index] = round(found.get(index, 0.0) + amount, 2)
+    # Een regel krijgt nooit meer bonus dan hij kostte (een actie over meer artikelen hangt aan de eerste regel). Wat erboven
+    # valt telt, net als een bonusregel die nergens past, alleen in het totaal: zo geven de lijst en de detailroute dezelfde som.
+    for index, amount in found.items():
+        cap: float = _line_amount(lines[index])
+        if amount > cap:
+            unmatched += amount - cap
+            found[index] = cap
     return found, round(unmatched, 2)
 
 
+def _line_amount(line: Mapping[str, Any]) -> float:
+    """Wat een bonregel vóór de bonus kostte: de prijs per stuk (`_receipt_price`) maal het aantal, nul zonder aantal of prijs."""
+    quantity: float = _number(line.get("quantity")) or 0.0
+    price: float | None = _receipt_price(line, quantity)
+    return round(price * quantity, 2) if price is not None and quantity > 0 else 0.0
+
+
 def match_receipt_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]) -> dict[int, float]:
-    """Per regelindex het bonusbedrag (positief) van de bonusregels die bij die regel horen.
+    """Per regelindex het bonusbedrag (positief) van de bonusregels die bij die regel horen, hooguit wat de regel kostte.
 
     Een bonusregel hoort bij een regel als de ene gevouwen naam (`_keys`) een voorvoegsel is van de andere: AH kort de namen op de bon
     af. Een bonusregel telt één keer, bij de eerste passende regel in de volgorde van de bon. Een regel kan meer bonusregels krijgen.
@@ -83,7 +97,8 @@ def match_receipt_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, A
 
 
 def unmatched_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]) -> float:
-    """Het bedrag (positief) van de bonusregels die bij geen regel van de bon passen. Dat telt alleen in het totaal (`enrich`)."""
+    """Het bedrag (positief) van de bonusregels die bij geen regel van de bon passen, plus de bonus boven het bedrag van een regel. Dat
+    telt alleen in het totaal (`enrich`)."""
     return _assign_bonus(lines, discounts)[1]
 
 

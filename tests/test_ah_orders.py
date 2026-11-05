@@ -708,11 +708,30 @@ class DetailEnrichmentTest(AhOrdersTestCase):
             conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 556, 'BROOD', 1, 2.0, 2.0)")
         receipt = self.client.get("/api/ah/receipts/R1").get_json()
         first, second = receipt["items"]
-        self.assertEqual((first["bonus"], first["paidEach"], first["discount"], first["category"]), (3.97, 0.0, 100, "kaas_vleeswaren"))
+        self.assertEqual((first["bonus"], first["paidEach"], first["discount"], first["category"]), (3.96, 0.0, 100, "kaas_vleeswaren"))
         self.assertEqual((second["bonus"], second["paidEach"], second["regularPrice"], second["discount"]), (0.0, 2.0, None, None))
-        # De bonus is groter dan de regel (4 x 0.99 = 3.96): je bespaart nooit meer dan de regel kostte.
-        self.assertEqual((receipt["saved"], receipt["statusKind"], receipt["statusText"]), (3.96, "receipt", None))
+        # De bonus is groter dan de regel (4 x 0.99 = 3.96): de regel krijgt 3.96, de cent erboven telt alleen in het totaal.
+        self.assertEqual((receipt["saved"], receipt["statusKind"], receipt["statusText"]), (3.97, "receipt", None))
         self.assertEqual(receipt["discounts"], [{"name": "AH ROOMKAAS", "amount": -3.97}])  # de bestaande velden blijven
+
+    def test_the_receipt_list_and_detail_show_the_same_saving(self):
+        # Een bonus groter dan zijn regel en regels zonder prijs (AH zet bij één stuk alleen het bedrag op de bon): de lijst en de
+        # detailroute (en dus de hover) moeten dezelfde som geven.
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, ?, '[]', 'x')",
+                (json.dumps([{"name": "FOCACCIA", "amount": -4.36}, {"name": "PERLAHUISBLE", "amount": -1.0}]),),
+            )
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'FOCACCIA', 1, NULL, 2.59)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 556, 'KAAS', 1, NULL, 3.0)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 2, 557, 'MELK', 2, 1.0, 2.0)")
+            # De gewone prijs van 30 dagen, al bepaald (zodat het openen hem niet opnieuw zoekt).
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 3.5, regular_checked_at = '9999-12-31T00:00:00' WHERE position = 1")
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 1.25, regular_checked_at = '9999-12-31T00:00:00' WHERE position = 2")
+        detail = self.client.get("/api/ah/receipts/R1").get_json()
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        # 4.36 + 1.00 van de bonusregels, (3.50 - 3.00) voor de kaas zonder prijs en (1.25 - 1.00) x 2 voor de melk.
+        self.assertEqual((detail["saved"], listed["savings"]), (6.36, 6.36))
 
     def test_a_bonus_line_that_matches_no_receipt_line_still_counts_in_the_saving(self):
         with closing(ah_orders._connect()) as conn, conn:

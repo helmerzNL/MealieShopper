@@ -36,7 +36,7 @@ class ReceiptBonusTest(unittest.TestCase):
             {"name": "PERLAHUISBLE", "amount": -17.97},
         ]
         self.assertEqual(
-            purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.97, 1: 0.4}
+            purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.96, 1: 0.4}
         )
 
     def test_the_house_brand_in_front_is_left_out_on_both_sides(self):
@@ -96,6 +96,23 @@ class ReceiptBonusTest(unittest.TestCase):
         )
         self.assertEqual(items[0]["timesBefore"], 0)  # zonder database: niets eerder
         self.assertEqual((totals["saved"], totals["savedPercent"]), (2.59, 100))
+
+    def test_a_bonus_line_larger_than_its_line_keeps_the_excess_for_the_total(self):
+        # 3.97 bonus op een regel van 4 x 0.99 = 3.96: de regel krijgt 3.96, de cent erboven telt alleen in het totaal.
+        lines = [
+            {"name": "AH ROOMKAAS", "quantity": 4, "price": 0.99, "amount": 3.96},
+            {"name": "FOCACCIA", "quantity": 1, "price": None, "amount": 2.59},
+            {"name": "MELK", "quantity": 0, "price": 1.0, "amount": 0.0},
+        ]
+        discounts = [
+            {"name": "AH ROOMKAAS", "amount": -3.97},
+            {"name": "FOCACCIA", "amount": -4.36},
+            {"name": "MELK", "amount": -0.5},
+            {"name": "PERLAHUISBLE", "amount": -17.97},
+        ]
+        self.assertEqual(purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.96, 1: 2.59, 2: 0.0})
+        # 0.01 + 1.77 + 0.50 + 17.97: de bonus boven de regels en de bonusregel die nergens past.
+        self.assertEqual(purchase_lines.unmatched_bonus(lines, discounts), 20.25)
 
     def test_a_receipt_line_of_one_without_a_price_uses_its_amount(self):
         # AH zet bij één stuk geen prijs op de bon, alleen het bedrag. Zonder die terugval was er niets betaald en 100% bespaard.
