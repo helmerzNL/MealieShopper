@@ -611,11 +611,11 @@ def create_app() -> Flask:
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
-        except ValueError as exc:
-            return jsonify({"error": str(exc)}), 400
-        except Exception as exc:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
+        except ValueError:
+            return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
+        except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
             app.logger.exception("Zoeken om te koppelen mislukt")
-            return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
+            return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424
 
     @app.put("/api/product-links")
     def product_links_save():

@@ -221,8 +221,10 @@ class JsonLdSourceTest(unittest.TestCase):
             with self.subTest(failure=failure), \
                     mock.patch.object(mealie.requests, "post", return_value=self.response()), \
                     mock.patch.object(mealie.requests, "patch", **failure), \
-                    self.assertLogs(mealie.log, "WARNING"):
+                    self.assertLogs(mealie.log, "WARNING") as logs:
                 self.assertEqual(mealie.import_via_jsonld(picnic_recipes.source_url("r1"), self.LD), "pasta-pesto")
+            self.assertNotIn("Forbidden", " ".join(logs.output))
+            self.assertNotIn("weg", " ".join(logs.output))
 
 
 if __name__ == "__main__":
