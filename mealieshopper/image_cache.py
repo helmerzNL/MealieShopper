@@ -251,13 +251,13 @@ def _rows() -> list[dict[str, Any]]:
         ]
 
 
-def stats() -> dict[str, int]:
-    """Hoeveel foto's er in de cache staan en hoeveel bytes dat is."""
+def stats(now: str | None = None) -> dict[str, Any]:
+    """Hoeveel foto's er in de cache staan en hoeveel bytes dat is, en welke winkels nu in pauze staan (`pauses`)."""
     with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM image_cache WHERE path IS NOT NULL"
         ).fetchone()
-    return {"count": int(row["n"]), "bytes": int(row["b"])}
+    return {"count": int(row["n"]), "bytes": int(row["b"]), "paused": pauses(now)}
 
 
 def _record_failure(url: str, now: str, count: int, error: str) -> None:
@@ -310,6 +310,43 @@ def due(row: dict[str, Any], now: str) -> bool:
 def paused_until(host: str) -> str | None:
     value = auth.get_setting(SETTING_PAUSED + host, "")
     return value or None
+
+
+def pauses(now: str | None = None) -> list[dict[str, str]]:
+    """De hosts die nu in pauze staan, met de winkel en tot wanneer: `[{host, store, until}]`, de vroegste eerst. Voor de regel
+    onder Instellingen > Systeem, zodat je ziet waarom er van een winkel even geen nieuwe foto's komen."""
+    now = now or _now()
+    auth.ensure_db()
+    with closing(auth.connect()) as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM app_settings WHERE key LIKE ? AND value > ? ORDER BY value", (SETTING_PAUSED + "%", now)
+        ).fetchall()
+    found = []
+    for row in rows:
+        host = str(row["key"])[len(SETTING_PAUSED):]
+        store = store_for(f"https://{host}/")
+        if store:
+            found.append({"host": host, "store": store, "until": str(row["value"])})
+    return found
+
+
+SETTING_STALE_PAUSES_LIFTED = "image_cache_stale_pauses_lifted"
+
+
+def lift_stale_pauses() -> list[str]:
+    """Hef eenmalig de pauze op van de foto's van Picnic. Tot 3.7.1 las de cache een 403 van de opslag van Picnic (Amazon S3,
+    voor een foto die er niet is) als een blokkade en zette hij Picnic twaalf uur stil. Die pauze stond in de database en bleef
+    na een update gewoon lopen, zonder dat je het zag: na de update naar 3.7.2 kwam er daardoor geen enkele receptfoto (#236).
+    Geeft de hosts waarvan de pauze is opgeheven. Een echte blokkade zet een host bij het volgende verzoek opnieuw stil."""
+    if auth.get_setting(SETTING_STALE_PAUSES_LIFTED, ""):
+        return []
+    lifted = []
+    for pause in pauses():
+        if pause["store"] == "picnic":
+            auth.set_setting(SETTING_PAUSED + pause["host"], "")
+            lifted.append(pause["host"])
+    auth.set_setting(SETTING_STALE_PAUSES_LIFTED, _now())
+    return lifted
 
 
 def _pause(host: str, now: str) -> str:

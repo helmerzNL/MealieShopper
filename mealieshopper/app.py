@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261105-2")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261105-3")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -48,6 +48,11 @@ def create_app() -> Flask:
     except (sqlite3.Error, OSError):
         # Een onbereikbare data-map meldt zich bij het eerste gebruik; opstarten blijft mogelijk.
         app.logger.warning("Kon oude koppelingsgegevens niet opruimen", exc_info=True)
+    try:
+        for host in image_cache.lift_stale_pauses():  # eenmalig: de pauze die een versie van voor 3.7.1 Picnic gaf (#236)
+            app.logger.info("Pauze van de afbeeldingencache opgeheven voor %s", host)
+    except (sqlite3.Error, OSError):
+        app.logger.warning("Kon de pauze van de afbeeldingencache niet opheffen", exc_info=True)
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502

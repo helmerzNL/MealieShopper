@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.9.1
+
+### Opgelost in 3.9.1
+
+*English summary: after updating from 3.7.0 or older, Picnic could show no recipe photos at all for up to twelve hours. Those versions took a 403 from Picnic's storage for a block and paused all Picnic photos for twelve hours. The pause is stored in the database and kept running after the update, and because recipe photos have new addresses since 3.7.2, not one of them was in the cache yet. On its first start, 3.9.1 lifts a running Picnic pause once. A store that is paused now also shows under Settings, System, with the time the photos come back. Reload the page once after updating. Follow-up to [#236](https://github.com/helmerzNL/MealieShopper/issues/236).*
+
+- **Na een update weer meteen foto's van Picnic** (vervolg op [#236](https://github.com/helmerzNL/MealieShopper/issues/236)). Een versie tot en met 3.7.0 las een 403 van de opslag van Picnic (een foto die er niet is) als een blokkade en zette alle foto's van Picnic twaalf uur stil. Die pauze staat in de database en liep na de update gewoon door, ook na een herstart. Omdat de receptfoto's sinds 3.7.2 een nieuw adres hebben, stond er nog geen enkele in de cache: de melder zag met 3.9.0 bij geen enkel recept een foto. Bij de eerste start van 3.9.1 heft MealieShopper een lopende pauze van Picnic één keer op (`image_cache.lift_stale_pauses`, in de log *Pauze van de afbeeldingencache opgeheven*). Een echte blokkade zet Picnic bij het volgende verzoek gewoon weer stil. Een pauze van een andere winkel blijft staan.
+- **Een pauze is nu te zien.** Onder **Instellingen, Systeem** (bij *Opschonen*) staat per winkel die in pauze staat tot wanneer er geen nieuwe foto's komen. `GET /api/system/images` geeft daarvoor `paused` (`[{host, store, until}]`).
+- **Handleiding** (NL en EN): waar je een pauze ziet.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.9.0
 
 ### Nieuw en opgelost in 3.9.0

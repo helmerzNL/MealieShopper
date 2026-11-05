@@ -150,7 +150,7 @@ class FetchTest(FetchCase):
         first = image_cache.fetch(AH, now=NOW)
         second = image_cache.fetch(AH, now=NOW)
         self.assertEqual((first["path"], self.get.call_count), (second["path"], 1))
-        self.assertEqual(image_cache.stats(), {"count": 1, "bytes": len(picture(4, 4))})
+        self.assertEqual(image_cache.stats(), {"count": 1, "bytes": len(picture(4, 4)), "paused": []})
 
     def test_a_fetch_of_an_address_that_only_passes_the_host_check_sends_nothing(self):
         for url in ("http://static.ah.nl/dam/plain", "https://user@static.ah.nl/dam/x"):
@@ -416,10 +416,15 @@ class RoutesTest(FetchCase):
         self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 404)
 
     def test_the_system_page_sees_how_big_the_cache_is(self):
-        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 0, "bytes": 0})
+        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 0, "bytes": 0, "paused": []})
         self.serve(AH, 200, "image/png", picture(4, 4))
         self.client.get(f"/api/images/{image_cache.token_for(AH)}")
-        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 1, "bytes": len(picture(4, 4))})
+        self.assertEqual(self.client.get("/api/system/images").get_json(), {"count": 1, "bytes": len(picture(4, 4)), "paused": []})
+
+    def test_the_system_page_sees_which_store_is_paused_and_until_when(self):
+        until = image_cache._pause("static.ah.nl", image_cache._now())
+        paused = self.client.get("/api/system/images").get_json()["paused"]
+        self.assertEqual(paused, [{"host": "static.ah.nl", "store": "ah", "until": until}])
 
     def test_the_container_serves_with_four_threads_so_a_slow_store_does_not_block_the_app(self):
         dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text(encoding="utf-8")
@@ -429,6 +434,40 @@ class RoutesTest(FetchCase):
         with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
             self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 401)
         self.get.assert_not_called()
+
+
+class PausesTest(Case):
+    PICNIC = "storefront-prod.nl.picnicinternational.com"
+
+    def test_pauses_lists_only_running_pauses_of_store_hosts(self):
+        image_cache._pause(self.PICNIC, NOW)
+        image_cache._pause("crispapp.nl", "2026-11-03T03:00:00+00:00")  # al afgelopen
+        auth.set_setting(image_cache.SETTING_PAUSED + "static.ah.nl", "")  # opgeheven
+        auth.set_setting(image_cache.SETTING_PAUSED + "example.com", "2026-11-04T16:00:00+00:00")  # geen winkel
+        self.assertEqual(
+            image_cache.pauses(NOW), [{"host": self.PICNIC, "store": "picnic", "until": "2026-11-04T15:00:00+00:00"}]
+        )
+        self.assertEqual(image_cache.stats(NOW)["paused"], image_cache.pauses(NOW))
+
+    def test_a_picnic_pause_from_before_3_7_1_is_lifted_once(self):
+        # #236: 3.6.2 zette Picnic na een 403 van S3 twaalf uur stil. Die pauze bleef na de update naar 3.9.0 lopen, en omdat de
+        # receptfoto's sinds 3.7.2 een nieuw adres hebben, kwam er toen geen enkele foto meer.
+        now = image_cache._now()
+        image_cache._pause(self.PICNIC, now)
+        image_cache._pause("static.ah.nl", now)
+        self.assertEqual(image_cache.lift_stale_pauses(), [self.PICNIC])
+        self.assertIsNone(image_cache.paused_until(self.PICNIC))
+        self.assertIsNotNone(image_cache.paused_until("static.ah.nl"), "een pauze van AH kan echt zijn en blijft staan")
+        image_cache._pause(self.PICNIC, now)  # een echte blokkade na de update
+        self.assertEqual(image_cache.lift_stale_pauses(), [], "maar één keer")
+        self.assertIsNotNone(image_cache.paused_until(self.PICNIC))
+
+    def test_starting_the_app_lifts_the_stale_picnic_pause(self):
+        image_cache._pause(self.PICNIC, image_cache._now())
+        with self.assertLogs(level="INFO") as logs:
+            create_app()
+        self.assertIsNone(image_cache.paused_until(self.PICNIC))
+        self.assertTrue(any(self.PICNIC in line for line in logs.output))
 
 
 class PrefetchTest(FetchCase):
