@@ -816,6 +816,7 @@
             </div>
           </div>
           <div id="ah-orders-message"></div>
+          <div id="ah-linking-notice" data-linking-message="#ah-orders-message"></div>
           <div class="purchase-bar" data-view-bar="purchase"></div>
           <div class="purchase-table-wrap" id="ah-purchase-table-wrap">
             <table class="purchase-table">
@@ -842,6 +843,8 @@
           </div>
           <p class="order-badges" id="ah-order-badges" hidden></p>
           <p class="muted" id="ah-order-meta"></p>
+          <div id="order-linking-notice" data-linking-message="#order-linking-message"></div>
+          <div id="order-linking-message"></div>
           <div class="purchase-bar" data-view-bar="order" hidden></div>
           <div class="order-filter" id="order-filter" hidden>
             <label class="searchbar">
@@ -1160,6 +1163,11 @@
           <div id="jumbo-status"></div>
           <div id="picnic-status"></div>
           <div id="crisp-status"></div>
+        </div>
+        <div class="box" id="linking-box" data-linking-message="#linking-box-message">
+          <h2 data-i18n="settings.linking.title">Producten koppelen en foto's ophalen bij AH</h2>
+          <div id="linking-box-body"></div>
+          <div id="linking-box-message"></div>
         </div>
         <div class="box" id="offers-sync-box">
           <h2 data-i18n="offers.sync.title">Aanbiedingen</h2>
@@ -1646,6 +1654,7 @@
     <script src="{{ url_for('static', filename='purchase_views.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='order_views.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='popover.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='linking.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='picnic.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='recipe_search.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='jumbo.js', v=config.ASSET_VERSION) }}"></script>

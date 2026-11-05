@@ -2471,6 +2471,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+  if (panelId === "settings" && typeof loadLinkingBox === "function") loadLinkingBox();
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2561,6 +2562,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+    if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();
     if (subtab.dataset.subtab === "settings-link" && typeof loadAiReviewSettings === "function") loadAiReviewSettings();
     if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();

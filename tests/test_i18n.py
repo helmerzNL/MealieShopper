@@ -24,6 +24,7 @@ SOURCES = {
     "purchase_views.js": (STATIC / "purchase_views.js").read_text(encoding="utf-8"),
     "order_views.js": (STATIC / "order_views.js").read_text(encoding="utf-8"),
     "popover.js": (STATIC / "popover.js").read_text(encoding="utf-8"),
+    "linking.js": (STATIC / "linking.js").read_text(encoding="utf-8"),
     "picnic.js": (STATIC / "picnic.js").read_text(encoding="utf-8"),
     "recipe_search.js": (STATIC / "recipe_search.js").read_text(encoding="utf-8"),
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),

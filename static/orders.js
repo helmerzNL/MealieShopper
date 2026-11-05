@@ -293,6 +293,7 @@ async function loadOrders() {
       if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
       Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt, loaded: true });
       renderOrders();
+      linkingNoticeRefresh(); // bij Jumbo blijft de melding van AH leeg (linkingRender)
       return;
     }
     const receipts = await jsonFetch("/api/ah/receipts");
@@ -302,6 +303,7 @@ async function loadOrders() {
     if (store !== state.itemsStore) return;
     Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt });
     renderOrders();
+    linkingNoticeRefresh(); // de pauze van AH, het uurbudget en wat er nog te koppelen is (linking.js), boven de lijst
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
   }
@@ -458,8 +460,9 @@ function receiptBonusSummary(receipt) {
 // (renderOrderPage in order_views.js), voor alle vier de soorten.
 function showPurchaseOverview() {
   ordersState.open = null;
-  // order_views.js laadt na dit bestand. Een winkelwissel tijdens het laden komt hier al langs.
+  // order_views.js en linking.js laden na dit bestand. Een winkelwissel tijdens het laden komt hier al langs.
   if (typeof orderPageClose === "function") orderPageClose();
+  if (typeof linkingForget === "function") linkingForget();
   $("#ah-order-items").classList.remove("order-items--fit");
   $("#ah-order-items").style.maxHeight = "";
   $("#ah-order-detail").hidden = true;
@@ -478,6 +481,7 @@ async function openPurchase(kind, id) {
   $("#ah-order-items").classList.remove("order-items--fit");
   $("#ah-order-items").style.maxHeight = "";
   orderPageClose();
+  linkingForget(); // de melding hoort bij de vorige bon
   try {
     if (kind === "order") {
       // De status (afgeleverd, of de tekst van AH bij een open bestelling) staat in de badge, niet nog eens in de metaregel.
@@ -503,6 +507,7 @@ async function openPurchase(kind, id) {
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
       $("#ah-order-meta").textContent = receipt.items.length ? receiptMeta(receipt) : "";
       renderOrderPage(receipt, "receipt", "ah");
+      linkingNoticeRefresh(receiptLinkCounts(receipt)); // hoeveel regels nog geen product hebben, met de knop Nu ophalen
       // De regels die nog bij geen webwinkelproduct horen opzoeken, en de foto's die nog ontbreken erbij halen.
       if (receipt.items.some((line) => (!line.product && line.productId) || (line.product && !line.product.image))) resolveReceiptProducts(receipt.id);
     }
@@ -523,8 +528,24 @@ async function resolveReceiptProducts(id) {
     const open = ordersState.open;
     if (!open || open.kind !== "receipt" || open.id !== String(id) || !receipt.items.length) return;
     renderOrderPage(receipt, "receipt", "ah");
+    linkingNoticeRefresh(receiptLinkCounts(receipt));
   } catch {
     // De bon staat er al; een koppeling die niet lukt, krijgt een volgende keer een nieuwe kans.
+  }
+}
+
+// Na een ronde op afroep voor deze bon (linking.js): de bon opnieuw ophalen en tekenen met de producten en foto's die erbij kwamen.
+// Zonder de pagina eerst leeg te maken (zoals openPurchase doet) en zonder nieuwe zoekopdrachten bij AH: die deed de ronde al.
+async function refreshReceipt(id) {
+  try {
+    const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
+    const open = ordersState.open;
+    if (!open || open.kind !== "receipt" || open.id !== String(id)) return;
+    $("#ah-order-meta").textContent = receipt.items.length ? receiptMeta(receipt) : "";
+    renderOrderPage(receipt, "receipt", "ah");
+    linkingNoticeRefresh(receiptLinkCounts(receipt));
+  } catch {
+    // De bon staat er al zoals hij was; de volgende keer openen haalt hem opnieuw op.
   }
 }
 

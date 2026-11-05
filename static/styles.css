@@ -862,6 +862,58 @@ a.subtab-menu__item[hidden] {
   margin-top: 0;
 }
 
+/* De melding van het koppelen (linking.js): de tekst neemt de ruimte en de knop staat ernaast, tot het smal wordt. */
+.linking-notice > span {
+  flex: 1 1 20rem;
+}
+
+/* Instellingen > Koppelen: de feiten van het koppelen bij AH in twee kolommen, met een meter voor het uurbudget (de zoekopdrachten
+   van dit uur tegen de grens). De tekst ernaast zegt hetzelfde, dus de meter is versiering voor een schermlezer. */
+.linking-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 12px 0 16px;
+}
+
+.linking-facts dt {
+  color: var(--muted);
+}
+
+.linking-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.linking-meter {
+  display: inline-block;
+  width: 96px;
+  height: 8px;
+  margin-right: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  vertical-align: middle;
+}
+
+.linking-meter i {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+@media (max-width: 560px) {
+  .linking-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .linking-facts dd + dt {
+    margin-top: 8px;
+  }
+}
+
 .day-grid,
 .recipe-grid {
   display: grid;
