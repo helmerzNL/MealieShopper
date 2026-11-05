@@ -26,6 +26,7 @@ SOURCES = {
     "jumbo.js": (STATIC / "jumbo.js").read_text(encoding="utf-8"),
     "recipe_bulk.js": (STATIC / "recipe_bulk.js").read_text(encoding="utf-8"),
     "crisp.js": (STATIC / "crisp.js").read_text(encoding="utf-8"),
+    "product_links.js": (STATIC / "product_links.js").read_text(encoding="utf-8"),
     "mealkits.js": (STATIC / "mealkits.js").read_text(encoding="utf-8"),
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),

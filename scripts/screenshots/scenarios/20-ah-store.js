@@ -203,6 +203,18 @@ const receiptHits = {
   ],
 };
 
+// Koppelen (#238): de producten van AH bij "AVOCADO 2 STUKS", een regel die de app niet herkende.
+const linkSearch = {
+  store: "ah",
+  query: "AVOCADO 2 STUKS",
+  products: [
+    ["a1", "AH Avocado eetrijp 2 stuks", "AH", "2 stuks", 2.49, "#4f8a4f"],
+    ["a2", "AH Avocado", "AH", "per stuk", 1.29, "#3f7a3f"],
+    ["a3", "AH Biologisch Avocado 2 stuks", "AH Biologisch", "2 stuks", 2.99, "#6aa55a"],
+    ["a4", "AH Guacamole", "AH", "200 g", 2.19, "#9cc26a"],
+  ].map(([productId, title, brand, unitSize, price, color]) => ({ productId, title, brand, unitSize, price, image: product(color, "pack") })),
+};
+
 const routes = {
   "/api/ah/recipes/saved*": savedRecipes,
   "/api/ah/lists": lists,
@@ -214,6 +226,7 @@ const routes = {
   "/api/ah/receipts/*": receiptDetail,
   "/api/ah/receipts/search*": receiptHits,
   "/api/ah/purchases/search*": purchaseHits,
+  "/api/product-links/search*": linkSearch,
 };
 
 // ---- in bulk importeren (2.98) -----------------------------------------------------------------------------
@@ -388,6 +401,18 @@ module.exports = [
       await page.click('#receipt-view [data-view="products"]');
       await page.waitForTimeout(400);
       await scrollTo(page, "#ah-order-detail");
+    },
+  },
+  {
+    name: "receipt-link",
+    routes,
+    run: async (page) => {
+      await openStores("ah-items-bestellingen")(page);
+      await page.click('[data-receipt-id="kb-1"]');
+      await page.waitForTimeout(800);
+      await page.click('#ah-order-items [data-product-link][data-name="AVOCADO 2 STUKS"]');
+      await page.waitForSelector("#link-dialog[open] .link-item");
+      await page.waitForTimeout(400);
     },
   },
   {
