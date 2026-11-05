@@ -240,8 +240,8 @@ def get_order(order_id: Any) -> dict[str, Any] | None:
         rows = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
         items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
         totals = purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
-    state, text = purchase_lines.status("order", row)
-    return {**_order_json(row, len(items)), "items": items, **totals, "status": state, "statusText": text}
+    kind, text = purchase_lines.status_kind("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
 def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:

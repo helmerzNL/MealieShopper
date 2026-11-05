@@ -396,7 +396,7 @@ class DetailEnrichmentTest(TempDataDirTest):
         # De titel zegt niets, de taxonomie van Jumbo ("Zuivel") komt als hint mee. De gewone prijs komt uit bestelling J1.
         self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]),
                          ("zuivel_eieren", 1.19, 25, "history", 1))
-        self.assertEqual((order["saved"], order["savedPercent"], order["status"], order["statusText"]), (0.6, 25, "delivered", None))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (0.6, 25, "delivered", None))
         self.assertEqual(order["stateText"], None)  # de bestaande velden blijven
 
 

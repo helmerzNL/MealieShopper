@@ -39,6 +39,35 @@ class ReceiptBonusTest(unittest.TestCase):
             purchase_lines.match_receipt_bonus(lines, discounts), {0: 3.97, 1: 0.4}
         )
 
+    def test_the_house_brand_in_front_is_left_out_on_both_sides(self):
+        # De bonusregel heeft "AH" vooraan en is afgekort, de regel niet: zonder "ah" is "komkommer" een voorvoegsel van "komkommerp".
+        lines = [
+            {"name": "KOMKOMMER", "quantity": 1, "price": 0.85},
+            {"name": "AH PENNE", "quantity": 1, "price": 1.19},
+        ]
+        discounts = [
+            {"name": "AHKOMKOMMERP", "amount": -0.4},
+            {"name": "PENNE", "amount": -0.3},
+        ]
+        self.assertEqual(
+            purchase_lines.match_receipt_bonus(lines, discounts), {0: 0.4, 1: 0.3}
+        )
+
+    def test_a_key_under_three_characters_never_matches(self):
+        # "AH" wordt "ah" of "", "EI" blijft "ei": te kort, anders paste de bonusregel op elke regel die zo begint.
+        lines = [
+            {"name": "AH MELK", "quantity": 1, "price": 1.0},
+            {"name": "EIEREN", "quantity": 1, "price": 2.0},
+        ]
+        discounts = [{"name": "AH", "amount": -0.5}, {"name": "EI", "amount": -0.2}]
+        self.assertEqual(purchase_lines.match_receipt_bonus(lines, discounts), {})
+        self.assertEqual(
+            purchase_lines.match_receipt_bonus(
+                [{"name": "EI"}], [{"name": "EIEREN", "amount": -0.2}]
+            ),
+            {},
+        )
+
     def test_a_bonus_line_counts_once_at_the_first_matching_line(self):
         lines = [
             {"name": "KOMKOMMER", "quantity": 1, "price": 0.85},
@@ -160,20 +189,22 @@ class EnrichTest(unittest.TestCase):
 class StatusTest(unittest.TestCase):
     def test_the_status_of_each_kind_of_purchase(self):
         self.assertEqual(
-            purchase_lines.status(
+            purchase_lines.status_kind(
                 "order", {"kind": "delivered", "state_text": "Bezorgd"}
             ),
             ("delivered", None),
         )
         self.assertEqual(
-            purchase_lines.status("order", {"kind": "open", "state_text": "Ingepland"}),
+            purchase_lines.status_kind(
+                "order", {"kind": "open", "state_text": "Ingepland"}
+            ),
             ("planned", "Ingepland"),
         )
         self.assertEqual(
-            purchase_lines.status("order", {"kind": "open"}), ("planned", None)
+            purchase_lines.status_kind("order", {"kind": "open"}), ("planned", None)
         )  # Jumbo kent geen state_text
-        self.assertEqual(purchase_lines.status("imported", {}), ("imported", None))
-        self.assertEqual(purchase_lines.status("receipt", {}), ("receipt", None))
+        self.assertEqual(purchase_lines.status_kind("imported", {}), ("imported", None))
+        self.assertEqual(purchase_lines.status_kind("receipt", {}), ("receipt", None))
 
 
 class TimesBeforeTest(unittest.TestCase):

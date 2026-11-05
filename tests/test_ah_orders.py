@@ -632,7 +632,8 @@ class DetailEnrichmentTest(AhOrdersTestCase):
         order = self.client.get("/api/ah/orders/2").get_json()
         item = order["items"][0]
         self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]), ("groente_fruit", 1.19, 25, "history", 1))
-        self.assertEqual((order["saved"], order["savedPercent"], order["status"]), (0.6, 25, "delivered"))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"]), (0.6, 25, "delivered"))
+        self.assertNotIn("status", order)  # de nieuwe status staat naast de bestaande velden, niet in de plaats ervan
         self.assertEqual((item["priceBeforeBonus"], item["paidEach"], order["statusText"]), (1.39, 0.89, None))  # de bestaande velden blijven
 
     def test_a_line_without_product_or_quantity_gets_no_discount_and_no_count(self):
@@ -642,7 +643,7 @@ class DetailEnrichmentTest(AhOrdersTestCase):
         order = self.client.get("/api/ah/orders/2").get_json()
         item = order["items"][0]
         self.assertEqual((item["category"], item["discount"], item["timesBefore"]), ("groente_fruit", None, 0))
-        self.assertEqual((order["saved"], order["savedPercent"], order["status"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
 
     def test_a_failing_regular_price_fill_still_shows_the_order(self):
         from mealieshopper import prices
@@ -667,7 +668,7 @@ class DetailEnrichmentTest(AhOrdersTestCase):
         self.assertEqual((first["bonus"], first["paidEach"], first["discount"], first["category"]), (3.97, 0.0, 100, "kaas_vleeswaren"))
         self.assertEqual((second["bonus"], second["paidEach"], second["regularPrice"], second["discount"]), (0.0, 2.0, None, None))
         # De bonus is groter dan de regel (4 x 0.99 = 3.96): je bespaart nooit meer dan de regel kostte.
-        self.assertEqual((receipt["saved"], receipt["status"], receipt["statusText"]), (3.96, "receipt", None))
+        self.assertEqual((receipt["saved"], receipt["statusKind"], receipt["statusText"]), (3.96, "receipt", None))
         self.assertEqual(receipt["discounts"], [{"name": "AH ROOMKAAS", "amount": -3.97}])  # de bestaande velden blijven
 
     def test_a_linked_receipt_line_uses_the_regular_price_of_its_webshop_product(self):

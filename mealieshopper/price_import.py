@@ -518,7 +518,7 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
     een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
     de velden van `purchase_lines.enrich`: de korting is die tegen de prijs uit de mail (`price`, `discountSource` `store`), want
-    voor deze regels bewaren we geen gewone prijs van 30 dagen. `status` blijft die uit de mail, `statusText` is altijd None."""
+    voor deze regels bewaren we geen gewone prijs van 30 dagen. `status` blijft die uit de mail, `statusKind` is `imported`."""
     from . import prices
 
     key = _store(store)
@@ -541,7 +541,8 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
         })
     with closing(_connect()) as conn:
         totals = purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)
-    return {**_order_json(key, rows[0]), "items": items, **totals, "statusText": None}
+    kind, text = purchase_lines.status_kind("imported", rows[0])
+    return {**_order_json(key, rows[0]), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
 def search_lines(conn, store: str, words: list[str], fold) -> list[dict[str, Any]]:

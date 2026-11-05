@@ -244,9 +244,9 @@ def enrich(
     }
 
 
-def status(kind: str, row: Mapping[str, Any] | Any) -> tuple[str, str | None]:
-    """De status van een aankoop met de tekst van de winkel: `delivered`, `planned` (met de `state_text` van AH, Jumbo heeft die niet),
-    `imported` of `receipt`."""
+def status_kind(kind: str, row: Mapping[str, Any] | Any) -> tuple[str, str | None]:
+    """De soort status van een aankoop met de tekst van de winkel: `delivered`, `planned` (met de `state_text` van AH, Jumbo heeft die
+    niet), `imported` of `receipt`. De detailroutes zetten hem in `statusKind` en `statusText`, naast een bestaand veld `status`."""
     if kind == "imported":
         return "imported", None
     if kind == "receipt":

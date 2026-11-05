@@ -367,7 +367,7 @@ class OrdersTest(ImportCase):
         self.assertEqual((burgers["category"], burgers["regularPrice"], burgers["discount"], burgers["discountSource"], burgers["timesBefore"]),
                          ("vlees", 4.99, 50, "store", 0))
         # (4.99 - 2.50) x 16 = 39.84 bespaard op 2.38 + 40.00 betaald: 48%.
-        self.assertEqual((order["saved"], order["savedPercent"], order["statusText"]), (39.84, 48, None))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (39.84, 48, "imported", None))
         self.assertEqual((order["status"], burgers["price"], burgers["paid"], burgers["paidEach"]), ("delivered", 4.99, 2.5, 2.5))  # de bestaande velden blijven
 
     def test_an_imported_order_shows_the_products_it_belongs_to(self):

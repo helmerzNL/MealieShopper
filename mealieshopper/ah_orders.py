@@ -421,7 +421,7 @@ def _order_day(row: Any) -> str:
 
 def get_order(order_id: int) -> dict[str, Any] | None:
     """Een bestelling met haar producten. Elke regel krijgt de velden van `purchase_lines.enrich` (categorie, korting tegen de gewone
-    prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `status` en `statusText`. De gewone prijs van de
+    prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `statusKind` en `statusText`. De gewone prijs van de
     regels wordt eerst bijgewerkt (`purchase_lines.fill_regular`)."""
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),)).fetchone()
@@ -432,8 +432,8 @@ def get_order(order_id: int) -> dict[str, Any] | None:
         rows = conn.execute("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),)).fetchall()
         items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
         totals = purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
-    state, text = purchase_lines.status("order", row)
-    return {**_order_json(row, len(items)), "items": items, **totals, "status": state, "statusText": text}
+    kind, text = purchase_lines.status_kind("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
 # --- kassabonnen ----------------------------------------------------------------------------------
@@ -841,13 +841,13 @@ def _json_list(value: Any) -> list[Any]:
 
 def _enrich_receipt(conn, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet bij elke bonregel het bonusbedrag (`bonus`, van de bonusregels onderaan de bon) en de velden van `purchase_lines.enrich`.
-    Geeft `saved`, `savedPercent`, `status` en `statusText` van de bon."""
+    Geeft `saved`, `savedPercent`, `statusKind` en `statusText` van de bon."""
     bonus = purchase_lines.match_receipt_bonus(lines, _json_list(row["discounts"]))
     for index, line in enumerate(lines):
         line["bonus"] = bonus.get(index, 0.0)
     totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines)
-    state, text = purchase_lines.status("receipt", row)
-    return {**totals, "status": state, "statusText": text}
+    kind, text = purchase_lines.status_kind("receipt", row)
+    return {**totals, "statusKind": kind, "statusText": text}
 
 
 _RECEIPT_IMAGES_MISSING_SQL = """
