@@ -30,6 +30,7 @@
   --primary-strong: #105235;
   --selection: #eaf5ee;
   --lemon: #f2cf45; /* decoratief: niet als tekst op wit */
+  --info: #1565c0;
 
   /* Vlakken, tekst en rand */
   --bg: #f5f7f6;
@@ -95,6 +96,7 @@
   --primary: #4cc38a;
   --primary-strong: #7bd9ab;
   --selection: #1d3a2c;
+  --info: #64b5f6;
 
   --bg: #0f1613;
   --surface: #17211c;
@@ -3886,6 +3888,56 @@ body.has-onboarding {
 
 .purchase-kind--stripe {
   display: block;
+}
+
+/* Badges: een afgeronde pil met de kleur in --badge (tekst en rand), een lichte vulling erachter. De tekst staat er altijd. */
+.badge {
+  --badge: var(--muted);
+  display: inline-block;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--badge) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--badge) 45%, transparent);
+  color: var(--badge);
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.badge--status-delivered {
+  --badge: var(--primary);
+}
+
+.badge--status-planned {
+  --badge: var(--info);
+}
+
+.badge--status-imported {
+  --badge: var(--muted);
+}
+
+/* Geel is decoratief (niet als tekst op wit): de tekst blijft de gewone tekstkleur, de rand en vulling zijn geel. */
+.badge--status-receipt {
+  --badge: var(--lemon);
+  color: var(--warning-text);
+}
+
+.badge--saved {
+  --badge: var(--warning-text);
+  background: transparent;
+}
+
+.badge--bonus {
+  --badge: var(--danger);
+  background: var(--danger-bg);
+  box-shadow: inset 0 0 0 1px var(--danger-border);
+}
+
+.badge--before {
+  --badge: var(--muted);
+  background: var(--surface-muted);
+  box-shadow: none;
 }
 
 /* Kaarten: een raster van kaarten met een fotocollage; de breedte per kaartgrootte, op een telefoon twee naast elkaar. */

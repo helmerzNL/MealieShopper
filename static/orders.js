@@ -147,6 +147,7 @@ function purchaseRows() {
     total: order.total, items: order.itemsSynced ? order.itemCount : null,
     href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
     images: order.images || [], names: order.productNames || [], savings: order.savings, bonusCount: order.bonusCount || 0, payment: null,
+    statusKind: order.statusKind, statusText: order.statusText,
   }));
   // Een ingelezen bestelling heeft dezelfde gegevens als een bestelling uit je account: status en tijdvak uit de mail, en de foto's,
   // het voordeel en de bonus van de producten waar de regels bij horen (price_import.list_orders).
@@ -156,6 +157,7 @@ function purchaseRows() {
       status: importedOrderStatus(order, covered.get(order.ref)), ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
       images: order.images || [], names: order.productNames || [], savings: order.savings ?? null, bonusCount: order.bonusCount || 0, payment: null,
+      statusKind: order.statusKind, statusText: order.statusText,
     });
   }
   if (!ordersAreJumbo()) {
@@ -165,6 +167,7 @@ function purchaseRows() {
         total: receipt.total, items: receipt.detailsSynced ? receipt.itemCount : null,
         href: storesPath("ah", "receipts", receipt.id), attr: `data-receipt-id="${escapeHtml(receipt.id)}"`,
         images: receipt.images || [], names: receipt.productNames || [], savings: receipt.savings, bonusCount: 0, payment: receipt.payment || null,
+        statusKind: receipt.statusKind, statusText: receipt.statusText,
       });
     }
   }
@@ -208,7 +211,7 @@ function purchaseProductsCell(row, matches) {
 }
 
 function purchaseRow(row, matches) {
-  const kind = purchaseKindMarkup(row.kind, "dot") + purchaseKindLabel(row.kind);
+  const kind = purchaseKindMarkup(row.kind, "dot") + purchaseStatusBadge(row);
   const remove = t("orders.imported.delete");
   const action = row.kind === "imported" && priceImportIsOwner()
     ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`

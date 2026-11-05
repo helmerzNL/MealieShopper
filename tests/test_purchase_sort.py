@@ -12,8 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 VIEWS_JS = (ROOT / "static" / "purchase_views.js").read_text(encoding="utf-8")
 
 
-def function_source(name):
-    match = re.search(rf"^function {re.escape(name)}\(.*?^}}$", VIEWS_JS, re.S | re.M)
+APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+
+def function_source(name, source=VIEWS_JS):
+    match = re.search(rf"^function {re.escape(name)}\(.*?^}}$", source, re.S | re.M)
     if not match:
         raise AssertionError(f"functie {name} niet gevonden")
     return match.group(0)
@@ -29,6 +32,7 @@ def const_source(name):
 PRELUDE = "\n".join(
     [const_source(name) for name in ("PURCHASE_VIEWS", "PURCHASE_SORT_KEYS", "PURCHASE_SIZES", "PURCHASE_OPTIONS", "purchaseView")]
     + [function_source(name) for name in ("purchaseViewLoad", "purchaseSortRows")]
+    + [function_source("badge", APP_JS), "const escapeHtml = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');"]
 )
 
 
@@ -69,6 +73,10 @@ class PurchaseSortTest(unittest.TestCase):
         self.assertEqual(self.sorted_ids("items", "desc")[-1], "receipt-2026-10-30T17:08-20.48", "producten nog niet opgehaald")
         self.assertEqual(self.sorted_ids("items", "asc")[-1], "receipt-2026-10-30T17:08-20.48")
         self.assertEqual(self.sorted_ids("items", "asc")[0], "order-2026-11-30-null", "0 producten is een echte waarde, geen lege")
+
+    def test_the_badge_helper_escapes_and_names_the_kind(self):
+        self.assertEqual(self.run_js('console.log(JSON.stringify(badge("saved", "<b>", "x")));'), '<span class="badge badge--saved" title="x">&lt;b&gt;</span>')
+        self.assertEqual(self.run_js('console.log(JSON.stringify(badge("before", "2x")));'), '<span class="badge badge--before">2x</span>')
 
     def test_sorting_does_not_touch_the_original_rows(self):
         self.assertTrue(self.run_js('purchaseView.sort = { key: "amount", dir: "asc" };\nconst before = JSON.stringify(rows);\npurchaseSortRows(rows);\nconsole.log(JSON.stringify(JSON.stringify(rows) === before));'))

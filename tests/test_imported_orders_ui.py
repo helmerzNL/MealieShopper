@@ -37,7 +37,7 @@ PRELUDE = "\n".join([
     'const MDI_ARCHIVE_OUTLINE = "ARCHIEF";',
     *(function_source("orders.js", name) for name in ("slotLabel", "importedOrdersCover", "importedOrdersMerge", "importedOrderStatus",
                                                         "importedStoreOrder", "importedUnlinkedNote")),
-    *(function_source("purchase_views.js", name) for name in ("purchaseKindText", "purchaseKindLabel")),
+    *(function_source("purchase_views.js", name) for name in ("purchaseKindText", "purchaseOriginIcon", "purchaseKindLabel")),
     function_source("picnic.js", "picnicOrderDate"),
     function_source("crisp.js", "crispOrderDate"),
 ])

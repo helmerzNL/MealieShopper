@@ -12,7 +12,29 @@ VIEWS_PATH = ROOT / "static" / "purchase_views.js"
 VIEWS = VIEWS_PATH.read_text(encoding="utf-8") if VIEWS_PATH.exists() else ""
 
 
+def function_source(source, name):
+    match = re.search(rf"^function {re.escape(name)}\(.*?^}}$", source, re.S | re.M)
+    if not match:
+        raise AssertionError(f"functie {name} niet gevonden")
+    return match.group(0)
+
+
 class PurchaseViewsMarkupTest(unittest.TestCase):
+    def test_every_purchase_view_shows_the_status_badge(self):
+        self.assertIn("purchaseStatusBadge(row)", function_source(ORDERS, "purchaseRow"))
+        for name in ("purchaseCard", "purchaseOverviewRow"):
+            self.assertIn("purchaseStatusBadge(row)", function_source(VIEWS, name))
+        for kind, colour in (("delivered", "--primary"), ("planned", "--info"), ("imported", "--muted"), ("receipt", "--lemon")):
+            self.assertRegex(CSS, rf"\.badge--status-{kind} \{{\n  --badge: var\({colour}\);")
+
+    def test_the_rows_carry_the_status_kind_and_text_of_the_route(self):
+        rows = function_source(ORDERS, "purchaseRows")
+        self.assertEqual(rows.count("statusKind: "), 3)
+        self.assertEqual(rows.count("statusText: "), 3)
+        badge = function_source(VIEWS, "purchaseStatusBadge")
+        self.assertIn('"status-" + row.statusKind', badge)
+        self.assertIn("PURCHASE_STATUS_TEXT[row.statusKind]", badge)
+
     def test_the_script_loads_after_orders_and_before_the_tree(self):
         scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
         self.assertIn("purchase_views.js", scripts)
