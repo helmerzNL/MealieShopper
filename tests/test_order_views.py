@@ -46,6 +46,7 @@ ORDER_FUNCTIONS = (
     "orderLines",
     "orderLine",
     "orderLineSaved",
+    "orderLinePaid",
     "orderFilter",
     "orderSortLines",
     "orderGroups",
@@ -128,6 +129,23 @@ class OrderViewsNodeTest(unittest.TestCase):
             (3, 2, 5.0, 2.0),
         )
         self.assertEqual(len(groups[1]["lines"]), 2)
+
+    def test_receipt_subtotals_are_after_the_bonus_so_they_add_up_to_the_paid_total(self):
+        # Een bon noemt de regelprijs vóór de bonus: het subtotaal per categorie trekt de bonus van de regel eraf. Een bestelling
+        # noemt al het betaalde bedrag (bonus is daar alleen een vlag).
+        groups = self.run_json(
+            "orderGroups(orderLines({ items: ["
+            "{ name: 'ROOMKAAS', category: 'kaas_vleeswaren', quantity: 4, price: 0.99, amount: 3.96, bonus: 3.96, paidEach: 0 },"
+            "{ name: 'KAAS', category: 'kaas_vleeswaren', quantity: 1, price: 2.0, amount: 2.0, bonus: 0.5, paidEach: 1.5 },"
+            "{ name: 'MELK', category: 'zuivel_eieren', quantity: 3, price: 1.0, amount: 3.0, bonus: 1.0, paidEach: 0.67 },"
+            "{ name: 'BROOD', category: 'brood_bakkerij', quantity: 1, price: null, amount: null, bonus: 0.2, paidEach: 1.8 },"
+            "] }, 'receipt', 'ah'))"
+        )
+        self.assertEqual({g["id"]: g["amount"] for g in groups}, {"kaas_vleeswaren": 1.5, "zuivel_eieren": 2.0, "brood_bakkerij": 1.8})
+        order = self.run_json(
+            "orderGroups(orderLines({ items: [{ title: 'AH Kaas', category: 'kaas_vleeswaren', quantity: 2, price: 1.5, amount: 3.0, bonus: true, paidEach: 1.5 }] }, 'order', 'ah'))"
+        )
+        self.assertEqual(order[0]["amount"], 3.0)
 
     def test_an_unknown_category_lands_in_overig_and_empty_categories_are_left_out(
         self,

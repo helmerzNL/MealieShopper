@@ -76,6 +76,7 @@ def prelude():
                 "orderLines",
                 "orderLine",
                 "orderLineSaved",
+                "orderLinePaid",
                 "orderGroups",
                 "orderGroupSummary",
                 "orderLineBadges",

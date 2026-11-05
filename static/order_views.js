@@ -78,7 +78,17 @@ function orderLine(item, index, kind, store) {
     href: title && (!receipt || product) ? priceHistoryPath(store, title, productId || "") : null,
   };
   line.saved = orderLineSaved(line);
+  line.paid = orderLinePaid(line, receipt);
   return line;
+}
+
+// Wat een regel kostte na de bonus. Een bon noemt het bedrag vóór de bonus: daar gaat de bonus van de regel af (het bedrag min de
+// bonus, en zonder bedrag wat je per stuk betaalde maal het aantal). Een bestelling en een ingelezen bestelling noemen het bedrag
+// dat je betaalde.
+function orderLinePaid(line, receipt) {
+  if (!receipt) return line.amount;
+  if (line.amount !== null) return Math.round(Math.max(line.amount - (Number(line.bonus) || 0), 0) * 100) / 100;
+  return line.paidEach !== null && line.quantity > 0 ? Math.round(line.paidEach * line.quantity * 100) / 100 : null;
 }
 
 function orderLines(purchase, kind, store) {
@@ -115,7 +125,8 @@ function orderSortLines(lines, sort = orderView.sort) {
 }
 
 // De regels per categorie, in de volgorde van de aanbiedingen. Een categorie zonder regels staat er niet. Per groep de stuks, de
-// soorten (regels), het subtotaal en wat er bespaard is. De regels houden de volgorde die ze binnenkregen.
+// soorten (regels), het subtotaal (wat de regels na de bonus kostten, `paid`, zodat de subtotalen van een bon optellen tot wat je
+// betaalde) en wat er bespaard is. De regels houden de volgorde die ze binnenkregen.
 function orderGroups(lines) {
   const groups = new Map();
   for (const line of lines) {
@@ -125,7 +136,7 @@ function orderGroups(lines) {
     group.lines.push(line);
     group.units += Number(line.quantity) || 0;
     group.kinds += 1;
-    group.amount += Number(line.amount) || 0;
+    group.amount += Number(line.paid ?? line.amount) || 0;
     group.saved += Number(line.saved) || 0;
   }
   return CATEGORY_ORDER.filter((id) => groups.has(id)).map((id) => {
