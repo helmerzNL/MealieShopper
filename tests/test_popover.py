@@ -359,6 +359,19 @@ class PopoverMarkupTest(unittest.TestCase):
         self.assertIn("link.click()", click, "via de router, zoals een klik op de link zelf")
         self.assertIn("routerModified(event)", click, "met een toets erbij een nieuw tabblad, zoals de link zelf")
 
+    def test_a_route_change_or_any_click_outside_hides_the_popover_even_with_a_modifier(self):
+        # De router stopt een Cmd/Ctrl-klik in de capture-fase op document; een eigen capture-handler die eerder geregistreerd is
+        # (popover.js laadt voor router.js) ziet hem nog. Alt+Links en de knop Terug geven popstate.
+        source = function_source(POPOVER, "hoverPopover")
+        handler = next(line for line in source.splitlines() if 'document.addEventListener("click"' in line)
+        self.assertIn("!popover.contains(event.target)", handler)
+        self.assertIn("hide()", handler)
+        self.assertIn("{ capture: true }", handler)
+        self.assertIn('window.addEventListener("popstate", hide)', source)
+        self.assertNotIn('root.addEventListener("click", hide)', source, "de capture-handler op document vervangt die op de lijst")
+        scripts = re.findall(r"filename='([\w/]+\.js)'", HTML)
+        self.assertLess(scripts.index("popover.js"), scripts.index("router.js"), "de capture-handler moet voor die van de router staan")
+
     def test_the_detail_cache_is_cleared_when_the_list_loads(self):
         self.assertIn(
             "purchaseDetailCache.clear()", function_source(ORDERS, "loadOrders")

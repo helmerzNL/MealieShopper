@@ -241,7 +241,10 @@ function hoverPopover(root, selector, load) {
     dismissed = anchor;
     hide();
   });
-  root.addEventListener("click", hide);
+  // Een klik buiten het venster (een link in de lijst, ook met Cmd/Ctrl: die stopt de router in de capture-fase op document, maar
+  // deze handler staat er eerder, want popover.js laadt voor router.js) en een wissel van adres (Terug, Alt+Links) sluiten het.
+  document.addEventListener("click", (event) => { if (!popover.contains(event.target)) hide(); }, { capture: true });
+  window.addEventListener("popstate", hide);
   // Het venster staat vast op het scherm: schuift de pagina, dan staat het element ergens anders. Dan gaat het venster weg en
   // begint het wachten opnieuw: staat de muis na het schuiven nog 400 ms op hetzelfde element, dan komt het terug op de nieuwe plek
   // (komt de muis op een ander element, dan doet mouseover de rest). Schuiven in het venster zelf mag.
