@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.12.2
+
+### Opgelost in 3.12.2
+
+*English summary: the image cache could still fetch the same store photo twice. When a request saw no row yet for a new photo, and another request registered and fetched that photo before the first one registered it, the first request took the stored path for a deleted file, cleared it and fetched the photo again. It now checks whether the file is there first. This also fixes the image-cache test that still failed now and then. The fix was written for 3.6.3, which was never released; it now comes with 3.12.2.*
+
+- **Een nieuwe winkelfoto wordt niet meer soms twee keer opgehaald.** De fix van 3.4.1 dekte één volgorde. Er was nog een tweede: verzoek B kijkt en ziet nog geen rij voor de foto, verzoek A registreert het adres, haalt de foto op en is klaar, en dan registreert B het adres. B zag daarna een pad en nam aan dat het bestand weg was (een opgeruimde map). B wiste dat pad en haalde de foto opnieuw bij de winkel op. Nu kijkt `image_cache.fetch` eerst of het bestand er is. Zo ja, dan is dat de foto van A en blijft het pad staan. Het ging alleen om een overbodige download, en het pad stond even leeg. De foto zelf was altijd goed.
+- **Ontwikkeling**: `test_image_cache.FetchTest.test_two_requests_for_the_same_missing_image_share_one_download` faalde daardoor nog af en toe (zonder de fix 7 van de 300 keer los). Een nieuwe test speelt precies die volgorde na: zonder de fix twee downloads, met de fix één. Met de fix slaagde de test met twee threads 300 keer achter elkaar.
+- De fix stond sinds 3.6.2 klaar op een eigen branch als versie 3.6.3, die nooit is uitgekomen. Hij is ongewijzigd overgezet naar 3.12.2; `fetch` was sindsdien niet veranderd. Bekend probleem uit [#234](https://github.com/helmerzNL/MealieShopper/pull/234) en [#245](https://github.com/helmerzNL/MealieShopper/pull/245).
+- Pull request [#252](https://github.com/helmerzNL/MealieShopper/pull/252).
+
 ## v3.12.1
 
 ### Gewijzigd in 3.12.1
