@@ -130,9 +130,12 @@ Schrijf kort en concreet: "Zoek bij AH", "Zoek recepten", "Je boodschappen staan
 ## Navigatie op een telefoon
 
 In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
-zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: zes items met een
-MDI-icoon en een kort label (`Recepten`, `Mandje`, `Aanbod`, `Import`, `Winkels`, `Profiel`; bij `Profiel` staat de avatar op de plek van het icoon, en `Over` zit in het avatar-menu), een
-groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
+zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
+MDI-icoon en een kort label (`Recepten`, `Aanbod`, `Winkels`, `Boxen` en `Meer` met een hamburger-icoon), een
+groen vlak onder het actieve item en minimaal 56 px hoog. `Meer` opent het menu dat op een groter scherm onder de
+avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn en `Uitloggen`,
+elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
+niet in de balk; `Meer` licht op als het mandje, het profiel, de instellingen of `Over` open staat. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
 de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
 schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
