@@ -5455,6 +5455,197 @@ body.has-onboarding {
   color: var(--on-primary);
 }
 
+/* Een kleur per categorie: de achtergrond en het accent (kaarten, koppen, bolletjes). */
+.cat--groente_fruit {
+  --cat-bg: #e3f4e1;
+  --cat-line: #4caf50;
+}
+
+.cat--vlees {
+  --cat-bg: #fbe3e3;
+  --cat-line: #d9534f;
+}
+
+.cat--vis {
+  --cat-bg: #dff0fb;
+  --cat-line: #2e86c1;
+}
+
+.cat--kaas_vleeswaren {
+  --cat-bg: #fdf0d5;
+  --cat-line: #e0a030;
+}
+
+.cat--zuivel_eieren {
+  --cat-bg: #fff8d6;
+  --cat-line: #d4b800;
+}
+
+.cat--brood_bakkerij {
+  --cat-bg: #f3e6d3;
+  --cat-line: #b07a3c;
+}
+
+.cat--maaltijden {
+  --cat-bg: #f6e4f2;
+  --cat-line: #b05aa0;
+}
+
+.cat--sauzen_conserven {
+  --cat-bg: #ffe9d6;
+  --cat-line: #e07b2a;
+}
+
+.cat--ontbijt_beleg {
+  --cat-bg: #f1ecdd;
+  --cat-line: #9c8a4d;
+}
+
+.cat--snacks_snoep {
+  --cat-bg: #efe3f8;
+  --cat-line: #8e5bd1;
+}
+
+.cat--frisdrank {
+  --cat-bg: #ddf5f3;
+  --cat-line: #20a39e;
+}
+
+.cat--koffie_thee {
+  --cat-bg: #e9dfd6;
+  --cat-line: #7a5230;
+}
+
+.cat--bier_wijn {
+  --cat-bg: #ecdcee;
+  --cat-line: #7b3f8c;
+}
+
+.cat--diepvries {
+  --cat-bg: #e0f0fa;
+  --cat-line: #4aa3df;
+}
+
+.cat--huishouden {
+  --cat-bg: #e8eaee;
+  --cat-line: #6b7a90;
+}
+
+.cat--drogisterie {
+  --cat-bg: #e3f1f0;
+  --cat-line: #3a9d8f;
+}
+
+.cat--baby {
+  --cat-bg: #fde8ef;
+  --cat-line: #d26a95;
+}
+
+.cat--huisdier {
+  --cat-bg: #f0e6dc;
+  --cat-line: #a0744a;
+}
+
+.cat--overig {
+  --cat-bg: #ececec;
+  --cat-line: #8a8a8a;
+}
+
+:root[data-theme="dark"] .cat--groente_fruit {
+  --cat-bg: color-mix(in srgb, #4caf50 18%, var(--surface));
+  --cat-line: #4caf50;
+}
+
+:root[data-theme="dark"] .cat--vlees {
+  --cat-bg: color-mix(in srgb, #d9534f 18%, var(--surface));
+  --cat-line: #d9534f;
+}
+
+:root[data-theme="dark"] .cat--vis {
+  --cat-bg: color-mix(in srgb, #2e86c1 18%, var(--surface));
+  --cat-line: #2e86c1;
+}
+
+:root[data-theme="dark"] .cat--kaas_vleeswaren {
+  --cat-bg: color-mix(in srgb, #e0a030 18%, var(--surface));
+  --cat-line: #e0a030;
+}
+
+:root[data-theme="dark"] .cat--zuivel_eieren {
+  --cat-bg: color-mix(in srgb, #d4b800 18%, var(--surface));
+  --cat-line: #d4b800;
+}
+
+:root[data-theme="dark"] .cat--brood_bakkerij {
+  --cat-bg: color-mix(in srgb, #b07a3c 18%, var(--surface));
+  --cat-line: #b07a3c;
+}
+
+:root[data-theme="dark"] .cat--maaltijden {
+  --cat-bg: color-mix(in srgb, #b05aa0 18%, var(--surface));
+  --cat-line: #b05aa0;
+}
+
+:root[data-theme="dark"] .cat--sauzen_conserven {
+  --cat-bg: color-mix(in srgb, #e07b2a 18%, var(--surface));
+  --cat-line: #e07b2a;
+}
+
+:root[data-theme="dark"] .cat--ontbijt_beleg {
+  --cat-bg: color-mix(in srgb, #9c8a4d 18%, var(--surface));
+  --cat-line: #9c8a4d;
+}
+
+:root[data-theme="dark"] .cat--snacks_snoep {
+  --cat-bg: color-mix(in srgb, #8e5bd1 18%, var(--surface));
+  --cat-line: #8e5bd1;
+}
+
+:root[data-theme="dark"] .cat--frisdrank {
+  --cat-bg: color-mix(in srgb, #20a39e 18%, var(--surface));
+  --cat-line: #20a39e;
+}
+
+:root[data-theme="dark"] .cat--koffie_thee {
+  --cat-bg: color-mix(in srgb, #7a5230 18%, var(--surface));
+  --cat-line: #7a5230;
+}
+
+:root[data-theme="dark"] .cat--bier_wijn {
+  --cat-bg: color-mix(in srgb, #7b3f8c 18%, var(--surface));
+  --cat-line: #7b3f8c;
+}
+
+:root[data-theme="dark"] .cat--diepvries {
+  --cat-bg: color-mix(in srgb, #4aa3df 18%, var(--surface));
+  --cat-line: #4aa3df;
+}
+
+:root[data-theme="dark"] .cat--huishouden {
+  --cat-bg: color-mix(in srgb, #6b7a90 18%, var(--surface));
+  --cat-line: #6b7a90;
+}
+
+:root[data-theme="dark"] .cat--drogisterie {
+  --cat-bg: color-mix(in srgb, #3a9d8f 18%, var(--surface));
+  --cat-line: #3a9d8f;
+}
+
+:root[data-theme="dark"] .cat--baby {
+  --cat-bg: color-mix(in srgb, #d26a95 18%, var(--surface));
+  --cat-line: #d26a95;
+}
+
+:root[data-theme="dark"] .cat--huisdier {
+  --cat-bg: color-mix(in srgb, #a0744a 18%, var(--surface));
+  --cat-line: #a0744a;
+}
+
+:root[data-theme="dark"] .cat--overig {
+  --cat-bg: color-mix(in srgb, #8a8a8a 18%, var(--surface));
+  --cat-line: #8a8a8a;
+}
+
 #offers-more {
   margin-top: 14px;
 }

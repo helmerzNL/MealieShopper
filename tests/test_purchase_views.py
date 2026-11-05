@@ -124,3 +124,12 @@ class PurchaseOverviewTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CategoryColoursTest(unittest.TestCase):
+    def test_every_category_has_a_light_and_a_dark_colour_token(self):
+        from mealieshopper import offer_categories
+
+        for category in offer_categories.CATEGORIES:
+            self.assertRegex(CSS, rf"\.cat--{category} \{{\n  --cat-bg: #[0-9a-f]{{6}};\n  --cat-line: #[0-9a-f]{{6}};")
+            self.assertRegex(CSS, rf':root\[data-theme="dark"\] \.cat--{category} \{{')

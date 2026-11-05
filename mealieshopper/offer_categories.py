@@ -18,6 +18,36 @@ CATEGORIES = (
 )
 OTHER = "overig"
 
+
+# De taxonomie die AH bij een bestelregel geeft, vertaald naar onze categorieën. Een onbekende taxonomie valt terug op `categorize`.
+AH_TAXONOMY: dict[str, str] = {
+    "Groente, aardappelen": "groente_fruit",
+    "Fruit, verse sappen": "groente_fruit",
+    "Vlees": "vlees",
+    "Vegetarisch, vegan en plantaardig": "vlees",
+    "Vis": "vis",
+    "Kaas": "kaas_vleeswaren",
+    "Vleeswaren": "kaas_vleeswaren",
+    "Zuivel, eieren": "zuivel_eieren",
+    "Bakkerij": "brood_bakkerij",
+    "Maaltijden, salades": "maaltijden",
+    "Pasta, rijst, wereldkeuken": "maaltijden",
+    "Soepen, sauzen, kruiden, olie": "sauzen_conserven",
+    "Ontbijtgranen, beleg": "ontbijt_beleg",
+    "Koek, snoep, chocolade": "snacks_snoep",
+    "Borrel, chips, snacks": "snacks_snoep",
+    "Frisdrank, sappen, water": "frisdrank",
+    "Koffie, thee": "koffie_thee",
+    "Bier, wijn, aperitieven": "bier_wijn",
+    "Diepvries": "diepvries",
+    "Huishouden": "huishouden",
+    "Drogisterij": "drogisterie",
+    "Gezondheid en sport": "drogisterie",
+    "Baby en kind": "baby",
+    "Huisdier": "huisdier",
+    "Overige": "overig",
+}
+
 # (categorie, patroon op de titel zonder accenten en in kleine letters). \b = woordgrens.
 _RULES: tuple[tuple[str, str], ...] = (
     ("diepvries", r"diepvries|\bijs\b|ijsjes|roomijs|ijsklontjes|bevroren|magnum|ben (?:&|en) jerry"),
@@ -58,6 +88,19 @@ def categorize(title: Any, hint: Any = "") -> str:
             if pattern.search(text):
                 return category
     return OTHER
+
+
+def purchase_category(store: str, taxonomy: Any, title: Any, hint: Any = "") -> str:
+    """De categorie van een aankoopregel: bij AH eerst de taxonomie van de bestelling, anders de titel.
+
+    Een andere winkel heeft een eigen taxonomie, die niet door de AH-tabel gaat maar als hint bij `categorize` meekomt.
+    """
+    if store == "ah":
+        category: str | None = AH_TAXONOMY.get(taxonomy) if isinstance(taxonomy, str) else None
+        if category:
+            return category
+        return categorize(title, hint)
+    return categorize(title, hint or taxonomy)
 
 
 def summarize(categories: list[str]) -> list[dict[str, Any]]:
