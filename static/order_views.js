@@ -229,14 +229,20 @@ function orderBarSpec(kind) {
   return {
     views,
     sorts: [
-      { key: "category", label: t("orders.sort.category") },
-      { key: "name", label: t("orders.sort.name") },
-      { key: "amount", label: t("orders.sort.amount") },
-      { key: "discount", label: t("orders.sort.discount") },
+      { key: "category", label: t("orders.sort.category"), dir: "asc" },
+      { key: "name", label: t("orders.sort.name"), dir: "asc" },
+      { key: "amount", label: t("orders.sort.amount"), dir: "desc" },
+      { key: "discount", label: t("orders.sort.discount"), dir: "desc" },
     ],
     sizes: true,
     options: [],
   };
+}
+
+// Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere begint in zijn eigen richting (categorie en naam
+// oplopend, bedrag en korting aflopend), net als in het sorteermenu.
+function orderSortBy(key) {
+  orderView.sortBy(key, null, viewSortStart(orderBarSpec(orderPage.kind), key));
 }
 
 // De statusregel links in de balk: hoeveel producten en categorieën, of hoeveel er na zoeken en filteren te zien zijn.
@@ -347,7 +353,7 @@ $("#order-categories").addEventListener("click", (event) => {
 });
 $("#ah-order-items").addEventListener("click", (event) => {
   const sort = event.target.closest(".order-table__sort");
-  if (sort) orderView.sortBy(sort.dataset.sort);
+  if (sort) orderSortBy(sort.dataset.sort);
 });
 // Een andere taal: de balk, de badges en de weergave opnieuw, met de labels in die taal.
 window.addEventListener("ms:languagechange", () => {

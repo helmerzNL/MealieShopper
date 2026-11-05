@@ -129,6 +129,13 @@ class PurchaseSortTest(unittest.TestCase):
         sorts = self.run_js('globalThis.localStorage = { setItem() {} };\nconst changes = [];\nconst state = viewState("x", { view: "a", sort: { key: "date", dir: "desc" }, options: {} }, { views: ["a"], sorts: ["date", "amount"], sizes: [], options: [] });\nstate.listen(() => changes.push(JSON.stringify(state.sort)));\nstate.sortBy("date");\nstate.sortBy("amount");\nstate.sortBy(null, "asc");\nstate.sortBy("date", "asc");\nconsole.log(JSON.stringify(changes));')
         self.assertEqual(sorts, ['{"key":"date","dir":"asc"}', '{"key":"amount","dir":"desc"}', '{"key":"amount","dir":"asc"}', '{"key":"date","dir":"asc"}'])
 
+    def test_every_sort_key_of_the_list_starts_descending(self):
+        # De lijst houdt het gedrag van voor 3.8: datum, bedrag en aantal beginnen aflopend, uit de spec van de balk.
+        starts = self.run_js(f"{function_source('purchaseBarSpec')}\n{function_source('viewSortStart')}\nconsole.log(JSON.stringify(purchaseBarSpec().sorts.map((sort) => [sort.key, viewSortStart(purchaseBarSpec(), sort.key)])));")
+        self.assertEqual(starts, [["date", "desc"], ["amount", "desc"], ["items", "desc"]])
+        menu = self.run_js(f"{function_source('purchaseBarSpec')}\nconsole.log(JSON.stringify(viewSortMenu('purchase', purchaseBarSpec().sorts)));")
+        self.assertIn('data-sort-key="amount" data-sort-start="desc"', menu)
+
     def test_without_local_storage_the_defaults_stay(self):
         state = self.run_js("globalThis.localStorage = { getItem() { throw new Error('geblokkeerd'); } };\npurchaseViewLoad();\nconsole.log(JSON.stringify(purchaseView.view));")
         self.assertEqual(state, "table")

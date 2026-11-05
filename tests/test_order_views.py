@@ -65,6 +65,7 @@ ORDER_CONSTS = (
     "ORDER_SCOPE_VIEWS",
     "ORDER_VIEW_DEFAULTS",
     "orderView",
+    "orderPage",
 )
 
 
@@ -287,6 +288,49 @@ class OrderViewsNodeTest(unittest.TestCase):
         self.assertEqual(stored["order"], "category")
         self.assertEqual(stored["view"], "cards")
         self.assertEqual(stored["receipt"], "table")
+
+    def sort_scenario(self, body):
+        """De sorteerkeuze via het echte menu (bindViewBar met de markup van orderBarSpec) en de tabelkop (orderSortBy)."""
+        sources = "\n".join(
+            [
+                "const MDI_VIEW_CATEGORY = '', MDI_VIEW_CARDS = '', MDI_VIEW_TABLE = '', MDI_RECEIPT = '', MDI_CHEVRON_DOWN = '';",
+                "const $ = () => null;",
+                "const setSubtabMenu = () => {};",
+                "const handlers = {};",
+                "globalThis.document = { querySelector: () => ({ addEventListener: (type, fn) => { handlers[type] = fn; } }) };",
+                "globalThis.localStorage = { getItem: () => null, setItem() {} };",
+                function_source("viewBarElement", PURCHASE_VIEWS),
+                function_source("bindViewBar", PURCHASE_VIEWS),
+                function_source("viewSortMenu", PURCHASE_VIEWS),
+                function_source("viewSortStart", PURCHASE_VIEWS),
+                function_source("orderBarSpec", ORDER_VIEWS),
+                function_source("orderSortBy", ORDER_VIEWS),
+                "bindViewBar('order', orderView, () => {});",
+                # Een klik op een sleutel in het menu: het element met de data-attributen zoals viewSortMenu ze schrijft.
+                "const menu = viewSortMenu('order', orderBarSpec('order').sorts);",
+                "const choose = (key) => {",
+                "  const tag = menu.match(new RegExp(`<button[^>]*data-sort-key=\"${key}\"[^>]*>`))[0];",
+                "  const dataset = Object.fromEntries([...tag.matchAll(/data-sort-([a-z]+)=\"([^\"]*)\"/g)].map(([, name, value]) => [name === 'key' ? 'sortKey' : 'sort' + name[0].toUpperCase() + name.slice(1), value]));",
+                "  handlers.click({ target: { closest: (selector) => (selector.includes('data-sort-key') ? { dataset } : null) } });",
+                "  return `${orderView.sort.key} ${orderView.sort.dir}`;",
+                "};",
+                body,
+            ]
+        )
+        return self.run_js(sources)
+
+    def test_a_new_sort_key_from_the_menu_starts_in_its_own_direction(self):
+        # Na Korting aflopend opent Categorie oplopend (anders stond Overig bovenaan), Bedrag aflopend; dezelfde sleutel wisselt.
+        steps = self.sort_scenario(
+            "orderView.sort = { key: 'discount', dir: 'desc' };\nconsole.log(JSON.stringify([choose('category'), choose('amount'), choose('amount'), choose('name'), choose('discount')]));"
+        )
+        self.assertEqual(steps, ["category asc", "amount desc", "amount asc", "name asc", "discount desc"])
+
+    def test_a_table_header_starts_a_new_key_in_its_own_direction_too(self):
+        steps = self.sort_scenario(
+            "orderPage.kind = 'order';\norderView.sort = { key: 'amount', dir: 'desc' };\nconst out = [];\nfor (const key of ['category', 'category', 'discount']) { orderSortBy(key); out.push(`${orderView.sort.key} ${orderView.sort.dir}`); }\nconsole.log(JSON.stringify(out));"
+        )
+        self.assertEqual(steps, ["category asc", "category desc", "discount desc"])
 
     def test_a_paper_view_is_not_stored_for_an_order(self):
         stored = self.run_js(

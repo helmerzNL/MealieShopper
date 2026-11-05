@@ -101,19 +101,20 @@ function viewState(prefix, defaults, allowed, { scopes = null } = {}) {
       this.save();
       onChange();
     },
-    // Zonder richting: dezelfde sleutel wisselt de richting, een andere sleutel begint aflopend (een klik op een tabelkop). Met
-    // een richting en zonder sleutel blijft de sleutel staan (Oplopend of Aflopend in het menu).
-    sortBy(key, dir = null) {
+    // Zonder richting: dezelfde sleutel wisselt de richting, een andere sleutel begint in `start`, de beginrichting van die sleutel
+    // uit de spec van de balk (viewSortStart). Met een richting en zonder sleutel blijft de sleutel staan (Oplopend of Aflopend in
+    // het menu).
+    sortBy(key, dir = null, start = "desc") {
       if (dir) this.sort = { key: key || this.sort.key, dir };
       else if (this.sort.key === key) this.sort = { key, dir: this.sort.dir === "asc" ? "desc" : "asc" };
-      else this.sort = { key, dir: "desc" };
+      else this.sort = { key, dir: start === "asc" ? "asc" : "desc" };
       this.apply();
     },
   };
 }
 
-// De balk als HTML. spec = { views: [{ id, icon, label }], sorts: [{ key, label }], sizes: bool, options: [{ key, label }] }, met
-// de labels al vertaald. Zonder sorteersleutels geen sorteermenu, zonder groottes en opties geen optiemenu. Wat er gekozen is
+// De balk als HTML. spec = { views: [{ id, icon, label }], sorts: [{ key, label, dir }], sizes: bool, options: [{ key, label }] },
+// met de labels al vertaald en per sorteersleutel de richting waarin hij begint (`dir`, "asc" of "desc"). Zonder sorteersleutels geen sorteermenu, zonder groottes en opties geen optiemenu. Wat er gekozen is
 // (aria-pressed, is-active, de vinkjes) zet syncViewBar.
 function viewBarMarkup(prefix, spec) {
   const views = spec.views
@@ -124,8 +125,16 @@ function viewBarMarkup(prefix, spec) {
   return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="purchase-view-switch" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
 }
 
+// De richting waarin een sorteersleutel begint, uit de spec van de balk. Zonder richting aflopend.
+function viewSortStart(spec, key) {
+  const sort = spec.sorts.find((item) => item.key === key);
+  return sort && sort.dir === "asc" ? "asc" : "desc";
+}
+
 function viewSortMenu(prefix, sorts) {
-  const keys = sorts.map((sort) => `<button class="subtab-menu__item" type="button" data-sort-key="${escapeHtml(sort.key)}">${escapeHtml(sort.label)}</button>`).join("");
+  const keys = sorts
+    .map((sort) => `<button class="subtab-menu__item" type="button" data-sort-key="${escapeHtml(sort.key)}" data-sort-start="${sort.dir === "asc" ? "asc" : "desc"}">${escapeHtml(sort.label)}</button>`)
+    .join("");
   return `<div class="subtab-menu" id="${prefix}-sort-menu"><button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="${prefix}-sort-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="${prefix}-sort-list"><span>${escapeHtml(t("orders.sort.label"))}</span>: <span id="${prefix}-sort-current"></span>${mdiIcon(MDI_CHEVRON_DOWN, "subtab-menu__chevron")}</button>`
     + `<div class="subtab-menu__list" id="${prefix}-sort-list" hidden>${keys}<hr class="subtab-menu__rule">`
     + `<button class="subtab-menu__item" type="button" data-sort-dir="desc">${escapeHtml(t("orders.sort.desc"))}</button>`
@@ -174,7 +183,8 @@ function bindViewBar(prefix, state, onChange) {
     const sort = event.target.closest(`#${prefix}-sort-list [data-sort-key], #${prefix}-sort-list [data-sort-dir]`);
     if (sort) {
       setSubtabMenu($(`#${prefix}-sort-menu`), false);
-      if (sort.dataset.sortKey) state.sortBy(sort.dataset.sortKey, state.sort.dir);
+      // Een sleutel: dezelfde wisselt, een andere begint in zijn eigen richting (data-sort-start uit de spec).
+      if (sort.dataset.sortKey) state.sortBy(sort.dataset.sortKey, null, sort.dataset.sortStart);
       else state.sortBy(null, sort.dataset.sortDir);
       return;
     }
@@ -229,9 +239,9 @@ function purchaseBarSpec() {
       { id: "overview", icon: MDI_VIEW_LIST, label: t("orders.view.overview") },
     ],
     sorts: [
-      { key: "date", label: t("orders.sort.date") },
-      { key: "amount", label: t("orders.sort.amount") },
-      { key: "items", label: t("orders.sort.items") },
+      { key: "date", label: t("orders.sort.date"), dir: "desc" },
+      { key: "amount", label: t("orders.sort.amount"), dir: "desc" },
+      { key: "items", label: t("orders.sort.items"), dir: "desc" },
     ],
     sizes: true,
     options: [
@@ -290,9 +300,9 @@ function purchaseViewSyncBar() {
   }
 }
 
-// Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere sleutel wordt aflopend (zoals het menu).
+// Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere begint in zijn eigen richting (zoals het menu).
 function purchaseSortBy(key, dir = null) {
-  purchaseView.sortBy(key, dir);
+  purchaseView.sortBy(key, dir, viewSortStart(purchaseBarSpec(), key));
 }
 
 // Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js).
