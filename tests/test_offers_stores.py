@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic  # noqa: E402
+from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 
@@ -517,11 +517,15 @@ class ScheduleTest(TempDataDirTest):
     def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value={"found": 1}) as link, \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value={"products": 2}) as fill, \
+             mock.patch.object(prices, "fill_regular_prices_nightly", return_value={"lines": 4}) as regular, \
              mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
             self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
-        self.assertEqual((link.call_count, fill.call_count, prefetch.call_count), (1, 1, 1))
+        self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
+        self.assertIsNotNone(link.call_args.args[0])
+        self.assertEqual(link.call_args.args, fill.call_args.args, "koppelen en foto's delen een tijdstip: een laatste ronde")
         result = offers_schedule.status()["lastResult"]
-        self.assertEqual((result["receiptProducts"], result["receiptImages"], result["images"]), ({"found": 1}, {"products": 2}, {"fetched": 3}))
+        self.assertEqual((result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
+                         ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}))
         self.assertEqual(result["stores"]["ah"]["count"], 1)
 
     def test_the_button_does_not_wait_for_the_image_round(self):

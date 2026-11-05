@@ -34,8 +34,7 @@ const MDI_PLUS = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
 const MDI_MINUS = "M19,13H5V11H19V13Z";
 const MDI_LOADING = "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z";
 const MDI_CHECK_CIRCLE_OUTLINE = "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z";
-const MDI_VIEW_GRID_OUTLINE = "M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z";
-const MDI_VIEW_LIST_OUTLINE = "M3 5V19H20V5H3M7 7V9H5V7H7M5 13V11H7V13H5M5 15H7V17H5V15M18 17H9V15H18V17M18 13H9V11H18V13M18 9H9V7H18V9Z";
+const MDI_IMAGE_OUTLINE = "M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M13.96,12.29L11.21,15.83L9.25,13.47L6.5,17H17.5L13.96,12.29Z";
 const MDI_COMPARE_HORIZONTAL = "M9 14H2V16H9V19L13 15L9 11V14M15 13V10H22V8H15V5L11 9L15 13Z";
 const MDI_CHART_LINE = "M16,11.78L20.24,4.45L21.97,5.45L16.74,14.5L10.23,10.75L5.46,19H22V21H2V3H4V17.54L9.5,8L16,11.78Z";
 const MDI_FLAG_OUTLINE = "M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4";
@@ -46,6 +45,13 @@ const MDI_OPEN_IN_NEW =
 
 function mdiIcon(path, className = "mdi") {
   return `<svg class="${className}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+}
+
+// Een badge: een gekleurd label met tekst (status, bespaard, bonus, eerder gekocht). De soort bepaalt de kleur in de CSS
+// (.badge--<soort>); de tekst staat er altijd, dus kleur is nooit het enige signaal.
+function badge(kind, text, title = "") {
+  const hint = title ? ` title="${escapeHtml(title)}"` : "";
+  return `<span class="badge badge--${kind}"${hint}>${escapeHtml(text)}</span>`;
 }
 
 const MDI_LINK = "M10.59,13.41C11,13.8 11,14.44 10.59,14.83C10.2,15.22 9.56,15.22 9.17,14.83C7.22,12.88 7.22,9.71 9.17,7.76V7.76L12.71,4.22C14.66,2.27 17.83,2.27 19.78,4.22C21.73,6.17 21.73,9.34 19.78,11.29L18.29,12.78C18.3,11.96 18.17,11.14 17.89,10.36L18.36,9.88C19.54,8.71 19.54,6.81 18.36,5.64C17.19,4.46 15.29,4.46 14.12,5.64L10.59,9.17C9.41,10.34 9.41,12.24 10.59,13.41M13.41,9.17C13.8,8.78 14.44,8.78 14.83,9.17C16.78,11.12 16.78,14.29 14.83,16.24V16.24L11.29,19.78C9.34,21.73 6.17,21.73 4.22,19.78C2.27,17.83 2.27,14.66 4.22,12.71L5.71,11.22C5.7,12.04 5.83,12.86 6.11,13.65L5.64,14.12C4.46,15.29 4.46,17.19 5.64,18.36C6.81,19.54 8.71,19.54 9.88,18.36L13.41,14.83C14.59,13.66 14.59,11.76 13.41,10.59C13,10.2 13,9.56 13.41,9.17Z";
@@ -2465,6 +2471,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+  if (panelId === "settings" && typeof loadLinkingBox === "function") loadLinkingBox();
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2555,6 +2562,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (target) target.classList.add("is-active");
     if (subtab.dataset.subtab === "planner") ensureMealPlan();
     if (subtab.dataset.subtab === "settings-link" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+    if (subtab.dataset.subtab === "settings-link" && typeof loadLinkingBox === "function") loadLinkingBox();
     if (subtab.dataset.subtab === "settings-link" && typeof loadAiReviewSettings === "function") loadAiReviewSettings();
     if (subtab.dataset.subtab === "settings-users" && typeof loadUsers === "function") loadUsers();
     if (subtab.dataset.subtab === "profile-ai" && typeof loadAi === "function") loadAi();

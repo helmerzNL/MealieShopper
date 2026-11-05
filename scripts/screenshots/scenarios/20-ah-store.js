@@ -86,10 +86,12 @@ async function orders(route, request) {
   const open = (id, date, total, items, text) => ({
     id, kind: "open", state: "OPEN", stateText: text, shoppingType: "HOME_DELIVERY", method: "DELIVERY", total, deliveryDate: date,
     slotStart: "18:00", slotEnd: "20:00", itemsSynced: true, syncedAt: "2026-10-28T09:40:00", itemCount: items,
+    statusKind: "planned", statusText: text,
   });
   const done = (id, date, total, items) => ({
     id, kind: "closed", state: "DELIVERED", stateText: nl ? "Geleverd" : "Delivered", shoppingType: "HOME_DELIVERY", method: "DELIVERY", total, deliveryDate: date,
     slotStart: "17:00", slotEnd: "19:00", itemsSynced: true, syncedAt: "2026-10-28T09:40:00", itemCount: items,
+    statusKind: "delivered", statusText: null,
   });
   await route.fulfill({
     json: {
@@ -106,24 +108,31 @@ async function orders(route, request) {
   });
 }
 
-// [titel, merk, inhoud, taxonomie, aantal, prijs, bonus, kleur, soort]
+// [titel, merk, inhoud, taxonomie, categorie, aantal, prijs, bonus, eerder, kleur, soort]. Sinds 3.8.0 geeft de detailroute per
+// regel de categorie, wat je per stuk betaalde, de gewone prijs (hier de prijs vóór bonus van AH), de korting en hoe vaak je het
+// eerder kocht.
 const ORDER_ITEMS = [
-  ["Halfvolle melk", "Huismerk", "1 l", "Zuivel", 2, 1.29, true, "#2f7d57", "bottle"],
-  ["Kipfilet", "Huismerk", "300 g", "Vlees", 2, 4.49, false, "#e08a3c", "pack"],
-  ["Kerstomaten", "Huismerk", "250 g", "Groente", 2, 1.99, false, "#d9503f", "pack"],
-  ["Spaghetti", "Huismerk", "500 g", "Pasta", 2, 1.49, false, "#e6b84a", "pack"],
-  ["Kruimige aardappelen", "Huismerk", "2 kg", "Aardappelen", 1, 2.79, false, "#9a6a4a", "pack"],
-  ["Rookworst", "Gelderse", "250 g", "Vleeswaren", 2, 2.39, true, "#8a4b3a", "pack"],
-  ["Griekse yoghurt", "Huismerk", "500 g", "Zuivel", 2, 1.89, false, "#5b7fa6", "pack"],
-  ["Volkoren brood", "Bakkerij", "800 g", "Brood", 1, 2.25, false, "#b98a5a", "pack"],
-  ["Biologische eieren", "Huismerk", "10 stuks", "Eieren", 1, 3.39, false, "#d9c9a8", "pack"],
-  ["Avocado", "Huismerk", "2 stuks", "Fruit", 2, 2.49, false, "#4f8a4f", "pack"],
-  ["Kikkererwten", "Huismerk", "400 g", "Conserven", 2, 0.99, false, "#c9a36a", "jar"],
-  ["Appelsap", "Huismerk", "1 l", "Sap", 1, 1.65, false, "#e6a23a", "bottle"],
-].map(([title, brand, unitSize, taxonomy, quantity, price, bonus, color, kind], index) => ({
-  productId: `o${index}`, title, brand, unitSize, quantity, amount: Math.round(quantity * price * (bonus ? 0.8 : 1) * 100) / 100, price,
-  priceBeforeBonus: bonus ? price : null, bonus, taxonomy, image: product(color, kind),
-}));
+  ["Halfvolle melk", "Huismerk", "1 l", "Zuivel", "zuivel_eieren", 2, 1.29, true, 12, "#2f7d57", "bottle"],
+  ["Kipfilet", "Huismerk", "300 g", "Vlees", "vlees", 2, 4.49, false, 5, "#e08a3c", "pack"],
+  ["Kerstomaten", "Huismerk", "250 g", "Groente", "groente_fruit", 2, 1.99, false, 6, "#d9503f", "pack"],
+  ["Spaghetti", "Huismerk", "500 g", "Pasta", "maaltijden", 2, 1.49, false, 5, "#e6b84a", "pack"],
+  ["Kruimige aardappelen", "Huismerk", "2 kg", "Aardappelen", "groente_fruit", 1, 2.79, false, 4, "#9a6a4a", "pack"],
+  ["Rookworst", "Gelderse", "250 g", "Vleeswaren", "kaas_vleeswaren", 2, 2.39, true, 7, "#8a4b3a", "pack"],
+  ["Griekse yoghurt", "Huismerk", "500 g", "Zuivel", "zuivel_eieren", 2, 1.89, false, 4, "#5b7fa6", "pack"],
+  ["Volkoren brood", "Bakkerij", "800 g", "Brood", "brood_bakkerij", 1, 2.25, false, 0, "#b98a5a", "pack"],
+  ["Biologische eieren", "Huismerk", "10 stuks", "Eieren", "zuivel_eieren", 1, 3.39, false, 6, "#d9c9a8", "pack"],
+  ["Avocado", "Huismerk", "2 stuks", "Fruit", "groente_fruit", 2, 2.49, false, 3, "#4f8a4f", "pack"],
+  ["Kikkererwten", "Huismerk", "400 g", "Conserven", "sauzen_conserven", 2, 0.99, false, 2, "#c9a36a", "jar"],
+  ["Appelsap", "Huismerk", "1 l", "Sap", "frisdrank", 1, 1.65, false, 0, "#e6a23a", "bottle"],
+].map(([title, brand, unitSize, taxonomy, category, quantity, price, bonus, before, color, kind], index) => {
+  const paidEach = Math.round(price * (bonus ? 0.8 : 1) * 100) / 100;
+  return {
+    productId: `o${index}`, title, brand, unitSize, quantity, amount: Math.round(quantity * paidEach * 100) / 100, price: paidEach,
+    priceBeforeBonus: bonus ? price : null, bonus, taxonomy, image: product(color, kind), category, paidEach,
+    regularPrice: bonus ? price : null, discount: bonus ? 20 : null, discountSource: bonus ? "store" : null, timesBefore: before,
+  };
+});
+const ORDER_SAVED = Math.round(ORDER_ITEMS.reduce((sum, item) => sum + (item.regularPrice ? (item.regularPrice - item.paidEach) * item.quantity : 0), 0) * 100) / 100;
 
 async function orderDetail(route, request) {
   const nl = (await lang(request)) === "nl";
@@ -131,7 +140,8 @@ async function orderDetail(route, request) {
     json: {
       id: 41, kind: "open", state: "OPEN", stateText: nl ? "Bezorging gepland" : "Delivery planned", shoppingType: "HOME_DELIVERY", method: "DELIVERY",
       total: 87.45, deliveryDate: "2026-10-30", slotStart: "18:00", slotEnd: "20:00", itemsSynced: true, syncedAt: "2026-10-28T09:40:00",
-      itemCount: ORDER_ITEMS.length, items: ORDER_ITEMS,
+      itemCount: ORDER_ITEMS.length, items: ORDER_ITEMS, saved: ORDER_SAVED, savedPercent: Math.round((ORDER_SAVED / (87.45 + ORDER_SAVED)) * 100),
+      statusKind: "planned", statusText: nl ? "Bezorging gepland" : "Delivery planned",
     },
   });
 }
@@ -143,34 +153,53 @@ const RECEIPTS = [
   ["2026-10-15T08:55:00", 9.43, 4],
   ["2026-10-11T16:20:00", 33.9, 13],
   ["2026-10-06T19:02:00", 27.18, 10],
-].map(([dateTime, total, itemCount], index) => ({ id: `kb-${index + 1}`, dateTime, total, detailsSynced: true, itemCount }));
+].map(([dateTime, total, itemCount], index) => ({ id: `kb-${index + 1}`, dateTime, total, detailsSynced: true, itemCount, statusKind: "receipt", statusText: null }));
 
 const receiptList = { syncedAt: "2026-10-28T09:41:00", receipts: RECEIPTS };
 
-// De kassabon van 27 oktober, zoals op papier: aantal, omschrijving, prijs en bedrag.
+// De kassabon van 27 oktober, zoals op papier: aantal, omschrijving, prijs en bedrag. De meeste regels zijn gekoppeld aan een
+// webwinkelproduct (naam en foto, voor de kaarten); twee niet, die houden de afgekorte naam van de bon. Sinds 3.8.0 geeft de
+// detailroute per regel ook de categorie, de bonus van de bonusregels, wat je per stuk betaalde en de korting, en voor de bon wat
+// je bespaarde en hoeveel regels nog zonder product zijn (`linkingTodo`).
 const receiptDetail = {
   ...RECEIPTS[0],
   items: [
-    ["AH HALFVOLLE MELK", 2, 1.29, 2.58],
-    ["AH KIPFILET", 1, 4.49, 4.49],
-    ["AH KERSTOMATEN", 1, 1.99, 1.99],
-    ["AH SPAGHETTI", 2, 1.49, 2.98],
-    ["AH PESTO VERDE", 1, 2.19, 2.19],
-    ["GELDERSE ROOKWORST", 1, 2.39, 2.39],
-    ["AH GRIEKSE YOGHURT", 2, 1.89, 3.78],
-    ["AH VOLKORENBROOD", 1, 2.25, 2.25],
-    ["AH BIO EIEREN 10 ST", 1, 3.39, 3.39],
-    ["AVOCADO 2 STUKS", 2, 2.49, 4.98],
-    ["AH KIKKERERWTEN", 2, 0.99, 1.98],
-    ["AH KOKOSMELK", 1, 1.35, 1.35],
-    ["APPELSAP 1 L", 1, 1.65, 1.65],
-    ["AH FRISDRANK COLA ZERO", 3, 1.19, 3.57],
-  ].map(([name, quantity, price, amount], index) => ({ productId: `r${index}`, name, quantity, price, amount })),
+    ["AH HALFVOLLE MELK", 2, 1.29, 2.58, "AH Halfvolle melk 1 l", "zuivel_eieren", 0.52, 12],
+    ["AH KIPFILET", 1, 4.49, 4.49, "AH Kipfilet 300 g", "vlees", 0, 5],
+    ["AH KERSTOMATEN", 1, 1.99, 1.99, "AH Kerstomaten 250 g", "groente_fruit", 0, 6],
+    ["AH SPAGHETTI", 2, 1.49, 2.98, "AH Spaghetti 500 g", "maaltijden", 0, 5],
+    ["AH PESTO VERDE", 1, 2.19, 2.19, "AH Pesto verde 190 g", "sauzen_conserven", 0, 1],
+    ["GELDERSE ROOKWORST", 1, 2.39, 2.39, "Gelderse rookworst 250 g", "kaas_vleeswaren", 0.48, 7],
+    ["AH GRIEKSE YOGHURT", 2, 1.89, 3.78, "AH Griekse yoghurt 500 g", "zuivel_eieren", 0, 4],
+    ["AH VOLKORENBROOD", 1, 2.25, 2.25, "AH Volkorenbrood heel", "brood_bakkerij", 0, 0],
+    ["AH BIO EIEREN 10 ST", 1, 3.39, 3.39, "AH Biologisch scharreleieren 10 stuks", "zuivel_eieren", 0, 6],
+    ["AVOCADO 2 STUKS", 2, 2.49, 4.98, null, "groente_fruit", 0, 0],
+    ["AH KIKKERERWTEN", 2, 0.99, 1.98, "AH Kikkererwten 400 g", "sauzen_conserven", 0, 2],
+    ["AH KOKOSMELK", 1, 1.35, 1.35, "AH Kokosmelk 400 ml", "sauzen_conserven", 0, 1],
+    ["APPELSAP 1 L", 1, 1.65, 1.65, null, "frisdrank", 0, 0],
+    ["AH FRISDRANK COLA ZERO", 3, 1.19, 3.57, "AH Frisdrank cola zero 1,5 l", "frisdrank", 0, 4],
+  ].map(([name, quantity, price, amount, title, category, bonus, before], index) => ({
+    productId: `r${index}`, name, quantity, price, amount,
+    product: title ? { id: `p${index}`, title, image: LIST_ITEMS[index % LIST_ITEMS.length].product.image } : null,
+    category, bonus, paidEach: Math.round((price - bonus / quantity) * 100) / 100, regularPrice: bonus ? price : null,
+    discount: bonus ? Math.round((bonus / amount) * 100) : null, discountSource: bonus ? "store" : null, timesBefore: title ? before : 0,
+  })),
   discounts: [
     { name: "BONUS HALFVOLLE MELK", amount: -0.52 },
     { name: "BONUS ROOKWORST", amount: -0.48 },
   ],
   payments: [{ method: "PIN", amount: 41.36 }],
+  saved: 1.0,
+  savedPercent: 2,
+  statusKind: "receipt",
+  statusText: null,
+  linkingTodo: { unlinked: 2, due: 2 },
+};
+
+// De toestand van het koppelen (GET /api/ah/linking): geen pauze, wat budget over en wat werk voor de nacht.
+const linking = {
+  pausedUntil: null, pausedSince: null, pausedStatus: null, budget: { used: 12, limit: 120, resetAt: null },
+  todo: { lines: 9, receipts: 4, images: 3 }, lastRound: null, nextRound: "2026-10-29T02:00:00+00:00", running: null,
 };
 
 // Zoeken op "frisdrank": producten, kassabonnen met de passende regels en bestellingen.
@@ -199,6 +228,18 @@ const receiptHits = {
   ],
 };
 
+// Koppelen (#238): de producten van AH bij "AVOCADO 2 STUKS", een regel die de app niet herkende.
+const linkSearch = {
+  store: "ah",
+  query: "AVOCADO 2 STUKS",
+  products: [
+    ["a1", "AH Avocado eetrijp 2 stuks", "AH", "2 stuks", 2.49, "#4f8a4f"],
+    ["a2", "AH Avocado", "AH", "per stuk", 1.29, "#3f7a3f"],
+    ["a3", "AH Biologisch Avocado 2 stuks", "AH Biologisch", "2 stuks", 2.99, "#6aa55a"],
+    ["a4", "AH Guacamole", "AH", "200 g", 2.19, "#9cc26a"],
+  ].map(([productId, title, brand, unitSize, price, color]) => ({ productId, title, brand, unitSize, price, image: product(color, "pack") })),
+};
+
 const routes = {
   "/api/ah/recipes/saved*": savedRecipes,
   "/api/ah/lists": lists,
@@ -210,6 +251,8 @@ const routes = {
   "/api/ah/receipts/*": receiptDetail,
   "/api/ah/receipts/search*": receiptHits,
   "/api/ah/purchases/search*": purchaseHits,
+  "/api/ah/linking": linking,
+  "/api/product-links/search*": linkSearch,
 };
 
 // ---- in bulk importeren (2.98) -----------------------------------------------------------------------------
@@ -275,6 +318,14 @@ const scrollTo = (page, selector) =>
   page.evaluate((target) => {
     window.scrollTo(0, document.querySelector(target).getBoundingClientRect().top + window.scrollY - 84);
   }, selector);
+
+// Na het kiezen van een weergave op de bestelpagina: de muis weg (anders staat er een hover op een chip die onder de knop
+// schoof) en naar de weergave zelf. Op een telefoon vullen de chips het eerste scherm, daar meteen naar de regels.
+async function settleOrderView(page, device) {
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(400);
+  await scrollTo(page, device === "phone" ? "#ah-order-items" : "#order-categories");
+}
 
 module.exports = [
   {
@@ -344,24 +395,30 @@ module.exports = [
     routes,
     run: async (page) => {
       await openStores("ah-items-bestellingen")(page);
-      await scrollTo(page, "#ah-orders-main");
+      await scrollTo(page, "#ah-orders-view");
     },
   },
   {
+    // Een bestelling als tabel (de weergave per categorie staat in order-categories, scenario 22).
     name: "order",
     routes,
-    run: async (page) => {
+    run: async (page, { device }) => {
       await openStores("ah-items-bestellingen")(page);
       await page.click('[data-order-id="41"]');
       await page.waitForTimeout(800);
+      await page.click('[data-view-bar="order"] [data-view="table"]');
+      await settleOrderView(page, device);
     },
   },
   {
     name: "receipts",
     routes,
     run: async (page) => {
+      // Sinds de ene tabel met aankopen: alleen de kassabonnen aangevinkt.
       await openStores("ah-items-bestellingen")(page);
-      await scrollTo(page, "#ah-receipts-block");
+      await page.uncheck("#ah-filter-orders");
+      await page.waitForTimeout(400);
+      await scrollTo(page, "#ah-orders-view");
     },
   },
   {
@@ -371,7 +428,33 @@ module.exports = [
       await openStores("ah-items-bestellingen")(page);
       await page.click('[data-receipt-id="kb-1"]');
       await page.waitForTimeout(800);
+      await page.click('[data-view-bar="order"] [data-view="paper"]');
+      await page.waitForTimeout(400);
       await scrollTo(page, "#ah-order-detail");
+    },
+  },
+  {
+    // Dezelfde bon in de weergave Kaarten van de weergavebalk (tot 3.7 de productweergave van de bon).
+    name: "receipt-products",
+    routes,
+    run: async (page, { device }) => {
+      await openStores("ah-items-bestellingen")(page);
+      await page.click('[data-receipt-id="kb-1"]');
+      await page.waitForTimeout(800);
+      await page.click('[data-view-bar="order"] [data-view="cards"]');
+      await settleOrderView(page, device);
+    },
+  },
+  {
+    name: "receipt-link",
+    routes,
+    run: async (page) => {
+      await openStores("ah-items-bestellingen")(page);
+      await page.click('[data-receipt-id="kb-1"]');
+      await page.waitForTimeout(800);
+      await page.click('#ah-order-items [data-product-link][data-name="AVOCADO 2 STUKS"]');
+      await page.waitForSelector("#link-dialog[open] .link-item");
+      await page.waitForTimeout(400);
     },
   },
   {
@@ -382,7 +465,7 @@ module.exports = [
       await page.fill("#ah-purchase-filter", "frisdrank");
       await page.waitForTimeout(1200);
       await page.evaluate(() => document.activeElement.blur());
-      await scrollTo(page, "#ah-purchase-results h3");
+      await scrollTo(page, "#ah-orders-view");
     },
   },
 ];

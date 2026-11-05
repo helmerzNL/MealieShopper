@@ -102,6 +102,17 @@ class HostsAndTokensTest(Case):
             image_cache.url_for(image_cache.token_for("https://mealie.local/x.png"))
         )
 
+    def test_a_token_only_decodes_to_a_strict_store_address(self):
+        # Een token komt van de browser en is dus van iedereen. Dezelfde eisen als aan een doorverwijzing: https, en geen adres dat
+        # de ene parser als static.ah.nl leest en de andere (urllib3, die het verzoek verstuurt) als iets anders.
+        for url in ("http://static.ah.nl/dam/plain", "https://user@static.ah.nl/dam/x", "https://static.ah.nl\t/dam/x"):
+            with self.subTest(url=url):
+                self.assertEqual(image_cache.store_for(url), "ah", "de host alleen laat het door")
+                self.assertFalse(image_cache.safe_url(url))
+                self.assertIsNone(image_cache.url_for(image_cache.token_for(url)))
+        self.assertTrue(image_cache.safe_url(AH))
+        self.assertFalse(image_cache.safe_url("https://mealie.local/x.png"))
+
     def test_register_keeps_one_row_per_address_and_refreshes_seen_at(self):
         first = image_cache.register(AH, now="2026-11-04T01:00:00+00:00")
         second = image_cache.register(AH, now="2026-11-05T01:00:00+00:00")
@@ -141,6 +152,14 @@ class FetchTest(FetchCase):
         self.assertEqual((first["path"], self.get.call_count), (second["path"], 1))
         self.assertEqual(image_cache.stats(), {"count": 1, "bytes": len(picture(4, 4))})
 
+    def test_a_fetch_of_an_address_that_only_passes_the_host_check_sends_nothing(self):
+        for url in ("http://static.ah.nl/dam/plain", "https://user@static.ah.nl/dam/x"):
+            with self.subTest(url=url):
+                self.serve(url, 200, "image/png", picture(4, 4))
+                self.assertIsNone(image_cache.fetch(url, now=NOW))
+                self.assertIsNone(image_cache.lookup(url), "ook niet geregistreerd")
+        self.get.assert_not_called()
+
     def test_html_svg_and_too_large_are_refused_and_counted(self):
         self.serve(AH, 200, "text/html; charset=utf-8", b"<html>oeps</html>")
         self.assertIsNone(image_cache.fetch(AH, now=NOW))
@@ -168,6 +187,35 @@ class FetchTest(FetchCase):
         gone = "https://static.ah.nl/dam/gone"
         self.assertIsNone(image_cache.fetch(gone, now="2026-11-04T15:00:02+00:00"))
         self.assertEqual({row["url"]: row["attempts"] for row in image_cache._rows()}[gone], 3)
+
+    def test_a_photo_that_picnic_does_not_have_is_missing_and_does_not_pause_the_host(self):
+        # #236: Picnic bewaart zijn foto's in Amazon S3. Een foto die er niet is, geeft daar 403 AccessDenied in XML, geen 404. Dat
+        # zette de hele host twaalf uur stil, zodat na een recept zonder foto ook de foto's van alle andere recepten wegbleven.
+        base = "https://storefront-prod.nl.picnicinternational.com/static/images/recipes"
+        gone, other = f"{base}/ac1b02/medium.png", f"{base}/c09b4e/medium.png"
+        denied = b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>X</RequestId></Error>'
+        self.serve(gone, 403, "application/xml", denied)
+        self.serve(other, 200, "image/png", picture(4, 4))
+        self.assertIsNone(image_cache.fetch(gone, now=NOW))
+        self.assertIsNone(image_cache.paused_until("storefront-prod.nl.picnicinternational.com"))
+        self.assertIsNotNone(image_cache.fetch(other, now=NOW), "de andere foto's van Picnic komen gewoon")
+        row = {row["url"]: row for row in image_cache._rows()}[gone]
+        self.assertEqual(row["attempts"], 3, "telt als een 404: een week wachten")
+        self.assertIn("bestaat niet", row["error"])
+
+    def test_a_403_that_is_not_an_s3_error_still_pauses_the_host(self):
+        picnic = "https://storefront-prod.nl.picnicinternational.com/static/images/abc/medium.png"
+        for content_type, body in (
+            ("application/xml", b"<Error><Code>RequestLimitExceeded</Code></Error>"),  # andere XML: geen ontbrekend bestand
+            ("text/html", b"<html><body><Error><Code>AccessDenied</Code></Error></body></html>"),  # alleen XML telt
+        ):
+            with self.subTest(content_type=content_type):
+                auth.set_setting(image_cache.SETTING_PAUSED + "storefront-prod.nl.picnicinternational.com", "")
+                with closing(image_cache._connect()) as conn, conn:
+                    conn.execute("DELETE FROM image_cache")
+                self.serve(picnic, 403, content_type, body)
+                self.assertIsNone(image_cache.fetch(picnic, now=NOW))
+                self.assertEqual(image_cache.paused_until("storefront-prod.nl.picnicinternational.com"), "2026-11-04T15:00:00+00:00")
 
     def test_failures_wait_a_day_then_a_week_then_forever(self):
         hours = lambda n: f"2026-11-{4 + n // 24:02d}T{n % 24:02d}:00:00+00:00"  # noqa: E731
@@ -441,6 +489,13 @@ class PrefetchTest(FetchCase):
             image_cache._PREFETCH_RUNNING.release()
         self.get.assert_not_called()
         self.assertEqual(image_cache.prefetch(now=NOW)["fetched"], 1)
+
+    def test_collect_known_skips_an_address_that_only_passes_the_host_check(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            for position, url in enumerate(("http://static.ah.nl/dam/plain", "https://user@static.ah.nl/dam/x")):
+                conn.execute("INSERT INTO ah_order_items (order_id, position, product_id, title, image) VALUES (1, ?, ?, 'Melk', ?)", (position, 10 + position, url))
+        self.assertEqual(image_cache.collect_known(now=NOW), 0)
+        self.assertEqual(image_cache._rows(), [])
 
     def test_collect_known_survives_a_table_that_has_no_image_column_yet(self):
         with closing(auth.connect()) as conn, conn:

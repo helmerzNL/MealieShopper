@@ -15,6 +15,7 @@ Het afleveradres bewaren we bewust niet; alleen datum en tijdvak.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -24,7 +25,9 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
-from . import ah, ah_lists, auth, image_cache, price_import
+from . import ah, ah_lists, audit, auth, image_cache, price_import, product_links, purchase_lines
+
+log = logging.getLogger(__name__)
 
 RECEIPT_PAGE = 100
 MAX_RECEIPT_PAGES = 30  # 3.000 bonnen; voorkomt een eindeloze lus bij een afwijkend antwoord
@@ -112,21 +115,34 @@ CREATE TABLE IF NOT EXISTS ah_orders_meta (
 
 ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount", "price", "price_before_bonus", "bonus", "taxonomy", "image")
 
+# De gewone prijs van een aankoopregel: de laagste van de 30 dagen voor de aankoopdag (`prices.fill_regular_prices` vult ze 's nachts).
+# `regular_price` NULL met een `regular_checked_at`: bepaald, maar er was geen gewone prijs bekend. Ook op `jumbo_order_items`.
+REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
+
 
 def _connect():
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
     # Een database van vóór de bonfoto's heeft die kolom nog niet; `backfill_receipt_images` vult hem 's nachts.
-    if "image" not in {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}:
-        _add_image_column(conn)
-    return conn
+    _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
+    for table in ("ah_order_items", "ah_receipt_items"):
+        _ensure_columns(conn, table, REGULAR_COLUMNS)
+    return product_links.ensure(conn)  # je eigen koppelingen (#238) gaan voor `ah_receipt_products`
 
 
-def _add_image_column(conn) -> None:
+def _ensure_columns(conn, table: str, columns: tuple[tuple[str, str], ...]) -> None:
+    """Voeg de kolommen toe die een oudere database nog niet heeft."""
+    present: set[str] = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for column, kind in columns:
+        if column not in present:
+            _add_column(conn, table, column, kind)
+
+
+def _add_column(conn, table: str, column: str, kind: str) -> None:
     """De migratie; twee threads die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
     try:
-        conn.execute("ALTER TABLE ah_receipt_products ADD COLUMN image TEXT")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
     except sqlite3.OperationalError as exc:
         if "duplicate column" not in str(exc):
             raise
@@ -361,12 +377,13 @@ SUMMARY_NAMES = 4
 
 # De samenvatting per bestelling voor de kaarten en het overzicht, in dezelfde query: de eerste foto's en namen in de volgorde van
 # de bestelling (GROUP_CONCAT over een gesorteerde subquery, een regel per adres), het bespaarde bedrag en het aantal bonusregels.
+# Het bespaarde bedrag is dat tegen de gewone prijs van 30 dagen (`regular_price`), en zonder die prijs tegen de prijs ervoor van AH.
 _ORDER_SUMMARY_SQL = f"""
     (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT image FROM ah_order_items i WHERE i.order_id = o.order_id AND image != ''
         ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
     (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM ah_order_items i WHERE i.order_id = o.order_id AND title != ''
         ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
-    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+    (SELECT SUM(MAX(COALESCE(regular_price, CASE WHEN bonus THEN price_before_bonus END, price) - price, 0) * COALESCE(quantity, 1))
         FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
     (SELECT SUM(bonus) FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
 """
@@ -377,12 +394,18 @@ def _order_summary(row: Any) -> dict[str, Any]:
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+        **_status_fields("order", row),
     }
+
+
+def _status_fields(kind: str, row: Any) -> dict[str, Any]:
+    status_kind, status_text = purchase_lines.status_kind(kind, row)
+    return {"statusKind": status_kind, "statusText": status_text}
 
 
 def list_orders(summary: bool = False) -> dict[str, Any]:
     """Alle bestellingen, open bovenaan. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings` en
-    `bonusCount` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
+    `bonusCount`, `statusKind` en `statusText` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
     with closing(_connect()) as conn:
         rows = conn.execute(
             f"""
@@ -398,13 +421,26 @@ def list_orders(summary: bool = False) -> dict[str, Any]:
     }
 
 
+def _order_day(row: Any) -> str:
+    """De aankoopdag van een bestelling: de bezorgdag, anders de dag waarop de app hem voor het eerst zag (zoals in `prices`)."""
+    return str(row["delivery_date"] or row["first_seen"] or "")[:10]
+
+
 def get_order(order_id: int) -> dict[str, Any] | None:
+    """Een bestelling met haar producten. Elke regel krijgt de velden van `purchase_lines.enrich` (categorie, korting tegen de gewone
+    prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `statusKind` en `statusText`. De gewone prijs van de
+    regels wordt eerst bijgewerkt (`purchase_lines.fill_regular`)."""
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),)).fetchone()
         if not row:
             return None
-        items = conn.execute("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),)).fetchall()
-    return {**_order_json(row, len(items)), "items": [_item_json(item) for item in items]}
+    purchase_lines.fill_regular("ah", order_ids=[int(order_id)])
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),)).fetchall()
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
+    kind, text = purchase_lines.status_kind("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
 # --- kassabonnen ----------------------------------------------------------------------------------
@@ -472,6 +508,10 @@ RECEIPT_PRODUCTS_OPEN_SEARCHES = 5  # bij het openen van een bon: de regels die 
 T = TypeVar("T")
 
 SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
+# Waarom het koppelen stilligt, naast de pauze: "<status van AH>@<tijdstip>", bijvoorbeeld "429@2026-11-05T14:02:00+00:00".
+SETTING_RECEIPT_PRODUCTS_PAUSED_REASON = "receipt_products_paused_reason"
+# De uitkomst van de laatste ronde (koppelen en foto's samen, zie `_record_round`), voor de melding op de bestelpagina.
+SETTING_LAST_ROUND = "receipt_products_last_round"
 # Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
 # werd een nieuwe kans, zonder 30 dagen te wachten.
 RECEIPT_PRODUCTS_VERSION = "2"
@@ -483,7 +523,11 @@ ON CONFLICT(receipt_product_id) DO UPDATE SET product_id = excluded.product_id, 
   image = excluded.image
 """
 RECEIPT_IMAGES_BATCH = 25  # zoveel webwinkel-id's per verzoek aan `get_products_by_ids`
-RECEIPT_IMAGES_BATCHES = 8  # en zoveel verzoeken per nachtelijke ronde
+RECEIPT_IMAGES_BATCHES = 20  # en zoveel verzoeken per nachtelijke ronde (500 producten)
+RECEIPT_IMAGES_BATCHES_OPEN = 4  # en zoveel in de ronde op de achtergrond als de bonnenlijst opent (100 producten)
+_BACKFILL_LOCK = threading.Lock()
+_BACKFILL_THREADS: list[threading.Thread] = []  # hooguit een ronde op de achtergrond tegelijk
+_IMAGES_MISSING_FROM = "FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL"
 _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
@@ -494,26 +538,36 @@ class _HourlyBudgetSpent(Exception):
     """Het aantal zoekopdrachten van dit uur is op (`RECEIPT_PRODUCTS_PER_HOUR`)."""
 
 
-# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync en het zoeken in de Prijsgeschiedenis
-# delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync, het zoeken in de Prijsgeschiedenis en
+# een ronde op afroep delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+# `_PACE_LOCK` zet de verzoeken achter elkaar (ook tijdens de pauze en het verzoek zelf). `_RECENT_LOCK` bewaakt alleen
+# `_PACE["recent"]` (de monotone tijdstippen van de verzoeken van het afgelopen uur) en wordt nooit vastgehouden tijdens het
+# wachten, zodat `linking_status` het uurbudget meteen kan lezen, ook als een ronde net op zijn beurt wacht.
 _PACE_LOCK = threading.Lock()
+_RECENT_LOCK = threading.Lock()
 _PACE = {"last": float("-inf"), "recent": deque()}
+
+
+def _prune_pace(now: float) -> deque:
+    """De verzoeken van langer dan een uur geleden vallen uit het uurbudget. Alleen aanroepen met `_RECENT_LOCK` vast."""
+    recent = _PACE["recent"]
+    while recent and now - recent[0] > 3600:
+        recent.popleft()
+    return recent
 
 
 def _polite(call: Callable[[], T]) -> T:
     """Een verzoek aan AH binnen het tempo en het uurbudget van het koppelen (de zoekopdrachten en het ophalen van foto's samen)."""
     with _PACE_LOCK:
-        now = time.monotonic()
-        recent = _PACE["recent"]
-        while recent and now - recent[0] > 3600:
-            recent.popleft()
-        if len(recent) >= RECEIPT_PRODUCTS_PER_HOUR:
-            raise _HourlyBudgetSpent()
-        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - now
+        with _RECENT_LOCK:
+            if len(_prune_pace(time.monotonic())) >= RECEIPT_PRODUCTS_PER_HOUR:
+                raise _HourlyBudgetSpent()
+        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         _PACE["last"] = time.monotonic()
-        recent.append(_PACE["last"])
+        with _RECENT_LOCK:
+            _PACE["recent"].append(_PACE["last"])
         return call()
 
 
@@ -530,19 +584,32 @@ def _receipt_queries(name: str) -> list[str]:
     return [text] + ([longest] if longest and longest.casefold() != text.casefold() else [])
 
 
+# Een bonregel `l` (met `ah_receipt_products p` erbij via een LEFT JOIN) zonder webwinkelproduct, en zo'n regel die aan de beurt is
+# om opgezocht te worden: met een naam, nooit opgezocht of langer dan `RECEIPT_PRODUCTS_RECHECK_DAYS` geleden niet gevonden (de
+# parameter is `_recheck_before`).
+# Een bonregel zonder webwinkelproduct: geen automatische koppeling (`p`) en geen eigen koppeling op het artikelnummer (#238).
+_UNLINKED_SQL = """l.product_id IS NOT NULL AND l.product_id != 0 AND p.product_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM product_links k WHERE k.store = 'ah' AND k.kind = 'article' AND k.key = CAST(l.product_id AS TEXT))"""
+_DUE_SQL = "COALESCE(l.name, '') != '' AND (p.receipt_product_id IS NULL OR p.checked_at < ?)"
+
+
+def _recheck_before(now: str) -> str:
+    """Wie vóór dit moment niet gevonden werd, mag opnieuw opgezocht worden."""
+    return (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+
+
 def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
-    """De artikelnummers die nog niet gekoppeld zijn, per naam op de bon (een naam als "REDBAND" hoort bij meer artikelnummers en
-    kost dan een zoekopdracht), de vaakst gekochte naam eerst."""
-    recheck = (datetime.fromisoformat(now) - timedelta(days=RECEIPT_PRODUCTS_RECHECK_DAYS)).isoformat(timespec="seconds")
+    """De artikelnummers die nog niet gekoppeld zijn en aan de beurt zijn, per naam op de bon (een naam als "REDBAND" hoort bij
+    meer artikelnummers en kost dan een zoekopdracht), de vaakst gekochte naam eerst. Een artikelnummer dat je zelf koppelde (#238)
+    zoeken we niet meer op: dat spaart zoekopdrachten bij AH."""
     rows = conn.execute(
-        """
+        f"""
         SELECT l.product_id AS id, MAX(l.name) AS name, COUNT(*) AS bought FROM ah_receipt_items l
         LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.product_id IS NOT NULL AND l.product_id != 0 AND COALESCE(l.name, '') != ''
-          AND (p.receipt_product_id IS NULL OR (p.product_id IS NULL AND p.checked_at < ?))
+        WHERE {_UNLINKED_SQL} AND {_DUE_SQL}
         GROUP BY l.product_id
         """,
-        (recheck,),
+        (_recheck_before(now),),
     ).fetchall()
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -551,6 +618,21 @@ def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
         group["ids"].append(int(row["id"]))
         group["bought"] += row["bought"]
     return sorted(groups.values(), key=lambda group: (-group["bought"], group["name"]))
+
+
+def receipt_linking_todo(conn, receipt_id: str, now: str) -> dict[str, int]:
+    """De regels van een bon zonder webwinkelproduct (`unlinked`) en hoeveel daarvan een ronde nu zou opzoeken (`due`, dezelfde regel
+    als `_todo_by_name`). Een regel die AH de laatste `RECEIPT_PRODUCTS_RECHECK_DAYS` dagen niet vond, telt wel bij `unlinked` en
+    niet bij `due`: de knop op de bon zou er niets voor doen."""
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*), COALESCE(SUM(CASE WHEN {_DUE_SQL} THEN 1 ELSE 0 END), 0) FROM ah_receipt_items l
+        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        WHERE l.receipt_id = ? AND {_UNLINKED_SQL}
+        """,
+        (_recheck_before(now), receipt_id),
+    ).fetchone()
+    return {"unlinked": int(row[0]), "due": int(row[1])}
 
 
 def _linked(conn, ids: list[int]) -> set[int]:
@@ -562,19 +644,57 @@ def _name_key(name: Any) -> str:
     return "".join(str(name).casefold().split())
 
 
+def _pause(now: str, status: int) -> str:
+    """Zet het koppelen `RECEIPT_PRODUCTS_BACKOFF_HOURS` uur stil na een 403 of 429 van AH, met de reden ernaast. Geeft het einde van de pauze."""
+    until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
+    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
+    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, f"{status}@{now}")
+    return until
+
+
+_ROUND_LOCK = threading.Lock()  # het koppelen en de foto's van een ronde kunnen in verschillende threads tegelijk eindigen
+_ROUND_COUNTS = ("searches", "found", "missing", "failed", "images")
+
+
+def _record_round(now: str, trigger: str, counts: dict[str, int]) -> None:
+    """Schrijf de uitkomst van een ronde naar `SETTING_LAST_ROUND`. Het koppelen en de foto's van dezelfde ronde (dezelfde `now`
+    en `trigger`) tellen bij elkaar op, een andere ronde begint opnieuw."""
+    with _ROUND_LOCK:
+        try:
+            last = json.loads(auth.get_setting(SETTING_LAST_ROUND, "") or "{}")
+        except ValueError:
+            last = {}
+        if not isinstance(last, dict) or last.get("at") != now or last.get("trigger") != trigger:
+            last = {"at": now, **{key: 0 for key in _ROUND_COUNTS}, "trigger": trigger}
+        for key in _ROUND_COUNTS:
+            last[key] = int(last.get(key) or 0) + int(counts.get(key) or 0)
+        auth.set_setting(SETTING_LAST_ROUND, json.dumps(last))
+
+
 def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
-                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None) -> dict[str, Any]:
+                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None,
+                             trigger: str = "sync") -> dict[str, Any]:
     """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
 
     Per naam op de bon zoeken we bij AH en koppelen een artikelnummer alleen aan het resultaat met precies dat artikelnummer (`hqId`):
     geen gok op naam. Vindt de naam niets, dan nog een keer met het langste woord. Elk ander resultaat met een artikelnummer bewaren
     we ook, dat scheelt latere zoekopdrachten. Hooguit `searches` zoekopdrachten, met een pauze ertussen en hooguit `deadline_seconds`
-    lang. Bij een 403 of 429 van AH stopt het en wacht het een paar uur (`SETTING_RECEIPT_PRODUCTS_PAUSED`)."""
+    lang. Bij een 403 of 429 van AH stopt het en wacht het een paar uur (`SETTING_RECEIPT_PRODUCTS_PAUSED`, met de reden in
+    `SETTING_RECEIPT_PRODUCTS_PAUSED_REASON`). De uitkomst komt in `SETTING_LAST_ROUND`, met `trigger` als aanleiding ("sync",
+    "nightly", "lookup", "open", "receipt" of "manual"). Een ronde die door de pauze niets doet, laat de vorige staan."""
     now = now or _now()
     result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
+    result = _resolve_groups(now, searches, deadline_seconds, only)
+    _record_round(now, trigger, result)
+    return result
+
+
+def _resolve_groups(now: str, searches: int, deadline_seconds: float, only: set[str] | None) -> dict[str, Any]:
+    """Het eigenlijke koppelen van `resolve_receipt_products`, buiten de pauze."""
+    result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     if auth.get_setting(SETTING_RECEIPT_PRODUCTS_VERSION, "") != RECEIPT_PRODUCTS_VERSION:
         with closing(_connect()) as conn, conn:
             conn.execute("DELETE FROM ah_receipt_products WHERE product_id IS NULL")
@@ -597,9 +717,7 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
             except ah.AhHttpError as exc:
                 result["searches"] += 1
                 if exc.status in (403, 429):  # firewall of te veel verzoeken: niet aandringen
-                    until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
-                    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
-                    return {**result, "failed": result["failed"] + 1, "pausedUntil": until}
+                    return {**result, "failed": result["failed"] + 1, "pausedUntil": _pause(now, exc.status)}
                 result["failed"] += 1
                 complete = False
                 break
@@ -623,7 +741,8 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
     return result
 
 
-def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES) -> dict[str, Any]:
+def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES, *, now: str | None = None,
+                          deadline_seconds: float = 10, trigger: str = "lookup") -> dict[str, Any]:
     """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND")
     of een bon opent (`get_receipt`).
     Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
@@ -631,23 +750,33 @@ def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOO
     keys = {_name_key(name) for name in names if str(name).strip()}
     if not keys:
         return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
-    return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
+    return resolve_receipt_products(now, searches=searches, deadline_seconds=deadline_seconds, only=keys, trigger=trigger)
 
 
-def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES) -> dict[str, Any]:
+def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None,
+                            trigger: str = "open") -> dict[str, Any]:
     """De foto bij koppelingen van vóór de bonfoto's (`image` NULL): per `RECEIPT_IMAGES_BATCH` webwinkel-id's een verzoek aan AH,
-    hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Een id dat AH niet teruggeeft krijgt
-    "" (geen foto), zodat het niet elke nacht opnieuw gevraagd wordt."""
+    hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Met `only` alleen die webwinkel-id's
+    (de producten van een bon die opengaat). Een id dat AH niet teruggeeft krijgt "" (geen foto), zodat het niet elke nacht opnieuw
+    gevraagd wordt. De uitkomst komt in `SETTING_LAST_ROUND` (zie `resolve_receipt_products`)."""
     now = now or _now()
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
+    result = _backfill_images(now, batches, only)
+    _record_round(now, trigger, {"failed": result["failed"], "images": result["products"]})
+    return result
+
+
+def _backfill_images(now: str, batches: int, only: set[int] | None) -> dict[str, Any]:
+    """Het eigenlijke ophalen van de foto's van `backfill_receipt_images`, buiten de pauze."""
+    result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     with closing(_connect()) as conn:
         todo = [int(row[0]) for row in conn.execute(
             "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
-            (RECEIPT_IMAGES_BATCH * batches,),
-        )]
+            (RECEIPT_IMAGES_BATCH * batches if only is None else -1,),
+        ) if only is None or int(row[0]) in only][: RECEIPT_IMAGES_BATCH * batches]
     for start in range(0, len(todo), RECEIPT_IMAGES_BATCH):
         ids = todo[start : start + RECEIPT_IMAGES_BATCH]
         try:
@@ -658,9 +787,7 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
             result["requests"] += 1
             result["failed"] += 1
             if exc.status in (403, 429):
-                until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
-                auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
-                return {**result, "pausedUntil": until}
+                return {**result, "pausedUntil": _pause(now, exc.status)}
             return result
         except Exception:  # noqa: BLE001 - de volgende nacht opnieuw
             result["requests"] += 1
@@ -678,26 +805,244 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
     return result
 
 
-def backfill_receipt_images_nightly() -> dict[str, Any] | None:
-    """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan."""
+def _receipt_images_missing() -> bool:
+    with closing(_connect()) as conn:
+        return bool(conn.execute(f"SELECT 1 {_IMAGES_MISSING_FROM} LIMIT 1").fetchone())
+
+
+def backfill_receipt_images_async() -> None:
+    """Een kleine ronde in een eigen thread als de bonnenlijst opent en er nog foto's ontbreken (hooguit `RECEIPT_IMAGES_BATCHES_OPEN`
+    verzoeken, binnen het tempo en het uurbudget): zo komen de foto's in de lijst er met elke keer kijken bij, in plaats van alleen
+    's nachts. Loopt er al een ronde, dan niet nog een. Een fout blijft in de thread."""
+    with _BACKFILL_LOCK:
+        _BACKFILL_THREADS[:] = [worker for worker in _BACKFILL_THREADS if worker.is_alive()]
+        if _BACKFILL_THREADS:
+            return
+        try:
+            if not _receipt_images_missing():
+                return
+        except Exception:  # noqa: BLE001 - een database van vóór de bonnen: niets te doen
+            return
+
+        def run() -> None:
+            try:
+                backfill_receipt_images(batches=RECEIPT_IMAGES_BATCHES_OPEN, trigger="list")
+            except Exception:  # noqa: BLE001
+                log.exception("Bonfoto's: de ronde op de achtergrond mislukte")
+
+        worker = threading.Thread(target=run, name="receipt-images", daemon=True)
+        _BACKFILL_THREADS.append(worker)
+        worker.start()
+
+
+def backfill_receipt_images_nightly(now: str | None = None) -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan. `now` is
+    hetzelfde tijdstip als bij `resolve_receipt_products_nightly`, zodat koppelen en foto's in een laatste ronde samenkomen."""
     try:
-        with closing(_connect()) as conn:
-            if not conn.execute("SELECT 1 FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL LIMIT 1").fetchone():
-                return None
-        return backfill_receipt_images()
+        if not _receipt_images_missing():
+            return None
+        return backfill_receipt_images(now, trigger="nightly")
     except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
         return None
 
 
-def resolve_receipt_products_nightly() -> dict[str, Any] | None:
-    """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan."""
+def resolve_receipt_products_nightly(now: str | None = None) -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan. `now` deelt
+    het met `backfill_receipt_images_nightly` (zie `offers_schedule.run_all`)."""
     try:
         with closing(_connect()) as conn:
             if not conn.execute("SELECT 1 FROM ah_receipt_items LIMIT 1").fetchone():
                 return None
-        return resolve_receipt_products(searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+        return resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
     except Exception:  # noqa: BLE001 - het koppelen is een extraatje bij de aanbiedingen
         return None
+
+
+# --- de toestand van het koppelen en een ronde op afroep ------------------------------------------------------------------------
+# Een ronde op afroep (de knop "Nu ophalen") loopt in een eigen thread, hooguit een tegelijk, binnen hetzelfde tempo en uurbudget
+# als de rest (`_polite`). `_LINKING_LOCK` bewaakt `_LINKING_THREAD` en `_LINKING_RECEIPT_ID` (de bon van de lopende ronde, of
+# None voor alle bonnen).
+_LINKING_LOCK = threading.Lock()
+_LINKING_THREAD: threading.Thread | None = None
+_LINKING_RECEIPT_ID: str | None = None
+
+
+class LinkingBusy(Exception):
+    """Er loopt al een ronde op afroep. `receipt_id` is de bon waarvoor de nieuwe ronde gevraagd werd."""
+
+    def __init__(self, receipt_id: str | None) -> None:
+        super().__init__(f"linking already running (requested for {receipt_id or 'all receipts'})")
+        self.receipt_id: str | None = receipt_id
+
+
+def _pause_reason(now: str) -> tuple[str | None, str | None, int | None]:
+    """De lopende pauze als (tot, sinds, status van AH), alle drie None als het koppelen niet stilligt."""
+    until = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    if not until or until <= now:
+        return None, None, None
+    status, _, since = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "").partition("@")
+    return until, since or None, int(status) if status.isdigit() else None
+
+
+def _budget(now: str) -> dict[str, Any]:
+    """Het uurbudget: hoeveel verzoeken het afgelopen uur, en wanneer de oudste ervan weer vrijkomt (als ISO-tijdstip, omgerekend
+    van de monotone klok van `_PACE` naar `now`)."""
+    with _RECENT_LOCK:
+        clock = time.monotonic()
+        recent = _prune_pace(clock)
+        used, oldest = len(recent), (recent[0] if recent else None)
+    reset_at = None
+    if oldest is not None:
+        reset_at = (datetime.fromisoformat(now) + timedelta(seconds=oldest + 3600 - clock)).isoformat(timespec="seconds")
+    return {"used": used, "limit": RECEIPT_PRODUCTS_PER_HOUR, "resetAt": reset_at}
+
+
+def _todo(now: str) -> dict[str, int]:
+    """Wat er nog te koppelen is: artikelnummers zonder product (`_todo_by_name`), op hoeveel bonnen, en foto's die ontbreken."""
+    with closing(_connect()) as conn:
+        ids = [product_id for group in _todo_by_name(conn, now) for product_id in group["ids"]]
+        receipts = 0
+        if ids:
+            marks = ",".join("?" * len(ids))
+            receipts = conn.execute(f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", ids).fetchone()[0]
+        images = conn.execute(f"SELECT COUNT(DISTINCT product_id) {_IMAGES_MISSING_FROM}").fetchone()[0]
+    return {"lines": len(ids), "receipts": int(receipts), "images": int(images)}
+
+
+def _next_round(now: str) -> str | None:
+    """De volgende nachtelijke ronde (die van de aanbiedingen), of None als die uit staat."""
+    from . import offers_schedule  # offers_schedule importeert deze module
+
+    if not offers_schedule.enabled():
+        return None
+    local = datetime.fromisoformat(now).astimezone()
+    return offers_schedule.next_slot(local).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def _last_round() -> dict[str, Any] | None:
+    try:
+        last = json.loads(auth.get_setting(SETTING_LAST_ROUND, "") or "null")
+    except ValueError:
+        return None
+    return last if isinstance(last, dict) else None
+
+
+def _running() -> dict[str, Any] | None:
+    with _LINKING_LOCK:
+        if _LINKING_THREAD is not None and _LINKING_THREAD.is_alive():
+            return {"receiptId": _LINKING_RECEIPT_ID}
+    return None
+
+
+def linking_status(now: str | None = None) -> dict[str, Any]:
+    """De toestand van het koppelen voor de melding op de bestelpagina: de pauze na een 403 of 429 van AH, het uurbudget, wat er
+    nog te doen is, de laatste en de volgende ronde, en of er nu een ronde op afroep loopt."""
+    now = now or _now()
+    paused_until, paused_since, paused_status = _pause_reason(now)
+    return {
+        "pausedUntil": paused_until,
+        "pausedSince": paused_since,
+        "pausedStatus": paused_status,
+        "budget": _budget(now),
+        "todo": _todo(now),
+        "lastRound": _last_round(),
+        "nextRound": _next_round(now),
+        "running": _running(),
+    }
+
+
+def receipt_exists(receipt_id: str) -> bool:
+    with closing(_connect()) as conn:
+        return conn.execute("SELECT 1 FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone() is not None
+
+
+def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
+    """Een ronde voor een bon: de namen op die bon die nog niet gekoppeld zijn, elk met al zijn zoekopdrachten (de naam en het
+    langste woord), en daarna de foto's die nog ontbreken bij de webwinkelproducten van die bon (`_RECEIPT_IMAGES_MISSING_SQL`)."""
+    with closing(_connect()) as conn:
+        on_receipt = {int(row[0]) for row in conn.execute(
+            "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,))}
+        names = [group["name"] for group in _todo_by_name(conn, now) if on_receipt.intersection(group["ids"])]
+    searches = sum(len(_receipt_queries(name)) for name in names)
+    products = resolve_receipt_names(names, searches=searches, now=now, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger=_on_demand_trigger(receipt_id))
+    with closing(_connect()) as conn:
+        missing = {int(row[0]) for row in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
+    images = backfill_receipt_images(now, batches=2, only=missing, trigger=_on_demand_trigger(receipt_id)) if missing else {"products": 0, "requests": 0, "failed": 0}
+    return {"products": products, "images": images}
+
+
+# De aanleiding van een ronde op afroep met alleen foto's in `SETTING_LAST_ROUND` (de knop "Foto's aanvullen").
+IMAGES_TRIGGER = "images"
+
+
+def _on_demand_trigger(receipt_id: str | None) -> str:
+    """De aanleiding van een ronde op afroep in `SETTING_LAST_ROUND`: "receipt" voor een bon, "manual" voor alle bonnen."""
+    return "receipt" if receipt_id else "manual"
+
+
+def _linking_round(receipt_id: str | None, now: str) -> dict[str, Any]:
+    """Een ronde op afroep: voor een bon (`_receipt_round`) of voor alle bonnen zoals 's nachts."""
+    if receipt_id:
+        return _receipt_round(receipt_id, now)
+    trigger = _on_demand_trigger(None)
+    products = resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger=trigger)
+    return {"products": products, "images": backfill_receipt_images(now, trigger=trigger)}
+
+
+def _images_round(now: str) -> dict[str, Any]:
+    """Een ronde op afroep met alleen foto's (de knop "Foto's aanvullen"): zo groot als 's nachts, zonder zoekopdrachten."""
+    return {"images": backfill_receipt_images(now, batches=RECEIPT_IMAGES_BATCHES, trigger=IMAGES_TRIGGER)}
+
+
+def _linking_worker(receipt_id: str | None, now: str, actor: str, images: bool = False) -> None:
+    """De thread van een ronde op afroep: vangt elke fout, schrijft hem in het logboek en legt de ronde vast in de audit-log, net
+    als de nachtelijke ronde van de afbeeldingencache. Met `images` alleen de foto's (`_images_round`)."""
+    started = time.perf_counter()
+    result: dict[str, Any] | None = None
+    problem: Exception | None = None
+    trigger = IMAGES_TRIGGER if images else _on_demand_trigger(receipt_id)
+    try:
+        result = _images_round(now) if images else _linking_round(receipt_id, now)
+    except Exception as exc:  # noqa: BLE001 - een thread mag niet stilletjes sterven
+        problem = exc
+        log.exception("Koppelen: de ronde op afroep (%s) mislukte (bon %s)", trigger, receipt_id or "alle")
+    try:
+        # Ook een ronde zonder werk (alles al gekoppeld, of de pauze) staat daarna als laatste ronde, met nullen. Wat de ronde wel
+        # deed, staat er al onder dezelfde `now` en `trigger` en blijft gelijk.
+        _record_round(now, trigger, {})
+    except Exception:  # noqa: BLE001
+        log.exception("Koppelen: de laatste ronde vastleggen mislukte")
+    action = "images" if images else "receipt linking" if receipt_id else "linking"
+    try:
+        audit.record(
+            kind="task", service="ah", action=action, ok=problem is None,
+            duration_ms=round((time.perf_counter() - started) * 1000), actor=actor,
+            error=f"{type(problem).__name__}: {problem}" if problem else "",
+            detail={"receiptId": receipt_id, **(result or {})},
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Koppelen: de ronde op afroep vastleggen mislukte")
+
+
+def run_linking(receipt_id: str | None = None, force: bool = False, images: bool = False) -> dict[str, Any]:
+    """Start een ronde op afroep in een thread (`name="linking-run"`) en geef de toestand terug. Met `force` eerst de pauze na een
+    403 of 429 opheffen (alleen de beheerder, zie de route). Met `images` alleen de foto's van alle bonnen, zonder zoekopdrachten
+    (`_images_round`). Loopt er al een, dan `LinkingBusy` en blijft alles zoals het was."""
+    if images and receipt_id:
+        raise ValueError("an images round is for all receipts")
+    global _LINKING_THREAD, _LINKING_RECEIPT_ID
+    now = _now()
+    actor = audit.current_actor()  # de thread kent het verzoek niet meer
+    with _LINKING_LOCK:
+        if _LINKING_THREAD is not None and _LINKING_THREAD.is_alive():
+            raise LinkingBusy(receipt_id)
+        if force:
+            auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+            auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")
+        worker = threading.Thread(target=_linking_worker, args=(receipt_id, now, actor, images), name="linking-run", daemon=True)
+        _LINKING_THREAD, _LINKING_RECEIPT_ID = worker, receipt_id
+        worker.start()
+    return linking_status(now)
 
 
 def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
@@ -707,18 +1052,26 @@ def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
     }
 
 
+# Het product van een bonregel: je eigen koppeling (#238) gaat voor de automatische, zie `product_links.RECEIPT_LINE_JOIN_SQL`.
+_LINE_LINKS_SQL = product_links.RECEIPT_LINE_JOIN_SQL
+_LINE_PRODUCT_SQL = product_links.RECEIPT_LINE_PRODUCT_SQL
+_LINE_TITLE_SQL = product_links.RECEIPT_LINE_TITLE_SQL
+_LINE_IMAGE_SQL = product_links.RECEIPT_LINE_IMAGE_SQL
+
 # De samenvatting per bon: de foto's van de gekoppelde webwinkelproducten en de namen (die van de webwinkel als ze er zijn), in de
 # volgorde van de bon; het bedrag van de bonusregels (positief) en de betaalwijze uit de JSON-kolommen.
 _RECEIPT_SUMMARY_SQL = f"""
-    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT p.image FROM ah_receipt_items l
-        JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.receipt_id = r.receipt_id AND p.image != '' ORDER BY l.position LIMIT {SUMMARY_IMAGES})) AS summary_images,
-    (SELECT GROUP_CONCAT(name, char(10)) FROM (SELECT COALESCE(NULLIF(p.title, ''), l.name) AS name FROM ah_receipt_items l
-        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF(p.title, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
+    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT {_LINE_IMAGE_SQL} AS image FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
+        WHERE l.receipt_id = r.receipt_id AND COALESCE({_LINE_IMAGE_SQL}, '') != '' ORDER BY l.position LIMIT {SUMMARY_IMAGES})) AS summary_images,
+    (SELECT GROUP_CONCAT(name, char(10)) FROM (SELECT COALESCE(NULLIF({_LINE_TITLE_SQL}, ''), l.name) AS name FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
+        WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF({_LINE_TITLE_SQL}, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
     (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
     (SELECT -SUM(json_extract(value, '$.amount'))
         FROM json_each(CASE WHEN json_valid(r.discounts) THEN r.discounts ELSE '[]' END)) AS summary_savings,
+    (SELECT SUM(MAX(l.regular_price - COALESCE(l.price, l.amount / l.quantity), 0) * COALESCE(l.quantity, 1)) FROM ah_receipt_items l
+        WHERE l.receipt_id = r.receipt_id AND l.regular_price IS NOT NULL) AS summary_history,
     json_extract(CASE WHEN json_valid(r.payments) THEN r.payments ELSE '[]' END, '$[0].method') AS summary_payment
 """
 
@@ -727,8 +1080,12 @@ def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        "savings": None if not row["summary_lines"] else round(float(savings or 0), 2),
+        # De bonusregels plus wat de regels met een gewone prijs van 30 dagen scheelden, met als prijs per stuk het bedrag gedeeld door
+        # het aantal als de bon geen prijs noemt (bij één stuk). Dezelfde som als de detailroute: die geeft een regel hooguit zijn eigen
+        # bedrag aan bonus en telt de rest in het totaal. Alleen als de gewone prijs onder de prijs vóór bonus ligt, kan het verschillen.
+        "savings": None if not row["summary_lines"] else round(float(savings or 0) + float(row["summary_history"] or 0), 2),
         "payment": row["summary_payment"] or None,
+        **_status_fields("receipt", row),
     }
 
 
@@ -749,11 +1106,15 @@ def list_receipts(summary: bool = False) -> dict[str, Any]:
 
 
 def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
-    """De regels van een bon, elk met het webwinkelproduct (`product`: id en titel) als het artikelnummer al gekoppeld is, anders None."""
+    """De regels van een bon, elk met het webwinkelproduct (`product`: id, titel en foto) als de regel gekoppeld is, anders None.
+    Een eigen koppeling (#238) gaat voor de automatische; die regel heeft ook `link` ({"kind", "key"}), zodat het scherm hem kan
+    wijzigen of weghalen."""
     rows = conn.execute(
-        """
-        SELECT l.*, p.product_id AS webshop_id, p.title AS webshop_title, p.image AS webshop_image FROM ah_receipt_items l
-        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        f"""
+        SELECT l.*, {_LINE_PRODUCT_SQL} AS webshop_id, {_LINE_TITLE_SQL} AS webshop_title, {_LINE_IMAGE_SQL} AS webshop_image,
+               COALESCE(k1.kind, k2.kind) AS link_kind, COALESCE(k1.key, k2.key) AS link_key
+        FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
         WHERE l.receipt_id = ? ORDER BY l.position
         """,
         (receipt_id,),
@@ -762,15 +1123,47 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
         {
             "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
             "product": {"id": row["webshop_id"], "title": row["webshop_title"], "image": row["webshop_image"] or ""} if row["webshop_id"] else None,
+            "regularPrice": row["regular_price"],
+            "link": {"kind": row["link_kind"], "key": row["link_key"]} if row["link_kind"] else None,
         }
         for row in rows
     ]
 
 
-def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = None) -> dict[str, Any] | None:
+def _json_list(value: Any) -> list[Any]:
+    """Een JSON-lijst uit een kolom. Iets anders (leeg, kapot, geen lijst) wordt een lege lijst."""
+    try:
+        parsed: Any = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _enrich_receipt(conn, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    """Zet bij elke bonregel het bonusbedrag (`bonus`, van de bonusregels onderaan de bon) en de velden van `purchase_lines.enrich`.
+    Geeft `saved`, `savedPercent`, `statusKind` en `statusText` van de bon."""
+    discounts = _json_list(row["discounts"])
+    bonus = purchase_lines.match_receipt_bonus(lines, discounts)
+    for index, line in enumerate(lines):
+        line["bonus"] = bonus.get(index, 0.0)
+    # Een bonusregel die bij geen regel past, telt alleen in het totaal.
+    unmatched = purchase_lines.unmatched_bonus(lines, discounts)
+    totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines, unmatched_bonus=unmatched)
+    kind, text = purchase_lines.status_kind("receipt", row)
+    return {**totals, "statusKind": kind, "statusText": text}
+
+
+_RECEIPT_IMAGES_MISSING_SQL = """
+SELECT DISTINCT p.product_id FROM ah_receipt_items l JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+WHERE l.receipt_id = ? AND p.image IS NULL AND p.product_id IS NOT NULL
+"""
+
+
+def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = None, images: bool = False) -> dict[str, Any] | None:
     """Een bon met zijn regels. Met `lookup` (bij het openen van de bon) worden de regels die nog bij geen webwinkelproduct horen
     eerst bij AH opgezocht (`resolve_receipt_names`, hooguit `RECEIPT_PRODUCTS_OPEN_SEARCHES` zoekopdrachten); het resultaat staat
-    in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen."""
+    in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen. Met `images` komen daarna
+    de foto's van de gekoppelde regels die nog geen foto hebben (een verzoek aan AH, `backfill_receipt_images`), in `images`."""
     receipt_id = str(receipt_id)
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone()
@@ -784,14 +1177,26 @@ def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = Non
             result["products"] = lookup(unlinked) if unlinked else {"found": 0, "missing": 0, "failed": 0, "searches": 0}
         except Exception:  # noqa: BLE001 - de koppeling is een extraatje; de bon zelf is wat je wilde zien
             result["products"] = None
-        if unlinked:
-            with closing(_connect()) as conn:
-                lines = _receipt_lines(conn, receipt_id)
+    if images:
+        with closing(_connect()) as conn:
+            missing = {int(row_id[0]) for row_id in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
+        try:
+            result["images"] = backfill_receipt_images(batches=1, only=missing) if missing else {"products": 0, "requests": 0, "failed": 0}
+        except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
+            result["images"] = None
+    # Na het koppelen kunnen er regels bij een product horen, dus pas nu de gewone prijs van 30 dagen bijwerken en lezen.
+    purchase_lines.fill_regular("ah", receipt_ids=[receipt_id])
+    with closing(_connect()) as conn:
+        lines = _receipt_lines(conn, receipt_id)
+        enriched = _enrich_receipt(conn, row, lines)
+        linking_todo = receipt_linking_todo(conn, receipt_id, _now())
     return {
         **_receipt_json(row, len(lines)),
         "items": lines,
-        "discounts": json.loads(row["discounts"] or "[]"),
-        "payments": json.loads(row["payments"] or "[]"),
+        "linkingTodo": linking_todo,
+        "discounts": _json_list(row["discounts"]),
+        "payments": _json_list(row["payments"]),
+        **enriched,
         **result,
     }
 

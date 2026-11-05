@@ -39,21 +39,25 @@ function money(value) {
   return value === null || value === undefined ? "" : formatPrice(value);
 }
 
-// Een product uit een bestelling of het mandje; de naam linkt naar zijn prijsgeschiedenis.
-function purchaseItem(item, store = "ah") {
-  const meta = [item.brand, item.unitSize].filter(Boolean).join(" · ");
-  const title = item.title || item.name || "";
-  const name = title ? `<a href="${escapeHtml(priceHistoryPath(store, title, item.productId || ""))}" data-route>${escapeHtml(title)}</a>` : "";
+// Een product uit een bestelling, een bon of het mandje, als regel van orderLine (order_views.js): de hele kaart in de kleur van
+// zijn categorie, de naam als link naar de prijsgeschiedenis, merk, inhoud en categorie, de badges en het bedrag. Het mandje
+// heeft geen categorie (category null): dan een gewone kaart. Een regel van een bon of ingelezen bestelling (linkLine) heeft rechts
+// de knop Koppelen of Ander product kiezen (#238, product_links.js).
+function productCard(line) {
+  const cls = line.category ? `product-card cat--${escapeHtml(line.category)}` : "product-card";
+  const name = line.href ? `<a href="${escapeHtml(line.href)}" data-route>${escapeHtml(line.title)}</a>` : escapeHtml(line.title);
+  const meta = [line.brand, line.unitSize, line.category ? categoryLabel(line.category) : ""].filter(Boolean).join(" · ");
+  const badges = orderLineBadges(line);
   return `
-    <article class="product-card">
-      ${item.image ? `<img src="${escapeHtml(storeImage(item.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
+    <article class="${cls}">
+      ${line.image ? `<img src="${escapeHtml(storeImage(line.image))}" alt="" loading="lazy" data-hide-on-error>` : ""}
       <div>
-        <strong>${escapeHtml(item.quantity)}x ${name}</strong>
+        <strong>${escapeHtml(line.quantity)}x ${name}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-        ${item.taxonomy ? `<small>${escapeHtml(item.taxonomy)}</small>` : ""}
-        ${item.bonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
-        ${item.amount ? `<small>${escapeHtml(money(item.amount))}</small>` : ""}
+        ${badges ? `<span class="product-card__badges">${badges}</span>` : ""}
+        ${line.amount ? `<small>${escapeHtml(money(line.amount))}</small>` : ""}
       </div>
+      ${line.linkLine ? productLinkButton(line.linkLine) : ""}
     </article>`;
 }
 
@@ -79,7 +83,7 @@ function renderBasket() {
     delivery ? t("orders.delivery", { when: delivery }) : "",
     t("orders.updated", { when: formatSyncTime(basket.syncedAt) }),
   ].filter(Boolean);
-  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map((item) => purchaseItem(item)).join("")}</div>`;
+  target.innerHTML = `<p>${escapeHtml(summary.join(" · "))}</p><div class="product-grid">${basket.items.map((item, index) => productCard({ ...orderLine(item, index, "order", "ah"), category: null })).join("")}</div>`;
 }
 
 // Het AH-mandje (de boodschappenlijst waar het weekmenu in schrijft) staat in het tabblad Mandje (basket.js):
@@ -141,30 +145,34 @@ function purchaseRows() {
   // Een bestelling uit je account zonder producten waarvan de ingelezen versie er is, staat er niet nog een keer (#229).
   const { kept, covered } = importedOrdersCover(ordersState.orders, ordersState.imported);
   const rows = kept.map((order) => ({
-    kind: "order", id: String(order.id), date: order.deliveryDate || "", open: order.kind === "open",
+    kind: "order", id: String(order.id), store, date: order.deliveryDate || "", open: order.kind === "open",
     label: dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }),
-    status: [order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"), slotLabel(order.slotStart, order.slotEnd)].filter(Boolean).join(" · "),
+    // De statusbadge noemt de status al (purchaseStatusBadge): de regel houdt alleen het bezorgmoment.
+    status: slotLabel(order.slotStart, order.slotEnd),
     total: order.total, items: order.itemsSynced ? order.itemCount : null,
     href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
     images: order.images || [], names: order.productNames || [], savings: order.savings, bonusCount: order.bonusCount || 0, payment: null,
+    statusKind: order.statusKind, statusText: order.statusText,
   }));
   // Een ingelezen bestelling heeft dezelfde gegevens als een bestelling uit je account: status en tijdvak uit de mail, en de foto's,
   // het voordeel en de bonus van de producten waar de regels bij horen (price_import.list_orders).
   for (const order of ordersState.imported) {
     rows.push({
-      kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order),
-      status: importedOrderStatus(order, covered.get(order.ref)), ref: order.ref,
+      kind: "imported", id: String(order.ref), store, date: order.date || "", open: false, label: importedOrderTitle(order),
+      status: importedOrderSlot(order, covered.get(order.ref)), ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
       images: order.images || [], names: order.productNames || [], savings: order.savings ?? null, bonusCount: order.bonusCount || 0, payment: null,
+      statusKind: order.statusKind, statusText: order.statusText,
     });
   }
   if (!ordersAreJumbo()) {
     for (const receipt of ordersState.receipts) {
       rows.push({
-        kind: "receipt", id: String(receipt.id), date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
+        kind: "receipt", id: String(receipt.id), store: "ah", date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
         total: receipt.total, items: receipt.detailsSynced ? receipt.itemCount : null,
         href: storesPath("ah", "receipts", receipt.id), attr: `data-receipt-id="${escapeHtml(receipt.id)}"`,
         images: receipt.images || [], names: receipt.productNames || [], savings: receipt.savings, bonusCount: 0, payment: receipt.payment || null,
+        statusKind: receipt.statusKind, statusText: receipt.statusText,
       });
     }
   }
@@ -208,12 +216,12 @@ function purchaseProductsCell(row, matches) {
 }
 
 function purchaseRow(row, matches) {
-  const kind = purchaseKindMarkup(row.kind, "dot") + purchaseKindLabel(row.kind);
+  const kind = purchaseKindMarkup(row.kind, "dot") + purchaseStatusBadge(row);
   const remove = t("orders.imported.delete");
   const action = row.kind === "imported" && priceImportIsOwner()
     ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`
     : "";
-  return `<tr class="purchase-table__row${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<tr class="purchase-table__row${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       <td><a href="${escapeHtml(row.href)}" data-nav>${escapeHtml(row.label)}</a></td>
       <td>${kind}</td>
       <td>${escapeHtml(row.status)}</td>
@@ -260,21 +268,24 @@ function fitPurchaseTable() {
   wrap.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
-// De bon zo hoog als er onder de kop past, zonder dat de pagina schuift (op een smal scherm doet de inhoud het).
-function fitReceiptPaper() {
-  const paper = $("#ah-order-items .receipt");
-  if (!paper) return;
-  const height = pageFitHeight(paper);
-  paper.style.minHeight = height === null ? "" : `${height}px`;
+// Het vak met de producten of de bon van een geopende aankoop zo hoog als er onder de kop past, en het scrolt zelf (op een breed
+// scherm, gemeten door pageFitHeight), zodat de pagina niet schuift. Op een smal scherm doet de pagina het.
+function fitReceiptBox() {
+  const box = $("#ah-order-items");
+  if (!orderPage.purchase || $("#ah-order-detail").hidden) return;
+  const height = pageFitHeight(box);
+  box.classList.toggle("order-items--fit", height !== null);
+  box.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
 window.addEventListener("resize", () => {
   if (ordersState.loaded) fitPurchaseTable();
-  fitReceiptPaper();
+  fitReceiptBox();
 });
 
 async function loadOrders() {
   message("#ah-orders-message", "");
+  purchaseDetailCache.clear(); // de hovervensters (popover.js) halen de details opnieuw op
   const store = state.itemsStore;
   try {
     const imported = importedOrdersFetch(store);
@@ -284,6 +295,7 @@ async function loadOrders() {
       if (store !== state.itemsStore) return; // de winkel is intussen gewisseld
       Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt, loaded: true });
       renderOrders();
+      linkingNoticeRefresh(); // bij Jumbo blijft de melding van AH leeg (linkingRender)
       return;
     }
     const receipts = await jsonFetch("/api/ah/receipts");
@@ -293,6 +305,7 @@ async function loadOrders() {
     if (store !== state.itemsStore) return;
     Object.assign(ordersState, { orders: orders.orders, imported: importedOrders, ordersSyncedAt: orders.syncedAt });
     renderOrders();
+    linkingNoticeRefresh(); // de pauze van AH, het uurbudget en wat er nog te koppelen is (linking.js), boven de lijst
   } catch (error) {
     message("#ah-orders-message", `${t("orders.load_failed")} ${error.message}`);
   }
@@ -390,24 +403,34 @@ for (const [id, key] of [["ah-filter-min", "min"], ["ah-filter-max", "max"]]) {
   });
 }
 
-// ---- een kassabon zoals op papier: kolommen, bonusregels, totaal en betaalwijze
+// ---- een kassabon: als bonnetje zoals op papier (receiptPaper, de weergave Bon van de bestelpagina in order_views.js). De andere
+// weergaven tonen de regels met de namen en foto's van de webwinkel, met de bonusregels eronder (receiptBonusSummary).
 function receiptMethod(method) {
   const name = String(method || "").toUpperCase();
   return name === "PIN" ? t("orders.receipt.pin") : name === "CASH" ? t("orders.receipt.cash") : name;
+}
+
+// Een regel van een bon voor de knop Koppelen of Ander product kiezen (productLinkButton in product_links.js): de naam en het
+// artikelnummer op de bon, het product waar de regel nu bij hoort en je eigen koppeling (#238).
+function receiptLinkLine(line) {
+  return {
+    store: "ah", name: line.name, article: line.productId || null, product: line.product?.title || null,
+    productId: line.product?.id ?? null, link: line.link || null,
+  };
 }
 
 function receiptPaper(receipt, words = []) {
   const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
   const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
   // De omschrijving linkt naar de prijsgeschiedenis van het webwinkelproduct, zodra het artikelnummer op de bon daaraan gekoppeld
-  // is (ah_receipt_products; bij het openen zoekt resolveReceiptProducts de rest op). Zonder koppeling is het gewone tekst: zoeken
-  // op een afgekorte bonnaam als "COTTAGE CH" vindt toch niets.
+  // is (ah_receipt_products, of je eigen koppeling; bij het openen zoekt resolveReceiptProducts de rest op). Zonder koppeling is het
+  // gewone tekst, met erachter de knop Koppelen (#238): zoeken op een afgekorte bonnaam als "COTTAGE CH" vindt toch niets.
   const lines = receipt.items.map((line) =>
     row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`).replace(
       `<span class="receipt__c1">${escapeHtml(line.name)}</span>`,
       line.product
         ? `<span class="receipt__c1"><a href="${escapeHtml(priceHistoryPath("ah", line.product.title, line.product.id))}" data-route title="${escapeHtml(line.product.title)}">${escapeHtml(line.name)}</a></span>`
-        : `<span class="receipt__c1">${escapeHtml(line.name)}</span>`
+        : `<span class="receipt__c1">${escapeHtml(line.name)}${productLinkButton(receiptLinkLine(line))}</span>`
     )
   );
   const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
@@ -428,9 +451,31 @@ function receiptPaper(receipt, words = []) {
     </div>`;
 }
 
-// ---- één bestelling of kassabon openen
+// De regel onder de titel van een bon: het aantal artikelen, het totaal en de betaalwijze (het bespaarde bedrag staat in de badge).
+function receiptMeta(receipt) {
+  const units = receipt.items.reduce((sum, line) => sum + (line.quantity || 0), 0);
+  const methods = receipt.payments.map((entry) => receiptMethod(entry.method)).filter(Boolean).join(", ");
+  return [tn("list.items", units), money(receipt.total), methods].filter(Boolean).join(" · ");
+}
+
+// Onder de producten van een bon (per categorie, kaarten, tabel): de bonusregels met hun bedrag, zoals op de bon.
+function receiptBonusSummary(receipt) {
+  const savings = receipt.discounts.reduce((sum, entry) => sum + Math.abs(entry.amount || 0), 0);
+  const bonus = receipt.discounts
+    .map((entry) => `<li>${escapeHtml(entry.name)}${entry.amount === null ? "" : ` <span>-${escapeHtml(money(Math.abs(entry.amount)))}</span>`}</li>`)
+    .join("");
+  return bonus ? `<ul class="receipt-summary"><li class="receipt-summary__title">${escapeHtml(t("orders.receipt.summary.bonus", { amount: money(savings) }))}</li>${bonus}</ul>` : "";
+}
+
+// ---- één bestelling of kassabon openen: de kop (titel en metaregel) hier, de badges, de balk en de producten op de bestelpagina
+// (renderOrderPage in order_views.js), voor alle vier de soorten.
 function showPurchaseOverview() {
   ordersState.open = null;
+  // order_views.js en linking.js laden na dit bestand. Een winkelwissel tijdens het laden komt hier al langs.
+  if (typeof orderPageClose === "function") orderPageClose();
+  if (typeof linkingForget === "function") linkingForget();
+  $("#ah-order-items").classList.remove("order-items--fit");
+  $("#ah-order-items").style.maxHeight = "";
   $("#ah-order-detail").hidden = true;
   $("#ah-orders-view").hidden = false;
   if (typeof routerSync === "function") routerSync();
@@ -444,35 +489,38 @@ async function openPurchase(kind, id) {
   $("#ah-order-title").textContent = "";
   $("#ah-order-meta").textContent = "";
   $("#ah-order-items").innerHTML = "";
+  $("#ah-order-items").classList.remove("order-items--fit");
+  $("#ah-order-items").style.maxHeight = "";
+  orderPageClose();
+  linkingForget(); // de melding hoort bij de vorige bon
   try {
     if (kind === "order") {
+      // De status (afgeleverd, of de tekst van AH bij een open bestelling) staat in de badge, niet nog eens in de metaregel.
       const order = await jsonFetch(`${ordersApi()}/orders/${encodeURIComponent(id)}`);
       $("#ah-order-title").textContent = dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id });
       $("#ah-order-meta").textContent = [
         t("orders.order_title", { id: order.id }),
-        order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"),
         slotLabel(order.slotStart, order.slotEnd),
         money(order.total),
         t("orders.updated", { when: formatSyncTime(order.syncedAt) }),
       ].filter(Boolean).join(" · ");
-      $("#ah-order-items").innerHTML = order.items.length
-        ? `<div class="product-grid">${order.items.map((item) => purchaseItem(item, ordersAreJumbo() ? "jumbo" : "ah")).join("")}</div>`
-        : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
+      renderOrderPage(order, "order", ordersAreJumbo() ? "jumbo" : "ah");
     } else if (kind === "imported") {
-      // Zoals een bestelling uit je account: status en tijdvak, en de producten met foto, merk en inhoud (price_import.get_order).
+      // Zoals een bestelling uit je account: tijdvak en de producten met foto, merk en inhoud (price_import.get_order).
       const store = ordersStore();
       const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(id)}`);
       const from = importedOrdersCover(ordersState.orders, [order]).covered.get(order.ref);
       $("#ah-order-title").textContent = importedOrderTitle(order);
-      $("#ah-order-meta").textContent = importedOrderMeta(order, importedOrderStatus(order, from));
-      $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`; // altijd met producten
+      $("#ah-order-meta").textContent = importedOrderMeta(order, importedOrderSlot(order, from));
+      renderOrderPage(order, "imported", store);
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
-      const words = foldText(ordersState.query).split(/\s+/).filter(Boolean);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
-      $("#ah-order-items").innerHTML = receipt.items.length ? receiptPaper(receipt, words) : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
-      requestAnimationFrame(fitReceiptPaper);
-      if (receipt.items.some((line) => !line.product && line.productId)) resolveReceiptProducts(receipt.id, words);
+      $("#ah-order-meta").textContent = receipt.items.length ? receiptMeta(receipt) : "";
+      renderOrderPage(receipt, "receipt", "ah");
+      linkingNoticeRefresh(receiptLinkCounts(receipt)); // hoeveel regels nog geen product hebben, met de knop Nu ophalen
+      // De regels die nog bij geen webwinkelproduct horen opzoeken, en de foto's die nog ontbreken erbij halen.
+      if (receipt.items.some((line) => (!line.product && line.productId) || (line.product && !line.product.image))) resolveReceiptProducts(receipt.id);
     }
     $("#ah-order-title").focus({ preventScroll: true });
   } catch (error) {
@@ -482,17 +530,35 @@ async function openPurchase(kind, id) {
   }
 }
 
-// De regels van een open bon die nog bij geen webwinkelproduct horen, opzoeken bij AH (zuinig: een paar zoekopdrachten per keer)
-// en de bon opnieuw tekenen met de links die erbij kwamen. Staat intussen iets anders open, dan blijft dat zo.
-async function resolveReceiptProducts(id, words) {
+// De regels van een open bon die nog bij geen webwinkelproduct horen, opzoeken bij AH (zuinig: een paar zoekopdrachten per keer),
+// de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon opnieuw tekenen met de links en foto's die
+// erbij kwamen. Staat intussen iets anders open, dan blijft dat zo.
+async function resolveReceiptProducts(id) {
   try {
     const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}/products`, { method: "POST" });
     const open = ordersState.open;
     if (!open || open.kind !== "receipt" || open.id !== String(id) || !receipt.items.length) return;
-    $("#ah-order-items").innerHTML = receiptPaper(receipt, words);
-    requestAnimationFrame(fitReceiptPaper);
+    renderOrderPage(receipt, "receipt", "ah");
+    linkingNoticeRefresh(receiptLinkCounts(receipt));
   } catch {
     // De bon staat er al; een koppeling die niet lukt, krijgt een volgende keer een nieuwe kans.
+  }
+}
+
+// Na een ronde op afroep voor deze bon (linking.js): de bon opnieuw ophalen en tekenen met de producten en foto's die erbij kwamen.
+// Zonder de pagina eerst leeg te maken (zoals openPurchase doet) en zonder nieuwe zoekopdrachten bij AH: die deed de ronde al.
+async function refreshReceipt(id) {
+  // De ronde veranderde de bon: het hovervenster (popover.js) haalt zijn details na Terug opnieuw op.
+  popoverForget(purchaseDetailKey("receipt", String(id), "ah"));
+  try {
+    const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
+    const open = ordersState.open;
+    if (!open || open.kind !== "receipt" || open.id !== String(id)) return;
+    $("#ah-order-meta").textContent = receipt.items.length ? receiptMeta(receipt) : "";
+    renderOrderPage(receipt, "receipt", "ah");
+    linkingNoticeRefresh(receiptLinkCounts(receipt));
+  } catch {
+    // De bon staat er al zoals hij was; de volgende keer openen haalt hem opnieuw op.
   }
 }
 
@@ -513,6 +579,30 @@ $("#orders-import").addEventListener("click", () => openPriceImport(ordersStore(
 window.addEventListener("ms:imported-orders", (event) => {
   if (ordersState.loaded && event.detail?.store === ordersStore()) loadOrders();
 });
+
+// Na een eigen koppeling (#238, product_links.js): de open bon of ingelezen bestelling opnieuw ophalen en tekenen met het gekozen
+// product, zonder AH opnieuw te vragen, en de lijst van deze winkel opnieuw (de foto's en namen in de kaarten). Het hovervenster
+// (popover.js) vergeet zijn details van deze aankoop. Staat intussen iets anders open, dan blijft dat zo.
+async function refreshLinkedPurchase(store) {
+  if (store !== ordersStore()) return;
+  if (ordersState.loaded) loadOrders();
+  const open = ordersState.open;
+  if (!open || (open.kind !== "receipt" && open.kind !== "imported")) return;
+  if (open.kind === "receipt") {
+    refreshReceipt(open.id);
+    return;
+  }
+  popoverForget(purchaseDetailKey("imported", open.id, store));
+  try {
+    const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(open.id)}`);
+    if (ordersState.open !== open) return;
+    renderOrderPage(order, "imported", store);
+  } catch {
+    // de bestelling blijft staan zoals hij was; opnieuw openen toont de koppeling
+  }
+}
+
+window.addEventListener("ms:product-links", (event) => refreshLinkedPurchase(event.detail?.store));
 
 // ---- Ingelezen oude bestellingen (zie price_import.py): bij elke winkel tussen de afgelopen bestellingen, ook bij Picnic en Crisp.
 // Ze openen en doorzoeken als elke andere bestelling. De archiefdoos laat zien dat een bestelling uit je bevestigingsmails is
@@ -576,9 +666,12 @@ function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliver
 // Een ingelezen bestelling is altijd afgeleverd: ze telt als gekocht, en een geannuleerde wordt niet ingelezen (de server geeft
 // dan ook altijd "delivered", ook bij een import van vóór 3.5.0). Noemde de mail geen tijdvak, dan dat van de bestelling uit je
 // account die erdoor wegviel (`from`).
+function importedOrderSlot(order, from = null) {
+  return slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
+}
+
 function importedOrderStatus(order, from = null) {
-  const slot = slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
-  return [t("orders.kind.delivered"), slot].filter(Boolean).join(" · ");
+  return [t("orders.kind.delivered"), importedOrderSlot(order, from)].filter(Boolean).join(" · ");
 }
 
 function importedOrderTitle(order) {
@@ -595,8 +688,13 @@ function importedOrderMeta(order, status = importedOrderStatus(order)) {
   ].filter(Boolean).join(" · ");
 }
 
-function importedOrderItems(order, store) {
-  return order.items.map((item) => purchaseItem(item, store)).join("");
+// Een regel van een ingelezen bestelling voor de knop Koppelen of Ander product kiezen (productLinkButton in product_links.js): de
+// naam uit de mail, het product waar die naam nu bij hoort en je eigen koppeling (#238). Ook voor Picnic en Crisp.
+function importedLinkLine(item, store) {
+  return {
+    store, name: item.title, article: null, product: item.productId ? item.productTitle || item.title : null,
+    productId: item.productId ?? null, link: item.link || null,
+  };
 }
 
 // Een ingelezen bestelling bij Picnic en Crisp, met de regels van de kaart van die winkel (`lines`: status, tijdvak en bedrag,

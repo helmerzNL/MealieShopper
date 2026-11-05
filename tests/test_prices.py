@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, prices  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 TODAY = "2026-10-20"
@@ -513,6 +513,36 @@ class VerdictTest(PricesCase):
             points = prices._history_points(conn, "ah", TODAY)["1"]
         self.assertEqual(points, [("2026-01-05", 2.49), ("2026-05-01", 2.99), ("2026-07-07", 2.79)])
 
+    def test_history_points_count_receipts_and_imported_purchases_but_not_free_or_unknown(self):
+        self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        # Een bon: het artikelnummer op de bon is het id van het product (bekend uit de bewaarde prijzen), de prijs per stuk telt.
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (1, "AH PINDAKAAS", 2, 2.79, 5.58), (1, "AH PINDAKAAS", 1, None, 0.0), (1, "AH PINDAKAAS", 1, 0.0, 0.0))
+        with closing(price_import._connect()) as conn, conn:
+            conn.executemany(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at) VALUES ('ah', ?, ?, ?, 'AH Pindakaas', 1, ?, NULL, 9.99, 'x')",
+                [("M1", 0, "2026-07-15", 2.59), ("M1", 1, "2026-07-15", None), ("M2", 0, "2026-08-15", 0.0)],
+            )
+        with closing(prices._connect()) as conn:
+            points = prices._history_points(conn, "ah", TODAY)["1"]
+        self.assertEqual(points, [("2026-05-01", 2.99), ("2026-06-10", 2.79), ("2026-07-15", 2.59)])
+
+    def test_one_product_by_id_with_only_bought_follows_the_purchases(self):
+        self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.observe("2026-05-01", "2", "AH Hagelslag", 1.99)
+        self.ah_order(101, "delivered", "2026-07-07", order_item(1, "AH Pindakaas", 2.79))
+        bought = prices.history("ah", "", 50, today=TODAY, bought=True, product="1")
+        self.assertEqual([p["productId"] for p in bought["products"]], ["1"])
+        self.assertEqual(prices.history("ah", "", 50, today=TODAY, bought=True, product="2")["products"], [])
+        self.assertEqual([p["productId"] for p in prices.history("ah", "", 50, today=TODAY, product="2")["products"]], ["2"])
+
+    def test_a_failing_history_ladder_keeps_the_verdict_and_the_badge(self):
+        self.observe("2026-10-10", "1", "AH Penne", 1.19)
+        with mock.patch.object(prices, "_history_points", side_effect=RuntimeError("stuk")):
+            annotated = self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89"))["1"]
+        self.assertEqual(annotated["verdict"]["kind"], "good")
+        self.assertEqual(annotated["badge"]["source"], "history")
+        self.assertEqual(annotated["priceLabel"]["kind"], None)
+
     def test_a_bundle_episode_counts_with_its_price_per_item(self):
         self.sync_offer("2026-03-02T05:00:00+00:00", offer("1", "AH Soep", 2.00, None, "1+1 gratis", validFrom="2026-03-02", validUntil="2026-03-08"))
         self.sync_offer("2026-03-08T23:00:00+00:00")
@@ -576,6 +606,125 @@ class VerdictTest(PricesCase):
         with mock.patch.object(prices, "_connect", side_effect=OSError("kapot")), self.assertLogs(prices.log, "WARNING"):
             self.assertIs(prices.annotate("ah", items, today=TODAY), items)
         self.assertNotIn("verdict", items[0])
+
+
+def line(product_id, price, bonus=0, before=None, quantity=1):
+    """Een regel van een AH-bestelling, zoals `ah_orders._save_order` die bewaart."""
+    return order_item(product_id, f"Product {product_id}", price, quantity=quantity, before=before, bonus=bool(bonus))
+
+
+def store_order(order_id, delivery_date, items, kind="delivered"):
+    with closing(ah_orders._connect()) as conn, conn:
+        ah_orders._save_order(conn, {"id": order_id, "deliveryDate": delivery_date}, kind, items)
+
+
+class RegularPricesTest(PricesCase):
+    NOW = "2026-09-22T00:00:00+00:00"
+
+    def observe(self, day, product_id, title, price, store="ah"):
+        prices.record(store, [{"id": product_id, "title": title, "price": price, "unitSize": "500 g", "brand": "AH"}], now=f"{day}T08:00:00+00:00")
+
+    def rows(self, sql):
+        with closing(ah_orders._connect()) as conn:
+            return [dict(row) for row in conn.execute(sql)]
+
+    def checked(self, table="ah_order_items"):
+        return {str(row["product_id"]): row["regular_checked_at"] for row in self.rows(f"SELECT product_id, regular_checked_at FROM {table}")}
+
+    def test_the_lowest_regular_price_of_the_30_days_before_the_purchase_day(self):
+        self.observe("2026-09-01", "1", "AH Penne", 1.39)  # 20 dagen voor de aankoop
+        self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        self.observe("2026-07-01", "1", "AH Penne", 0.99)  # ouder dan 30 dagen: telt niet
+        self.assertEqual(prices.regular_before("ah", ["1"], "2026-09-21"), {"1": 1.19})
+
+    def test_without_a_measurement_in_the_window_there_is_no_regular_price(self):
+        self.observe("2026-07-01", "1", "AH Penne", 0.99)
+        self.assertEqual(prices.regular_before("ah", ["1"], "2026-09-21"), {})
+
+    def test_an_earlier_order_and_the_price_before_of_an_offer_count_but_the_purchase_day_itself_does_not(self):
+        store_order(1, "2026-09-05", [line("1", price=1.29)])  # een eerdere bestelling: de gewone prijs die je toen betaalde
+        store_order(2, "2026-09-21", [line("2", price=0.50)])  # dezelfde dag: de aankoop zelf is geen gewone prijs ervoor
+        self.sync_offer("2026-09-12T08:00:00+00:00", offer("3", "AH Kaas", price=2.0, before=2.49))
+        found = prices.regular_before("ah", ["1", "2", "3"], "2026-09-21")
+        self.assertEqual(found, {"1": 1.29, "3": 2.49})
+
+    def test_fill_writes_the_column_and_marks_lines_without_a_price_as_checked(self):
+        self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        store_order(order_id=1, delivery_date="2026-09-21", items=[line("1", price=0.89, bonus=1, before=1.39), line("2", price=2.0)])
+        self.assertEqual(prices.fill_regular_prices("ah", now="2026-09-22T00:00:00+00:00"), 2)
+        # het id staat als getal in ah_order_items, vandaar str()
+        rows = {str(r["product_id"]): r for r in self.rows("SELECT product_id, regular_price, regular_checked_at FROM ah_order_items")}
+        self.assertEqual(rows["1"]["regular_price"], 1.19)
+        self.assertIsNone(rows["2"]["regular_price"])
+        self.assertTrue(rows["2"]["regular_checked_at"])
+
+    def test_a_receipt_line_gets_the_regular_price_of_its_linked_webshop_product(self):
+        self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        self.ah_receipt("R1", "2026-09-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89), (777, "ONBEKEND", 1, 2.0, 2.0))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Penne', 'x')")
+        self.assertEqual(prices.fill_regular_prices("ah", now=self.NOW), 2)
+        rows = {r["name"]: r for r in self.rows("SELECT name, regular_price, regular_checked_at FROM ah_receipt_items")}
+        self.assertEqual(rows["PENNE"]["regular_price"], 1.19)
+        self.assertIsNone(rows["ONBEKEND"]["regular_price"])
+        self.assertTrue(rows["ONBEKEND"]["regular_checked_at"])
+
+    def test_a_receipt_line_you_linked_yourself_gets_the_regular_price_of_that_product(self):
+        # De automatische koppeling zegt product 2, jij koppelde de regel aan product 1 (#238): je eigen koppeling gaat voor.
+        self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        self.observe("2026-09-10", "2", "AH Spaghetti", 2.49)
+        self.ah_receipt("R1", "2026-09-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89), (777, "FUSILLI", 1, 0.99, 0.99))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 2, 'AH Spaghetti', 'x')")
+        product_links.save("ah", "PENNE", {"productId": "1", "title": "AH Penne"}, article=555, now=self.NOW)
+        product_links.save("ah", "FUSILLI", {"productId": "1", "title": "AH Penne"}, now=self.NOW)  # op naam, de regel heeft geen koppeling
+        self.assertEqual(prices.fill_regular_prices("ah", now=self.NOW), 2)
+        rows = {r["name"]: r["regular_price"] for r in self.rows("SELECT name, regular_price FROM ah_receipt_items")}
+        self.assertEqual(rows, {"PENNE": 1.19, "FUSILLI": 1.19})
+
+    def test_a_jumbo_order_line_gets_its_regular_price(self):
+        from mealieshopper import jumbo_orders
+
+        self.observe("2026-09-10", "J1", "Jumbo Penne", 1.09, store="jumbo")
+        with closing(jumbo_orders._connect()) as conn, conn:
+            jumbo_orders._save_order(conn, {"id": "J-1", "deliveryDate": "2026-09-21"}, [{"productId": "J1", "title": "Jumbo Penne", "quantity": 1, "price": 0.79}])
+        self.assertEqual(prices.fill_regular_prices("jumbo", now=self.NOW), 1)
+        self.assertEqual(self.rows("SELECT regular_price FROM jumbo_order_items")[0]["regular_price"], 1.09)
+        self.assertEqual(prices.fill_regular_prices("ah", now=self.NOW), 0)  # AH heeft hier niets: de jumbo-regels tellen niet mee
+
+    def test_a_second_fill_only_refreshes_recent_purchases_checked_more_than_a_day_ago(self):
+        store_order(1, "2026-09-21", [line("1", price=1.0)])
+        store_order(2, "2026-01-10", [line("2", price=1.0)])  # ouder dan 60 dagen
+        self.assertEqual(prices.fill_regular_prices("ah", now=self.NOW), 2)
+        self.assertEqual(prices.fill_regular_prices("ah", now="2026-09-22T12:00:00+00:00"), 0)  # nog geen dag geleden
+        self.observe("2026-09-15", "1", "AH Penne", 1.19)  # een meting die later binnenkwam
+        self.assertEqual(prices.fill_regular_prices("ah", now="2026-09-24T00:00:00+00:00"), 1)
+        self.assertEqual(self.rows("SELECT regular_price FROM ah_order_items WHERE order_id = 1")[0]["regular_price"], 1.19)
+        self.assertEqual(self.checked()["2"], self.NOW)  # de oude bestelling blijft zoals hij was
+
+    def test_the_limit_takes_the_newest_purchases_first(self):
+        store_order(1, "2026-09-01", [line("1", price=1.0)])
+        store_order(2, "2026-09-20", [line("2", price=1.0)])
+        self.assertEqual(prices.fill_regular_prices("ah", limit=1, now=self.NOW), 1)
+        self.assertEqual(self.checked(), {"1": None, "2": self.NOW})
+
+    def test_given_purchases_only_their_lines_are_filled_whatever_their_age(self):
+        store_order(1, "2025-01-10", [line("1", price=1.0)])  # oud, maar gevraagd: wordt gevuld
+        store_order(2, "2026-09-20", [line("2", price=1.0)])
+        self.ah_receipt("R1", "2026-09-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89))
+        self.assertEqual(prices.fill_regular_prices("ah", order_ids=[1], now=self.NOW), 1)
+        self.assertEqual(self.checked(), {"1": self.NOW, "2": None})
+        self.assertIsNone(self.rows("SELECT regular_checked_at FROM ah_receipt_items")[0]["regular_checked_at"])
+        self.assertEqual(prices.fill_regular_prices("ah", order_ids=[], receipt_ids=["R1"], limit=0, now=self.NOW), 1)
+        self.assertEqual(self.rows("SELECT regular_checked_at FROM ah_receipt_items")[0]["regular_checked_at"], self.NOW)
+        self.assertEqual(prices.fill_regular_prices("ah", order_ids=[1], now=self.NOW), 0)  # net bepaald: niet opnieuw
+
+    def test_the_nightly_round_reports_lines_and_stays_quiet_without_work(self):
+        self.assertIsNone(prices.fill_regular_prices_nightly())
+        store_order(1, "2026-09-21", [line("1", price=1.0)])
+        self.assertEqual(prices.fill_regular_prices_nightly(), {"lines": 1})
+        with mock.patch.object(prices, "fill_regular_prices", side_effect=RuntimeError("kapot")), self.assertLogs("mealieshopper.prices", "ERROR"):
+            self.assertIsNone(prices.fill_regular_prices_nightly())
 
 
 class OffersRouteVerdictTest(PricesCase):

@@ -1,13 +1,14 @@
 import json
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import closing
 from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache  # noqa: E402
+from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ACTIVE = {
@@ -52,6 +53,9 @@ class AhOrdersTestCase(unittest.TestCase):
         search = mock.patch.object(ah, "search_hq_ids", return_value=[])  # geen echte zoekopdrachten bij AH
         self.search_hq_ids = search.start()
         self.addCleanup(search.stop)
+        products = mock.patch.object(ah, "get_products_by_ids", return_value=[])  # en geen echte foto's ophalen
+        self.get_products_by_ids = products.start()
+        self.addCleanup(products.stop)
         sleep = mock.patch.object(ah_orders.time, "sleep")  # de pauze tussen zoekopdrachten
         self.sleep = sleep.start()
         self.addCleanup(sleep.stop)
@@ -214,6 +218,22 @@ class OrdersCacheTest(AhOrdersTestCase):
         self.assertEqual((listed["images"], listed["productNames"], listed["bonusCount"]), (["https://static.ah.nl/dam/1"], ["Halfvolle melk"], 1))
         self.assertAlmostEqual(listed["savings"], 0.32)  # (1.45 - 1.29) * 2
         self.assertNotIn("images", ah_orders.list_orders()["orders"][0])
+
+    def test_the_list_summary_prefers_the_30_day_regular_price_and_falls_back_to_the_price_before_bonus(self):
+        first = {"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": None, "bonus": False, "taxonomy": "", "image": ""}
+        self.sync([], lambda order_id: {**fake_details(order_id), "items": [first, fake_details(order_id)["items"][0]]}, closed=[closed_order(1)])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_order_items SET regular_price = 1.19 WHERE product_id = 1")
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        # regel 1: gewone prijs 1.19 tegen 0.89, twee keer: 0.60. Regel 2 heeft geen gewone prijs: (1.45 - 1.29) * 2 = 0.32.
+        self.assertAlmostEqual(listed["savings"], 0.92)
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("delivered", None))
+
+    def test_an_open_order_in_the_list_carries_the_status_text_of_ah(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            ah_orders._save_order(conn, {"id": 1, "deliveryDate": "2026-10-23", "stateText": "Ingepland"}, "open", [])
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("planned", "Ingepland"))
 
     def test_the_summary_keeps_the_order_of_the_lines_and_stops_at_six_photos_and_four_names(self):
         def line(n, image=True):
@@ -412,6 +432,18 @@ class ReceiptsCacheTest(AhOrdersTestCase):
             conn.execute("DELETE FROM ah_receipt_items")
         self.assertIsNone(self.client.get("/api/ah/receipts").get_json()["receipts"][0]["savings"])
 
+    def test_a_receipt_summary_adds_the_history_saving_to_the_bonus_lines(self):
+        detail = lambda rid: {"id": rid, "items": [  # noqa: E731
+            {"productId": 11, "name": "MELK", "quantity": 4, "price": 0.99, "amount": 3.96},
+            {"productId": 12, "name": "KAAS", "quantity": 1, "price": 2.0, "amount": 2.0},
+        ], "discounts": [{"name": "Bonus", "amount": -3.97}], "payments": [{"method": "PIN", "amount": 2.0}]}
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.0}]], detail)
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 1.19 WHERE product_id = 11")
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        self.assertAlmostEqual(listed["savings"], 4.77)  # 3.97 van de bonusregels + (1.19 - 0.99) * 4
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("receipt", None))
+
     def test_a_receipt_with_broken_discount_json_does_not_break_the_list(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 4.5}]])
         with closing(ah_orders._connect()) as conn, conn:
@@ -484,6 +516,46 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         again = self.client.post("/api/ah/receipts/R1/products").get_json()
         self.assertEqual((again["products"]["searches"], self.search_hq_ids.call_count), (0, 0))
 
+    def test_opening_a_receipt_fetches_the_photos_of_its_linked_lines(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:  # gekoppeld voor de bonfoto's bestonden: nog geen foto opgezocht
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, title = 'AH Halfvolle melk 1 l', image = NULL WHERE receipt_product_id = 1")
+        self.get_products_by_ids.return_value = [{"id": 4183, "title": "AH Halfvolle melk 1 l", "image": "https://static.ah.nl/dam/melk"}]
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual(data["items"][0]["product"]["image"], "https://static.ah.nl/dam/melk")
+        self.assertEqual(data["images"], {"products": 1, "requests": 1, "failed": 0})
+        self.assertEqual(self.get_products_by_ids.call_args.args[0], [4183])
+        self.get_products_by_ids.reset_mock()
+        again = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((again["images"]["requests"], self.get_products_by_ids.call_count), (0, 0), "de foto staat er: niets meer te vragen")
+
+    def test_a_failing_photo_lookup_still_returns_the_receipt(self):
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipt_products SET product_id = 4183, image = NULL WHERE receipt_product_id = 1")
+        self.get_products_by_ids.side_effect = RuntimeError("503")
+        data = self.client.post("/api/ah/receipts/R1/products").get_json()
+        self.assertEqual((data["id"], data["items"][0]["product"]["image"], data["images"]["failed"]), ("R1", "", 1))
+
+    def test_the_receipt_list_starts_a_background_round_for_the_missing_photos(self):
+        with mock.patch.object(ah_orders, "backfill_receipt_images_async") as backfill:
+            self.client.get("/api/ah/receipts")
+        backfill.assert_called_once_with()
+
+    def test_the_background_round_runs_once_at_a_time_and_only_when_photos_are_missing(self):
+        with mock.patch.object(ah_orders, "backfill_receipt_images") as backfill:
+            ah_orders.backfill_receipt_images_async()
+            for worker in ah_orders._BACKFILL_THREADS:
+                worker.join(5)
+        backfill.assert_not_called()
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (1, 4183, 'P', 'x')")
+        with mock.patch.object(ah_orders, "backfill_receipt_images") as backfill:
+            ah_orders.backfill_receipt_images_async()
+            for worker in ah_orders._BACKFILL_THREADS:
+                worker.join(5)
+        backfill.assert_called_once_with(batches=ah_orders.RECEIPT_IMAGES_BATCHES_OPEN, trigger="list")
+
     def test_a_sync_starts_a_small_prefetch_round(self):
         with mock.patch.object(image_cache, "prefetch_async") as prefetch:
             self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
@@ -497,7 +569,35 @@ class ReceiptsCacheTest(AhOrdersTestCase):
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_receipt_products)")}
         self.assertIn("image", columns)
         with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste: geen "duplicate column name"
-            ah_orders._add_image_column(conn)
+            ah_orders._add_column(conn, "ah_receipt_products", "image", "TEXT")
+
+    def test_the_schema_gains_the_regular_price_columns(self):
+        with closing(ah_orders._connect()) as conn:
+            for table in ("ah_order_items", "ah_receipt_items"):
+                names = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                self.assertLessEqual({"regular_price", "regular_checked_at"}, names)
+
+    def test_an_old_database_gains_the_regular_price_columns_and_keeps_its_lines(self):
+        with closing(auth.connect()) as conn, conn:
+            conn.execute("DROP TABLE IF EXISTS ah_order_items")
+            conn.execute(
+                "CREATE TABLE ah_order_items (order_id INTEGER NOT NULL, position INTEGER NOT NULL, product_id INTEGER, title TEXT, brand TEXT, "
+                "unit_size TEXT, quantity INTEGER, amount REAL, price REAL, price_before_bonus REAL, bonus INTEGER, taxonomy TEXT, image TEXT, "
+                "PRIMARY KEY (order_id, position))"
+            )
+            conn.execute("INSERT INTO ah_order_items (order_id, position, product_id, title) VALUES (1, 0, 4183, 'AH Bloemkool')")
+        with closing(ah_orders._connect()) as conn:
+            row = dict(conn.execute("SELECT * FROM ah_order_items").fetchone())
+        self.assertEqual((row["title"], row["regular_price"], row["regular_checked_at"]), ("AH Bloemkool", None, None))
+        with closing(auth.connect()) as conn, conn:  # een tweede thread die de kolom ook miste
+            ah_orders._add_column(conn, "ah_order_items", "regular_price", "REAL")
+
+    def test_jumbo_order_lines_gain_the_regular_price_columns(self):
+        from mealieshopper import jumbo_orders
+
+        with closing(jumbo_orders._connect()) as conn:
+            names = {row["name"] for row in conn.execute("PRAGMA table_info(jumbo_order_items)")}
+        self.assertLessEqual({"regular_price", "regular_checked_at"}, names)
 
     def test_linking_keeps_the_product_image_and_the_receipt_shows_it(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
@@ -547,6 +647,115 @@ class ReceiptsCacheTest(AhOrdersTestCase):
             reply = self.client.post("/api/ah/receipts/R1/products")
         self.assertEqual(reply.status_code, 200)
         self.assertEqual((reply.get_json()["items"][0]["name"], reply.get_json()["products"]), ("AH Halfvolle melk", None))
+
+
+class DetailEnrichmentTest(AhOrdersTestCase):
+    def store_order(self, order_id, day, items, kind="delivered", state_text=None):
+        with closing(ah_orders._connect()) as conn, conn:
+            ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day, "stateText": state_text}, kind, items)
+
+    def test_an_order_detail_carries_category_discount_and_times_before(self):
+        # Bestelling A op 2026-09-01 met product 1 voor de gewone prijs: die is de gewone prijs van 30 dagen bij bestelling B.
+        self.store_order(1, "2026-09-01", [{"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.19, "priceBeforeBonus": 1.19, "taxonomy": "Fruit, verse sappen"}])
+        self.store_order(2, "2026-09-21", [{"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": "Fruit, verse sappen"}])
+        order = self.client.get("/api/ah/orders/2").get_json()
+        item = order["items"][0]
+        self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]), ("groente_fruit", 1.19, 25, "history", 1))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"]), (0.6, 25, "delivered"))
+        self.assertNotIn("status", order)  # de nieuwe status staat naast de bestaande velden, niet in de plaats ervan
+        self.assertEqual((item["priceBeforeBonus"], item["paidEach"], order["statusText"]), (1.39, 0.89, None))  # de bestaande velden blijven
+
+    def test_a_line_with_a_product_but_no_quantity_keeps_its_count_but_gets_no_discount(self):
+        # Een vervangen of geschrapte regel van AH: aantal 0. Eerder gekocht volgt het product, de korting en het bespaarde niet.
+        bought = {"productId": 1, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}
+        self.store_order(1, "2026-09-01", [bought])
+        self.store_order(2, "2026-09-08", [bought])
+        self.store_order(3, "2026-09-21", [{"productId": 1, "title": "AH Komkommer", "quantity": 0, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}],
+                         kind="open", state_text="Ingepland")
+        response = self.client.get("/api/ah/orders/3")
+        self.assertEqual(response.status_code, 200)
+        order = response.get_json()
+        item = order["items"][0]
+        self.assertEqual((item["timesBefore"], item["discount"], item["category"]), (2, None, "groente_fruit"))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
+
+    def test_a_line_without_a_product_gets_no_count_and_its_category_from_the_title(self):
+        self.store_order(1, "2026-09-01", [{"productId": None, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}])
+        self.store_order(2, "2026-09-21", [{"productId": None, "title": "AH Komkommer", "quantity": 2, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}])
+        order = self.client.get("/api/ah/orders/2").get_json()
+        item = order["items"][0]
+        self.assertEqual((item["timesBefore"], item["category"]), (0, "groente_fruit"))
+        # Zonder product geen gewone prijs van 30 dagen: de korting is die tegen de prijs ervoor van AH.
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"], order["saved"]), (1.0, "store", 15, 0.3))
+
+    def test_a_failing_regular_price_fill_still_shows_the_order(self):
+        from mealieshopper import prices
+
+        self.store_order(1, "2026-09-21", [{"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": ""}])
+        with mock.patch.object(prices, "fill_regular_prices", side_effect=RuntimeError("kapot")), self.assertLogs("mealieshopper.purchase_lines", "WARNING"):
+            response = self.client.get("/api/ah/orders/1")
+        self.assertEqual(response.status_code, 200)
+        item = response.get_json()["items"][0]
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"]), (1.39, "store", 36))  # de prijs ervoor van AH
+
+    def test_a_receipt_detail_matches_its_bonus_lines_and_sums_the_saving(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, ?, '[]', 'x')",
+                (json.dumps([{"name": "AH ROOMKAAS", "amount": -3.97}]),),
+            )
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'AH ROOMKAAS', 4, 0.99, 3.96)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 556, 'BROOD', 1, 2.0, 2.0)")
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        first, second = receipt["items"]
+        self.assertEqual((first["bonus"], first["paidEach"], first["discount"], first["category"]), (3.96, 0.0, 100, "kaas_vleeswaren"))
+        self.assertEqual((second["bonus"], second["paidEach"], second["regularPrice"], second["discount"]), (0.0, 2.0, None, None))
+        # De bonus is groter dan de regel (4 x 0.99 = 3.96): de regel krijgt 3.96, de cent erboven telt alleen in het totaal.
+        self.assertEqual((receipt["saved"], receipt["statusKind"], receipt["statusText"]), (3.97, "receipt", None))
+        self.assertEqual(receipt["discounts"], [{"name": "AH ROOMKAAS", "amount": -3.97}])  # de bestaande velden blijven
+
+    def test_the_receipt_list_and_detail_show_the_same_saving(self):
+        # Een bonus groter dan zijn regel en regels zonder prijs (AH zet bij één stuk alleen het bedrag op de bon): de lijst en de
+        # detailroute (en dus de hover) moeten dezelfde som geven.
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, ?, '[]', 'x')",
+                (json.dumps([{"name": "FOCACCIA", "amount": -4.36}, {"name": "PERLAHUISBLE", "amount": -1.0}]),),
+            )
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'FOCACCIA', 1, NULL, 2.59)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 556, 'KAAS', 1, NULL, 3.0)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 2, 557, 'MELK', 2, 1.0, 2.0)")
+            # De gewone prijs van 30 dagen, al bepaald (zodat het openen hem niet opnieuw zoekt).
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 3.5, regular_checked_at = '9999-12-31T00:00:00' WHERE position = 1")
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 1.25, regular_checked_at = '9999-12-31T00:00:00' WHERE position = 2")
+        detail = self.client.get("/api/ah/receipts/R1").get_json()
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        # 4.36 + 1.00 van de bonusregels, (3.50 - 3.00) voor de kaas zonder prijs en (1.25 - 1.00) x 2 voor de melk.
+        self.assertEqual((detail["saved"], listed["savings"]), (6.36, 6.36))
+
+    def test_a_bonus_line_that_matches_no_receipt_line_still_counts_in_the_saving(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, ?, '[]', 'x')",
+                (json.dumps([{"name": "PERLAHUISBLE", "amount": -17.97}]),),
+            )
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 556, 'BROOD', 1, 2.0, 2.0)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 557, 'WASMIDDEL', 2, 19.0, 38.0)")
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        self.assertEqual([(item["bonus"], item["discount"]) for item in receipt["items"]], [(0.0, None), (0.0, None)])
+        # 17.97 van 40.00 zonder korting: 45%.
+        self.assertEqual((receipt["saved"], receipt["savedPercent"]), (17.97, 45))
+
+    def test_a_linked_receipt_line_uses_the_regular_price_of_its_webshop_product(self):
+        self.store_order(1, "2026-09-01", [{"productId": 4183, "title": "AH Roomkaas", "quantity": 1, "price": 1.19, "priceBeforeBonus": 1.19, "taxonomy": "Kaas"}])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, '[]', '[]', 'x')")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'AH ROOMKAAS', 1, 0.89, 0.89)")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 4183, 'AH Roomkaas', 'x')")
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        item = receipt["items"][0]
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"], item["timesBefore"]), (1.19, "history", 25, 1))
+        self.assertEqual((receipt["saved"], receipt["savedPercent"]), (0.3, 25))
 
 
 class ReceiptProductsTest(AhOrdersTestCase):
@@ -700,9 +909,323 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
         self.receipt("R1", (20960, "BLOEMKOOL"))
         with mock.patch.object(ah_orders, "resolve_receipt_products", return_value={"found": 1}) as resolve:
             self.assertEqual(ah_orders.resolve_receipt_products_nightly(), {"found": 1})
-        resolve.assert_called_once_with(searches=ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+        resolve.assert_called_once_with(None, searches=ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
         with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")):
             self.assertIsNone(ah_orders.resolve_receipt_products_nightly(), "de nachtelijke taak gaat altijd door")
+
+
+class LinkingStatusTest(AhOrdersTestCase):
+    """De toestand van het koppelen (pauze, uurbudget, wat er nog open staat) en een ronde op afroep."""
+
+    NOW = "2026-11-05T15:00:00+00:00"
+
+    def setUp(self):
+        super().setUp()
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-11-01', 0, 1, 'x')")
+            conn.executemany(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', ?, ?, ?, 1, 1.0, 1.0)",
+                [(0, 555, "KOMKOMMER"), (1, 556, "TOMATEN")],
+            )
+        now = mock.patch.object(ah_orders, "_now", return_value=self.NOW)  # de pauze in de tests hangt niet af van de echte datum
+        now.start()
+        self.addCleanup(now.stop)
+        self.addCleanup(self.join_linking)
+
+    def join_linking(self):
+        if ah_orders._LINKING_THREAD is not None:
+            ah_orders._LINKING_THREAD.join(5)
+
+    def test_the_status_reports_pause_budget_todo_and_next_round(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "429@2026-11-05T14:02:00+00:00")
+        status = self.client.get("/api/ah/linking").get_json()
+        self.assertEqual((status["pausedUntil"], status["pausedSince"], status["pausedStatus"]), ("2026-11-06T02:02:00+00:00", "2026-11-05T14:02:00+00:00", 429))
+        self.assertEqual(status["budget"]["limit"], ah_orders.RECEIPT_PRODUCTS_PER_HOUR)
+        self.assertEqual(status["todo"], {"lines": 2, "receipts": 1, "images": 0})  # twee ongekoppelde regels op een bon in de fixture
+        self.assertIsNone(status["running"])
+        self.assertIsNotNone(status["nextRound"])
+        self.assertGreater(status["nextRound"], self.NOW)
+
+    def test_a_receipt_counts_its_unlinked_lines_and_the_ones_that_are_due(self):
+        # 555 zocht AH gisteren en vond hem niet: ongekoppeld, maar pas na RECEIPT_PRODUCTS_RECHECK_DAYS weer aan de beurt. 556 is nooit
+        # opgezocht, 557 is gekoppeld, 558 werd 40 dagen geleden niet gevonden en is weer aan de beurt.
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', ?, ?, ?, 1, 1.0, 1.0)",
+                [(2, 557, "MELK"), (3, 558, "KAAS"), (4, None, "STATIEGELD")],
+            )
+            conn.executemany(
+                "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, ?, ?, ?)",
+                [(555, None, None, "2026-11-04T15:00:00+00:00"), (557, 4183, "AH Melk", "2026-11-04T15:00:00+00:00"), (558, None, None, "2026-09-26T15:00:00+00:00")],
+            )
+        with closing(ah_orders._connect()) as conn:
+            self.assertEqual(ah_orders.receipt_linking_todo(conn, "R1", self.NOW), {"unlinked": 3, "due": 2})
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        self.assertEqual(receipt["linkingTodo"], {"unlinked": 3, "due": 2})
+
+    def test_a_line_you_linked_yourself_is_linked_for_the_count_and_the_round(self):
+        # 556 koppelde je zelf (#238): geen regel zonder product meer, en geen zoekopdracht bij AH. 555 staat nog open.
+        product_links.save("ah", "TOMATEN", {"productId": "4711", "title": "AH Tomaten"}, article=556, now=self.NOW)
+        with closing(ah_orders._connect()) as conn:
+            self.assertEqual(ah_orders.receipt_linking_todo(conn, "R1", self.NOW), {"unlinked": 1, "due": 1})
+            self.assertEqual([group["ids"] for group in ah_orders._todo_by_name(conn, self.NOW)], [[555]])
+        self.assertEqual(ah_orders.linking_status()["todo"]["lines"], 1)
+
+    def test_an_expired_pause_is_no_pause(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-05T02:02:00+00:00")
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "403@2026-11-04T14:02:00+00:00")
+        status = ah_orders.linking_status()
+        self.assertEqual((status["pausedUntil"], status["pausedSince"], status["pausedStatus"]), (None, None, None))
+
+    def test_the_budget_counts_the_requests_of_the_last_hour(self):
+        self.assertEqual(ah_orders.linking_status()["budget"], {"used": 0, "limit": ah_orders.RECEIPT_PRODUCTS_PER_HOUR, "resetAt": None})
+        ah_orders._polite(lambda: None)
+        ah_orders._polite(lambda: None)
+        budget = ah_orders.linking_status()["budget"]
+        self.assertEqual(budget["used"], 2)
+        self.assertGreater(budget["resetAt"], "2026-11-05T15:59:00+00:00")
+        self.assertLess(budget["resetAt"], "2026-11-05T16:01:00+00:00")
+
+    def test_the_status_reads_the_budget_while_a_request_waits_its_turn(self):
+        held = []
+        self.sleep.side_effect = lambda seconds: held.append(ah_orders._RECENT_LOCK.locked())
+        ah_orders._polite(lambda: None)
+        ah_orders._polite(lambda: None)
+        self.assertEqual(held, [False], "tijdens de pauze is de boekhouding van het uurbudget vrij")
+        statuses = []
+        with ah_orders._PACE_LOCK:  # een ronde die op zijn beurt wacht of een verzoek doet
+            reader = threading.Thread(target=lambda: statuses.append(ah_orders.linking_status()["budget"]["used"]))
+            reader.start()
+            reader.join(5)
+        self.assertEqual(statuses, [2])
+
+    def test_a_403_records_the_reason_next_to_the_pause(self):
+        with mock.patch.object(ah_orders, "_polite_search", side_effect=ah.AhHttpError("AH productzoekopdracht mislukt", 403)):
+            result = ah_orders.resolve_receipt_products("2026-11-05T14:02:00+00:00")
+        self.assertEqual(result["pausedUntil"], "2026-11-06T02:02:00+00:00")
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON), "403@2026-11-05T14:02:00+00:00")
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Komkommer', 'x')")
+        self.get_products_by_ids.side_effect = ah.AhHttpError("AH producten mislukt", 429)
+        result = ah_orders.backfill_receipt_images("2026-11-05T14:30:00+00:00")
+        self.assertEqual(result["pausedUntil"], "2026-11-06T02:30:00+00:00")
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON), "429@2026-11-05T14:30:00+00:00")
+
+    def test_a_round_writes_the_last_round_with_linking_and_photos_merged(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")
+        self.search_hq_ids.return_value = [(555, 1, "AH Komkommer", "")]
+        self.get_products_by_ids.return_value = [{"id": 1, "image": "https://static.ah.nl/1.jpg"}, {"id": 2, "image": "https://static.ah.nl/2.jpg"}]
+        ah_orders.resolve_receipt_products(self.NOW, trigger="manual")
+        ah_orders.backfill_receipt_images(self.NOW, trigger="manual")
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual(last, {"at": self.NOW, "searches": 1, "found": 1, "missing": 0, "failed": 0, "images": 1, "trigger": "manual"})
+        ah_orders.backfill_receipt_images("2026-11-05T16:00:00+00:00", trigger="list")
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["at"], last["trigger"], last["searches"], last["images"]), ("2026-11-05T16:00:00+00:00", "list", 0, 0), "een nieuwe ronde begint opnieuw")
+        self.assertEqual(ah_orders.linking_status()["lastRound"], last)
+
+    def test_the_nightly_linking_and_photos_land_in_one_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")
+        self.search_hq_ids.return_value = [(555, 1, "AH Komkommer", "")]
+        self.get_products_by_ids.return_value = [{"id": 2, "image": "https://static.ah.nl/2.jpg"}]
+        night = "2026-11-05T05:00:00+00:00"
+        ah_orders.resolve_receipt_products_nightly(night)
+        ah_orders.backfill_receipt_images_nightly(night)
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual(last, {"at": night, "searches": 1, "found": 1, "missing": 0, "failed": 0, "images": 1, "trigger": "nightly"})
+
+    def test_a_paused_round_does_not_overwrite_the_last_round(self):
+        auth.set_setting(ah_orders.SETTING_LAST_ROUND, json.dumps({"at": "2026-11-05T02:00:00+00:00", "found": 3}))
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        ah_orders.resolve_receipt_products(self.NOW)
+        ah_orders.backfill_receipt_images(self.NOW)
+        self.assertEqual(json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))["found"], 3)
+
+    def test_a_round_on_demand_runs_in_a_thread_and_writes_the_last_round(self):
+        with mock.patch.object(ah_orders, "_polite_search", return_value=[(555, 1, "AH Komkommer", "https://static.ah.nl/x.jpg")]):
+            response = self.client.post("/api/ah/linking/run", json={"receiptId": "R1"})
+            self.assertEqual(response.status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(ah_orders._LINKING_THREAD.name, "linking-run")
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["found"], last["trigger"]), (1, "receipt"))
+        self.assertEqual(ah_orders.linking_status()["todo"]["lines"], 0, "TOMATEN is gezocht en niet gevonden: die wacht 30 dagen")
+
+    def test_a_round_on_demand_for_a_receipt_links_only_that_receipt(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R2', '2026-11-02', 0, 1, 'x')")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R2', 0, 777, 'AH BLOEMKOOL', 1, 1.0, 1.0)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R2', 1, 888, 'AH PREI', 1, 1.0, 1.0)")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")  # gekoppeld, nog geen foto
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (888, 3, 'AH Prei', 'x')")  # op een andere bon
+        with mock.patch.object(ah_orders, "_polite_search", return_value=[]) as search, mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 0}) as images:
+            self.client.post("/api/ah/linking/run", json={"receiptId": "R1"})
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual([c.args[0] for c in search.call_args_list], ["KOMKOMMER"], "alleen de ongekoppelde regel van deze bon")
+        self.assertEqual((images.call_args.kwargs["batches"], images.call_args.kwargs["only"]), (2, {2}), "alleen de foto's van deze bon")
+
+    def test_a_round_on_demand_for_a_receipt_gets_every_search_its_names_need(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipt_items SET name = 'RB PICOLIENT' WHERE product_id = 555")
+        with mock.patch.object(ah_orders, "_polite_search", return_value=[]) as search:
+            self.client.post("/api/ah/linking/run", json={"receiptId": "R1"})
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(sorted(c.args[0] for c in search.call_args_list), ["PICOLIENT", "RB PICOLIENT", "TOMATEN"], "ook de tweede poging met het langste woord")
+
+    def test_a_round_on_demand_without_a_receipt_runs_the_nightly_round(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products", return_value={"found": 0}) as resolve, \
+                mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 0}) as images, \
+                mock.patch.object(ah_orders.audit, "record") as record:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(resolve.call_args.kwargs["searches"], ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY)
+        self.assertEqual(resolve.call_args.kwargs["deadline_seconds"], ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+        self.assertEqual(resolve.call_args.kwargs["trigger"], "manual")
+        self.assertEqual(images.call_args.kwargs["trigger"], "manual")
+        self.assertEqual((record.call_args.kwargs["kind"], record.call_args.kwargs["ok"]), ("task", True))
+        self.assertEqual(record.call_args.kwargs["detail"]["products"], {"found": 0})
+
+    def test_a_failing_round_on_demand_is_logged_and_recorded(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")), \
+                mock.patch.object(ah_orders.audit, "record") as record, self.assertLogs(ah_orders.log, "ERROR"):
+            self.client.post("/api/ah/linking/run", json={})
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertFalse(record.call_args.kwargs["ok"])
+        self.assertIn("kapot", record.call_args.kwargs["error"])
+        self.assertIsNone(ah_orders.linking_status()["running"])
+
+    def test_a_second_run_while_one_is_busy_is_refused(self):
+        started, release = threading.Event(), threading.Event()
+
+        def busy(receipt_id, now):
+            started.set()
+            release.wait(5)
+
+        with mock.patch.object(ah_orders, "_linking_round", side_effect=busy):
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"receiptId": "R1"}).status_code, 202)
+            self.assertTrue(started.wait(5))
+            second = self.client.post("/api/ah/linking/run", json={})
+            self.assertEqual(second.status_code, 409)
+            self.assertEqual(second.get_json()["running"], {"receiptId": "R1"})
+            self.assertEqual(self.client.get("/api/ah/linking").get_json()["running"], {"receiptId": "R1"})
+            self.assertEqual(sum(1 for worker in threading.enumerate() if worker.name == "linking-run"), 1)
+            release.set()
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertIsNone(ah_orders.linking_status()["running"])
+
+    def test_force_is_for_the_administrator_only_and_clears_the_pause(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "429@2026-11-05T14:02:00+00:00")
+        with mock.patch.object(ah_orders, "_linking_round"):
+            with mock.patch.object(auth, "is_owner", return_value=False):
+                refused = self.client.post("/api/ah/linking/run", json={"force": True})
+            self.assertEqual(refused.status_code, 403)
+            self.assertIn("error", refused.get_json())
+            self.assertIsNone(ah_orders._LINKING_THREAD if ah_orders._LINKING_THREAD and ah_orders._LINKING_THREAD.is_alive() else None)
+            self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
+            accepted = self.client.post("/api/ah/linking/run", json={"force": True})
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(accepted.status_code, 202)
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "")
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON), "")
+        self.assertIsNone(accepted.get_json()["pausedUntil"])
+
+    def test_a_run_without_force_keeps_the_pause(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        with mock.patch.object(ah_orders, "_linking_round"):
+            self.client.post("/api/ah/linking/run", json={})
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
+
+    def test_a_garbled_body_is_refused_and_starts_nothing(self):
+        for data, content_type in (("not json", "application/json"), ("receiptId=R1", "application/x-www-form-urlencoded"), ('"R1"', "application/json")):
+            with self.subTest(data=data):
+                with mock.patch.object(ah_orders, "run_linking") as run:
+                    response = self.client.post("/api/ah/linking/run", data=data, content_type=content_type)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("error", response.get_json())
+                run.assert_not_called()
+
+    def test_an_empty_body_runs_all_receipts(self):
+        with mock.patch.object(ah_orders, "_linking_round") as round_:
+            response = self.client.post("/api/ah/linking/run")
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(response.status_code, 202)
+        round_.assert_called_once_with(None, self.NOW)
+
+    def test_a_round_on_demand_with_nothing_to_do_still_writes_the_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (?, ?, ?, 'x', ?)",
+                             [(555, 1, "AH Komkommer", "https://static.ah.nl/1.jpg"), (556, 2, "AH Tomaten", "https://static.ah.nl/2.jpg")])
+        auth.set_setting(ah_orders.SETTING_LAST_ROUND, json.dumps({"at": "2026-11-05T02:00:00+00:00", "searches": 9, "found": 3, "trigger": "nightly"}))
+        with mock.patch.object(ah_orders, "_polite_search") as search:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"receiptId": "R1"}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        search.assert_not_called()
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual(last, {"at": self.NOW, "searches": 0, "found": 0, "missing": 0, "failed": 0, "images": 0, "trigger": "receipt"})
+
+    def test_a_round_on_demand_that_did_something_keeps_its_counts(self):
+        with mock.patch.object(ah_orders, "_polite_search", return_value=[(555, 1, "AH Komkommer", "")]):
+            self.client.post("/api/ah/linking/run", json={"receiptId": "R1"})
+            ah_orders._LINKING_THREAD.join(5)
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["searches"], last["found"], last["missing"], last["trigger"]), (2, 1, 1, "receipt"), "het nul-record telt niets bij")
+
+    def test_a_bad_request_is_refused(self):
+        for body in ({"receiptId": 5}, {"force": "ja"}, ["R1"]):
+            with self.subTest(body=body):
+                self.assertEqual(self.client.post("/api/ah/linking/run", json=body).status_code, 400)
+        self.assertEqual(self.client.post("/api/ah/linking/run", json={"receiptId": "R9"}).status_code, 404)
+        self.assertIsNone(ah_orders._LINKING_THREAD if ah_orders._LINKING_THREAD and ah_orders._LINKING_THREAD.is_alive() else None)
+
+    def test_an_images_run_only_fills_in_photos(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products") as resolve, \
+                mock.patch.object(ah_orders, "_polite_search") as search, \
+                mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 3, "requests": 1, "failed": 0}) as images, \
+                mock.patch.object(ah_orders.audit, "record") as record:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        resolve.assert_not_called()
+        search.assert_not_called()
+        images.assert_called_once()
+        self.assertEqual(images.call_args.kwargs["batches"], ah_orders.RECEIPT_IMAGES_BATCHES)
+        self.assertEqual(images.call_args.kwargs["trigger"], "images")
+        self.assertEqual(json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))["trigger"], "images")
+        self.assertEqual(record.call_args.kwargs["action"], "images")
+        self.assertEqual(record.call_args.kwargs["detail"]["images"], {"products": 3, "requests": 1, "failed": 0})
+
+    def test_an_images_run_fetches_photos_and_writes_the_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")
+        self.get_products_by_ids.return_value = [{"id": 2, "image": "https://static.ah.nl/2.jpg"}]
+        with mock.patch.object(ah_orders, "_polite_search") as search:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        search.assert_not_called()
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["searches"], last["images"], last["trigger"]), (0, 1, "images"))
+
+    def test_force_with_images_clears_the_pause_for_the_administrator(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        with mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 0}):
+            with mock.patch.object(auth, "is_owner", return_value=False):
+                self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 403)
+            self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "")
+
+    def test_a_bad_images_flag_is_refused(self):
+        for body in ({"images": "ja"}, {"images": 1}, {"images": True, "receiptId": "R1"}):
+            with self.subTest(body=body):
+                with mock.patch.object(ah_orders, "run_linking") as run:
+                    self.assertEqual(self.client.post("/api/ah/linking/run", json=body).status_code, 400)
+                run.assert_not_called()
 
 
 class SearchHqIdsTest(unittest.TestCase):
@@ -862,14 +1385,16 @@ class PermissionsTest(unittest.TestCase):
 
     def test_everything_needs_a_login(self):
         anonymous = self.app.test_client()
-        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/purchases/search?q=x", "/api/ah/receipts/search?q=x", "/api/ah/orders/1"):
+        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/purchases/search?q=x", "/api/ah/receipts/search?q=x", "/api/ah/orders/1",
+                     "/api/ah/linking"):
             self.assertEqual(anonymous.get(path).status_code, 401, path)
-        for path in ("/api/ah/basket/sync", "/api/ah/orders/sync", "/api/ah/receipts/sync", "/api/ah/explore"):
+        for path in ("/api/ah/basket/sync", "/api/ah/orders/sync", "/api/ah/receipts/sync", "/api/ah/explore", "/api/ah/linking/run"):
             self.assertEqual(anonymous.post(path).status_code, 401, path)
 
     def test_users_can_read_and_sync_but_only_the_owner_can_explore(self):
-        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts"):
+        for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/linking"):
             self.assertEqual(self.anna.get(path).status_code, 200, path)
+        self.assertEqual(self.anna.post("/api/ah/linking/run", json={"force": True}).status_code, 403, "de pauze opheffen mag alleen de beheerder")
         with mock.patch.object(ah, "get_open_fulfillments", return_value=[]):
             self.assertEqual(self.anna.post("/api/ah/orders/sync").status_code, 200)
         self.assertEqual(self.anna.post("/api/ah/explore").status_code, 403)

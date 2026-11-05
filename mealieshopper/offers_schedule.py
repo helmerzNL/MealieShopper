@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from os import environ
 from typing import Any
 
-from . import ah_orders, auth, image_cache, offers
+from . import ah_orders, auth, image_cache, offers, prices
 
 log = logging.getLogger(__name__)
 
@@ -86,11 +86,16 @@ def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) 
 def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool = True) -> dict[str, Any]:
     """De dagelijkse run: alle aanbiedingen, daarna de extraatjes die in hetzelfde rustige tempo bij de winkels langsgaan: een deel
     van de artikelnummers op de kassabonnen koppelen (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de
-    afbeeldingencache aanvullen (image_cache.prefetch). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
+    afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
+    (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
     result = offers.sync_all()
+    # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
+    # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.
+    linking_now = _utc_iso(_local_now())
     extras = (
-        ("receiptProducts", ah_orders.resolve_receipt_products_nightly),
-        ("receiptImages", ah_orders.backfill_receipt_images_nightly),
+        ("receiptProducts", lambda: ah_orders.resolve_receipt_products_nightly(linking_now)),
+        ("receiptImages", lambda: ah_orders.backfill_receipt_images_nightly(linking_now)),
+        ("regularPrices", prices.fill_regular_prices_nightly),
     )
     for key, task in extras:
         outcome = task()

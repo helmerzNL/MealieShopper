@@ -8,7 +8,8 @@ het origineel in `<datamap>/images/<ab>/<sha256-van-het-adres>.<ext>` en serveer
 
 Zuinig voor de winkel: hooguit twee verzoeken tegelijk, op afroep minstens 0,3 s tussen twee verzoeken op dezelfde host en
 in de achtergrond 2 tot 5 s, en een 403 of 429 zet de host twaalf uur stil. Een adres dat mislukt wacht een dag, vanaf drie
-mislukkingen een week en vanaf tien nooit meer (een 404 telt voor drie).
+mislukkingen een week en vanaf tien nooit meer (een 404 telt voor drie). Een 403 met de XML-foutmelding van een opslag als Amazon S3
+(`AccessDenied`, zoals bij Picnic) is geen blokkade maar een foto die er niet is: die telt als een 404 en zet de host niet stil.
 
 De tabel `image_cache` (in auth.sqlite3) kent per adres de host, het pad, het type, de maten, wanneer het is opgehaald en de
 mislukkingen. Ze staat niet in de back-up (backup.EXCLUDED_TABLES): de cache is opnieuw op te bouwen. Een nachtelijke ronde
@@ -23,6 +24,7 @@ import io
 import os
 import logging
 import random
+import re
 import threading
 import time
 from contextlib import closing
@@ -88,6 +90,7 @@ KNOWN_IMAGE_COLUMNS = (
     ("ah_order_items", "image"), ("ah_basket_items", "image"), ("ah_receipt_products", "image"),
     ("offers", "image"), ("offer_history", "image"), ("offer_recipes", "image"),
     ("jumbo_order_items", "image"), ("picnic_order_items", "image"), ("crisp_order_items", "image"),
+    ("product_links", "image"),  # de foto van een product dat je zelf aan een bonregel koppelde (#238)
 )
 
 _BROWSER_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
@@ -122,6 +125,12 @@ _EXTENSIONS = {
     "image/gif": "gif",
 }
 _PICNIC_SUFFIX = ".picnicinternational.com"
+
+# Een opslag als Amazon S3 (de foto's van Picnic) antwoordt op een bestand dat er niet is met een 403 `AccessDenied` in XML, niet
+# met een 404: zonder leesrecht op de inhoud van de bucket verraadt hij niet welke bestanden er zijn. Zo'n 403 gaat over dat ene
+# adres en zegt niet dat de winkel de app weert; een blokkade van een winkel (HTML van een firewall, of een 429) wel (#236).
+_MISSING_OBJECT = re.compile(rb"<Error>\s*<Code>(?:AccessDenied|NoSuchKey)</Code>")
+_ERROR_BODY_BYTES = 4096
 
 _SLOTS = threading.BoundedSemaphore(CONCURRENCY)
 _PACE_LOCK = threading.Lock()
@@ -176,20 +185,37 @@ def store_for(url: Any) -> str | None:
     return None
 
 
+def safe_url(url: Any) -> bool:
+    """Mag de app dit adres ophalen? Alleen https naar een winkelhost (`store_for`), en de parser die het verzoek verstuurt (urllib3)
+    moet dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af. Dezelfde
+    eis voor een token uit de browser, een adres uit een tabel en een doorverwijzing van een CDN: een adres dat hier niet door komt,
+    krijgt nooit een verzoek."""
+    if not store_for(url) or urlsplit(url).scheme != "https":
+        return False
+    try:
+        sent = parse_url(url)
+    except LocationParseError:
+        return False
+    authority = urlsplit(url).netloc
+    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
+        return False
+    return bool(sent.host) and sent.host == urlsplit(url).hostname and sent.scheme == "https"
+
+
 def token_for(url: str) -> str:
     """Het winkeladres als URL-veilige base64 zonder `=`: het stuk achter /api/images/."""
     return base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
 
 
 def url_for(token: Any) -> str | None:
-    """Het adres achter een token, of None als het niet decodeert of geen foto van een winkel is."""
+    """Het adres achter een token, of None als het niet decodeert of geen adres van een winkel is dat de app mag ophalen (`safe_url`)."""
     if not isinstance(token, str) or not token:
         return None
     try:
         url = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
-    return url if store_for(url) else None
+    return url if safe_url(url) else None
 
 
 # --- de tabel --------------------------------------------------------------------------------------
@@ -346,7 +372,7 @@ def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
         with session.get(url, headers=HEADERS[store], timeout=TIMEOUT, stream=True, allow_redirects=False) as response:
             if response.status_code in (301, 302, 303, 307, 308):
                 target = urljoin(url, str(response.headers.get("Location") or ""))
-                if not _safe_redirect(target):
+                if not safe_url(target):
                     raise ValueError(f"doorverwijzing naar een onbekende host ({urlsplit(target).hostname or '?'})")
                 url = target
                 continue
@@ -354,26 +380,29 @@ def _download(store: str, host: str, url: str) -> tuple[bytes, str]:
     raise ValueError("te veel doorverwijzingen")
 
 
-def _safe_redirect(target: str) -> bool:
-    """Mag een doorverwijzing hierheen? Alleen https naar een winkelhost, en de parser die het verzoek verstuurt (urllib3) moet
-    dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af."""
-    if not store_for(target) or urlsplit(target).scheme != "https":
+def _missing_object(response: requests.Response) -> bool:
+    """Is dit antwoord de foutmelding van een opslag als S3 over een bestand dat er niet is (`_MISSING_OBJECT`)? We lezen hooguit
+    `_ERROR_BODY_BYTES` van de inhoud, en alleen bij XML."""
+    content_type = str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
+    if content_type not in ("application/xml", "text/xml"):
         return False
-    try:
-        sent = parse_url(target)
-    except LocationParseError:
-        return False
-    authority = urlsplit(target).netloc
-    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
-        return False
-    return bool(sent.host) and sent.host == urlsplit(target).hostname and sent.scheme == "https"
+    head = b""
+    for chunk in response.iter_content(1024):
+        head += chunk
+        if len(head) >= _ERROR_BODY_BYTES:
+            break
+    return bool(_MISSING_OBJECT.search(head[:_ERROR_BODY_BYTES]))
 
 
 def _read_image(response: requests.Response) -> tuple[bytes, str]:
-    """(inhoud, type) uit een antwoord van de winkel, met de grenzen op type en grootte."""
+    """(inhoud, type) uit een antwoord van de winkel, met de grenzen op type en grootte. Een antwoord dat geen 200 is, wordt een
+    requests.HTTPError met `status`, en met `missing` als de foto er niet is: een 404, of een 403 van een opslag als S3."""
     if response.status_code != 200:
-        error = requests.HTTPError(f"HTTP {response.status_code}")
+        bucket_missing = response.status_code == 403 and _missing_object(response)
+        error = requests.HTTPError(f"HTTP {response.status_code}" + (" (de foto bestaat niet)" if bucket_missing else ""))
+        missing = response.status_code == 404 or bucket_missing
         error.status = response.status_code  # type: ignore[attr-defined]
+        error.missing = missing  # type: ignore[attr-defined]
         raise error
     content_type = str(response.headers.get("Content-Type", "")).split(";")[0].strip().lower()
     if not content_type.startswith("image/") or content_type == "image/svg+xml":
@@ -406,7 +435,7 @@ def _store_file(url: str, data: bytes, content_type: str) -> tuple[str, str]:
 def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
     store = store_for(url)
     host = urlsplit(url).hostname or ""
-    if not store or _paused(host, now):
+    if not store or not safe_url(url) or _paused(host, now):
         return None
     try:
         _pace(host)
@@ -414,9 +443,10 @@ def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
             data, content_type = _download(store, host, url)
     except requests.HTTPError as exc:
         status = getattr(exc, "status", 0)
-        if status in (403, 429):
+        missing = bool(getattr(exc, "missing", status == 404))
+        if status in (403, 429) and not missing:  # de winkel weert ons: de hele host even met rust laten
             _pause(host, now)
-        _record_failure(url, now, NOT_FOUND_COUNTS if status == 404 else 1, str(exc))
+        _record_failure(url, now, NOT_FOUND_COUNTS if missing else 1, str(exc))  # een foto die er niet is, telt voor drie
         return None
     except (requests.RequestException, ValueError, OSError) as exc:
         _record_failure(url, now, 1, str(exc) or exc.__class__.__name__)
@@ -435,7 +465,7 @@ def fetch(url: str, *, now: str | None = None) -> dict[str, Any] | None:
     """De rij van een foto die op schijf staat, na hem zo nodig op te halen. None als dat niet kan: een onbekende host, een
     host in pauze, een adres dat na een mislukking nog wacht, of een mislukking nu. Vraagt een ander verzoek dezelfde foto
     al op, dan wacht dit verzoek hooguit `WAIT_SECONDS` op dat resultaat. Een hit leest alleen: geen schrijfactie per foto."""
-    if not store_for(url):
+    if not safe_url(url):
         return None
     now = now or _now()
     row = lookup(url)
@@ -501,7 +531,7 @@ def collect_known(now: str | None = None) -> int:
                 continue  # een database van vóór die kolom (de migratie volgt bij het eerste gebruik van die module)
             urls = {row[0] for row in conn.execute(f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL AND {column} != ''")}
             for url in urls:
-                if not store_for(url):
+                if not safe_url(url):
                     continue
                 cursor = conn.execute(
                     "INSERT OR IGNORE INTO image_cache (url, host, seen_at) VALUES (?, ?, ?)", (url, urlsplit(url).hostname or "", now)

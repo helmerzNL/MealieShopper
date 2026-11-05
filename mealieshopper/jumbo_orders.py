@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import auth, image_cache, jumbo, price_import
+from . import ah_orders, auth, image_cache, jumbo, price_import, purchase_lines
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -59,6 +59,8 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 def _connect():
     conn = auth.connect()
     conn.executescript(SCHEMA)
+    # De gewone prijs per regel, zoals bij AH (zie `ah_orders.REGULAR_COLUMNS`). Een oudere database krijgt de kolommen erbij.
+    ah_orders._ensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
     return conn
 
 
@@ -194,7 +196,7 @@ _ORDER_SUMMARY_SQL = f"""
         ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
     (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM jumbo_order_items i WHERE i.order_id = o.order_id AND title != ''
         ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
-    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+    (SELECT SUM(MAX(COALESCE(regular_price, CASE WHEN bonus THEN price_before_bonus END, price) - price, 0) * COALESCE(quantity, 1))
         FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
     (SELECT SUM(bonus) FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
 """
@@ -202,9 +204,11 @@ _ORDER_SUMMARY_SQL = f"""
 
 def _order_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
+    status_kind, status_text = purchase_lines.status_kind("order", row)
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+        "statusKind": status_kind, "statusText": status_text,
     }
 
 
@@ -227,12 +231,19 @@ def list_orders(summary: bool = False) -> dict[str, Any]:
 
 
 def get_order(order_id: Any) -> dict[str, Any] | None:
+    """Een bestelling met haar producten, verrijkt zoals bij AH (`ah_orders.get_order`): de categorie komt uit de titel met de
+    taxonomie van Jumbo als hint."""
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM jumbo_orders WHERE order_id = ?", (str(order_id),)).fetchone()
         if not row:
             return None
-        items = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
-    return {**_order_json(row, len(items)), "items": [_item_json(item) for item in items]}
+    purchase_lines.fill_regular("jumbo", order_ids=[str(order_id)])
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
+    kind, text = purchase_lines.status_kind("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
 def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:

@@ -299,7 +299,8 @@ function showCrispOrderList() {
   $("#crisp-orders-list-view").hidden = false;
 }
 
-function renderCrispOrderItem(item) {
+// Met `imported` (een ingelezen bestelling) staat rechts de knop Koppelen of Ander product kiezen (#238, product_links.js).
+function renderCrispOrderItem(item, imported = false) {
   const meta = [item.quantity > 1 ? `${item.quantity}×` : "", item.unitSize, item.price ? formatPrice(item.price) : ""].filter(Boolean).join(" · ");
   return `
     <article class="product-card">
@@ -308,6 +309,7 @@ function renderCrispOrderItem(item) {
         <strong>${escapeHtml(item.title || "")}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
       </div>
+      ${imported ? productLinkButton(importedLinkLine(item, "crisp")) : ""}
     </article>`;
 }
 
@@ -336,7 +338,7 @@ async function openCrispOrder(id, source = "local") {
     crispOrders.detail = order;
     $("#crisp-order-title").textContent = crispOrderDay(order) || t("picnic.orders.order_title", { id });
     $("#crisp-order-meta").textContent = [crispOrderStatus(order.status), slotLabel(order.windowStart, order.windowEnd), order.total ? t("picnic.orders.total", { amount: money(order.total) }) : "", order.itemsSynced === false && !items.length ? t("orders.items_pending") : tn("list.items", order.itemCount || 0), order.imported ? t("orders.imported.at", { when: formatSyncTime(order.importedAt) }) : ""].filter(Boolean).join(" · ");
-    $("#crisp-order-items").innerHTML = items.map(renderCrispOrderItem).join("");
+    $("#crisp-order-items").innerHTML = items.map((item) => renderCrispOrderItem(item, Boolean(order.imported))).join("");
     $("#crisp-order-add-all").hidden = !items.some((item) => item.id);
     if (!items.length) message("#crisp-order-message", order.itemsSynced === false ? t("crisp.orders.items_not_synced") : t("crisp.orders.no_items"), "success");
     $("#crisp-order-title").focus();
@@ -495,6 +497,13 @@ $("#crisp-orders-list-view").addEventListener("click", (event) => {
 $("#crisp-orders-import").addEventListener("click", () => openPriceImport("crisp"));
 window.addEventListener("ms:imported-orders", (event) => {
   if (crispOrders.loaded && event.detail?.store === "crisp") loadCrispOrders();
+});
+// Na een eigen koppeling (#238, product_links.js): de lijst opnieuw, en een open ingelezen bestelling opnieuw met het gekozen product.
+window.addEventListener("ms:product-links", (event) => {
+  if (event.detail?.store !== "crisp") return;
+  if (crispOrders.loaded) loadCrispOrders();
+  const open = crispOrders.detail;
+  if (open?.imported && !$("#crisp-order-view").hidden) openCrispOrder(open.ref, "imported");
 });
 $("#crisp-explore-copy").addEventListener("click", async (event) => {
   const button = event.currentTarget;
