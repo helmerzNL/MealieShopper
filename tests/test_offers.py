@@ -582,6 +582,31 @@ class SuggestionsTest(TempDataDirTest):
             self.assertIn("course", {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")})
             self.assertIsNone(conn.execute("SELECT course FROM offer_recipes").fetchone()["course"])
 
+    def test_a_picnic_recipe_photo_from_before_3_7_2_gets_the_size_in_pixels(self):
+        # #236: een nieuwer recept van Picnic heeft geen `large.png`, wel `1000x1000.png`. De index wordt alleen op verzoek opnieuw
+        # ingelezen, dus de adressen die er al staan zetten we een keer per proces om.
+        base = "https://storefront-prod.nl.picnicinternational.com/static/images"
+        rows = {
+            ("picnic", "new"): f"{base}/recipes/ac1b02/large.png",
+            ("picnic", "done"): f"{base}/recipes/c09b4e/1000x1000.png",
+            ("picnic", "none"): "",
+            ("jumbo", "other"): "https://www.jumbo.com/dam-images/recipes/large.png",
+        }
+        with closing(offers._connect()) as conn, conn:
+            conn.executemany(
+                "INSERT INTO offer_recipes (source, recipe_id, title, image, url, ingredients) VALUES (?, ?, 'R', ?, '', '[\"kip\"]')",
+                [(source, recipe_id, image) for (source, recipe_id), image in rows.items()],
+            )
+        offers._PICNIC_IMAGES_REPAIRED.clear()  # zoals een nieuwe start van de app
+        with closing(offers._connect()) as conn:
+            images = {(row["source"], row["recipe_id"]): row["image"] for row in conn.execute("SELECT source, recipe_id, image FROM offer_recipes")}
+        self.assertEqual(images, {**rows, ("picnic", "new"): f"{base}/recipes/ac1b02/1000x1000.png"})
+        with closing(offers._connect()) as conn, conn:
+            conn.execute("UPDATE offer_recipes SET image = ? WHERE recipe_id = 'new'", (f"{base}/recipes/ac1b02/large.png",))
+        with closing(offers._connect()) as conn:
+            image = conn.execute("SELECT image FROM offer_recipes WHERE recipe_id = 'new'").fetchone()["image"]
+        self.assertEqual(image, f"{base}/recipes/ac1b02/large.png", "niet bij elke verbinding opnieuw")
+
     def test_the_best_fitting_offer_wins_over_the_first_one(self):
         fetched = [
             {"id": "1", "title": "AH Kipfilet Mediterraan gekruid", "price": 4.0, "priceBefore": 5.0, "promoLabel": "Bonus"},

@@ -226,6 +226,7 @@ def _connect():
     _drop_offers_key(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)")
     _repair_open_ends(conn)
+    _repair_picnic_recipe_images(conn)
     return conn
 
 
@@ -245,6 +246,25 @@ def _repair_open_ends(conn) -> None:
         for table in ("offers", "offer_history"):
             conn.execute(f"UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?", (cutoff,))
     _OPEN_ENDS_REPAIRED.add(key)
+
+
+# De databases waarvan de receptfoto's van Picnic al zijn nagekeken, ook een keer per proces.
+_PICNIC_IMAGES_REPAIRED: set[str] = set()
+
+
+def _repair_picnic_recipe_images(conn) -> None:
+    """Een recept van Picnic dat voor v3.7.2 in de index kwam, heeft een foto met een maatnaam (`…/recipes/<hash>/large.png`). Een
+    nieuwer recept heeft die maat niet en dan bleef de foto weg (#236). De index wordt alleen op verzoek opnieuw ingelezen, dus zetten
+    we de adressen hier om naar de maat in pixels (`picnic.current_image`); dan haalt ook de afbeeldingencache de goede op."""
+    key = str(auth.db_path())
+    if key in _PICNIC_IMAGES_REPAIRED:
+        return
+    rows = conn.execute("SELECT recipe_id, image FROM offer_recipes WHERE source = 'picnic' AND image LIKE '%/static/images/recipes/%'").fetchall()
+    changed = [(picnic.current_image(row["image"]), row["recipe_id"]) for row in rows if picnic.current_image(row["image"]) != row["image"]]
+    if changed:
+        with conn:
+            conn.executemany("UPDATE offer_recipes SET image = ? WHERE source = 'picnic' AND recipe_id = ?", changed)
+    _PICNIC_IMAGES_REPAIRED.add(key)
 
 
 def _offers_keyed(conn) -> bool:

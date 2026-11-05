@@ -276,10 +276,30 @@ def _walk(node: Any):
             yield from _walk(item)
 
 
+# Een receptfoto (`recipes/<hash>`) heeft bij Picnic een maat in pixels: het vak waar hij in past, zoals `300x300` (dezelfde foto
+# als het oude `medium`) of `1000x1000` (`large`). Alleen oudere recepten hebben ook de namen; een nieuwer recept antwoordt op
+# `medium.png` met 403 AccessDenied, terwijl `300x300.png` er wel is (#236). Een productfoto houdt de namen.
+RECIPE_IMAGE_SIZES = {
+    "tiny": "150x150",
+    "small": "150x150",
+    "medium": "300x300",
+    "regular": "600x600",
+    "large": "1000x1000",
+    "extra-large": "1250x1250",
+}
+_RECIPE_IMAGES = "/static/images/recipes/"
+
+
+def _image_size(recipe: bool, size: str) -> str:
+    return RECIPE_IMAGE_SIZES.get(size, size) if recipe else size
+
+
 def image_url(image_id: Any, size: str = "medium") -> str | None:
-    """Het adres van een afbeelding. Receptafbeeldingen hebben een naamruimte (`recipes/<hash>`), dus de slash blijft."""
+    """Het adres van een afbeelding. Receptafbeeldingen hebben een naamruimte (`recipes/<hash>`), dus de slash blijft, en een maat
+    in pixels (`RECIPE_IMAGE_SIZES`)."""
     if not image_id:
         return None
+    size = _image_size(str(image_id).startswith("recipes/"), size)
     return (
         f"https://storefront-prod.{country_code().lower()}.picnicinternational.com"
         f"/static/images/{quote(str(image_id), safe='/')}/{quote(size, safe='')}.png"
@@ -290,7 +310,16 @@ def resized_image(url: Any, size: str) -> str | None:
     """Hetzelfde plaatje van `image_url` in een ander formaat; het formaat is het laatste deel van het adres."""
     if not isinstance(url, str) or "/static/images/" not in url:
         return None
-    return f"{url.rpartition('/')[0]}/{quote(size, safe='')}.png"
+    return f"{url.rpartition('/')[0]}/{quote(_image_size(_RECIPE_IMAGES in url, size), safe='')}.png"
+
+
+def current_image(url: Any) -> Any:
+    """Een opgeslagen adres van een receptfoto met een maatnaam van vóór 3.7.2 (`…/recipes/<hash>/large.png`) in de maat in pixels
+    die elk recept heeft (`…/1000x1000.png`). Elk ander adres, ook dat van een product, komt ongewijzigd terug."""
+    if not isinstance(url, str) or _RECIPE_IMAGES not in url:
+        return url
+    name = url.rpartition("/")[2].removesuffix(".png")
+    return resized_image(url, name) if name in RECIPE_IMAGE_SIZES else url
 
 
 def _euros(cents: Any) -> float | None:
