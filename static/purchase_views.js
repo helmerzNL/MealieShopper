@@ -3,44 +3,217 @@
 // volgende keer dezelfde weergave geven. Laadt na orders.js en gebruikt daar purchaseRows(), renderOrders() en de rijvelden van
 // (kind, label, date, open, status, total, items, images, names, savings, bonusCount, payment, href, attr).
 
+// ---- De weergavebalk: één component voor de aankopenlijst (prefix "purchase") en de bestelpagina (prefix "order"). Links de
+// statusregel, rechts de weergaveknoppen, het sorteermenu en het optiemenu. De container in index.html is
+// <div class="purchase-bar" data-view-bar="<prefix>">; de ids in de balk dragen de prefix (<prefix>-view-switch,
+// <prefix>-sort-list, <prefix>-options-list, ...).
+
+const MDI_VIEW_TABLE = "M5,4H19A2,2 0 0,1 21,6V18A2,2 0 0,1 19,20H5A2,2 0 0,1 3,18V6A2,2 0 0,1 5,4M5,8V12H11V8H5M13,8V12H19V8H13M5,14V18H11V14H5M13,14V18H19V14H13Z";
+const MDI_VIEW_CARDS = "M3,11H11V3H3M3,21H11V13H3M13,21H21V13H13M13,3V11H21V3";
+const MDI_VIEW_LIST = "M9,5V9H21V5M9,19H21V15H9M9,14H21V10H9M4,9H8V5H4M4,19H8V15H4M4,14H8V10H4V14Z";
+const MDI_CHEVRON_DOWN = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
+
+// De statusregel van de lijst heet ah-purchase-status: orders.js schrijft daar (renderOrders, het zoeken). Een andere balk krijgt
+// <prefix>-status.
+function viewStatusId(prefix) {
+  return prefix === "purchase" ? "ah-purchase-status" : `${prefix}-status`;
+}
+
+function viewBarElement(prefix) {
+  return document.querySelector(`[data-view-bar="${prefix}"]`);
+}
+
+// De keuze van één balk: weergave, sortering en opties, in localStorage onder ms-<prefix>s-view, -sort en -options (voor de lijst
+// dus de bestaande ms-purchases-*). `allowed` ({ views, sorts, sizes, options }) zegt welke waarden gelden: wat in localStorage
+// staat kan van een oudere versie zijn of met de hand aangepast. apply() bewaart en roept dan de functie aan die listen() kreeg
+// (de pagina tekent opnieuw). Die functie staat in een closure, zodat JSON.stringify(state) alleen de keuze geeft.
+function viewState(prefix, defaults, allowed) {
+  const keys = { view: `ms-${prefix}s-view`, sort: `ms-${prefix}s-sort`, options: `ms-${prefix}s-options` };
+  let onChange = () => {};
+  return {
+    view: defaults.view,
+    sort: { ...defaults.sort },
+    options: { ...defaults.options },
+    listen(callback) {
+      onChange = callback;
+    },
+    load() {
+      try {
+        const view = localStorage.getItem(keys.view);
+        if (allowed.views.includes(view)) this.view = view;
+        const sort = JSON.parse(localStorage.getItem(keys.sort) || "null");
+        if (sort && allowed.sorts.includes(sort.key) && ["asc", "desc"].includes(sort.dir)) this.sort = { key: sort.key, dir: sort.dir };
+        const options = JSON.parse(localStorage.getItem(keys.options) || "null");
+        if (options && typeof options === "object") {
+          if (allowed.sizes.includes(options.size)) this.options.size = options.size;
+          for (const key of allowed.options) if (typeof options[key] === "boolean") this.options[key] = options[key];
+        }
+      } catch {
+        // een browser zonder opslag (privévenster): de standaardwaarden
+      }
+    },
+    save() {
+      try {
+        localStorage.setItem(keys.view, this.view);
+        localStorage.setItem(keys.sort, JSON.stringify(this.sort));
+        localStorage.setItem(keys.options, JSON.stringify(this.options));
+      } catch {
+        // niet erg: de keuze geldt tot je de pagina verlaat
+      }
+    },
+    apply() {
+      this.save();
+      onChange();
+    },
+    // Zonder richting: dezelfde sleutel wisselt de richting, een andere sleutel begint aflopend (een klik op een tabelkop). Met
+    // een richting en zonder sleutel blijft de sleutel staan (Oplopend of Aflopend in het menu).
+    sortBy(key, dir = null) {
+      if (dir) this.sort = { key: key || this.sort.key, dir };
+      else if (this.sort.key === key) this.sort = { key, dir: this.sort.dir === "asc" ? "desc" : "asc" };
+      else this.sort = { key, dir: "desc" };
+      this.apply();
+    },
+  };
+}
+
+// De balk als HTML. spec = { views: [{ id, icon, label }], sorts: [{ key, label }], sizes: bool, options: [{ key, label }] }, met
+// de labels al vertaald. Zonder sorteersleutels geen sorteermenu, zonder groottes en opties geen optiemenu. Wat er gekozen is
+// (aria-pressed, is-active, de vinkjes) zet syncViewBar.
+function viewBarMarkup(prefix, spec) {
+  const views = spec.views
+    .map((view) => `<button class="subtab" type="button" data-view="${escapeHtml(view.id)}" aria-pressed="false">${view.icon ? mdiIcon(view.icon) : ""}<span>${escapeHtml(view.label)}</span></button>`)
+    .join("");
+  const sortMenu = spec.sorts.length ? viewSortMenu(prefix, spec.sorts) : "";
+  const optionsMenu = spec.sizes || spec.options.length ? viewOptionsMenu(prefix, spec) : "";
+  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="purchase-view-switch" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
+}
+
+function viewSortMenu(prefix, sorts) {
+  const keys = sorts.map((sort) => `<button class="subtab-menu__item" type="button" data-sort-key="${escapeHtml(sort.key)}">${escapeHtml(sort.label)}</button>`).join("");
+  return `<div class="subtab-menu" id="${prefix}-sort-menu"><button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="${prefix}-sort-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="${prefix}-sort-list"><span>${escapeHtml(t("orders.sort.label"))}</span>: <span id="${prefix}-sort-current"></span>${mdiIcon(MDI_CHEVRON_DOWN, "subtab-menu__chevron")}</button>`
+    + `<div class="subtab-menu__list" id="${prefix}-sort-list" hidden>${keys}<hr class="subtab-menu__rule">`
+    + `<button class="subtab-menu__item" type="button" data-sort-dir="desc">${escapeHtml(t("orders.sort.desc"))}</button>`
+    + `<button class="subtab-menu__item" type="button" data-sort-dir="asc">${escapeHtml(t("orders.sort.asc"))}</button></div></div>`;
+}
+
+function viewOptionsMenu(prefix, spec) {
+  const sizes = [["small", t("orders.options.small")], ["medium", t("orders.options.medium")], ["large", t("orders.options.large")]];
+  const sizeItems = spec.sizes
+    ? `<span class="purchase-options__title">${escapeHtml(t("orders.options.size"))}</span>`
+      + sizes.map(([size, label]) => `<button class="subtab-menu__item" type="button" data-size="${size}">${escapeHtml(label)}</button>`).join("")
+    : "";
+  const rule = spec.sizes && spec.options.length ? '<hr class="subtab-menu__rule">' : "";
+  const checks = spec.options
+    .map((option) => `<label class="check purchase-options__check"><input type="checkbox" data-option="${escapeHtml(option.key)}"> <span>${escapeHtml(option.label)}</span></label>`)
+    .join("");
+  return `<div class="subtab-menu" id="${prefix}-options-menu"><button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="${prefix}-options-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="${prefix}-options-list"><span>${escapeHtml(t("orders.options.label"))}</span>${mdiIcon(MDI_CHEVRON_DOWN, "subtab-menu__chevron")}</button>`
+    + `<div class="subtab-menu__list purchase-options" id="${prefix}-options-list" hidden>${sizeItems}${rule}${checks}</div></div>`;
+}
+
+// Tekent de balk in zijn container en bindt de uitklapmenu's zoals app.js de andere bindt (bindSubtabMenu: openen, Esc; een
+// klik elders sluit ze via de documentbrede handler daar). De statusregel houdt zijn tekst: die schrijft de pagina zelf, en
+// een andere taal tekent de balk opnieuw.
+function renderViewBar(prefix, state, spec) {
+  const bar = viewBarElement(prefix);
+  const status = document.getElementById(viewStatusId(prefix));
+  const text = status ? status.textContent : "";
+  bar.innerHTML = viewBarMarkup(prefix, spec);
+  document.getElementById(viewStatusId(prefix)).textContent = text;
+  bar.querySelectorAll(".subtab-menu").forEach(bindSubtabMenu);
+  syncViewBar(prefix, state, spec);
+}
+
+// De handlers van een balk, één keer per pagina. Ze luisteren op de container, dus een opnieuw getekende balk werkt meteen.
+// Een keuze komt in de staat, die bewaart hem en roept onChange aan (de pagina tekent opnieuw).
+function bindViewBar(prefix, state, onChange) {
+  state.listen(onChange);
+  const bar = viewBarElement(prefix);
+  bar.addEventListener("click", (event) => {
+    const view = event.target.closest(`#${prefix}-view-switch [data-view]`);
+    if (view) {
+      state.view = view.dataset.view;
+      state.apply();
+      return;
+    }
+    const sort = event.target.closest(`#${prefix}-sort-list [data-sort-key], #${prefix}-sort-list [data-sort-dir]`);
+    if (sort) {
+      setSubtabMenu($(`#${prefix}-sort-menu`), false);
+      if (sort.dataset.sortKey) state.sortBy(sort.dataset.sortKey, state.sort.dir);
+      else state.sortBy(null, sort.dataset.sortDir);
+      return;
+    }
+    const size = event.target.closest(`#${prefix}-options-list [data-size]`);
+    if (size) {
+      state.options.size = size.dataset.size;
+      state.apply();
+    }
+  });
+  bar.addEventListener("change", (event) => {
+    const input = event.target.closest(`#${prefix}-options-list [data-option]`);
+    if (!input) return;
+    state.options[input.dataset.option] = input.checked;
+    state.apply();
+  });
+}
+
+// De balk laat zien wat er gekozen is: de actieve weergave, de sortering (met het label uit de spec) en de opties.
+function syncViewBar(prefix, state, spec) {
+  for (const button of document.querySelectorAll(`#${prefix}-view-switch [data-view]`)) {
+    const active = button.dataset.view === state.view;
+    button.setAttribute("aria-pressed", String(active));
+    button.classList.toggle("is-active", active);
+  }
+  const { key, dir } = state.sort;
+  const current = $(`#${prefix}-sort-current`);
+  if (current) {
+    const sort = spec.sorts.find((item) => item.key === key);
+    current.textContent = `${sort ? sort.label : key} ${dir === "asc" ? "↑" : "↓"}`;
+  }
+  for (const item of document.querySelectorAll(`#${prefix}-sort-list [data-sort-key]`)) item.classList.toggle("is-active", item.dataset.sortKey === key);
+  for (const item of document.querySelectorAll(`#${prefix}-sort-list [data-sort-dir]`)) item.classList.toggle("is-active", item.dataset.sortDir === dir);
+  for (const item of document.querySelectorAll(`#${prefix}-options-list [data-size]`)) item.classList.toggle("is-active", item.dataset.size === state.options.size);
+  for (const input of document.querySelectorAll(`#${prefix}-options-list [data-option]`)) input.checked = Boolean(state.options[input.dataset.option]);
+}
+
+// ---- De balk van de aankopenlijst.
+
 const PURCHASE_VIEWS = ["table", "cards", "overview"];
 const PURCHASE_SORT_KEYS = ["date", "amount", "items"];
 const PURCHASE_SIZES = ["small", "medium", "large"];
 const PURCHASE_OPTIONS = ["status", "savings", "names"];
 
-const purchaseView = { view: "table", sort: { key: "date", dir: "desc" }, options: { size: "medium", status: true, savings: true, names: true } };
+const purchaseView = viewState("purchase", { view: "table", sort: { key: "date", dir: "desc" }, options: { size: "medium", status: true, savings: true, names: true } }, { views: PURCHASE_VIEWS, sorts: PURCHASE_SORT_KEYS, sizes: PURCHASE_SIZES, options: PURCHASE_OPTIONS });
 
-// Wat in localStorage staat kan van een oudere versie zijn of met de hand aangepast: alleen bekende waarden tellen.
-function purchaseViewLoad() {
-  try {
-    const view = localStorage.getItem("ms-purchases-view");
-    if (PURCHASE_VIEWS.includes(view)) purchaseView.view = view;
-    const sort = JSON.parse(localStorage.getItem("ms-purchases-sort") || "null");
-    if (sort && PURCHASE_SORT_KEYS.includes(sort.key) && ["asc", "desc"].includes(sort.dir)) purchaseView.sort = { key: sort.key, dir: sort.dir };
-    const options = JSON.parse(localStorage.getItem("ms-purchases-options") || "null");
-    if (options && typeof options === "object") {
-      if (PURCHASE_SIZES.includes(options.size)) purchaseView.options.size = options.size;
-      for (const key of PURCHASE_OPTIONS) if (typeof options[key] === "boolean") purchaseView.options[key] = options[key];
-    }
-  } catch {
-    // een browser zonder opslag (privévenster): de standaardwaarden
-  }
+// De weergaven, sorteersleutels en opties van de lijst, met de labels in de taal van nu.
+function purchaseBarSpec() {
+  return {
+    views: [
+      { id: "table", icon: MDI_VIEW_TABLE, label: t("orders.view.table") },
+      { id: "cards", icon: MDI_VIEW_CARDS, label: t("orders.view.cards") },
+      { id: "overview", icon: MDI_VIEW_LIST, label: t("orders.view.overview") },
+    ],
+    sorts: [
+      { key: "date", label: t("orders.sort.date") },
+      { key: "amount", label: t("orders.sort.amount") },
+      { key: "items", label: t("orders.sort.items") },
+    ],
+    sizes: true,
+    options: [
+      { key: "status", label: t("orders.options.status") },
+      { key: "savings", label: t("orders.options.savings") },
+      { key: "names", label: t("orders.options.names") },
+    ],
+  };
 }
 
-function purchaseViewSave() {
-  try {
-    localStorage.setItem("ms-purchases-view", purchaseView.view);
-    localStorage.setItem("ms-purchases-sort", JSON.stringify(purchaseView.sort));
-    localStorage.setItem("ms-purchases-options", JSON.stringify(purchaseView.options));
-  } catch {
-    // niet erg: de keuze geldt tot je de pagina verlaat
-  }
+function purchaseViewLoad() {
+  purchaseView.load();
 }
 
 // Sorteren: datum (open bestellingen bovenaan bij aflopend, hun bezorgdag ligt in de toekomst), bedrag of aantal producten.
 // Een aankoop zonder waarde (producten nog niet opgehaald) staat onderaan, in beide richtingen; gelijke waarden op datum aflopend.
-function purchaseSortRows(rows) {
-  const { key, dir } = purchaseView.sort;
+function purchaseSortRows(rows, sort = purchaseView.sort) {
+  const { key, dir } = sort;
   const sign = dir === "asc" ? 1 : -1;
   const value = (row) => (key === "amount" ? row.total : key === "items" ? row.items : row.date || null);
   return [...rows].sort((a, b) => {
@@ -70,38 +243,20 @@ function renderPurchaseView(visible, hits) {
   purchaseViewSyncBar();
 }
 
-// De balk laat zien wat er gekozen is: de actieve weergave, de sortering (ook in de tabelkoppen) en de opties.
+// De balk en de tabelkoppen laten zien wat er gekozen is.
 function purchaseViewSyncBar() {
-  for (const button of document.querySelectorAll("#purchase-view-switch [data-view]")) {
-    const active = button.dataset.view === purchaseView.view;
-    button.setAttribute("aria-pressed", String(active));
-    button.classList.toggle("is-active", active);
-  }
+  syncViewBar("purchase", purchaseView, purchaseBarSpec());
   const { key, dir } = purchaseView.sort;
-  $("#purchase-sort-current").textContent = `${t(`orders.sort.${key}`)} ${dir === "asc" ? "↑" : "↓"}`;
-  for (const item of document.querySelectorAll("#purchase-sort-list [data-sort-key]")) item.classList.toggle("is-active", item.dataset.sortKey === key);
-  for (const item of document.querySelectorAll("#purchase-sort-list [data-sort-dir]")) item.classList.toggle("is-active", item.dataset.sortDir === dir);
   for (const button of document.querySelectorAll(".purchase-table__sort")) {
     const th = button.closest("th");
     if (button.dataset.sort === key) th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
     else th.removeAttribute("aria-sort");
   }
-  for (const item of document.querySelectorAll("#purchase-options-list [data-size]")) item.classList.toggle("is-active", item.dataset.size === purchaseView.options.size);
-  for (const input of document.querySelectorAll("#purchase-options-list [data-option]")) input.checked = Boolean(purchaseView.options[input.dataset.option]);
-}
-
-function purchaseViewApply() {
-  purchaseViewSave();
-  if (ordersState.loaded) renderOrders();
-  else purchaseViewSyncBar();
 }
 
 // Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere sleutel wordt aflopend (zoals het menu).
 function purchaseSortBy(key, dir = null) {
-  if (dir) purchaseView.sort = { key: purchaseView.sort.key, dir };
-  else if (purchaseView.sort.key === key) purchaseView.sort = { key, dir: purchaseView.sort.dir === "asc" ? "desc" : "asc" };
-  else purchaseView.sort = { key, dir: "desc" };
-  purchaseViewApply();
+  purchaseView.sortBy(key, dir);
 }
 
 // Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js).
@@ -119,37 +274,21 @@ window.addEventListener("resize", () => {
 });
 
 purchaseViewLoad();
-$("#purchase-view-switch").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-view]");
-  if (!button) return;
-  purchaseView.view = button.dataset.view;
-  purchaseViewApply();
-});
-$("#purchase-sort-list").addEventListener("click", (event) => {
-  const item = event.target.closest("[data-sort-key], [data-sort-dir]");
-  if (!item) return;
-  if (item.dataset.sortKey) purchaseView.sort = { key: item.dataset.sortKey, dir: purchaseView.sort.dir };
-  else purchaseView.sort = { key: purchaseView.sort.key, dir: item.dataset.sortDir };
-  setSubtabMenu($("#purchase-sort-menu"), false);
-  purchaseViewApply();
-});
-$("#purchase-options-list").addEventListener("click", (event) => {
-  const item = event.target.closest("[data-size]");
-  if (!item) return;
-  purchaseView.options.size = item.dataset.size;
-  purchaseViewApply();
-});
-$("#purchase-options-list").addEventListener("change", (event) => {
-  const input = event.target.closest("[data-option]");
-  if (!input) return;
-  purchaseView.options[input.dataset.option] = input.checked;
-  purchaseViewApply();
+renderViewBar("purchase", purchaseView, purchaseBarSpec());
+bindViewBar("purchase", purchaseView, () => {
+  if (ordersState.loaded) renderOrders();
+  else purchaseViewSyncBar();
 });
 document.querySelector(".purchase-table thead").addEventListener("click", (event) => {
   const button = event.target.closest(".purchase-table__sort");
   if (button) purchaseSortBy(button.dataset.sort);
 });
 purchaseViewSyncBar();
+// Een andere taal: de balk opnieuw, met de labels in die taal (orders.js tekent de lijst en de statusregel al opnieuw).
+window.addEventListener("ms:languagechange", () => {
+  renderViewBar("purchase", purchaseView, purchaseBarSpec());
+  purchaseViewSyncBar();
+});
 
 // ---- Kaarten: een raster met per aankoop een collage van productfoto's en de belangrijkste gegevens eronder.
 

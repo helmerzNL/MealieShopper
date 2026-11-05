@@ -49,14 +49,32 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
         self.assertLess(scripts.index("orders.js"), scripts.index("purchase_views.js"))
         self.assertLess(scripts.index("purchase_views.js"), scripts.index("nav_tree.js"))
 
-    def test_the_bar_has_the_switch_the_sort_menu_and_the_options_menu(self):
-        for needle in ('id="purchase-view-switch"', 'data-view="table"', 'data-view="cards"', 'data-view="overview"',
-                       'id="purchase-sort-menu"', 'data-sort-key="date"', 'data-sort-key="amount"', 'data-sort-key="items"', 'data-sort-dir="asc"',
-                       'id="purchase-options-menu"', 'data-size="small"', 'data-size="large"', 'data-option="status"', 'data-option="savings"', 'data-option="names"'):
-            self.assertIn(needle, HTML)
-        self.assertLess(HTML.index('class="purchase-filters"'), HTML.index('class="purchase-bar"'))
-        self.assertLess(HTML.index('class="purchase-bar"'), HTML.index('id="ah-purchase-table-wrap"'))
-        self.assertLess(HTML.index('class="purchase-bar"'), HTML.index('id="ah-purchase-status"'), "de statusregel staat in de balk")
+    def test_the_bar_is_rendered_once_from_javascript_for_both_pages(self):
+        self.assertIn('data-view-bar="purchase"', HTML)
+        self.assertIn('data-view-bar="order"', HTML)
+        self.assertNotIn('id="purchase-view-switch"', HTML)
+        self.assertEqual(VIEWS.count("subtab-menu__toggle--select"), 2, "het sorteer- en het optiemenu staan één keer in de code")
+        self.assertLess(HTML.index('class="purchase-filters"'), HTML.index('data-view-bar="purchase"'))
+        self.assertLess(HTML.index('data-view-bar="purchase"'), HTML.index('id="ah-purchase-table-wrap"'))
+        self.assertLess(HTML.index('id="ah-order-meta"'), HTML.index('data-view-bar="order"'))
+        self.assertIn('<div class="purchase-bar" data-view-bar="order" hidden></div>', HTML)
+        self.assertIn('renderViewBar("purchase", purchaseView, purchaseBarSpec());', VIEWS)
+
+    def test_the_bar_labels_come_from_the_dictionary_in_the_script(self):
+        for key in ("orders.view.label", "orders.view.table", "orders.view.cards", "orders.view.overview",
+                    "orders.sort.label", "orders.sort.date", "orders.sort.amount", "orders.sort.items", "orders.sort.asc", "orders.sort.desc",
+                    "orders.options.label", "orders.options.size", "orders.options.small", "orders.options.medium", "orders.options.large",
+                    "orders.options.status", "orders.options.savings", "orders.options.names"):
+            self.assertIn(f't("{key}")', VIEWS, key)
+            self.assertNotIn(f'data-i18n="{key}"', HTML, key)
+        self.assertIn('window.addEventListener("ms:languagechange"', VIEWS)
+
+    def test_the_bar_binds_its_menus_the_way_the_other_menus_do(self):
+        render = function_source(VIEWS, "renderViewBar")
+        self.assertIn('querySelectorAll(".subtab-menu").forEach(bindSubtabMenu)', render)
+        bind = function_source(VIEWS, "bindViewBar")
+        self.assertIn("setSubtabMenu(", bind)
+        self.assertIn('[data-view-bar="${prefix}"]', VIEWS)
 
     def test_every_kind_has_a_colour_dot_in_the_table_and_at_the_checkboxes(self):
         self.assertIn("purchase-kind--order", HTML.split('id="ah-filter-orders"')[1][:200])
@@ -70,14 +88,14 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
             self.assertIn(f'class="purchase-table__sort" data-sort="{key}"', HTML)
 
     def test_the_state_is_remembered_and_bad_values_fall_back(self):
-        for needle in ('localStorage.getItem("ms-purchases-view")', 'localStorage.getItem("ms-purchases-sort")', 'localStorage.getItem("ms-purchases-options")',
+        for needle in ("`ms-${prefix}s-view`", "`ms-${prefix}s-sort`", "`ms-${prefix}s-options`",
                        'const PURCHASE_VIEWS = ["table", "cards", "overview"]', 'const PURCHASE_SORT_KEYS = ["date", "amount", "items"]',
-                       "function purchaseViewLoad()", "function purchaseViewSave()"):
+                       "function purchaseViewLoad()", "function viewState(prefix, defaults, allowed)"):
             self.assertIn(needle, VIEWS)
         self.assertIn("} catch {", VIEWS)
 
     def test_the_rows_are_sorted_in_the_script_with_nulls_last(self):
-        self.assertIn("function purchaseSortRows(rows)", VIEWS)
+        self.assertIn("function purchaseSortRows(rows, sort = purchaseView.sort)", VIEWS)
         self.assertIn("const visible = purchaseSortRows(rows.filter((row) => purchaseVisible(row, hits)));", ORDERS)
         self.assertIn("renderPurchaseView(visible, hits)", ORDERS)
         self.assertIn("function renderPurchaseTable(visible, hits)", ORDERS)
