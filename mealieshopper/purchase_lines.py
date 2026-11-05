@@ -181,26 +181,39 @@ def _title(kind: str, item: Mapping[str, Any]) -> str:
     return str(item.get("title") or "")
 
 
+def _receipt_price(item: Mapping[str, Any], quantity: float) -> float | None:
+    """De prijs per stuk op een bon: `price`, en zonder prijs (AH zet bij één stuk alleen het bedrag op de bon) het bedrag gedeeld
+    door het aantal."""
+    price: float | None = _number(item.get("price"))
+    amount: float | None = _number(item.get("amount"))
+    if price is None and amount is not None and quantity > 0:
+        return amount / quantity
+    return price
+
+
 def _paid_each(kind: str, item: Mapping[str, Any], quantity: float) -> float | None:
-    """Wat je per stuk betaalde. Bestelling: `price`, ingelezen: `paid`, bon: `price` min de bonus per stuk, nooit onder nul."""
+    """Wat je per stuk betaalde. Bestelling: `price`, ingelezen: `paid`, bon: de prijs (`_receipt_price`) min de bonus per stuk,
+    nooit onder nul."""
     if kind == "imported":
         return _number(item.get("paid"))
-    price: float | None = _number(item.get("price"))
-    if kind != "receipt" or price is None or quantity <= 0:
+    if kind != "receipt":
+        return _number(item.get("price"))
+    price: float | None = _receipt_price(item, quantity)
+    if price is None or quantity <= 0:
         return price
     return max(price - (_number(item.get("bonus")) or 0.0) / quantity, 0.0)
 
 
 def _store_regular(kind: str, item: Mapping[str, Any]) -> float | None:
     """De prijs ervoor die de winkel zelf noemt: bij een bestelling `priceBeforeBonus`, bij een ingelezen bestelling de prijs uit de
-    mail (`price`) en op een bon de prijs op de regel als er een bonus bij hoort (de bon noemt de prijs vóór de bonus)."""
+    mail (`price`) en op een bon de prijs op de regel als er een bonus bij hoort (de bon noemt de prijs vóór de bonus,
+    `_receipt_price`)."""
     if kind == "order":
         return _number(item.get("priceBeforeBonus"))
     if kind == "imported":
         return _number(item.get("price"))
-    return (
-        _number(item.get("price")) if (_number(item.get("bonus")) or 0.0) > 0 else None
-    )
+    quantity: float = _number(item.get("quantity")) or 0.0
+    return _receipt_price(item, quantity) if (_number(item.get("bonus")) or 0.0) > 0 else None
 
 
 def _enrich_line(store: str, kind: str, item: dict[str, Any], counts: dict[str, int]) -> tuple[float, float]:

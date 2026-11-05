@@ -97,6 +97,15 @@ class ReceiptBonusTest(unittest.TestCase):
         self.assertEqual(items[0]["timesBefore"], 0)  # zonder database: niets eerder
         self.assertEqual((totals["saved"], totals["savedPercent"]), (2.59, 100))
 
+    def test_a_receipt_line_of_one_without_a_price_uses_its_amount(self):
+        # AH zet bij één stuk geen prijs op de bon, alleen het bedrag. Zonder die terugval was er niets betaald en 100% bespaard.
+        items = [{"name": "RED VELVET", "quantity": 1, "price": None, "amount": 7.99, "bonus": 2.8}, {"name": "MELK", "quantity": 2, "price": None, "amount": 2.0, "bonus": 0.0}]
+        totals = purchase_lines.enrich(None, "ah", "receipt", "2026-10-30", items)
+        self.assertEqual((items[0]["paidEach"], items[0]["regularPrice"], items[0]["discountSource"], items[0]["discount"]), (5.19, 7.99, "store", 35))
+        self.assertEqual((items[1]["paidEach"], items[1]["regularPrice"], items[1]["discount"]), (1.0, None, None))
+        # 2.80 bespaard. Betaald 5.19 + 2.00 = 7.19, zonder korting 9.99: 28%.
+        self.assertEqual((totals["saved"], totals["savedPercent"]), (2.8, 28))
+
     def test_a_bonus_line_that_matches_no_line_counts_only_in_the_total(self):
         lines = [{"name": "BROOD", "quantity": 1, "price": 2.0, "amount": 2.0}, {"name": "WASMIDDEL", "quantity": 2, "price": 19.0, "amount": 38.0}]
         discounts = [{"name": "PERLAHUISBLE", "amount": -17.97}, {"name": "BROOD", "amount": -0.5}]
