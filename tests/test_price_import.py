@@ -299,7 +299,8 @@ class OrdersTest(ImportCase):
         self.run_import(mail_order())
         order = price_import.get_order("ah", "225301")
         self.assertEqual(order["deliveryDate"], "2025-03-14")
-        unlinked = {"productId": None, "image": None, "brand": None, "unitSize": None}  # nog geen product van AH bekend
+        # Nog geen product van AH bekend, en dus ook geen eigen koppeling (#238).
+        unlinked = {"productId": None, "image": None, "brand": None, "unitSize": None, "productTitle": None, "link": None}
         mail_fields = ("title", "quantity", "paid", "price", "amount", "bonus", *unlinked)  # de verrijking staat erbij, zie hieronder
         self.assertEqual([{field: item[field] for field in mail_fields} for item in order["items"]], [
             {"title": "AH Bananen tros", "quantity": 2, "paid": 1.19, "price": 1.19, "amount": 2.38, "bonus": False, **unlinked},

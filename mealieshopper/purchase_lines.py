@@ -12,6 +12,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from . import product_links
 from .offer_categories import purchase_category
 
 log = logging.getLogger(__name__)
@@ -127,7 +128,8 @@ def times_before(
     conn, store: str, product_ids: Iterable[Any], before_day: str
 ) -> dict[str, int]:
     """Hoe vaak je elk product eerder kocht: het aantal bestellingen (`<store>_order_items`) van vóór `before_day` met dat product,
-    plus bij AH het aantal kassabonnen van vóór die dag met een regel die via `ah_receipt_products` bij dat product hoort.
+    plus bij AH het aantal kassabonnen van vóór die dag met een regel die bij dat product hoort (je eigen koppeling, #238, of de
+    automatische in `ah_receipt_products`: `product_links.RECEIPT_LINE_JOIN_SQL`).
 
     Een aankoop telt één keer, ook als het product er op twee regels staat. Een product dat je niet eerder kocht ontbreekt.
     """
@@ -140,6 +142,8 @@ def times_before(
     )
     if conn is None or not ids or store not in ("ah", "jumbo"):
         return {}
+    if store == "ah":
+        product_links.ensure(conn)  # de tabel en `ms_fold` voor de bonregels, ook op een verbinding van `price_import`
     tables: set[str] = _tables(conn)
     counts: dict[str, int] = {}
     if {f"{store}_orders", f"{store}_order_items"} <= tables:
@@ -154,15 +158,17 @@ def times_before(
         )
     if (
         store == "ah"
-        and {"ah_receipts", "ah_receipt_items", "ah_receipt_products"} <= tables
+        and {"ah_receipts", "ah_receipt_items", "ah_receipt_products", "product_links"}
+        <= tables
     ):
+        product: str = product_links.RECEIPT_LINE_PRODUCT_SQL
         receipts: dict[str, int] = _count(
             conn,
-            """
-            SELECT CAST(p.product_id AS TEXT), COUNT(DISTINCT l.receipt_id) FROM ah_receipt_items l
+            f"""
+            SELECT CAST({product} AS TEXT), COUNT(DISTINCT l.receipt_id) FROM ah_receipt_items l
             JOIN ah_receipts r ON r.receipt_id = l.receipt_id
-            JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-            WHERE CAST(p.product_id AS TEXT) IN ({marks}) AND substr(r.date_time, 1, 10) < ? GROUP BY 1""",
+            {product_links.RECEIPT_LINE_JOIN_SQL}
+            WHERE CAST({product} AS TEXT) IN ({{marks}}) AND substr(r.date_time, 1, 10) < ? GROUP BY 1""",
             ids,
             before_day,
         )

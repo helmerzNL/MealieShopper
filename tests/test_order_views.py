@@ -59,6 +59,8 @@ ORDER_FUNCTIONS = (
     "orderTableRow",
     "orderLineBadges",
     "orderGroupSummary",
+    "orderLineName",
+    "orderLineLink",
 )
 ORDER_CONSTS = (
     "ORDER_VIEWS",
@@ -89,6 +91,10 @@ def prelude():
             function_source("viewState", PURCHASE_VIEWS),
             function_source("foldText", ORDERS),
             function_source("matchesQuery", ORDERS),
+            # De knop Koppelen (#238) bij een regel van een bon of ingelezen bestelling: hier alleen een merkteken.
+            function_source("receiptLinkLine", ORDERS),
+            function_source("importedLinkLine", ORDERS),
+            "const productLinkButton = (line) => `<button data-product-link data-name=\"${escapeHtml(line.name)}\"></button>`;",
         ]
         + [function_source(name, ORDER_VIEWS) for name in ORDER_FUNCTIONS]
         + [const_source(name, ORDER_VIEWS) for name in ORDER_CONSTS]

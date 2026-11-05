@@ -69,6 +69,9 @@ def prelude():
             const_source(CATEGORIES, "CATEGORY_ORDER"),
             function_source(CATEGORIES, "categoryLabel"),
             function_source(CATEGORIES, "categoryChip"),
+            function_source(ORDERS, "receiptLinkLine"),
+            function_source(ORDERS, "importedLinkLine"),
+            "const productLinkButton = () => '';",
         ]
         + [
             function_source(ORDER_VIEWS, name)

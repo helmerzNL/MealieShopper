@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 TODAY = "2026-10-20"
@@ -668,6 +668,19 @@ class RegularPricesTest(PricesCase):
         self.assertEqual(rows["PENNE"]["regular_price"], 1.19)
         self.assertIsNone(rows["ONBEKEND"]["regular_price"])
         self.assertTrue(rows["ONBEKEND"]["regular_checked_at"])
+
+    def test_a_receipt_line_you_linked_yourself_gets_the_regular_price_of_that_product(self):
+        # De automatische koppeling zegt product 2, jij koppelde de regel aan product 1 (#238): je eigen koppeling gaat voor.
+        self.observe("2026-09-10", "1", "AH Penne", 1.19)
+        self.observe("2026-09-10", "2", "AH Spaghetti", 2.49)
+        self.ah_receipt("R1", "2026-09-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89), (777, "FUSILLI", 1, 0.99, 0.99))
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 2, 'AH Spaghetti', 'x')")
+        product_links.save("ah", "PENNE", {"productId": "1", "title": "AH Penne"}, article=555, now=self.NOW)
+        product_links.save("ah", "FUSILLI", {"productId": "1", "title": "AH Penne"}, now=self.NOW)  # op naam, de regel heeft geen koppeling
+        self.assertEqual(prices.fill_regular_prices("ah", now=self.NOW), 2)
+        rows = {r["name"]: r["regular_price"] for r in self.rows("SELECT name, regular_price FROM ah_receipt_items")}
+        self.assertEqual(rows, {"PENNE": 1.19, "FUSILLI": 1.19})
 
     def test_a_jumbo_order_line_gets_its_regular_price(self):
         from mealieshopper import jumbo_orders

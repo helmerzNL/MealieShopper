@@ -42,7 +42,9 @@ function orderLineSaved(line) {
 
 // Eén regel van een bestelling, bon of ingelezen bestelling in de vorm die de weergaven gebruiken. Bij een bon is `title` de titel
 // van het gekoppelde webwinkelproduct (anders de naam op de bon) en `name` de naam op de bon. Zonder koppeling geen link en geen
-// foto. `id` is de plaats in de aankoop (sorteren op categorie houdt binnen een categorie die volgorde).
+// foto. `id` is de plaats in de aankoop (sorteren op categorie houdt binnen een categorie die volgorde). `linkLine` is wat de knop
+// Koppelen of Ander product kiezen (#238, product_links.js) van de regel moet weten: alleen bij een bon of ingelezen bestelling
+// (receiptLinkLine en importedLinkLine in orders.js), bij een bestelling uit je account null.
 function orderLine(item, index, kind, store) {
   const receipt = kind === "receipt";
   const product = receipt ? item.product || null : null;
@@ -76,6 +78,7 @@ function orderLine(item, index, kind, store) {
     regularPrice: typeof item.regularPrice === "number" ? item.regularPrice : null,
     productId,
     href: title && (!receipt || product) ? priceHistoryPath(store, title, productId || "") : null,
+    linkLine: receipt ? receiptLinkLine(item) : kind === "imported" ? importedLinkLine(item, store) : null,
   };
   line.saved = orderLineSaved(line);
   line.paid = orderLinePaid(line, receipt);
@@ -154,14 +157,25 @@ function orderLineBadges(line) {
   return parts.filter(Boolean).join(" ");
 }
 
+// De naam van een regel, als link naar de prijsgeschiedenis zodra de regel bij een webwinkelproduct hoort.
+function orderLineName(line) {
+  return line.href ? `<a href="${escapeHtml(line.href)}" data-route>${escapeHtml(line.title)}</a>` : escapeHtml(line.title);
+}
+
+// De knop Koppelen of Ander product kiezen (#238, product_links.js) bij een regel van een bon of ingelezen bestelling, anders niets.
+function orderLineLink(line) {
+  return line.linkLine ? productLinkButton(line.linkLine) : "";
+}
+
 // "13 stuks in 8 soorten", met het meervoud van beide.
 function orderGroupSummary(group) {
   return t("orders.group.summary", { units: tn("orders.group.units", group.units), kinds: tn("orders.group.kinds", group.kinds) });
 }
 
 // Een compacte regel in een categoriesectie: foto, naam (link naar de prijsgeschiedenis), merk en inhoud, badges, aantal, bedrag.
+// Achter de naam van een regel van een bon of ingelezen bestelling de knop Koppelen (#238), zoals op het bonnetje.
 function orderCategoryLine(line) {
-  const name = line.href ? `<a href="${escapeHtml(line.href)}" data-route>${escapeHtml(line.title)}</a>` : escapeHtml(line.title);
+  const name = orderLineName(line) + orderLineLink(line);
   const meta = [line.brand, line.unitSize].filter(Boolean).join(" · ");
   const photo = line.image ? `<img src="${escapeHtml(storeImage(line.image))}" alt="" loading="lazy" data-hide-on-error>` : "";
   const badges = orderLineBadges(line);
@@ -192,7 +206,7 @@ function orderCategorySection(group) {
 }
 
 function orderTableRow(line) {
-  const name = line.href ? `<a href="${escapeHtml(line.href)}" data-route>${escapeHtml(line.title)}</a>` : escapeHtml(line.title);
+  const name = orderLineName(line) + orderLineLink(line);
   const bonus = line.bonus ? ` ${badge("bonus", t("list.bonus"), typeof line.bonus === "number" ? `-${money(line.bonus)}` : "")}` : "";
   return `<tr class="order-table__row cat--${escapeHtml(line.category)}">
       <td class="order-table__cat"><i class="offer-chip__dot" aria-hidden="true"></i>${escapeHtml(categoryLabel(line.category))}</td>

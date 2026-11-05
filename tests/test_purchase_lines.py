@@ -8,7 +8,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, jumbo_orders, purchase_lines
+from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
 
 
 class DiscountTest(unittest.TestCase):
@@ -279,6 +279,22 @@ class TimesBeforeTest(unittest.TestCase):
                 conn, "ah", ["1", None, "", 2], "2026-09-21"
             )
         self.assertEqual(found, {"1": 2})
+
+    def test_a_receipt_line_you_linked_yourself_counts_as_an_earlier_purchase(self):
+        # Geen automatische koppeling voor 555, wel je eigen (#238): de bon telt bij product 1. De naamkoppeling van "KWARK" telt bij 2.
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
+            )
+            conn.executemany(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', ?, ?, ?, 1, 1.0, 1.0)",
+                [(0, 555, "BANANEN"), (1, None, "KWARK")],
+            )
+        product_links.save("ah", "BANANEN", {"productId": "1", "title": "AH Bananen"}, article=555)
+        product_links.save("ah", "KWARK", {"productId": "2", "title": "AH Kwark"})
+        with closing(ah_orders._connect()) as conn:
+            found = purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
+        self.assertEqual(found, {"1": 1, "2": 1})
 
     def test_a_store_without_tables_counts_nothing(self):
         with closing(auth.connect()) as conn:

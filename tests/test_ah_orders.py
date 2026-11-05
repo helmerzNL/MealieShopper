@@ -8,7 +8,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache  # noqa: E402
+from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ACTIVE = {
@@ -963,6 +963,14 @@ class LinkingStatusTest(AhOrdersTestCase):
             self.assertEqual(ah_orders.receipt_linking_todo(conn, "R1", self.NOW), {"unlinked": 3, "due": 2})
         receipt = self.client.get("/api/ah/receipts/R1").get_json()
         self.assertEqual(receipt["linkingTodo"], {"unlinked": 3, "due": 2})
+
+    def test_a_line_you_linked_yourself_is_linked_for_the_count_and_the_round(self):
+        # 556 koppelde je zelf (#238): geen regel zonder product meer, en geen zoekopdracht bij AH. 555 staat nog open.
+        product_links.save("ah", "TOMATEN", {"productId": "4711", "title": "AH Tomaten"}, article=556, now=self.NOW)
+        with closing(ah_orders._connect()) as conn:
+            self.assertEqual(ah_orders.receipt_linking_todo(conn, "R1", self.NOW), {"unlinked": 1, "due": 1})
+            self.assertEqual([group["ids"] for group in ah_orders._todo_by_name(conn, self.NOW)], [[555]])
+        self.assertEqual(ah_orders.linking_status()["todo"]["lines"], 1)
 
     def test_an_expired_pause_is_no_pause(self):
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-05T02:02:00+00:00")

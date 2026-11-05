@@ -742,6 +742,10 @@ $("#offers-history-import").addEventListener("click", () => openPriceImport(offe
 window.addEventListener("ms:imported-orders", () => {
   if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
 });
+// Na een eigen koppeling (#238): de aankopen van die regel staan nu bij het gekozen product.
+window.addEventListener("ms:product-links", () => {
+  if (document.querySelector("#offers-history.is-active")) loadOfferHistory();
+});
 $("#import-copy").addEventListener("click", copyPriceImportPrompt);
 $("#import-check").addEventListener("click", checkPriceImport);
 $("#import-run").addEventListener("click", runPriceImport);

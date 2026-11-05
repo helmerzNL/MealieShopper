@@ -25,7 +25,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
-from . import ah, ah_lists, audit, auth, image_cache, price_import, purchase_lines
+from . import ah, ah_lists, audit, auth, image_cache, price_import, product_links, purchase_lines
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def _connect():
     _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
     for table in ("ah_order_items", "ah_receipt_items"):
         _ensure_columns(conn, table, REGULAR_COLUMNS)
-    return conn
+    return product_links.ensure(conn)  # je eigen koppelingen (#238) gaan voor `ah_receipt_products`
 
 
 def _ensure_columns(conn, table: str, columns: tuple[tuple[str, str], ...]) -> None:
@@ -587,7 +587,9 @@ def _receipt_queries(name: str) -> list[str]:
 # Een bonregel `l` (met `ah_receipt_products p` erbij via een LEFT JOIN) zonder webwinkelproduct, en zo'n regel die aan de beurt is
 # om opgezocht te worden: met een naam, nooit opgezocht of langer dan `RECEIPT_PRODUCTS_RECHECK_DAYS` geleden niet gevonden (de
 # parameter is `_recheck_before`).
-_UNLINKED_SQL = "l.product_id IS NOT NULL AND l.product_id != 0 AND p.product_id IS NULL"
+# Een bonregel zonder webwinkelproduct: geen automatische koppeling (`p`) en geen eigen koppeling op het artikelnummer (#238).
+_UNLINKED_SQL = """l.product_id IS NOT NULL AND l.product_id != 0 AND p.product_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM product_links k WHERE k.store = 'ah' AND k.kind = 'article' AND k.key = CAST(l.product_id AS TEXT))"""
 _DUE_SQL = "COALESCE(l.name, '') != '' AND (p.receipt_product_id IS NULL OR p.checked_at < ?)"
 
 
@@ -598,7 +600,8 @@ def _recheck_before(now: str) -> str:
 
 def _todo_by_name(conn, now: str) -> list[dict[str, Any]]:
     """De artikelnummers die nog niet gekoppeld zijn en aan de beurt zijn, per naam op de bon (een naam als "REDBAND" hoort bij
-    meer artikelnummers en kost dan een zoekopdracht), de vaakst gekochte naam eerst."""
+    meer artikelnummers en kost dan een zoekopdracht), de vaakst gekochte naam eerst. Een artikelnummer dat je zelf koppelde (#238)
+    zoeken we niet meer op: dat spaart zoekopdrachten bij AH."""
     rows = conn.execute(
         f"""
         SELECT l.product_id AS id, MAX(l.name) AS name, COUNT(*) AS bought FROM ah_receipt_items l
@@ -1049,15 +1052,21 @@ def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:
     }
 
 
+# Het product van een bonregel: je eigen koppeling (#238) gaat voor de automatische, zie `product_links.RECEIPT_LINE_JOIN_SQL`.
+_LINE_LINKS_SQL = product_links.RECEIPT_LINE_JOIN_SQL
+_LINE_PRODUCT_SQL = product_links.RECEIPT_LINE_PRODUCT_SQL
+_LINE_TITLE_SQL = product_links.RECEIPT_LINE_TITLE_SQL
+_LINE_IMAGE_SQL = product_links.RECEIPT_LINE_IMAGE_SQL
+
 # De samenvatting per bon: de foto's van de gekoppelde webwinkelproducten en de namen (die van de webwinkel als ze er zijn), in de
 # volgorde van de bon; het bedrag van de bonusregels (positief) en de betaalwijze uit de JSON-kolommen.
 _RECEIPT_SUMMARY_SQL = f"""
-    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT p.image FROM ah_receipt_items l
-        JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.receipt_id = r.receipt_id AND p.image != '' ORDER BY l.position LIMIT {SUMMARY_IMAGES})) AS summary_images,
-    (SELECT GROUP_CONCAT(name, char(10)) FROM (SELECT COALESCE(NULLIF(p.title, ''), l.name) AS name FROM ah_receipt_items l
-        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
-        WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF(p.title, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
+    (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT {_LINE_IMAGE_SQL} AS image FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
+        WHERE l.receipt_id = r.receipt_id AND COALESCE({_LINE_IMAGE_SQL}, '') != '' ORDER BY l.position LIMIT {SUMMARY_IMAGES})) AS summary_images,
+    (SELECT GROUP_CONCAT(name, char(10)) FROM (SELECT COALESCE(NULLIF({_LINE_TITLE_SQL}, ''), l.name) AS name FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
+        WHERE l.receipt_id = r.receipt_id AND COALESCE(NULLIF({_LINE_TITLE_SQL}, ''), l.name) != '' ORDER BY l.position LIMIT {SUMMARY_NAMES})) AS summary_names,
     (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
     (SELECT -SUM(json_extract(value, '$.amount'))
         FROM json_each(CASE WHEN json_valid(r.discounts) THEN r.discounts ELSE '[]' END)) AS summary_savings,
@@ -1097,11 +1106,15 @@ def list_receipts(summary: bool = False) -> dict[str, Any]:
 
 
 def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
-    """De regels van een bon, elk met het webwinkelproduct (`product`: id en titel) als het artikelnummer al gekoppeld is, anders None."""
+    """De regels van een bon, elk met het webwinkelproduct (`product`: id, titel en foto) als de regel gekoppeld is, anders None.
+    Een eigen koppeling (#238) gaat voor de automatische; die regel heeft ook `link` ({"kind", "key"}), zodat het scherm hem kan
+    wijzigen of weghalen."""
     rows = conn.execute(
-        """
-        SELECT l.*, p.product_id AS webshop_id, p.title AS webshop_title, p.image AS webshop_image FROM ah_receipt_items l
-        LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+        f"""
+        SELECT l.*, {_LINE_PRODUCT_SQL} AS webshop_id, {_LINE_TITLE_SQL} AS webshop_title, {_LINE_IMAGE_SQL} AS webshop_image,
+               COALESCE(k1.kind, k2.kind) AS link_kind, COALESCE(k1.key, k2.key) AS link_key
+        FROM ah_receipt_items l
+        {_LINE_LINKS_SQL}
         WHERE l.receipt_id = ? ORDER BY l.position
         """,
         (receipt_id,),
@@ -1111,6 +1124,7 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
             "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
             "product": {"id": row["webshop_id"], "title": row["webshop_title"], "image": row["webshop_image"] or ""} if row["webshop_id"] else None,
             "regularPrice": row["regular_price"],
+            "link": {"kind": row["link_kind"], "key": row["link_key"]} if row["link_kind"] else None,
         }
         for row in rows
     ]
