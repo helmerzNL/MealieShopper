@@ -15,6 +15,16 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API.** `GET /api/product-links`, `PUT /api/product-links`, `DELETE /api/product-links/<winkel>/<soort>/<sleutel>` en `GET /api/product-links/search?store=&q=` (één zoekopdracht bij de winkel, in dezelfde vorm voor alle winkels; de gevonden prijzen gaan ook in de Prijsgeschiedenis). Een bonregel heeft `link` als je hem zelf koppelde; een regel van een ingelezen bestelling heeft ook `productTitle` en `link`.
 - **Handleiding** (NL en EN): *Zelf koppelen* bij de kassabonnen, met een nieuw screenshot (`receipt-link.png`), en de README's.
 
+## v3.7.2
+
+### Opgelost in 3.7.2
+
+*English summary: the photos of newer Picnic recipes show again. Picnic names a recipe photo by the box it fits in (`300x300`, `1000x1000`); only older recipes also have the names `medium` and `large`. MealieShopper asked for `medium.png` and `large.png`, which a newer recipe answers with 403 AccessDenied, so its photo stayed away in the recipe list, in the recipe and in a recipe imported into Mealie. Version 3.7.1 kept that one 403 from pausing all Picnic photos, but did not fetch the photo itself. A recipe photo now uses the size in pixels, which every recipe has (an older recipe gets the same photo as before). Product photos keep their names. Fixes [#236](https://github.com/helmerzNL/MealieShopper/issues/236).*
+
+- **Picnic: de foto's van nieuwere recepten staan er weer** ([#236](https://github.com/helmerzNL/MealieShopper/issues/236)). Na 3.7.1 hielden de recepten zonder foto de andere foto's niet meer tegen, maar die recepten bleven zonder foto. Ze hebben er wel een: Picnic noemt een receptfoto naar het vak waar hij in past (`300x300`, `1000x1000`), en alleen oudere recepten hebben ook de namen `medium` en `large`. MealieShopper vroeg om `medium.png` (de lijst) en `large.png` (het recept), en daarop antwoordt een nieuwer recept met `403 AccessDenied`. Nu vraagt hij om `300x300.png` en `1000x1000.png`: die heeft elk recept, en bij een ouder recept is het dezelfde foto als `medium` en `large`. Dat geldt voor *Recepten van Picnic*, een geopend recept, een recept dat je naar Mealie haalt en de recepten bij de aanbiedingen. Productfoto's van Picnic houden hun namen.
+- **De index van recepten bij de aanbiedingen** heeft de oude adressen van Picnic-recepten nog; die zet de app bij de start een keer om, zonder dat je de index opnieuw hoeft in te lezen.
+- **Een recept dat je al naar Mealie haalde**, houdt daar zijn ontbrekende foto. Verwijder je het in Mealie en haal je het opnieuw op, dan komt de foto mee.
+
 ## v3.7.1
 
 ### Opgelost in 3.7.1
