@@ -578,27 +578,20 @@ function offerColumns() {
   return columns.includes("(") ? 3 : Math.max(1, columns.split(" ").filter(Boolean).length);
 }
 
-function offerCategoryLabel(id) {
-  return t(`offers.cat.${id}`);
-}
+// Alias: de chips en het label wonen sinds 3.8 in categories.js.
+const offerCategoryLabel = categoryLabel;
 
 function renderOfferCategories() {
   const total = offersFiltered().length;
   const categories = offersShownCategories();
   if (offersState.category !== "all" && !categories.some((category) => category.id === offersState.category)) offersState.category = "all";
-  const chips = [{ id: "all", label: t("offers.all", { count: I18N.formatNumber(total) }) }].concat(
-    categories.map((category) => ({
-      id: category.id,
-      label: t("offers.chip", { count: I18N.formatNumber(category.count), category: offerCategoryLabel(category.id) }),
-    }))
-  );
   $("#offers-categories").hidden = !total;
-  $("#offers-categories").innerHTML = chips
-    .map(
-      (chip) =>
-        `<button class="offer-chip${offersState.category === chip.id ? " is-active" : ""}" type="button" data-cat="${escapeHtml(chip.id)}" aria-pressed="${offersState.category === chip.id}">${escapeHtml(chip.label)}</button>`
-    )
-    .join("");
+  $("#offers-categories").innerHTML = categoryChips({
+    categories,
+    active: offersState.category,
+    total,
+    allLabel: t("offers.all", { count: I18N.formatNumber(total) }),
+  });
 }
 
 function renderOfferGrid() {

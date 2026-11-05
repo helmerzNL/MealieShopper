@@ -5455,6 +5455,20 @@ body.has-onboarding {
   color: var(--on-primary);
 }
 
+.offer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.offer-chip__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cat-line, var(--border-strong));
+}
+
 /* Een kleur per categorie: de achtergrond en het accent (kaarten, koppen, bolletjes). */
 .cat--groente_fruit {
   --cat-bg: #e3f4e1;
