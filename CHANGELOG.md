@@ -16,6 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Geen inhoud onder de balk.** `--tabbar-h` (82 px iOS-achtig, 84 px Android-achtig) bepaalt de ruimte onder de pagina en de plek van de balk van *In bulk importeren*.
 - **Handleiding** (NL en EN): de navigatiebalk onder Weergave en een nieuwe screenshot (`navbar.png`); de README's en de huisstijl (`docs/huisstijl.md`) beschrijven beide stijlen en waarom het glas niet doorzichtiger gaat.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#249](https://github.com/helmerzNL/MealieShopper/pull/249).
 
 ## v3.11.0
 
