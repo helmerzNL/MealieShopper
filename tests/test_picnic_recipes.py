@@ -104,8 +104,29 @@ class SummariesTest(unittest.TestCase):
 
     def test_the_image_keeps_its_namespace(self):
         recipe = picnic_recipes.summaries(list_page(tile("r1", ["Pasta"], image="recipes/abc def")))[0]
-        self.assertTrue(recipe["image"].endswith("/static/images/recipes/abc%20def/medium.png"), recipe["image"])
+        self.assertTrue(recipe["image"].endswith("/static/images/recipes/abc%20def/300x300.png"), recipe["image"])
         self.assertIsNone(picnic_recipes.summaries(list_page(tile("r1", ["Pasta"], image=None)))[0]["image"])
+
+    def test_a_recipe_photo_has_a_size_in_pixels_and_a_product_photo_keeps_the_name(self):
+        # #236: een nieuwer recept van Picnic heeft geen `medium.png` of `large.png` (403 AccessDenied), wel `300x300.png` en
+        # `1000x1000.png`. Een ouder recept heeft beide, met dezelfde foto: `medium` past in 300x300, `large` in 1000x1000.
+        base = "https://storefront-prod.nl.picnicinternational.com/static/images"
+        with mock.patch.object(picnic, "country_code", return_value="NL"):
+            self.assertEqual(picnic.image_url("recipes/ac1b02"), f"{base}/recipes/ac1b02/300x300.png")
+            self.assertEqual(picnic.image_url("recipes/ac1b02", "large"), f"{base}/recipes/ac1b02/1000x1000.png")
+            self.assertEqual(picnic.image_url("recipes/ac1b02", "600x600"), f"{base}/recipes/ac1b02/600x600.png")
+            self.assertEqual(picnic.image_url("8560e1"), f"{base}/8560e1/medium.png")
+            self.assertEqual(picnic.image_url("8560e1", "large"), f"{base}/8560e1/large.png")
+        self.assertEqual(picnic.resized_image(f"{base}/recipes/ac1b02/300x300.png", "large"), f"{base}/recipes/ac1b02/1000x1000.png")
+        self.assertEqual(picnic.resized_image(f"{base}/8560e1/medium.png", "large"), f"{base}/8560e1/large.png")
+
+    def test_a_stored_recipe_photo_with_a_size_name_gets_the_size_in_pixels(self):
+        base = "https://storefront-prod.nl.picnicinternational.com/static/images"
+        self.assertEqual(picnic.current_image(f"{base}/recipes/ac1b02/large.png"), f"{base}/recipes/ac1b02/1000x1000.png")
+        self.assertEqual(picnic.current_image(f"{base}/recipes/ac1b02/medium.png"), f"{base}/recipes/ac1b02/300x300.png")
+        for unchanged in (f"{base}/recipes/ac1b02/1000x1000.png", f"{base}/8560e1/large.png", "https://static.ah.nl/x.jpg", "", None):
+            with self.subTest(url=unchanged):
+                self.assertEqual(picnic.current_image(unchanged), unchanged)
 
     def test_duplicates_nodes_without_markup_and_nameless_tiles_are_skipped(self):
         analytics_only = {"id": "x", "analytics": {"contexts": [{"data": {"recipe_id": "r9", "recipe_name": "Alleen analyse"}}]}}
@@ -195,7 +216,7 @@ class DetailsTest(TempDataDirTest):
     def test_the_recipe_is_read_from_its_page(self):
         recipe = picnic_recipes.details(detail_page(), "r1")
         self.assertEqual((recipe["name"], recipe["portions"], recipe["minutes"], recipe["stepsPortions"]), ("Pasta pesto", 4, 20, 4))
-        self.assertTrue(recipe["image"].endswith("/static/images/recipes/big/large.png"))
+        self.assertTrue(recipe["image"].endswith("/static/images/recipes/big/1000x1000.png"), recipe["image"])
         self.assertEqual(recipe["times"], [{"value": "20 min", "label": "Totaal"}, {"value": "€ 8,50", "label": "Per portie"}])
         self.assertEqual(recipe["steps"], ["Snijd de uien fijn.", "Bak ze met de pesto."])
 
