@@ -458,9 +458,9 @@ def create_app() -> Flask:
     def ah_linking_run():
         # Een ronde op afroep (de knop "Nu ophalen"), in een thread binnen het tempo van AH: voor een bon (receiptId) of voor alle
         # bonnen. Met force heft de beheerder eerst de pauze na een 403 of 429 op. Iedereen mag een ronde starten.
-        body = request.get_json(silent=True)
-        if body is None:
-            body = {}
+        # Een lege aanvraag is een ronde voor alle bonnen. Een body die er wel is maar geen JSON-object is, weigeren we: anders start
+        # een verminkte aanvraag de grote ronde.
+        body = request.get_json(silent=True) if request.get_data(cache=True) else {}
         receipt_id = body.get("receiptId") if isinstance(body, dict) else None
         force = body.get("force", False) if isinstance(body, dict) else False
         if not isinstance(body, dict) or not isinstance(receipt_id, (str, type(None))) or not isinstance(force, bool):

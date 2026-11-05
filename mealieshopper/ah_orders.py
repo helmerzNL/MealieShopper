@@ -936,19 +936,25 @@ def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
             "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,))}
         names = [group["name"] for group in _todo_by_name(conn, now) if on_receipt.intersection(group["ids"])]
     searches = sum(len(_receipt_queries(name)) for name in names)
-    products = resolve_receipt_names(names, searches=searches, now=now, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="receipt")
+    products = resolve_receipt_names(names, searches=searches, now=now, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger=_on_demand_trigger(receipt_id))
     with closing(_connect()) as conn:
         missing = {int(row[0]) for row in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
-    images = backfill_receipt_images(now, batches=2, only=missing, trigger="receipt") if missing else {"products": 0, "requests": 0, "failed": 0}
+    images = backfill_receipt_images(now, batches=2, only=missing, trigger=_on_demand_trigger(receipt_id)) if missing else {"products": 0, "requests": 0, "failed": 0}
     return {"products": products, "images": images}
+
+
+def _on_demand_trigger(receipt_id: str | None) -> str:
+    """De aanleiding van een ronde op afroep in `SETTING_LAST_ROUND`: "receipt" voor een bon, "manual" voor alle bonnen."""
+    return "receipt" if receipt_id else "manual"
 
 
 def _linking_round(receipt_id: str | None, now: str) -> dict[str, Any]:
     """Een ronde op afroep: voor een bon (`_receipt_round`) of voor alle bonnen zoals 's nachts."""
     if receipt_id:
         return _receipt_round(receipt_id, now)
-    products = resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="manual")
-    return {"products": products, "images": backfill_receipt_images(now, trigger="manual")}
+    trigger = _on_demand_trigger(None)
+    products = resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger=trigger)
+    return {"products": products, "images": backfill_receipt_images(now, trigger=trigger)}
 
 
 def _linking_worker(receipt_id: str | None, now: str, actor: str) -> None:
@@ -962,6 +968,12 @@ def _linking_worker(receipt_id: str | None, now: str, actor: str) -> None:
     except Exception as exc:  # noqa: BLE001 - een thread mag niet stilletjes sterven
         problem = exc
         log.exception("Koppelen: de ronde op afroep mislukte (bon %s)", receipt_id or "alle")
+    try:
+        # Ook een ronde zonder werk (alles al gekoppeld, of de pauze) staat daarna als laatste ronde, met nullen. Wat de ronde wel
+        # deed, staat er al onder dezelfde `now` en `trigger` en blijft gelijk.
+        _record_round(now, _on_demand_trigger(receipt_id), {})
+    except Exception:  # noqa: BLE001
+        log.exception("Koppelen: de laatste ronde vastleggen mislukte")
     try:
         audit.record(
             kind="task", service="ah", action="receipt linking" if receipt_id else "linking", ok=problem is None,

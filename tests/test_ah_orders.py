@@ -1097,6 +1097,41 @@ class LinkingStatusTest(AhOrdersTestCase):
             ah_orders._LINKING_THREAD.join(5)
         self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
 
+    def test_a_garbled_body_is_refused_and_starts_nothing(self):
+        for data, content_type in (("not json", "application/json"), ("receiptId=R1", "application/x-www-form-urlencoded"), ('"R1"', "application/json")):
+            with self.subTest(data=data):
+                with mock.patch.object(ah_orders, "run_linking") as run:
+                    response = self.client.post("/api/ah/linking/run", data=data, content_type=content_type)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("error", response.get_json())
+                run.assert_not_called()
+
+    def test_an_empty_body_runs_all_receipts(self):
+        with mock.patch.object(ah_orders, "_linking_round") as round_:
+            response = self.client.post("/api/ah/linking/run")
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(response.status_code, 202)
+        round_.assert_called_once_with(None, self.NOW)
+
+    def test_a_round_on_demand_with_nothing_to_do_still_writes_the_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.executemany("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (?, ?, ?, 'x', ?)",
+                             [(555, 1, "AH Komkommer", "https://static.ah.nl/1.jpg"), (556, 2, "AH Tomaten", "https://static.ah.nl/2.jpg")])
+        auth.set_setting(ah_orders.SETTING_LAST_ROUND, json.dumps({"at": "2026-11-05T02:00:00+00:00", "searches": 9, "found": 3, "trigger": "nightly"}))
+        with mock.patch.object(ah_orders, "_polite_search") as search:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"receiptId": "R1"}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        search.assert_not_called()
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual(last, {"at": self.NOW, "searches": 0, "found": 0, "missing": 0, "failed": 0, "images": 0, "trigger": "receipt"})
+
+    def test_a_round_on_demand_that_did_something_keeps_its_counts(self):
+        with mock.patch.object(ah_orders, "_polite_search", return_value=[(555, 1, "AH Komkommer", "")]):
+            self.client.post("/api/ah/linking/run", json={"receiptId": "R1"})
+            ah_orders._LINKING_THREAD.join(5)
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["searches"], last["found"], last["missing"], last["trigger"]), (2, 1, 1, "receipt"), "het nul-record telt niets bij")
+
     def test_a_bad_request_is_refused(self):
         for body in ({"receiptId": 5}, {"force": "ja"}, ["R1"]):
             with self.subTest(body=body):
