@@ -1326,6 +1326,7 @@ I18N.add("nl", {
   "system.reset_done_manual": "Alles is gewist. Start de app nu opnieuw (bijvoorbeeld de container) en ververs daarna deze pagina; je begint dan weer bij de onboarding.",
   "system.reset_waiting_timeout": "De app is nog niet terug. Ververs deze pagina zodra hij weer draait.",
   "system.images_line": "{count} winkelfoto's in de cache ({size} MB in de map images van de data-map). Ze gaan niet mee in de back-up en worden opnieuw opgehaald als ze ontbreken.",
+  "system.images_paused": "Nieuwe foto's van {store} worden tot {until} niet opgehaald, omdat {store} de app weerde (een 403 of 429). Daarna komen ze vanzelf.",
   "backup.title": "Back-up en terugzetten",
   "backup.intro": "Neem alle gegevens van deze installatie mee in één bestand en zet ze later terug, bijvoorbeeld op een nieuwe server: de koppelingen met Mealie, Albert Heijn, Picnic en Jumbo, je lijstjes, bestellingen en kassabonnen en de hele historie van de aanbiedingen. Dit is jouw eigen kopie; het vervangt geen back-up van de hele data-map.",
   "backup.make_title": "Back-up maken",
