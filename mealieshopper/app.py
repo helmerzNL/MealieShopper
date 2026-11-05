@@ -428,6 +428,7 @@ def create_app() -> Flask:
 
     @app.get("/api/ah/receipts")
     def ah_receipts_list():
+        ah_orders.backfill_receipt_images_async()  # ontbreken er nog foto's bij gekoppelde bonregels, dan komen er nu wat bij
         return jsonify(ah_orders.list_receipts(summary=True))
 
     @app.get("/api/ah/receipts/<receipt_id>")
@@ -440,8 +441,9 @@ def create_app() -> Flask:
     @app.post("/api/ah/receipts/<receipt_id>/products")
     def ah_receipt_products(receipt_id: str):
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
-        # ah_orders.resolve_receipt_names) en de bon met de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
-        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES))
+        # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
+        # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
+        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES), images=True)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)

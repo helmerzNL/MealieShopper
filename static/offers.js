@@ -282,12 +282,12 @@ function offerBadge(offer) {
   return `<span class="${cls}" title="${escapeHtml(offerBadgeTitle(offer))}">${escapeHtml(text)}</span>`;
 }
 
-// "mei" of "mei 2025": de maand uit "YYYY-MM", met het jaar erbij als het niet dit jaar is.
-function offerMonthText(month) {
+// "mei" of "mei 2025": de maand uit "YYYY-MM", met het jaar erbij als het niet dit jaar is (of altijd, voor een tooltip).
+function offerMonthText(month, withYear = false) {
   const date = new Date(`${month}-15T12:00:00`);
   if (Number.isNaN(date.getTime())) return month;
   const name = monthShort(date);
-  return date.getFullYear() === new Date().getFullYear() ? name : `${name} ${date.getFullYear()}`;
+  return !withYear && date.getFullYear() === new Date().getFullYear() ? name : `${name} ${date.getFullYear()}`;
 }
 
 function offerDateText(day) {
@@ -310,7 +310,7 @@ function offerPriceLabel(offer) {
   }
   if (label.kind === "lower_before") {
     const params = { price: formatPrice(label.price), month: offerMonthText(label.month) };
-    return { cls: grey, text: t("offers.label.lower_before", params), title: t("offers.label.lower_before_title", params) };
+    return { cls: grey, text: t("offers.label.lower_before", params), title: t("offers.label.lower_before_title", { ...params, month: offerMonthText(label.month, true) }) };
   }
   return null;
 }
@@ -333,12 +333,12 @@ function offerCardFoot(offer) {
 // van dezelfde hoogte. De link naar de winkel zit alleen om het plaatje (de titel is de link voor schermlezers), de badge en het
 // label staan ernaast, zodat een schermlezer ze wel leest.
 function offerThumb(offer, extraClass = "", bare = false) {
-  const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : "";
+  const image = offer.image ? `<img src="${escapeHtml(storeImage(offer.image))}" alt="" loading="lazy" data-hide-on-error>` : mdiIcon(MDI_IMAGE_OUTLINE, "mdi offer-card__thumb-icon");
   const overlay = bare ? "" : `${offerBadge(offer)}${offerPriceLabelHtml(offer)}`;
   const link = offer.url
     ? `<a class="offer-card__thumb-link" href="${escapeHtml(offer.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">${image}</a>`
     : `<span class="offer-card__thumb-link">${image}</span>`;
-  return `<div class="offer-card__thumb${image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" data-zoom="${escapeHtml(offer.id)}">${link}${overlay}</div>`;
+  return `<div class="offer-card__thumb${offer.image ? "" : " offer-card__thumb--empty"}${extraClass ? ` ${extraClass}` : ""}" data-zoom="${escapeHtml(offer.id)}">${link}${overlay}</div>`;
 }
 
 // De prijs op de kaart: wat een stuk met de actie kost, met daarnaast doorgestreept de laagste gewone prijs van 30 dagen als de app
@@ -367,8 +367,8 @@ function offerProductCard(offer) {
       <div class="offer-card__body">
         ${title}
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-        ${offerPersonalBadge(offer)}
         ${offer.promoLabel ? `<small class="bonus">${escapeHtml(offer.promoLabel)}</small>` : ""}
+        ${offerPersonalBadge(offer)}
         ${conditions ? `<small>${escapeHtml(conditions)}</small>` : ""}
         ${offerPriceHtml(offer)}
         ${perUnit ? `<small class="offer-card__per-unit">${escapeHtml(perUnit)}</small>` : ""}
@@ -506,11 +506,12 @@ function offerById(id) {
 }
 
 function hideOfferZoom() {
+  const box = $("#offer-zoom");
+  if (box.hidden && !offerZoom.timer) return; // bij elke scroll: niets te doen als de zoom al dicht is
   clearTimeout(offerZoom.timer);
   offerZoom.timer = 0;
   offerZoom.id = "";
   offerZoom.thumb = null;
-  const box = $("#offer-zoom");
   box.hidden = true;
   box.innerHTML = "";
 }
@@ -686,7 +687,8 @@ function renderOffersStatusGood() {
   const status = $("#offers-status");
   const base = status.dataset.base || "";
   if (!base) return;
-  const good = offersState.goodOnly ? offersFiltered().length : 0;
+  // Over dezelfde aanbiedingen als het totaal ervoor: niet binnen het zoekveld of de Bonus Box, die telt het totaal ook niet.
+  const good = offersState.goodOnly ? offersState.offers.filter((offer) => offer.verdict && offer.verdict.kind === "good").length : 0;
   status.textContent = offersState.goodOnly ? `${base} ${t("offers.status.good", { count: I18N.formatNumber(good) })}` : base;
 }
 

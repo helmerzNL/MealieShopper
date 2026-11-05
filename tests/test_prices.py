@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, prices  # noqa: E402
+from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 TODAY = "2026-10-20"
@@ -512,6 +512,36 @@ class VerdictTest(PricesCase):
         with closing(prices._connect()) as conn:
             points = prices._history_points(conn, "ah", TODAY)["1"]
         self.assertEqual(points, [("2026-01-05", 2.49), ("2026-05-01", 2.99), ("2026-07-07", 2.79)])
+
+    def test_history_points_count_receipts_and_imported_purchases_but_not_free_or_unknown(self):
+        self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        # Een bon: het artikelnummer op de bon is het id van het product (bekend uit de bewaarde prijzen), de prijs per stuk telt.
+        self.ah_receipt("R1", "2026-06-10T10:00:00", (1, "AH PINDAKAAS", 2, 2.79, 5.58), (1, "AH PINDAKAAS", 1, None, 0.0), (1, "AH PINDAKAAS", 1, 0.0, 0.0))
+        with closing(price_import._connect()) as conn, conn:
+            conn.executemany(
+                "INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total, imported_at) VALUES ('ah', ?, ?, ?, 'AH Pindakaas', 1, ?, NULL, 9.99, 'x')",
+                [("M1", 0, "2026-07-15", 2.59), ("M1", 1, "2026-07-15", None), ("M2", 0, "2026-08-15", 0.0)],
+            )
+        with closing(prices._connect()) as conn:
+            points = prices._history_points(conn, "ah", TODAY)["1"]
+        self.assertEqual(points, [("2026-05-01", 2.99), ("2026-06-10", 2.79), ("2026-07-15", 2.59)])
+
+    def test_one_product_by_id_with_only_bought_follows_the_purchases(self):
+        self.observe("2026-05-01", "1", "AH Pindakaas", 2.99)
+        self.observe("2026-05-01", "2", "AH Hagelslag", 1.99)
+        self.ah_order(101, "delivered", "2026-07-07", order_item(1, "AH Pindakaas", 2.79))
+        bought = prices.history("ah", "", 50, today=TODAY, bought=True, product="1")
+        self.assertEqual([p["productId"] for p in bought["products"]], ["1"])
+        self.assertEqual(prices.history("ah", "", 50, today=TODAY, bought=True, product="2")["products"], [])
+        self.assertEqual([p["productId"] for p in prices.history("ah", "", 50, today=TODAY, product="2")["products"]], ["2"])
+
+    def test_a_failing_history_ladder_keeps_the_verdict_and_the_badge(self):
+        self.observe("2026-10-10", "1", "AH Penne", 1.19)
+        with mock.patch.object(prices, "_history_points", side_effect=RuntimeError("stuk")):
+            annotated = self.annotate(deal("1", "AH Penne", 0.89, 1.19, "nu 0,89"))["1"]
+        self.assertEqual(annotated["verdict"]["kind"], "good")
+        self.assertEqual(annotated["badge"]["source"], "history")
+        self.assertEqual(annotated["priceLabel"]["kind"], None)
 
     def test_a_bundle_episode_counts_with_its_price_per_item(self):
         self.sync_offer("2026-03-02T05:00:00+00:00", offer("1", "AH Soep", 2.00, None, "1+1 gratis", validFrom="2026-03-02", validUntil="2026-03-08"))

@@ -260,17 +260,19 @@ function fitPurchaseTable() {
   wrap.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
-// De bon zo hoog als er onder de kop past, zonder dat de pagina schuift (op een smal scherm doet de inhoud het).
-function fitReceiptPaper() {
-  const paper = $("#ah-order-items .receipt");
-  if (!paper) return;
-  const height = pageFitHeight(paper);
-  paper.style.minHeight = height === null ? "" : `${height}px`;
+// Het vak met de bon zo hoog als er onder de kop past, en het scrolt zelf (op een breed scherm, gemeten door pageFitHeight), zodat
+// de pagina niet schuift; op een smal scherm doet de pagina het.
+function fitReceiptBox() {
+  const box = $("#ah-order-items");
+  if (!receiptState.receipt || $("#ah-order-detail").hidden) return;
+  const height = pageFitHeight(box);
+  box.classList.toggle("order-items--fit", height !== null);
+  box.style.maxHeight = height === null ? "" : `${height}px`;
 }
 
 window.addEventListener("resize", () => {
   if (ordersState.loaded) fitPurchaseTable();
-  fitReceiptPaper();
+  fitReceiptBox();
 });
 
 async function loadOrders() {
@@ -390,7 +392,21 @@ for (const [id, key] of [["ah-filter-min", "min"], ["ah-filter-max", "max"]]) {
   });
 }
 
-// ---- een kassabon zoals op papier: kolommen, bonusregels, totaal en betaalwijze
+// ---- een kassabon: als bonnetje zoals op papier (receiptPaper) of als producten met de namen en foto's van de webwinkel
+// (receiptProducts). De schakelaar staat in de kop van de bon en de keuze blijft bewaard in localStorage.
+const RECEIPT_VIEWS = ["paper", "products"];
+const RECEIPT_VIEW_KEY = "ms-receipt-view";
+const receiptState = { receipt: null, words: [], view: "paper" };
+
+function receiptViewLoad() {
+  try {
+    const view = localStorage.getItem(RECEIPT_VIEW_KEY);
+    if (RECEIPT_VIEWS.includes(view)) receiptState.view = view;
+  } catch {
+    // een browser zonder opslag (privévenster): het bonnetje
+  }
+}
+
 function receiptMethod(method) {
   const name = String(method || "").toUpperCase();
   return name === "PIN" ? t("orders.receipt.pin") : name === "CASH" ? t("orders.receipt.cash") : name;
@@ -428,9 +444,58 @@ function receiptPaper(receipt, words = []) {
     </div>`;
 }
 
+// De regel onder de titel van een bon: het aantal artikelen, het totaal, de betaalwijze en het bonusbedrag.
+function receiptMeta(receipt) {
+  const units = receipt.items.reduce((sum, line) => sum + (line.quantity || 0), 0);
+  const savings = receipt.discounts.reduce((sum, entry) => sum + Math.abs(entry.amount || 0), 0);
+  const methods = receipt.payments.map((entry) => receiptMethod(entry.method)).filter(Boolean).join(", ");
+  return [tn("list.items", units), money(receipt.total), methods, savings > 0 ? t("orders.saved", { amount: money(savings) }) : ""].filter(Boolean).join(" · ");
+}
+
+// De producten van een bon zoals in een bestelling: de naam en de foto van het webwinkelproduct waaraan de regel gekoppeld is (met
+// de link naar zijn prijsgeschiedenis), anders de afgekorte naam van de bon zonder link. Daaronder de bonusregels.
+function receiptProducts(receipt, words = []) {
+  const cards = receipt.items.map((line) => {
+    const product = line.product;
+    const hit = matchesQuery(line.name, words) ? " receipt__hit" : "";
+    if (product) {
+      const item = { productId: product.id, title: product.title, image: product.image, quantity: line.quantity, amount: line.amount };
+      return purchaseItem(item, "ah").replace('<article class="product-card">', `<article class="product-card${hit}">`);
+    }
+    return `
+    <article class="product-card${hit}">
+      <div>
+        <strong>${escapeHtml(line.quantity)}x ${escapeHtml(line.name)}</strong>
+        ${line.amount ? `<small>${escapeHtml(money(line.amount))}</small>` : ""}
+      </div>
+    </article>`;
+  });
+  const savings = receipt.discounts.reduce((sum, entry) => sum + Math.abs(entry.amount || 0), 0);
+  const bonus = receipt.discounts
+    .map((entry) => `<li>${escapeHtml(entry.name)}${entry.amount === null ? "" : ` <span>-${escapeHtml(money(Math.abs(entry.amount)))}</span>`}</li>`)
+    .join("");
+  const summary = bonus ? `<ul class="receipt-summary"><li class="receipt-summary__title">${escapeHtml(t("orders.receipt.summary.bonus", { amount: money(savings) }))}</li>${bonus}</ul>` : "";
+  return `<div class="product-grid">${cards.join("")}</div>${summary}`;
+}
+
+// Tekent de open bon in de gekozen weergave en zet de schakelaar goed.
+function renderReceipt() {
+  const receipt = receiptState.receipt;
+  if (!receipt) return;
+  $("#ah-order-items").innerHTML = !receipt.items.length
+    ? `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`
+    : receiptState.view === "products" ? receiptProducts(receipt, receiptState.words) : receiptPaper(receipt, receiptState.words);
+  for (const button of document.querySelectorAll("#receipt-view [data-view]")) button.setAttribute("aria-pressed", String(button.dataset.view === receiptState.view));
+  requestAnimationFrame(fitReceiptBox);
+}
+
 // ---- één bestelling of kassabon openen
 function showPurchaseOverview() {
   ordersState.open = null;
+  receiptState.receipt = null;
+  $("#receipt-view").hidden = true;
+  $("#ah-order-items").classList.remove("order-items--fit");
+  $("#ah-order-items").style.maxHeight = "";
   $("#ah-order-detail").hidden = true;
   $("#ah-orders-view").hidden = false;
   if (typeof routerSync === "function") routerSync();
@@ -444,6 +509,10 @@ async function openPurchase(kind, id) {
   $("#ah-order-title").textContent = "";
   $("#ah-order-meta").textContent = "";
   $("#ah-order-items").innerHTML = "";
+  $("#ah-order-items").classList.remove("order-items--fit");
+  $("#ah-order-items").style.maxHeight = "";
+  $("#receipt-view").hidden = kind !== "receipt";
+  receiptState.receipt = null;
   try {
     if (kind === "order") {
       const order = await jsonFetch(`${ordersApi()}/orders/${encodeURIComponent(id)}`);
@@ -468,11 +537,13 @@ async function openPurchase(kind, id) {
       $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`; // altijd met producten
     } else {
       const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}`);
-      const words = foldText(ordersState.query).split(/\s+/).filter(Boolean);
       $("#ah-order-title").textContent = t("orders.receipt_title", { date: receiptDay(receipt) || receipt.id });
-      $("#ah-order-items").innerHTML = receipt.items.length ? receiptPaper(receipt, words) : `<p class="muted">${escapeHtml(t("orders.items_missing"))}</p>`;
-      requestAnimationFrame(fitReceiptPaper);
-      if (receipt.items.some((line) => !line.product && line.productId)) resolveReceiptProducts(receipt.id, words);
+      $("#ah-order-meta").textContent = receipt.items.length ? receiptMeta(receipt) : "";
+      receiptState.receipt = receipt;
+      receiptState.words = foldText(ordersState.query).split(/\s+/).filter(Boolean);
+      renderReceipt();
+      // De regels die nog bij geen webwinkelproduct horen opzoeken, en de foto's die nog ontbreken erbij halen.
+      if (receipt.items.some((line) => (!line.product && line.productId) || (line.product && !line.product.image))) resolveReceiptProducts(receipt.id);
     }
     $("#ah-order-title").focus({ preventScroll: true });
   } catch (error) {
@@ -482,20 +553,33 @@ async function openPurchase(kind, id) {
   }
 }
 
-// De regels van een open bon die nog bij geen webwinkelproduct horen, opzoeken bij AH (zuinig: een paar zoekopdrachten per keer)
-// en de bon opnieuw tekenen met de links die erbij kwamen. Staat intussen iets anders open, dan blijft dat zo.
-async function resolveReceiptProducts(id, words) {
+// De regels van een open bon die nog bij geen webwinkelproduct horen, opzoeken bij AH (zuinig: een paar zoekopdrachten per keer),
+// de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon opnieuw tekenen met de links en foto's die
+// erbij kwamen. Staat intussen iets anders open, dan blijft dat zo.
+async function resolveReceiptProducts(id) {
   try {
     const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(id)}/products`, { method: "POST" });
     const open = ordersState.open;
     if (!open || open.kind !== "receipt" || open.id !== String(id) || !receipt.items.length) return;
-    $("#ah-order-items").innerHTML = receiptPaper(receipt, words);
-    requestAnimationFrame(fitReceiptPaper);
+    receiptState.receipt = receipt;
+    renderReceipt();
   } catch {
     // De bon staat er al; een koppeling die niet lukt, krijgt een volgende keer een nieuwe kans.
   }
 }
 
+receiptViewLoad();
+$("#receipt-view").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-view]");
+  if (!button) return;
+  receiptState.view = button.dataset.view;
+  try {
+    localStorage.setItem(RECEIPT_VIEW_KEY, receiptState.view);
+  } catch {
+    // niet erg: de keuze geldt tot je de pagina verlaat
+  }
+  renderReceipt();
+});
 $("#sync-orders").addEventListener("click", syncOrders);
 $("#ah-order-back").addEventListener("click", showPurchaseOverview);
 $("#ah-items-bestellingen").addEventListener("click", (event) => {

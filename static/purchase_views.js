@@ -240,7 +240,9 @@ function renderPurchaseCards(visible, hits) {
   window.requestAnimationFrame(purchaseViewFit);
 }
 
-// ---- Overzicht: een rij per aankoop met links een strook foto's en rechts de details op een paar regels.
+// ---- Overzicht: een rij per aankoop met links de details op een paar regels en rechts een strook foto's. De strook staat rechts
+// op een vaste breedte: een bon zonder gekoppelde foto's (een icoon) en een bestelling met zes foto's beginnen hun tekst zo op
+// dezelfde plek.
 
 function purchaseOverviewRow(row, matches) {
   const urls = row.images.slice(0, 6);
@@ -260,12 +262,12 @@ function purchaseOverviewRow(row, matches) {
   return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr}>
       ${purchaseKindMarkup(row.kind, "stripe")}
       <a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav>
-        <span class="purchase-overview__strip">${strip}</span>
         <span class="purchase-overview__body">
           <span class="purchase-overview__head"><strong>${escapeHtml(row.label)}</strong><span class="purchase-overview__amount">${escapeHtml(money(row.total))}</span></span>
           <span class="purchase-overview__meta">${meta}</span>
           ${names}
         </span>
+        <span class="purchase-overview__strip">${strip}</span>
       </a>
       ${purchaseDeleteButton(row, "purchase-overview__action")}
     </article>`;
