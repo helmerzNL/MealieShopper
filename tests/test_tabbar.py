@@ -54,33 +54,54 @@ class TabbarMarkupTest(unittest.TestCase):
     def test_viewport_reaches_under_the_home_indicator(self):
         self.assertIn("viewport-fit=cover", self.html)
 
-    def test_seven_tabs_with_icon_long_and_short_label(self):
+    def test_five_tabs_with_icon_long_and_short_label(self):
         buttons = re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)".*?</a>', self.nav, re.S)
-        self.assertEqual(buttons, ["recipes", "offers", "url", "ah-items", "meal-kits", "basket"])
-        self.assertEqual(self.nav.count('class="tab-icon"'), 6, "het avatar-icoon in de plaats van Beheer is een eigen soort")
-        self.assertEqual(self.nav.count('aria-hidden="true"'), 15, "icoon en kort label worden niet voorgelezen")
+        self.assertEqual(buttons, ["recipes", "offers", "ah-items", "meal-kits", "basket"])
+        self.assertEqual(self.nav.count('class="tab-icon"'), 6, "vijf tabs en de knop Meer")
+        self.assertEqual(self.nav.count('aria-hidden="true"'), 13, "icoon en kort label worden niet voorgelezen")
         short = re.findall(r'<span class="tab-short"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(short, ["Recepten", "Aanbod", "Import", "Winkels", "Boxen", "Mandje", "Profiel"])
+        self.assertEqual(short, ["Recepten", "Aanbod", "Winkels", "Boxen", "Mandje", "Meer"])
         long = re.findall(r'<span class="tab-text"[^>]*>([^<]+)</span>', self.nav)
-        self.assertEqual(long, ["Recepten", "Aanbiedingen", "URL importeren", "Winkels", "Maaltijdboxen", "Mandje", "Profiel"])
+        self.assertEqual(long, ["Recepten", "Aanbiedingen", "Winkels", "Maaltijdboxen", "Mandje", "Meer"])
 
-    def test_avatar_is_the_last_tab_and_shows_on_small_screens_only(self):
+    def test_url_import_is_no_longer_in_the_menu_but_its_address_still_works(self):
+        self.assertNotIn('data-tab="url"', self.nav)
+        self.assertNotIn('href="/import"', self.html)
+        self.assertIn('<section id="url" class="panel">', self.html, "/import opent het scherm nog")
+        router = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
+        self.assertIn('import: "url"', router)
+
+    def test_more_is_the_last_tab_and_shows_on_small_screens_only(self):
         self.assertNotIn('data-tab="beheer"', self.html)
-        avatar = re.search(r'<button class="tab tab--avatar" id="tab-avatar".*?</button>', self.nav, re.S).group(0)
-        self.assertIn("hidden", avatar.split(">")[0], "zonder inlog is er geen avatar")
-        self.assertIn('data-user-menu-trigger', avatar)
-        self.assertLess(self.nav.index('data-tab="ah-items"'), self.nav.index('id="tab-avatar"'))
-        self.assertNotIn('data-tab="about"', self.nav, "Over zit in het avatar-menu")
-        self.assertRegex(CSS, r"\.tab--avatar\s*{\s*display: none;")
-        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--avatar"):]
-        self.assertIn(".tab--avatar:not([hidden])", media)
+        self.assertNotIn("tab--avatar", self.html + CSS, "de avatar staat niet meer in de tabbalk")
+        more = re.search(r'<button class="tab tab--more" id="tab-more".*?</button>', self.nav, re.S).group(0)
+        self.assertIn("hidden", more.split(">")[0], "zonder inlog is er geen menu")
+        self.assertIn('data-user-menu-trigger', more)
+        self.assertIn('aria-controls="user-menu-list"', more)
+        self.assertIn('data-mdi="mdiMenu"', more, "een hamburger-icoon")
+        self.assertIn('data-i18n="nav.more">Meer<', more)
+        self.assertNotIn("data-avatar", more)
+        self.assertLess(self.nav.index('data-tab="basket"'), self.nav.index('id="tab-more"'))
+        self.assertNotIn('data-tab="about"', self.nav, "Over zit in het menu Meer")
+        self.assertRegex(CSS, r"\.tab--more\s*{\s*display: none;")
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more"):]
+        media = media[:media.index("\n}\n")]
+        self.assertIn(".tab--more:not([hidden])", media)
         self.assertIn(".user-menu {\n    display: none;", media, "op een klein scherm staat de avatar niet in de kop")
+
+    def test_basket_moves_into_the_more_menu_on_small_screens(self):
+        media = CSS[CSS.rindex("@media (max-width: 640px) {\n  .tab--more"):]
+        media = media[:media.index("\n}\n")]
+        self.assertIn('.tabs .tab[data-tab="basket"] {\n    display: none;', media)
+        self.assertIn(".user-menu__item--small:not([hidden]) {\n    display: flex;", media)
+        self.assertRegex(CSS, r"\.user-menu__item\[hidden\],\s*\.user-menu__item--small\s*{\s*display: none;",
+                         "op een groot scherm staat Mandje niet in het menu")
 
     def test_icons_are_material_design_icons_with_the_text_colour(self):
         svgs = re.findall(r'<svg class="tab-icon".*?</svg>', self.nav, re.S)
         self.assertEqual(
             [re.search(r'data-mdi="(\w+)"', s).group(1) for s in svgs],
-            ["mdiCalendarWeek", "mdiSale", "mdiLinkVariant", "mdiBasket", "mdiPackageVariantClosed", "mdiCart"],
+            ["mdiCalendarWeek", "mdiSale", "mdiBasket", "mdiPackageVariantClosed", "mdiCart", "mdiMenu"],
         )
         for svg in svgs:
             self.assertIn('viewBox="0 0 24 24"', svg)
@@ -154,7 +175,7 @@ class TabbarStyleTest(unittest.TestCase):
 
     def test_floating_glass_bar(self):
         bar = re.search(r"html\.has-tabbar \.tabs\s*{(.*?)\n  }", self.media, re.S).group(1)
-        for declaration in ("position: fixed", "grid-template-columns: repeat(7", "border-radius: 32px",
+        for declaration in ("position: fixed", "grid-template-columns: repeat(5", "border-radius: 32px",
                             "bottom: max(12px, env(safe-area-inset-bottom))",
                             "left: max(12px, env(safe-area-inset-left))",
                             "right: max(12px, env(safe-area-inset-right))"):

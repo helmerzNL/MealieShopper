@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v3.10.0
+## v3.11.0
 
-### Nieuw in 3.10.0
+### Nieuw in 3.11.0
 
 *English summary: Settings has a new part, Appearance, for every user. Pick the theme (follow device, light or dark), the background of the dark theme (the green one, or a new neutral dark grey) and an accent colour: ten choices or a custom colour from the colour picker. The choice is stored with your account, so it follows you to every device, and each user has their own. A colour that is too light or too dark for readable text is made a shade darker or lighter, measured against WCAG 4.5:1 in both themes and on the glass of the bottom bar; notices, discount badges and category colours keep their own colours. Regular users now see Settings in the avatar menu, with only Appearance in it. In the installed app (PWA) pinch and double-tap zoom are off and the page no longer bounces when you drag down at the top, so the title bar with the flags and the theme button stays put; in the browser zooming still works. Reload the page once after updating.*
 
@@ -15,6 +15,19 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **De geïnstalleerde app voelt meer als een app.** In de PWA (alleen daar, niet in de browser) staan knijp- en dubbeltikzoom uit (`user-scalable=no`, `touch-action: pan-x pan-y`, en op iOS het knijpgebaar), en veert de pagina niet meer mee als je bovenaan naar beneden sleept (`overscroll-behavior: none`): de titelbalk met de vlaggen en de themaknop blijft bovenaan plakken, en Android ververst de pagina niet onder je duim. In de browser blijft zoomen werken, voor wie de tekst groter wil.
 - **Opgelost.** De actieve knop van een segmentbediening (de weergaven van de aanbiedingen) had witte tekst, ook in het donkere thema op het lichte groen: nu de tekstkleur voor op de accentkleur. De rand van de actieve tab en van een tag nam de kleur van "gelukt"; die heeft nu een eigen token (`--selection-border`) dat de accentkleur volgt.
 - **Handleiding** (NL en EN): het nieuwe onderdeel [Weergave](docs/handleiding.md#weergave), het gedrag van de app op een telefoon, en een nieuwe screenshot (`appearance.png`). De huisstijl (`docs/huisstijl.md`) beschrijft hoe de accentkleur en het donkergrijs werken.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
+## v3.10.0
+
+### Nieuw in 3.10.0
+
+*English summary: the main menu is shorter. The Import from URL tab is gone from the menu (the page still opens at `/import`). On a small screen the Profile tab is now called More, with a hamburger icon instead of your avatar, and the Basket moves from the tab bar into that menu, so the bottom bar has five items. The menu itself (also under your avatar on a large screen) shows your avatar and name, a line, Basket (small screen only), Profile, Settings and About, a line, and Log out, each with an icon. Reload the page once after updating.*
+
+- **URL importeren staat niet meer in het menu.** De pagina *Recept importeren via URL* bestaat nog en opent op het adres `/import`; een recept van een winkel of een maaltijdbox zet je zoals altijd in Mealie vanuit *Recepten zoeken*.
+- **Meer in plaats van Profiel op een klein scherm.** De laatste knop in de tabbalk (tot 640 px breed, in de app en in de browser) heet nu **Meer** en heeft een hamburger-icoon in plaats van je avatar. Hij opent hetzelfde menu als de avatar rechtsboven op een groot scherm, en licht op als het mandje, het profiel, de instellingen of *Over* open staat.
+- **Het Mandje in het menu Meer.** Op een klein scherm staat **Mandje** niet meer in de tabbalk maar bovenaan het menu; de onderste menubalk heeft daardoor vijf items (Recepten, Aanbod, Winkels, Boxen, Meer). Op een groter scherm blijft Mandje een gewone tab. Het adres blijft `/cart`.
+- **Het menu opnieuw ingedeeld, met iconen.** Bovenaan je avatar en naam, dan een lijn, **Mandje** (alleen op een klein scherm), **Profiel**, **Instellingen** (alleen de beheerder) en **Over**, dan een lijn en **Uitloggen**. Elk item heeft een icoon van Material Design Icons. De lijn boven Uitloggen verdwijnt met Uitloggen als inloggen uit staat. Het bolletje voor een update staat nu achter Instellingen in plaats van in de hoek van het menu, en bij het openen staat de focus op het eerste item in plaats van op Uitloggen.
+- **Handleiding** (NL en EN), de README's en de huisstijl: het menu Meer en waar URL importeren gebleven is.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
 
 ## v3.9.1

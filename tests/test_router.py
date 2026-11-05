@@ -61,13 +61,13 @@ class PageRoutesTest(unittest.TestCase):
 class LinkMarkupTest(unittest.TestCase):
     def test_tabs_subtabs_and_the_user_menu_are_links_with_an_address(self):
         tabs = dict(re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
-        self.assertEqual(tabs, {"recipes": "/recipes", "offers": "/offers", "url": "/import", "ah-items": "/stores", "meal-kits": "/meal-kits", "basket": "/cart"})
+        self.assertEqual(tabs, {"recipes": "/recipes", "offers": "/offers", "ah-items": "/stores", "meal-kits": "/meal-kits", "basket": "/cart"})
         subtabs = dict(re.findall(r'<a class="subtab[^"]*" data-subtab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
         for subtab, path in {"search": "/recipes/search", "offers-history": "/offers/history", "ah-items-bestellingen": "/stores/ah/orders",
                              "profile-security": "/profile/security", "settings-system": "/settings/system"}.items():
             self.assertEqual(subtabs.get(subtab), path, subtab)
         users = dict(re.findall(r'<a[^>]*data-user-action="(\w+)"[^>]* href="([^"]+)" data-nav>', HTML))
-        self.assertEqual(users, {"profile": "/profile", "settings": "/settings", "about": "/about"})
+        self.assertEqual(users, {"basket": "/cart", "profile": "/profile", "settings": "/settings", "about": "/about"})
         self.assertNotRegex(HTML, r'<button[^>]*data-(?:tab|subtab)="', "geen navigatie meer als knop")
 
     def test_router_loads_last(self):

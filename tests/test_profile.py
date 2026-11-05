@@ -180,13 +180,52 @@ class ProfileMarkupTest(unittest.TestCase):
 
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"])
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about"])
         settings = re.search(r'<a[^>]*data-user-action="settings"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", settings, "Instellingen is voor iedereen: een gewone gebruiker ziet daar alleen Weergave")
         profile_item = re.search(r'<a[^>]*data-user-action="profile"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", profile_item)
         self.assertIn('id="auth-logout"', menu)
         self.assertNotIn("auth-chip", self.html)
+
+    def test_menu_order_separators_and_an_icon_per_item(self):
+        # Avatar en naam, een lijn, Mandje (alleen op een klein scherm), Profiel, Instellingen, Over, een lijn, Uitloggen.
+        import re
+
+        start = self.html.index('id="user-menu-list"')
+        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        parts = re.findall(r'class="(user-menu__who|user-menu__separator)"|data-user-action="(\w+)"|id="(auth-logout)"', menu)
+        self.assertEqual([next(p for p in part if p) for part in parts],
+                         ["user-menu__who", "basket", "profile", "settings", "about", "user-menu__separator", "auth-logout"])
+        self.assertIn("border-bottom: 1px solid var(--border)", re.search(r"\.user-menu__who\s*{(.*?)}", self.css, re.S).group(1),
+                      "de lijn onder avatar en naam")
+        self.assertIn('role="separator"', menu)
+        items = re.findall(r'<(?:a|button)[^>]*class="user-menu__item[^"]*".*?</(?:a|button)>', menu, re.S)
+        self.assertEqual(len(items), 5)
+        icons = [re.search(r'<svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="(\w+)"><path d="[^"]+"/></svg>', item)
+                 for item in items]
+        self.assertTrue(all(icons), "elk item heeft een icoon")
+        self.assertEqual([icon.group(1) for icon in icons],
+                         ["mdiCart", "mdiAccountCircleOutline", "mdiCogOutline", "mdiInformationOutline", "mdiLogout"])
+        for item in items:
+            self.assertNotRegex(item.split(">")[0], r"data-i18n=", "de vertaling staat op de tekst, niet op het item (anders verdwijnt het icoon)")
+        basket = re.search(r'<a[^>]*data-user-action="basket"[^>]*>', menu).group(0)
+        self.assertIn("user-menu__item--small", basket)
+        self.assertIn('href="/cart"', basket)
+        icon = re.search(r"\.user-menu__icon\s*{(.*?)}", self.css, re.S).group(1)
+        self.assertIn("fill: currentColor", icon)
+
+    def test_menu_script_opens_the_basket_and_hides_the_logout_line_with_logout(self):
+        self.assertIn('item.dataset.userAction === "basket"', self.js)
+        self.assertIn('showPanel("basket"', self.js)
+        self.assertIn('$("#auth-logout-separator").hidden = !auth.enabled;', self.js)
+        self.assertIn('$("#tab-more").hidden = !visible;', self.js)
+        self.assertNotIn('list.querySelector("button:not([hidden])")?.focus()', self.js, "niet de focus op Uitloggen")
+        from pathlib import Path
+
+        app = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('const MORE_MENU_PANELS = ["profile", "settings", "about", "basket"];', app)
+        self.assertIn('$("#tab-more")', app)
 
     def test_profile_has_general_security_and_ai_apps_for_everyone(self):
         import re

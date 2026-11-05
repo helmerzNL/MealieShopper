@@ -2452,16 +2452,19 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
   }
 }
 
-// Een scherm tonen. Een hoofdtab geeft zijn knop mee (die lichtt op); het profiel en de instellingen horen bij het avatar-menu:
-// op een klein scherm lichtt dan de avatar-knop in de tabbalk op.
+// Een scherm tonen. Een hoofdtab geeft zijn knop mee (die lichtt op); het profiel, de instellingen en Over horen bij het
+// avatar-menu, en op een klein scherm ook het mandje: dan lichtt de knop Meer in de tabbalk op. Die knop is er op een groot
+// scherm niet, en de tab Mandje niet op een klein scherm, dus er is steeds een zichtbare tab met aria-current.
+const MORE_MENU_PANELS = ["profile", "settings", "about", "basket"];
+
 function showPanel(panelId, tab = null) {
   document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
   document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
-  const highlighted = tab || (["profile", "settings", "about"].includes(panelId) ? $("#tab-avatar") : null);
-  if (highlighted) {
-    highlighted.classList.add("is-active");
-    highlighted.setAttribute("aria-current", "page");
-  }
+  const highlighted = [tab, MORE_MENU_PANELS.includes(panelId) ? $("#tab-more") : null].filter(Boolean);
+  highlighted.forEach((item) => {
+    item.classList.add("is-active");
+    item.setAttribute("aria-current", "page");
+  });
   $(`#${panelId}`).classList.add("is-active");
   // Zoals een native tabbalk: een andere tab begint bovenaan.
   window.scrollTo({ top: 0 });

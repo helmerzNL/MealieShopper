@@ -146,7 +146,7 @@ Het is hetzelfde image als de Docker-versie (`linux/amd64` en `linux/arm64`). De
 
 ### Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen: de beveiliging, Mealie koppelen, Albert Heijn, Jumbo en Picnic koppelen, en een overzicht. Wat je overslaat doe je later onder **Instellingen** (in het avatar-menu). Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait: zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Elke stap, met schermafbeeldingen, staat in de [handleiding](docs/handleiding.md#eerste-start), en hoe je Mealie en de supermarkten koppelt onder [Mealie en supermarkten koppelen](docs/handleiding.md#mealie-en-supermarkten-koppelen).
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen: de beveiliging, Mealie koppelen, Albert Heijn, Jumbo en Picnic koppelen, en een overzicht. Wat je overslaat doe je later onder **Instellingen** (in het avatar-menu, op een telefoon onder **Meer**). Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait: zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Elke stap, met schermafbeeldingen, staat in de [handleiding](docs/handleiding.md#eerste-start), en hoe je Mealie en de supermarkten koppelt onder [Mealie en supermarkten koppelen](docs/handleiding.md#mealie-en-supermarkten-koppelen).
 
 ## Configuratie
 
