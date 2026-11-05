@@ -12,6 +12,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Leesbaarheid.** Tot ongeveer stand 30 (dekking 0,75) halen de labels boven elke foto 4,5 : 1; daarboven kan een heel lichte of donkere foto onder de balk ze verstoren. De uitleg bij de schuif zegt dat nu. Met *Minder doorzichtigheid* aan op je toestel blijft de balk dicht, wat de schuif ook zegt.
 - **Handleiding** (NL en EN) en de huisstijl: de nieuwe schaal.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#250](https://github.com/helmerzNL/MealieShopper/pull/250), vervolg op [#249](https://github.com/helmerzNL/MealieShopper/pull/249).
 
 ## v3.12.0
 
