@@ -143,7 +143,7 @@ function purchaseRows() {
   // Een bestelling uit je account zonder producten waarvan de ingelezen versie er is, staat er niet nog een keer (#229).
   const { kept, covered } = importedOrdersCover(ordersState.orders, ordersState.imported);
   const rows = kept.map((order) => ({
-    kind: "order", id: String(order.id), date: order.deliveryDate || "", open: order.kind === "open",
+    kind: "order", id: String(order.id), store, date: order.deliveryDate || "", open: order.kind === "open",
     label: dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }),
     // De statusbadge noemt de status al (purchaseStatusBadge): de regel houdt alleen het bezorgmoment.
     status: slotLabel(order.slotStart, order.slotEnd),
@@ -156,7 +156,7 @@ function purchaseRows() {
   // het voordeel en de bonus van de producten waar de regels bij horen (price_import.list_orders).
   for (const order of ordersState.imported) {
     rows.push({
-      kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order),
+      kind: "imported", id: String(order.ref), store, date: order.date || "", open: false, label: importedOrderTitle(order),
       status: importedOrderSlot(order, covered.get(order.ref)), ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
       images: order.images || [], names: order.productNames || [], savings: order.savings ?? null, bonusCount: order.bonusCount || 0, payment: null,
@@ -166,7 +166,7 @@ function purchaseRows() {
   if (!ordersAreJumbo()) {
     for (const receipt of ordersState.receipts) {
       rows.push({
-        kind: "receipt", id: String(receipt.id), date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
+        kind: "receipt", id: String(receipt.id), store: "ah", date: receipt.dateTime || "", open: false, label: receiptDay(receipt) || receipt.id, status: "",
         total: receipt.total, items: receipt.detailsSynced ? receipt.itemCount : null,
         href: storesPath("ah", "receipts", receipt.id), attr: `data-receipt-id="${escapeHtml(receipt.id)}"`,
         images: receipt.images || [], names: receipt.productNames || [], savings: receipt.savings, bonusCount: 0, payment: receipt.payment || null,
@@ -219,7 +219,7 @@ function purchaseRow(row, matches) {
   const action = row.kind === "imported" && priceImportIsOwner()
     ? `<button type="button" class="icon-button purchase-table__action" data-imported-delete="${escapeHtml(row.ref)}" data-title="${escapeHtml(row.label)}" aria-label="${escapeHtml(`${remove}: ${row.label}`)}" title="${escapeHtml(remove)}">${mdiIcon(MDI_DELETE_OUTLINE)}</button>`
     : "";
-  return `<tr class="purchase-table__row${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<tr class="purchase-table__row${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       <td><a href="${escapeHtml(row.href)}" data-nav>${escapeHtml(row.label)}</a></td>
       <td>${kind}</td>
       <td>${escapeHtml(row.status)}</td>
@@ -283,6 +283,7 @@ window.addEventListener("resize", () => {
 
 async function loadOrders() {
   message("#ah-orders-message", "");
+  purchaseDetailCache.clear(); // de hovervensters (popover.js) halen de details opnieuw op
   const store = state.itemsStore;
   try {
     const imported = importedOrdersFetch(store);

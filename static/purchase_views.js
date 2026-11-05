@@ -375,7 +375,7 @@ function purchaseCollage(row, count) {
     const names = row.names.slice(0, 2).join(", ");
     return `<div class="purchase-collage purchase-collage--empty">${mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-collage__icon")}${names ? `<small>${escapeHtml(names)}</small>` : ""}</div>`;
   }
-  return `<div class="purchase-collage purchase-collage--${urls.length}">${urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")}</div>`;
+  return `<div class="purchase-collage purchase-collage--${urls.length}">${urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error data-popover="product" data-image="${escapeHtml(url)}">`).join("")}</div>`;
 }
 
 // De regels onder de collage, naar de opties: status en bezorgmoment (of de betaalwijze van een bon), producten en bedrag,
@@ -399,6 +399,11 @@ function purchaseDetailLines(row, matches, { names = true, amount = true } = {})
   return lines;
 }
 
+// Welke aankoop een rij, kaart of foto is, voor het hovervenster (popover.js): de soort en het id, zoals purchaseRows ze kent.
+function purchasePopoverKey(row) {
+  return `data-purchase-kind="${escapeHtml(row.kind)}" data-purchase-id="${escapeHtml(row.id)}"`;
+}
+
 function purchaseDeleteButton(row, className) {
   if (row.kind !== "imported" || !priceImportIsOwner()) return "";
   const remove = t("orders.imported.delete");
@@ -409,7 +414,7 @@ function purchaseDeleteButton(row, className) {
 // zodat een klik erop niet ook de bestelling opent.
 function purchaseCard(row, matches) {
   const count = purchaseView.options.size === "large" ? 6 : 4;
-  return `<article class="purchase-card${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<article class="purchase-card${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       ${purchaseKindMarkup(row.kind, "stripe")}
       <a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav>
         ${purchaseCollage(row, count)}
@@ -437,7 +442,7 @@ function renderPurchaseCards(visible, hits) {
 function purchaseOverviewRow(row, matches) {
   const urls = row.images.slice(0, 6);
   const strip = urls.length
-    ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")
+    ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error data-popover="product" data-image="${escapeHtml(url)}">`).join("")
     : mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-overview__icon");
   const lines = purchaseDetailLines(row, matches, { names: false, amount: false }); // het bedrag staat al in de kop
   const meta = [purchaseStatusBadge(row), ...lines].join(" · ");
@@ -449,7 +454,7 @@ function purchaseOverviewRow(row, matches) {
   } else if (purchaseView.options.names && row.names.length) {
     names = `<span class="purchase-overview__names">${escapeHtml(row.names.join(", "))}</span>`;
   }
-  return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       ${purchaseKindMarkup(row.kind, "stripe")}
       <a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav>
         <span class="purchase-overview__body">

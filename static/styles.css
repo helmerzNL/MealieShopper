@@ -6279,6 +6279,171 @@ body.has-onboarding {
   height: 80px;
 }
 
+/* De hovervensters op de aankopenlijst (popover.js): alleen met een muis, vast op het scherm en binnen de randen (popover.js
+   rekent de plek uit). Hoger dan het scherm min 32 px wordt het niet: wat niet past, schuift binnen het venster. */
+.popover {
+  position: fixed;
+  z-index: 60;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.popover[hidden] {
+  display: none;
+}
+
+.popover img {
+  object-fit: contain;
+  background: #fff;
+  outline: 1px solid rgba(var(--shadow-ink), 0.08);
+  outline-offset: -1px;
+}
+
+.popover__error {
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--muted);
+}
+
+/* Het product: de foto groot links, de gegevens rechts, de linkerrand in de kleur van de categorie. */
+.popover--product {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  width: 440px;
+  max-width: 100%;
+  padding: 12px 14px;
+  border-left: 5px solid var(--cat-line);
+}
+
+.popover__photo {
+  flex: none;
+  width: 180px;
+  height: 180px;
+  border-radius: var(--radius-control);
+}
+
+.popover__info {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  justify-items: start;
+}
+
+.popover__title {
+  font-size: 15px;
+}
+
+.popover__meta,
+.popover__history,
+.popover__summary,
+.popover__cat-count,
+.popover__more {
+  color: var(--muted);
+}
+
+.popover__info .offer-chip {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.popover__amount {
+  font-variant-numeric: tabular-nums;
+}
+
+/* De aankoop: de kop, een regel per categorie (bolletje, naam, stuks en soorten, fotootjes, subtotaal) en onderaan het totaal. */
+.popover--purchase {
+  display: grid;
+  gap: 8px;
+  width: 620px;
+  max-width: 100%;
+  padding: 12px 14px;
+}
+
+.popover__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.popover__summary {
+  margin: 0;
+}
+
+.popover__cats {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.popover__cat {
+  display: grid;
+  grid-template-columns: 14px 150px 90px 1fr 70px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.popover__cat-count {
+  font-size: 13px;
+}
+
+.popover__cat-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.popover__thumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.popover__thumbs img {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.popover__thumbs--small img {
+  width: 22px;
+  height: 22px;
+}
+
+.popover__more {
+  font-size: 12px;
+}
+
+.popover__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.popover__total {
+  font-variant-numeric: tabular-nums;
+}
+
 .offer-card__foot {
   display: flex;
   flex-wrap: wrap;

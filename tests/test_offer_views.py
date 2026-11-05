@@ -28,7 +28,7 @@ const I18N = { formatNumber: (n) => String(n) };
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
 class CategoryChipsTest(unittest.TestCase):
     def run_js(self, expression):
-        functions = "\n".join(function_source(CATEGORIES_JS, name) for name in ("categoryLabel", "categoryChipLabel", "categoryChips"))
+        functions = "\n".join(function_source(CATEGORIES_JS, name) for name in ("categoryLabel", "categoryChipLabel", "categoryChip", "categoryChips"))
         script = f"{STUBS}\n{functions}\nconsole.log({expression});"
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
