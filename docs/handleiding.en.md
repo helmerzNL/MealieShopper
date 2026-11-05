@@ -193,7 +193,7 @@ Older orders from your confirmation emails can be read in here with **Import old
 
 ### Stores: Picnic
 
-Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; `View` shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie).
+Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; `View` shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie). In Mealie the recipe arrives with its ingredients, method, photo, servings and time, with the link to Picnic as its source. If a Picnic recipe reached Mealie without ingredients and method before version 3.8.1, delete it there and put it in Mealie again: otherwise `Plan` uses the empty recipe that is already there.
 
 <img src="screenshots/en/picnic-recipes.png" alt="Picnic recipes as cards, with a choice between Saved, Order again and Cookbook" width="900">
 

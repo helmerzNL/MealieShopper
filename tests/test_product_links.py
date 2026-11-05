@@ -274,15 +274,15 @@ class ApiTest(LinksCase):
         with closing(prices._connect()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM price_observations").fetchone()[0], 2, "zoals elke zoekopdracht")
 
-    def test_a_store_that_fails_gives_its_message(self):
+    def test_a_store_failure_does_not_expose_exception_details(self):
         def broken(store):
             def search(query, limit):
-                raise RuntimeError("Crisp is niet gekoppeld")
+                raise RuntimeError("sensitive store error")
             return search
 
         with mock.patch.object(prices, "_search_function", side_effect=broken):
             response = self.client.get("/api/product-links/search?store=crisp&q=melk")
-        self.assertEqual((response.status_code, response.get_json()["error"]), (424, "Crisp is niet gekoppeld"))
+        self.assertEqual((response.status_code, response.get_json()["error"]), (424, "Zoeken mislukt"))
 
     def test_an_empty_search_asks_the_store_nothing(self):
         with mock.patch.object(prices, "_search_function") as search:
