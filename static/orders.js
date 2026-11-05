@@ -143,7 +143,8 @@ function purchaseRows() {
   const rows = kept.map((order) => ({
     kind: "order", id: String(order.id), date: order.deliveryDate || "", open: order.kind === "open",
     label: dayLabel(order.deliveryDate) || t("orders.order_title", { id: order.id }),
-    status: [order.kind === "open" ? order.stateText || t("orders.kind.open") : t("orders.kind.delivered"), slotLabel(order.slotStart, order.slotEnd)].filter(Boolean).join(" · "),
+    // De statusbadge noemt de status al (purchaseStatusBadge): de regel houdt alleen het bezorgmoment.
+    status: slotLabel(order.slotStart, order.slotEnd),
     total: order.total, items: order.itemsSynced ? order.itemCount : null,
     href: storesPath(store, "orders", order.id), attr: `data-order-id="${escapeHtml(order.id)}"`,
     images: order.images || [], names: order.productNames || [], savings: order.savings, bonusCount: order.bonusCount || 0, payment: null,
@@ -154,7 +155,7 @@ function purchaseRows() {
   for (const order of ordersState.imported) {
     rows.push({
       kind: "imported", id: String(order.ref), date: order.date || "", open: false, label: importedOrderTitle(order),
-      status: importedOrderStatus(order, covered.get(order.ref)), ref: order.ref,
+      status: importedOrderSlot(order, covered.get(order.ref)), ref: order.ref,
       total: order.total, items: order.itemCount, href: storesPath(store, "imported", order.ref), attr: `data-imported-order="${escapeHtml(order.ref)}"`,
       images: order.images || [], names: order.productNames || [], savings: order.savings ?? null, bonusCount: order.bonusCount || 0, payment: null,
       statusKind: order.statusKind, statusText: order.statusText,
@@ -663,9 +664,12 @@ function importedOrdersMerge(orders, imported, dateOf = (order) => order.deliver
 // Een ingelezen bestelling is altijd afgeleverd: ze telt als gekocht, en een geannuleerde wordt niet ingelezen (de server geeft
 // dan ook altijd "delivered", ook bij een import van vóór 3.5.0). Noemde de mail geen tijdvak, dan dat van de bestelling uit je
 // account die erdoor wegviel (`from`).
+function importedOrderSlot(order, from = null) {
+  return slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
+}
+
 function importedOrderStatus(order, from = null) {
-  const slot = slotLabel(order.slotStart, order.slotEnd) || (from ? slotLabel(from.slotStart, from.slotEnd) : "");
-  return [t("orders.kind.delivered"), slot].filter(Boolean).join(" · ");
+  return [t("orders.kind.delivered"), importedOrderSlot(order, from)].filter(Boolean).join(" · ");
 }
 
 function importedOrderTitle(order) {

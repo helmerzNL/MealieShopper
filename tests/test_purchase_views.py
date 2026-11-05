@@ -27,6 +27,14 @@ class PurchaseViewsMarkupTest(unittest.TestCase):
         for kind, colour in (("delivered", "--primary"), ("planned", "--info"), ("imported", "--muted"), ("receipt", "--lemon")):
             self.assertRegex(CSS, rf"\.badge--status-{kind} \{{\n  --badge: var\({colour}\);")
 
+    def test_the_status_line_does_not_repeat_the_word_the_badge_shows(self):
+        rows = function_source(ORDERS, "purchaseRows")
+        self.assertNotIn("orders.kind.delivered", rows)
+        self.assertNotIn("orders.kind.open", rows)
+        self.assertNotIn("importedOrderStatus", rows)
+        self.assertIn("status: slotLabel(order.slotStart, order.slotEnd),", rows)
+        self.assertIn("status: importedOrderSlot(", rows)
+
     def test_the_rows_carry_the_status_kind_and_text_of_the_route(self):
         rows = function_source(ORDERS, "purchaseRows")
         self.assertEqual(rows.count("statusKind: "), 3)
