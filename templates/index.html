@@ -68,7 +68,7 @@
           if (look.navbarStyle === "ios" || look.navbarStyle === "android") nav = look.navbarStyle;
           if (Number.isInteger(look.navbarGlass)) { // dezelfde som als applyNavGlass in static/theme.js
             var glass = Math.min(100, Math.max(0, look.navbarGlass));
-            root.style.setProperty("--nav-alpha", (1 - glass * 0.0025).toFixed(3));
+            root.style.setProperty("--nav-alpha", (1 - glass * 0.0085).toFixed(3));
             root.style.setProperty("--nav-blur", (10 + glass * 0.3).toFixed(1) + "px");
           }
         }
@@ -1723,7 +1723,7 @@
           <p class="appearance-current" id="appearance-nav-current" aria-live="polite"></p>
           <div class="appearance-glass" id="appearance-glass-row">
             <label class="appearance-glass__label" for="appearance-glass" data-i18n="appearance.glass.title">Glaseffect</label>
-            <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. De labels blijven leesbaar, ook boven een foto.</p>
+            <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.</p>
             <div class="appearance-glass__control">
               <input type="range" id="appearance-glass" min="0" max="100" step="1" value="60" aria-describedby="appearance-glass-hint">
               <output id="appearance-glass-value" for="appearance-glass">60%</output>

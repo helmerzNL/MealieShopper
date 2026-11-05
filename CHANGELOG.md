@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.12.1
+
+### Gewijzigd in 3.12.1
+
+*English summary: the glass of the iOS-like bottom bar is now as see-through as in 3dprint_pricing. The Glass effect slider uses the same scale: opacity from 1 (0) to 0.15 (100), blur from 10 to 40 px, default 60 (0.49 opacity, 28 px blur). Up to about 30 the labels keep 4.5:1 over any photo; above that a very light or dark photo under the bar can get in the way, and the hint under the slider says so. With Reduce transparency on, the bar stays solid. Reload the page once after updating.*
+
+- **Het glas net zo doorzichtig als in 3dprint_pricing.** De schuif *Glaseffect* (Instellingen, Weergave, Navigatiebalk, bij de iOS-achtige balk) heeft nu dezelfde schaal: dekking `1 - 0,0085 x` de stand, van 1 (0) tot 0,15 (100), en een vervaging van 10 tot 40 px. De standaard blijft 60 en is nu dekking 0,49 met 28 px vervaging (was 0,85), dus ook wie niets instelt ziet meer van de pagina door de balk. Wie al een stand koos, houdt die stand; het glas wordt bij dezelfde stand doorzichtiger.
+- **Leesbaarheid.** Tot ongeveer stand 30 (dekking 0,75) halen de labels boven elke foto 4,5 : 1; daarboven kan een heel lichte of donkere foto onder de balk ze verstoren. De uitleg bij de schuif zegt dat nu. Met *Minder doorzichtigheid* aan op je toestel blijft de balk dicht, wat de schuif ook zegt.
+- **Handleiding** (NL en EN) en de huisstijl: de nieuwe schaal.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.12.0
 
 ### Nieuw in 3.12.0

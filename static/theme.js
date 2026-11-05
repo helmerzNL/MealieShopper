@@ -17,8 +17,9 @@
 // Flux76HQ/App-Guidance: iOS-achtig (zwevend glas) of Android-achtig (Material, over de volle breedte), via data-nav op <html>.
 // Automatisch geeft een Android-toestel de Android-balk en de rest de iOS-achtige; bewaard wordt "auto", niet wat dat nu is.
 // Het glas (0 dicht ... 100 het doorzichtigst) wordt hier een gewone waarde (--nav-alpha, --nav-blur): Safari laat glas weg
-// als er een var() in calc() staat. Het doorzichtigst is 0,75 dekking, niet minder: daaronder halen de labels boven een
-// witte of zwarte foto geen 4,5 : 1 meer (tests/test_appearance.py rekent het na).
+// als er een var() in calc() staat. De schaal is die van 3dprint_pricing: dekking 1 (schuif op 0) tot 0,15 (op 100). Tot
+// stand 29 (dekking 0,75) halen de labels boven elke foto 4,5 : 1 (tests/test_appearance.py rekent het na); daarboven kan
+// een heel lichte of donkere foto onder het glas ze minder goed leesbaar maken. Dat is de keuze van wie de schuif verzet.
 (function () {
   "use strict";
 
@@ -30,8 +31,8 @@
   const DARK_BG = { green: "#0f1613", grey: "#121314" };
   const DARK_BACKGROUNDS = ["green", "grey"];
   const NAV_STYLES = ["auto", "ios", "android"];
-  const NAV_GLASS = 60; // de standaard van de schuif; styles.css heeft dezelfde waarden (0,85 en 28 px)
-  const NAV_ALPHA_STEP = 0.0025; // 0 → dekking 1, 100 → 0,75
+  const NAV_GLASS = 60; // de standaard van de schuif, zoals in 3dprint_pricing; styles.css heeft dezelfde waarden (0,49 en 28 px)
+  const NAV_ALPHA_STEP = 0.0085; // 0 → dekking 1, 60 → 0,49, 100 → 0,15
 
   // De keuzes in Instellingen, Weergave: [waarde, naam in de vertaling]. Leeg is de huisstijl. Elke kleur haalt in het lichte
   // thema zelf al het contrast, dus het rondje toont wat je krijgt; tests/test_appearance.py controleert dat.
@@ -52,7 +53,7 @@
   const LIGHT_SURFACES = ["#ffffff", "#f5f7f6", "#eef3f0"];
   const DARK_SURFACES = ["#0f1613", "#17211c", "#1e2b24", "#121314", "#1b1c1e", "#232527"];
   const TARGET = 4.6; // net boven 4,5 : 1, zodat afronden in de browser het niet onder de grens brengt
-  // Het glas van de onderste menubalk op zijn slechtst (--tabbar-rgb in styles.css, bij de doorzichtigste stand, 0,75): wit glas
+  // Het glas van de onderste menubalk op zijn slechtst waar het nog kan (--tabbar-rgb in styles.css, dekking 0,75): wit glas
   // boven een zwarte foto, en donker glas (groen en grijs) boven een witte. Het label van de actieve tab moet daar ook leesbaar
   // zijn, met de tint erover.
   const LIGHT_GLASS = "#bfbfbf";

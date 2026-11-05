@@ -52,8 +52,8 @@
   --warning-bg: #fff8e6;
   --warning-border: #e0a100;
 
-  /* Menubalk onderaan op een telefoon. Het glas is --tabbar-rgb met de dekking van de schuif (--nav-alpha, 1 tot 0,75, zie
-     static/theme.js); de inkt is zo gekozen dat de labels ook bij de doorzichtigste stand boven een foto 4,5 : 1 halen. */
+  /* Menubalk onderaan op een telefoon. Het glas is --tabbar-rgb met de dekking van de schuif (--nav-alpha, 1 tot 0,15, zie
+     static/theme.js); de inkt is zo gekozen dat de labels tot dekking 0,75 (schuif 29) boven elke foto 4,5 : 1 halen. */
   --tabbar-rgb: 255, 255, 255;
   --tabbar-tint: rgba(23, 107, 69, 0.14);
   --tabbar-ink: #3f4c45;
@@ -3505,7 +3505,7 @@ html.is-standalone body {
    Het glas: de dekking en vervaging zet static/theme.js als gewone waarden; de standaard hier is die van schuifstand 60. */
 :root {
   --tabbar-h: 82px;
-  --nav-alpha: 0.85;
+  --nav-alpha: 0.49;
   --nav-blur: 28px;
 }
 

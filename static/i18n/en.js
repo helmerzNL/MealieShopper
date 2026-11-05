@@ -1107,7 +1107,7 @@ I18N.add("en", {
   "appearance.nav.ios_hint": "Floating, with rounded corners and glass.",
   "appearance.nav.android_hint": "Full width, with a pill behind the active icon.",
   "appearance.glass.title": "Glass effect",
-  "appearance.glass.hint": "0 is opaque, higher is more see-through and blurred. The labels stay readable, also over a photo.",
+  "appearance.glass.hint": "0 is opaque, higher is more see-through and blurred. The more see-through, the more a photo under the bar can get in the way of the labels.",
   "appearance.glass.value": "{n}%",
   "mealie.checking_btn": "Checking...",
   "saved.intro": "Your saved Allerhande recipes are fetched from AH and then kept in MealieShopper. This uses your AH link under Settings > Link > Albert Heijn.",
