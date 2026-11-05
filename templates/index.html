@@ -22,6 +22,16 @@
         if (forced === "1" || (standalone && forced !== "0")) {
           document.documentElement.classList.add("has-tabbar");
         }
+        // Alleen in de geinstalleerde app: geen knijp- en dubbeltikzoom, zoals een native app (de viewport hieronder en
+        // touch-action in de stijlen), en de pagina veert niet mee als je bovenaan naar beneden sleept, zodat de titelbalk
+        // blijft staan (html.is-standalone). In de browser blijft zoomen gewoon werken.
+        if (standalone) {
+          document.documentElement.classList.add("is-standalone");
+          var viewport = document.querySelector('meta[name="viewport"]');
+          if (viewport) viewport.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
+          // Safari op iOS kent nog een eigen knijpgebaar; dat stoppen we alleen hier, in de app.
+          document.addEventListener("gesturestart", function (event) { event.preventDefault(); });
+        }
       })();
     </script>
     <script>
@@ -34,15 +44,28 @@
       })();
     </script>
     <script>
-      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Staat hier in de kop,
-      // zodat de pagina niet eerst licht flitst. static/theme.js regelt de knop.
+      // Donker of licht thema: de keuze van de gebruiker (ms-theme), anders die van het apparaat. Daarbij de achtergrond van
+      // het donkere thema en de tinten van de accentkleur, uit de kopie die static/theme.js bewaart (ms-appearance). Staat
+      // hier in de kop, zodat de pagina niet eerst licht of groen flitst. static/theme.js regelt de rest.
       (function () {
-        var theme = null;
-        try { theme = window.localStorage.getItem("ms-theme"); } catch (e) { /* opslag geblokkeerd: het apparaat beslist */ }
+        var root = document.documentElement, theme = null, look = null;
+        try {
+          theme = window.localStorage.getItem("ms-theme");
+          look = JSON.parse(window.localStorage.getItem("ms-appearance") || "null");
+        } catch (e) { /* opslag geblokkeerd: het apparaat beslist en de huisstijl geldt */ }
         if (theme !== "dark" && theme !== "light") {
           theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         }
-        document.documentElement.setAttribute("data-theme", theme);
+        root.setAttribute("data-theme", theme);
+        if (!look || typeof look !== "object") return;
+        if (look.darkBackground === "grey") root.setAttribute("data-dark-bg", "grey");
+        var vars = look.vars, names = vars && typeof vars === "object" ? Object.keys(vars) : [], i;
+        for (i = 0; i < names.length; i++) {
+          if (!/^--accent-(light|dark)(-strong|-on|-ink)?$/.test(names[i]) || !/^#[0-9a-f]{6}$/i.test(vars[names[i]])) return;
+        }
+        if (names.length !== 8) return;
+        for (i = 0; i < names.length; i++) root.style.setProperty(names[i], vars[names[i]]);
+        root.setAttribute("data-accent", "");
       })();
     </script>
     <title>MealieShopper</title>
@@ -407,7 +430,7 @@
       </div>
       <a role="menuitem" class="user-menu__item user-menu__item--small" data-user-action="basket" href="/cart" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCart"><path d="M17,18C15.89,18 15,18.89 15,20A2,2 0 0,0 17,22A2,2 0 0,0 19,20C19,18.89 18.1,18 17,18M1,2V4H3L6.6,11.59L5.24,13.96C5.09,14.32 5,14.65 5,15A2,2 0 0,0 7,17H19V15H7.42A0.25,0.25 0 0,1 7.17,14.75C7.17,14.7 7.18,14.66 7.2,14.63L8.1,13H15.55C16.3,13 16.96,12.58 17.3,11.97L20.88,5.5C20.95,5.34 21,5.17 21,5A1,1 0 0,0 20,4H5.21L4.27,2M7,18C5.89,18 5,18.89 5,20A2,2 0 0,0 7,22A2,2 0 0,0 9,20C9,18.89 8.1,18 7,18Z"/></svg><span data-i18n="nav.basket">Mandje</span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="profile" href="/profile" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiAccountCircleOutline"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M7.07,18.28C7.5,17.38 10.12,16.5 12,16.5C13.88,16.5 16.5,17.38 16.93,18.28C15.57,19.36 13.86,20 12,20C10.14,20 8.43,19.36 7.07,18.28M18.36,16.83C16.93,15.09 13.46,14.5 12,14.5C10.54,14.5 7.07,15.09 5.64,16.83C4.62,15.5 4,13.82 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,13.82 19.38,15.5 18.36,16.83M12,6C10.06,6 8.5,7.56 8.5,9.5C8.5,11.44 10.06,13 12,13C13.94,13 15.5,11.44 15.5,9.5C15.5,7.56 13.94,6 12,6M12,11A1.5,1.5 0 0,1 10.5,9.5A1.5,1.5 0 0,1 12,8A1.5,1.5 0 0,1 13.5,9.5A1.5,1.5 0 0,1 12,11Z"/></svg><span data-i18n="user.profile">Profiel</span></a>
-      <a role="menuitem" class="user-menu__item" data-user-action="settings" data-admin-only href="/settings" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCogOutline"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z"/></svg><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
+      <a role="menuitem" class="user-menu__item" data-user-action="settings" href="/settings" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiCogOutline"><path d="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M12,10A2,2 0 0,0 10,12A2,2 0 0,0 12,14A2,2 0 0,0 14,12A2,2 0 0,0 12,10M10,22C9.75,22 9.54,21.82 9.5,21.58L9.13,18.93C8.5,18.68 7.96,18.34 7.44,17.94L4.95,18.95C4.73,19.03 4.46,18.95 4.34,18.73L2.34,15.27C2.21,15.05 2.27,14.78 2.46,14.63L4.57,12.97L4.5,12L4.57,11L2.46,9.37C2.27,9.22 2.21,8.95 2.34,8.73L4.34,5.27C4.46,5.05 4.73,4.96 4.95,5.05L7.44,6.05C7.96,5.66 8.5,5.32 9.13,5.07L9.5,2.42C9.54,2.18 9.75,2 10,2H14C14.25,2 14.46,2.18 14.5,2.42L14.87,5.07C15.5,5.32 16.04,5.66 16.56,6.05L19.05,5.05C19.27,4.96 19.54,5.05 19.66,5.27L21.66,8.73C21.79,8.95 21.73,9.22 21.54,9.37L19.43,11L19.5,12L19.43,13L21.54,14.63C21.73,14.78 21.79,15.05 21.66,15.27L19.66,18.73C19.54,18.95 19.27,19.04 19.05,18.95L16.56,17.95C16.04,18.34 15.5,18.68 14.87,18.93L14.5,21.58C14.46,21.82 14.25,22 14,22H10M11.25,4L10.88,6.61C9.68,6.86 8.62,7.5 7.85,8.39L5.44,7.35L4.69,8.65L6.8,10.2C6.4,11.37 6.4,12.64 6.8,13.8L4.68,15.36L5.43,16.66L7.86,15.62C8.63,16.5 9.68,17.14 10.87,17.38L11.24,20H12.76L13.13,17.39C14.32,17.14 15.37,16.5 16.14,15.62L18.57,16.66L19.32,15.36L17.2,13.81C17.6,12.64 17.6,11.37 17.2,10.2L19.31,8.65L18.56,7.35L16.15,8.39C15.38,7.5 14.32,6.86 13.12,6.62L12.75,4H11.25Z"/></svg><span data-i18n="user.settings">Instellingen</span><span class="update-dot" id="update-dot-settings" hidden></span></a>
       <a role="menuitem" class="user-menu__item" data-user-action="about" href="/about" data-nav><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiInformationOutline"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg><span data-i18n="user.about">Over</span></a>
       <div class="user-menu__separator" id="auth-logout-separator" role="separator"></div>
       <button type="button" role="menuitem" class="user-menu__item" id="auth-logout"><svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="mdiLogout"><path d="M17 7L15.59 8.41L18.17 11H8V13H18.17L15.59 15.58L17 17L22 12M4 5H12V3H4C2.9 3 2 3.9 2 5V19C2 20.1 2.9 21 4 21H12V19H4V5Z"/></svg><span data-i18n="auth.logout">Uitloggen</span></button>
@@ -1173,6 +1196,7 @@
           <a class="subtab" data-subtab="settings-users" data-admin-only hidden data-i18n="settings.tab.users" href="/settings/users" data-nav>Gebruikers</a>
           <a class="subtab" data-subtab="settings-audit" data-admin-only data-i18n="settings.tab.audit" href="/settings/audit" data-nav>Auditlog</a>
           <a class="subtab" data-subtab="settings-system" data-admin-only href="/settings/system" data-nav><span data-i18n="settings.tab.system">Systeem</span><span class="update-dot" id="update-dot-subtab" hidden></span></a>
+          <a class="subtab" data-subtab="settings-appearance" data-i18n="settings.tab.appearance" href="/settings/appearance" data-nav>Weergave</a>
         </nav>
 
         <div id="settings-link" class="subpanel is-active">
@@ -1640,6 +1664,39 @@
           <div id="reset-message"></div>
         </div>
         </div>
+
+        <div id="settings-appearance" class="subpanel">
+        <div class="box">
+          <h2 data-i18n="appearance.theme.title">Thema</h2>
+          <p class="muted" data-i18n="appearance.theme.help">Licht, donker, of wat je apparaat gebruikt. De knop met de maan of de zon bovenaan wisselt ook tussen licht en donker.</p>
+          <fieldset class="appearance-options" id="appearance-theme">
+            <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+          </fieldset>
+        </div>
+        <div class="box">
+          <h2 data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</h2>
+          <p class="muted" data-i18n="appearance.dark_bg.help">Groen past bij het basilicum van MealieShopper; donkergrijs is neutraal en rustig bij elke accentkleur. Je ziet het verschil als het donkere thema aan staat.</p>
+          <fieldset class="appearance-options" id="appearance-dark-bg">
+            <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
+            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+          </fieldset>
+        </div>
+        <div class="box">
+          <h2 data-i18n="appearance.accent.title">Accentkleur</h2>
+          <p class="muted" data-i18n="appearance.accent.help">De kleur van knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur, zodat een fout altijd rood blijft. Een kleur die te licht of te donker is voor leesbare tekst, maakt MealieShopper een tint donkerder of lichter.</p>
+          <fieldset class="appearance-swatches" id="appearance-accent">
+            <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
+            <span class="appearance-swatches__list" id="appearance-accent-list"></span>
+          </fieldset>
+          <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
+          <div id="appearance-message"></div>
+        </div>
+        </div>
+
       </section>
 
       <section id="about" class="panel">
@@ -1687,6 +1744,7 @@
     <script src="{{ url_for('static', filename='ai_review.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='offers_history.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='profile.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='appearance.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='backup.js', v=config.ASSET_VERSION) }}"></script>

@@ -310,6 +310,7 @@ function continueAfterLogin() {
 
 async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
+  if (typeof appearanceFromProfile === "function") appearanceFromProfile(); // de weergave van deze gebruiker
   if (typeof loadOnboardingStatus === "function") await loadOnboardingStatus();
   renderAuthState();
   if (continueAfterLogin()) return state.auth;
@@ -2473,8 +2474,8 @@ function showPanel(panelId, tab = null) {
   if (panelId === "meal-kits" && typeof showMealKits === "function") showMealKits();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
-  if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
-  if (panelId === "settings" && typeof loadLinkingBox === "function") loadLinkingBox();
+  if (panelId === "settings" && !isRegularUser() && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+  if (panelId === "settings" && !isRegularUser() && typeof loadLinkingBox === "function") loadLinkingBox();
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2640,8 +2641,13 @@ function openProfile(subtab = "profile-general") {
   openSubtab("profile", subtab);
 }
 
+function isRegularUser() {
+  return document.documentElement.classList.contains("is-regular-user");
+}
+
+// Een gewone gebruiker ziet onder Instellingen alleen Weergave.
 function openSettings(subtab = "settings-link") {
-  openSubtab("settings", subtab);
+  openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
 
 $("#prev-week").addEventListener("click", () => {

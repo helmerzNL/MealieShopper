@@ -32,9 +32,9 @@ Alles wat MealieShopper kan, scherm voor scherm. Installeren, instellen, beheren
 - **Maaltijdboxen (HelloFresh en Marley Spoon).** Een eigen tabblad naast Winkels met de openbare weekmenu's van HelloFresh en Marley Spoon Nederland, per week te bladeren en te doorzoeken. Je kiest de aanbieder in het uitklapmenu bovenaan, bekijkt een recept of plant het met één klik in (dan komt het ook in Mealie). Er is geen account of koppeling nodig. Dit is onofficieel: MealieShopper leest alleen openbare gegevens, zuinig en met een eigen User-Agent, en de recepten en foto's blijven van de aanbieders.
 - **Installatiehulp.** Op de eerste start loop je in zes stappen langs de beveiliging en de koppelingen met Mealie, Albert Heijn, Jumbo en Picnic.
 - **Auditlog en updatecheck.** De beheerder ziet elk verzoek aan de winkels en van AI-assistenten (met export) en krijgt een melding als er een nieuwe versie is.
-- **Donker en licht.** Een knop naast de vlaggetjes wisselt van thema; zonder keuze volgt de app je apparaat.
+- **Donker en licht, in je eigen kleur.** Een knop naast de vlaggetjes wisselt van thema; zonder keuze volgt de app je apparaat. Onder **Instellingen, Weergave** kiest iedere gebruiker zelf het thema, een groene of donkergrijze achtergrond voor het donkere thema en een accentkleur.
 - **Elk scherm een eigen adres.** Recepten staan op `/recipes`, het mandje op `/cart`, de prijsgeschiedenis op `/offers/history`, een bestelling op `/stores/ah/orders/<nummer>` en een kassabon op `/stores/ah/receipts/<nummer>`. Herladen, een bladwijzer en terug en vooruit in de browser werken dus zoals je verwacht. Het menu en de tabs zijn gewone links: met Ctrl+klik (Cmd+klik op een Mac) of de middelste muisknop open je een scherm in een nieuw tabblad. Waar het kan, linken de schermen naar elkaar: een aanbieding naar de prijsgeschiedenis van dat product, een aankoop in de prijsgeschiedenis naar de bestelling of kassabon, en een product in een bestelling of op een kassabon terug naar zijn prijsgeschiedenis.
-- **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app. Op een groot scherm staat het menu links, met onder elk onderdeel zijn tabbladen (zoals *Bestellingen* onder **Winkels**), en kun je het inklappen tot alleen de pictogrammen; de tabbladen staan dan weer boven de pagina.
+- **Een app op je telefoon.** Installeer MealieShopper als app (PWA). Op een telefoon krijg je een glazen menubalk onderaan, zoals een echte app. Op een groot scherm staat het menu links, met onder elk onderdeel zijn tabbladen (zoals *Bestellingen* onder **Winkels**), en kun je het inklappen tot alleen de pictogrammen; de tabbladen staan dan weer boven de pagina. In de geïnstalleerde app zoom je niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept.
 - **Veilig inloggen.** Een passkey (met een domeinnaam en HTTPS), of een gebruikersnaam en wachtwoord met optionele tweestapsverificatie.
 - **Meerdere gebruikers.** Jij bent de beheerder en nodigt huisgenoten uit met een link. Zij gebruiken de basisfuncties; alleen jij koppelt Mealie en de supermarkten en beheert de gebruikers.
 - **AI-assistenten.** Een MCP-server, zodat je Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kunt laten bekijken, een maaltijd kunt laten plannen en een recept in Mealie kunt laten importeren. Inloggen met OAuth, met je eigen account.
@@ -237,6 +237,10 @@ Met de maan- of zonknop naast de vlaggetjes wissel je tussen licht en donker; zo
 
 <img src="screenshots/nl/dark.png" alt="Het weekmenu in het donkere thema" width="900">
 
+Onder **Instellingen, Weergave** kies je het thema, een groene of donkergrijze achtergrond voor het donkere thema en een accentkleur. Hier donkergrijs met blauw: de knoppen, links en de actieve tab volgen de kleur, ook in de menubalk onderaan.
+
+<img src="screenshots/nl/appearance.png" alt="Instellingen, Weergave in het donkere thema: de achtergrond Donkergrijs is gekozen, en onder Accentkleur tien rondjes en Eigen kleur, met Blauw gekozen" width="900">
+
 ## Eerste start
 
 Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Instellingen** (in het avatar-menu, op een telefoon onder **Meer**). Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
@@ -350,15 +354,26 @@ Dit is onofficieel: beide aanbieders hebben geen openbare API. MealieShopper lee
 
 ### Donker en licht
 
-Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en het donkere thema wisselt. De keuze blijft in je browser bewaard; zonder keuze volgt de app de instelling van je apparaat.
+Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en het donkere thema wisselt. Zonder keuze volgt de app de instelling van je apparaat. Ben je ingelogd, dan onthoudt je account de keuze (zie [Weergave](#weergave)).
+
+### Weergave
+
+Onder **Instellingen, Weergave** (in het avatar-menu, voor iedereen) stel je de kleuren van de app in. De keuze hoort bij je account: op een ander apparaat of in een andere browser zie je na het inloggen dezelfde kleuren, en iedere huisgenoot kiest zelf.
+
+- **Thema:** *Apparaat volgen*, *Licht* of *Donker*. Ook de knop met de maan of de zon bewaart je keuze bij je account. Heb je nog nooit iets gekozen, dan geldt per browser wat daar stond.
+- **Achtergrond in het donkere thema:** *Groen*, het basilicum van de huisstijl, of *Donkergrijs*, neutraal bij elke accentkleur. Je ziet het verschil als het donkere thema aan staat.
+- **Accentkleur:** de kleur van knoppen, links, de actieve tab, de focusring en de gloed bovenaan. Kies uit tien kleuren (*Basilicum* is de standaard) of met **Eigen kleur** zelf een kleur. Is een kleur te licht of te donker voor leesbare tekst, dan maakt MealieShopper hem een tint donkerder of lichter; bij een eigen kleur staat onder de rondjes welke tinten je krijgt. Meldingen (gelukt, waarschuwing, fout), de kortingsbadges en de kleuren van de categorieën houden hun eigen kleur, en het logo blijft groen.
+
+Een wijziging zie je meteen, en hij is meteen bewaard.
 
 ### Profiel en instellingen
 
-Rechtsboven staat je **avatar** met een uitklapmenu. Op een klein scherm opent de knop **Meer** (met de drie streepjes) rechts in de tabbalk hetzelfde menu. Bovenaan staan je avatar en naam, dan **Profiel**, **Instellingen** (alleen voor de beheerder) en **Over**, en onder een lijn **Uitloggen**; elk item heeft een icoon. Op een klein scherm staat **Mandje** bovenaan het menu, want daar staat het niet in de tabbalk.
+Rechtsboven staat je **avatar** met een uitklapmenu. Op een klein scherm opent de knop **Meer** (met de drie streepjes) rechts in de tabbalk hetzelfde menu. Bovenaan staan je avatar en naam, dan **Profiel**, **Instellingen** (voor een gewone gebruiker alleen Weergave) en **Over**, en onder een lijn **Uitloggen**; elk item heeft een icoon. Op een klein scherm staat **Mandje** bovenaan het menu, want daar staat het niet in de tabbalk.
 
 - **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
 - **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.
 - **Profiel > AI-apps:** de MCP-koppeling met AI-assistenten, voor iedereen.
+- **Instellingen > Weergave:** het thema, de achtergrond van het donkere thema en de accentkleur, voor iedereen (zie [Weergave](#weergave)). Een gewone gebruiker ziet onder Instellingen alleen dit onderdeel.
 - **Instellingen** (beheerder): **Koppelen** (Mealie en de supermarkten), **Gebruikers**, **Auditlog** en **Systeem** (de updatecheck en het opschonen, zie [Over en updates](#over-en-updates) en [Fabrieksinstellingen](#fabrieksinstellingen)).
 
 ### Over en updates

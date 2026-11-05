@@ -139,6 +139,21 @@ class TabbarMarkupTest(unittest.TestCase):
             self.assertIn(needle, script, needle)
         self.assertIn("try {", script, "geblokkeerde opslag mag de pagina niet breken")
 
+    def test_only_the_installed_app_stops_zooming_and_the_bounce(self):
+        # In de browser blijft zoomen werken (toegankelijkheid); alleen de geinstalleerde app gedraagt zich als een native app.
+        self.assertIn('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', self.html)
+        script = re.search(r"<script>(.*?)</script>", self.html, re.S).group(1)
+        branch = script[script.index("if (standalone) {"):]
+        for needle in ('classList.add("is-standalone")', "maximum-scale=1, user-scalable=no, viewport-fit=cover", '"gesturestart"'):
+            self.assertIn(needle, branch, needle)
+        self.assertEqual(script.count("user-scalable=no"), 1, "nergens anders")
+        rule = re.search(r"html\.is-standalone,\s*html\.is-standalone body\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("overscroll-behavior: none", rule, "geen rubberband: de titelbalk blijft bovenaan staan")
+        self.assertIn("touch-action: pan-x pan-y", rule, "scrollen wel, knijpzoom niet")
+        topbar = re.search(r"\.topbar\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("position: sticky", topbar)
+        self.assertIn("top: 0", topbar)
+
     def test_app_js_keeps_aria_current_in_sync_and_scrolls_to_top(self):
         js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         handler = js[js.index('document.querySelectorAll(".tab").forEach'):js.index('document.querySelectorAll(".subtab[data-subtab]')]

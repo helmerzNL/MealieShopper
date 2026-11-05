@@ -23,7 +23,7 @@ const ROUTE_SUBTABS = {
   recipes: { "": "planner", search: "search" },
   offers: { "": "offers-items", recipes: "offers-suggestions", history: "offers-history" },
   profile: { "": "profile-general", security: "profile-security", ai: "profile-ai" },
-  settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system" },
+  settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system", appearance: "settings-appearance" },
 };
 
 // Winkels: per winkel de onderdelen en hun subtab. /stores/ah/receipts/<id> is een kassabon onder Bestellingen, en
@@ -163,8 +163,7 @@ function routerApply(href) {
   const url = new URL(href, window.location.origin);
   const parts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
   const root = parts[0] || "recipes";
-  let panel = ROUTE_PANELS[root];
-  if (panel === "settings" && !routerIsOwner()) panel = null; // Instellingen zijn van de beheerder
+  const panel = ROUTE_PANELS[root];
   router.applying++;
   router.pending = "";
   try {
@@ -177,8 +176,13 @@ function routerApply(href) {
       routerApplyOffers(parts[1] || "", url.searchParams);
     } else {
       const highlighted = ["profile", "settings", "about"].includes(panel) ? null : routerTab(panel);
+      let subtab = ROUTE_SUBTABS[root]?.[parts[1] || ""];
+      // Instellingen zijn van de beheerder, op Weergave na: een gewone gebruiker komt altijd daar uit.
+      if (panel === "settings" && !routerIsOwner()) {
+        subtab = "settings-appearance";
+        if (url.pathname !== "/settings/appearance") history.replaceState({ ms: true }, "", "/settings/appearance");
+      }
       showPanel(panel, highlighted);
-      const subtab = ROUTE_SUBTABS[root]?.[parts[1] || ""];
       if (subtab) routerOpenSubtab(subtab);
     }
   } finally {

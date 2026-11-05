@@ -32,9 +32,9 @@ Everything MealieShopper can do, screen by screen. Installing, configuring, runn
 - **Meal kits (HelloFresh and Marley Spoon).** A tab of its own next to Stores with the public weekly menus of HelloFresh and Marley Spoon Netherlands, which you can browse per week and search. You pick the provider in the drop-down menu at the top, view a recipe or plan it with one click (which puts it in Mealie too). No account or link is needed. This is unofficial: MealieShopper only reads public data, sparingly and with its own User-Agent, and the recipes and photos remain the providers'.
 - **Setup guide.** On the first start you go through security and the links with Mealie, Albert Heijn, Jumbo and Picnic in six steps.
 - **Audit log and update check.** The administrator sees every request to the stores and from AI assistants (with export) and gets a notice when a new version is available.
-- **Dark and light.** A button next to the flags switches the theme; without a choice the app follows your device.
+- **Dark and light, in your own colour.** A button next to the flags switches the theme; without a choice the app follows your device. Under **Settings, Appearance** every user picks their own theme, a green or dark grey background for the dark theme, and an accent colour.
 - **Every screen has its own address.** Recipes are at `/recipes`, the basket at `/cart`, the price history at `/offers/history`, an order at `/stores/ah/orders/<number>` and a receipt at `/stores/ah/receipts/<number>`. Reloading, a bookmark and back and forward in the browser therefore work as you expect. The menu and the tabs are ordinary links: Ctrl+click (Cmd+click on a Mac) or the middle mouse button opens a screen in a new tab. Where possible, the screens link to each other: an offer to the price history of that product, a purchase in the price history to the order or receipt, and a product in an order or on a receipt back to its price history.
-- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left, with the tabs of each section underneath it (such as *Orders* under **Stores**), and can be collapsed to icons only; the tabs then sit above the page again.
+- **An app on your phone.** Install MealieShopper as an app (PWA). On a phone you get a glass menu bar at the bottom, like a real app. On a large screen the menu sits on the left, with the tabs of each section underneath it (such as *Orders* under **Stores**), and can be collapsed to icons only; the tabs then sit above the page again. In the installed app you don't zoom with two fingers, and the title bar stays at the top, also when you drag down.
 - **Secure login.** A passkey (with a domain name and HTTPS), or a username and password with optional two-step verification.
 - **Multiple users.** You are the administrator and invite housemates with a link. They use the basic functions; only you link Mealie and the supermarkets and manage the users.
 - **AI assistants.** An MCP server, so you can let Claude, ChatGPT or Copilot look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie. OAuth login, with your own account.
@@ -237,6 +237,10 @@ The moon or sun button next to the flags switches between light and dark; withou
 
 <img src="screenshots/en/dark.png" alt="The week menu in the dark theme" width="900">
 
+Under **Settings, Appearance** you pick the theme, a green or dark grey background for the dark theme, and an accent colour. Here dark grey with blue: the buttons, links and the active tab follow the colour, in the menu bar at the bottom too.
+
+<img src="screenshots/en/appearance.png" alt="Settings, Appearance in the dark theme: the Dark grey background is chosen, and under Accent colour ten circles and Custom colour, with Blue chosen" width="900">
+
 ## First start
 
 On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings** (in the avatar menu, on a phone under **More**). An existing installation (with a passkey or password) does not see it.
@@ -350,15 +354,26 @@ This is unofficial: neither provider has a public API. MealieShopper only reads 
 
 ### Dark and light
 
-Next to the flags is a button (moon or sun) that switches between the light and the dark theme. The choice is kept in your browser; without a choice the app follows your device setting.
+Next to the flags is a button (moon or sun) that switches between the light and the dark theme. Without a choice the app follows your device setting. Once you are logged in, your account remembers the choice (see [Appearance](#appearance)).
+
+### Appearance
+
+Under **Settings, Appearance** (in the avatar menu, for everyone) you set the colours of the app. The choice belongs to your account: on another device or in another browser you see the same colours after logging in, and every member of the household picks their own.
+
+- **Theme:** *Follow device*, *Light* or *Dark*. The moon or sun button also saves your choice with your account. If you never chose anything, each browser keeps what it had.
+- **Background of the dark theme:** *Green*, the basil of the house style, or *Dark grey*, neutral with any accent colour. You see the difference while the dark theme is on.
+- **Accent colour:** the colour of buttons, links, the active tab, the focus ring and the glow at the top. Pick one of ten colours (*Basil* is the default) or your own with **Custom colour**. If a colour is too light or too dark for readable text, MealieShopper makes it a shade darker or lighter; for a custom colour the line under the circles says which shades you get. Notices (done, warning, error), the discount badges and the category colours keep their own colour, and the logo stays green.
+
+A change shows at once and is saved at once.
 
 ### Profile and settings
 
-At the top right is your **avatar** with a drop-down menu. On a small screen the **More** button (with the three lines) on the right of the tab bar opens the same menu. At the top are your avatar and name, then **Profile**, **Settings** (administrator only) and **About**, and below a line **Log out**; every item has an icon. On a small screen **Basket** is at the top of the menu, because it is not in the tab bar there.
+At the top right is your **avatar** with a drop-down menu. On a small screen the **More** button (with the three lines) on the right of the tab bar opens the same menu. At the top are your avatar and name, then **Profile**, **Settings** (only Appearance for a regular user) and **About**, and below a line **Log out**; every item has an icon. On a small screen **Basket** is at the top of the menu, because it is not in the tab bar there.
 
 - **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
 - **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.
 - **Profile > AI apps:** the MCP link with AI assistants, for everyone.
+- **Settings > Appearance:** the theme, the background of the dark theme and the accent colour, for everyone (see [Appearance](#appearance)). A regular user only sees this part under Settings.
 - **Settings** (administrator): **Link** (Mealie and the supermarkets), **Users**, **Audit log** and **System** (the update check and the clean-up, see [About and updates](#about-and-updates) and [Factory reset](#factory-reset)).
 
 ### About and updates
