@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261104-88")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261105-2")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -443,10 +443,41 @@ def create_app() -> Flask:
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
         # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
         # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
-        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES), images=True)
+        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"), images=True)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
+
+    @app.get("/api/ah/linking")
+    def ah_linking_status():
+        # De toestand van het koppelen van bonregels en foto's: de pauze na een 403 of 429 van AH, het uurbudget, wat er nog open
+        # staat en de volgende ronde (ah_orders.linking_status). Voor iedereen: de melding op de bestelpagina leest het.
+        return jsonify(ah_orders.linking_status())
+
+    @app.post("/api/ah/linking/run")
+    def ah_linking_run():
+        # Een ronde op afroep (de knop "Nu ophalen"), in een thread binnen het tempo van AH: voor een bon (receiptId) of voor alle
+        # bonnen. Met images alleen de foto's van alle bonnen, zonder zoekopdrachten (de knop "Foto's aanvullen"). Samen met een
+        # receiptId weigeren we dat. Met force heft de beheerder eerst de pauze na een 403 of 429 op. Iedereen mag een ronde starten.
+        # Een lege aanvraag is een ronde voor alle bonnen. Een body die er wel is maar geen JSON-object is, weigeren we: anders start
+        # een verminkte aanvraag de grote ronde.
+        body = request.get_json(silent=True) if request.get_data(cache=True) else {}
+        receipt_id = body.get("receiptId") if isinstance(body, dict) else None
+        force = body.get("force", False) if isinstance(body, dict) else False
+        images = body.get("images", False) if isinstance(body, dict) else False
+        if not isinstance(body, dict) or not isinstance(receipt_id, (str, type(None))) or not isinstance(force, bool) or not isinstance(images, bool):
+            return jsonify({"error": tr("Ongeldige aanvraag: receiptId is tekst, force en images zijn waar of onwaar.", "Invalid request: receiptId is text, force and images are true or false.")}), 400
+        receipt_id = (receipt_id or "").strip() or None
+        if images and receipt_id:
+            return jsonify({"error": tr("Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.", "Invalid request: filling in photos covers all receipts, not one receipt.")}), 400
+        if force and not auth.is_owner():
+            return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
+        if receipt_id and not ah_orders.receipt_exists(receipt_id):
+            return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
+        try:
+            return jsonify(ah_orders.run_linking(receipt_id, force=force, images=images)), 202
+        except ah_orders.LinkingBusy:
+            return jsonify(ah_orders.linking_status()), 409
 
     @app.post("/api/ah/receipts/sync")
     def ah_receipts_sync():

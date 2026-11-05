@@ -89,6 +89,19 @@ def article_key(value: Any) -> str | None:
     return str(number) if number > 0 else None
 
 
+# Het product van een bonregel `l` (`ah_receipt_items`): je eigen koppeling op artikelnummer (`k1`), anders je eigen koppeling op
+# naam (`k2`), anders de automatische (`p`, `ah_receipt_products`). `ms_fold` is `fold` (zie `ensure`). Voor `ah_orders` (de bon),
+# `prices` (de gewone prijs per regel) en `purchase_lines` (hoe vaak je iets eerder kocht), zodat ze alle drie hetzelfde product zien.
+RECEIPT_LINE_JOIN_SQL = """
+    LEFT JOIN product_links k1 ON k1.store = 'ah' AND k1.kind = 'article' AND k1.key = CAST(l.product_id AS TEXT)
+    LEFT JOIN product_links k2 ON k1.key IS NULL AND k2.store = 'ah' AND k2.kind = 'name' AND k2.key = ms_fold(l.name)
+    LEFT JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+"""
+RECEIPT_LINE_PRODUCT_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.product_id WHEN k2.key IS NOT NULL THEN k2.product_id ELSE p.product_id END"
+RECEIPT_LINE_TITLE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.title WHEN k2.key IS NOT NULL THEN k2.title ELSE p.title END"
+RECEIPT_LINE_IMAGE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.image WHEN k2.key IS NOT NULL THEN k2.image ELSE p.image END"
+
+
 def ensure(conn: sqlite3.Connection) -> sqlite3.Connection:
     """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen."""
     conn.executescript(SCHEMA)

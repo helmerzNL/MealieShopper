@@ -27,9 +27,9 @@ import logging
 import re
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, NamedTuple
 
-from . import ah, ah_lists, deals, offers, packs, price_import, product_links
+from . import ah, ah_lists, ah_orders, deals, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -1066,31 +1066,60 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
     return label
 
 
+def _regulars_between(
+    conn, store: str, since: str, until: str, *, purchases_before_until: bool = False, measured: set[str] | None = None
+) -> dict[str, list[float]]:
+    """De gewone prijzen per product die golden tussen `since` en `until` (ISO-dagen, beide meegerekend), uit drie bronnen.
+
+    - de bewaarde prijzen (`price_observations`) van die dagen,
+    - de gewone prijs in je bestellingen van die dagen (`regular` van `_purchase_sources`: de prijs, of bij een actie de prijs ervoor),
+    - de prijs vóór de actie (`offer_history.price_before`) van elke aanbieding die het venster raakt.
+
+    `purchases_before_until` laat een bestelling van de dag `until` zelf weg: bij de gewone prijs van een aankoop telt die aankoop
+    niet als zijn eigen gewone prijs. `measured` krijgt de producten met een gemeten gewone prijs (bewaard of betaald) erbij. De prijs
+    vóór een actie is alleen de claim van de winkel en telt daar niet.
+    """
+    regulars: dict[str, list[float]] = {}
+
+    def add(product_id: Any, price: Any, is_measured: bool) -> None:
+        value = _number(price)
+        if value is None:
+            return
+        regulars.setdefault(str(product_id), []).append(value)
+        if is_measured and measured is not None:
+            measured.add(str(product_id))
+
+    for row in conn.execute("SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ?", (store, since, until)):
+        add(row["product_id"], row["price"], True)
+    last_day = "day < ?" if purchases_before_until else "day <= ?"
+    for sql in _purchase_sources(conn, store):
+        for row in conn.execute(f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL", (since, until)):
+            add(row["product_id"], row["regular"], True)
+    # De voorselectie in SQL is ruim (een jaar): `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet.
+    for row in conn.execute(
+        "SELECT * FROM offer_history WHERE store = ? AND price_before IS NOT NULL AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?",
+        (store, _days_ago(until, YEAR_DAYS)),
+    ):
+        span = offers._episode_span(row)
+        if (span["end"] is None or span["end"] >= since) and (span["start"] or "") <= until:
+            add(row["product_id"], row["price_before"], False)
+    return regulars
+
+
 def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
     since30, since_year, since_pack = _days_ago(today, VERDICT_DAYS), _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
-    regulars: dict[str, list[float]] = {}
     measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
     with closing(_connect()) as conn:
+        regulars = _regulars_between(conn, store, since30, today, measured=measured)
         for row in conn.execute("SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? ORDER BY day", (store, since_pack, today)):
             latest[row["product_id"]] = row
-            if row["day"] >= since30:
-                regulars.setdefault(row["product_id"], []).append(row["price"])
-                measured.add(str(row["product_id"]))
-        for sql in _purchase_sources(conn, store):
-            for row in conn.execute(f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND day <= ? AND regular IS NOT NULL", (since30, today)):
-                if _number(row["regular"]) is not None:
-                    regulars.setdefault(row["product_id"], []).append(row["regular"])
-                    measured.add(str(row["product_id"]))
         for row in conn.execute(
             "SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? ORDER BY product_id, first_seen, id",
             (store, since_year),
         ):
             episodes.setdefault(row["product_id"], []).append(row)
-            span = offers._episode_span(row)
-            if _number(row["price_before"]) is not None and (span["end"] is None or span["end"] >= since30) and (span["start"] or "") <= today:
-                regulars.setdefault(row["product_id"], []).append(row["price_before"])
         try:
             points = _history_points(conn, store, today)
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
@@ -1153,6 +1182,159 @@ def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
                 best = min(cheaper, key=lambda pack: pack["unitPrice"]["value"])
                 verdict["cheaperPack"] = {key: best[key] for key in ("productId", "title", "unitSize", "price", "unitPrice", "onOffer")}
         offer["verdict"] = verdict
+
+
+REGULAR_LIMIT = 500  # zoveel aankoopregels per winkel per nachtelijke ronde: de rest volgt de volgende nacht
+REGULAR_RECENT_DAYS = 60  # de gewone prijs van een aankoop van de laatste 60 dagen wordt dagelijks opnieuw bepaald
+
+
+class _LineSource(NamedTuple):
+    """Aankoopregels die een gewone prijs krijgen: de tabel, de kolom met de aankoop en de SQL die per regel `purchase`, `position`,
+    het product van de webwinkel (`product_id`), de aankoopdag (`day`) en `checked` (`regular_checked_at`) geeft."""
+
+    table: str
+    purchase_column: str
+    needed: frozenset[str]
+    kind: str  # "order" of "receipt": welke ids (`order_ids` of `receipt_ids`) bij deze bron horen
+    sql: str
+
+
+# Een bonregel heeft AH's artikelnummer, het product van de webwinkel komt uit je eigen koppeling (#238) of de automatische in
+# `ah_receipt_products` (`product_links.RECEIPT_LINE_JOIN_SQL`, dezelfde regel als de bon zelf). Zonder koppeling is er geen product,
+# en dus geen gewone prijs.
+_RECEIPT_PRODUCT = product_links.RECEIPT_LINE_PRODUCT_SQL
+_REGULAR_LINES: dict[str, tuple[_LineSource, ...]] = {
+    "ah": (
+        _LineSource(
+            "ah_order_items", "order_id", frozenset({"ah_order_items", "ah_orders"}), "order",
+            f"""
+            SELECT i.order_id AS purchase, i.position AS position,
+                   CASE WHEN i.product_id IS NULL OR i.product_id = 0 THEN NULL ELSE CAST(i.product_id AS TEXT) END AS product_id,
+                   {_DAY} AS day, i.regular_checked_at AS checked
+            FROM ah_order_items i JOIN ah_orders o ON o.order_id = i.order_id
+            """,
+        ),
+        _LineSource(
+            "ah_receipt_items", "receipt_id", frozenset({"ah_receipt_items", "ah_receipts", "ah_receipt_products", "product_links"}), "receipt",
+            f"""
+            SELECT l.receipt_id AS purchase, l.position AS position,
+                   CASE WHEN {_RECEIPT_PRODUCT} IS NULL OR {_RECEIPT_PRODUCT} = 0 THEN NULL ELSE CAST({_RECEIPT_PRODUCT} AS TEXT) END AS product_id,
+                   substr(r.date_time, 1, 10) AS day, l.regular_checked_at AS checked
+            FROM ah_receipt_items l JOIN ah_receipts r ON r.receipt_id = l.receipt_id
+            {product_links.RECEIPT_LINE_JOIN_SQL}
+            """,
+        ),
+    ),
+    "jumbo": (
+        _LineSource(
+            "jumbo_order_items", "order_id", frozenset({"jumbo_order_items", "jumbo_orders"}), "order",
+            f"""
+            SELECT i.order_id AS purchase, i.position AS position, NULLIF(i.product_id, '') AS product_id, {_DAY} AS day,
+                   i.regular_checked_at AS checked
+            FROM jumbo_order_items i JOIN jumbo_orders o ON o.order_id = i.order_id
+            """,
+        ),
+    ),
+}
+
+
+def _iso_day(value: Any) -> str | None:
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except ValueError:
+        return None
+
+
+def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, float]:
+    """De gewone prijs per product bij een aankoop op `day`: de laagste van de 30 dagen ervoor (`VERDICT_DAYS`, `day` meegerekend).
+
+    Dezelfde bronnen als het oordeel bij de aanbiedingen (`_regulars_between`), maar een bestelling van `day` zelf telt niet mee:
+    anders is een aankoop zonder actie zijn eigen gewone prijs. Een product zonder gewone prijs in dat venster ontbreekt.
+    """
+    wanted: set[str] = {str(product_id) for product_id in product_ids if product_id not in (None, "")}
+    if not wanted or _iso_day(day) is None:
+        return {}
+    with closing(_connect()) as conn:
+        found = _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
+    return {product_id: min(values) for product_id, values in found.items() if product_id in wanted and values}
+
+
+def _lines_to_fill(conn, source: _LineSource, ids: list[Any] | None, *, recent_since: str, checked_before: str, limit: int) -> list[Any]:
+    """De regels van één bron die (opnieuw) een gewone prijs nodig hebben, de nieuwste aankoop eerst.
+
+    Zonder `ids`: nog nooit bepaald, of een aankoop van na `recent_since` die voor het laatst vóór `checked_before` is bepaald. Met
+    `ids` (de aankopen die je opent): alle regels van die aankopen die nooit of vóór `checked_before` zijn bepaald, zonder `limit`.
+    """
+    if ids is not None:
+        if not ids:
+            return []
+        marks = ", ".join("?" * len(ids))
+        return conn.execute(
+            f"SELECT * FROM ({source.sql}) WHERE CAST(purchase AS TEXT) IN ({marks}) AND (checked IS NULL OR checked < ?)",
+            (*[str(value) for value in ids], checked_before),
+        ).fetchall()
+    return conn.execute(
+        f"""SELECT * FROM ({source.sql}) WHERE checked IS NULL OR (day >= ? AND checked < ?)
+            ORDER BY day DESC, purchase DESC, position LIMIT ?""",
+        (recent_since, checked_before, limit),
+    ).fetchall()
+
+
+def fill_regular_prices(
+    store: str, *, limit: int = REGULAR_LIMIT, recent_days: int = REGULAR_RECENT_DAYS, now: str | None = None,
+    order_ids: list[Any] | None = None, receipt_ids: list[Any] | None = None,
+) -> int:
+    """Bewaar per aankoopregel de gewone prijs (`regular_before`) in `regular_price`, met het moment in `regular_checked_at`.
+
+    Het gaat om de bestellingen van AH en Jumbo en de kassabonnen van AH (via het gekoppelde product van de webwinkel). Een regel krijgt
+    een prijs als hij nooit is bepaald, of als de aankoop van de laatste `recent_days` dagen is en de prijs meer dan een dag oud is
+    (er kan sindsdien een meting uit het venster zijn bijgekomen). Hooguit `limit` regels, de nieuwste aankopen eerst. Met `order_ids`
+    of `receipt_ids` alleen de regels van die aankopen, ongeacht `limit` en `recent_days`. Een regel zonder gewone prijs krijgt
+    `regular_price` NULL en wel `regular_checked_at`, zodat hij niet elke nacht terugkomt. Geeft het aantal bijgewerkte regels.
+    """
+    stamp = now or _now()
+    checked_before = (datetime.fromisoformat(stamp) - timedelta(days=1)).isoformat(timespec="seconds")
+    recent_since = _days_ago(stamp[:10], recent_days)
+    targeted = order_ids is not None or receipt_ids is not None
+    done = 0
+    with closing(_connect()) as conn:
+        tables = _tables(conn)
+        by_day: dict[str, dict[str, list[float]]] = {}
+        for source in _REGULAR_LINES.get(store, ()):
+            if not source.needed <= tables or (not targeted and done >= limit):
+                continue
+            ids = (order_ids if source.kind == "order" else receipt_ids) if targeted else None
+            if targeted and ids is None:
+                continue
+            ah_orders._ensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
+            lines = _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
+            updates: list[tuple[Any, ...]] = []
+            for line in lines:
+                day = _iso_day(line["day"])
+                price: float | None = None
+                if day is not None and line["product_id"] is not None:
+                    if day not in by_day:
+                        by_day[day] = _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
+                    found = by_day[day].get(str(line["product_id"]))
+                    price = min(found) if found else None
+                updates.append((price, stamp, line["purchase"], line["position"]))
+            with conn:
+                conn.executemany(
+                    f"UPDATE {source.table} SET regular_price = ?, regular_checked_at = ? WHERE {source.purchase_column} = ? AND position = ?",
+                    updates,
+                )
+            done += len(updates)
+    return done
+
+
+def fill_regular_prices_nightly() -> dict[str, int] | None:
+    """Voor de nachtelijke taak: de gewone prijs bij AH- en Jumbo-aankopen, als er iets te doen was. Een fout laat de taak doorgaan."""
+    try:
+        lines = fill_regular_prices("ah") + fill_regular_prices("jumbo")
+    except Exception:  # noqa: BLE001 - de gewone prijs per regel is een extraatje bij de aanbiedingen
+        log.exception("Gewone prijs per aankoopregel: de nachtelijke ronde mislukte")
+        return None
+    return {"lines": lines} if lines else None
 
 
 def _search_function(store: str) -> Callable[..., list[dict[str, Any]]]:

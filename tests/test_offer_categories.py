@@ -26,5 +26,21 @@ class SnackBrandsTest(unittest.TestCase):
         self.assertEqual(offer_categories.categorize("Loving Blends Avocado olie shampoo 4-pack"), "drogisterie")
 
 
+class PurchaseCategoryTest(unittest.TestCase):
+    def test_an_ah_taxonomy_maps_to_an_offer_category(self):
+        self.assertEqual(offer_categories.purchase_category("ah", "Groente, aardappelen", "AH Komkommer"), "groente_fruit")
+        self.assertEqual(offer_categories.purchase_category("ah", "Vegetarisch, vegan en plantaardig", "Vivera stukjes"), "vlees")
+        self.assertEqual(offer_categories.purchase_category("ah", "Overige", "Cadeaukaart"), "overig")
+
+    def test_an_unknown_taxonomy_and_other_stores_fall_back_to_the_title(self):
+        self.assertEqual(offer_categories.purchase_category("ah", "Nieuw schap", "AH Spaghetti"), "maaltijden")
+        self.assertEqual(offer_categories.purchase_category("jumbo", "Zuivel, kaas en eieren", "Jumbo Halfvolle melk"), "zuivel_eieren")
+        self.assertEqual(offer_categories.purchase_category("ah", None, "AH ROOMKAAS"), "kaas_vleeswaren")
+
+    def test_every_ah_taxonomy_in_the_table_names_a_known_category(self):
+        for category in offer_categories.AH_TAXONOMY.values():
+            self.assertIn(category, offer_categories.CATEGORIES)
+
+
 if __name__ == "__main__":
     unittest.main()

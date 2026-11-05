@@ -293,7 +293,8 @@ class ApiTest(LinksCase):
 
 # --- de schermen, in Node ---------------------------------------------------------------------------------------------
 
-SOURCES = {name: (ROOT / "static" / name).read_text(encoding="utf-8") for name in ("orders.js", "product_links.js", "picnic.js", "crisp.js")}
+SOURCES = {name: (ROOT / "static" / name).read_text(encoding="utf-8")
+           for name in ("orders.js", "order_views.js", "product_links.js", "picnic.js", "crisp.js")}
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 NL = (ROOT / "static" / "i18n" / "nl.js").read_text(encoding="utf-8")
 EN = (ROOT / "static" / "i18n" / "en.js").read_text(encoding="utf-8")
@@ -321,9 +322,17 @@ PRELUDE = "\n".join([
     "const money = (value) => (value === null || value === undefined ? '' : formatPrice(value));",
     "const receiptDay = (receipt) => receipt.id;",
     "const receiptMethod = (method) => method;",
+    # De weergaven van een aankoop (3.9): een regel van orderLine, als kaart, als regel in een categorie en als rij in de tabel.
+    'const CATEGORY_ORDER = ["overig"];',
+    "const categoryLabel = (id) => id;",
+    "const badge = (kind, text) => `<span class=\"badge badge--${kind}\">${escapeHtml(text)}</span>`;",
+    "const offerBadge = () => '';",
     *(function_source("product_links.js", name) for name in ("productLinkButton", "productLinkItem")),
-    *(function_source("orders.js", name) for name in ("purchaseItem", "receiptLinkLine", "receiptPaper", "receiptProducts", "importedLinkLine",
-                                                        "importedOrderItems")),
+    *(function_source("orders.js", name) for name in ("productCard", "receiptLinkLine", "receiptPaper", "importedLinkLine")),
+    *(function_source("order_views.js", name) for name in ("orderLineSaved", "orderLine", "orderLinePaid", "orderLines", "orderLineBadges",
+                                                             "orderLineName", "orderLineLink", "orderCategoryLine", "orderTableRow")),
+    "const views = (purchase, kind, store) => { const lines = orderLines(purchase, kind, store); return {"
+    " cards: lines.map(productCard).join(''), category: lines.map(orderCategoryLine).join(''), table: lines.map(orderTableRow).join('') }; };",
     function_source("picnic.js", "renderPicnicOrderItem"),
     function_source("crisp.js", "renderCrispOrderItem"),
 ])
@@ -362,13 +371,21 @@ class ScreensTest(unittest.TestCase):
             self.assertIn(needle, change, needle)
         self.assertEqual(nothing, "", "zonder naam valt er niets te koppelen")
 
-    def test_on_paper_only_an_unlinked_line_has_the_button_and_as_products_every_card_has_one(self):
-        paper, products = self.run_js("console.log(JSON.stringify([receiptPaper(receipt), receiptProducts(receipt)]));")
+    def test_on_paper_only_an_unlinked_line_has_the_button_and_in_the_other_views_every_line_has_one(self):
+        paper, views = self.run_js("console.log(JSON.stringify([receiptPaper(receipt), views(receipt, 'receipt', 'ah')]));")
         self.assertEqual(paper.count("data-product-link"), 1)
         self.assertIn('COTTAGE CH<button type="button" class="icon-button product-link product-link--todo"', paper)
         self.assertIn('<a href="/history/ah/4183" data-route title="AH Bloemkool">AH BLOEMK</a>', paper)
-        self.assertEqual(products.count("data-product-link"), 2)
-        self.assertIn('data-article="30001" data-product="AH Bloemkool" data-product-id="4183" data-kind="article" data-key="30001"', products)
+        for view, html in views.items():
+            self.assertEqual(html.count("data-product-link"), 2, view)
+            self.assertIn('data-article="30001" data-product="AH Bloemkool" data-product-id="4183" data-kind="article" data-key="30001"', html, view)
+        self.assertIn('<a href="/history/ah/4183" data-route>AH Bloemkool</a><button type="button" class="icon-button product-link"', views["category"])
+        self.assertIn('<small>€1.29</small>\n      </div>\n      <button type="button"', views["cards"], "rechts op de kaart, na de tekst")
+
+    def test_an_order_from_your_account_has_no_link_button(self):
+        order = {"items": [{"productId": 4183, "title": "AH Bloemkool", "quantity": 1, "amount": 1.99}]}
+        views = self.run_js(f"console.log(JSON.stringify(views({json.dumps(order)}, 'order', 'ah')));")
+        self.assertEqual({view: html.count("data-product-link") for view, html in views.items()}, {"cards": 0, "category": 0, "table": 0})
 
     def test_an_imported_line_offers_to_change_the_product_it_belongs_to(self):
         items = [{"title": "Kipfilet uit de mail", "productId": "s1", "productTitle": "Picnic kipfilet", "quantity": 1,
@@ -376,14 +393,15 @@ class ScreensTest(unittest.TestCase):
                  {"title": "Iets anders", "productId": None, "quantity": 2, "link": None}]
         found = self.run_js(f"const items = {json.dumps(items)};\n"
                             "console.log(JSON.stringify({ lines: items.map((item) => importedLinkLine(item, 'picnic')),"
-                            " ah: importedOrderItems({ items }, 'ah'), picnic: [renderPicnicOrderItem(items[0], true), renderPicnicOrderItem(items[0])],"
+                            " ah: views({ items }, 'imported', 'ah'), picnic: [renderPicnicOrderItem(items[0], true), renderPicnicOrderItem(items[0])],"
                             " crisp: [renderCrispOrderItem(items[1], true), renderCrispOrderItem(items[1], false)] }));")
         self.assertEqual(found["lines"], [
             {"store": "picnic", "name": "Kipfilet uit de mail", "article": None, "product": "Picnic kipfilet", "productId": "s1",
              "link": {"kind": "name", "key": "kipfilet uit de mail"}},
             {"store": "picnic", "name": "Iets anders", "article": None, "product": None, "productId": None, "link": None},
         ])
-        self.assertEqual(found["ah"].count("data-product-link"), 2)
+        self.assertEqual({view: html.count("data-product-link") for view, html in found["ah"].items()}, {"cards": 2, "category": 2, "table": 2})
+        self.assertIn('data-store="ah" data-name="Kipfilet uit de mail" data-article="" data-product="Picnic kipfilet" data-product-id="s1"', found["ah"]["cards"])
         self.assertEqual([html.count("data-product-link") for html in found["picnic"]], [1, 0], "alleen bij een ingelezen bestelling")
         self.assertEqual([html.count("data-product-link") for html in found["crisp"]], [1, 0])
         self.assertIn('data-store="crisp"', found["crisp"][0])

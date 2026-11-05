@@ -3,44 +3,263 @@
 // volgende keer dezelfde weergave geven. Laadt na orders.js en gebruikt daar purchaseRows(), renderOrders() en de rijvelden van
 // (kind, label, date, open, status, total, items, images, names, savings, bonusCount, payment, href, attr).
 
+// ---- De weergavebalk: één component voor de aankopenlijst (prefix "purchase") en de bestelpagina (prefix "order"). Links de
+// statusregel, rechts de weergaveknoppen, het sorteermenu en het optiemenu. De container in index.html is
+// <div class="purchase-bar" data-view-bar="<prefix>">; de ids in de balk dragen de prefix (<prefix>-view-switch,
+// <prefix>-sort-list, <prefix>-options-list, ...).
+
+const MDI_VIEW_TABLE = "M5,4H19A2,2 0 0,1 21,6V18A2,2 0 0,1 19,20H5A2,2 0 0,1 3,18V6A2,2 0 0,1 5,4M5,8V12H11V8H5M13,8V12H19V8H13M5,14V18H11V14H5M13,14V18H19V14H13Z";
+const MDI_VIEW_CARDS = "M3,11H11V3H3M3,21H11V13H3M13,21H21V13H13M13,3V11H21V3";
+const MDI_VIEW_LIST = "M9,5V9H21V5M9,19H21V15H9M9,14H21V10H9M4,9H8V5H4M4,19H8V15H4M4,14H8V10H4V14Z";
+const MDI_CHEVRON_DOWN = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
+
+// De statusregel van de lijst heet ah-purchase-status: orders.js schrijft daar (renderOrders, het zoeken). Een andere balk krijgt
+// <prefix>-status.
+function viewStatusId(prefix) {
+  return prefix === "purchase" ? "ah-purchase-status" : `${prefix}-status`;
+}
+
+function viewBarElement(prefix) {
+  return document.querySelector(`[data-view-bar="${prefix}"]`);
+}
+
+// De keuze van één balk: weergave, sortering en opties, in localStorage onder ms-<prefix>s-view, -sort en -options (voor de lijst
+// dus de bestaande ms-purchases-*). `allowed` ({ views, sorts, sizes, options }) zegt welke waarden gelden: wat in localStorage
+// staat kan van een oudere versie zijn of met de hand aangepast. apply() bewaart en roept dan de functie aan die listen() kreeg
+// (de pagina tekent opnieuw). Die functie staat in een closure, zodat JSON.stringify(state) alleen de keuze geeft.
+//
+// Met `scopes` (zoals ["order", "receipt"]) is de weergave er een per soort: defaults.view en allowed.views zijn dan objecten per
+// scope, en ms-<prefix>s-view bewaart JSON ({ order: "table", receipt: "paper" }). `state.view` is de weergave van de scope die
+// useScope() koos. ViewFor() en setView() lezen en zetten die van een andere. Sortering en opties blijven één keuze per balk.
+function viewState(prefix, defaults, allowed, { scopes = null } = {}) {
+  const keys = { view: `ms-${prefix}s-view`, sort: `ms-${prefix}s-sort`, options: `ms-${prefix}s-options` };
+  const views = scopes ? Object.fromEntries(scopes.map((scope) => [scope, defaults.view[scope]])) : null;
+  const fits = (scope, view) => (scopes ? (allowed.views[scope] || []) : allowed.views).includes(view);
+  let scope = scopes ? scopes[0] : null;
+  let onChange = () => {};
+  return {
+    view: scopes ? views[scope] : defaults.view,
+    sort: { ...defaults.sort },
+    options: { ...defaults.options },
+    listen(callback) {
+      onChange = callback;
+    },
+    viewFor(name) {
+      if (name === scope) return this.view;
+      return views ? views[name] : this.view;
+    },
+    setView(name, view) {
+      if (!views || !fits(name, view)) return;
+      views[name] = view;
+      if (name === scope) this.view = view;
+      this.apply();
+    },
+    useScope(name) {
+      if (!views || !(name in views)) return;
+      if (fits(scope, this.view)) views[scope] = this.view;
+      scope = name;
+      this.view = views[name];
+    },
+    load() {
+      try {
+        const view = localStorage.getItem(keys.view);
+        if (scopes) {
+          let stored = null;
+          try {
+            stored = JSON.parse(view || "null");
+          } catch {
+            // een waarde van voor de scopes (een kale weergave): de standaard per scope
+          }
+          if (stored && typeof stored === "object") for (const name of scopes) if (fits(name, stored[name])) views[name] = stored[name];
+          this.view = views[scope];
+        } else if (fits(null, view)) {
+          this.view = view;
+        }
+        const sort = JSON.parse(localStorage.getItem(keys.sort) || "null");
+        if (sort && allowed.sorts.includes(sort.key) && ["asc", "desc"].includes(sort.dir)) this.sort = { key: sort.key, dir: sort.dir };
+        const options = JSON.parse(localStorage.getItem(keys.options) || "null");
+        if (options && typeof options === "object") {
+          if (allowed.sizes.includes(options.size)) this.options.size = options.size;
+          for (const key of allowed.options) if (typeof options[key] === "boolean") this.options[key] = options[key];
+        }
+      } catch {
+        // een browser zonder opslag (privévenster): de standaardwaarden
+      }
+    },
+    save() {
+      // Een weergave die niet bij de scope past (Bon bij een bestelling) wordt niet bewaard.
+      if (views && fits(scope, this.view)) views[scope] = this.view;
+      try {
+        localStorage.setItem(keys.view, views ? JSON.stringify(views) : this.view);
+        localStorage.setItem(keys.sort, JSON.stringify(this.sort));
+        localStorage.setItem(keys.options, JSON.stringify(this.options));
+      } catch {
+        // niet erg: de keuze geldt tot je de pagina verlaat
+      }
+    },
+    apply() {
+      this.save();
+      onChange();
+    },
+    // Zonder richting: dezelfde sleutel wisselt de richting, een andere sleutel begint in `start`, de beginrichting van die sleutel
+    // uit de spec van de balk (viewSortStart). Met een richting en zonder sleutel blijft de sleutel staan (Oplopend of Aflopend in
+    // het menu).
+    sortBy(key, dir = null, start = "desc") {
+      if (dir) this.sort = { key: key || this.sort.key, dir };
+      else if (this.sort.key === key) this.sort = { key, dir: this.sort.dir === "asc" ? "desc" : "asc" };
+      else this.sort = { key, dir: start === "asc" ? "asc" : "desc" };
+      this.apply();
+    },
+  };
+}
+
+// De balk als HTML. spec = { views: [{ id, icon, label }], sorts: [{ key, label, dir }], sizes: bool, options: [{ key, label }] },
+// met de labels al vertaald en per sorteersleutel de richting waarin hij begint (`dir`, "asc" of "desc"). Zonder sorteersleutels geen sorteermenu, zonder groottes en opties geen optiemenu. Wat er gekozen is
+// (aria-pressed, is-active, de vinkjes) zet syncViewBar.
+function viewBarMarkup(prefix, spec) {
+  const views = spec.views
+    .map((view) => `<button class="subtab" type="button" data-view="${escapeHtml(view.id)}" aria-pressed="false">${view.icon ? mdiIcon(view.icon) : ""}<span>${escapeHtml(view.label)}</span></button>`)
+    .join("");
+  const sortMenu = spec.sorts.length ? viewSortMenu(prefix, spec.sorts) : "";
+  const optionsMenu = spec.sizes || spec.options.length ? viewOptionsMenu(prefix, spec) : "";
+  return `<p class="muted purchase-status" id="${viewStatusId(prefix)}"></p><div class="purchase-bar__tools"><div class="purchase-view-switch" id="${prefix}-view-switch" role="group" aria-label="${escapeHtml(t("orders.view.label"))}">${views}</div>${sortMenu}${optionsMenu}</div>`;
+}
+
+// De richting waarin een sorteersleutel begint, uit de spec van de balk. Zonder richting aflopend.
+function viewSortStart(spec, key) {
+  const sort = spec.sorts.find((item) => item.key === key);
+  return sort && sort.dir === "asc" ? "asc" : "desc";
+}
+
+function viewSortMenu(prefix, sorts) {
+  const keys = sorts
+    .map((sort) => `<button class="subtab-menu__item" type="button" data-sort-key="${escapeHtml(sort.key)}" data-sort-start="${sort.dir === "asc" ? "asc" : "desc"}">${escapeHtml(sort.label)}</button>`)
+    .join("");
+  return `<div class="subtab-menu" id="${prefix}-sort-menu"><button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="${prefix}-sort-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="${prefix}-sort-list"><span>${escapeHtml(t("orders.sort.label"))}</span>: <span id="${prefix}-sort-current"></span>${mdiIcon(MDI_CHEVRON_DOWN, "subtab-menu__chevron")}</button>`
+    + `<div class="subtab-menu__list" id="${prefix}-sort-list" hidden>${keys}<hr class="subtab-menu__rule">`
+    + `<button class="subtab-menu__item" type="button" data-sort-dir="desc">${escapeHtml(t("orders.sort.desc"))}</button>`
+    + `<button class="subtab-menu__item" type="button" data-sort-dir="asc">${escapeHtml(t("orders.sort.asc"))}</button></div></div>`;
+}
+
+function viewOptionsMenu(prefix, spec) {
+  const sizes = [["small", t("orders.options.small")], ["medium", t("orders.options.medium")], ["large", t("orders.options.large")]];
+  const sizeItems = spec.sizes
+    ? `<span class="purchase-options__title">${escapeHtml(t("orders.options.size"))}</span>`
+      + sizes.map(([size, label]) => `<button class="subtab-menu__item" type="button" data-size="${size}">${escapeHtml(label)}</button>`).join("")
+    : "";
+  const rule = spec.sizes && spec.options.length ? '<hr class="subtab-menu__rule">' : "";
+  const checks = spec.options
+    .map((option) => `<label class="check purchase-options__check"><input type="checkbox" data-option="${escapeHtml(option.key)}"> <span>${escapeHtml(option.label)}</span></label>`)
+    .join("");
+  return `<div class="subtab-menu" id="${prefix}-options-menu"><button class="subtab subtab-menu__toggle subtab-menu__toggle--select" id="${prefix}-options-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="${prefix}-options-list"><span>${escapeHtml(t("orders.options.label"))}</span>${mdiIcon(MDI_CHEVRON_DOWN, "subtab-menu__chevron")}</button>`
+    + `<div class="subtab-menu__list purchase-options" id="${prefix}-options-list" hidden>${sizeItems}${rule}${checks}</div></div>`;
+}
+
+// Tekent de balk in zijn container en bindt de uitklapmenu's zoals app.js de andere bindt (bindSubtabMenu: openen, Esc; een
+// klik elders sluit ze via de documentbrede handler daar). De statusregel houdt zijn tekst: die schrijft de pagina zelf, en
+// een andere taal tekent de balk opnieuw.
+function renderViewBar(prefix, state, spec) {
+  const bar = viewBarElement(prefix);
+  const status = document.getElementById(viewStatusId(prefix));
+  const text = status ? status.textContent : "";
+  bar.innerHTML = viewBarMarkup(prefix, spec);
+  document.getElementById(viewStatusId(prefix)).textContent = text;
+  bar.querySelectorAll(".subtab-menu").forEach(bindSubtabMenu);
+  syncViewBar(prefix, state, spec);
+}
+
+// De handlers van een balk, één keer per pagina. Ze luisteren op de container, dus een opnieuw getekende balk werkt meteen.
+// Een keuze komt in de staat, die bewaart hem en roept onChange aan (de pagina tekent opnieuw).
+function bindViewBar(prefix, state, onChange) {
+  state.listen(onChange);
+  const bar = viewBarElement(prefix);
+  bar.addEventListener("click", (event) => {
+    const view = event.target.closest(`#${prefix}-view-switch [data-view]`);
+    if (view) {
+      state.view = view.dataset.view;
+      state.apply();
+      return;
+    }
+    const sort = event.target.closest(`#${prefix}-sort-list [data-sort-key], #${prefix}-sort-list [data-sort-dir]`);
+    if (sort) {
+      setSubtabMenu($(`#${prefix}-sort-menu`), false);
+      // Een sleutel: dezelfde wisselt, een andere begint in zijn eigen richting (data-sort-start uit de spec).
+      if (sort.dataset.sortKey) state.sortBy(sort.dataset.sortKey, null, sort.dataset.sortStart);
+      else state.sortBy(null, sort.dataset.sortDir);
+      return;
+    }
+    const size = event.target.closest(`#${prefix}-options-list [data-size]`);
+    if (size) {
+      state.options.size = size.dataset.size;
+      state.apply();
+    }
+  });
+  bar.addEventListener("change", (event) => {
+    const input = event.target.closest(`#${prefix}-options-list [data-option]`);
+    if (!input) return;
+    state.options[input.dataset.option] = input.checked;
+    state.apply();
+  });
+}
+
+// De balk laat zien wat er gekozen is: de actieve weergave, de sortering (met het label uit de spec) en de opties.
+function syncViewBar(prefix, state, spec) {
+  for (const button of document.querySelectorAll(`#${prefix}-view-switch [data-view]`)) {
+    const active = button.dataset.view === state.view;
+    button.setAttribute("aria-pressed", String(active));
+    button.classList.toggle("is-active", active);
+  }
+  const { key, dir } = state.sort;
+  const current = $(`#${prefix}-sort-current`);
+  if (current) {
+    const sort = spec.sorts.find((item) => item.key === key);
+    current.textContent = `${sort ? sort.label : key} ${dir === "asc" ? "↑" : "↓"}`;
+  }
+  for (const item of document.querySelectorAll(`#${prefix}-sort-list [data-sort-key]`)) item.classList.toggle("is-active", item.dataset.sortKey === key);
+  for (const item of document.querySelectorAll(`#${prefix}-sort-list [data-sort-dir]`)) item.classList.toggle("is-active", item.dataset.sortDir === dir);
+  for (const item of document.querySelectorAll(`#${prefix}-options-list [data-size]`)) item.classList.toggle("is-active", item.dataset.size === state.options.size);
+  for (const input of document.querySelectorAll(`#${prefix}-options-list [data-option]`)) input.checked = Boolean(state.options[input.dataset.option]);
+}
+
+// ---- De balk van de aankopenlijst.
+
 const PURCHASE_VIEWS = ["table", "cards", "overview"];
 const PURCHASE_SORT_KEYS = ["date", "amount", "items"];
 const PURCHASE_SIZES = ["small", "medium", "large"];
 const PURCHASE_OPTIONS = ["status", "savings", "names"];
 
-const purchaseView = { view: "table", sort: { key: "date", dir: "desc" }, options: { size: "medium", status: true, savings: true, names: true } };
+const purchaseView = viewState("purchase", { view: "table", sort: { key: "date", dir: "desc" }, options: { size: "medium", status: true, savings: true, names: true } }, { views: PURCHASE_VIEWS, sorts: PURCHASE_SORT_KEYS, sizes: PURCHASE_SIZES, options: PURCHASE_OPTIONS });
 
-// Wat in localStorage staat kan van een oudere versie zijn of met de hand aangepast: alleen bekende waarden tellen.
-function purchaseViewLoad() {
-  try {
-    const view = localStorage.getItem("ms-purchases-view");
-    if (PURCHASE_VIEWS.includes(view)) purchaseView.view = view;
-    const sort = JSON.parse(localStorage.getItem("ms-purchases-sort") || "null");
-    if (sort && PURCHASE_SORT_KEYS.includes(sort.key) && ["asc", "desc"].includes(sort.dir)) purchaseView.sort = { key: sort.key, dir: sort.dir };
-    const options = JSON.parse(localStorage.getItem("ms-purchases-options") || "null");
-    if (options && typeof options === "object") {
-      if (PURCHASE_SIZES.includes(options.size)) purchaseView.options.size = options.size;
-      for (const key of PURCHASE_OPTIONS) if (typeof options[key] === "boolean") purchaseView.options[key] = options[key];
-    }
-  } catch {
-    // een browser zonder opslag (privévenster): de standaardwaarden
-  }
+// De weergaven, sorteersleutels en opties van de lijst, met de labels in de taal van nu.
+function purchaseBarSpec() {
+  return {
+    views: [
+      { id: "table", icon: MDI_VIEW_TABLE, label: t("orders.view.table") },
+      { id: "cards", icon: MDI_VIEW_CARDS, label: t("orders.view.cards") },
+      { id: "overview", icon: MDI_VIEW_LIST, label: t("orders.view.overview") },
+    ],
+    sorts: [
+      { key: "date", label: t("orders.sort.date"), dir: "desc" },
+      { key: "amount", label: t("orders.sort.amount"), dir: "desc" },
+      { key: "items", label: t("orders.sort.items"), dir: "desc" },
+    ],
+    sizes: true,
+    options: [
+      { key: "status", label: t("orders.options.status") },
+      { key: "savings", label: t("orders.options.savings") },
+      { key: "names", label: t("orders.options.names") },
+    ],
+  };
 }
 
-function purchaseViewSave() {
-  try {
-    localStorage.setItem("ms-purchases-view", purchaseView.view);
-    localStorage.setItem("ms-purchases-sort", JSON.stringify(purchaseView.sort));
-    localStorage.setItem("ms-purchases-options", JSON.stringify(purchaseView.options));
-  } catch {
-    // niet erg: de keuze geldt tot je de pagina verlaat
-  }
+function purchaseViewLoad() {
+  purchaseView.load();
 }
 
 // Sorteren: datum (open bestellingen bovenaan bij aflopend, hun bezorgdag ligt in de toekomst), bedrag of aantal producten.
 // Een aankoop zonder waarde (producten nog niet opgehaald) staat onderaan, in beide richtingen; gelijke waarden op datum aflopend.
-function purchaseSortRows(rows) {
-  const { key, dir } = purchaseView.sort;
+function purchaseSortRows(rows, sort = purchaseView.sort) {
+  const { key, dir } = sort;
   const sign = dir === "asc" ? 1 : -1;
   const value = (row) => (key === "amount" ? row.total : key === "items" ? row.items : row.date || null);
   return [...rows].sort((a, b) => {
@@ -70,38 +289,20 @@ function renderPurchaseView(visible, hits) {
   purchaseViewSyncBar();
 }
 
-// De balk laat zien wat er gekozen is: de actieve weergave, de sortering (ook in de tabelkoppen) en de opties.
+// De balk en de tabelkoppen laten zien wat er gekozen is.
 function purchaseViewSyncBar() {
-  for (const button of document.querySelectorAll("#purchase-view-switch [data-view]")) {
-    const active = button.dataset.view === purchaseView.view;
-    button.setAttribute("aria-pressed", String(active));
-    button.classList.toggle("is-active", active);
-  }
+  syncViewBar("purchase", purchaseView, purchaseBarSpec());
   const { key, dir } = purchaseView.sort;
-  $("#purchase-sort-current").textContent = `${t(`orders.sort.${key}`)} ${dir === "asc" ? "↑" : "↓"}`;
-  for (const item of document.querySelectorAll("#purchase-sort-list [data-sort-key]")) item.classList.toggle("is-active", item.dataset.sortKey === key);
-  for (const item of document.querySelectorAll("#purchase-sort-list [data-sort-dir]")) item.classList.toggle("is-active", item.dataset.sortDir === dir);
   for (const button of document.querySelectorAll(".purchase-table__sort")) {
     const th = button.closest("th");
     if (button.dataset.sort === key) th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
     else th.removeAttribute("aria-sort");
   }
-  for (const item of document.querySelectorAll("#purchase-options-list [data-size]")) item.classList.toggle("is-active", item.dataset.size === purchaseView.options.size);
-  for (const input of document.querySelectorAll("#purchase-options-list [data-option]")) input.checked = Boolean(purchaseView.options[input.dataset.option]);
 }
 
-function purchaseViewApply() {
-  purchaseViewSave();
-  if (ordersState.loaded) renderOrders();
-  else purchaseViewSyncBar();
-}
-
-// Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere sleutel wordt aflopend (zoals het menu).
+// Een klik op een tabelkop: dezelfde sleutel wisselt de richting, een andere begint in zijn eigen richting (zoals het menu).
 function purchaseSortBy(key, dir = null) {
-  if (dir) purchaseView.sort = { key: purchaseView.sort.key, dir };
-  else if (purchaseView.sort.key === key) purchaseView.sort = { key, dir: purchaseView.sort.dir === "asc" ? "desc" : "asc" };
-  else purchaseView.sort = { key, dir: "desc" };
-  purchaseViewApply();
+  purchaseView.sortBy(key, dir, viewSortStart(purchaseBarSpec(), key));
 }
 
 // Bij een ander venster past het zichtbare vak zijn hoogte aan (de tabel doet dat zelf in orders.js).
@@ -119,37 +320,21 @@ window.addEventListener("resize", () => {
 });
 
 purchaseViewLoad();
-$("#purchase-view-switch").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-view]");
-  if (!button) return;
-  purchaseView.view = button.dataset.view;
-  purchaseViewApply();
-});
-$("#purchase-sort-list").addEventListener("click", (event) => {
-  const item = event.target.closest("[data-sort-key], [data-sort-dir]");
-  if (!item) return;
-  if (item.dataset.sortKey) purchaseView.sort = { key: item.dataset.sortKey, dir: purchaseView.sort.dir };
-  else purchaseView.sort = { key: purchaseView.sort.key, dir: item.dataset.sortDir };
-  setSubtabMenu($("#purchase-sort-menu"), false);
-  purchaseViewApply();
-});
-$("#purchase-options-list").addEventListener("click", (event) => {
-  const item = event.target.closest("[data-size]");
-  if (!item) return;
-  purchaseView.options.size = item.dataset.size;
-  purchaseViewApply();
-});
-$("#purchase-options-list").addEventListener("change", (event) => {
-  const input = event.target.closest("[data-option]");
-  if (!input) return;
-  purchaseView.options[input.dataset.option] = input.checked;
-  purchaseViewApply();
+renderViewBar("purchase", purchaseView, purchaseBarSpec());
+bindViewBar("purchase", purchaseView, () => {
+  if (ordersState.loaded) renderOrders();
+  else purchaseViewSyncBar();
 });
 document.querySelector(".purchase-table thead").addEventListener("click", (event) => {
   const button = event.target.closest(".purchase-table__sort");
   if (button) purchaseSortBy(button.dataset.sort);
 });
 purchaseViewSyncBar();
+// Een andere taal: de balk opnieuw, met de labels in die taal (orders.js tekent de lijst en de statusregel al opnieuw).
+window.addEventListener("ms:languagechange", () => {
+  renderViewBar("purchase", purchaseView, purchaseBarSpec());
+  purchaseViewSyncBar();
+});
 
 // ---- Kaarten: een raster met per aankoop een collage van productfoto's en de belangrijkste gegevens eronder.
 
@@ -170,10 +355,25 @@ function purchaseKindText(kind) {
 // een ingelezen bestelling vandaan komt: de tekst ervoor is dezelfde als bij een bestelling uit je account. Het icoon staat achter
 // het woord, zodat "Bestelling" in de kolom Soort onder elkaar uitlijnt.
 function purchaseKindLabel(kind) {
-  const text = escapeHtml(purchaseKindText(kind));
-  if (kind !== "imported") return text;
-  const badge = escapeHtml(t("orders.imported.badge"));
-  return `${text}<span class="purchase-kind-badge" role="img" aria-label="${badge}" title="${badge}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>`;
+  return escapeHtml(purchaseKindText(kind)) + purchaseOriginIcon(kind);
+}
+
+// Het archief-icoon van een ingelezen bestelling; voor de andere soorten niets.
+function purchaseOriginIcon(kind) {
+  if (kind !== "imported") return "";
+  const label = escapeHtml(t("orders.imported.badge"));
+  return `<span class="purchase-kind-badge" role="img" aria-label="${label}" title="${label}">${mdiIcon(MDI_ARCHIVE_OUTLINE)}</span>`;
+}
+
+// De statusbadge van een aankoop (afgeleverd, ingepland, ingelezen, kassabon), met het archief-icoon erachter bij een ingelezen
+// bestelling. De tekst is die van AH voor een geplande bestelling (statusText), anders de vaste tekst van de status.
+const PURCHASE_STATUS_TEXT = {
+  delivered: "orders.status.delivered", planned: "orders.status.planned", imported: "orders.status.imported", receipt: "orders.status.receipt",
+};
+
+function purchaseStatusBadge(row) {
+  const text = row.statusText || t(PURCHASE_STATUS_TEXT[row.statusKind] || "orders.status.receipt");
+  return badge("status-" + row.statusKind, text) + purchaseOriginIcon(row.kind);
 }
 
 // De collage: hooguit `count` foto's (4 als 2x2, 6 als 3x2; minder foto's worden groter, zie de CSS per aantal). Zonder foto's
@@ -185,7 +385,7 @@ function purchaseCollage(row, count) {
     const names = row.names.slice(0, 2).join(", ");
     return `<div class="purchase-collage purchase-collage--empty">${mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-collage__icon")}${names ? `<small>${escapeHtml(names)}</small>` : ""}</div>`;
   }
-  return `<div class="purchase-collage purchase-collage--${urls.length}">${urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")}</div>`;
+  return `<div class="purchase-collage purchase-collage--${urls.length}">${urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error data-popover="product" data-image="${escapeHtml(url)}">`).join("")}</div>`;
 }
 
 // De regels onder de collage, naar de opties: status en bezorgmoment (of de betaalwijze van een bon), producten en bedrag,
@@ -209,6 +409,11 @@ function purchaseDetailLines(row, matches, { names = true, amount = true } = {})
   return lines;
 }
 
+// Welke aankoop een rij, kaart of foto is, voor het hovervenster (popover.js): de soort en het id, zoals purchaseRows ze kent.
+function purchasePopoverKey(row) {
+  return `data-purchase-kind="${escapeHtml(row.kind)}" data-purchase-id="${escapeHtml(row.id)}"`;
+}
+
 function purchaseDeleteButton(row, className) {
   if (row.kind !== "imported" || !priceImportIsOwner()) return "";
   const remove = t("orders.imported.delete");
@@ -219,12 +424,12 @@ function purchaseDeleteButton(row, className) {
 // zodat een klik erop niet ook de bestelling opent.
 function purchaseCard(row, matches) {
   const count = purchaseView.options.size === "large" ? 6 : 4;
-  return `<article class="purchase-card${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<article class="purchase-card${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       ${purchaseKindMarkup(row.kind, "stripe")}
       <a class="purchase-card__link" href="${escapeHtml(row.href)}" data-nav>
         ${purchaseCollage(row, count)}
         <strong class="purchase-card__date">${escapeHtml(row.label)}</strong>
-        <span class="purchase-card__kind">${purchaseKindLabel(row.kind)}</span>
+        <span class="purchase-card__kind">${purchaseStatusBadge(row)}</span>
         ${purchaseDetailLines(row, matches).map((line) => `<span class="purchase-card__line">${line}</span>`).join("")}
       </a>
       ${purchaseDeleteButton(row, "purchase-card__action")}
@@ -247,10 +452,10 @@ function renderPurchaseCards(visible, hits) {
 function purchaseOverviewRow(row, matches) {
   const urls = row.images.slice(0, 6);
   const strip = urls.length
-    ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error>`).join("")
+    ? urls.map((url) => `<img src="${escapeHtml(storeImage(url))}" alt="" loading="lazy" data-hide-on-error data-popover="product" data-image="${escapeHtml(url)}">`).join("")
     : mdiIcon(purchaseKindIcon(row.kind), "mdi purchase-overview__icon");
   const lines = purchaseDetailLines(row, matches, { names: false, amount: false }); // het bedrag staat al in de kop
-  const meta = [purchaseKindLabel(row.kind), ...lines].join(" · ");
+  const meta = [purchaseStatusBadge(row), ...lines].join(" · ");
   let names = "";
   if (matches) {
     const shown = matches.slice(0, 3).map((entry) => `${entry.quantity ? `${entry.quantity}x ` : ""}${entry.product}`);
@@ -259,7 +464,7 @@ function purchaseOverviewRow(row, matches) {
   } else if (purchaseView.options.names && row.names.length) {
     names = `<span class="purchase-overview__names">${escapeHtml(row.names.join(", "))}</span>`;
   }
-  return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr}>
+  return `<article class="purchase-overview__row${row.open ? " is-open" : ""}" ${row.attr} data-popover="purchase" ${purchasePopoverKey(row)}>
       ${purchaseKindMarkup(row.kind, "stripe")}
       <a class="purchase-overview__link" href="${escapeHtml(row.href)}" data-nav>
         <span class="purchase-overview__body">
