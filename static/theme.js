@@ -12,6 +12,13 @@
 // van: een voor het lichte thema (donkerder tot hij 4,5 : 1 haalt op wit, de achtergrond en het selectievlak) en een voor het
 // donkere (lichter tot hij dat haalt op de vlakken van beide donkere achtergronden). Statussen (fout, waarschuwing, gelukt)
 // volgen de accentkleur nooit. Zonder eigen keuze blijft het basilicumgroen van de huisstijl, met de waarden uit styles.css.
+//
+// De navigatiebalk onderaan (de geinstalleerde app op een telefoon), zoals shared/guidelines/navigation-bar.md van
+// Flux76HQ/App-Guidance: iOS-achtig (zwevend glas) of Android-achtig (Material, over de volle breedte), via data-nav op <html>.
+// Automatisch geeft een Android-toestel de Android-balk en de rest de iOS-achtige; bewaard wordt "auto", niet wat dat nu is.
+// Het glas (0 dicht ... 100 het doorzichtigst) wordt hier een gewone waarde (--nav-alpha, --nav-blur): Safari laat glas weg
+// als er een var() in calc() staat. Het doorzichtigst is 0,75 dekking, niet minder: daaronder halen de labels boven een
+// witte of zwarte foto geen 4,5 : 1 meer (tests/test_appearance.py rekent het na).
 (function () {
   "use strict";
 
@@ -22,6 +29,9 @@
   // De balk van de browser (en de statusbalk op Android): in het lichte thema de accentkleur, in het donkere de achtergrond.
   const DARK_BG = { green: "#0f1613", grey: "#121314" };
   const DARK_BACKGROUNDS = ["green", "grey"];
+  const NAV_STYLES = ["auto", "ios", "android"];
+  const NAV_GLASS = 60; // de standaard van de schuif; styles.css heeft dezelfde waarden (0,85 en 28 px)
+  const NAV_ALPHA_STEP = 0.0025; // 0 → dekking 1, 100 → 0,75
 
   // De keuzes in Instellingen, Weergave: [waarde, naam in de vertaling]. Leeg is de huisstijl. Elke kleur haalt in het lichte
   // thema zelf al het contrast, dus het rondje toont wat je krijgt; tests/test_appearance.py controleert dat.
@@ -42,10 +52,11 @@
   const LIGHT_SURFACES = ["#ffffff", "#f5f7f6", "#eef3f0"];
   const DARK_SURFACES = ["#0f1613", "#17211c", "#1e2b24", "#121314", "#1b1c1e", "#232527"];
   const TARGET = 4.6; // net boven 4,5 : 1, zodat afronden in de browser het niet onder de grens brengt
-  // Het glas van de onderste menubalk op zijn slechtst (styles.css, --tabbar-glass): wit glas boven een zwarte foto, en donker
-  // glas (groen en grijs) boven een witte. Het label van de actieve tab moet daar ook leesbaar zijn, met de tint erover.
-  const LIGHT_GLASS = "#cccccc";
-  const DARK_GLASS = ["#454d49", "#494a4b"];
+  // Het glas van de onderste menubalk op zijn slechtst (--tabbar-rgb in styles.css, bij de doorzichtigste stand, 0,75): wit glas
+  // boven een zwarte foto, en donker glas (groen en grijs) boven een witte. Het label van de actieve tab moet daar ook leesbaar
+  // zijn, met de tint erover.
+  const LIGHT_GLASS = "#bfbfbf";
+  const DARK_GLASS = ["#515955", "#545556"];
 
   const query = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
@@ -155,8 +166,38 @@
     return result;
   }
 
+  // ---- de navigatiebalk
+  // Welk toestel dit is, alleen om een uiterlijk te kiezen (nooit om te bepalen wat de app kan). Het script in de kop zet het al;
+  // iPadOS meldt zich als Mac, dus een "Mac" met een aanraakscherm is een iPad.
+  function platform() {
+    const root = document.documentElement;
+    const known = root.getAttribute("data-platform");
+    if (known) return known;
+    const ua = navigator.userAgent || "";
+    const found = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) ? "ios" : /Android/i.test(ua) ? "android" : "other";
+    root.setAttribute("data-platform", found);
+    return found;
+  }
+
+  // De balk die je ziet: wat je koos, anders die van dit toestel.
+  function navStyle(style = look.navbarStyle) {
+    if (style === "ios" || style === "android") return style;
+    return platform() === "android" ? "android" : "ios";
+  }
+
+  function cleanGlass(glass) {
+    return Number.isInteger(glass) ? Math.min(100, Math.max(0, glass)) : NAV_GLASS;
+  }
+
+  // Het glas van de zwevende balk als gewone CSS-waarden: de dekking van de tint en de vervaging. Ook voor de schuif terwijl hij beweegt.
+  function applyNavGlass(glass, root = document.documentElement) {
+    const g = cleanGlass(glass);
+    root.style.setProperty("--nav-alpha", (1 - g * NAV_ALPHA_STEP).toFixed(3));
+    root.style.setProperty("--nav-blur", `${(10 + g * 0.3).toFixed(1)}px`);
+  }
+
   // ---- de keuze
-  const look = { theme: null, darkBackground: "green", accent: "" };
+  const look = { theme: null, darkBackground: "green", accent: "", navbarStyle: "auto", navbarGlass: NAV_GLASS };
 
   function storedTheme() {
     try {
@@ -188,7 +229,10 @@
   function remember() {
     try {
       const vars = variants(look.accent);
-      window.localStorage.setItem(LOOK_KEY, JSON.stringify({ darkBackground: look.darkBackground, accent: look.accent, vars: vars || {} }));
+      window.localStorage.setItem(
+        LOOK_KEY,
+        JSON.stringify({ darkBackground: look.darkBackground, accent: look.accent, navbarStyle: look.navbarStyle, navbarGlass: look.navbarGlass, vars: vars || {} })
+      );
     } catch {
       /* opslag geblokkeerd: de keuze geldt dan voor deze pagina */
     }
@@ -205,6 +249,8 @@
       else root.style.removeProperty(name);
     });
     root.toggleAttribute("data-accent", Boolean(vars));
+    root.setAttribute("data-nav", navStyle());
+    applyNavGlass(look.navbarGlass, root);
     const bar = theme === "dark" ? DARK_BG[look.darkBackground] || DARK_BG.green : vars ? vars["--accent-light"] : BRAND.light;
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", bar));
     document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
@@ -241,13 +287,22 @@
   function apply(prefs = {}) {
     if ("darkBackground" in prefs) look.darkBackground = DARK_BACKGROUNDS.includes(prefs.darkBackground) ? prefs.darkBackground : "green";
     if ("accent" in prefs) look.accent = variants(prefs.accent) ? prefs.accent.toLowerCase() : "";
+    if ("navbarStyle" in prefs) look.navbarStyle = NAV_STYLES.includes(prefs.navbarStyle) ? prefs.navbarStyle : "auto";
+    if ("navbarGlass" in prefs) look.navbarGlass = cleanGlass(prefs.navbarGlass);
     remember();
     if (prefs.theme === "system" || prefs.theme === "light" || prefs.theme === "dark") choose(prefs.theme, { announce: false });
     else paint();
   }
 
   function appearance() {
-    return { theme: choice(), darkBackground: look.darkBackground, accent: look.accent };
+    return {
+      theme: choice(),
+      darkBackground: look.darkBackground,
+      accent: look.accent,
+      navbarStyle: look.navbarStyle,
+      navbarGlass: look.navbarGlass,
+      navShown: navStyle(),
+    };
   }
 
   document.addEventListener("click", (event) => {
@@ -264,8 +319,10 @@
   const cached = storedLook();
   look.darkBackground = DARK_BACKGROUNDS.includes(cached.darkBackground) ? cached.darkBackground : "green";
   look.accent = variants(cached.accent) ? cached.accent.toLowerCase() : "";
+  look.navbarStyle = NAV_STYLES.includes(cached.navbarStyle) ? cached.navbarStyle : "auto";
+  look.navbarGlass = cleanGlass(cached.navbarGlass);
   look.theme = choice();
 
-  window.THEME = { current, set: choose, choose, choice, apply, appearance, variants, contrast, mix, ACCENTS, BRAND };
+  window.THEME = { current, set: choose, choose, choice, apply, appearance, variants, contrast, mix, ACCENTS, BRAND, navStyle, applyNavGlass, platform };
   document.addEventListener("DOMContentLoaded", () => paint());
 })();

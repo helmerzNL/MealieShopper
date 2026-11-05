@@ -2,7 +2,8 @@
 
 Inloggen blijft met de gebruikersnaam; de displaynaam is alleen wat er in het menu en in de gebruikerslijst staat.
 De weergave (Instellingen, Weergave) is per gebruiker: licht, donker of het apparaat volgen, de achtergrond van het
-donkere thema (groen of donkergrijs) en de accentkleur. De browser leidt uit de accentkleur de tinten af die de
+donkere thema (groen of donkergrijs), de accentkleur en de navigatiebalk onderaan (iOS- of Android-achtig, en hoe
+doorzichtig het glas is). De browser leidt uit de accentkleur de tinten af die de
 contrastregels halen (static/theme.js); hier bewaren we alleen de keuze, en een waarde die niet klopt telt als geen keuze.
 De avatar is een kleine afbeelding (PNG, JPEG of WebP) die in de database bewaard wordt. De browser verkleint hem
 vooraf; hier controleren we nog het type aan de inhoud en de grootte. SVG wordt nooit geaccepteerd.
@@ -25,6 +26,8 @@ AVATAR_TYPES = {"image/png", "image/jpeg", "image/webp"}
 THEMES = ("system", "light", "dark")
 DARK_BACKGROUNDS = ("green", "grey")
 ACCENT = re.compile(r"^#[0-9a-f]{6}$")
+NAVBAR_STYLES = ("auto", "ios", "android")  # auto: de balk die bij het toestel hoort, ook op een volgend toestel
+NAVBAR_GLASS_DEFAULT = 60  # 0 is dicht, 100 het doorzichtigst (static/theme.js rekent het om)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_profiles (
@@ -37,6 +40,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   theme TEXT,
   dark_background TEXT NOT NULL DEFAULT 'green',
   accent TEXT NOT NULL DEFAULT '',
+  navbar_style TEXT NOT NULL DEFAULT 'auto',
+  navbar_glass INTEGER NOT NULL DEFAULT 60,
   updated_at TEXT NOT NULL
 );
 """
@@ -47,6 +52,8 @@ _ADDED_COLUMNS = {
     "theme": "TEXT",  # weergave: NULL is "nog niet gekozen", dan beslist de browser zoals voorheen
     "dark_background": "TEXT NOT NULL DEFAULT 'green'",
     "accent": "TEXT NOT NULL DEFAULT ''",  # leeg is het basilicumgroen van de huisstijl
+    "navbar_style": "TEXT NOT NULL DEFAULT 'auto'",  # de navigatiebalk onderaan
+    "navbar_glass": "INTEGER NOT NULL DEFAULT 60",
 }
 
 
@@ -92,17 +99,30 @@ def clean_accent(value: Any) -> str:
     return text if ACCENT.match(text) else ""
 
 
+def clean_navbar_style(value: Any) -> str:
+    return value if value in NAVBAR_STYLES else NAVBAR_STYLES[0]
+
+
+def valid_glass(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100  # True is in Python ook een int
+
+
+def clean_navbar_glass(value: Any) -> int:
+    return value if valid_glass(value) else NAVBAR_GLASS_DEFAULT
+
+
 def get(user_id: str) -> dict[str, Any]:
     with closing(_connect()) as conn:
         row = conn.execute(
-            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent "
-            "FROM user_profiles WHERE user_id = ?",
+            "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent, "
+            "navbar_style, navbar_glass FROM user_profiles WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if not row:
         return {
             "displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False,
             "theme": None, "darkBackground": DARK_BACKGROUNDS[0], "accent": "",
+            "navbarStyle": NAVBAR_STYLES[0], "navbarGlass": NAVBAR_GLASS_DEFAULT,
         }
     return {
         "displayName": row["display_name"],
@@ -112,6 +132,8 @@ def get(user_id: str) -> dict[str, Any]:
         "theme": clean_theme(row["theme"]),
         "darkBackground": clean_dark_background(row["dark_background"]),
         "accent": clean_accent(row["accent"]),
+        "navbarStyle": clean_navbar_style(row["navbar_style"]),
+        "navbarGlass": clean_navbar_glass(row["navbar_glass"]),
     }
 
 
@@ -146,15 +168,18 @@ def set_prefer_organic(user_id: str, value: bool) -> None:
     _upsert(user_id, prefer_organic=1 if value else 0)
 
 
-def set_appearance(user_id: str, *, theme: str | None = None, dark_background: str | None = None, accent: str | None = None) -> None:
+def set_appearance(
+    user_id: str,
+    *,
+    theme: str | None = None,
+    dark_background: str | None = None,
+    accent: str | None = None,
+    navbar_style: str | None = None,
+    navbar_glass: int | None = None,
+) -> None:
     """De weergave van één gebruiker; alleen wat is meegegeven verandert. De waarden zijn al gecontroleerd (zie de route)."""
-    fields: dict[str, Any] = {}
-    if theme is not None:
-        fields["theme"] = theme
-    if dark_background is not None:
-        fields["dark_background"] = dark_background
-    if accent is not None:
-        fields["accent"] = accent
+    given = {"theme": theme, "dark_background": dark_background, "accent": accent, "navbar_style": navbar_style, "navbar_glass": navbar_glass}
+    fields = {column: value for column, value in given.items() if value is not None}
     if fields:
         _upsert(user_id, **fields)
 
@@ -179,6 +204,14 @@ def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(accent, str) or (accent and not ACCENT.match(accent.lower())):
             raise ValueError(tr("accent moet een kleur als #1a2b3c zijn, of leeg.", "accent must be a colour like #1a2b3c, or empty."))
         wanted["accent"] = accent.lower()
+    if "navbarStyle" in body:
+        if body["navbarStyle"] not in NAVBAR_STYLES:
+            raise ValueError(tr("navbarStyle moet auto, ios of android zijn.", "navbarStyle must be auto, ios or android."))
+        wanted["navbar_style"] = body["navbarStyle"]
+    if "navbarGlass" in body:
+        if not valid_glass(body["navbarGlass"]):
+            raise ValueError(tr("navbarGlass moet een geheel getal van 0 tot en met 100 zijn.", "navbarGlass must be a whole number from 0 to 100."))
+        wanted["navbar_glass"] = body["navbarGlass"]
     if not wanted:
         raise ValueError(tr("Geen voorkeur ontvangen.", "No preference received."))
     return wanted
@@ -237,7 +270,8 @@ def register_routes(app: Flask) -> None:
     @app.put("/api/profile/preferences")
     def profile_preferences_put():
         # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
-        # Alleen wat in het verzoek staat verandert: *Liever biologisch* en de weergave (theme, darkBackground, accent).
+        # Alleen wat in het verzoek staat verandert: *Liever biologisch* en de weergave (theme, darkBackground, accent,
+        # navbarStyle, navbarGlass).
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             body = {}

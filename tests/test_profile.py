@@ -95,13 +95,31 @@ class ProfileTest(unittest.TestCase):
         self.assertIsNone(self.client.get("/api/auth/status").get_json()["theme"], "een geweigerd verzoek verandert niets")
         self.assertEqual(self.client.put("/api/profile/preferences", data="[]", content_type="application/json").status_code, 400)
 
+    def test_navigation_bar_style_and_glass(self):
+        # Zoals de richtlijn navigation-bar.md van App-Guidance: elke stijl en het glas 0 en 100 mogen, de rest geeft 400.
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("auto", 60), "standaard: de balk van het toestel")
+        for style in ("ios", "android", "auto"):
+            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarStyle": style}).get_json()["navbarStyle"], style)
+        for glass in (0, 100, 35):
+            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarGlass": glass}).get_json()["navbarGlass"], glass)
+        self.client.put("/api/profile/preferences", json={"navbarStyle": "android"})
+        for bad in ({"navbarStyle": "windows"}, {"navbarStyle": None}, {"navbarGlass": -1}, {"navbarGlass": 101},
+                    {"navbarGlass": 50.5}, {"navbarGlass": "50"}, {"navbarGlass": True}, {"navbarGlass": None}):
+            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
+
     def test_a_bad_stored_value_counts_as_no_choice(self):
         profile.set_display_name("owner", "x")
         with closing(auth.connect()) as conn, conn:  # zoals een handmatig gewijzigde back-up
-            conn.execute("UPDATE user_profiles SET theme = 'sepia', dark_background = 'black', accent = 'javascript:x'")
+            conn.execute(
+                "UPDATE user_profiles SET theme = 'sepia', dark_background = 'black', accent = 'javascript:x', "
+                "navbar_style = 'windows', navbar_glass = 500"
+            )
         self.assertEqual(
-            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent")},
-            {"theme": None, "darkBackground": "green", "accent": ""},
+            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
+            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
         )
 
     def test_an_older_database_gets_the_prefer_organic_column(self):
@@ -157,6 +175,8 @@ class ProfileWithLoginTest(UsersTestCase):
         mine = anna.get("/api/auth/status").get_json()
         theirs = self.admin.get("/api/auth/status").get_json()
         self.assertEqual((mine["accent"], mine["darkBackground"], mine["theme"]), ("#e0457b", "grey", None))
+        self.assertEqual(anna.put("/api/profile/preferences", json={"navbarStyle": "android"}).status_code, 200)
+        self.assertEqual(self.admin.get("/api/auth/status").get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
         self.assertEqual((theirs["accent"], theirs["darkBackground"], theirs["theme"]), ("#0c9aa6", "green", "dark"))
         self.assertEqual(self.app.test_client().put("/api/profile/preferences", json={"accent": "#000000"}).status_code, 401)
 

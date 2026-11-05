@@ -52,11 +52,12 @@
   --warning-bg: #fff8e6;
   --warning-border: #e0a100;
 
-  /* Menubalk onderaan op een telefoon: dichter glas en donkerdere inkt, zodat labels leesbaar blijven boven donkere foto's */
-  --tabbar-glass: rgba(255, 255, 255, 0.8);
+  /* Menubalk onderaan op een telefoon. Het glas is --tabbar-rgb met de dekking van de schuif (--nav-alpha, 1 tot 0,75, zie
+     static/theme.js); de inkt is zo gekozen dat de labels ook bij de doorzichtigste stand boven een foto 4,5 : 1 halen. */
+  --tabbar-rgb: 255, 255, 255;
   --tabbar-tint: rgba(23, 107, 69, 0.14);
   --tabbar-ink: #3f4c45;
-  --tabbar-ink-active: #105235;
+  --tabbar-ink-active: #0f4c31;
   --tabbar-solid: rgba(255, 255, 255, 0.97);
   --tabbar-border: rgba(255, 255, 255, 0.7);
 
@@ -117,10 +118,10 @@
   --warning-bg: #33280d;
   --warning-border: #a67c00;
 
-  --tabbar-glass: rgba(23, 33, 28, 0.8);
+  --tabbar-rgb: 23, 33, 28;
   --tabbar-tint: rgba(76, 195, 138, 0.18);
-  --tabbar-ink: #b4c4ba;
-  --tabbar-ink-active: #7bd9ab;
+  --tabbar-ink: #c5d1ca;
+  --tabbar-ink-active: #c6efdb;
   --tabbar-solid: rgba(23, 33, 28, 0.97);
   --tabbar-border: rgba(255, 255, 255, 0.12);
 
@@ -156,8 +157,8 @@
   --border-strong: #47494c;
   --placeholder: #8f9194;
 
-  --tabbar-glass: rgba(27, 28, 30, 0.8);
-  --tabbar-ink: #bbbdc0;
+  --tabbar-rgb: 27, 28, 30;
+  --tabbar-ink: #cacbcd;
   --tabbar-solid: rgba(27, 28, 30, 0.97);
   --topbar-bg: rgba(18, 19, 20, 0.96);
   --gate-bg: rgba(18, 19, 20, 0.96);
@@ -174,7 +175,7 @@
   --selection: color-mix(in srgb, var(--primary) 9%, #fff);
   --selection-border: color-mix(in srgb, var(--primary) 30%, #fff);
   --tabbar-tint: color-mix(in srgb, var(--primary) 14%, transparent);
-  --tabbar-ink-active: var(--accent-light-ink, #105235); /* leesbaar op het glas van de menubalk, ook boven een foto */
+  --tabbar-ink-active: var(--accent-light-ink, #0f4c31); /* leesbaar op het glas van de menubalk, ook boven een foto */
   --btn-shadow: 0 1px 2px color-mix(in srgb, var(--primary-strong) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   --btn-shadow-hover: 0 2px 8px color-mix(in srgb, var(--primary-strong) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
   --ring: color-mix(in srgb, var(--primary) 20%, transparent);
@@ -188,7 +189,7 @@
   --selection: color-mix(in srgb, var(--primary) 20%, var(--bg));
   --selection-border: color-mix(in srgb, var(--primary) 35%, var(--surface));
   --tabbar-tint: color-mix(in srgb, var(--primary) 18%, transparent);
-  --tabbar-ink-active: var(--accent-dark-ink, #7bd9ab);
+  --tabbar-ink-active: var(--accent-dark-ink, #c6efdb);
   --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
   --btn-shadow-hover: 0 2px 10px color-mix(in srgb, var(--primary) 28%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   --ring: color-mix(in srgb, var(--primary) 28%, transparent);
@@ -3497,15 +3498,30 @@ html.is-standalone body {
 }
 
 /* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
-   Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. */
+   Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. Twee uiterlijken van dezelfde
+   tabs, gekozen met data-nav op <html> (Instellingen, Weergave, en shared/guidelines/navigation-bar.md van App-Guidance):
+   iOS-achtig (zwevend glas, de basis hieronder) en Android-achtig (Material: over de volle breedte, een pil achter het actieve
+   icoon). --tabbar-h is de enige hoogte die de rest van de pagina kent, zodat er niets onder de ene of de andere balk valt.
+   Het glas: de dekking en vervaging zet static/theme.js als gewone waarden; de standaard hier is die van schuifstand 60. */
+:root {
+  --tabbar-h: 82px;
+  --nav-alpha: 0.85;
+  --nav-blur: 28px;
+}
+
+/* Buiten de balk is er één icoon per tab: het gevulde. In de balk krijgt een tab die niet actief is het omlijnde, als MDI dat heeft. */
+.tab-icon--outline {
+  display: none;
+}
+
 @media (max-width: 640px) {
   html.has-tabbar .shell {
-    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--tabbar-h) + 30px + env(safe-area-inset-bottom));
   }
 
-  /* De balk van In bulk importeren boven de zwevende tabbalk. */
+  /* De balk van In bulk importeren boven de menubalk. */
   html.has-tabbar .bulk-bar {
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
   }
 
   html.has-tabbar .tabs {
@@ -3529,11 +3545,12 @@ html.is-standalone body {
       inset 0 1px 0 var(--tabbar-border);
   }
 
+  /* Alleen gewone waarden in rgba() en blur(): met een berekening erin laat Safari het glas weg. */
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     html.has-tabbar .tabs {
-      background: var(--tabbar-glass);
-      -webkit-backdrop-filter: saturate(180%) blur(24px);
-      backdrop-filter: saturate(180%) blur(24px);
+      background: rgba(var(--tabbar-rgb), var(--nav-alpha));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--nav-blur));
+      backdrop-filter: saturate(180%) blur(var(--nav-blur));
     }
   }
 
@@ -3553,11 +3570,23 @@ html.is-standalone body {
     line-height: 1.1;
     transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
     -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   html.has-tabbar .tab-icon {
     width: 24px;
     height: 24px;
+  }
+
+  /* Gevuld als de tab actief is, omlijnd als hij dat niet is: zo doen iOS en Material het, en het is niet alleen een kleur. */
+  html.has-tabbar .tab:not(.is-active) > .tab-icon:has(+ .tab-icon--outline) {
+    display: none;
+  }
+
+  html.has-tabbar .tab:not(.is-active) > .tab-icon--outline {
+    display: block;
   }
 
   html.has-tabbar .tab-text {
@@ -3594,10 +3623,80 @@ html.is-standalone body {
   html.has-tabbar .tab:focus-visible {
     outline-offset: -3px;
   }
+
+  /* Android-achtig: de navigatiebalk van Material 3. Over de volle breedte op de rand, een vlak dat naar de accentkleur neigt
+     (geen glas), en een pil van 64 x 32 achter het actieve icoon met een vet label eronder. */
+  html.has-tabbar[data-nav="android"] {
+    --tabbar-h: 84px;
+  }
+
+  html.has-tabbar[data-nav="android"] .tabs {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    gap: 0;
+    padding: 12px max(8px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--surface) 90%, var(--primary));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 -1px 0 var(--border), 0 -3px 14px rgba(var(--shadow-ink), 0.08);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab {
+    gap: 4px;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab-icon {
+    box-sizing: content-box;
+    padding: 4px 20px;
+    border-radius: 16px;
+    transition: background-color 0.2s ease;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:hover:not(.is-active) {
+    color: var(--muted);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:active {
+    transform: none;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:active .tab-icon {
+    background: var(--selection);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab.is-active {
+    background: none;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab.is-active > .tab-icon {
+    background: color-mix(in srgb, var(--primary) 26%, transparent);
+    color: var(--primary-strong);
+  }
+}
+
+/* Minder doorzichtigheid gevraagd: een dichte balk, wat de schuif ook zegt. De Android-achtige balk is al dicht. */
+@media (max-width: 640px) and (prefers-reduced-transparency: reduce) {
+  html.has-tabbar:not([data-nav="android"]) .tabs {
+    background: var(--tabbar-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: reduce) {
-  html.has-tabbar .tab {
+  html.has-tabbar .tab,
+  html.has-tabbar .tab-icon {
     transition: none;
   }
 
@@ -7742,4 +7841,88 @@ html.is-standalone body {
   .appearance-swatch:hover {
     transform: none;
   }
+}
+
+/* Instellingen, Weergave, Navigatiebalk: een kleine tekening van beide balken, en de schuif voor het glas. */
+.appearance-navsample {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.appearance-navsample i {
+  position: absolute;
+  display: block;
+}
+
+.appearance-navsample--ios i {
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 9px;
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border-strong), 0 2px 4px rgba(var(--shadow-ink), 0.18);
+}
+
+.appearance-navsample--android i {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 11px;
+  background: color-mix(in srgb, var(--surface) 80%, var(--primary));
+  box-shadow: 0 -1px 0 var(--border-strong);
+}
+
+.appearance-navsample--android i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 12px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--primary);
+  transform: translateX(-50%);
+}
+
+.appearance-glass {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.appearance-glass__label {
+  display: block;
+  font-weight: 700;
+}
+
+.appearance-glass .muted {
+  margin: 4px 0 8px;
+}
+
+.appearance-glass__control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.appearance-glass__control input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  min-height: var(--control-height);
+  accent-color: var(--primary);
+}
+
+.appearance-glass__control output {
+  min-width: 3.2em;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

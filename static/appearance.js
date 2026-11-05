@@ -1,4 +1,4 @@
-// Instellingen, Weergave: het thema, de achtergrond van het donkere thema en de accentkleur, per gebruiker.
+// Instellingen, Weergave: het thema, de achtergrond van het donkere thema, de accentkleur en de navigatiebalk, per gebruiker.
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -18,22 +18,41 @@ function appearanceSignedIn() {
 function appearanceFromProfile() {
   const auth = state.auth || {};
   if (!appearanceSignedIn() || !("accent" in auth)) return;
-  THEME.apply({ theme: auth.theme, darkBackground: auth.darkBackground, accent: auth.accent });
+  THEME.apply({
+    theme: auth.theme,
+    darkBackground: auth.darkBackground,
+    accent: auth.accent,
+    navbarStyle: auth.navbarStyle,
+    navbarGlass: auth.navbarGlass,
+  });
   renderAppearance();
 }
 
-async function appearanceSave(change) {
+// Bewaren gaat optimistisch: de keuze is al te zien. Weigert de server hem, dan komt de vorige keuze terug (previous) en staat
+// de melding van de server bij het blok (target).
+async function appearanceSave(change, { previous = null, target = "#appearance-message" } = {}) {
   if (!appearanceSignedIn()) return;
-  message("#appearance-message", "");
+  message(target, "");
   try {
     const data = await jsonFetch("/api/profile/preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(change),
     });
-    state.auth = { ...state.auth, theme: data.theme, darkBackground: data.darkBackground, accent: data.accent };
+    state.auth = {
+      ...state.auth,
+      theme: data.theme,
+      darkBackground: data.darkBackground,
+      accent: data.accent,
+      navbarStyle: data.navbarStyle,
+      navbarGlass: data.navbarGlass,
+    };
   } catch (error) {
-    message("#appearance-message", error.message);
+    if (previous) {
+      THEME.apply(previous);
+      renderAppearance();
+    }
+    message(target, error.message);
   }
 }
 
@@ -91,6 +110,28 @@ function renderAppearanceCurrent(look) {
   target.textContent = text;
 }
 
+// De navigatiebalk: de stijl, wat Automatisch nu is, en de schuif voor het glas (alleen bij de iOS-achtige balk: de
+// Android-achtige heeft geen glas).
+function renderAppearanceNav(look) {
+  document.querySelectorAll('input[name="appearance-nav"]').forEach((input) => {
+    input.checked = input.value === look.navbarStyle;
+  });
+  const shown = t(look.navShown === "android" ? "appearance.nav.android" : "appearance.nav.ios");
+  const current = $("#appearance-nav-current");
+  if (current) {
+    current.textContent =
+      look.navbarStyle === "auto"
+        ? t("appearance.nav.auto_hint", { style: shown })
+        : t(look.navShown === "android" ? "appearance.nav.android_hint" : "appearance.nav.ios_hint");
+  }
+  const row = $("#appearance-glass-row");
+  if (row) row.hidden = look.navShown !== "ios";
+  const slider = $("#appearance-glass");
+  if (slider && document.activeElement !== slider) slider.value = String(look.navbarGlass);
+  const value = $("#appearance-glass-value");
+  if (value) value.textContent = t("appearance.glass.value", { n: slider ? slider.value : look.navbarGlass });
+}
+
 function renderAppearance() {
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
@@ -101,6 +142,7 @@ function renderAppearance() {
     input.checked = input.value === look.darkBackground;
   });
   renderAppearanceAccent(look);
+  renderAppearanceNav(look);
 }
 
 $("#appearance-theme").addEventListener("change", (event) => {
@@ -129,6 +171,26 @@ $("#appearance-accent").addEventListener("input", (event) => {
   appearancePicking = true;
   THEME.apply({ accent: event.target.value });
   renderAppearanceCurrent(THEME.appearance());
+});
+
+$("#appearance-nav").addEventListener("change", (event) => {
+  if (event.target.name !== "appearance-nav") return;
+  const previous = { navbarStyle: THEME.appearance().navbarStyle };
+  THEME.apply({ navbarStyle: event.target.value });
+  appearanceSave({ navbarStyle: THEME.appearance().navbarStyle }, { previous, target: "#appearance-nav-message" });
+});
+
+// De schuif: tijdens het schuiven verandert alleen het glas (de balk onderaan toont het meteen), bewaard wordt pas bij loslaten.
+$("#appearance-glass").addEventListener("input", (event) => {
+  const glass = Number(event.target.value);
+  THEME.applyNavGlass(glass);
+  $("#appearance-glass-value").textContent = t("appearance.glass.value", { n: glass });
+});
+
+$("#appearance-glass").addEventListener("change", (event) => {
+  const previous = { navbarGlass: THEME.appearance().navbarGlass };
+  THEME.apply({ navbarGlass: Number(event.target.value) });
+  appearanceSave({ navbarGlass: THEME.appearance().navbarGlass }, { previous, target: "#appearance-nav-message" });
 });
 
 // Het thema (ook met de knop bovenaan) bij het profiel bewaren.

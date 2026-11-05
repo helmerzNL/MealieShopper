@@ -55,7 +55,7 @@ class GreyBackgroundTest(unittest.TestCase):
         self.assertEqual(
             sorted(self.grey),
             sorted(["--bg", "--surface", "--surface-muted", "--text", "--muted", "--border", "--border-strong", "--placeholder",
-                    "--tabbar-glass", "--tabbar-ink", "--tabbar-solid", "--topbar-bg", "--gate-bg", "--topbar-glass"]),
+                    "--tabbar-rgb", "--tabbar-ink", "--tabbar-solid", "--topbar-bg", "--gate-bg", "--topbar-glass"]),
         )
         for name in self.grey:
             self.assertIn(name, self.green, f"{name} bestaat niet in het donkere thema")
@@ -136,6 +136,20 @@ T.apply({{ accent: "#0B62C4", darkBackground: "grey" }});
 out.applied = {{ attrs: {{ ...root.attrs }}, props: {{ ...root.props }}, look: T.appearance() }};
 T.apply({{ accent: "javascript:alert(1)", darkBackground: "black" }});
 out.refused = {{ attrs: {{ ...root.attrs }}, props: {{ ...root.props }}, look: T.appearance() }};
+// De navigatiebalk: Automatisch volgt het toestel, een eigen keuze niet; het glas wordt gewone CSS-waarden.
+out.nav = [];
+for (const [platform, style] of [["android", "auto"], ["ios", "auto"], ["other", "auto"], ["android", "ios"], ["ios", "android"]]) {{
+  root.attrs["data-platform"] = platform;
+  T.apply({{ navbarStyle: style }});
+  out.nav.push([platform, style, root.attrs["data-nav"], T.appearance().navbarStyle]);
+}}
+out.glass = [];
+for (const glass of [0, 60, 100, 150, -5, 50.5, "60", null]) {{
+  T.apply({{ navbarGlass: glass }});
+  out.glass.push([glass, T.appearance().navbarGlass, root.props["--nav-alpha"], root.props["--nav-blur"]]);
+}}
+T.apply({{ navbarStyle: "windows" }});
+out.badStyle = [T.appearance().navbarStyle, root.attrs["data-nav"]];
 console.log(JSON.stringify(out));
 """)
         cls.light_surfaces = [css_tokens()[name] for name in ("--surface", "--bg", "--surface-muted")]
@@ -175,14 +189,56 @@ console.log(JSON.stringify(out));
         for colour, tints in self.data["tints"].items():
             if tints is None:
                 continue
-            for base in ((0, 0, 0), (255, 255, 255), (128, 128, 128)):
-                glass = over(light["--tabbar-glass"], base)
-                tinted = over(f"rgba({','.join(str(c) for c in hexrgb(tints['--accent-light']))}, 0.14)", glass)
-                self.assertGreaterEqual(ratio(hexrgb(tints["--accent-light-ink"]), tinted), 4.5, f"{colour} licht boven {base}")
-                for palette in (dark, grey):
-                    glass = over(palette["--tabbar-glass"], base)
-                    tinted = over(f"rgba({','.join(str(c) for c in hexrgb(tints['--accent-dark']))}, 0.18)", glass)
-                    self.assertGreaterEqual(ratio(hexrgb(tints["--accent-dark-ink"]), tinted), 4.5, f"{colour} donker boven {base}")
+            for alpha in (1.0, 0.85, 0.75):  # de schuif op 0, 60 en 100
+                for base in ((0, 0, 0), (255, 255, 255), (128, 128, 128)):
+                    glass = over(f"rgba({light['--tabbar-rgb']}, {alpha})", base)
+                    tinted = over(f"rgba({','.join(str(c) for c in hexrgb(tints['--accent-light']))}, 0.14)", glass)
+                    self.assertGreaterEqual(ratio(hexrgb(tints["--accent-light-ink"]), tinted), 4.5, f"{colour} licht, {alpha}, boven {base}")
+                    for palette in (dark, grey):
+                        glass = over(f"rgba({palette['--tabbar-rgb']}, {alpha})", base)
+                        tinted = over(f"rgba({','.join(str(c) for c in hexrgb(tints['--accent-dark']))}, 0.18)", glass)
+                        self.assertGreaterEqual(ratio(hexrgb(tints["--accent-dark-ink"]), tinted), 4.5, f"{colour} donker, {alpha}, boven {base}")
+
+    def test_the_android_like_bar_reads_with_every_accent(self):
+        # Geen glas: een dicht vlak, 10 % naar de accentkleur. Labels 4,5 : 1, het icoon op de pil 3 : 1 (geen tekst).
+        light, dark = css_tokens(), block(':root[data-theme="dark"]')
+        grey = {**dark, **block(':root[data-theme="dark"][data-dark-bg="grey"]')}
+        brand = {"--accent-light": light["--primary"], "--accent-light-strong": light["--primary-strong"],
+                 "--accent-dark": dark["--primary"], "--accent-dark-strong": dark["--primary-strong"]}
+        for colour, tints in {**self.data["tints"], "huisstijl": brand}.items():
+            if tints is None:
+                continue
+            for name, palette, primary, strong in (("licht", light, tints["--accent-light"], tints["--accent-light-strong"]),
+                                                   ("donker", dark, tints["--accent-dark"], tints["--accent-dark-strong"]),
+                                                   ("donkergrijs", grey, tints["--accent-dark"], tints["--accent-dark-strong"])):
+                surface = "#ffffff" if palette["--surface"] == "#fff" else palette["--surface"]
+                bar = self.mix(surface, primary, 0.9)
+                self.assertGreaterEqual(contrast(palette["--muted"], bar), 4.5, f"{colour}, {name}: label")
+                self.assertGreaterEqual(contrast(palette["--text"], bar), 4.5, f"{colour}, {name}: actief label")
+                pill = self.mix(primary, bar, 0.26)
+                self.assertGreaterEqual(contrast(strong, pill), 3, f"{colour}, {name}: icoon op de pil")
+
+    def test_automatic_follows_the_device_and_a_choice_does_not(self):
+        self.assertEqual(self.data["nav"], [
+            ["android", "auto", "android", "auto"],  # bewaard blijft "auto", niet wat het nu is
+            ["ios", "auto", "ios", "auto"],
+            ["other", "auto", "ios", "auto"],  # een computer of onbekend toestel: de iOS-achtige
+            ["android", "ios", "ios", "ios"],
+            ["ios", "android", "android", "android"],
+        ])
+        self.assertEqual(self.data["badStyle"], ["auto", "ios"])
+
+    def test_the_glass_slider_becomes_plain_values(self):
+        self.assertEqual(self.data["glass"], [
+            [0, 0, "1.000", "10.0px"],
+            [60, 60, "0.850", "28.0px"],
+            [100, 100, "0.750", "40.0px"],
+            [150, 100, "0.750", "40.0px"],
+            [-5, 0, "1.000", "10.0px"],
+            [50.5, 60, "0.850", "28.0px"],  # geen geheel getal: de standaard
+            ["60", 60, "0.850", "28.0px"],
+            [None, 60, "0.850", "28.0px"],
+        ])
 
     def test_the_menu_colours_need_no_adjustment_in_the_light_theme(self):
         # Het rondje in het menu is de kleur die je krijgt.
@@ -202,12 +258,13 @@ console.log(JSON.stringify(out));
         self.assertEqual(applied["look"]["accent"], "#0b62c4")
         self.assertEqual(applied["attrs"].get("data-dark-bg"), "grey")
         self.assertIn("data-accent", applied["attrs"])
-        self.assertEqual(sorted(applied["props"]), sorted(f"--accent-{t}{s}" for t in ("light", "dark") for s in ("", "-strong", "-on", "-ink")))
+        accent = [f"--accent-{t}{s}" for t in ("light", "dark") for s in ("", "-strong", "-on", "-ink")]
+        self.assertEqual(sorted(applied["props"]), sorted(accent + ["--nav-alpha", "--nav-blur"]))
         refused = self.data["refused"]
         self.assertEqual((refused["look"]["accent"], refused["look"]["darkBackground"]), ("", "green"))
         self.assertNotIn("data-accent", refused["attrs"])
         self.assertNotIn("data-dark-bg", refused["attrs"])
-        self.assertEqual(refused["props"], {})
+        self.assertEqual(sorted(refused["props"]), ["--nav-alpha", "--nav-blur"], "alleen het glas van de balk")
 
 
 class AppearanceMarkupTest(unittest.TestCase):
@@ -215,8 +272,10 @@ class AppearanceMarkupTest(unittest.TestCase):
         panel = HTML[HTML.index('<div id="settings-appearance"'):HTML.index("</section>", HTML.index('<div id="settings-appearance"'))]
         self.assertEqual(re.findall(r'name="appearance-theme" value="(\w+)"', panel), ["system", "light", "dark"])
         self.assertEqual(re.findall(r'name="appearance-dark-bg" value="(\w+)"', panel), ["green", "grey"])
-        self.assertEqual(panel.count("<fieldset"), 3)
-        self.assertEqual(panel.count("<legend"), 3)
+        self.assertEqual(re.findall(r'name="appearance-nav" value="(\w+)"', panel), ["auto", "ios", "android"])
+        self.assertIn('<input type="range" id="appearance-glass" min="0" max="100" step="1" value="60"', panel)
+        self.assertEqual(panel.count("<fieldset"), 4)
+        self.assertEqual(panel.count("<legend"), 4)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)

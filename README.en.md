@@ -97,7 +97,7 @@ The full description of every feature is in the [user guide](docs/handleiding.en
 
 ### Install as an app
 
-MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items. As in a native app, you don't zoom with two fingers in the app and the title bar stays at the top, also when you drag down; in the browser you can zoom as usual.
+MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items. As in a native app, you don't zoom with two fingers in the app and the title bar stays at the top, also when you drag down; in the browser you can zoom as usual. The menu bar looks like your other apps: floating glass on an iPhone, the Android bar on an Android device. Under Settings, Appearance you choose yourself and set the glass effect.
 
 - **iPhone and iPad (Safari):** Share, then `Add to Home Screen`.
 - **Android (Chrome):** menu, then `Install app`.

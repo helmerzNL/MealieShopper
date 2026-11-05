@@ -141,11 +141,28 @@ de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven
 schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
 de tekst.
 
-- **Glas:** `backdrop-filter: saturate(180%) blur(24px)` op een witte laag van 80%. Zonder
-  ondersteuning (`@supports`) wordt de balk bijna dicht (97%).
+- **Twee stijlen, één balk** (zoals [`navigation-bar.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/navigation-bar.md)
+  van Flux76HQ/App-Guidance). `data-nav` op `<html>` kiest het uiterlijk: `ios` is de zwevende
+  glazen balk hierboven, `android` de navigatiebalk van Material 3 (over de volle breedte op de rand,
+  een vlak dat 10% naar `--primary` neigt, geen glas, een pil van 64 x 32 achter het actieve icoon en
+  een vet label). *Automatisch* (`auto`, de standaard) volgt het toestel: het script in de kop zet
+  `data-platform` (een iPad meldt zich als Mac) en kiest daarmee, vóór de eerste weergave, uit de
+  kopie van de voorkeur in `ms-appearance`. De keuze is een voorkeur van het account
+  (`navbarStyle`, `navbarGlass`); bewaard wordt `auto`, niet wat dat op dit toestel is.
+- **Hoogte:** `--tabbar-h` (82 px iOS, 84 px Android) is de enige hoogte die de pagina kent: de
+  ruimte onder `.shell` en de balk van *In bulk importeren* volgen hem.
+- **Iconen:** de actieve tab toont het gevulde MDI-icoon, de andere het omlijnde (`.tab-icon--outline`,
+  als MDI er een heeft: Boxen en Meer niet). Buiten de balk staat er alleen het gevulde.
+- **Glas:** `rgba(var(--tabbar-rgb), var(--nav-alpha))` met `blur(var(--nav-blur))`. De schuif
+  *Glaseffect* (0 tot 100, standaard 60) wordt in JavaScript gewone waarden: dekking `1 - 0,0025 x`
+  (1 tot 0,75) en vervaging `10 + 0,3 x` px (10 tot 40 px); de standaard in `styles.css` is die van
+  60 (0,85 en 28 px). Geen berekening in `rgba()` of `blur()`: dan laat Safari het glas weg. Zonder
+  ondersteuning (`@supports`) en bij `prefers-reduced-transparency` is de balk dicht.
 - **Leesbaarheid:** de balk heeft eigen kleuren (`--tabbar-ink`, `--tabbar-ink-active`), omdat
-  `--muted` en `--primary` boven een donkere foto onder 4,5 : 1 zakken. `tests/test_tabbar.py`
-  rekent dat voor het ergste geval na (glas boven zwart).
+  `--muted` en `--primary` boven een foto onder 4,5 : 1 zakken. De doorzichtigste stand is daarom
+  0,75 en niet 0,15 zoals in de richtlijn: daaronder haalt geen labelkleur 4,5 : 1 boven zowel een
+  witte als een zwarte foto. `tests/test_tabbar.py` rekent dat na voor licht, donker en donkergrijs
+  bij de dekkingen 1, 0,85 en 0,75, en `tests/test_appearance.py` voor elke accentkleur.
 - **Beweging:** een korte overgang en een indrukeffect, uit bij `prefers-reduced-motion`.
 - **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
   (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
