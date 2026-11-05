@@ -279,6 +279,24 @@ class FetchTest(FetchCase):
             second = image_cache.fetch(AH, now=NOW)  # verzoek B
         self.assertEqual((second["path"], self.get.call_count), (first["path"], 1))
 
+    def test_a_request_that_saw_no_row_before_another_fetched_the_photo_keeps_that_photo(self):
+        # Ook een volgorde die de test met twee threads af en toe liet zien: verzoek B kijkt (nog geen rij), verzoek A registreert
+        # het adres, haalt de foto op en is klaar, en dan registreert B. B ziet daarna een pad: dat is de foto van A, geen verdwenen
+        # bestand. B mag dat pad niet wissen en de foto niet opnieuw ophalen.
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        first = image_cache.fetch(AH, now=NOW)  # verzoek A
+        real_lookup = image_cache.lookup
+        calls = []
+
+        def lookup(url):
+            calls.append(url)
+            return None if len(calls) == 1 else real_lookup(url)  # wat B zag, voordat A de rij aanmaakte
+
+        with mock.patch.object(image_cache, "lookup", side_effect=lookup):
+            second = image_cache.fetch(AH, now=NOW)  # verzoek B
+        self.assertEqual((second["path"], self.get.call_count), (first["path"], 1))
+        self.assertEqual(image_cache.lookup(AH)["path"], first["path"])
+
     def test_the_pace_sleeps_between_two_requests_on_the_same_host(self):
         other = "https://static.ah.nl/dam/other"
         self.serve(AH, 200, "image/png", picture(4, 4))
