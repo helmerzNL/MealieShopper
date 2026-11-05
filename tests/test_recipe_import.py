@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah, mealie  # noqa: E402
+from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
 
 RECIPE = {
     "id": 1234,
@@ -152,6 +152,69 @@ class ImportFromUrlTest(unittest.TestCase):
         self.assertIn("AH-API: niet gevonden", message)
         self.assertIn("Mealie: Mealie kon de pagina niet importeren (400): Recipe scrape failed", message)
         self.assertIn("pagina: Kon de pagina niet ophalen (403)", message)
+
+
+class JsonLdSourceTest(unittest.TestCase):
+    """#242: Mealie leest JSON-LD met recipe-scrapers, en dat kiest zijn scraper op de host van de link. Voor picnic.app heeft
+    het een eigen scraper die de JSON-LD negeert: in Mealie stonden dan alleen de titel en de foto. Zo'n recept gaat onder een
+    neutrale link naar Mealie, en daarna krijgt het zijn echte bron terug."""
+
+    LD = {"@context": "https://schema.org", "@type": "Recipe", "name": "Pasta pesto", "recipeIngredient": ["200 g pasta"],
+          "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de pasta."}]}
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"MEALIE_URL": "http://mealie", "MEALIE_API_TOKEN": "t"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        parser = mock.patch.object(mealie, "parse_imported_ingredients", side_effect=lambda slug, *args: slug)
+        self.parser = parser.start()
+        self.addCleanup(parser.stop)
+
+    def response(self, ok=True, status=200, body="pasta-pesto"):
+        response = mock.Mock(ok=ok, status_code=status, text=str(body))
+        response.json.return_value = body
+        return response
+
+    def test_a_picnic_recipe_is_read_under_a_neutral_link_and_keeps_its_source(self):
+        source = picnic_recipes.source_url("r1")
+        with mock.patch.object(mealie.requests, "post", return_value=self.response()) as post, \
+                mock.patch.object(mealie.requests, "patch", return_value=self.response(body={})) as patch:
+            self.assertEqual(mealie.import_via_jsonld(source, self.LD), "pasta-pesto")
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual(sent["url"], mealie.NEUTRAL_SOURCE)
+        self.assertEqual(json.loads(sent["data"]), self.LD, "de JSON-LD zelf verandert niet")
+        self.assertEqual(patch.call_args.args[0], "http://mealie/api/recipes/pasta-pesto")
+        self.assertEqual(patch.call_args.kwargs["json"], {"orgURL": source}, "de bron blijft de link naar Picnic")
+        self.parser.assert_called_once_with("pasta-pesto")
+
+    def test_every_picnic_link_counts_and_other_stores_keep_their_own_link(self):
+        for url in ("https://picnic.app/#recipe-r1", "https://www.picnic.app/nl/recepten/x", "https://PICNIC.app/r"):
+            self.assertEqual(mealie._scrape_url(url), mealie.NEUTRAL_SOURCE, url)
+        for url in (
+            "https://www.ah.nl/allerhande/recept/R-R1234/stamppot",  # recipe-scrapers leest daar de JSON-LD wel
+            "https://www.jumbo.com/recepten/romige-pasta-123",
+            "https://crisp.nl/#recipe-123",
+            "https://www.hellofresh.nl/recipes/pasta-abc",
+            "https://notpicnic.app/r",
+        ):
+            self.assertEqual(mealie._scrape_url(url), url, url)
+
+    def test_another_source_is_sent_as_is_and_not_patched(self):
+        url = "https://www.jumbo.com/recepten/romige-pasta-123"
+        with mock.patch.object(mealie.requests, "post", return_value=self.response()) as post, \
+                mock.patch.object(mealie.requests, "patch") as patch:
+            self.assertEqual(mealie.import_via_jsonld(url, self.LD), "pasta-pesto")
+        self.assertEqual(post.call_args.kwargs["json"]["url"], url)
+        patch.assert_not_called()
+
+    def test_a_failed_source_update_keeps_the_imported_recipe(self):
+        for failure in ({"return_value": self.response(ok=False, status=403, body="Forbidden")},
+                        {"side_effect": mealie.requests.ConnectionError("weg")}):
+            with self.subTest(failure=failure), \
+                    mock.patch.object(mealie.requests, "post", return_value=self.response()), \
+                    mock.patch.object(mealie.requests, "patch", **failure), \
+                    self.assertLogs(mealie.log, "WARNING"):
+                self.assertEqual(mealie.import_via_jsonld(picnic_recipes.source_url("r1"), self.LD), "pasta-pesto")
 
 
 if __name__ == "__main__":

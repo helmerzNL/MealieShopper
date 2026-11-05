@@ -225,15 +225,47 @@ class MealieImportError(RuntimeError):
         self.status_code = status_code
 
 
+# Mealie leest een recept met recipe-scrapers, en dat kiest zijn scraper op de host van de link die we meegeven. Voor deze hosts
+# heeft het een eigen scraper die alleen de pagina van die site leest en de JSON-LD die wij sturen negeert: dan komen alleen
+# de titel en de foto in Mealie, zonder ingrediënten en bereiding (#242). Zo'n recept sturen we onder een neutrale link
+# (`.invalid` bestaat nooit), zodat de algemene schema.org-scraper het leest, en daarna zetten we de echte bron terug.
+JSONLD_IGNORING_HOSTS = frozenset({"picnic.app"})
+NEUTRAL_SOURCE = "https://mealieshopper.invalid/recipe"
+
+
+def _scrape_url(url: str) -> str:
+    """De link waaronder Mealie een recept uit JSON-LD leest: de bron zelf, of `NEUTRAL_SOURCE` voor een host uit
+    `JSONLD_IGNORING_HOSTS` (ook met `www.` of een subdomein ervoor)."""
+    host = (urlparse(url).hostname or "").lower()
+    if any(host == known or host.endswith(f".{known}") for known in JSONLD_IGNORING_HOSTS):
+        return NEUTRAL_SOURCE
+    return url
+
+
 def import_via_jsonld(url: str, recipe: dict[str, Any], catalog: "Catalog | None" = None) -> str:
-    """Importeer een schema.org Recipe (JSON-LD); Mealie hoeft de pagina dan niet op te halen.
+    """Importeer een schema.org Recipe (JSON-LD); Mealie hoeft de pagina dan niet op te halen. `url` is de bron die
+    Mealie bij het recept bewaart (en waarop `find_recipe_by_source` zoekt).
 
     `catalog`: bij een reeks imports (de bulkimport) de eenheden en ingrediënten van Mealie, één keer opgehaald.
     """
-    return _post_html_or_json(url, json.dumps(recipe), catalog)
+    return _post_html_or_json(_scrape_url(url), json.dumps(recipe), catalog, source=url)
 
 
-def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None) -> str:
+def _set_source(slug: str, source: str) -> None:
+    """Zet de bron (`orgURL`) van een recept. Best effort: lukt het niet, dan staat het recept er al wel, met alles erin."""
+    try:
+        response = requests.patch(
+            f"{mealie_url()}/api/recipes/{slug}", headers=auth_headers(), json={"orgURL": source}, timeout=30
+        )
+        if not response.ok:
+            log.warning("Bron van %s niet gezet (%s): %s", slug, response.status_code, response.text[:200])
+    except requests.RequestException as exc:
+        log.warning("Bron van %s niet gezet: %s", slug, exc)
+
+
+def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None, *, source: str | None = None) -> str:
+    """Stuur HTML of JSON-LD naar Mealie onder link `url`. Is `source` een andere link (zie `_scrape_url`), dan wordt die
+    daarna de bron van het recept."""
     response = requests.post(
         f"{mealie_url()}/api/recipes/create/html-or-json",
         headers=auth_headers(),
@@ -248,6 +280,8 @@ def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None) ->
     if not response.ok:
         raise MealieImportError(f"Mealie import mislukt ({response.status_code}): {response.text}", response.status_code)
     slug = response.json()
+    if source and source != url:
+        _set_source(slug, source)
     return parse_imported_ingredients(slug) if catalog is None else parse_imported_ingredients(slug, catalog)
 
 
