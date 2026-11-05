@@ -25,7 +25,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
-from . import ah, ah_lists, auth, image_cache, price_import, purchase_lines
+from . import ah, ah_lists, audit, auth, image_cache, price_import, purchase_lines
 
 log = logging.getLogger(__name__)
 
@@ -508,6 +508,10 @@ RECEIPT_PRODUCTS_OPEN_SEARCHES = 5  # bij het openen van een bon: de regels die 
 T = TypeVar("T")
 
 SETTING_RECEIPT_PRODUCTS_PAUSED = "receipt_products_paused_until"
+# Waarom het koppelen stilligt, naast de pauze: "<status van AH>@<tijdstip>", bijvoorbeeld "429@2026-11-05T14:02:00+00:00".
+SETTING_RECEIPT_PRODUCTS_PAUSED_REASON = "receipt_products_paused_reason"
+# De uitkomst van de laatste ronde (koppelen en foto's samen, zie `_record_round`), voor de melding op de bestelpagina.
+SETTING_LAST_ROUND = "receipt_products_last_round"
 # Bij een betere manier van zoeken (versie 2: per naam, met het langste woord als tweede poging) krijgt wat eerder niet gevonden
 # werd een nieuwe kans, zonder 30 dagen te wachten.
 RECEIPT_PRODUCTS_VERSION = "2"
@@ -523,6 +527,7 @@ RECEIPT_IMAGES_BATCHES = 20  # en zoveel verzoeken per nachtelijke ronde (500 pr
 RECEIPT_IMAGES_BATCHES_OPEN = 4  # en zoveel in de ronde op de achtergrond als de bonnenlijst opent (100 producten)
 _BACKFILL_LOCK = threading.Lock()
 _BACKFILL_THREADS: list[threading.Thread] = []  # hooguit een ronde op de achtergrond tegelijk
+_IMAGES_MISSING_FROM = "FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL"
 _MISSING_RECEIPT_PRODUCT = """
 INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (?, NULL, NULL, ?)
 ON CONFLICT(receipt_product_id) DO UPDATE SET checked_at = excluded.checked_at WHERE product_id IS NULL
@@ -533,26 +538,36 @@ class _HourlyBudgetSpent(Exception):
     """Het aantal zoekopdrachten van dit uur is op (`RECEIPT_PRODUCTS_PER_HOUR`)."""
 
 
-# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync en het zoeken in de Prijsgeschiedenis
-# delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+# Een pauze en een uurbudget voor het hele proces: de nachtelijke taak, een bon-sync, het zoeken in de Prijsgeschiedenis en
+# een ronde op afroep delen ze, zodat AH nooit meer dan een zoekopdracht per `RECEIPT_PRODUCTS_PAUSE_SECONDS` van ons krijgt.
+# `_PACE_LOCK` zet de verzoeken achter elkaar (ook tijdens de pauze en het verzoek zelf). `_RECENT_LOCK` bewaakt alleen
+# `_PACE["recent"]` (de monotone tijdstippen van de verzoeken van het afgelopen uur) en wordt nooit vastgehouden tijdens het
+# wachten, zodat `linking_status` het uurbudget meteen kan lezen, ook als een ronde net op zijn beurt wacht.
 _PACE_LOCK = threading.Lock()
+_RECENT_LOCK = threading.Lock()
 _PACE = {"last": float("-inf"), "recent": deque()}
+
+
+def _prune_pace(now: float) -> deque:
+    """De verzoeken van langer dan een uur geleden vallen uit het uurbudget. Alleen aanroepen met `_RECENT_LOCK` vast."""
+    recent = _PACE["recent"]
+    while recent and now - recent[0] > 3600:
+        recent.popleft()
+    return recent
 
 
 def _polite(call: Callable[[], T]) -> T:
     """Een verzoek aan AH binnen het tempo en het uurbudget van het koppelen (de zoekopdrachten en het ophalen van foto's samen)."""
     with _PACE_LOCK:
-        now = time.monotonic()
-        recent = _PACE["recent"]
-        while recent and now - recent[0] > 3600:
-            recent.popleft()
-        if len(recent) >= RECEIPT_PRODUCTS_PER_HOUR:
-            raise _HourlyBudgetSpent()
-        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - now
+        with _RECENT_LOCK:
+            if len(_prune_pace(time.monotonic())) >= RECEIPT_PRODUCTS_PER_HOUR:
+                raise _HourlyBudgetSpent()
+        wait = _PACE["last"] + RECEIPT_PRODUCTS_PAUSE_SECONDS - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         _PACE["last"] = time.monotonic()
-        recent.append(_PACE["last"])
+        with _RECENT_LOCK:
+            _PACE["recent"].append(_PACE["last"])
         return call()
 
 
@@ -601,19 +616,57 @@ def _name_key(name: Any) -> str:
     return "".join(str(name).casefold().split())
 
 
+def _pause(now: str, status: int) -> str:
+    """Zet het koppelen `RECEIPT_PRODUCTS_BACKOFF_HOURS` uur stil na een 403 of 429 van AH, met de reden ernaast. Geeft het einde van de pauze."""
+    until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
+    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
+    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, f"{status}@{now}")
+    return until
+
+
+_ROUND_LOCK = threading.Lock()  # het koppelen en de foto's van een ronde kunnen in verschillende threads tegelijk eindigen
+_ROUND_COUNTS = ("searches", "found", "missing", "failed", "images")
+
+
+def _record_round(now: str, trigger: str, counts: dict[str, int]) -> None:
+    """Schrijf de uitkomst van een ronde naar `SETTING_LAST_ROUND`. Het koppelen en de foto's van dezelfde ronde (dezelfde `now`
+    en `trigger`) tellen bij elkaar op, een andere ronde begint opnieuw."""
+    with _ROUND_LOCK:
+        try:
+            last = json.loads(auth.get_setting(SETTING_LAST_ROUND, "") or "{}")
+        except ValueError:
+            last = {}
+        if not isinstance(last, dict) or last.get("at") != now or last.get("trigger") != trigger:
+            last = {"at": now, **{key: 0 for key in _ROUND_COUNTS}, "trigger": trigger}
+        for key in _ROUND_COUNTS:
+            last[key] = int(last.get(key) or 0) + int(counts.get(key) or 0)
+        auth.set_setting(SETTING_LAST_ROUND, json.dumps(last))
+
+
 def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
-                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None) -> dict[str, Any]:
+                             deadline_seconds: float = RECEIPT_PRODUCTS_DEADLINE_SECONDS, only: set[str] | None = None,
+                             trigger: str = "sync") -> dict[str, Any]:
     """Koppel de artikelnummers op de bonnen aan producten van de webwinkel.
 
     Per naam op de bon zoeken we bij AH en koppelen een artikelnummer alleen aan het resultaat met precies dat artikelnummer (`hqId`):
     geen gok op naam. Vindt de naam niets, dan nog een keer met het langste woord. Elk ander resultaat met een artikelnummer bewaren
     we ook, dat scheelt latere zoekopdrachten. Hooguit `searches` zoekopdrachten, met een pauze ertussen en hooguit `deadline_seconds`
-    lang. Bij een 403 of 429 van AH stopt het en wacht het een paar uur (`SETTING_RECEIPT_PRODUCTS_PAUSED`)."""
+    lang. Bij een 403 of 429 van AH stopt het en wacht het een paar uur (`SETTING_RECEIPT_PRODUCTS_PAUSED`, met de reden in
+    `SETTING_RECEIPT_PRODUCTS_PAUSED_REASON`). De uitkomst komt in `SETTING_LAST_ROUND`, met `trigger` als aanleiding ("sync",
+    "nightly", "lookup", "open", "receipt" of "manual"). Een ronde die door de pauze niets doet, laat de vorige staan."""
     now = now or _now()
     result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
+    result = _resolve_groups(now, searches, deadline_seconds, only)
+    _record_round(now, trigger, result)
+    return result
+
+
+def _resolve_groups(now: str, searches: int, deadline_seconds: float, only: set[str] | None) -> dict[str, Any]:
+    """Het eigenlijke koppelen van `resolve_receipt_products`, buiten de pauze."""
+    result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
     if auth.get_setting(SETTING_RECEIPT_PRODUCTS_VERSION, "") != RECEIPT_PRODUCTS_VERSION:
         with closing(_connect()) as conn, conn:
             conn.execute("DELETE FROM ah_receipt_products WHERE product_id IS NULL")
@@ -636,9 +689,7 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
             except ah.AhHttpError as exc:
                 result["searches"] += 1
                 if exc.status in (403, 429):  # firewall of te veel verzoeken: niet aandringen
-                    until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
-                    auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
-                    return {**result, "failed": result["failed"] + 1, "pausedUntil": until}
+                    return {**result, "failed": result["failed"] + 1, "pausedUntil": _pause(now, exc.status)}
                 result["failed"] += 1
                 complete = False
                 break
@@ -662,7 +713,8 @@ def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRO
     return result
 
 
-def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES) -> dict[str, Any]:
+def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOOKUP_SEARCHES, *, now: str | None = None,
+                          deadline_seconds: float = 10, trigger: str = "lookup") -> dict[str, Any]:
     """Koppel de artikelnummers van deze namen op de bon meteen, bijvoorbeeld omdat je ze zoekt in de Prijsgeschiedenis ("REDBAND")
     of een bon opent (`get_receipt`).
     Hooguit `searches` zoekopdrachten, binnen dezelfde pauze en hetzelfde uurbudget. Een naam die net is opgezocht, slaat het over
@@ -670,19 +722,28 @@ def resolve_receipt_names(names: list[str], searches: int = RECEIPT_PRODUCTS_LOO
     keys = {_name_key(name) for name in names if str(name).strip()}
     if not keys:
         return {"found": 0, "missing": 0, "failed": 0, "searches": 0}
-    return resolve_receipt_products(searches=searches, deadline_seconds=10, only=keys)
+    return resolve_receipt_products(now, searches=searches, deadline_seconds=deadline_seconds, only=keys, trigger=trigger)
 
 
-def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None) -> dict[str, Any]:
+def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGES_BATCHES, only: set[int] | None = None,
+                            trigger: str = "open") -> dict[str, Any]:
     """De foto bij koppelingen van vóór de bonfoto's (`image` NULL): per `RECEIPT_IMAGES_BATCH` webwinkel-id's een verzoek aan AH,
     hooguit `batches` verzoeken, binnen het tempo, het uurbudget en de pauze van het koppelen. Met `only` alleen die webwinkel-id's
     (de producten van een bon die opengaat). Een id dat AH niet teruggeeft krijgt "" (geen foto), zodat het niet elke nacht opnieuw
-    gevraagd wordt."""
+    gevraagd wordt. De uitkomst komt in `SETTING_LAST_ROUND` (zie `resolve_receipt_products`)."""
     now = now or _now()
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     paused = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
+    result = _backfill_images(now, batches, only)
+    _record_round(now, trigger, {"failed": result["failed"], "images": result["products"]})
+    return result
+
+
+def _backfill_images(now: str, batches: int, only: set[int] | None) -> dict[str, Any]:
+    """Het eigenlijke ophalen van de foto's van `backfill_receipt_images`, buiten de pauze."""
+    result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
     with closing(_connect()) as conn:
         todo = [int(row[0]) for row in conn.execute(
             "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
@@ -698,9 +759,7 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
             result["requests"] += 1
             result["failed"] += 1
             if exc.status in (403, 429):
-                until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
-                auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
-                return {**result, "pausedUntil": until}
+                return {**result, "pausedUntil": _pause(now, exc.status)}
             return result
         except Exception:  # noqa: BLE001 - de volgende nacht opnieuw
             result["requests"] += 1
@@ -720,7 +779,7 @@ def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT_IMAGE
 
 def _receipt_images_missing() -> bool:
     with closing(_connect()) as conn:
-        return bool(conn.execute("SELECT 1 FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL LIMIT 1").fetchone())
+        return bool(conn.execute(f"SELECT 1 {_IMAGES_MISSING_FROM} LIMIT 1").fetchone())
 
 
 def backfill_receipt_images_async() -> None:
@@ -739,7 +798,7 @@ def backfill_receipt_images_async() -> None:
 
         def run() -> None:
             try:
-                backfill_receipt_images(batches=RECEIPT_IMAGES_BATCHES_OPEN)
+                backfill_receipt_images(batches=RECEIPT_IMAGES_BATCHES_OPEN, trigger="list")
             except Exception:  # noqa: BLE001
                 log.exception("Bonfoto's: de ronde op de achtergrond mislukte")
 
@@ -753,7 +812,7 @@ def backfill_receipt_images_nightly() -> dict[str, Any] | None:
     try:
         if not _receipt_images_missing():
             return None
-        return backfill_receipt_images()
+        return backfill_receipt_images(trigger="nightly")
     except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
         return None
 
@@ -764,9 +823,170 @@ def resolve_receipt_products_nightly() -> dict[str, Any] | None:
         with closing(_connect()) as conn:
             if not conn.execute("SELECT 1 FROM ah_receipt_items LIMIT 1").fetchone():
                 return None
-        return resolve_receipt_products(searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY)
+        return resolve_receipt_products(searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
     except Exception:  # noqa: BLE001 - het koppelen is een extraatje bij de aanbiedingen
         return None
+
+
+# --- de toestand van het koppelen en een ronde op afroep ------------------------------------------------------------------------
+# Een ronde op afroep (de knop "Nu ophalen") loopt in een eigen thread, hooguit een tegelijk, binnen hetzelfde tempo en uurbudget
+# als de rest (`_polite`). `_LINKING_LOCK` bewaakt `_LINKING_THREAD` en `_LINKING_RECEIPT_ID` (de bon van de lopende ronde, of
+# None voor alle bonnen).
+_LINKING_LOCK = threading.Lock()
+_LINKING_THREAD: threading.Thread | None = None
+_LINKING_RECEIPT_ID: str | None = None
+
+
+class LinkingBusy(Exception):
+    """Er loopt al een ronde op afroep. `receipt_id` is de bon waarvoor de nieuwe ronde gevraagd werd."""
+
+    def __init__(self, receipt_id: str | None) -> None:
+        super().__init__(f"linking already running (requested for {receipt_id or 'all receipts'})")
+        self.receipt_id: str | None = receipt_id
+
+
+def _pause_reason(now: str) -> tuple[str | None, str | None, int | None]:
+    """De lopende pauze als (tot, sinds, status van AH), alle drie None als het koppelen niet stilligt."""
+    until = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    if not until or until <= now:
+        return None, None, None
+    status, _, since = auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "").partition("@")
+    return until, since or None, int(status) if status.isdigit() else None
+
+
+def _budget(now: str) -> dict[str, Any]:
+    """Het uurbudget: hoeveel verzoeken het afgelopen uur, en wanneer de oudste ervan weer vrijkomt (als ISO-tijdstip, omgerekend
+    van de monotone klok van `_PACE` naar `now`)."""
+    with _RECENT_LOCK:
+        clock = time.monotonic()
+        recent = _prune_pace(clock)
+        used, oldest = len(recent), (recent[0] if recent else None)
+    reset_at = None
+    if oldest is not None:
+        reset_at = (datetime.fromisoformat(now) + timedelta(seconds=oldest + 3600 - clock)).isoformat(timespec="seconds")
+    return {"used": used, "limit": RECEIPT_PRODUCTS_PER_HOUR, "resetAt": reset_at}
+
+
+def _todo(now: str) -> dict[str, int]:
+    """Wat er nog te koppelen is: artikelnummers zonder product (`_todo_by_name`), op hoeveel bonnen, en foto's die ontbreken."""
+    with closing(_connect()) as conn:
+        ids = [product_id for group in _todo_by_name(conn, now) for product_id in group["ids"]]
+        receipts = 0
+        if ids:
+            marks = ",".join("?" * len(ids))
+            receipts = conn.execute(f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", ids).fetchone()[0]
+        images = conn.execute(f"SELECT COUNT(DISTINCT product_id) {_IMAGES_MISSING_FROM}").fetchone()[0]
+    return {"lines": len(ids), "receipts": int(receipts), "images": int(images)}
+
+
+def _next_round(now: str) -> str | None:
+    """De volgende nachtelijke ronde (die van de aanbiedingen), of None als die uit staat."""
+    from . import offers_schedule  # offers_schedule importeert deze module
+
+    if not offers_schedule.enabled():
+        return None
+    local = datetime.fromisoformat(now).astimezone()
+    return offers_schedule.next_slot(local).astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def _last_round() -> dict[str, Any] | None:
+    try:
+        last = json.loads(auth.get_setting(SETTING_LAST_ROUND, "") or "null")
+    except ValueError:
+        return None
+    return last if isinstance(last, dict) else None
+
+
+def _running() -> dict[str, Any] | None:
+    with _LINKING_LOCK:
+        if _LINKING_THREAD is not None and _LINKING_THREAD.is_alive():
+            return {"receiptId": _LINKING_RECEIPT_ID}
+    return None
+
+
+def linking_status(now: str | None = None) -> dict[str, Any]:
+    """De toestand van het koppelen voor de melding op de bestelpagina: de pauze na een 403 of 429 van AH, het uurbudget, wat er
+    nog te doen is, de laatste en de volgende ronde, en of er nu een ronde op afroep loopt."""
+    now = now or _now()
+    paused_until, paused_since, paused_status = _pause_reason(now)
+    return {
+        "pausedUntil": paused_until,
+        "pausedSince": paused_since,
+        "pausedStatus": paused_status,
+        "budget": _budget(now),
+        "todo": _todo(now),
+        "lastRound": _last_round(),
+        "nextRound": _next_round(now),
+        "running": _running(),
+    }
+
+
+def receipt_exists(receipt_id: str) -> bool:
+    with closing(_connect()) as conn:
+        return conn.execute("SELECT 1 FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone() is not None
+
+
+def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
+    """Een ronde voor een bon: de namen op die bon die nog niet gekoppeld zijn, elk met al zijn zoekopdrachten (de naam en het
+    langste woord), en daarna de foto's die nog ontbreken bij de webwinkelproducten van die bon (`_RECEIPT_IMAGES_MISSING_SQL`)."""
+    with closing(_connect()) as conn:
+        on_receipt = {int(row[0]) for row in conn.execute(
+            "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,))}
+        names = [group["name"] for group in _todo_by_name(conn, now) if on_receipt.intersection(group["ids"])]
+    searches = sum(len(_receipt_queries(name)) for name in names)
+    products = resolve_receipt_names(names, searches=searches, now=now, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="receipt")
+    with closing(_connect()) as conn:
+        missing = {int(row[0]) for row in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
+    images = backfill_receipt_images(now, batches=2, only=missing, trigger="receipt") if missing else {"products": 0, "requests": 0, "failed": 0}
+    return {"products": products, "images": images}
+
+
+def _linking_round(receipt_id: str | None, now: str) -> dict[str, Any]:
+    """Een ronde op afroep: voor een bon (`_receipt_round`) of voor alle bonnen zoals 's nachts."""
+    if receipt_id:
+        return _receipt_round(receipt_id, now)
+    products = resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="manual")
+    return {"products": products, "images": backfill_receipt_images(now, trigger="manual")}
+
+
+def _linking_worker(receipt_id: str | None, now: str, actor: str) -> None:
+    """De thread van een ronde op afroep: vangt elke fout, schrijft hem in het logboek en legt de ronde vast in de audit-log, net
+    als de nachtelijke ronde van de afbeeldingencache."""
+    started = time.perf_counter()
+    result: dict[str, Any] | None = None
+    problem: Exception | None = None
+    try:
+        result = _linking_round(receipt_id, now)
+    except Exception as exc:  # noqa: BLE001 - een thread mag niet stilletjes sterven
+        problem = exc
+        log.exception("Koppelen: de ronde op afroep mislukte (bon %s)", receipt_id or "alle")
+    try:
+        audit.record(
+            kind="task", service="ah", action="receipt linking" if receipt_id else "linking", ok=problem is None,
+            duration_ms=round((time.perf_counter() - started) * 1000), actor=actor,
+            error=f"{type(problem).__name__}: {problem}" if problem else "",
+            detail={"receiptId": receipt_id, **(result or {})},
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("Koppelen: de ronde op afroep vastleggen mislukte")
+
+
+def run_linking(receipt_id: str | None = None, force: bool = False) -> dict[str, Any]:
+    """Start een ronde op afroep in een thread (`name="linking-run"`) en geef de toestand terug. Met `force` eerst de pauze na een
+    403 of 429 opheffen (alleen de beheerder, zie de route). Loopt er al een, dan `LinkingBusy` en blijft alles zoals het was."""
+    global _LINKING_THREAD, _LINKING_RECEIPT_ID
+    now = _now()
+    actor = audit.current_actor()  # de thread kent het verzoek niet meer
+    with _LINKING_LOCK:
+        if _LINKING_THREAD is not None and _LINKING_THREAD.is_alive():
+            raise LinkingBusy(receipt_id)
+        if force:
+            auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+            auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")
+        worker = threading.Thread(target=_linking_worker, args=(receipt_id, now, actor), name="linking-run", daemon=True)
+        _LINKING_THREAD, _LINKING_RECEIPT_ID = worker, receipt_id
+        worker.start()
+    return linking_status(now)
 
 
 def _receipt_json(row: Any, count: int | None = None) -> dict[str, Any]:

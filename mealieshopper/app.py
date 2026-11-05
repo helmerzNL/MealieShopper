@@ -443,10 +443,37 @@ def create_app() -> Flask:
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
         # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
         # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
-        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES), images=True)
+        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"), images=True)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
+
+    @app.get("/api/ah/linking")
+    def ah_linking_status():
+        # De toestand van het koppelen van bonregels en foto's: de pauze na een 403 of 429 van AH, het uurbudget, wat er nog open
+        # staat en de volgende ronde (ah_orders.linking_status). Voor iedereen: de melding op de bestelpagina leest het.
+        return jsonify(ah_orders.linking_status())
+
+    @app.post("/api/ah/linking/run")
+    def ah_linking_run():
+        # Een ronde op afroep (de knop "Nu ophalen"), in een thread binnen het tempo van AH: voor een bon (receiptId) of voor alle
+        # bonnen. Met force heft de beheerder eerst de pauze na een 403 of 429 op. Iedereen mag een ronde starten.
+        body = request.get_json(silent=True)
+        if body is None:
+            body = {}
+        receipt_id = body.get("receiptId") if isinstance(body, dict) else None
+        force = body.get("force", False) if isinstance(body, dict) else False
+        if not isinstance(body, dict) or not isinstance(receipt_id, (str, type(None))) or not isinstance(force, bool):
+            return jsonify({"error": tr("Ongeldige aanvraag: receiptId is tekst, force is waar of onwaar.", "Invalid request: receiptId is text, force is true or false.")}), 400
+        receipt_id = (receipt_id or "").strip() or None
+        if force and not auth.is_owner():
+            return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
+        if receipt_id and not ah_orders.receipt_exists(receipt_id):
+            return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
+        try:
+            return jsonify(ah_orders.run_linking(receipt_id, force=force)), 202
+        except ah_orders.LinkingBusy:
+            return jsonify(ah_orders.linking_status()), 409
 
     @app.post("/api/ah/receipts/sync")
     def ah_receipts_sync():
