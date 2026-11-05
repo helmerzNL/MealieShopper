@@ -1,4 +1,4 @@
-// Instellingen (Koppelen, Auditlog, Systeem), AI-apps, Over, de beta-build en het donkere thema.
+// Instellingen (Koppelen, Auditlog, Systeem, Weergave en de navigatiebalk), AI-apps, Over, de beta-build en het donkere thema.
 const { DISHES, WEEK, VERSION, NEWER } = require("../demo");
 
 // Open een scherm via de functies van de app (zoals het avatar-menu dat doet) en wacht even op het laden.
@@ -266,6 +266,31 @@ const miscScenarios = [
     theme: "dark",
     routes: plan.routes,
     run: plan.run,
+  },
+  {
+    // Instellingen, Weergave: het donkere thema met de donkergrijze achtergrond en blauw als accentkleur.
+    name: "appearance",
+    theme: "dark",
+    run: async (page) => {
+      await openSettings("settings-appearance")(page);
+      await page.evaluate(() => {
+        THEME.apply({ darkBackground: "grey", accent: "#0b62c4" });
+        const box = document.getElementById("appearance-dark-bg").closest(".box");
+        window.scrollTo({ top: box.getBoundingClientRect().top + window.scrollY - 84 });
+      });
+    },
+  },
+  {
+    // Instellingen, Weergave, Navigatiebalk: Android-achtig gekozen; de telefoon toont die balk onderaan.
+    name: "navbar",
+    run: async (page) => {
+      await openSettings("settings-appearance")(page);
+      await page.evaluate(() => {
+        THEME.apply({ navbarStyle: "android" });
+        const box = document.getElementById("appearance-nav-box");
+        window.scrollTo({ top: box.getBoundingClientRect().top + window.scrollY - 84 });
+      });
+    },
   },
 ];
 

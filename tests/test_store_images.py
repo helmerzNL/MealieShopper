@@ -74,6 +74,13 @@ class StoreImageTest(unittest.TestCase):
         self.assertIn("loadImageCacheStatus()", source("app.js"))
         self.assertIn('id="system-images"', (STATIC.parent / "templates" / "index.html").read_text(encoding="utf-8"))
 
+    def test_the_system_page_shows_a_paused_store(self):
+        # #236: een winkel in pauze gaf geen enkele foto, zonder dat je kon zien waarom.
+        system = source("system.js")
+        self.assertIn('t("system.images_paused"', system)
+        self.assertIn("stats.paused", system)
+        self.assertIn('id="system-images-paused"', (STATIC.parent / "templates" / "index.html").read_text(encoding="utf-8"))
+
     def test_every_store_image_hides_itself_when_it_fails(self):
         for script in (
             "orders.js",

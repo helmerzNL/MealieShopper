@@ -68,6 +68,60 @@ class ProfileTest(unittest.TestCase):
             self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
         self.assertFalse(self.client.put("/api/profile/preferences", json={"preferOrganic": False}).get_json()["preferOrganic"])
 
+    def test_appearance_is_stored_per_field_and_shown_in_the_status(self):
+        self.client.put("/api/profile", json={"displayName": "Helmer"})
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["theme"], status["darkBackground"], status["accent"]), (None, "green", ""), "standaard: niets gekozen")
+        reply = self.client.put("/api/profile/preferences", json={"theme": "dark", "darkBackground": "grey", "accent": "#0A84FF"})
+        self.assertEqual(reply.status_code, 200)
+        data = reply.get_json()
+        self.assertEqual((data["theme"], data["darkBackground"], data["accent"], data["displayName"]), ("dark", "grey", "#0a84ff", "Helmer"))
+        # Alleen wat in het verzoek staat verandert.
+        self.client.put("/api/profile/preferences", json={"preferOrganic": True})
+        self.client.put("/api/profile/preferences", json={"theme": "system"})
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual(
+            (status["theme"], status["darkBackground"], status["accent"], status["preferOrganic"]), ("system", "grey", "#0a84ff", True)
+        )
+        self.assertEqual(self.client.put("/api/profile/preferences", json={"accent": ""}).get_json()["accent"], "", "terug naar de huisstijl")
+
+    def test_appearance_refuses_values_it_does_not_know(self):
+        for bad in (
+            {"theme": "sepia"}, {"theme": None}, {"darkBackground": "black"}, {"accent": "red"}, {"accent": "#12345"},
+            {"accent": "#1234567"}, {"accent": 123}, {"accent": "#12345g"}, {"accent": "url(x)"},
+            {"theme": "dark", "accent": "nope"},  # alles of niets
+        ):
+            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
+        self.assertIsNone(self.client.get("/api/auth/status").get_json()["theme"], "een geweigerd verzoek verandert niets")
+        self.assertEqual(self.client.put("/api/profile/preferences", data="[]", content_type="application/json").status_code, 400)
+
+    def test_navigation_bar_style_and_glass(self):
+        # Zoals de richtlijn navigation-bar.md van App-Guidance: elke stijl en het glas 0 en 100 mogen, de rest geeft 400.
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("auto", 60), "standaard: de balk van het toestel")
+        for style in ("ios", "android", "auto"):
+            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarStyle": style}).get_json()["navbarStyle"], style)
+        for glass in (0, 100, 35):
+            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarGlass": glass}).get_json()["navbarGlass"], glass)
+        self.client.put("/api/profile/preferences", json={"navbarStyle": "android"})
+        for bad in ({"navbarStyle": "windows"}, {"navbarStyle": None}, {"navbarGlass": -1}, {"navbarGlass": 101},
+                    {"navbarGlass": 50.5}, {"navbarGlass": "50"}, {"navbarGlass": True}, {"navbarGlass": None}):
+            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
+        status = self.client.get("/api/auth/status").get_json()
+        self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
+
+    def test_a_bad_stored_value_counts_as_no_choice(self):
+        profile.set_display_name("owner", "x")
+        with closing(auth.connect()) as conn, conn:  # zoals een handmatig gewijzigde back-up
+            conn.execute(
+                "UPDATE user_profiles SET theme = 'sepia', dark_background = 'black', accent = 'javascript:x', "
+                "navbar_style = 'windows', navbar_glass = 500"
+            )
+        self.assertEqual(
+            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
+            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
+        )
+
     def test_an_older_database_gets_the_prefer_organic_column(self):
         with closing(auth.connect()) as conn, conn:  # zoals de tabel was voor #218
             conn.execute("DROP TABLE IF EXISTS user_profiles")
@@ -79,6 +133,9 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual(profile.get("owner")["preferOrganic"], False)
         profile.set_prefer_organic("owner", True)
         self.assertEqual((profile.get("owner")["preferOrganic"], profile.get("owner")["displayName"]), (True, "Oud"))
+        self.assertEqual((profile.get("owner")["theme"], profile.get("owner")["accent"]), (None, ""), "en de kolommen van de weergave")
+        profile.set_appearance("owner", accent="#b0213f")
+        self.assertEqual((profile.get("owner")["accent"], profile.get("owner")["darkBackground"]), ("#b0213f", "green"))
 
     def test_users_list_carries_the_profile_and_deleting_a_user_removes_it(self):
         users.create_user("u1", "anna")
@@ -111,6 +168,18 @@ class ProfileWithLoginTest(UsersTestCase):
         self.assertEqual(self.admin.get(f"/api/profile/avatar/{listed['anna']['id']}").data, PNG)
         self.assertEqual(self.admin.get("/api/profile/avatar/owner").status_code, 404)
 
+    def test_each_user_has_their_own_appearance(self):
+        anna = self.join("anna", ANNA)
+        self.assertEqual(anna.put("/api/profile/preferences", json={"accent": "#e0457b", "darkBackground": "grey"}).status_code, 200)
+        self.assertEqual(self.admin.put("/api/profile/preferences", json={"accent": "#0c9aa6", "theme": "dark"}).status_code, 200)
+        mine = anna.get("/api/auth/status").get_json()
+        theirs = self.admin.get("/api/auth/status").get_json()
+        self.assertEqual((mine["accent"], mine["darkBackground"], mine["theme"]), ("#e0457b", "grey", None))
+        self.assertEqual(anna.put("/api/profile/preferences", json={"navbarStyle": "android"}).status_code, 200)
+        self.assertEqual(self.admin.get("/api/auth/status").get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
+        self.assertEqual((theirs["accent"], theirs["darkBackground"], theirs["theme"]), ("#0c9aa6", "green", "dark"))
+        self.assertEqual(self.app.test_client().put("/api/profile/preferences", json={"accent": "#000000"}).status_code, 401)
+
 
 class ProfileMarkupTest(unittest.TestCase):
     @classmethod
@@ -131,13 +200,52 @@ class ProfileMarkupTest(unittest.TestCase):
 
         start = self.html.index('id="user-menu-list"')
         menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"])
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about"])
         settings = re.search(r'<a[^>]*data-user-action="settings"[^>]*>', menu).group(0)
-        self.assertIn("data-admin-only", settings, "Instellingen is alleen voor de beheerder")
+        self.assertNotIn("data-admin-only", settings, "Instellingen is voor iedereen: een gewone gebruiker ziet daar alleen Weergave")
         profile_item = re.search(r'<a[^>]*data-user-action="profile"[^>]*>', menu).group(0)
         self.assertNotIn("data-admin-only", profile_item)
         self.assertIn('id="auth-logout"', menu)
         self.assertNotIn("auth-chip", self.html)
+
+    def test_menu_order_separators_and_an_icon_per_item(self):
+        # Avatar en naam, een lijn, Mandje (alleen op een klein scherm), Profiel, Instellingen, Over, een lijn, Uitloggen.
+        import re
+
+        start = self.html.index('id="user-menu-list"')
+        menu = self.html[start:self.html.index("</div>\n\n    <main", start)]
+        parts = re.findall(r'class="(user-menu__who|user-menu__separator)"|data-user-action="(\w+)"|id="(auth-logout)"', menu)
+        self.assertEqual([next(p for p in part if p) for part in parts],
+                         ["user-menu__who", "basket", "profile", "settings", "about", "user-menu__separator", "auth-logout"])
+        self.assertIn("border-bottom: 1px solid var(--border)", re.search(r"\.user-menu__who\s*{(.*?)}", self.css, re.S).group(1),
+                      "de lijn onder avatar en naam")
+        self.assertIn('role="separator"', menu)
+        items = re.findall(r'<(?:a|button)[^>]*class="user-menu__item[^"]*".*?</(?:a|button)>', menu, re.S)
+        self.assertEqual(len(items), 5)
+        icons = [re.search(r'<svg class="user-menu__icon" viewBox="0 0 24 24" aria-hidden="true" data-mdi="(\w+)"><path d="[^"]+"/></svg>', item)
+                 for item in items]
+        self.assertTrue(all(icons), "elk item heeft een icoon")
+        self.assertEqual([icon.group(1) for icon in icons],
+                         ["mdiCart", "mdiAccountCircleOutline", "mdiCogOutline", "mdiInformationOutline", "mdiLogout"])
+        for item in items:
+            self.assertNotRegex(item.split(">")[0], r"data-i18n=", "de vertaling staat op de tekst, niet op het item (anders verdwijnt het icoon)")
+        basket = re.search(r'<a[^>]*data-user-action="basket"[^>]*>', menu).group(0)
+        self.assertIn("user-menu__item--small", basket)
+        self.assertIn('href="/cart"', basket)
+        icon = re.search(r"\.user-menu__icon\s*{(.*?)}", self.css, re.S).group(1)
+        self.assertIn("fill: currentColor", icon)
+
+    def test_menu_script_opens_the_basket_and_hides_the_logout_line_with_logout(self):
+        self.assertIn('item.dataset.userAction === "basket"', self.js)
+        self.assertIn('showPanel("basket"', self.js)
+        self.assertIn('$("#auth-logout-separator").hidden = !auth.enabled;', self.js)
+        self.assertIn('$("#tab-more").hidden = !visible;', self.js)
+        self.assertNotIn('list.querySelector("button:not([hidden])")?.focus()', self.js, "niet de focus op Uitloggen")
+        from pathlib import Path
+
+        app = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('const MORE_MENU_PANELS = ["profile", "settings", "about", "basket"];', app)
+        self.assertIn('$("#tab-more")', app)
 
     def test_profile_has_general_security_and_ai_apps_for_everyone(self):
         import re
@@ -160,12 +268,17 @@ class ProfileMarkupTest(unittest.TestCase):
         self.assertIn('id="mfa-panel"', password)
         self.assertIn('id="credentials-list"', security)
 
-    def test_settings_holds_link_users_audit_and_updates(self):
+    def test_settings_holds_link_users_audit_and_updates_and_appearance_for_everyone(self):
         import re
 
         nav = re.search(r'<nav class="subtabs".*?</nav>', self.section("settings"), re.S).group(0)
-        self.assertEqual(re.findall(r'data-subtab="([\w-]+)"', nav), ["settings-link", "settings-users", "settings-audit", "settings-system"])
-        self.assertEqual(nav.count("data-admin-only"), 4)
+        self.assertEqual(
+            re.findall(r'data-subtab="([\w-]+)"', nav),
+            ["settings-link", "settings-users", "settings-audit", "settings-system", "settings-appearance"],
+        )
+        self.assertEqual(nav.count("data-admin-only"), 4, "alleen Weergave is voor iedereen")
+        appearance = re.search(r'<a[^>]*data-subtab="settings-appearance"[^>]*>', nav).group(0)
+        self.assertNotIn("data-admin-only", appearance)
 
     def test_avatar_is_resized_in_the_browser_and_sent_with_its_own_type(self):
         self.assertIn("AVATAR_SIZE = 256", self.js)

@@ -29,6 +29,7 @@
   --primary: #176b45;
   --primary-strong: #105235;
   --selection: #eaf5ee;
+  --selection-border: #b8d8c6; /* rand om een selectievlak (actieve tab, tag): volgt de accentkleur */
   --lemon: #f2cf45; /* decoratief: niet als tekst op wit */
   --info: #1565c0;
 
@@ -51,11 +52,12 @@
   --warning-bg: #fff8e6;
   --warning-border: #e0a100;
 
-  /* Menubalk onderaan op een telefoon: dichter glas en donkerdere inkt, zodat labels leesbaar blijven boven donkere foto's */
-  --tabbar-glass: rgba(255, 255, 255, 0.8);
+  /* Menubalk onderaan op een telefoon. Het glas is --tabbar-rgb met de dekking van de schuif (--nav-alpha, 1 tot 0,15, zie
+     static/theme.js); de inkt is zo gekozen dat de labels tot dekking 0,75 (schuif 29) boven elke foto 4,5 : 1 halen. */
+  --tabbar-rgb: 255, 255, 255;
   --tabbar-tint: rgba(23, 107, 69, 0.14);
   --tabbar-ink: #3f4c45;
-  --tabbar-ink-active: #105235;
+  --tabbar-ink-active: #0f4c31;
   --tabbar-solid: rgba(255, 255, 255, 0.97);
   --tabbar-border: rgba(255, 255, 255, 0.7);
 
@@ -96,6 +98,7 @@
   --primary: #4cc38a;
   --primary-strong: #7bd9ab;
   --selection: #1d3a2c;
+  --selection-border: #2a5c43;
   --info: #64b5f6;
 
   --bg: #0f1613;
@@ -115,10 +118,10 @@
   --warning-bg: #33280d;
   --warning-border: #a67c00;
 
-  --tabbar-glass: rgba(23, 33, 28, 0.8);
+  --tabbar-rgb: 23, 33, 28;
   --tabbar-tint: rgba(76, 195, 138, 0.18);
-  --tabbar-ink: #b4c4ba;
-  --tabbar-ink-active: #7bd9ab;
+  --tabbar-ink: #c5d1ca;
+  --tabbar-ink-active: #c6efdb;
   --tabbar-solid: rgba(23, 33, 28, 0.97);
   --tabbar-border: rgba(255, 255, 255, 0.12);
 
@@ -140,6 +143,57 @@
   --placeholder: #8a9c91;
   --topbar-glass: rgba(15, 22, 19, 0.9);
   --page-glow: rgba(76, 195, 138, 0.08);
+}
+
+/* Donkergrijs in plaats van groen (Instellingen, Weergave): theme.js zet data-dark-bg="grey" op <html>. Alleen de neutrale
+   vlakken, tekst en randen wisselen, met hetzelfde contrast als het groene donkere thema; meldingen houden hun eigen kleur. */
+:root[data-theme="dark"][data-dark-bg="grey"] {
+  --bg: #121314;
+  --surface: #1b1c1e;
+  --surface-muted: #232527;
+  --text: #e8e9ea;
+  --muted: #a6a8ab;
+  --border: #343638;
+  --border-strong: #47494c;
+  --placeholder: #8f9194;
+
+  --tabbar-rgb: 27, 28, 30;
+  --tabbar-ink: #cacbcd;
+  --tabbar-solid: rgba(27, 28, 30, 0.97);
+  --topbar-bg: rgba(18, 19, 20, 0.96);
+  --gate-bg: rgba(18, 19, 20, 0.96);
+  --topbar-glass: rgba(18, 19, 20, 0.9);
+}
+
+/* Een eigen accentkleur (Instellingen, Weergave). theme.js zet de tinten op <html> (--accent-light, --accent-dark en hun
+   -strong, -on en -ink), al gecontroleerd op contrast, samen met data-accent. Zonder eigen keuze gelden de waarden hierboven. Wat
+   van de merkkleur afhangt volgt uit --primary; statussen (gelukt, fout, waarschuwing) volgen de accentkleur nooit. */
+:root[data-accent] {
+  --primary: var(--accent-light, #176b45);
+  --primary-strong: var(--accent-light-strong, #105235);
+  --on-primary: var(--accent-light-on, #fff);
+  --selection: color-mix(in srgb, var(--primary) 9%, #fff);
+  --selection-border: color-mix(in srgb, var(--primary) 30%, #fff);
+  --tabbar-tint: color-mix(in srgb, var(--primary) 14%, transparent);
+  --tabbar-ink-active: var(--accent-light-ink, #0f4c31); /* leesbaar op het glas van de menubalk, ook boven een foto */
+  --btn-shadow: 0 1px 2px color-mix(in srgb, var(--primary-strong) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --btn-shadow-hover: 0 2px 8px color-mix(in srgb, var(--primary-strong) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --ring: color-mix(in srgb, var(--primary) 20%, transparent);
+  --page-glow: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+:root[data-accent][data-theme="dark"] {
+  --primary: var(--accent-dark, #4cc38a);
+  --primary-strong: var(--accent-dark-strong, #7bd9ab);
+  --on-primary: var(--accent-dark-on, #0b1f15);
+  --selection: color-mix(in srgb, var(--primary) 20%, var(--bg));
+  --selection-border: color-mix(in srgb, var(--primary) 35%, var(--surface));
+  --tabbar-tint: color-mix(in srgb, var(--primary) 18%, transparent);
+  --tabbar-ink-active: var(--accent-dark-ink, #c6efdb);
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --btn-shadow-hover: 0 2px 10px color-mix(in srgb, var(--primary) 28%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --ring: color-mix(in srgb, var(--primary) 28%, transparent);
+  --page-glow: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 /* De ruimte voor de scrollbalk blijft altijd gereserveerd: de pagina verspringt niet als een scherm hoger wordt dan het venster. */
@@ -440,7 +494,7 @@ h2 {
 .tab.is-active {
   background: var(--selection);
   color: var(--primary-strong);
-  box-shadow: inset 0 0 0 1px var(--success-border);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
 }
 
 .subtab.is-active {
@@ -1085,7 +1139,7 @@ a.subtab-menu__item[hidden] {
 .tag {
   border-radius: 999px;
   background: var(--selection);
-  box-shadow: inset 0 0 0 1px var(--success-border);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
   color: var(--primary-strong);
   padding: 3px 10px;
   font-size: 12px;
@@ -3432,16 +3486,42 @@ body.has-onboarding {
   }
 }
 
+/* De geinstalleerde app (html.is-standalone, zie de kop van de pagina). De pagina veert niet mee als je bovenaan naar
+   beneden sleept (of onderaan naar boven): zonder die rubberband blijft de titelbalk met de vlaggen en de themaknop aan de
+   bovenkant plakken, en Android ververst de pagina niet onder je duim. Scrollen gaat gewoon; knijp- en dubbeltikzoom niet,
+   zoals in een native app (de viewport zet het script in de kop). Lijsten en vensters met een eigen scroll houden hun
+   overscroll-behavior: contain. In de browser verandert er niets: daar blijven zoomen en verversen werken. */
+html.is-standalone,
+html.is-standalone body {
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+}
+
 /* Onderste menubalk: een zwevende glazen balk zoals een native tabbalk op iOS.
-   Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. */
+   Alleen in de geinstalleerde app (html.has-tabbar, zie de kop van de pagina) op een klein scherm. Twee uiterlijken van dezelfde
+   tabs, gekozen met data-nav op <html> (Instellingen, Weergave, en shared/guidelines/navigation-bar.md van App-Guidance):
+   iOS-achtig (zwevend glas, de basis hieronder) en Android-achtig (Material: over de volle breedte, een pil achter het actieve
+   icoon). --tabbar-h is de enige hoogte die de rest van de pagina kent, zodat er niets onder de ene of de andere balk valt.
+   Het glas: de dekking en vervaging zet static/theme.js als gewone waarden; de standaard hier is die van schuifstand 60. */
+:root {
+  --tabbar-h: 82px;
+  --nav-alpha: 0.49;
+  --nav-blur: 28px;
+}
+
+/* Buiten de balk is er één icoon per tab: het gevulde. In de balk krijgt een tab die niet actief is het omlijnde, als MDI dat heeft. */
+.tab-icon--outline {
+  display: none;
+}
+
 @media (max-width: 640px) {
   html.has-tabbar .shell {
-    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--tabbar-h) + 30px + env(safe-area-inset-bottom));
   }
 
-  /* De balk van In bulk importeren boven de zwevende tabbalk. */
+  /* De balk van In bulk importeren boven de menubalk. */
   html.has-tabbar .bulk-bar {
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom));
   }
 
   html.has-tabbar .tabs {
@@ -3451,7 +3531,7 @@ body.has-onboarding {
     right: max(12px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     width: auto;
     margin: 0;
@@ -3465,11 +3545,12 @@ body.has-onboarding {
       inset 0 1px 0 var(--tabbar-border);
   }
 
+  /* Alleen gewone waarden in rgba() en blur(): met een berekening erin laat Safari het glas weg. */
   @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
     html.has-tabbar .tabs {
-      background: var(--tabbar-glass);
-      -webkit-backdrop-filter: saturate(180%) blur(24px);
-      backdrop-filter: saturate(180%) blur(24px);
+      background: rgba(var(--tabbar-rgb), var(--nav-alpha));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--nav-blur));
+      backdrop-filter: saturate(180%) blur(var(--nav-blur));
     }
   }
 
@@ -3489,11 +3570,23 @@ body.has-onboarding {
     line-height: 1.1;
     transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
     -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   html.has-tabbar .tab-icon {
     width: 24px;
     height: 24px;
+  }
+
+  /* Gevuld als de tab actief is, omlijnd als hij dat niet is: zo doen iOS en Material het, en het is niet alleen een kleur. */
+  html.has-tabbar .tab:not(.is-active) > .tab-icon:has(+ .tab-icon--outline) {
+    display: none;
+  }
+
+  html.has-tabbar .tab:not(.is-active) > .tab-icon--outline {
+    display: block;
   }
 
   html.has-tabbar .tab-text {
@@ -3530,10 +3623,80 @@ body.has-onboarding {
   html.has-tabbar .tab:focus-visible {
     outline-offset: -3px;
   }
+
+  /* Android-achtig: de navigatiebalk van Material 3. Over de volle breedte op de rand, een vlak dat naar de accentkleur neigt
+     (geen glas), en een pil van 64 x 32 achter het actieve icoon met een vet label eronder. */
+  html.has-tabbar[data-nav="android"] {
+    --tabbar-h: 84px;
+  }
+
+  html.has-tabbar[data-nav="android"] .tabs {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    gap: 0;
+    padding: 12px max(8px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    border: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--surface) 90%, var(--primary));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 -1px 0 var(--border), 0 -3px 14px rgba(var(--shadow-ink), 0.08);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab {
+    gap: 4px;
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab-icon {
+    box-sizing: content-box;
+    padding: 4px 20px;
+    border-radius: 16px;
+    transition: background-color 0.2s ease;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:hover:not(.is-active) {
+    color: var(--muted);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:active {
+    transform: none;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab:active .tab-icon {
+    background: var(--selection);
+  }
+
+  html.has-tabbar[data-nav="android"] .tab.is-active {
+    background: none;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  html.has-tabbar[data-nav="android"] .tab.is-active > .tab-icon {
+    background: color-mix(in srgb, var(--primary) 26%, transparent);
+    color: var(--primary-strong);
+  }
+}
+
+/* Minder doorzichtigheid gevraagd: een dichte balk, wat de schuif ook zegt. De Android-achtige balk is al dicht. */
+@media (max-width: 640px) and (prefers-reduced-transparency: reduce) {
+  html.has-tabbar:not([data-nav="android"]) .tabs {
+    background: var(--tabbar-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @media (max-width: 640px) and (prefers-reduced-motion: reduce) {
-  html.has-tabbar .tab {
+  html.has-tabbar .tab,
+  html.has-tabbar .tab-icon {
     transition: none;
   }
 
@@ -5094,7 +5257,8 @@ body.has-onboarding {
   }
 }
 
-/* Avatar en avatar-menu: op een groot scherm in de kop, op een klein scherm in de tabbalk (op de plek van Beheer). */
+/* Avatar en avatar-menu: op een groot scherm de avatar in de kop, op een klein scherm de knop Meer (hamburger) in de tabbalk.
+   Op een klein scherm staat het Mandje in dat menu in plaats van in de tabbalk. */
 .avatar {
   position: relative;
   display: inline-flex;
@@ -5237,7 +5401,7 @@ body.has-onboarding {
 .user-menu__item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
   min-height: 40px;
   border: 0;
@@ -5256,18 +5420,39 @@ body.has-onboarding {
   background: var(--selection);
 }
 
-.user-menu__item[hidden] {
+.user-menu__item[hidden],
+.user-menu__item--small {
   display: none;
 }
 
-.tab--avatar {
-  display: none;
+.user-menu__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  color: var(--muted);
 }
 
-.tab--avatar .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+.user-menu__item:hover .user-menu__icon,
+.user-menu__item:focus-visible .user-menu__icon {
+  color: inherit;
+}
+
+/* Het bolletje voor een update staat achter Instellingen, niet in de hoek van het menu. */
+.user-menu__item .update-dot {
+  position: static;
+  margin-left: auto;
+  box-shadow: none;
+}
+
+.user-menu__separator {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+
+.tab--more {
+  display: none;
 }
 
 .tab[hidden] {
@@ -5294,12 +5479,21 @@ body.has-onboarding {
 }
 
 @media (max-width: 640px) {
-  .tab--avatar:not([hidden]) {
+  .tab--more:not([hidden]) {
     display: inline-flex;
   }
 
   .user-menu {
     display: none;
+  }
+
+  /* Het Mandje verhuist naar het menu Meer. */
+  .tabs .tab[data-tab="basket"] {
+    display: none;
+  }
+
+  .user-menu__item--small:not([hidden]) {
+    display: flex;
   }
 }
 
@@ -6762,7 +6956,7 @@ body.has-onboarding {
 
 .segment-control__button[aria-pressed="true"] {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 /* De compacte weergave: één regel per aanbieding met vaste kolommen en een kopregel erboven. */
@@ -7400,4 +7594,335 @@ body.has-onboarding {
     padding: 0 12px;
     white-space: nowrap;
   }
+}
+
+/* Instellingen, Weergave (appearance.js): het thema, de donkere achtergrond en de accentkleur. Elke keuze is een echt
+   keuzerondje (pijltjestoetsen, schermlezers), alleen anders getekend; de gekozen optie heeft een rand en een vinkje, dus
+   niet alleen een kleur. */
+.appearance-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.appearance-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-height);
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease), background-color 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+
+.appearance-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.appearance-option:hover {
+  border-color: var(--primary);
+}
+
+.appearance-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--selection);
+  color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.appearance-option:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.appearance-option .mdi {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: currentColor;
+}
+
+.appearance-option__check {
+  display: none;
+}
+
+.appearance-option:has(input:checked) .appearance-option__check {
+  display: inline-block;
+}
+
+/* Een voorbeeld van de donkere achtergrond: het vlak, een kaart en een streepje accent. Altijd donker, ook in het lichte thema. */
+.appearance-sample {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  width: 56px;
+  height: 36px;
+  padding: 5px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.appearance-sample i {
+  display: block;
+  border-radius: 3px;
+}
+
+.appearance-sample i:last-child {
+  width: 60%;
+  height: 4px;
+  background: var(--accent-dark, #4cc38a); /* de accentkleur zoals hij in het donkere thema is */
+}
+
+.appearance-sample--green {
+  background: #0f1613;
+}
+
+.appearance-sample--green i:first-child {
+  background: #1e2b24;
+}
+
+.appearance-sample--grey {
+  background: #121314;
+}
+
+.appearance-sample--grey i:first-child {
+  background: #232527;
+}
+
+.appearance-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.appearance-swatches__list {
+  display: contents;
+}
+
+.appearance-swatch {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(var(--shadow-ink), 0.18);
+  color: var(--swatch-on);
+  cursor: pointer;
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease);
+}
+
+.appearance-swatch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.appearance-swatch .mdi {
+  display: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.appearance-swatch:has(input:checked) {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.appearance-swatch:has(input:checked) .mdi {
+  display: block;
+}
+
+.appearance-swatch:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 5px;
+}
+
+@media (hover: hover) {
+  .appearance-swatch:hover {
+    transform: scale(1.06);
+  }
+}
+
+/* Eigen kleur: de kleurkiezer van het apparaat in een rondje, met een regenboog zolang hij niet gekozen is. */
+.appearance-custom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.appearance-custom__dot {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border-radius: 50%;
+  background: conic-gradient(#e5484d, #d9730d, #f2cf45, #2f9e44, #0c9aa6, #0a84ff, #6c5ce7, #bf5af2, #e5484d);
+  box-shadow: inset 0 0 0 1px rgba(var(--shadow-ink), 0.18);
+  color: var(--swatch-on, #fff);
+}
+
+.appearance-custom.is-chosen .appearance-custom__dot {
+  background: var(--swatch);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
+}
+
+.appearance-custom__dot .mdi {
+  display: none;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.appearance-custom.is-chosen .appearance-custom__dot .mdi {
+  display: block;
+}
+
+.appearance-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: var(--control-height);
+  height: var(--control-height);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.appearance-custom:has(input:focus-visible) .appearance-custom__dot {
+  outline: 3px solid var(--primary);
+  outline-offset: 5px;
+}
+
+.appearance-current {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.appearance-current strong {
+  color: var(--text);
+}
+
+.appearance-current code {
+  font-size: 13px;
+}
+
+.appearance-actions {
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appearance-option,
+  .appearance-swatch {
+    transition: none;
+  }
+
+  .appearance-swatch:hover {
+    transform: none;
+  }
+}
+
+/* Instellingen, Weergave, Navigatiebalk: een kleine tekening van beide balken, en de schuif voor het glas. */
+.appearance-navsample {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.appearance-navsample i {
+  position: absolute;
+  display: block;
+}
+
+.appearance-navsample--ios i {
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  height: 9px;
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border-strong), 0 2px 4px rgba(var(--shadow-ink), 0.18);
+}
+
+.appearance-navsample--android i {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 11px;
+  background: color-mix(in srgb, var(--surface) 80%, var(--primary));
+  box-shadow: 0 -1px 0 var(--border-strong);
+}
+
+.appearance-navsample--android i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 12px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--primary);
+  transform: translateX(-50%);
+}
+
+.appearance-glass {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.appearance-glass__label {
+  display: block;
+  font-weight: 700;
+}
+
+.appearance-glass .muted {
+  margin: 4px 0 8px;
+}
+
+.appearance-glass__control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+}
+
+.appearance-glass__control input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  min-height: var(--control-height);
+  accent-color: var(--primary);
+}
+
+.appearance-glass__control output {
+  min-width: 3.2em;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

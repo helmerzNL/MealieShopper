@@ -167,7 +167,7 @@ class PageTest(unittest.TestCase):
         self.assertLess(section.index('id="about-components"'), section.index('id="about-coffee"'))
         self.assertNotIn('data-tab="about"', HTML)
         menu = HTML[HTML.index('id="user-menu-list"'):HTML.index("</div>\n\n    <main")]
-        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["profile", "settings", "about"], "Over staat tussen Instellingen en Uitloggen")
+        self.assertEqual(re.findall(r'data-user-action="(\w+)"', menu), ["basket", "profile", "settings", "about"], "Over staat tussen Instellingen en Uitloggen")
         self.assertLess(menu.index('data-user-action="about"'), menu.index('id="auth-logout"'))
 
     def test_script_loads_the_details_once_and_redraws_on_a_language_change(self):

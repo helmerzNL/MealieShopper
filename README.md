@@ -72,7 +72,7 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
 - **AI-assistenten**: een MCP-server, zodat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kan bekijken, een maaltijd kan plannen en een recept in Mealie kan importeren; inloggen met OAuth, met je eigen account.
 - **Voor het hele huishouden**: inloggen met een passkey, of met een wachtwoord en tweestapsverificatie; huisgenoten nodig je uit met een link, en alleen de beheerder koppelt Mealie en de winkels.
-- **Een app op je telefoon**: installeer MealieShopper als app (PWA), in het Nederlands of Engels en in een licht of donker thema; elk scherm heeft een eigen adres.
+- **Een app op je telefoon**: installeer MealieShopper als app (PWA), in het Nederlands of Engels en in een licht of donker thema, met je eigen accentkleur; elk scherm heeft een eigen adres.
 - **Jij houdt de regie**: alles draait in je eigen container, en je gegevens staan in één map op je eigen server.
 
 Elke functie staat uitgebreid in de [handleiding](docs/handleiding.md).
@@ -97,7 +97,7 @@ Elke functie staat uitgebreid in de [handleiding](docs/handleiding.md).
 
 ### Installeren als app
 
-MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen.
+MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen. Net als in een native app zoom je in de app niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept; in de browser kun je gewoon zoomen. De menubalk ziet eruit zoals bij je andere apps: zwevend glas op een iPhone, de balk van Android op een Android-toestel. Onder Instellingen, Weergave kies je zelf, en stel je het glaseffect in.
 
 - **iPhone en iPad (Safari):** Delen, dan `Zet op beginscherm`.
 - **Android (Chrome):** menu, dan `App installeren`.
@@ -146,7 +146,7 @@ Het is hetzelfde image als de Docker-versie (`linux/amd64` en `linux/arm64`). De
 
 ### Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen: de beveiliging, Mealie koppelen, Albert Heijn, Jumbo en Picnic koppelen, en een overzicht. Wat je overslaat doe je later onder **Instellingen** (in het avatar-menu). Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait: zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Elke stap, met schermafbeeldingen, staat in de [handleiding](docs/handleiding.md#eerste-start), en hoe je Mealie en de supermarkten koppelt onder [Mealie en supermarkten koppelen](docs/handleiding.md#mealie-en-supermarkten-koppelen).
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen: de beveiliging, Mealie koppelen, Albert Heijn, Jumbo en Picnic koppelen, en een overzicht. Wat je overslaat doe je later onder **Instellingen** (in het avatar-menu, op een telefoon onder **Meer**). Doe de eerste start op een netwerk dat je vertrouwt, of meteen nadat de container draait: zolang er nog geen inlogmethode is ingesteld, kan wie het adres als eerste opent de installatie claimen. Elke stap, met schermafbeeldingen, staat in de [handleiding](docs/handleiding.md#eerste-start), en hoe je Mealie en de supermarkten koppelt onder [Mealie en supermarkten koppelen](docs/handleiding.md#mealie-en-supermarkten-koppelen).
 
 ## Configuratie
 

@@ -310,6 +310,7 @@ function continueAfterLogin() {
 
 async function refreshAuthStatus() {
   state.auth = await jsonFetch("/api/auth/status");
+  if (typeof appearanceFromProfile === "function") appearanceFromProfile(); // de weergave van deze gebruiker
   if (typeof loadOnboardingStatus === "function") await loadOnboardingStatus();
   renderAuthState();
   if (continueAfterLogin()) return state.auth;
@@ -2451,16 +2452,19 @@ async function loadSavedRecipes({ refresh = false, cachedOnly = false } = {}) {
   }
 }
 
-// Een scherm tonen. Een hoofdtab geeft zijn knop mee (die lichtt op); het profiel en de instellingen horen bij het avatar-menu:
-// op een klein scherm lichtt dan de avatar-knop in de tabbalk op.
+// Een scherm tonen. Een hoofdtab geeft zijn knop mee (die lichtt op); het profiel, de instellingen en Over horen bij het
+// avatar-menu, en op een klein scherm ook het mandje: dan lichtt de knop Meer in de tabbalk op. Die knop is er op een groot
+// scherm niet, en de tab Mandje niet op een klein scherm, dus er is steeds een zichtbare tab met aria-current.
+const MORE_MENU_PANELS = ["profile", "settings", "about", "basket"];
+
 function showPanel(panelId, tab = null) {
   document.querySelectorAll(".tab, .panel").forEach((item) => item.classList.remove("is-active"));
   document.querySelectorAll(".tab").forEach((item) => item.removeAttribute("aria-current"));
-  const highlighted = tab || (["profile", "settings", "about"].includes(panelId) ? $("#tab-avatar") : null);
-  if (highlighted) {
-    highlighted.classList.add("is-active");
-    highlighted.setAttribute("aria-current", "page");
-  }
+  const highlighted = [tab, MORE_MENU_PANELS.includes(panelId) ? $("#tab-more") : null].filter(Boolean);
+  highlighted.forEach((item) => {
+    item.classList.add("is-active");
+    item.setAttribute("aria-current", "page");
+  });
   $(`#${panelId}`).classList.add("is-active");
   // Zoals een native tabbalk: een andere tab begint bovenaan.
   window.scrollTo({ top: 0 });
@@ -2470,8 +2474,8 @@ function showPanel(panelId, tab = null) {
   if (panelId === "meal-kits" && typeof showMealKits === "function") showMealKits();
   if (panelId === "offers" && typeof showOffers === "function") showOffers();
   if (panelId === "recipes") ensureMealPlan();
-  if (panelId === "settings" && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
-  if (panelId === "settings" && typeof loadLinkingBox === "function") loadLinkingBox();
+  if (panelId === "settings" && !isRegularUser() && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
+  if (panelId === "settings" && !isRegularUser() && typeof loadLinkingBox === "function") loadLinkingBox();
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2637,8 +2641,13 @@ function openProfile(subtab = "profile-general") {
   openSubtab("profile", subtab);
 }
 
+function isRegularUser() {
+  return document.documentElement.classList.contains("is-regular-user");
+}
+
+// Een gewone gebruiker ziet onder Instellingen alleen Weergave.
 function openSettings(subtab = "settings-link") {
-  openSubtab("settings", subtab);
+  openSubtab("settings", isRegularUser() ? "settings-appearance" : subtab);
 }
 
 $("#prev-week").addEventListener("click", () => {

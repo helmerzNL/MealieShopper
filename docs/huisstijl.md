@@ -130,23 +130,71 @@ Schrijf kort en concreet: "Zoek bij AH", "Zoek recepten", "Je boodschappen staan
 ## Navigatie op een telefoon
 
 In de geïnstalleerde app (PWA) op een klein scherm (tot 640 px breed) staat het hoofdmenu als
-zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: zes items met een
-MDI-icoon en een kort label (`Recepten`, `Mandje`, `Aanbod`, `Import`, `Winkels`, `Profiel`; bij `Profiel` staat de avatar op de plek van het icoon, en `Over` zit in het avatar-menu), een
-groen vlak onder het actieve item en minimaal 56 px hoog. De balk zweeft 12 px van de randen en
+zwevende, glazen **onderste menubalk**, zoals een native tabbalk op iOS: vijf items met een
+MDI-icoon en een kort label (`Recepten`, `Aanbod`, `Winkels`, `Boxen` en `Meer` met een hamburger-icoon), een
+groen vlak onder het actieve item en minimaal 56 px hoog. `Meer` opent het menu dat op een groter scherm onder de
+avatar in de kop zit: avatar en naam, een lijn, `Mandje`, `Profiel`, `Instellingen`, `Over`, een lijn en `Uitloggen`,
+elk met een MDI-icoon. `Mandje` staat op een klein scherm (tot 640 px, ook in een gewone browser) alleen in dat menu,
+niet in de balk; `Meer` licht op als het mandje, het profiel, de instellingen of `Over` open staat. De balk zweeft 12 px van de randen en
 houdt rekening met de veilige zone (home-indicator) via `env(safe-area-inset-*)`; daarvoor staat
 de viewport op `viewport-fit=cover`. Wisselen van tab brengt je terug naar boven. Op grotere
 schermen, en in een gewone browser, blijven de tabs bovenaan staan, met hetzelfde icoon links van
 de tekst.
 
-- **Glas:** `backdrop-filter: saturate(180%) blur(24px)` op een witte laag van 80%. Zonder
-  ondersteuning (`@supports`) wordt de balk bijna dicht (97%).
+- **Twee stijlen, één balk** (zoals [`navigation-bar.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/navigation-bar.md)
+  van Flux76HQ/App-Guidance). `data-nav` op `<html>` kiest het uiterlijk: `ios` is de zwevende
+  glazen balk hierboven, `android` de navigatiebalk van Material 3 (over de volle breedte op de rand,
+  een vlak dat 10% naar `--primary` neigt, geen glas, een pil van 64 x 32 achter het actieve icoon en
+  een vet label). *Automatisch* (`auto`, de standaard) volgt het toestel: het script in de kop zet
+  `data-platform` (een iPad meldt zich als Mac) en kiest daarmee, vóór de eerste weergave, uit de
+  kopie van de voorkeur in `ms-appearance`. De keuze is een voorkeur van het account
+  (`navbarStyle`, `navbarGlass`); bewaard wordt `auto`, niet wat dat op dit toestel is.
+- **Hoogte:** `--tabbar-h` (82 px iOS, 84 px Android) is de enige hoogte die de pagina kent: de
+  ruimte onder `.shell` en de balk van *In bulk importeren* volgen hem.
+- **Iconen:** de actieve tab toont het gevulde MDI-icoon, de andere het omlijnde (`.tab-icon--outline`,
+  als MDI er een heeft: Boxen en Meer niet). Buiten de balk staat er alleen het gevulde.
+- **Glas:** `rgba(var(--tabbar-rgb), var(--nav-alpha))` met `blur(var(--nav-blur))`. De schuif
+  *Glaseffect* (0 tot 100, standaard 60) wordt in JavaScript gewone waarden, met de schaal van
+  3dprint_pricing: dekking `1 - 0,0085 x` (1 tot 0,15) en vervaging `10 + 0,3 x` px (10 tot 40 px); de
+  standaard in `styles.css` is die van 60 (0,49 en 28 px). Geen berekening in `rgba()` of `blur()`: dan laat Safari het glas weg. Zonder
+  ondersteuning (`@supports`) en bij `prefers-reduced-transparency` is de balk dicht.
 - **Leesbaarheid:** de balk heeft eigen kleuren (`--tabbar-ink`, `--tabbar-ink-active`), omdat
-  `--muted` en `--primary` boven een donkere foto onder 4,5 : 1 zakken. `tests/test_tabbar.py`
-  rekent dat voor het ergste geval na (glas boven zwart).
+  `--muted` en `--primary` boven een foto onder 4,5 : 1 zakken. Ze halen 4,5 : 1 boven zowel een
+  witte als een zwarte foto tot dekking 0,75 (schuifstand 29); onder die dekking haalt geen
+  labelkleur dat boven beide. Doorzichtiger glas is een bewuste keuze van de gebruiker, zoals in
+  3dprint_pricing, en de uitleg bij de schuif zegt dat. `tests/test_tabbar.py` rekent het na voor licht,
+  donker en donkergrijs van stand 0 tot 29, en `tests/test_appearance.py` voor elke accentkleur.
 - **Beweging:** een korte overgang en een indrukeffect, uit bij `prefers-reduced-motion`.
 - **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
   (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
   bepaalt of de balk er is.
+- **Zoals een native app:** alleen in de geïnstalleerde app (de klasse `is-standalone` op `<html>`,
+  gezet door het script in de kop) staat de viewport op `maximum-scale=1, user-scalable=no` en
+  `html, body` op `touch-action: pan-x pan-y` (geen knijp- en dubbeltikzoom), en op
+  `overscroll-behavior: none`: de pagina veert niet mee als je bovenaan naar beneden sleept, dus de
+  plakkende titelbalk blijft staan en Android ververst de pagina niet. In een gewone browser blijft
+  zoomen werken; daar is het een kwestie van toegankelijkheid.
+
+## Weergave per gebruiker
+
+Onder **Instellingen, Weergave** kiest iedere gebruiker het thema, de achtergrond van het donkere
+thema en een accentkleur; de keuze staat bij het profiel (`theme`, `darkBackground`, `accent` in
+`PUT /api/profile/preferences`) en een kopie in `localStorage` (`ms-appearance`), zodat het script in
+de kop de kleuren voor de eerste weergave zet. Het basilicumgroen blijft de standaard en het merk: het
+logo, het manifest en de deelafbeelding veranderen niet.
+
+- **Accentkleur.** `static/theme.js` maakt van één kleur de tinten `--accent-light`, `--accent-dark` en
+  hun `-strong`, `-on` en `-ink`, en zet ze met `data-accent` op `<html>`. De lichtheid schuift (de tint
+  blijft) tot de kleur 4,5 : 1 haalt op wit, `--bg`, `--surface-muted` en het selectievlak, en in het
+  donkere thema op de vlakken van beide achtergronden. `-ink` is het label van de actieve tab in de
+  onderste menubalk, nagerekend op het glas boven een zwarte en een witte foto. De rest volgt in
+  `styles.css` uit `--primary` met `color-mix` (`--selection`, `--selection-border`, `--ring`,
+  `--page-glow`, `--tabbar-tint`, de knopschaduw). Meldingen (`--success-*`, `--danger-*`,
+  `--warning-*`), kortingsbadges en categoriekleuren volgen de accentkleur nooit.
+- **Donkergrijs.** `data-dark-bg="grey"` vervangt in het donkere thema alleen de neutrale vlakken,
+  tekst en randen (`#121314`, `#1B1C1E`, `#232527`), met hetzelfde contrast als het groene thema.
+- `tests/test_appearance.py` rekent de tinten na voor de tien keuzes en voor lastige eigen kleuren
+  (wit, zwart, citroen, felgroen ...).
 
 ## Taalkiezer
 

@@ -72,7 +72,7 @@ Planning a week menu in Mealie is nice, but then the retyping starts: looking up
 - **Your stores in one place**: your basket, lists, saved recipes, favourites, orders and AH receipts, kept as a copy of their own that you can search ("when did I last buy coffee?"), even when the store is unavailable. A product on a receipt that the app does not recognise, you link to a product of the store yourself; from then on it does recognise it.
 - **AI assistants**: an MCP server, so Claude, ChatGPT or Copilot can look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie; OAuth login, with your own account.
 - **For the whole household**: log in with a passkey, or with a password and two-step verification; you invite housemates with a link, and only the administrator links Mealie and the stores.
-- **An app on your phone**: install MealieShopper as an app (PWA), in Dutch or English and in a light or dark theme; every screen has its own address.
+- **An app on your phone**: install MealieShopper as an app (PWA), in Dutch or English and in a light or dark theme, with your own accent colour; every screen has its own address.
 - **Your data, your server**: everything runs in your own container, and your data stays in one folder on your own host.
 
 The full description of every feature is in the [user guide](docs/handleiding.en.md).
@@ -97,7 +97,7 @@ The full description of every feature is in the [user guide](docs/handleiding.en
 
 ### Install as an app
 
-MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items.
+MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items. As in a native app, you don't zoom with two fingers in the app and the title bar stays at the top, also when you drag down; in the browser you can zoom as usual. The menu bar looks like your other apps: floating glass on an iPhone, the Android bar on an Android device. Under Settings, Appearance you choose yourself and set the glass effect.
 
 - **iPhone and iPad (Safari):** Share, then `Add to Home Screen`.
 - **Android (Chrome):** menu, then `Install app`.
@@ -146,7 +146,7 @@ It is the same image as the Docker version (`linux/amd64` and `linux/arm64`). Th
 
 ### First start
 
-On a new installation MealieShopper opens a six-step setup guide: security, linking Mealie, linking Albert Heijn, Jumbo and Picnic, and an overview. What you skip you do later under **Settings** (in the avatar menu). Do the first start on a network you trust, or right after the container is running: as long as no login method is set up, whoever opens the address first can claim the installation. Every step, with screenshots, is in the [user guide](docs/handleiding.en.md#first-start), and how to link Mealie and the supermarkets under [Linking Mealie and supermarkets](docs/handleiding.en.md#linking-mealie-and-supermarkets).
+On a new installation MealieShopper opens a six-step setup guide: security, linking Mealie, linking Albert Heijn, Jumbo and Picnic, and an overview. What you skip you do later under **Settings** (in the avatar menu, on a phone under **More**). Do the first start on a network you trust, or right after the container is running: as long as no login method is set up, whoever opens the address first can claim the installation. Every step, with screenshots, is in the [user guide](docs/handleiding.en.md#first-start), and how to link Mealie and the supermarkets under [Linking Mealie and supermarkets](docs/handleiding.en.md#linking-mealie-and-supermarkets).
 
 ## Configuration
 
