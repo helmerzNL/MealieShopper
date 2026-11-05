@@ -377,12 +377,13 @@ SUMMARY_NAMES = 4
 
 # De samenvatting per bestelling voor de kaarten en het overzicht, in dezelfde query: de eerste foto's en namen in de volgorde van
 # de bestelling (GROUP_CONCAT over een gesorteerde subquery, een regel per adres), het bespaarde bedrag en het aantal bonusregels.
+# Het bespaarde bedrag is dat tegen de gewone prijs van 30 dagen (`regular_price`), en zonder die prijs tegen de prijs ervoor van AH.
 _ORDER_SUMMARY_SQL = f"""
     (SELECT GROUP_CONCAT(image, char(10)) FROM (SELECT image FROM ah_order_items i WHERE i.order_id = o.order_id AND image != ''
         ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
     (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM ah_order_items i WHERE i.order_id = o.order_id AND title != ''
         ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
-    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+    (SELECT SUM(MAX(COALESCE(regular_price, CASE WHEN bonus THEN price_before_bonus END, price) - price, 0) * COALESCE(quantity, 1))
         FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
     (SELECT SUM(bonus) FROM ah_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
 """
@@ -393,12 +394,18 @@ def _order_summary(row: Any) -> dict[str, Any]:
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+        **_status_fields("order", row),
     }
+
+
+def _status_fields(kind: str, row: Any) -> dict[str, Any]:
+    status_kind, status_text = purchase_lines.status_kind(kind, row)
+    return {"statusKind": status_kind, "statusText": status_text}
 
 
 def list_orders(summary: bool = False) -> dict[str, Any]:
     """Alle bestellingen, open bovenaan. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings` en
-    `bonusCount` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
+    `bonusCount`, `statusKind` en `statusText` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
     with closing(_connect()) as conn:
         rows = conn.execute(
             f"""
@@ -781,6 +788,8 @@ _RECEIPT_SUMMARY_SQL = f"""
     (SELECT COUNT(*) FROM ah_receipt_items l WHERE l.receipt_id = r.receipt_id) AS summary_lines,
     (SELECT -SUM(json_extract(value, '$.amount'))
         FROM json_each(CASE WHEN json_valid(r.discounts) THEN r.discounts ELSE '[]' END)) AS summary_savings,
+    (SELECT SUM(MAX(l.regular_price - l.price, 0) * COALESCE(l.quantity, 1)) FROM ah_receipt_items l
+        WHERE l.receipt_id = r.receipt_id AND l.regular_price IS NOT NULL) AS summary_history,
     json_extract(CASE WHEN json_valid(r.payments) THEN r.payments ELSE '[]' END, '$[0].method') AS summary_payment
 """
 
@@ -789,8 +798,11 @@ def _receipt_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
-        "savings": None if not row["summary_lines"] else round(float(savings or 0), 2),
+        # De bonusregels plus wat de regels met een gewone prijs van 30 dagen scheelden. Het is eenvoudiger dan de detailroute, die een
+        # bonusregel afkapt op het bedrag van zijn regel: bij een bon met meer bonus dan regelbedrag kan het centen verschillen.
+        "savings": None if not row["summary_lines"] else round(float(savings or 0) + float(row["summary_history"] or 0), 2),
         "payment": row["summary_payment"] or None,
+        **_status_fields("receipt", row),
     }
 
 

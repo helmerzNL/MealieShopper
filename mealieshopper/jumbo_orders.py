@@ -196,7 +196,7 @@ _ORDER_SUMMARY_SQL = f"""
         ORDER BY position LIMIT {SUMMARY_IMAGES})) AS summary_images,
     (SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM jumbo_order_items i WHERE i.order_id = o.order_id AND title != ''
         ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,
-    (SELECT SUM(CASE WHEN bonus THEN (COALESCE(price_before_bonus, price) - price) * COALESCE(quantity, 1) ELSE 0 END)
+    (SELECT SUM(MAX(COALESCE(regular_price, CASE WHEN bonus THEN price_before_bonus END, price) - price, 0) * COALESCE(quantity, 1))
         FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_savings,
     (SELECT SUM(bonus) FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS summary_bonus
 """
@@ -204,9 +204,11 @@ _ORDER_SUMMARY_SQL = f"""
 
 def _order_summary(row: Any) -> dict[str, Any]:
     savings = row["summary_savings"]
+    status_kind, status_text = purchase_lines.status_kind("order", row)
     return {
         "images": price_import.split_lines(row["summary_images"]), "productNames": price_import.split_lines(row["summary_names"]),
         "savings": round(float(savings), 2) if savings is not None else None, "bonusCount": int(row["summary_bonus"] or 0),
+        "statusKind": status_kind, "statusText": status_text,
     }
 
 

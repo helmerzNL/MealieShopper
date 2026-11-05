@@ -218,6 +218,22 @@ class OrdersCacheTest(AhOrdersTestCase):
         self.assertAlmostEqual(listed["savings"], 0.32)  # (1.45 - 1.29) * 2
         self.assertNotIn("images", ah_orders.list_orders()["orders"][0])
 
+    def test_the_list_summary_prefers_the_30_day_regular_price_and_falls_back_to_the_price_before_bonus(self):
+        first = {"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": None, "bonus": False, "taxonomy": "", "image": ""}
+        self.sync([], lambda order_id: {**fake_details(order_id), "items": [first, fake_details(order_id)["items"][0]]}, closed=[closed_order(1)])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_order_items SET regular_price = 1.19 WHERE product_id = 1")
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        # regel 1: gewone prijs 1.19 tegen 0.89, twee keer: 0.60. Regel 2 heeft geen gewone prijs: (1.45 - 1.29) * 2 = 0.32.
+        self.assertAlmostEqual(listed["savings"], 0.92)
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("delivered", None))
+
+    def test_an_open_order_in_the_list_carries_the_status_text_of_ah(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            ah_orders._save_order(conn, {"id": 1, "deliveryDate": "2026-10-23", "stateText": "Ingepland"}, "open", [])
+        listed = self.client.get("/api/ah/orders").get_json()["orders"][0]
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("planned", "Ingepland"))
+
     def test_the_summary_keeps_the_order_of_the_lines_and_stops_at_six_photos_and_four_names(self):
         def line(n, image=True):
             return {"productId": n, "title": f"Product {n}", "brand": "AH", "unitSize": "1 st", "quantity": 1, "amount": 1.0, "price": 1.0,
@@ -414,6 +430,18 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         with closing(ah_orders._connect()) as conn, conn:
             conn.execute("DELETE FROM ah_receipt_items")
         self.assertIsNone(self.client.get("/api/ah/receipts").get_json()["receipts"][0]["savings"])
+
+    def test_a_receipt_summary_adds_the_history_saving_to_the_bonus_lines(self):
+        detail = lambda rid: {"id": rid, "items": [  # noqa: E731
+            {"productId": 11, "name": "MELK", "quantity": 4, "price": 0.99, "amount": 3.96},
+            {"productId": 12, "name": "KAAS", "quantity": 1, "price": 2.0, "amount": 2.0},
+        ], "discounts": [{"name": "Bonus", "amount": -3.97}], "payments": [{"method": "PIN", "amount": 2.0}]}
+        self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.0}]], detail)
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("UPDATE ah_receipt_items SET regular_price = 1.19 WHERE product_id = 11")
+        listed = self.client.get("/api/ah/receipts").get_json()["receipts"][0]
+        self.assertAlmostEqual(listed["savings"], 4.77)  # 3.97 van de bonusregels + (1.19 - 0.99) * 4
+        self.assertEqual((listed["statusKind"], listed["statusText"]), ("receipt", None))
 
     def test_a_receipt_with_broken_discount_json_does_not_break_the_list(self):
         self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 4.5}]])

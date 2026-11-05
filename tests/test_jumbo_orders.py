@@ -250,6 +250,7 @@ class LocalCopyTest(TempDataDirTest):
         self.assertEqual(listed_order["images"], ["https://jumbo.com/1.png", "https://jumbo.com/3.png"])
         self.assertEqual(listed_order["productNames"], ["Jumbo Kwark 1", "Jumbo Kwark 2", "Jumbo Kwark 3"])
         self.assertEqual((listed_order["savings"], listed_order["bonusCount"]), (0.81, 1))  # 4.00 - 3.19
+        self.assertEqual((listed_order["statusKind"], listed_order["statusText"]), ("delivered", None))
         self.assertNotIn("images", jumbo_orders.list_orders()["orders"][0])
         self.assertIn("images", create_app().test_client().get("/api/jumbo/orders").get_json()["orders"][0])
 

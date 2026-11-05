@@ -385,6 +385,7 @@ class OrdersTest(ImportCase):
         self.assertIn(items[0]["productId"], products, "de link naar de prijsgeschiedenis komt bij hetzelfde product uit")
         listed = create_app().test_client().get("/api/imported-orders/ah").get_json()["orders"][0]
         self.assertEqual((listed["images"], listed["savings"], listed["bonusCount"]), (["https://static.ah.nl/bananen.jpg"], 2.0, 1))
+        self.assertEqual((listed["statusKind"], listed["statusText"], listed["status"]), ("imported", None, "delivered"))
         self.assertNotIn("images", price_import.list_orders("ah")["orders"][0], "alleen de lijstroute rekent de samenvatting uit")
 
     def test_every_store_links_the_lines_to_its_own_products(self):

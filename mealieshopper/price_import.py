@@ -491,7 +491,8 @@ def _summary(lines: list[Any], linked: dict[str, dict[str, Any]]) -> dict[str, A
             images.append(image)
     bonus = [line for line in lines if _bonus(line["paid"], line["regular"])]
     savings = sum((line["regular"] - line["paid"]) * line["quantity"] for line in bonus)
-    return {"images": images, "savings": round(savings, 2), "bonusCount": len(bonus)}
+    status_kind, status_text = purchase_lines.status_kind("imported", {})
+    return {"images": images, "savings": round(savings, 2), "bonusCount": len(bonus), "statusKind": status_kind, "statusText": status_text}
 
 
 def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
