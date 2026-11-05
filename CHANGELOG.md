@@ -16,6 +16,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Opgelost.** De actieve knop van een segmentbediening (de weergaven van de aanbiedingen) had witte tekst, ook in het donkere thema op het lichte groen: nu de tekstkleur voor op de accentkleur. De rand van de actieve tab en van een tag nam de kleur van "gelukt"; die heeft nu een eigen token (`--selection-border`) dat de accentkleur volgt.
 - **Handleiding** (NL en EN): het nieuwe onderdeel [Weergave](docs/handleiding.md#weergave), het gedrag van de app op een telefoon, en een nieuwe screenshot (`appearance.png`). De huisstijl (`docs/huisstijl.md`) beschrijft hoe de accentkleur en het donkergrijs werken.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#248](https://github.com/helmerzNL/MealieShopper/pull/248).
 
 ## v3.10.0
 
