@@ -180,7 +180,7 @@ console.log(JSON.stringify(out));
 
     def test_the_active_tab_reads_on_the_glass_of_the_bottom_bar(self):
         # Zoals TabbarContrastTest in test_tabbar.py, voor elke accentkleur: glas boven een zwarte, witte en grijze foto.
-        from test_tabbar import over, rgba
+        from test_tabbar import GLASS_ALPHAS, over, rgba
 
         light, dark = css_tokens(), block(':root[data-theme="dark"]')
         grey = block(':root[data-theme="dark"][data-dark-bg="grey"]')
@@ -189,7 +189,7 @@ console.log(JSON.stringify(out));
         for colour, tints in self.data["tints"].items():
             if tints is None:
                 continue
-            for alpha in (1.0, 0.85, 0.75):  # de schuif op 0, 60 en 100
+            for alpha in GLASS_ALPHAS:  # de schuif van 0 tot 29, waar de labels boven elke foto leesbaar blijven
                 for base in ((0, 0, 0), (255, 255, 255), (128, 128, 128)):
                     glass = over(f"rgba({light['--tabbar-rgb']}, {alpha})", base)
                     tinted = over(f"rgba({','.join(str(c) for c in hexrgb(tints['--accent-light']))}, 0.14)", glass)
@@ -230,14 +230,14 @@ console.log(JSON.stringify(out));
 
     def test_the_glass_slider_becomes_plain_values(self):
         self.assertEqual(self.data["glass"], [
-            [0, 0, "1.000", "10.0px"],
-            [60, 60, "0.850", "28.0px"],
-            [100, 100, "0.750", "40.0px"],
-            [150, 100, "0.750", "40.0px"],
+            [0, 0, "1.000", "10.0px"],  # zoals applyNavGlass in 3dprint_pricing
+            [60, 60, "0.490", "28.0px"],
+            [100, 100, "0.150", "40.0px"],
+            [150, 100, "0.150", "40.0px"],
             [-5, 0, "1.000", "10.0px"],
-            [50.5, 60, "0.850", "28.0px"],  # geen geheel getal: de standaard
-            ["60", 60, "0.850", "28.0px"],
-            [None, 60, "0.850", "28.0px"],
+            [50.5, 60, "0.490", "28.0px"],  # geen geheel getal: de standaard
+            ["60", 60, "0.490", "28.0px"],
+            [None, 60, "0.490", "28.0px"],
         ])
 
     def test_the_menu_colours_need_no_adjustment_in_the_light_theme(self):

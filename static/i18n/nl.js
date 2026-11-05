@@ -1107,7 +1107,7 @@ I18N.add("nl", {
   "appearance.nav.ios_hint": "Zwevend, met afgeronde hoeken en glas.",
   "appearance.nav.android_hint": "Over de volle breedte, met een pil achter het actieve icoon.",
   "appearance.glass.title": "Glaseffect",
-  "appearance.glass.hint": "0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. De labels blijven leesbaar, ook boven een foto.",
+  "appearance.glass.hint": "0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.",
   "appearance.glass.value": "{n}%",
   "mealie.checking_btn": "Controleren...",
   "saved.intro": "Je bewaarde Allerhande-recepten worden bij AH opgehaald en daarna in MealieShopper bewaard. Dit gebruikt je AH-koppeling onder Instellingen > Koppelen > Albert Heijn.",

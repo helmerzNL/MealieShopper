@@ -23,8 +23,12 @@ def block(selector: str) -> dict[str, str]:
     return {name: value.strip() for name, value in re.findall(r"(--[\w-]+):\s*([^;]+);", body)}
 
 
-# De dekking van het glas: 1 bij schuifstand 0, 0,85 bij de standaard 60 en 0,75 bij 100 (static/theme.js, NAV_ALPHA_STEP).
-GLASS_ALPHAS = (1.0, 0.85, 0.75)
+# De dekking van het glas: 1 - 0,0085 x de schuif (static/theme.js, NAV_ALPHA_STEP), zoals in 3dprint_pricing: 1 bij 0, 0,49 bij
+# de standaard 60, 0,15 bij 100. Tot stand 29 (dekking 0,75) halen de labels boven elke foto 4,5 : 1; daarboven is het de keuze
+# van wie de schuif verzet.
+GLASS_STEP = 0.0085
+READABLE_UP_TO = 29
+GLASS_ALPHAS = (1.0, round(1 - 15 * GLASS_STEP, 4), round(1 - READABLE_UP_TO * GLASS_STEP, 4))
 
 
 def rgba(value: str) -> tuple[float, float, float, float]:
@@ -236,14 +240,14 @@ class TabbarStyleTest(unittest.TestCase):
     def test_glass_defaults_match_the_formula_and_the_head_script(self):
         # De standaard in de stylesheet is schuifstand 60, anders verspringt het glas na het laden.
         defaults = re.search(r":root\s*{\s*--tabbar-h: \d+px;\s*--nav-alpha: ([\d.]+);\s*--nav-blur: (\d+)px;", self.media)
-        self.assertEqual((float(defaults.group(1)), int(defaults.group(2))), (1 - 60 * 0.0025, 10 + 60 * 0.3 // 1))
+        self.assertEqual((float(defaults.group(1)), int(defaults.group(2))), (round(1 - 60 * GLASS_STEP, 2), 28))
         theme = (ROOT / "static" / "theme.js").read_text(encoding="utf-8")
-        self.assertIn("const NAV_ALPHA_STEP = 0.0025;", theme)
+        self.assertIn("const NAV_ALPHA_STEP = 0.0085;", theme)
         self.assertIn("const NAV_GLASS = 60;", theme)
         self.assertIn("(10 + g * 0.3).toFixed(1)", theme)
         html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         head = html[:html.index("</head>")]
-        self.assertIn("(1 - glass * 0.0025).toFixed(3)", head)
+        self.assertIn("(1 - glass * 0.0085).toFixed(3)", head)
         self.assertIn("(10 + glass * 0.3).toFixed(1)", head)
         self.assertLess(head.index('setAttribute("data-nav"'), head.index("styles.css"), "voor de eerste weergave")
         # Het toestel buiten de try: geblokkeerde opslag mag een Android-toestel niet de iOS-balk geven.
@@ -285,7 +289,7 @@ class TabbarContrastTest(unittest.TestCase):
         dark = block(':root[data-theme="dark"]')
         grey = {**dark, **block(':root[data-theme="dark"][data-dark-bg="grey"]')}
         self.palettes = {"licht": self.t, "donker": dark, "donkergrijs": grey}
-        self.glass_over = lambda base, t=None, alpha=0.75: over(f"rgba({(t or self.t)['--tabbar-rgb']}, {alpha})", base)
+        self.glass_over = lambda base, t=None, alpha=GLASS_ALPHAS[-1]: over(f"rgba({(t or self.t)['--tabbar-rgb']}, {alpha})", base)
         self.black, self.white = (0, 0, 0), (255, 255, 255)
 
     def test_inactive_ink_on_worst_case_glass(self):

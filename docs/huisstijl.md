@@ -154,15 +154,16 @@ de tekst.
 - **Iconen:** de actieve tab toont het gevulde MDI-icoon, de andere het omlijnde (`.tab-icon--outline`,
   als MDI er een heeft: Boxen en Meer niet). Buiten de balk staat er alleen het gevulde.
 - **Glas:** `rgba(var(--tabbar-rgb), var(--nav-alpha))` met `blur(var(--nav-blur))`. De schuif
-  *Glaseffect* (0 tot 100, standaard 60) wordt in JavaScript gewone waarden: dekking `1 - 0,0025 x`
-  (1 tot 0,75) en vervaging `10 + 0,3 x` px (10 tot 40 px); de standaard in `styles.css` is die van
-  60 (0,85 en 28 px). Geen berekening in `rgba()` of `blur()`: dan laat Safari het glas weg. Zonder
+  *Glaseffect* (0 tot 100, standaard 60) wordt in JavaScript gewone waarden, met de schaal van
+  3dprint_pricing: dekking `1 - 0,0085 x` (1 tot 0,15) en vervaging `10 + 0,3 x` px (10 tot 40 px); de
+  standaard in `styles.css` is die van 60 (0,49 en 28 px). Geen berekening in `rgba()` of `blur()`: dan laat Safari het glas weg. Zonder
   ondersteuning (`@supports`) en bij `prefers-reduced-transparency` is de balk dicht.
 - **Leesbaarheid:** de balk heeft eigen kleuren (`--tabbar-ink`, `--tabbar-ink-active`), omdat
-  `--muted` en `--primary` boven een foto onder 4,5 : 1 zakken. De doorzichtigste stand is daarom
-  0,75 en niet 0,15 zoals in de richtlijn: daaronder haalt geen labelkleur 4,5 : 1 boven zowel een
-  witte als een zwarte foto. `tests/test_tabbar.py` rekent dat na voor licht, donker en donkergrijs
-  bij de dekkingen 1, 0,85 en 0,75, en `tests/test_appearance.py` voor elke accentkleur.
+  `--muted` en `--primary` boven een foto onder 4,5 : 1 zakken. Ze halen 4,5 : 1 boven zowel een
+  witte als een zwarte foto tot dekking 0,75 (schuifstand 29); onder die dekking haalt geen
+  labelkleur dat boven beide. Doorzichtiger glas is een bewuste keuze van de gebruiker, zoals in
+  3dprint_pricing, en de uitleg bij de schuif zegt dat. `tests/test_tabbar.py` rekent het na voor licht,
+  donker en donkergrijs van stand 0 tot 29, en `tests/test_appearance.py` voor elke accentkleur.
 - **Beweging:** een korte overgang en een indrukeffect, uit bij `prefers-reduced-motion`.
 - **Bekijken zonder installeren:** open de app in de browser van je telefoon met `?tabbar=1`
   (onthouden voor dat tabblad; `?tabbar=0` zet hem weer uit). De klasse `has-tabbar` op `<html>`
