@@ -12,7 +12,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, profile, recipe_bulk, server_settings, updates, users
+from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals
 from .i18n import tr
 
@@ -598,6 +598,35 @@ def create_app() -> Flask:
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden", "Order not found")}), 404
         return jsonify(order)
+
+    # Je eigen koppelingen (#238, zie product_links.py): een regel op een kassabon of in een ingelezen bestelling die de app niet
+    # (of verkeerd) herkende, koppel je zelf aan een product van de winkel. Iedereen die de bon of bestelling ziet, mag koppelen en
+    # ontkoppelen: het is een keuze die je weer terugdraait, net als een ander product in de controlelijst.
+    @app.get("/api/product-links")
+    def product_links_list():
+        return import_action(lambda: product_links.list_links(request.args.get("store") or None))
+
+    @app.get("/api/product-links/search")
+    def product_links_search():
+        # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
+        try:
+            return jsonify(prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
+            app.logger.exception("Zoeken om te koppelen mislukt")
+            return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
+
+    @app.put("/api/product-links")
+    def product_links_save():
+        body = request.get_json(silent=True) or {}
+        return import_action(
+            lambda: {"link": product_links.save(body.get("store"), body.get("name"), body.get("product"), body.get("article"))}
+        )
+
+    @app.delete("/api/product-links/<store>/<kind>/<path:key>")
+    def product_links_remove(store: str, kind: str, key: str):
+        return import_action(lambda: {"removed": product_links.remove(store, kind, key)})
 
     @app.get("/api/prices/compare")
     def prices_compare():

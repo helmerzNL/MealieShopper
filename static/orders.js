@@ -39,8 +39,9 @@ function money(value) {
   return value === null || value === undefined ? "" : formatPrice(value);
 }
 
-// Een product uit een bestelling of het mandje; de naam linkt naar zijn prijsgeschiedenis.
-function purchaseItem(item, store = "ah") {
+// Een product uit een bestelling of het mandje; de naam linkt naar zijn prijsgeschiedenis. `action` komt rechts in de kaart (de knop
+// Koppelen of Ander product kiezen bij een regel van een bon of ingelezen bestelling, zie product_links.js).
+function purchaseItem(item, store = "ah", action = "") {
   const meta = [item.brand, item.unitSize].filter(Boolean).join(" · ");
   const title = item.title || item.name || "";
   const name = title ? `<a href="${escapeHtml(priceHistoryPath(store, title, item.productId || ""))}" data-route>${escapeHtml(title)}</a>` : "";
@@ -54,6 +55,7 @@ function purchaseItem(item, store = "ah") {
         ${item.bonus ? `<small class="bonus">${escapeHtml(t("list.bonus"))}</small>` : ""}
         ${item.amount ? `<small>${escapeHtml(money(item.amount))}</small>` : ""}
       </div>
+      ${action}
     </article>`;
 }
 
@@ -412,18 +414,27 @@ function receiptMethod(method) {
   return name === "PIN" ? t("orders.receipt.pin") : name === "CASH" ? t("orders.receipt.cash") : name;
 }
 
+// Een regel van een bon voor de knop Koppelen of Ander product kiezen (productLinkButton in product_links.js): de naam en het
+// artikelnummer op de bon, het product waar de regel nu bij hoort en je eigen koppeling (#238).
+function receiptLinkLine(line) {
+  return {
+    store: "ah", name: line.name, article: line.productId || null, product: line.product?.title || null,
+    productId: line.product?.id ?? null, link: line.link || null,
+  };
+}
+
 function receiptPaper(receipt, words = []) {
   const money = (value) => (value === null || value === undefined ? "" : Number(value).toLocaleString(I18N.locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })); // op papier staat geen euroteken
   const row = (cells, className = "") => `<div class="receipt__row ${className}">${cells.map((cell, index) => `<span class="receipt__c${index}">${escapeHtml(cell)}</span>`).join("")}</div>`;
   // De omschrijving linkt naar de prijsgeschiedenis van het webwinkelproduct, zodra het artikelnummer op de bon daaraan gekoppeld
-  // is (ah_receipt_products; bij het openen zoekt resolveReceiptProducts de rest op). Zonder koppeling is het gewone tekst: zoeken
-  // op een afgekorte bonnaam als "COTTAGE CH" vindt toch niets.
+  // is (ah_receipt_products, of je eigen koppeling; bij het openen zoekt resolveReceiptProducts de rest op). Zonder koppeling is het
+  // gewone tekst, met erachter de knop Koppelen (#238): zoeken op een afgekorte bonnaam als "COTTAGE CH" vindt toch niets.
   const lines = receipt.items.map((line) =>
     row([line.quantity, line.name, line.quantity > 1 ? money(line.price) : "", money(line.amount)], `receipt__line${matchesQuery(line.name, words) ? " receipt__hit" : ""}`).replace(
       `<span class="receipt__c1">${escapeHtml(line.name)}</span>`,
       line.product
         ? `<span class="receipt__c1"><a href="${escapeHtml(priceHistoryPath("ah", line.product.title, line.product.id))}" data-route title="${escapeHtml(line.product.title)}">${escapeHtml(line.name)}</a></span>`
-        : `<span class="receipt__c1">${escapeHtml(line.name)}</span>`
+        : `<span class="receipt__c1">${escapeHtml(line.name)}${productLinkButton(receiptLinkLine(line))}</span>`
     )
   );
   const bonus = receipt.discounts.map((entry) => row(["", entry.name, "", entry.amount === null ? "" : `-${money(Math.abs(entry.amount))}`], "receipt__line receipt__bonus"));
@@ -453,14 +464,16 @@ function receiptMeta(receipt) {
 }
 
 // De producten van een bon zoals in een bestelling: de naam en de foto van het webwinkelproduct waaraan de regel gekoppeld is (met
-// de link naar zijn prijsgeschiedenis), anders de afgekorte naam van de bon zonder link. Daaronder de bonusregels.
+// de link naar zijn prijsgeschiedenis), anders de afgekorte naam van de bon zonder link. Daaronder de bonusregels. Elke kaart heeft
+// rechts de knop Koppelen of Ander product kiezen (#238).
 function receiptProducts(receipt, words = []) {
   const cards = receipt.items.map((line) => {
     const product = line.product;
     const hit = matchesQuery(line.name, words) ? " receipt__hit" : "";
+    const action = productLinkButton(receiptLinkLine(line));
     if (product) {
       const item = { productId: product.id, title: product.title, image: product.image, quantity: line.quantity, amount: line.amount };
-      return purchaseItem(item, "ah").replace('<article class="product-card">', `<article class="product-card${hit}">`);
+      return purchaseItem(item, "ah", action).replace('<article class="product-card">', `<article class="product-card${hit}">`);
     }
     return `
     <article class="product-card${hit}">
@@ -468,6 +481,7 @@ function receiptProducts(receipt, words = []) {
         <strong>${escapeHtml(line.quantity)}x ${escapeHtml(line.name)}</strong>
         ${line.amount ? `<small>${escapeHtml(money(line.amount))}</small>` : ""}
       </div>
+      ${action}
     </article>`;
   });
   const savings = receipt.discounts.reduce((sum, entry) => sum + Math.abs(entry.amount || 0), 0);
@@ -598,6 +612,32 @@ window.addEventListener("ms:imported-orders", (event) => {
   if (ordersState.loaded && event.detail?.store === ordersStore()) loadOrders();
 });
 
+// Na een eigen koppeling (#238, product_links.js): de open bon of ingelezen bestelling opnieuw tekenen met het gekozen product,
+// zonder AH opnieuw te vragen, en de lijst van deze winkel opnieuw (de foto's en namen in de kaarten). Staat intussen iets anders
+// open, dan blijft dat zo.
+async function refreshLinkedPurchase(store) {
+  if (store !== ordersStore()) return;
+  if (ordersState.loaded) loadOrders();
+  const open = ordersState.open;
+  if (!open || (open.kind !== "receipt" && open.kind !== "imported")) return;
+  try {
+    if (open.kind === "receipt") {
+      const receipt = await jsonFetch(`/api/ah/receipts/${encodeURIComponent(open.id)}`);
+      if (ordersState.open !== open) return;
+      receiptState.receipt = receipt;
+      renderReceipt();
+    } else {
+      const order = await jsonFetch(`/api/imported-orders/${store}/${encodeURIComponent(open.id)}`);
+      if (ordersState.open !== open) return;
+      $("#ah-order-items").innerHTML = `<div class="product-grid">${importedOrderItems(order, store)}</div>`;
+    }
+  } catch {
+    // de bon of bestelling blijft staan zoals hij was; opnieuw openen toont de koppeling
+  }
+}
+
+window.addEventListener("ms:product-links", (event) => refreshLinkedPurchase(event.detail?.store));
+
 // ---- Ingelezen oude bestellingen (zie price_import.py): bij elke winkel tussen de afgelopen bestellingen, ook bij Picnic en Crisp.
 // Ze openen en doorzoeken als elke andere bestelling. De archiefdoos laat zien dat een bestelling uit je bevestigingsmails is
 // ingelezen; met de prullenbak haalt de beheerder hem in zijn geheel weg. Importeren gaat met dezelfde dialoog als in de
@@ -679,8 +719,17 @@ function importedOrderMeta(order, status = importedOrderStatus(order)) {
   ].filter(Boolean).join(" · ");
 }
 
+// Een regel van een ingelezen bestelling voor de knop Koppelen of Ander product kiezen (productLinkButton in product_links.js): de
+// naam uit de mail, het product waar die naam nu bij hoort en je eigen koppeling (#238). Ook voor Picnic en Crisp.
+function importedLinkLine(item, store) {
+  return {
+    store, name: item.title, article: null, product: item.productId ? item.productTitle || item.title : null,
+    productId: item.productId ?? null, link: item.link || null,
+  };
+}
+
 function importedOrderItems(order, store) {
-  return order.items.map((item) => purchaseItem(item, store)).join("");
+  return order.items.map((item) => purchaseItem(item, store, productLinkButton(importedLinkLine(item, store)))).join("");
 }
 
 // Een ingelezen bestelling bij Picnic en Crisp, met de regels van de kaart van die winkel (`lines`: status, tijdvak en bedrag,

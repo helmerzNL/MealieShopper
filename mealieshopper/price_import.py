@@ -516,7 +516,8 @@ def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
 
 def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
-    een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`)."""
+    een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
+    `link` als je die naam zelf koppelde (#238)."""
     from . import prices
 
     key = _store(store)
@@ -536,6 +537,9 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
             "bonus": _bonus(line["paid"], line["regular"]),
             "productId": product.get("productId"), "image": product.get("image"), "brand": product.get("brand"),
             "unitSize": product.get("unitSize"),
+            # De naam van het product in de winkel, en je eigen koppeling van deze naam (#238): zo kan het scherm *Ander product
+            # kiezen* en *Ontkoppelen* tonen.
+            "productTitle": product.get("title"), "link": product.get("link"),
         })
     return {**_order_json(key, rows[0]), "items": items}
 

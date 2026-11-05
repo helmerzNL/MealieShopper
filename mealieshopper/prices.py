@@ -29,7 +29,7 @@ from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
 
-from . import ah, ah_lists, deals, offers, packs, price_import
+from . import ah, ah_lists, deals, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ def _now() -> str:
 def _connect():
     conn = offers._connect()  # maakt ook `offer_history` aan (en de rest van de aanbiedingen)
     conn.executescript(SCHEMA)
-    return conn
+    return product_links.ensure(conn)  # je eigen koppelingen (#238), die voor de automatische gaan
 
 
 def _number(value: Any) -> float | None:
@@ -268,10 +268,8 @@ def _purchase_sources(conn, store: str) -> list[str]:
 
 
 def _fold_name(value: Any) -> str:
-    words = ah_lists._fold(value).split()
-    if len(words) > 1 and words[0] == words[1]:  # "AH Ah zachte spinazie" in een bevestigingsmail: het merk staat er twee keer
-        words = words[1:]
-    return " ".join(words)
+    """Een naam om op te vergelijken (`product_links.fold`): ook je eigen koppelingen op naam gebruiken deze vouw."""
+    return product_links.fold(value)
 
 
 def _without_house_brand(store: str, name: str) -> str | None:
@@ -351,9 +349,21 @@ def _imported_rows(conn, store: str, today: str) -> list[Any]:
     return [row for row in conn.execute(_IMPORTED_SQL, (store, today)) if row["ref"] not in numbers and row["day"] not in days]
 
 
+def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
+    """Een bonregel of ingelezen aankoop met je eigen koppeling (#238): het product, met de naam, het merk, de inhoud en de foto
+    die je koos. De naam op de bon of in de mail blijft vindbaar (`receipt_name`)."""
+    return {
+        **dict(row), "product_id": link["productId"], "title": link["title"], "brand": link["brand"], "unit_size": link["unitSize"],
+        "image": link["image"], "receipt_name": row["title"],
+    }
+
+
 def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     """De regels van de kassabonnen (alleen AH) en de ingelezen aankopen (`_imported_rows`), elk met het product waar ze bij
     horen in `product_id`.
+
+    Je eigen koppeling (`product_links`, #238) gaat altijd voor: eerst op het artikelnummer van de bon, dan op de naam. Pas als er
+    geen is, geldt wat hieronder staat.
 
     Het id op een bon is AH's artikelnummer; is dat gekoppeld aan een product van de webwinkel (`ah_orders.resolve_receipt_products`,
     "BLOEMKOOL" 20960 -> "AH Bloemkool" 4183), dan is het dat product. Is het id op de bon bekend uit de aanbiedingen, de bewaarde
@@ -372,9 +382,14 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     for title, product_id in index.items():
         titles.setdefault(product_id, []).append(title)
     linked = _receipt_products(conn)
+    mine = product_links.load(conn, store)
     found = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
+        link = mine.find(own if row["source"] == "receipt" else None, name)
+        if link:
+            found.append(_own_link_row(row, link))
+            continue
         fallback = f"import:{name}" if row["source"] == "import" else f"bon:{name}"
         # Het id op een bon is AH's artikelnummer, dat toevallig gelijk kan zijn aan het id van een ander product in de webwinkel
         # ("AH ROOKWORST" 627748 en "Dr. Oetker Ristorante pizza hawaii 3-pack" 627748). Een bekend id telt dus alleen als de namen
@@ -420,16 +435,59 @@ def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
     """Per naam uit een bevestigingsmail (`imported_purchases.title`) het product van de winkel waar hij bij hoort, met wat de app
     ervan weet: {"productId", "title", "brand", "unitSize", "image"}. Dezelfde koppeling op naam als de Prijsgeschiedenis
     (`_receipt_rows`), dus de link naar de prijsgeschiedenis komt bij hetzelfde product uit. Een naam die nergens bij past, ontbreekt.
-    Zo ziet een ingelezen bestelling eruit als een bestelling uit je account (#229)."""
+    Zo ziet een ingelezen bestelling eruit als een bestelling uit je account (#229).
+
+    Je eigen koppeling op naam (#238) gaat voor; die naam heeft ook `link` ({"kind", "key"}), zodat het scherm hem kan wijzigen of
+    weghalen. Wat de app van het product weet, gaat voor wat in de koppeling staat (een nieuwere foto of naam van de winkel)."""
     names = {name for name in names if name}
     if not names:
         return {}
     with closing(_connect()) as conn:
+        mine = product_links.load(conn, store)
+        own = {name: link for name in names if (link := mine.names.get(_fold_name(name)))}
         index = _name_index(conn, store)
         bare = _bare_index(index, store)
-        matched = {name: product_id for name in names if (product_id := _match_name(index, bare, store, _fold_name(name)))}
+        matched = {name: link["productId"] for name, link in own.items()}
+        matched.update({
+            name: product_id for name in names if name not in own and (product_id := _match_name(index, bare, store, _fold_name(name)))
+        })
         details = _product_details(conn, store, sorted(set(matched.values())))
-    return {name: {"productId": product_id, **details.get(product_id, {})} for name, product_id in matched.items()}
+    found: dict[str, dict[str, Any]] = {}
+    for name, product_id in matched.items():
+        known = {key: value for key, value in details.get(product_id, {}).items() if value}
+        link = own.get(name)
+        if link:
+            saved = {"title": link["title"], "brand": link["brand"], "unitSize": link["unitSize"], "image": link["image"]}
+            known = {**{key: value for key, value in saved.items() if value}, **known, "link": {"kind": link["kind"], "key": link["key"]}}
+        found[name] = {"productId": product_id, **known}
+    return found
+
+
+LINK_SEARCH_LIMIT = 10  # zoveel producten toont het venster Koppelen per zoekopdracht
+
+
+def _price_now(product: dict[str, Any]) -> float | None:
+    price = product.get("price")
+    return _number(price.get("now") if isinstance(price, dict) else price)
+
+
+def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT) -> dict[str, Any]:
+    """De producten van een winkel om een regel aan te koppelen (#238): een zoekopdracht bij die winkel, in één vorm voor alle
+    winkels ({"productId", "title", "brand", "unitSize", "image", "price"}). Zoals elke zoekopdracht bewaart hij de normale prijs
+    van wat hij vindt (`recorded`), dus het gekozen product staat daarna ook in de Prijsgeschiedenis."""
+    key = offers._valid_store(store)
+    term = " ".join(str(query or "").split())[:product_links.MAX_NAME_CHARS]
+    if not term:
+        return {"store": key, "query": "", "products": []}
+    products = []
+    for product in recorded(key, _search_function(key))(term, max(1, min(int(limit), 30))):
+        product_id, title = _product_id(product), str(product.get("title") or "").strip()
+        if product_id and title:
+            products.append({
+                "productId": product_id, "title": title, "brand": product.get("brand") or None,
+                "unitSize": product.get("unitSize") or None, "image": _image(product), "price": _price_now(product),
+            })
+    return {"store": key, "query": term, "products": products}
 
 
 def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:

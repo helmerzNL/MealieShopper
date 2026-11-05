@@ -90,6 +90,7 @@ KNOWN_IMAGE_COLUMNS = (
     ("ah_order_items", "image"), ("ah_basket_items", "image"), ("ah_receipt_products", "image"),
     ("offers", "image"), ("offer_history", "image"), ("offer_recipes", "image"),
     ("jumbo_order_items", "image"), ("picnic_order_items", "image"), ("crisp_order_items", "image"),
+    ("product_links", "image"),  # de foto van een product dat je zelf aan een bonregel koppelde (#238)
 )
 
 _BROWSER_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
