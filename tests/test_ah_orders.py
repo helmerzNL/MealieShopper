@@ -620,6 +620,68 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         self.assertEqual((reply.get_json()["items"][0]["name"], reply.get_json()["products"]), ("AH Halfvolle melk", None))
 
 
+class DetailEnrichmentTest(AhOrdersTestCase):
+    def store_order(self, order_id, day, items, kind="delivered", state_text=None):
+        with closing(ah_orders._connect()) as conn, conn:
+            ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day, "stateText": state_text}, kind, items)
+
+    def test_an_order_detail_carries_category_discount_and_times_before(self):
+        # Bestelling A op 2026-09-01 met product 1 voor de gewone prijs: die is de gewone prijs van 30 dagen bij bestelling B.
+        self.store_order(1, "2026-09-01", [{"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.19, "priceBeforeBonus": 1.19, "taxonomy": "Fruit, verse sappen"}])
+        self.store_order(2, "2026-09-21", [{"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": "Fruit, verse sappen"}])
+        order = self.client.get("/api/ah/orders/2").get_json()
+        item = order["items"][0]
+        self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]), ("groente_fruit", 1.19, 25, "history", 1))
+        self.assertEqual((order["saved"], order["savedPercent"], order["status"]), (0.6, 25, "delivered"))
+        self.assertEqual((item["priceBeforeBonus"], item["paidEach"], order["statusText"]), (1.39, 0.89, None))  # de bestaande velden blijven
+
+    def test_a_line_without_product_or_quantity_gets_no_discount_and_no_count(self):
+        self.store_order(1, "2026-09-01", [{"productId": None, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}])
+        self.store_order(2, "2026-09-21", [{"productId": None, "title": "AH Komkommer", "quantity": 0, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}],
+                         kind="open", state_text="Ingepland")
+        order = self.client.get("/api/ah/orders/2").get_json()
+        item = order["items"][0]
+        self.assertEqual((item["category"], item["discount"], item["timesBefore"]), ("groente_fruit", None, 0))
+        self.assertEqual((order["saved"], order["savedPercent"], order["status"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
+
+    def test_a_failing_regular_price_fill_still_shows_the_order(self):
+        from mealieshopper import prices
+
+        self.store_order(1, "2026-09-21", [{"productId": 1, "title": "AH Bananen", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": ""}])
+        with mock.patch.object(prices, "fill_regular_prices", side_effect=RuntimeError("kapot")), self.assertLogs("mealieshopper.purchase_lines", "WARNING"):
+            response = self.client.get("/api/ah/orders/1")
+        self.assertEqual(response.status_code, 200)
+        item = response.get_json()["items"][0]
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"]), (1.39, "store", 36))  # de prijs ervoor van AH
+
+    def test_a_receipt_detail_matches_its_bonus_lines_and_sums_the_saving(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, ?, '[]', 'x')",
+                (json.dumps([{"name": "AH ROOMKAAS", "amount": -3.97}]),),
+            )
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'AH ROOMKAAS', 4, 0.99, 3.96)")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 1, 556, 'BROOD', 1, 2.0, 2.0)")
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        first, second = receipt["items"]
+        self.assertEqual((first["bonus"], first["paidEach"], first["discount"], first["category"]), (3.97, 0.0, 100, "kaas_vleeswaren"))
+        self.assertEqual((second["bonus"], second["paidEach"], second["regularPrice"], second["discount"]), (0.0, 2.0, None, None))
+        # De bonus is groter dan de regel (4 x 0.99 = 3.96): je bespaart nooit meer dan de regel kostte.
+        self.assertEqual((receipt["saved"], receipt["status"], receipt["statusText"]), (3.96, "receipt", None))
+        self.assertEqual(receipt["discounts"], [{"name": "AH ROOMKAAS", "amount": -3.97}])  # de bestaande velden blijven
+
+    def test_a_linked_receipt_line_uses_the_regular_price_of_its_webshop_product(self):
+        self.store_order(1, "2026-09-01", [{"productId": 4183, "title": "AH Roomkaas", "quantity": 1, "price": 1.19, "priceBeforeBonus": 1.19, "taxonomy": "Kaas"}])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, discounts, payments, first_seen) VALUES ('R1', '2026-09-21T10:00:00', 0, 1, '[]', '[]', 'x')")
+            conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'AH ROOMKAAS', 1, 0.89, 0.89)")
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 4183, 'AH Roomkaas', 'x')")
+        receipt = self.client.get("/api/ah/receipts/R1").get_json()
+        item = receipt["items"][0]
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"], item["timesBefore"]), (1.19, "history", 25, 1))
+        self.assertEqual((receipt["saved"], receipt["savedPercent"]), (0.3, 25))
+
+
 class ReceiptProductsTest(AhOrdersTestCase):
     """Het id op een bon is AH's artikelnummer (hqId), niet het id van de webwinkel (issue #178)."""
 

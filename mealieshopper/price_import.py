@@ -28,7 +28,7 @@ from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any
 
-from . import auth, offers
+from . import auth, offers, purchase_lines
 from .i18n import tr
 
 STORES = offers.STORES
@@ -516,7 +516,9 @@ def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
 
 def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
-    een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`)."""
+    een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
+    de velden van `purchase_lines.enrich`: de korting is die tegen de prijs uit de mail (`price`, `discountSource` `store`), want
+    voor deze regels bewaren we geen gewone prijs van 30 dagen. `status` blijft die uit de mail, `statusText` is altijd None."""
     from . import prices
 
     key = _store(store)
@@ -537,7 +539,9 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
             "productId": product.get("productId"), "image": product.get("image"), "brand": product.get("brand"),
             "unitSize": product.get("unitSize"),
         })
-    return {**_order_json(key, rows[0]), "items": items}
+    with closing(_connect()) as conn:
+        totals = purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)
+    return {**_order_json(key, rows[0]), "items": items, **totals, "statusText": None}
 
 
 def search_lines(conn, store: str, words: list[str], fold) -> list[dict[str, Any]]:

@@ -25,7 +25,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
-from . import ah, ah_lists, auth, image_cache, price_import
+from . import ah, ah_lists, auth, image_cache, price_import, purchase_lines
 
 log = logging.getLogger(__name__)
 
@@ -414,13 +414,26 @@ def list_orders(summary: bool = False) -> dict[str, Any]:
     }
 
 
+def _order_day(row: Any) -> str:
+    """De aankoopdag van een bestelling: de bezorgdag, anders de dag waarop de app hem voor het eerst zag (zoals in `prices`)."""
+    return str(row["delivery_date"] or row["first_seen"] or "")[:10]
+
+
 def get_order(order_id: int) -> dict[str, Any] | None:
+    """Een bestelling met haar producten. Elke regel krijgt de velden van `purchase_lines.enrich` (categorie, korting tegen de gewone
+    prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `status` en `statusText`. De gewone prijs van de
+    regels wordt eerst bijgewerkt (`purchase_lines.fill_regular`)."""
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),)).fetchone()
         if not row:
             return None
-        items = conn.execute("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),)).fetchall()
-    return {**_order_json(row, len(items)), "items": [_item_json(item) for item in items]}
+    purchase_lines.fill_regular("ah", order_ids=[int(order_id)])
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),)).fetchall()
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
+    state, text = purchase_lines.status("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "status": state, "statusText": text}
 
 
 # --- kassabonnen ----------------------------------------------------------------------------------
@@ -811,9 +824,30 @@ def _receipt_lines(conn, receipt_id: str) -> list[dict[str, Any]]:
         {
             "productId": row["product_id"], "name": row["name"], "quantity": row["quantity"], "price": row["price"], "amount": row["amount"],
             "product": {"id": row["webshop_id"], "title": row["webshop_title"], "image": row["webshop_image"] or ""} if row["webshop_id"] else None,
+            "regularPrice": row["regular_price"],
         }
         for row in rows
     ]
+
+
+def _json_list(value: Any) -> list[Any]:
+    """Een JSON-lijst uit een kolom. Iets anders (leeg, kapot, geen lijst) wordt een lege lijst."""
+    try:
+        parsed: Any = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _enrich_receipt(conn, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
+    """Zet bij elke bonregel het bonusbedrag (`bonus`, van de bonusregels onderaan de bon) en de velden van `purchase_lines.enrich`.
+    Geeft `saved`, `savedPercent`, `status` en `statusText` van de bon."""
+    bonus = purchase_lines.match_receipt_bonus(lines, _json_list(row["discounts"]))
+    for index, line in enumerate(lines):
+        line["bonus"] = bonus.get(index, 0.0)
+    totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines)
+    state, text = purchase_lines.status("receipt", row)
+    return {**totals, "status": state, "statusText": text}
 
 
 _RECEIPT_IMAGES_MISSING_SQL = """
@@ -834,14 +868,12 @@ def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = Non
             return None
         lines = _receipt_lines(conn, receipt_id)
     result: dict[str, Any] = {}
-    changed = False
     if lookup:
         unlinked = [line["name"] for line in lines if line["product"] is None and line["productId"]]
         try:
             result["products"] = lookup(unlinked) if unlinked else {"found": 0, "missing": 0, "failed": 0, "searches": 0}
         except Exception:  # noqa: BLE001 - de koppeling is een extraatje; de bon zelf is wat je wilde zien
             result["products"] = None
-        changed = bool(unlinked)
     if images:
         with closing(_connect()) as conn:
             missing = {int(row_id[0]) for row_id in conn.execute(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
@@ -849,15 +881,17 @@ def get_receipt(receipt_id: str, lookup: Callable[[list[str]], Any] | None = Non
             result["images"] = backfill_receipt_images(batches=1, only=missing) if missing else {"products": 0, "requests": 0, "failed": 0}
         except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
             result["images"] = None
-        changed = changed or bool(missing)
-    if changed:
-        with closing(_connect()) as conn:
-            lines = _receipt_lines(conn, receipt_id)
+    # Na het koppelen kunnen er regels bij een product horen, dus pas nu de gewone prijs van 30 dagen bijwerken en lezen.
+    purchase_lines.fill_regular("ah", receipt_ids=[receipt_id])
+    with closing(_connect()) as conn:
+        lines = _receipt_lines(conn, receipt_id)
+        enriched = _enrich_receipt(conn, row, lines)
     return {
         **_receipt_json(row, len(lines)),
         "items": lines,
-        "discounts": json.loads(row["discounts"] or "[]"),
-        "payments": json.loads(row["payments"] or "[]"),
+        "discounts": _json_list(row["discounts"]),
+        "payments": _json_list(row["payments"]),
+        **enriched,
         **result,
     }
 

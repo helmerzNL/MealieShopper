@@ -7,6 +7,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
@@ -379,6 +380,24 @@ class RoutesTest(TempDataDirTest):
             failed = self.client.post("/api/jumbo/orders/sync")
         self.assertEqual(failed.status_code, 424)
         self.assertEqual(len(self.client.get("/api/jumbo/orders").get_json()["orders"]), 1)
+
+
+class DetailEnrichmentTest(TempDataDirTest):
+    def test_an_order_detail_carries_the_category_from_the_jumbo_taxonomy_the_discount_and_the_status(self):
+        with closing(jumbo_orders._connect()) as conn, conn:
+            jumbo_orders._save_order(conn, {"id": "J1", "deliveryDate": "2026-09-01"}, [
+                {"productId": "1STK", "title": "Jumbo Huismerk 1", "quantity": 1, "price": 1.19, "taxonomy": "Zuivel"},
+            ])
+            jumbo_orders._save_order(conn, {"id": "J2", "deliveryDate": "2026-09-21"}, [
+                {"productId": "1STK", "title": "Jumbo Huismerk 1", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": "Zuivel"},
+            ])
+        order = create_app().test_client().get("/api/jumbo/orders/J2").get_json()
+        item = order["items"][0]
+        # De titel zegt niets, de taxonomie van Jumbo ("Zuivel") komt als hint mee. De gewone prijs komt uit bestelling J1.
+        self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]),
+                         ("zuivel_eieren", 1.19, 25, "history", 1))
+        self.assertEqual((order["saved"], order["savedPercent"], order["status"], order["statusText"]), (0.6, 25, "delivered", None))
+        self.assertEqual(order["stateText"], None)  # de bestaande velden blijven
 
 
 class McpAndExplorerTest(TempDataDirTest):

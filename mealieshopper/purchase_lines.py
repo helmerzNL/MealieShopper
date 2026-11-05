@@ -1,0 +1,278 @@
+"""De regels van een aankoop verrijkt voor de detailroutes: categorie, korting, eerder gekocht, bespaard en status.
+
+Eén plek voor de vier soorten aankopen (een bestelling van AH of Jumbo, een kassabon van AH en een ingelezen bestelling), zodat de
+bestelpagina ze op dezelfde manier toont. De korting is die tegen de gewone prijs van 30 dagen (de kolom `regular_price`, die
+`prices.fill_regular_prices` vult), en zonder die prijs de prijs ervoor die de winkel zelf noemt.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from collections.abc import Iterable, Mapping
+from typing import Any
+
+from .offer_categories import purchase_category
+
+log = logging.getLogger(__name__)
+
+KINDS: tuple[str, ...] = ("order", "receipt", "imported")
+# Kortere namen (na het weglaten van "ah") passen op te veel regels van een bon.
+MIN_KEY: int = 3
+
+
+def discount_percent(regular: float | None, paid: float | None) -> int | None:
+    """De korting in hele procenten: `(regular - paid) / regular * 100`, hooguit 100. None zonder prijzen, bij een gewone prijs van
+    nul of minder, of als de korting onder 1% blijft (ook als je meer betaalde)."""
+    if regular is None or paid is None or regular <= 0:
+        return None
+    raw: float = (regular - paid) / regular * 100
+    return min(round(raw), 100) if raw >= 1 else None
+
+
+def _fold(name: Any) -> str:
+    """Kleine letters zonder spaties en leestekens: "AH ROOMKAAS" en "AHROOMKAAS" worden allebei "ahroomkaas"."""
+    return re.sub(r"[\W_]+", "", str(name or "").casefold())
+
+
+def _keys(name: Any) -> set[str]:
+    """De gevouwen naam, en dezelfde naam zonder het huismerk vooraan: een bonusregel heet "AHKOMKOMMERP", de regel "KOMKOMMER"."""
+    folded: str = _fold(name)
+    keys: set[str] = {folded, folded.removeprefix("ah")}
+    return {key for key in keys if len(key) >= MIN_KEY}
+
+
+def _matches(bonus_keys: set[str], line_keys: set[str]) -> bool:
+    return any(
+        a.startswith(b) or b.startswith(a) for a in bonus_keys for b in line_keys
+    )
+
+
+def _bonus_amount(discount: Any) -> float | None:
+    """Het bedrag van een bonusregel, positief. None voor iets dat geen korting is (een positief of onleesbaar bedrag)."""
+    amount: float | None = _number(discount.get("amount")) if isinstance(discount, Mapping) else None
+    return -amount if amount is not None and amount < 0 else None
+
+
+def match_receipt_bonus(
+    lines: list[dict[str, Any]], discounts: list[dict[str, Any]]
+) -> dict[int, float]:
+    """Per regelindex het bonusbedrag (positief) van de bonusregels die bij die regel horen.
+
+    Een bonusregel hoort bij een regel als de ene gevouwen naam (`_keys`) een voorvoegsel is van de andere: AH kort de namen op de bon
+    af. Een bonusregel telt één keer, bij de eerste passende regel in de volgorde van de bon. Een regel kan meer bonusregels krijgen.
+    """
+    line_keys: list[set[str]] = [_keys(line.get("name")) for line in lines]
+    found: dict[int, float] = {}
+    for discount in discounts if isinstance(discounts, list) else []:
+        amount: float | None = _bonus_amount(discount)
+        if amount is None:
+            continue
+        keys: set[str] = _keys(discount.get("name"))
+        for index, candidates in enumerate(line_keys):
+            if keys and candidates and _matches(keys, candidates):
+                found[index] = round(found.get(index, 0.0) + amount, 2)
+                break
+    return found
+
+
+def _tables(conn) -> set[str]:
+    return {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+
+
+def _count(conn, sql: str, ids: list[str], before_day: str) -> dict[str, int]:
+    marks: str = ", ".join("?" * len(ids))
+    return {
+        str(row[0]): int(row[1])
+        for row in conn.execute(sql.format(marks=marks), (*ids, before_day))
+    }
+
+
+# De aankoopdag van een bestelling, zoals in `prices`: de bezorgdag, anders de dag waarop de app hem voor het eerst zag.
+_ORDER_DAY: str = (
+    "COALESCE(NULLIF(substr(o.delivery_date, 1, 10), ''), substr(o.first_seen, 1, 10))"
+)
+
+
+def times_before(
+    conn, store: str, product_ids: Iterable[Any], before_day: str
+) -> dict[str, int]:
+    """Hoe vaak je elk product eerder kocht: het aantal bestellingen (`<store>_order_items`) van vóór `before_day` met dat product,
+    plus bij AH het aantal kassabonnen van vóór die dag met een regel die via `ah_receipt_products` bij dat product hoort.
+
+    Een aankoop telt één keer, ook als het product er op twee regels staat. Een product dat je niet eerder kocht ontbreekt.
+    """
+    ids: list[str] = sorted(
+        {
+            str(product_id)
+            for product_id in product_ids
+            if product_id not in (None, "", 0)
+        }
+    )
+    if conn is None or not ids or store not in ("ah", "jumbo"):
+        return {}
+    tables: set[str] = _tables(conn)
+    counts: dict[str, int] = {}
+    if {f"{store}_orders", f"{store}_order_items"} <= tables:
+        counts = _count(
+            conn,
+            f"""
+            SELECT CAST(i.product_id AS TEXT), COUNT(DISTINCT i.order_id) FROM {store}_order_items i
+            JOIN {store}_orders o ON o.order_id = i.order_id
+            WHERE CAST(i.product_id AS TEXT) IN ({{marks}}) AND {_ORDER_DAY} < ? GROUP BY 1""",
+            ids,
+            before_day,
+        )
+    if (
+        store == "ah"
+        and {"ah_receipts", "ah_receipt_items", "ah_receipt_products"} <= tables
+    ):
+        receipts: dict[str, int] = _count(
+            conn,
+            """
+            SELECT CAST(p.product_id AS TEXT), COUNT(DISTINCT l.receipt_id) FROM ah_receipt_items l
+            JOIN ah_receipts r ON r.receipt_id = l.receipt_id
+            JOIN ah_receipt_products p ON p.receipt_product_id = l.product_id
+            WHERE CAST(p.product_id AS TEXT) IN ({marks}) AND substr(r.date_time, 1, 10) < ? GROUP BY 1""",
+            ids,
+            before_day,
+        )
+        for product_id, count in receipts.items():
+            counts[product_id] = counts.get(product_id, 0) + count
+    return counts
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _product_id(kind: str, item: Mapping[str, Any]) -> Any:
+    """Het product van de webwinkel: bij een bonregel uit de koppeling (`product`), anders `productId`."""
+    if kind == "receipt":
+        product: Any = item.get("product")
+        return product.get("id") if isinstance(product, Mapping) else None
+    return item.get("productId")
+
+
+def _title(kind: str, item: Mapping[str, Any]) -> str:
+    if kind == "receipt":
+        product: Any = item.get("product")
+        linked: Any = product.get("title") if isinstance(product, Mapping) else None
+        return str(linked or item.get("name") or "")
+    return str(item.get("title") or "")
+
+
+def _paid_each(kind: str, item: Mapping[str, Any], quantity: float) -> float | None:
+    """Wat je per stuk betaalde. Bestelling: `price`, ingelezen: `paid`, bon: `price` min de bonus per stuk, nooit onder nul."""
+    if kind == "imported":
+        return _number(item.get("paid"))
+    price: float | None = _number(item.get("price"))
+    if kind != "receipt" or price is None or quantity <= 0:
+        return price
+    return max(price - (_number(item.get("bonus")) or 0.0) / quantity, 0.0)
+
+
+def _store_regular(kind: str, item: Mapping[str, Any]) -> float | None:
+    """De prijs ervoor die de winkel zelf noemt: bij een bestelling `priceBeforeBonus`, bij een ingelezen bestelling de prijs uit de
+    mail (`price`) en op een bon de prijs op de regel als er een bonus bij hoort (de bon noemt de prijs vóór de bonus)."""
+    if kind == "order":
+        return _number(item.get("priceBeforeBonus"))
+    if kind == "imported":
+        return _number(item.get("price"))
+    return (
+        _number(item.get("price")) if (_number(item.get("bonus")) or 0.0) > 0 else None
+    )
+
+
+def enrich(
+    conn, store: str, kind: str, day: str, items: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Zet op elke regel `category`, `regularPrice`, `discount`, `discountSource`, `timesBefore` en `paidEach`. Past de dicts aan.
+
+    `kind` is `order`, `receipt` of `imported`. `regularPrice` op de regel is bij binnenkomst de kolom `regular_price` (de gewone
+    prijs van 30 dagen, `discountSource` `history`). Zonder die prijs wordt het de prijs ervoor van de winkel (`_store_regular`,
+    `discountSource` `store`), anders None. Een regel zonder aantal krijgt geen korting. Een bonregel heeft `bonus` (het bedrag van
+    `match_receipt_bonus`). Geeft `saved` (de som van `(regularPrice - paidEach) * quantity` waar dat positief is) en `savedPercent`
+    (`saved` als deel van wat de regels zonder korting hadden gekost) voor de aankoop.
+    """
+    if kind not in KINDS:
+        raise ValueError(f"onbekende soort aankoop: {kind}")
+    counts: dict[str, int] = times_before(
+        conn, store, [_product_id(kind, item) for item in items], day
+    )
+    saved: float = 0.0
+    paid_total: float = 0.0
+    for item in items:
+        quantity: float = _number(item.get("quantity")) or 0.0
+        paid: float | None = _paid_each(kind, item, quantity)
+        history: float | None = _number(item.get("regularPrice"))
+        regular: float | None = (
+            history if history is not None else _store_regular(kind, item)
+        )
+        product_id: Any = _product_id(kind, item)
+        item["category"] = purchase_category(
+            store, item.get("taxonomy"), _title(kind, item)
+        )
+        item["regularPrice"] = regular
+        item["discountSource"] = (
+            None if regular is None else ("history" if history is not None else "store")
+        )
+        item["discount"] = discount_percent(regular, paid) if quantity > 0 else None
+        item["timesBefore"] = (
+            counts.get(str(product_id), 0) if product_id not in (None, "", 0) else 0
+        )
+        item["paidEach"] = round(paid, 2) if paid is not None else None
+        if quantity <= 0 or paid is None:
+            continue
+        paid_total += paid * quantity
+        if regular is not None and regular > paid:
+            saved += (regular - paid) * quantity
+    saved = round(saved, 2)
+    return {
+        "saved": saved,
+        "savedPercent": discount_percent(paid_total + saved, paid_total)
+        if saved > 0
+        else None,
+    }
+
+
+def status(kind: str, row: Mapping[str, Any] | Any) -> tuple[str, str | None]:
+    """De status van een aankoop met de tekst van de winkel: `delivered`, `planned` (met de `state_text` van AH, Jumbo heeft die niet),
+    `imported` of `receipt`."""
+    if kind == "imported":
+        return "imported", None
+    if kind == "receipt":
+        return "receipt", None
+    if row["kind"] == "delivered":
+        return "delivered", None
+    keys: Iterable[str] = row.keys()
+    return "planned", (row["state_text"] or None) if "state_text" in keys else None
+
+
+def fill_regular(
+    store: str,
+    *,
+    order_ids: list[Any] | None = None,
+    receipt_ids: list[Any] | None = None,
+) -> None:
+    """Vul de gewone prijs van 30 dagen bij de regels van de aankoop die je opent (`prices.fill_regular_prices`). Een fout komt in
+    het log en laat de aankoop gewoon zien: de korting valt dan terug op de prijs ervoor van de winkel."""
+    # prices leest ah_orders en price_import, die deze module gebruiken: pas hier ophalen houdt de import rond.
+    from . import prices
+
+    try:
+        prices.fill_regular_prices(store, order_ids=order_ids, receipt_ids=receipt_ids)
+    except Exception:  # noqa: BLE001 - de gewone prijs is een extraatje, de aankoop is wat je wilde zien
+        log.warning(
+            "Gewone prijs bij het openen van een aankoop mislukt voor %s",
+            store,
+            exc_info=True,
+        )

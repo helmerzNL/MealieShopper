@@ -17,7 +17,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import ah_orders, auth, image_cache, jumbo, price_import
+from . import ah_orders, auth, image_cache, jumbo, price_import, purchase_lines
 from .ah_lists import _fold
 
 ORDER_DETAILS_PER_SYNC = 25  # een synchronisatie blijft kort; de rest volgt bij de volgende
@@ -229,12 +229,19 @@ def list_orders(summary: bool = False) -> dict[str, Any]:
 
 
 def get_order(order_id: Any) -> dict[str, Any] | None:
+    """Een bestelling met haar producten, verrijkt zoals bij AH (`ah_orders.get_order`): de categorie komt uit de titel met de
+    taxonomie van Jumbo als hint."""
     with closing(_connect()) as conn:
         row = conn.execute("SELECT * FROM jumbo_orders WHERE order_id = ?", (str(order_id),)).fetchone()
         if not row:
             return None
-        items = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
-    return {**_order_json(row, len(items)), "items": [_item_json(item) for item in items]}
+    purchase_lines.fill_regular("jumbo", order_ids=[str(order_id)])
+    with closing(_connect()) as conn:
+        rows = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
+    state, text = purchase_lines.status("order", row)
+    return {**_order_json(row, len(items)), "items": items, **totals, "status": state, "statusText": text}
 
 
 def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:

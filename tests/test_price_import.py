@@ -300,7 +300,8 @@ class OrdersTest(ImportCase):
         order = price_import.get_order("ah", "225301")
         self.assertEqual(order["deliveryDate"], "2025-03-14")
         unlinked = {"productId": None, "image": None, "brand": None, "unitSize": None}  # nog geen product van AH bekend
-        self.assertEqual(order["items"], [
+        mail_fields = ("title", "quantity", "paid", "price", "amount", "bonus", *unlinked)  # de verrijking staat erbij, zie hieronder
+        self.assertEqual([{field: item[field] for field in mail_fields} for item in order["items"]], [
             {"title": "AH Bananen tros", "quantity": 2, "paid": 1.19, "price": 1.19, "amount": 2.38, "bonus": False, **unlinked},
             {"title": "AH Greenfields Beefburger naturel 2 stuks", "quantity": 16, "paid": 2.5, "price": 4.99, "amount": 40.0, "bonus": True,
              **unlinked},
@@ -356,6 +357,18 @@ class OrdersTest(ImportCase):
             self.assertTrue({"status", "slot_start", "slot_end"} <= {row["name"] for row in conn.execute("PRAGMA table_info(imported_purchases)")})
         self.run_import({**mail_order(number="777", day="2025-04-01"), "status": "delivered"})
         self.assertEqual(price_import.get_order("ah", "777")["status"], "delivered")
+
+    def test_an_imported_order_detail_carries_the_category_the_discount_from_the_mail_and_the_saving(self):
+        self.run_import(mail_order())
+        order = price_import.get_order("ah", "225301")
+        bananas, burgers = order["items"]
+        self.assertEqual((bananas["category"], bananas["regularPrice"], bananas["discount"], bananas["paidEach"]), ("groente_fruit", 1.19, None, 1.19))
+        # 16 x 4.99 met 39.92 korting (2.50 per stuk): de helft. De gewone prijs is die uit de mail.
+        self.assertEqual((burgers["category"], burgers["regularPrice"], burgers["discount"], burgers["discountSource"], burgers["timesBefore"]),
+                         ("vlees", 4.99, 50, "store", 0))
+        # (4.99 - 2.50) x 16 = 39.84 bespaard op 2.38 + 40.00 betaald: 48%.
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusText"]), (39.84, 48, None))
+        self.assertEqual((order["status"], burgers["price"], burgers["paid"], burgers["paidEach"]), ("delivered", 4.99, 2.5, 2.5))  # de bestaande velden blijven
 
     def test_an_imported_order_shows_the_products_it_belongs_to(self):
         # #229: dezelfde foto, het merk en de inhoud als in een bestelling uit je account, en het product voor de prijsgeschiedenis.
