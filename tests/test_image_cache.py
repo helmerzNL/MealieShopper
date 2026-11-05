@@ -188,6 +188,35 @@ class FetchTest(FetchCase):
         self.assertIsNone(image_cache.fetch(gone, now="2026-11-04T15:00:02+00:00"))
         self.assertEqual({row["url"]: row["attempts"] for row in image_cache._rows()}[gone], 3)
 
+    def test_a_photo_that_picnic_does_not_have_is_missing_and_does_not_pause_the_host(self):
+        # #236: Picnic bewaart zijn foto's in Amazon S3. Een foto die er niet is, geeft daar 403 AccessDenied in XML, geen 404. Dat
+        # zette de hele host twaalf uur stil, zodat na een recept zonder foto ook de foto's van alle andere recepten wegbleven.
+        base = "https://storefront-prod.nl.picnicinternational.com/static/images/recipes"
+        gone, other = f"{base}/ac1b02/medium.png", f"{base}/c09b4e/medium.png"
+        denied = b'<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>X</RequestId></Error>'
+        self.serve(gone, 403, "application/xml", denied)
+        self.serve(other, 200, "image/png", picture(4, 4))
+        self.assertIsNone(image_cache.fetch(gone, now=NOW))
+        self.assertIsNone(image_cache.paused_until("storefront-prod.nl.picnicinternational.com"))
+        self.assertIsNotNone(image_cache.fetch(other, now=NOW), "de andere foto's van Picnic komen gewoon")
+        row = {row["url"]: row for row in image_cache._rows()}[gone]
+        self.assertEqual(row["attempts"], 3, "telt als een 404: een week wachten")
+        self.assertIn("bestaat niet", row["error"])
+
+    def test_a_403_that_is_not_an_s3_error_still_pauses_the_host(self):
+        picnic = "https://storefront-prod.nl.picnicinternational.com/static/images/abc/medium.png"
+        for content_type, body in (
+            ("application/xml", b"<Error><Code>RequestLimitExceeded</Code></Error>"),  # andere XML: geen ontbrekend bestand
+            ("text/html", b"<html><body><Error><Code>AccessDenied</Code></Error></body></html>"),  # alleen XML telt
+        ):
+            with self.subTest(content_type=content_type):
+                auth.set_setting(image_cache.SETTING_PAUSED + "storefront-prod.nl.picnicinternational.com", "")
+                with closing(image_cache._connect()) as conn, conn:
+                    conn.execute("DELETE FROM image_cache")
+                self.serve(picnic, 403, content_type, body)
+                self.assertIsNone(image_cache.fetch(picnic, now=NOW))
+                self.assertEqual(image_cache.paused_until("storefront-prod.nl.picnicinternational.com"), "2026-11-04T15:00:00+00:00")
+
     def test_failures_wait_a_day_then_a_week_then_forever(self):
         hours = lambda n: f"2026-11-{4 + n // 24:02d}T{n % 24:02d}:00:00+00:00"  # noqa: E731
         row = {"path": None, "attempts": 1, "last_attempt_at": NOW}

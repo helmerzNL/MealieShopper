@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.7.1
+
+### Opgelost in 3.7.1
+
+*English summary: one Picnic recipe without a photo no longer hides the photos of all other recipes (and Picnic products) for twelve hours. Picnic keeps its photos in Amazon S3, which answers a photo that does not exist with 403 AccessDenied instead of 404. The image cache took that 403 for a block and paused the whole Picnic host for twelve hours. It now counts such a 403 as a missing photo, like a 404, and only pauses a host for a real block (any other 403, or a 429). Fixes [#236](https://github.com/helmerzNL/MealieShopper/issues/236).*
+
+- **Picnic: één recept zonder foto houdt de andere foto's niet meer tegen** ([#236](https://github.com/helmerzNL/MealieShopper/issues/236)). Onder *Recepten van Picnic* bleven foto's weg. Picnic bewaart zijn foto's in Amazon S3, en S3 antwoordt op een foto die er niet is met `403 AccessDenied` (in XML), niet met een 404. De afbeeldingencache las elke 403 als een blokkade en zette de hele host `storefront-prod.nl.picnicinternational.com` twaalf uur stil. Na drie recepten zonder foto kwam er daardoor twaalf uur lang geen enkele foto van Picnic meer, ook niet van producten. Nu telt een 403 met de foutmelding van S3 (`AccessDenied` of `NoSuchKey`) als een foto die ontbreekt, net als een 404: dat ene adres wacht een week, de rest komt gewoon. Een echte blokkade (een andere 403, of een 429) zet de host nog steeds twaalf uur stil.
+- **Een pauze van voor deze versie** loopt nog af: hooguit twaalf uur na de eerste fout. Daarna komen de foto's vanzelf.
+- **Handleiding** (NL en EN): de foto's van recepten gaan ook via de cache, en een foto die de winkel niet heeft, houdt de andere niet tegen.
+
 ## v3.7.0
 
 ### Nieuw en opgelost in 3.7.0
