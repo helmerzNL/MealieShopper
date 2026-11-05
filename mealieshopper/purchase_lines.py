@@ -54,26 +54,37 @@ def _bonus_amount(discount: Any) -> float | None:
     return -amount if amount is not None and amount < 0 else None
 
 
-def match_receipt_bonus(
-    lines: list[dict[str, Any]], discounts: list[dict[str, Any]]
-) -> dict[int, float]:
-    """Per regelindex het bonusbedrag (positief) van de bonusregels die bij die regel horen.
-
-    Een bonusregel hoort bij een regel als de ene gevouwen naam (`_keys`) een voorvoegsel is van de andere: AH kort de namen op de bon
-    af. Een bonusregel telt één keer, bij de eerste passende regel in de volgorde van de bon. Een regel kan meer bonusregels krijgen.
-    """
+def _assign_bonus(lines: list[dict[str, Any]], discounts: Any) -> tuple[dict[int, float], float]:
+    """Verdeel de bonusregels over de regels van de bon (zie `match_receipt_bonus`). Geeft per regelindex het bonusbedrag en het
+    totaal van de bonusregels die bij geen enkele regel passen."""
     line_keys: list[set[str]] = [_keys(line.get("name")) for line in lines]
     found: dict[int, float] = {}
+    unmatched: float = 0.0
     for discount in discounts if isinstance(discounts, list) else []:
         amount: float | None = _bonus_amount(discount)
         if amount is None:
             continue
         keys: set[str] = _keys(discount.get("name"))
-        for index, candidates in enumerate(line_keys):
-            if keys and candidates and _matches(keys, candidates):
-                found[index] = round(found.get(index, 0.0) + amount, 2)
-                break
-    return found
+        index: int | None = next((index for index, candidates in enumerate(line_keys) if keys and candidates and _matches(keys, candidates)), None)
+        if index is None:
+            unmatched += amount
+        else:
+            found[index] = round(found.get(index, 0.0) + amount, 2)
+    return found, round(unmatched, 2)
+
+
+def match_receipt_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]) -> dict[int, float]:
+    """Per regelindex het bonusbedrag (positief) van de bonusregels die bij die regel horen.
+
+    Een bonusregel hoort bij een regel als de ene gevouwen naam (`_keys`) een voorvoegsel is van de andere: AH kort de namen op de bon
+    af. Een bonusregel telt één keer, bij de eerste passende regel in de volgorde van de bon. Een regel kan meer bonusregels krijgen.
+    """
+    return _assign_bonus(lines, discounts)[0]
+
+
+def unmatched_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]) -> float:
+    """Het bedrag (positief) van de bonusregels die bij geen regel van de bon passen. Dat telt alleen in het totaal (`enrich`)."""
+    return _assign_bonus(lines, discounts)[1]
 
 
 def _tables(conn) -> set[str]:
@@ -192,9 +203,26 @@ def _store_regular(kind: str, item: Mapping[str, Any]) -> float | None:
     )
 
 
-def enrich(
-    conn, store: str, kind: str, day: str, items: list[dict[str, Any]]
-) -> dict[str, Any]:
+def _enrich_line(store: str, kind: str, item: dict[str, Any], counts: dict[str, int]) -> tuple[float, float]:
+    """Zet de velden van `enrich` op één regel. Geeft wat de regel kostte en wat hij bespaarde (allebei 0 zonder aantal of prijs)."""
+    quantity: float = _number(item.get("quantity")) or 0.0
+    paid: float | None = _paid_each(kind, item, quantity)
+    history: float | None = _number(item.get("regularPrice"))
+    regular: float | None = history if history is not None else _store_regular(kind, item)
+    product_id: Any = _product_id(kind, item)
+    item["category"] = purchase_category(store, item.get("taxonomy"), _title(kind, item))
+    item["regularPrice"] = regular
+    item["discountSource"] = None if regular is None else ("history" if history is not None else "store")
+    item["discount"] = discount_percent(regular, paid) if quantity > 0 else None
+    item["timesBefore"] = counts.get(str(product_id), 0) if product_id not in (None, "", 0) else 0
+    item["paidEach"] = round(paid, 2) if paid is not None else None
+    if quantity <= 0 or paid is None:
+        return 0.0, 0.0
+    saved: float = (regular - paid) * quantity if regular is not None and regular > paid else 0.0
+    return paid * quantity, saved
+
+
+def enrich(conn, store: str, kind: str, day: str, items: list[dict[str, Any]], *, unmatched_bonus: float = 0.0) -> dict[str, Any]:
     """Zet op elke regel `category`, `regularPrice`, `discount`, `discountSource`, `timesBefore` en `paidEach`. Past de dicts aan.
 
     `kind` is `order`, `receipt` of `imported`. `regularPrice` op de regel is bij binnenkomst de kolom `regular_price` (de gewone
@@ -202,46 +230,22 @@ def enrich(
     `discountSource` `store`), anders None. Een regel zonder aantal krijgt geen korting. Een bonregel heeft `bonus` (het bedrag van
     `match_receipt_bonus`). Geeft `saved` (de som van `(regularPrice - paidEach) * quantity` waar dat positief is) en `savedPercent`
     (`saved` als deel van wat de regels zonder korting hadden gekost) voor de aankoop.
+
+    `unmatched_bonus` is het bedrag van de bonusregels van een bon die bij geen regel passen (`unmatched_bonus()`). Het telt mee in
+    `saved` en gaat af van wat je betaalde, dus niet van een regel.
     """
     if kind not in KINDS:
         raise ValueError(f"onbekende soort aankoop: {kind}")
-    counts: dict[str, int] = times_before(
-        conn, store, [_product_id(kind, item) for item in items], day
-    )
-    saved: float = 0.0
+    counts: dict[str, int] = times_before(conn, store, [_product_id(kind, item) for item in items], day)
     paid_total: float = 0.0
+    saved: float = max(unmatched_bonus, 0.0)
     for item in items:
-        quantity: float = _number(item.get("quantity")) or 0.0
-        paid: float | None = _paid_each(kind, item, quantity)
-        history: float | None = _number(item.get("regularPrice"))
-        regular: float | None = (
-            history if history is not None else _store_regular(kind, item)
-        )
-        product_id: Any = _product_id(kind, item)
-        item["category"] = purchase_category(
-            store, item.get("taxonomy"), _title(kind, item)
-        )
-        item["regularPrice"] = regular
-        item["discountSource"] = (
-            None if regular is None else ("history" if history is not None else "store")
-        )
-        item["discount"] = discount_percent(regular, paid) if quantity > 0 else None
-        item["timesBefore"] = (
-            counts.get(str(product_id), 0) if product_id not in (None, "", 0) else 0
-        )
-        item["paidEach"] = round(paid, 2) if paid is not None else None
-        if quantity <= 0 or paid is None:
-            continue
-        paid_total += paid * quantity
-        if regular is not None and regular > paid:
-            saved += (regular - paid) * quantity
+        paid, line_saved = _enrich_line(store, kind, item, counts)
+        paid_total += paid
+        saved += line_saved
+    paid_total = max(paid_total - max(unmatched_bonus, 0.0), 0.0)
     saved = round(saved, 2)
-    return {
-        "saved": saved,
-        "savedPercent": discount_percent(paid_total + saved, paid_total)
-        if saved > 0
-        else None,
-    }
+    return {"saved": saved, "savedPercent": discount_percent(paid_total + saved, paid_total) if saved > 0 else None}
 
 
 def status_kind(kind: str, row: Mapping[str, Any] | Any) -> tuple[str, str | None]:

@@ -97,6 +97,16 @@ class ReceiptBonusTest(unittest.TestCase):
         self.assertEqual(items[0]["timesBefore"], 0)  # zonder database: niets eerder
         self.assertEqual((totals["saved"], totals["savedPercent"]), (2.59, 100))
 
+    def test_a_bonus_line_that_matches_no_line_counts_only_in_the_total(self):
+        lines = [{"name": "BROOD", "quantity": 1, "price": 2.0, "amount": 2.0}, {"name": "WASMIDDEL", "quantity": 2, "price": 19.0, "amount": 38.0}]
+        discounts = [{"name": "PERLAHUISBLE", "amount": -17.97}, {"name": "BROOD", "amount": -0.5}]
+        self.assertEqual(purchase_lines.unmatched_bonus(lines, discounts), 17.97)
+        items = [{**lines[0], "bonus": 0.5}, {**lines[1], "bonus": 0.0}]
+        totals = purchase_lines.enrich(None, "ah", "receipt", "2025-05-19", items, unmatched_bonus=17.97)
+        self.assertEqual([item["paidEach"] for item in items], [1.5, 19.0])  # de regels zelf krijgen er niets van
+        # 0.50 + 17.97 = 18.47 bespaard. Betaald: 1.50 + 38.00 - 17.97 = 21.53, zonder korting 40.00: 46%.
+        self.assertEqual((totals["saved"], totals["savedPercent"]), (18.47, 46))
+
 
 class EnrichTest(unittest.TestCase):
     def test_the_column_wins_over_the_price_before_the_bonus_of_the_store(self):

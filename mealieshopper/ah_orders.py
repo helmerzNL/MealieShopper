@@ -842,10 +842,13 @@ def _json_list(value: Any) -> list[Any]:
 def _enrich_receipt(conn, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet bij elke bonregel het bonusbedrag (`bonus`, van de bonusregels onderaan de bon) en de velden van `purchase_lines.enrich`.
     Geeft `saved`, `savedPercent`, `statusKind` en `statusText` van de bon."""
-    bonus = purchase_lines.match_receipt_bonus(lines, _json_list(row["discounts"]))
+    discounts = _json_list(row["discounts"])
+    bonus = purchase_lines.match_receipt_bonus(lines, discounts)
     for index, line in enumerate(lines):
         line["bonus"] = bonus.get(index, 0.0)
-    totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines)
+    # Een bonusregel die bij geen regel past, telt alleen in het totaal.
+    unmatched = purchase_lines.unmatched_bonus(lines, discounts)
+    totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines, unmatched_bonus=unmatched)
     kind, text = purchase_lines.status_kind("receipt", row)
     return {**totals, "statusKind": kind, "statusText": text}
 
