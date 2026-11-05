@@ -636,14 +636,28 @@ class DetailEnrichmentTest(AhOrdersTestCase):
         self.assertNotIn("status", order)  # de nieuwe status staat naast de bestaande velden, niet in de plaats ervan
         self.assertEqual((item["priceBeforeBonus"], item["paidEach"], order["statusText"]), (1.39, 0.89, None))  # de bestaande velden blijven
 
-    def test_a_line_without_product_or_quantity_gets_no_discount_and_no_count(self):
-        self.store_order(1, "2026-09-01", [{"productId": None, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}])
-        self.store_order(2, "2026-09-21", [{"productId": None, "title": "AH Komkommer", "quantity": 0, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}],
+    def test_a_line_with_a_product_but_no_quantity_keeps_its_count_but_gets_no_discount(self):
+        # Een vervangen of geschrapte regel van AH: aantal 0. Eerder gekocht volgt het product, de korting en het bespaarde niet.
+        bought = {"productId": 1, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}
+        self.store_order(1, "2026-09-01", [bought])
+        self.store_order(2, "2026-09-08", [bought])
+        self.store_order(3, "2026-09-21", [{"productId": 1, "title": "AH Komkommer", "quantity": 0, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}],
                          kind="open", state_text="Ingepland")
+        response = self.client.get("/api/ah/orders/3")
+        self.assertEqual(response.status_code, 200)
+        order = response.get_json()
+        item = order["items"][0]
+        self.assertEqual((item["timesBefore"], item["discount"], item["category"]), (2, None, "groente_fruit"))
+        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
+
+    def test_a_line_without_a_product_gets_no_count_and_its_category_from_the_title(self):
+        self.store_order(1, "2026-09-01", [{"productId": None, "title": "AH Komkommer", "quantity": 1, "price": 0.85, "taxonomy": ""}])
+        self.store_order(2, "2026-09-21", [{"productId": None, "title": "AH Komkommer", "quantity": 2, "price": 0.85, "priceBeforeBonus": 1.0, "bonus": True, "taxonomy": ""}])
         order = self.client.get("/api/ah/orders/2").get_json()
         item = order["items"][0]
-        self.assertEqual((item["category"], item["discount"], item["timesBefore"]), ("groente_fruit", None, 0))
-        self.assertEqual((order["saved"], order["savedPercent"], order["statusKind"], order["statusText"]), (0.0, None, "planned", "Ingepland"))
+        self.assertEqual((item["timesBefore"], item["category"]), (0, "groente_fruit"))
+        # Zonder product geen gewone prijs van 30 dagen: de korting is die tegen de prijs ervoor van AH.
+        self.assertEqual((item["regularPrice"], item["discountSource"], item["discount"], order["saved"]), (1.0, "store", 15, 0.3))
 
     def test_a_failing_regular_price_fill_still_shows_the_order(self):
         from mealieshopper import prices
