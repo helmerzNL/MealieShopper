@@ -521,6 +521,8 @@ class ScheduleTest(TempDataDirTest):
              mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
             self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
+        self.assertIsNotNone(link.call_args.args[0])
+        self.assertEqual(link.call_args.args, fill.call_args.args, "koppelen en foto's delen een tijdstip: een laatste ronde")
         result = offers_schedule.status()["lastResult"]
         self.assertEqual((result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
                          ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}))

@@ -89,9 +89,12 @@ def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool 
     afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
     (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
     result = offers.sync_all()
+    # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
+    # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.
+    linking_now = _utc_iso(_local_now())
     extras = (
-        ("receiptProducts", ah_orders.resolve_receipt_products_nightly),
-        ("receiptImages", ah_orders.backfill_receipt_images_nightly),
+        ("receiptProducts", lambda: ah_orders.resolve_receipt_products_nightly(linking_now)),
+        ("receiptImages", lambda: ah_orders.backfill_receipt_images_nightly(linking_now)),
         ("regularPrices", prices.fill_regular_prices_nightly),
     )
     for key, task in extras:

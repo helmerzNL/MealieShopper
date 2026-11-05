@@ -890,7 +890,7 @@ class ReceiptProductsPolitenessTest(AhOrdersTestCase):
         self.receipt("R1", (20960, "BLOEMKOOL"))
         with mock.patch.object(ah_orders, "resolve_receipt_products", return_value={"found": 1}) as resolve:
             self.assertEqual(ah_orders.resolve_receipt_products_nightly(), {"found": 1})
-        resolve.assert_called_once_with(searches=ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
+        resolve.assert_called_once_with(None, searches=ah_orders.RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=ah_orders.RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
         with mock.patch.object(ah_orders, "resolve_receipt_products", side_effect=RuntimeError("kapot")):
             self.assertIsNone(ah_orders.resolve_receipt_products_nightly(), "de nachtelijke taak gaat altijd door")
 
@@ -982,6 +982,17 @@ class LinkingStatusTest(AhOrdersTestCase):
         last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
         self.assertEqual((last["at"], last["trigger"], last["searches"], last["images"]), ("2026-11-05T16:00:00+00:00", "list", 0, 0), "een nieuwe ronde begint opnieuw")
         self.assertEqual(ah_orders.linking_status()["lastRound"], last)
+
+    def test_the_nightly_linking_and_photos_land_in_one_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")
+        self.search_hq_ids.return_value = [(555, 1, "AH Komkommer", "")]
+        self.get_products_by_ids.return_value = [{"id": 2, "image": "https://static.ah.nl/2.jpg"}]
+        night = "2026-11-05T05:00:00+00:00"
+        ah_orders.resolve_receipt_products_nightly(night)
+        ah_orders.backfill_receipt_images_nightly(night)
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual(last, {"at": night, "searches": 1, "found": 1, "missing": 0, "failed": 0, "images": 1, "trigger": "nightly"})
 
     def test_a_paused_round_does_not_overwrite_the_last_round(self):
         auth.set_setting(ah_orders.SETTING_LAST_ROUND, json.dumps({"at": "2026-11-05T02:00:00+00:00", "found": 3}))

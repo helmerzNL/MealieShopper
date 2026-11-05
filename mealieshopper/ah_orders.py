@@ -807,23 +807,25 @@ def backfill_receipt_images_async() -> None:
         worker.start()
 
 
-def backfill_receipt_images_nightly() -> dict[str, Any] | None:
-    """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan."""
+def backfill_receipt_images_nightly(now: str | None = None) -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: foto's bij oude koppelingen, als er iets te doen is. Een fout laat de taak doorgaan. `now` is
+    hetzelfde tijdstip als bij `resolve_receipt_products_nightly`, zodat koppelen en foto's in een laatste ronde samenkomen."""
     try:
         if not _receipt_images_missing():
             return None
-        return backfill_receipt_images(trigger="nightly")
+        return backfill_receipt_images(now, trigger="nightly")
     except Exception:  # noqa: BLE001 - de foto's zijn een extraatje
         return None
 
 
-def resolve_receipt_products_nightly() -> dict[str, Any] | None:
-    """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan."""
+def resolve_receipt_products_nightly(now: str | None = None) -> dict[str, Any] | None:
+    """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan. `now` deelt
+    het met `backfill_receipt_images_nightly` (zie `offers_schedule.run_all`)."""
     try:
         with closing(_connect()) as conn:
             if not conn.execute("SELECT 1 FROM ah_receipt_items LIMIT 1").fetchone():
                 return None
-        return resolve_receipt_products(searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
+        return resolve_receipt_products(now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly")
     except Exception:  # noqa: BLE001 - het koppelen is een extraatje bij de aanbiedingen
         return None
 
