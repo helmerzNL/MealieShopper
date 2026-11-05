@@ -239,7 +239,7 @@ Met de maan- of zonknop naast de vlaggetjes wissel je tussen licht en donker; zo
 
 ## Eerste start
 
-Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Instellingen** (in het avatar-menu). Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
+Op een nieuwe installatie opent MealieShopper een installatiehulp van zes stappen. Bovenaan zie je in welke stap je zit; met *Terug* ga je een stap terug, en wat je overslaat doe je later onder **Instellingen** (in het avatar-menu, op een telefoon onder **Meer**). Een bestaande installatie (met een passkey of wachtwoord) ziet hem niet.
 
 **1. Beveiliging.** De app kijkt hoe je hem opent.
 
@@ -296,11 +296,11 @@ De plaatjes uit Mealie haalt MealieShopper zelf op met je API-token en bewaart z
 
 ### Mandje
 
-Het tabblad **Mandje** toont het mandje van de winkel die je bovenaan kiest (Albert Heijn, Picnic, Jumbo en Crisp, voor zover gekoppeld). Bij Albert Heijn is dat de boodschappenlijst waar het weekmenu in schrijft, uit een lokale kopie die je met **Synchroniseren** ververst. Bij Picnic pas je aantallen aan (met `−` en `+` of door te typen), haal je een product weg of leeg je het mandje na een bevestiging; dat gaat direct naar je echte mandje. Eronder staan het bedrag dat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten (kiezen doe je in de Picnic-app). Bij Crisp werkt het aanpassen en legen net zo; eronder staan wat je betaalt en hoeveel er nog bij moet tot het minimumbedrag van Crisp. Jumbo toont het mandje alleen. Na het vullen vanuit het weekmenu brengt **Mandje bekijken** je erheen.
+Het tabblad **Mandje** (op een telefoon in het menu **Meer**) toont het mandje van de winkel die je bovenaan kiest (Albert Heijn, Picnic, Jumbo en Crisp, voor zover gekoppeld). Bij Albert Heijn is dat de boodschappenlijst waar het weekmenu in schrijft, uit een lokale kopie die je met **Synchroniseren** ververst. Bij Picnic pas je aantallen aan (met `−` en `+` of door te typen), haal je een product weg of leeg je het mandje na een bevestiging; dat gaat direct naar je echte mandje. Eronder staan het bedrag dat je betaalt, wat je lidmaatschap bespaart en de eerstvolgende bezorgmomenten (kiezen doe je in de Picnic-app). Bij Crisp werkt het aanpassen en legen net zo; eronder staan wat je betaalt en hoeveel er nog bij moet tot het minimumbedrag van Crisp. Jumbo toont het mandje alleen. Na het vullen vanuit het weekmenu brengt **Mandje bekijken** je erheen.
 
 ### Recepten zoeken en importeren
 
-`Recepten zoeken` zoekt tegelijk in je eigen recepten in **Mealie** (zodra Mealie gekoppeld is; bovenaan, met `Meer recepten` voor de volgende pagina), bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie) en **Crisp** (de recepten in de Crisp-app, met de zoekfunctie van Crisp), en altijd in de menu's van **HelloFresh** en **Marley Spoon** van deze week en de drie weken erna (daar is geen koppeling voor nodig; ontbrekende menu's worden bij het zoeken opgehaald en 6 uur bewaard). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Elke kaart heeft `Bekijken` en `Inplannen`, gelijk onderaan. `Bekijken` toont het recept in MealieShopper, met de ingrediënten en de bereiding, `Importeer` (in Mealie zetten zonder te plannen; niet bij een recept dat al uit Mealie komt) en een link naar de bron: `Bekijk bij Albert Heijn` (of de andere winkel) of `Open in Mealie`. Picnic en Crisp hebben geen webpagina, dus daar staat geen link. Of plak bij `URL importeren` een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
+`Recepten zoeken` zoekt tegelijk in je eigen recepten in **Mealie** (zodra Mealie gekoppeld is; bovenaan, met `Meer recepten` voor de volgende pagina), bij **Albert Heijn** (tot de eerste 2.000 treffers) en, zodra ze gekoppeld zijn, bij **Jumbo** (alle recepten van jumbo.com) **Picnic** (je bewaarde recepten en het kookboek, op naam; Picnic heeft geen eigen zoekfunctie) en **Crisp** (de recepten in de Crisp-app, met de zoekfunctie van Crisp), en altijd in de menu's van **HelloFresh** en **Marley Spoon** van deze week en de drie weken erna (daar is geen koppeling voor nodig; ontbrekende menu's worden bij het zoeken opgehaald en 6 uur bewaard). De resultaten staan per winkel bij elkaar, met `Meer recepten` voor de volgende pagina; een winkel die niet antwoordt laat de andere gewoon staan. Elke kaart heeft `Bekijken` en `Inplannen`, gelijk onderaan. `Bekijken` toont het recept in MealieShopper, met de ingrediënten en de bereiding, `Importeer` (in Mealie zetten zonder te plannen; niet bij een recept dat al uit Mealie komt) en een link naar de bron: `Bekijk bij Albert Heijn` (of de andere winkel) of `Open in Mealie`. Picnic en Crisp hebben geen webpagina, dus daar staat geen link. Een recept van een andere site zet je in Mealie op de pagina *Recept importeren via URL* (het adres `/import`, sinds 3.10.0 niet meer in het menu): plak daar een Allerhande-link, een link naar een Jumbo-recept of een andere receptensite. Het importeren haalt de receptgegevens via de AH-API op en geeft ze als schema.org-recept aan Mealie, omdat AH de websitepagina's voor servers blokkeert.
 
 ### In bulk importeren in Mealie
 
@@ -354,7 +354,7 @@ Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en
 
 ### Profiel en instellingen
 
-Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat de avatar in de tabbalk, op de plek waar eerder Beheer stond). Het menu heeft **Profiel**, **Instellingen** (alleen voor de beheerder), **Over** en **Uitloggen**.
+Rechtsboven staat je **avatar** met een uitklapmenu. Op een klein scherm opent de knop **Meer** (met de drie streepjes) rechts in de tabbalk hetzelfde menu. Bovenaan staan je avatar en naam, dan **Profiel**, **Instellingen** (alleen voor de beheerder) en **Over**, en onder een lijn **Uitloggen**; elk item heeft een icoon. Op een klein scherm staat **Mandje** bovenaan het menu, want daar staat het niet in de tabbalk.
 
 - **Profiel > Algemeen:** je displaynaam (die zie je in het menu en in de gebruikerslijst; inloggen blijft met je gebruikersnaam) en je avatar. Een avatar uploaden kan als PNG, JPEG of WebP; de browser verkleint hem tot 256 bij 256 pixels (hoogstens 256 kB, SVG wordt niet geaccepteerd). Zonder avatar zie je je initialen.
 - **Profiel > Beveiliging:** het blok **Wachtwoord** (met daarin **Tweestapsverificatie**) en het blok **Passkeys**.
@@ -363,7 +363,7 @@ Rechtsboven staat je **avatar** met een uitklapmenu (op een klein scherm staat d
 
 ### Over en updates
 
-Onder **Over** (in het avatar-menu) zie je welke versie en commit er draait en welke componenten de app gebruikt.
+Onder **Over** (in het avatar-menu, op een telefoon onder **Meer**) zie je welke versie en commit er draait en welke componenten de app gebruikt.
 
 <img src="screenshots/nl/about.png" alt="Over: versie, commit en de gebruikte componenten" width="900">
 
@@ -377,7 +377,7 @@ Met de vlaggetjes (rechtsboven, op de inlogpagina en in de installatiehulp) wiss
 
 ## Mealie en supermarkten koppelen
 
-Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic, Jumbo en Crisp) koppel je er één of meer. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu). Daar staat het subtab **Koppelen**: bovenaan de meldingen of Mealie, Albert Heijn, Picnic, Jumbo en Crisp gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** en **Crisp**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
+Mealie koppel je altijd; van de supermarkten (Albert Heijn, Picnic, Jumbo en Crisp) koppel je er één of meer. Je gebruikt alleen wat je hebt gekoppeld. Dit staat ook in de installatiehulp, en je kunt het altijd later doen onder **Instellingen** (in het avatar-menu, op een telefoon onder **Meer**). Daar staat het subtab **Koppelen**: bovenaan de meldingen of Mealie, Albert Heijn, Picnic, Jumbo en Crisp gekoppeld zijn, en daaronder de inklapbare blokken **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** en **Crisp**, even breed als de meldingen. Op een klein scherm tonen de meldingen een pictogram en de naam, met de kleur van de status (groen: gekoppeld, donkergroen met vinkje: gekoppeld en werkt, rood: niet gekoppeld). Elk blok heeft de stappen, het afronden van de koppeling en (bij de winkels) de routeverkenner, met `Koppelen`, `Ontkoppelen` en `Koppeling controleren` naast elkaar; een blok klapt in zodra het gekoppeld is. Alleen de beheerder ziet dit.
 
 <img src="screenshots/nl/settings-stores.png" alt="Instellingen, Koppelen: de meldingen dat Mealie, Albert Heijn, Jumbo, Picnic en Crisp gekoppeld zijn, en het blok Aanbiedingen" width="900">
 

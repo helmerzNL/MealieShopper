@@ -1,5 +1,6 @@
-// Profiel en het avatar-menu: de avatar met een uitklapmenu (Profiel, Instellingen, Uitloggen) en de profielpagina
-// (displaynaam en avatar). Op een groot scherm staat de avatar in de kop, op een klein scherm in de tabbalk.
+// Profiel en het avatar-menu: de avatar met een uitklapmenu (Profiel, Instellingen, Over, Uitloggen) en de profielpagina
+// (displaynaam en avatar). Op een groot scherm staat de avatar in de kop, op een klein scherm de knop Meer in de tabbalk;
+// daar staat ook het Mandje in het menu (de tab Mandje is er dan niet, zie styles.css).
 // Laadt na app.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, setBusy, t, showPanel, ...).
 
 const AVATAR_SIZE = 256;
@@ -43,13 +44,14 @@ function renderUserMenu() {
   const auth = state.auth || {};
   const visible = profileSignedIn();
   $("#user-menu").hidden = !visible;
-  $("#tab-avatar").hidden = !visible;
+  $("#tab-more").hidden = !visible;
   if (!visible) profileMenuClose();
   const name = profileName();
   $("#user-menu-name").textContent = name;
   $("#user-menu-who-name").textContent = name;
   $("#user-menu-who-user").textContent = auth.username && auth.username !== name ? auth.username : "";
   $("#auth-logout").hidden = !auth.enabled;
+  $("#auth-logout-separator").hidden = !auth.enabled;
   renderProfileAvatars();
   renderProfilePage();
 }
@@ -79,7 +81,8 @@ function profileMenuOpen(trigger) {
   const alignLeft = rect.left + rect.width / 2 < window.innerWidth / 2;
   list.style.left = alignLeft ? `${Math.max(8, Math.round(rect.left))}px` : "auto";
   list.style.right = alignLeft ? "auto" : `${Math.max(8, Math.round(window.innerWidth - rect.right))}px`;
-  list.querySelector("button:not([hidden])")?.focus();
+  // De focus op het eerste zichtbare item (Mandje staat alleen op een klein scherm in het menu), niet op Uitloggen.
+  [...list.querySelectorAll('[role="menuitem"]')].find((item) => item.getClientRects().length)?.focus();
 }
 
 document.querySelectorAll("[data-user-menu-trigger]").forEach((trigger) => {
@@ -107,6 +110,7 @@ $("#user-menu-list").addEventListener("click", (event) => {
   if (!item) return;
   profileMenuClose();
   if (item.dataset.userAction) event.preventDefault();
+  if (item.dataset.userAction === "basket") showPanel("basket", document.querySelector('.tab[data-tab="basket"]'));
   if (item.dataset.userAction === "profile") openProfile();
   if (item.dataset.userAction === "settings") openSettings();
   if (item.dataset.userAction === "about") showPanel("about");

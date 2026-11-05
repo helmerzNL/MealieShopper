@@ -239,7 +239,7 @@ The moon or sun button next to the flags switches between light and dark; withou
 
 ## First start
 
-On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings** (in the avatar menu). An existing installation (with a passkey or password) does not see it.
+On a new installation MealieShopper opens a six-step setup guide. At the top you see which step you are on; *Back* takes you a step back, and what you skip you do later under **Settings** (in the avatar menu, on a phone under **More**). An existing installation (with a passkey or password) does not see it.
 
 **1. Security.** The app looks at how you open it.
 
@@ -296,11 +296,11 @@ MealieShopper fetches the pictures from Mealie itself with your API token and ke
 
 ### Basket
 
-The **Basket** tab shows the basket of the store you choose at the top (Albert Heijn, Picnic, Jumbo and Crisp, as far as linked). At Albert Heijn that is the shopping list the week menu writes to, from a local copy that you refresh with **Sync**. At Picnic you change quantities (with `−` and `+` or by typing), remove a product or empty the basket after a confirmation; that goes straight to your real basket. Below it are the amount you pay, what your membership saves and the next available delivery slots (you choose one in the Picnic app). At Crisp changing and emptying works the same; below it are what you pay and how much more you need to reach Crisp's minimum order. Jumbo shows the basket read-only. After filling from the week menu, **View basket** takes you there.
+The **Basket** tab (on a phone in the **More** menu) shows the basket of the store you choose at the top (Albert Heijn, Picnic, Jumbo and Crisp, as far as linked). At Albert Heijn that is the shopping list the week menu writes to, from a local copy that you refresh with **Sync**. At Picnic you change quantities (with `−` and `+` or by typing), remove a product or empty the basket after a confirmation; that goes straight to your real basket. Below it are the amount you pay, what your membership saves and the next available delivery slots (you choose one in the Picnic app). At Crisp changing and emptying works the same; below it are what you pay and how much more you need to reach Crisp's minimum order. Jumbo shows the basket read-only. After filling from the week menu, **View basket** takes you there.
 
 ### Searching and importing recipes
 
-`Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) and **Crisp** (the recipes in the Crisp app, with Crisp's own search) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Every card has `View` and `Plan`, lined up at the bottom. `View` shows the recipe in MealieShopper, with the ingredients and the method, `Import` (put it in Mealie without planning; not for a recipe that already comes from Mealie) and a link to the source: `View at Albert Heijn` (or the other store) or `Open in Mealie`. Picnic and Crisp have no web page, so there is no link there. Or paste an Allerhande link, a link to a Jumbo recipe or another recipe site under `Import from URL`. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
+`Find recipes` searches your own recipes in **Mealie** (once Mealie is linked; at the top, with `More recipes` for the next page), **Albert Heijn** (up to the first 2,000 hits) and, as soon as they are linked, **Jumbo** (all recipes of jumbo.com) **Picnic** (your saved recipes and the cookbook, by name; Picnic has no search of its own) and **Crisp** (the recipes in the Crisp app, with Crisp's own search) at the same time, and always the menus of **HelloFresh** and **Marley Spoon** for this week and the three weeks after (no link needed for those; missing menus are fetched while you search and kept for 6 hours). The results are grouped per store, with `More recipes` for the next page; a store that does not answer leaves the others in place. Every card has `View` and `Plan`, lined up at the bottom. `View` shows the recipe in MealieShopper, with the ingredients and the method, `Import` (put it in Mealie without planning; not for a recipe that already comes from Mealie) and a link to the source: `View at Albert Heijn` (or the other store) or `Open in Mealie`. Picnic and Crisp have no web page, so there is no link there. A recipe from another site goes into Mealie on the page *Import a recipe from a URL* (the address `/import`, no longer in the menu since 3.10.0): paste an Allerhande link, a link to a Jumbo recipe or another recipe site there. Importing fetches the recipe data through the AH API and hands it to Mealie as a schema.org recipe, because AH blocks its web pages for servers.
 
 ### Bulk import into Mealie
 
@@ -354,7 +354,7 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Profile and settings
 
-At the top right is your **avatar** with a drop-down menu (on a small screen the avatar sits in the tab bar, where Settings used to be). The menu has **Profile**, **Settings** (administrator only), **About** and **Log out**.
+At the top right is your **avatar** with a drop-down menu. On a small screen the **More** button (with the three lines) on the right of the tab bar opens the same menu. At the top are your avatar and name, then **Profile**, **Settings** (administrator only) and **About**, and below a line **Log out**; every item has an icon. On a small screen **Basket** is at the top of the menu, because it is not in the tab bar there.
 
 - **Profile > General:** your display name (you see it in the menu and in the user list; you still log in with your username) and your avatar. You can upload an avatar as PNG, JPEG or WebP; the browser scales it down to 256 by 256 pixels (256 kB at most, SVG is not accepted). Without an avatar you see your initials.
 - **Profile > Security:** the **Password** block (with **Two-step verification** inside it) and the **Passkeys** block.
@@ -363,7 +363,7 @@ At the top right is your **avatar** with a drop-down menu (on a small screen the
 
 ### About and updates
 
-Under **About** (in the avatar menu) you see which version and commit is running and which components the app uses.
+Under **About** (in the avatar menu, on a phone under **More**) you see which version and commit is running and which components the app uses.
 
 <img src="screenshots/en/about.png" alt="About: version, commit and the components used" width="900">
 
@@ -377,7 +377,7 @@ With the flags (top right, on the login page and in the setup guide) you switch 
 
 ## Linking Mealie and supermarkets
 
-You always link Mealie; of the supermarkets (Albert Heijn, Picnic, Jumbo and Crisp) you link one or more. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu). There you find the sub-tab **Link**: on top the banners saying whether Mealie, Albert Heijn, Picnic, Jumbo and Crisp are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** and **Crisp**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
+You always link Mealie; of the supermarkets (Albert Heijn, Picnic, Jumbo and Crisp) you link one or more. You only use what you have linked. This is also in the setup guide, and you can always do it later under **Settings** (in the avatar menu, on a phone under **More**). There you find the sub-tab **Link**: on top the banners saying whether Mealie, Albert Heijn, Picnic, Jumbo and Crisp are linked, and below them the collapsible blocks **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** and **Crisp**, as wide as the banners. On a small screen the banners show an icon and the name, coloured by status (green: linked, dark green with a check mark: linked and working, red: not linked). Each block has the steps, finishing the link and (for the stores) the route explorer, with `Link`, `Unlink` and `Check link` next to each other; a block folds up as soon as it is linked. Only the administrator sees this.
 
 <img src="screenshots/en/settings-stores.png" alt="Settings, Link: the notices that Mealie, Albert Heijn, Jumbo, Picnic and Crisp are linked, and the Offers block" width="900">
 

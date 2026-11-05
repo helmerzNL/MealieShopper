@@ -3451,7 +3451,7 @@ body.has-onboarding {
     right: max(12px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     width: auto;
     margin: 0;
@@ -5094,7 +5094,8 @@ body.has-onboarding {
   }
 }
 
-/* Avatar en avatar-menu: op een groot scherm in de kop, op een klein scherm in de tabbalk (op de plek van Beheer). */
+/* Avatar en avatar-menu: op een groot scherm de avatar in de kop, op een klein scherm de knop Meer (hamburger) in de tabbalk.
+   Op een klein scherm staat het Mandje in dat menu in plaats van in de tabbalk. */
 .avatar {
   position: relative;
   display: inline-flex;
@@ -5237,7 +5238,7 @@ body.has-onboarding {
 .user-menu__item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
   min-height: 40px;
   border: 0;
@@ -5256,18 +5257,39 @@ body.has-onboarding {
   background: var(--selection);
 }
 
-.user-menu__item[hidden] {
+.user-menu__item[hidden],
+.user-menu__item--small {
   display: none;
 }
 
-.tab--avatar {
-  display: none;
+.user-menu__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  color: var(--muted);
 }
 
-.tab--avatar .avatar {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
+.user-menu__item:hover .user-menu__icon,
+.user-menu__item:focus-visible .user-menu__icon {
+  color: inherit;
+}
+
+/* Het bolletje voor een update staat achter Instellingen, niet in de hoek van het menu. */
+.user-menu__item .update-dot {
+  position: static;
+  margin-left: auto;
+  box-shadow: none;
+}
+
+.user-menu__separator {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+
+.tab--more {
+  display: none;
 }
 
 .tab[hidden] {
@@ -5294,12 +5316,21 @@ body.has-onboarding {
 }
 
 @media (max-width: 640px) {
-  .tab--avatar:not([hidden]) {
+  .tab--more:not([hidden]) {
     display: inline-flex;
   }
 
   .user-menu {
     display: none;
+  }
+
+  /* Het Mandje verhuist naar het menu Meer. */
+  .tabs .tab[data-tab="basket"] {
+    display: none;
+  }
+
+  .user-menu__item--small:not([hidden]) {
+    display: flex;
   }
 }
 
