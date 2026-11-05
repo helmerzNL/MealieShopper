@@ -452,6 +452,7 @@ I18N.add("en", {
   "settings.linking.trigger.lookup": "while searching the price history",
   "settings.linking.trigger.open": "when opening a receipt",
   "settings.linking.trigger.list": "when opening the list",
+  "settings.linking.trigger.images": "on demand, photos only",
   "orders.receipt.qty": "QTY",
   "orders.receipt.description": "DESCRIPTION",
   "orders.receipt.price": "PRICE",

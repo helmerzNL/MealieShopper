@@ -1139,6 +1139,50 @@ class LinkingStatusTest(AhOrdersTestCase):
         self.assertEqual(self.client.post("/api/ah/linking/run", json={"receiptId": "R9"}).status_code, 404)
         self.assertIsNone(ah_orders._LINKING_THREAD if ah_orders._LINKING_THREAD and ah_orders._LINKING_THREAD.is_alive() else None)
 
+    def test_an_images_run_only_fills_in_photos(self):
+        with mock.patch.object(ah_orders, "resolve_receipt_products") as resolve, \
+                mock.patch.object(ah_orders, "_polite_search") as search, \
+                mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 3, "requests": 1, "failed": 0}) as images, \
+                mock.patch.object(ah_orders.audit, "record") as record:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        resolve.assert_not_called()
+        search.assert_not_called()
+        images.assert_called_once()
+        self.assertEqual(images.call_args.kwargs["batches"], ah_orders.RECEIPT_IMAGES_BATCHES)
+        self.assertEqual(images.call_args.kwargs["trigger"], "images")
+        self.assertEqual(json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))["trigger"], "images")
+        self.assertEqual(record.call_args.kwargs["action"], "images")
+        self.assertEqual(record.call_args.kwargs["detail"]["images"], {"products": 3, "requests": 1, "failed": 0})
+
+    def test_an_images_run_fetches_photos_and_writes_the_last_round(self):
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (556, 2, 'AH Tomaten', 'x')")
+        self.get_products_by_ids.return_value = [{"id": 2, "image": "https://static.ah.nl/2.jpg"}]
+        with mock.patch.object(ah_orders, "_polite_search") as search:
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        search.assert_not_called()
+        last = json.loads(auth.get_setting(ah_orders.SETTING_LAST_ROUND))
+        self.assertEqual((last["searches"], last["images"], last["trigger"]), (0, 1, "images"))
+
+    def test_force_with_images_clears_the_pause_for_the_administrator(self):
+        auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
+        with mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 0}):
+            with mock.patch.object(auth, "is_owner", return_value=False):
+                self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 403)
+            self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
+            self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 202)
+            ah_orders._LINKING_THREAD.join(5)
+        self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "")
+
+    def test_a_bad_images_flag_is_refused(self):
+        for body in ({"images": "ja"}, {"images": 1}, {"images": True, "receiptId": "R1"}):
+            with self.subTest(body=body):
+                with mock.patch.object(ah_orders, "run_linking") as run:
+                    self.assertEqual(self.client.post("/api/ah/linking/run", json=body).status_code, 400)
+                run.assert_not_called()
+
 
 class SearchHqIdsTest(unittest.TestCase):
     def test_only_real_article_numbers_are_kept(self):

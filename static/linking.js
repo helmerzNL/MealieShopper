@@ -1,7 +1,7 @@
 // Het koppelen van bonregels aan AH-producten en het ophalen van hun foto's in beeld: een melding boven de aankopenlijst, een op
 // een open kassabon en een vak bij Instellingen > Koppelen, alle drie uit GET /api/ah/linking (ah_orders.linking_status). Ligt het
 // koppelen stil na een 403 of 429 van AH, is het uurbudget op of wacht er werk op de nacht, dan staat dat er met de knop
-// "Nu ophalen" (POST /api/ah/linking/run). Zolang een ronde loopt, vraagt de pagina elke 2 s de toestand opnieuw; na een ronde voor
+// "Nu ophalen" (POST /api/ah/linking/run, "Foto's aanvullen" stuurt images: true voor alleen foto's). Zolang een ronde loopt, vraagt de pagina elke 2 s de toestand opnieuw; na een ronde voor
 // de open bon komt die bon opnieuw, met de foto's die erbij kwamen. Laadt na orders.js en popover.js.
 //
 // linkingNotice, linkingBox en de functies die ze gebruiken zijn puur (geen DOM), zodat tests/test_linking_ui.py ze in Node draait.
@@ -17,6 +17,7 @@ const LINKING_TRIGGERS = {
   lookup: "settings.linking.trigger.lookup",
   open: "settings.linking.trigger.open",
   list: "settings.linking.trigger.list",
+  images: "settings.linking.trigger.images",
 };
 
 // De laatste toestand van de route, de ene timer van het pollen, en de tellingen van de open bon (null als er geen open staat).
@@ -232,11 +233,13 @@ function loadLinkingBox() {
 }
 
 // De knop: een ronde starten. 202 en 409 geven de toestand terug (409: er loopt er al een); 403 is force van een gewone
-// gebruiker. Een fout komt in het meldingsvak van de plek (data-linking-message).
+// gebruiker. Een fout komt in het meldingsvak van de plek (data-linking-message). "Foto's aanvullen" (data-linking-images)
+// vraagt met images: true alleen de foto's van alle bonnen, zonder zoekopdrachten uit het uurbudget.
 async function linkingRun(button) {
   const target = button.closest("[data-linking-message]")?.dataset.linkingMessage || "#ah-orders-message";
   const body = { force: button.dataset.force === "1" };
-  if (button.dataset.receiptId) body.receiptId = button.dataset.receiptId;
+  if (button.hasAttribute("data-linking-images")) body.images = true;
+  else if (button.dataset.receiptId) body.receiptId = button.dataset.receiptId;
   message(target, "");
   button.disabled = true;
   try {

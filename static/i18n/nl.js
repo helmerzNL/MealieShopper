@@ -452,6 +452,7 @@ I18N.add("nl", {
   "settings.linking.trigger.lookup": "bij het zoeken in de Prijsgeschiedenis",
   "settings.linking.trigger.open": "bij het openen van een bon",
   "settings.linking.trigger.list": "bij het openen van de lijst",
+  "settings.linking.trigger.images": "op afroep, alleen foto's",
   "orders.receipt.qty": "AANT.",
   "orders.receipt.description": "OMSCHRIJVING",
   "orders.receipt.price": "PRIJS",

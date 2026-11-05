@@ -943,6 +943,10 @@ def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
     return {"products": products, "images": images}
 
 
+# De aanleiding van een ronde op afroep met alleen foto's in `SETTING_LAST_ROUND` (de knop "Foto's aanvullen").
+IMAGES_TRIGGER = "images"
+
+
 def _on_demand_trigger(receipt_id: str | None) -> str:
     """De aanleiding van een ronde op afroep in `SETTING_LAST_ROUND`: "receipt" voor een bon, "manual" voor alle bonnen."""
     return "receipt" if receipt_id else "manual"
@@ -957,26 +961,33 @@ def _linking_round(receipt_id: str | None, now: str) -> dict[str, Any]:
     return {"products": products, "images": backfill_receipt_images(now, trigger=trigger)}
 
 
-def _linking_worker(receipt_id: str | None, now: str, actor: str) -> None:
+def _images_round(now: str) -> dict[str, Any]:
+    """Een ronde op afroep met alleen foto's (de knop "Foto's aanvullen"): zo groot als 's nachts, zonder zoekopdrachten."""
+    return {"images": backfill_receipt_images(now, batches=RECEIPT_IMAGES_BATCHES, trigger=IMAGES_TRIGGER)}
+
+
+def _linking_worker(receipt_id: str | None, now: str, actor: str, images: bool = False) -> None:
     """De thread van een ronde op afroep: vangt elke fout, schrijft hem in het logboek en legt de ronde vast in de audit-log, net
-    als de nachtelijke ronde van de afbeeldingencache."""
+    als de nachtelijke ronde van de afbeeldingencache. Met `images` alleen de foto's (`_images_round`)."""
     started = time.perf_counter()
     result: dict[str, Any] | None = None
     problem: Exception | None = None
+    trigger = IMAGES_TRIGGER if images else _on_demand_trigger(receipt_id)
     try:
-        result = _linking_round(receipt_id, now)
+        result = _images_round(now) if images else _linking_round(receipt_id, now)
     except Exception as exc:  # noqa: BLE001 - een thread mag niet stilletjes sterven
         problem = exc
-        log.exception("Koppelen: de ronde op afroep mislukte (bon %s)", receipt_id or "alle")
+        log.exception("Koppelen: de ronde op afroep (%s) mislukte (bon %s)", trigger, receipt_id or "alle")
     try:
         # Ook een ronde zonder werk (alles al gekoppeld, of de pauze) staat daarna als laatste ronde, met nullen. Wat de ronde wel
         # deed, staat er al onder dezelfde `now` en `trigger` en blijft gelijk.
-        _record_round(now, _on_demand_trigger(receipt_id), {})
+        _record_round(now, trigger, {})
     except Exception:  # noqa: BLE001
         log.exception("Koppelen: de laatste ronde vastleggen mislukte")
+    action = "images" if images else "receipt linking" if receipt_id else "linking"
     try:
         audit.record(
-            kind="task", service="ah", action="receipt linking" if receipt_id else "linking", ok=problem is None,
+            kind="task", service="ah", action=action, ok=problem is None,
             duration_ms=round((time.perf_counter() - started) * 1000), actor=actor,
             error=f"{type(problem).__name__}: {problem}" if problem else "",
             detail={"receiptId": receipt_id, **(result or {})},
@@ -985,9 +996,12 @@ def _linking_worker(receipt_id: str | None, now: str, actor: str) -> None:
         log.exception("Koppelen: de ronde op afroep vastleggen mislukte")
 
 
-def run_linking(receipt_id: str | None = None, force: bool = False) -> dict[str, Any]:
+def run_linking(receipt_id: str | None = None, force: bool = False, images: bool = False) -> dict[str, Any]:
     """Start een ronde op afroep in een thread (`name="linking-run"`) en geef de toestand terug. Met `force` eerst de pauze na een
-    403 of 429 opheffen (alleen de beheerder, zie de route). Loopt er al een, dan `LinkingBusy` en blijft alles zoals het was."""
+    403 of 429 opheffen (alleen de beheerder, zie de route). Met `images` alleen de foto's van alle bonnen, zonder zoekopdrachten
+    (`_images_round`). Loopt er al een, dan `LinkingBusy` en blijft alles zoals het was."""
+    if images and receipt_id:
+        raise ValueError("an images round is for all receipts")
     global _LINKING_THREAD, _LINKING_RECEIPT_ID
     now = _now()
     actor = audit.current_actor()  # de thread kent het verzoek niet meer
@@ -997,7 +1011,7 @@ def run_linking(receipt_id: str | None = None, force: bool = False) -> dict[str,
         if force:
             auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
             auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")
-        worker = threading.Thread(target=_linking_worker, args=(receipt_id, now, actor), name="linking-run", daemon=True)
+        worker = threading.Thread(target=_linking_worker, args=(receipt_id, now, actor, images), name="linking-run", daemon=True)
         _LINKING_THREAD, _LINKING_RECEIPT_ID = worker, receipt_id
         worker.start()
     return linking_status(now)

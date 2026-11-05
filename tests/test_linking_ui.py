@@ -331,7 +331,7 @@ class LinkingBoxTest(NodeCase):
         )
 
     def test_an_on_demand_round_without_work_says_there_was_nothing_to_do(self):
-        for trigger in ("receipt", "manual", "open", "lookup", "list", "sync"):
+        for trigger in ("receipt", "manual", "open", "lookup", "list", "sync", "images"):
             with self.subTest(trigger=trigger):
                 last = f'{{ at: "2026-11-05T14:00:00+00:00", trigger: "{trigger}", searches: 0, found: 0, missing: 0, failed: 0, images: 0 }}'
                 self.assertEqual(
@@ -356,7 +356,7 @@ class LinkingBoxTest(NodeCase):
     def test_every_trigger_of_the_backend_has_a_name(self):
         self.assertEqual(
             sorted(self.render("Object.keys(LINKING_TRIGGERS)")),
-            sorted(["nightly", "manual", "receipt", "sync", "lookup", "open", "list"]),
+            sorted(["nightly", "manual", "receipt", "sync", "lookup", "open", "list", "images"]),
         )
 
     def test_a_box_without_a_next_round_says_so(self):
@@ -527,6 +527,64 @@ console.log(JSON.stringify({ before, after: timers.length, threw, timer: linking
         self.assertEqual(result, {"before": 1, "after": 1, "threw": False, "timer": None})
 
 
+@unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
+class LinkingRunTest(unittest.TestCase):
+    """De knoppen: wat linkingRun naar /api/ah/linking/run stuurt. "Foto's aanvullen" vraagt alleen foto's, zonder zoekopdrachten."""
+
+    def posted(self, attributes):
+        stubs = """
+const posted = [];
+globalThis.fetch = async (url, init) => { posted.push({ url, body: JSON.parse(init.body) }); return { status: 202, ok: true, json: async () => ({ budget: {}, running: { receiptId: null } }) }; };
+const message = () => {};
+const t = (key) => key;
+const linkingState = { status: null, timer: null, receipt: null };
+const linkingRender = () => {};
+const linkingRoundDone = () => {};
+const linkingSchedule = () => {};
+"""
+        button = (
+            "const button = { disabled: false, dataset: "
+            + json.dumps(attributes["dataset"])
+            + ", hasAttribute: (name) => "
+            + json.dumps(attributes["attributes"])
+            + ".includes(name), closest: () => null };"
+        )
+        full = "\n".join(
+            [
+                stubs,
+                function_source(LINKING, "linkingRun"),
+                button,
+                "linkingRun(button).then(() => console.log(JSON.stringify(posted)));",
+            ]
+        )
+        done = subprocess.run(
+            ["node", "-e", full], capture_output=True, text=True, timeout=30, check=False
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_the_images_button_asks_for_photos_only(self):
+        posted = self.posted(
+            {"dataset": {"force": "0"}, "attributes": ["data-linking-images"]}
+        )
+        self.assertEqual(
+            posted,
+            [{"url": "/api/ah/linking/run", "body": {"force": False, "images": True}}],
+        )
+
+    def test_the_images_button_during_a_pause_forces_and_asks_for_photos(self):
+        posted = self.posted(
+            {"dataset": {"force": "1"}, "attributes": ["data-linking-images"]}
+        )
+        self.assertEqual(posted[0]["body"], {"force": True, "images": True})
+
+    def test_the_run_button_does_not_ask_for_photos_only(self):
+        posted = self.posted(
+            {"dataset": {"force": "0"}, "attributes": ["data-linking-run"]}
+        )
+        self.assertEqual(posted[0]["body"], {"force": False})
+
+
 class LinkingMarkupTest(unittest.TestCase):
     def test_the_three_places_exist_and_the_script_loads(self):
         for needle in (
@@ -635,6 +693,8 @@ class LinkingMarkupTest(unittest.TestCase):
                 "images",
             )
         ]
+        keys += ["settings.linking.trigger." + k for k in re.findall(r"^  (\w+): ", const_source(LINKING, "LINKING_TRIGGERS"), re.MULTILINE)]
+        self.assertIn("settings.linking.trigger.images", keys)
         for key in keys:
             self.assertTrue(f'  "{key}": ' in NL_JS, key)
             self.assertTrue(f'  "{key}": ' in EN_JS, key)
