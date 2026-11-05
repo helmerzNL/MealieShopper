@@ -2,6 +2,18 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.7.3
+
+### Opgelost in 3.7.3
+
+*English summary: a Picnic recipe imported into Mealie has its ingredients and method again, not just its name and photo. MealieShopper hands Mealie the recipe as schema.org JSON-LD. Since Mealie 3.8, Mealie uses the address sent with it to pick a scraper for that site (recipe-scrapers), and the one for picnic.app looks for the data of Picnic's website instead of the JSON-LD, so only the name and the photo came through. MealieShopper now sends no address and puts the source in the JSON-LD (`url`), as every Mealie before 3.8 read it: Mealie then reads the recipe as schema.org and keeps the source as before. This holds for every store, so no import depends on a scraper for its site. Fixes [#242](https://github.com/helmerzNL/MealieShopper/issues/242).*
+
+- **Picnic: een recept in Mealie heeft weer ingrediënten en bereiding** ([#242](https://github.com/helmerzNL/MealieShopper/issues/242)). MealieShopper geeft een recept als schema.org-recept (JSON-LD) aan Mealie, met het adres van de bron erbij. Vanaf Mealie 3.8 kiest Mealie met dat adres een scraper voor de site (de bibliotheek `recipe-scrapers`), en die voor `picnic.app` zoekt de gegevens van de website van Picnic en niet het recept dat MealieShopper meegaf. Daardoor kwamen alleen de naam en de foto mee. Nu geeft MealieShopper geen adres meer mee en staat de bron in het recept zelf (`url`): Mealie leest het dan als schema.org, zoals elke Mealie vóór 3.8 dat deed, en bewaart dezelfde bron (`https://picnic.app/#recipe-<id>`).
+- **Voor alle winkels**: een import als schema.org-recept (AH, Jumbo, Picnic, Crisp, HelloFresh, Marley Spoon en de bulkimport) hangt niet meer af van een scraper voor de site. Een import van de HTML van een pagina geeft het adres nog wel mee, want daar leest de scraper van de site de pagina zelf.
+- **Een Picnic-recept dat al leeg in Mealie staat**, blijft leeg, en `Inplannen` gebruikt het opnieuw (het heeft dezelfde bron). Verwijder het in Mealie en plan of importeer het opnieuw, dan komen de ingrediënten en de bereiding mee.
+- **Mealie vóór 3.8** krijgt nu ook de bron van een Picnic- of Crisp-recept; die bleef daar leeg, zodat `Inplannen` zo'n recept niet terugvond.
+- **Handleiding** (NL en EN): wat er met een Picnic-recept naar Mealie gaat.
+
 ## v3.7.2
 
 ### Opgelost in 3.7.2

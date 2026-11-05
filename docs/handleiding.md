@@ -177,7 +177,7 @@ Oudere bestellingen uit je bevestigingsmails lees je hier in met **Oude aankopen
 
 ### Winkels: Picnic
 
-Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; `Bekijken` toont de ingrediënten en de bereiding, en `Inplannen` zet het recept in je weekmenu (en in Mealie).
+Kies in het winkelmenu **Picnic**; dan staan er drie tabs. **Recepten** toont je recepten uit de Picnic-app (*Bewaard*, *Opnieuw bestellen* en het *Kookboek*) als kaarten; `Bekijken` toont de ingrediënten en de bereiding, en `Inplannen` zet het recept in je weekmenu (en in Mealie). Mealie krijgt het als schema.org-recept, met de ingrediënten, de bereiding, de porties, de tijd en de foto, en bewaart `https://picnic.app/#recipe-<id>` als bron: plan je hetzelfde recept nog eens, dan gebruikt MealieShopper het recept dat al in Mealie staat.
 
 <img src="screenshots/nl/picnic-recipes.png" alt="Picnic-recepten als kaarten, met een keuze tussen Bewaard, Opnieuw bestellen en Kookboek" width="900">
 

@@ -126,8 +126,8 @@ class ImportFromUrlTest(unittest.TestCase):
         get.assert_not_called()
         self.assertEqual(post.call_args.args[0], "http://mealie/api/recipes/create/html-or-json")
         sent = post.call_args.kwargs["json"]
-        self.assertEqual(json.loads(sent["data"]), ld)
-        self.assertEqual(sent["url"], self.URL)
+        self.assertEqual(json.loads(sent["data"]), {**ld, "url": self.URL}, "de bron staat in de JSON-LD")
+        self.assertNotIn("url", sent)
 
     def test_ah_api_failure_falls_back_to_mealie_url_import(self):
         with mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("niet gevonden")), \
@@ -139,6 +139,31 @@ class ImportFromUrlTest(unittest.TestCase):
         with mock.patch.object(ah, "get_recipe_jsonld", side_effect=AssertionError("niet aanroepen")), \
                 mock.patch.object(mealie.requests, "post", return_value=self.response(body="ok")):
             self.assertEqual(mealie.import_from_url("https://example.com/r"), "ok")
+
+    def test_json_ld_goes_without_an_address_so_mealie_reads_it_as_schema_org(self):
+        # #242: vanaf Mealie 3.8 kiest Mealie met het adres van het verzoek een scraper voor de site (recipe-scrapers). Die voor
+        # picnic.app zoekt de gegevens van de website van Picnic, niet onze JSON-LD: dan kwamen alleen de naam en de foto mee.
+        # Zonder adres leest Mealie de JSON-LD als schema.org, en de bron haalt hij uit `url`.
+        source = "https://picnic.app/#recipe-69793b42b81ce20a1e1a328d"
+        ld = {"@context": "https://schema.org", "@type": "Recipe", "name": "Noedels", "recipeIngredient": ["300 g zalm"],
+              "recipeInstructions": [{"@type": "HowToStep", "text": "Kook de noedels."}]}
+        with mock.patch.object(mealie.requests, "post", return_value=self.response(body="noedels")) as post:
+            self.assertEqual(mealie.import_via_jsonld(source, ld), "noedels")
+        sent = post.call_args.kwargs["json"]
+        self.assertNotIn("url", sent)
+        self.assertEqual(json.loads(sent["data"]), {**ld, "url": source})
+        self.assertEqual(ld.get("url"), None, "de JSON-LD van de aanroeper blijft ongewijzigd")
+        with mock.patch.object(mealie.requests, "post", return_value=self.response(body="eigen")) as post:
+            mealie.import_via_jsonld("", {**ld, "url": "https://www.jumbo.com/recepten/1"})
+        self.assertEqual(json.loads(post.call_args.kwargs["json"]["data"])["url"], "https://www.jumbo.com/recepten/1", "zonder bron blijft die van de JSON-LD")
+
+    def test_the_html_of_a_page_keeps_its_address_for_the_scraper_of_that_site(self):
+        page = mock.Mock(ok=True, status_code=200, text="<html>recept</html>")
+        with mock.patch.object(mealie.requests, "get", return_value=page), \
+                mock.patch.object(mealie.requests, "post", return_value=self.response(body="soep")) as post:
+            self.assertEqual(mealie.import_via_html("https://www.example.com/soep"), "soep")
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual((sent["data"], sent["url"]), ("<html>recept</html>", "https://www.example.com/soep"))
 
     def test_all_failures_are_reported_together(self):
         mealie_error = self.response(ok=False, status=400, body="Recipe scrape failed")

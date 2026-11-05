@@ -177,7 +177,7 @@ Older orders from your confirmation emails can be read in here with **Import old
 
 ### Stores: Picnic
 
-Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; `View` shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie).
+Choose **Picnic** in the store menu; three tabs appear. **Recipes** shows your recipes from the Picnic app (*Saved*, *Order again* and the *Cookbook*) as cards; `View` shows the ingredients and the method, and `Plan` puts the recipe in your week menu (and in Mealie). Mealie gets it as a schema.org recipe, with the ingredients, the method, the servings, the time and the photo, and keeps `https://picnic.app/#recipe-<id>` as its source: when you plan the same recipe again, MealieShopper uses the recipe that is already in Mealie.
 
 <img src="screenshots/en/picnic-recipes.png" alt="Picnic recipes as cards, with a choice between Saved, Order again and Cookbook" width="900">
 

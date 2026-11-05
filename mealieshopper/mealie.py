@@ -228,18 +228,24 @@ class MealieImportError(RuntimeError):
 def import_via_jsonld(url: str, recipe: dict[str, Any], catalog: "Catalog | None" = None) -> str:
     """Importeer een schema.org Recipe (JSON-LD); Mealie hoeft de pagina dan niet op te halen.
 
+    De bron (`url`) gaat mee in de JSON-LD en niet als adres van het verzoek. Vanaf Mealie 3.8 kiest Mealie met dat adres een scraper
+    voor de site (recipe-scrapers), en die voor picnic.app zoekt de gegevens van de website van Picnic in plaats van onze JSON-LD: dan
+    kwamen alleen de naam en de foto mee, zonder ingrediënten en bereiding (#242). Zonder adres leest Mealie de JSON-LD als schema.org
+    en neemt hij de bron uit `url`, zoals elke Mealie vóór 3.8 het deed. Zo hangt geen winkel af van een scraper voor zijn site.
+
     `catalog`: bij een reeks imports (de bulkimport) de eenheden en ingrediënten van Mealie, één keer opgehaald.
     """
-    return _post_html_or_json(url, json.dumps(recipe), catalog)
+    return _post_html_or_json(None, json.dumps({**recipe, "url": url} if url else recipe), catalog)
 
 
-def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None) -> str:
+def _post_html_or_json(url: str | None, data: str, catalog: "Catalog | None" = None) -> str:
+    """`data` is HTML of JSON-LD; `url` alleen bij HTML van een pagina, zodat Mealie de scraper voor die site kan gebruiken."""
     response = requests.post(
         f"{mealie_url()}/api/recipes/create/html-or-json",
         headers=auth_headers(),
         json={
             "data": data,
-            "url": url,
+            **({"url": url} if url else {}),
             "include_tags": True,
             "include_categories": True,
         },
