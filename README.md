@@ -97,7 +97,7 @@ Elke functie staat uitgebreid in de [handleiding](docs/handleiding.md).
 
 ### Installeren als app
 
-MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen. Net als in een native app zoom je in de app niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept; in de browser kun je gewoon zoomen.
+MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen. Net als in een native app zoom je in de app niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept; in de browser kun je gewoon zoomen. De menubalk ziet eruit zoals bij je andere apps: zwevend glas op een iPhone, de balk van Android op een Android-toestel. Onder Instellingen, Weergave kies je zelf, en stel je het glaseffect in.
 
 - **iPhone en iPad (Safari):** Delen, dan `Zet op beginscherm`.
 - **Android (Chrome):** menu, dan `App installeren`.

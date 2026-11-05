@@ -2,6 +2,22 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.12.0
+
+### Nieuw in 3.12.0
+
+*English summary: the bar at the bottom of the installed app now looks like the phone's own apps, as the navigation-bar guideline of Flux76HQ/App-Guidance describes. An iPhone gets the floating glass bar, an Android phone the full-width Material bar with a pill behind the active icon. Under Settings, Appearance, Navigation bar you choose Automatic (the default, following the device), iOS-like or Android-like, and for the iOS-like bar how see-through the glass is (0 solid to 100 clearest). The choice is stored with your account; Automatic stays Automatic on every device. The active tab shows a filled icon and the others an outlined one. The clearest glass keeps every label at 4.5:1 over a black or white photo, which also fixes the active label of the dark theme that did not reach that before. Reload the page once after updating.*
+
+- **De navigatiebalk van je telefoon.** De balk onderaan in de geïnstalleerde app (op een klein scherm) heeft twee uiterlijken, gekozen met `data-nav` op `<html>`: *iOS-achtig*, de zwevende glazen balk met afgeronde hoeken die er al was, en *Android-achtig*, de navigatiebalk van Material 3: over de volle breedte op de rand, een dicht vlak dat iets naar de accentkleur neigt, een pil van 64 bij 32 achter het actieve icoon en een vet label. Gebouwd volgens [`navigation-bar.md`](https://github.com/Flux76HQ/App-Guidance/blob/main/shared/guidelines/navigation-bar.md) van Flux76HQ/App-Guidance, zoals in 3dprint_pricing.
+- **Instellingen, Weergave, Navigatiebalk.** Kies *Automatisch* (de standaard: een Android-toestel krijgt de Android-balk, elk ander toestel de iOS-achtige, en eronder staat wat het nu is), *iOS-achtig* of *Android-achtig*. Bij de iOS-achtige balk stelt **Glaseffect** in hoe doorzichtig het glas is, van 0 (dicht) tot 100 (het doorzichtigst en het meest vervaagd); de balk verandert mee terwijl je schuift en de stand wordt bewaard als je loslaat. Weigert de server een keuze, dan komt de vorige terug met de melding.
+- **Per gebruiker, en meteen goed.** De keuze staat bij je profiel (nieuwe kolommen `navbar_style` en `navbar_glass` in `user_profiles`, ook in de back-up). `PUT /api/profile/preferences` neemt `navbarStyle` (`auto`, `ios`, `android`) en `navbarGlass` (een geheel getal van 0 tot en met 100); iets anders geeft 400 en verandert niets. Bewaard wordt `auto`, niet wat dat op dit toestel is, zodat Automatisch op elk toestel opnieuw kiest. Het script in de kop van de pagina zet het toestel (`data-platform`, een iPad die zich als Mac meldt telt als iPad), de stijl en het glas vóór de eerste weergave, uit de kopie in je browser (`ms-appearance`), dus de balk verspringt niet bij het laden.
+- **Gevulde en omlijnde iconen.** In de balk toont de actieve tab het gevulde icoon en de andere het omlijnde (Recepten, Aanbod, Winkels en Mandje; Boxen en Meer hebben geen omlijnde variant). Zo zie je de actieve tab ook zonder kleur.
+- **Altijd leesbaar.** Het glas loopt van dekking 1 tot 0,75, met een vervaging van 10 tot 40 px; de standaard (60) is 0,85 en 28 px. Doorzichtiger kan niet: daaronder haalt geen labelkleur 4,5 : 1 boven zowel een witte als een zwarte foto. De labelkleuren van de balk zijn daarop aangepast (`--tabbar-ink-active` licht `#0F4C31`, donker `#C6EFDB`, `--tabbar-ink` donker `#C5D1CA` en donkergrijs `#CACBCD`). Dat lost ook op dat het actieve label in het donkere thema boven een lichte foto geen 4,5 : 1 haalde. De tinten van een eigen accentkleur worden op dezelfde doorzichtigste stand nagerekend. Met *Minder doorzichtigheid* aan op je toestel is de iOS-achtige balk dicht.
+- **Geen inhoud onder de balk.** `--tabbar-h` (82 px iOS-achtig, 84 px Android-achtig) bepaalt de ruimte onder de pagina en de plek van de balk van *In bulk importeren*.
+- **Handleiding** (NL en EN): de navigatiebalk onder Weergave en een nieuwe screenshot (`navbar.png`); de README's en de huisstijl (`docs/huisstijl.md`) beschrijven beide stijlen en waarom het glas niet doorzichtiger gaat.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#249](https://github.com/helmerzNL/MealieShopper/pull/249).
+
 ## v3.11.0
 
 ### Nieuw in 3.11.0
