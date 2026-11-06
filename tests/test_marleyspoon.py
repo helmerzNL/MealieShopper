@@ -283,10 +283,11 @@ class PauseTest(TempDataDirTest):
         async def wait(seconds: float) -> None:
             waits.append(seconds)
             events.append("pauze")
-            await asyncio.sleep(0)
 
-        def reply(request: httpx.Request) -> httpx.Response:
-            events.append(request.url.path)
+        async def reply(request: httpx.Request) -> httpx.Response:
+            events.append(f"start {request.url.path}")
+            await asyncio.sleep(0)
+            events.append(f"end {request.url.path}")
             return page()
 
         async def both() -> list[object]:
@@ -295,7 +296,7 @@ class PauseTest(TempDataDirTest):
         with mock.patch.object(marleyspoon, "MIN_GAP", 0.5), mock.patch.object(marleyspoon, "_last_request", 0.0), \
                 mock.patch.object(marleyspoon, "_wait", wait), served(side_effect=reply):
             run(both())
-        self.assertEqual(events, ["/menu/a", "pauze", "/menu/b"], "het tweede verzoek wacht tot het eerste klaar is, en pauzeert dan")
+        self.assertEqual(events, ["start /menu/a", "end /menu/a", "pauze", "start /menu/b", "end /menu/b"])
         self.assertEqual(len(waits), 1)
         self.assertGreater(waits[0], 0.4)
         self.assertLessEqual(waits[0], 0.5)

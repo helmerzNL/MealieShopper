@@ -66,6 +66,7 @@ class HelloFreshError(RuntimeError):
 
 
 # Het slot van de pauze, per event loop: een `asyncio.Lock` hoort bij de loop waarin hij voor het eerst wacht.
+# Een slot waarop iemand wacht houdt zijn loop in leven (de wachtende task verwijst naar het slot), net als bij de clients van http_client.
 _gap_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 _last_request = 0.0
 

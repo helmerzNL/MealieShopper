@@ -128,7 +128,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
-    async def redirect_with(uri: str, **params: str) -> Response:
+    def redirect_with(uri: str, **params: str) -> Response:
         parts = urlsplit(uri)
         query = parse_qsl(parts.query, keep_blank_values=True) + [(k, v) for k, v in params.items() if v]
         return redirect(urlunsplit(parts._replace(query=urlencode(query))), 302)
@@ -148,7 +148,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         except oauth.OAuthError as exc:
             return await error_page(exc.description)
         if info["error"]:
-            return await redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url())
+            return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url())
         user = await auth.acurrent_user()
         if not user:
             return redirect("/?" + urlencode({"next": request.full_path.rstrip("?")}), 302)
@@ -184,9 +184,9 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         if not client or data["redirect_uri"] not in client["redirect_uris"]:
             return await error_page(tr("Onbekende app.", "Unknown app."))
         if (await request.form).get("decision") != "allow":
-            return await redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=await base_url())
+            return redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=await base_url())
         code = await oauth.issue_code(user["id"], data["client_id"], data["redirect_uri"], data["code_challenge"], data["resource"])
-        return await redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=await base_url())
+        return redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=await base_url())
 
     @app.route("/oauth/token", methods=["POST", "OPTIONS"])
     async def oauth_token():

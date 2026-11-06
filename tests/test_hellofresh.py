@@ -276,10 +276,11 @@ class PauseTest(TempDataDirTest):
         async def wait(seconds: float) -> None:
             waits.append(seconds)
             events.append("pauze")
-            await asyncio.sleep(0)
 
-        def answer(request: httpx.Request) -> httpx.Response:
-            events.append(request.url.path)
+        async def answer(request: httpx.Request) -> httpx.Response:
+            events.append(f"start {request.url.path}")
+            await asyncio.sleep(0)
+            events.append(f"end {request.url.path}")
             return page("<html></html>")
 
         async def both() -> list[str]:
@@ -288,10 +289,17 @@ class PauseTest(TempDataDirTest):
         with mock.patch.object(hellofresh, "MIN_GAP", 0.5), mock.patch.object(hellofresh, "_last_request", 0.0), \
                 mock.patch.object(hellofresh, "_wait", wait), served(side_effect=answer):
             run(both())
-        self.assertEqual(events, ["/menus/a", "pauze", "/menus/b"], "het tweede verzoek wacht tot het eerste klaar is, en pauzeert dan")
+        self.assertEqual(events, ["start /menus/a", "end /menus/a", "pauze", "start /menus/b", "end /menus/b"])
         self.assertEqual(len(waits), 1)
         self.assertGreater(waits[0], 0.4)
         self.assertLessEqual(waits[0], 0.5)
+
+    def test_a_redirect_to_the_same_host_is_followed(self):
+        with respx.mock(assert_all_called=False) as router:
+            router.get("https://www.hellofresh.nl/menus/2026-W44").respond(301, headers={"Location": "https://www.hellofresh.nl/menus/2026-W44/"})
+            router.get("https://www.hellofresh.nl/menus/2026-W44/").respond(200, text=menu_page([course(KEY, "Pasta")]))
+            menu = run(hellofresh.get_menu("2026-W44"))
+        self.assertEqual([r["key"] for r in menu["recipes"]], [KEY])
 
 
 class RoutesTest(TempDataDirTest):
