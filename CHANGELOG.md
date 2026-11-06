@@ -2,6 +2,23 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.14.0
+
+### Nieuw in 3.14.0
+
+*English summary: under Settings, System the administrator can now import a price archive: historical leaflet and store prices that go into the Price history, such as wolph's archive of Albert Heijn and Jumbo (2009-2026), Picnic (2022-2023) and Crisp (2021-2026). Upload the ZIP exactly as Download ZIP on the gist gives it, its .tar.gz, or a .jsonl file in the new documented `mealieshopper-price-archive` format. The app checks every checksum and line, shows per store what is new, and only adds rows: nothing is replaced, and what the app already has always wins. Prices with an unknown promotion status (the Picnic observations) now appear separately as Observed prices, purple diamonds with their source, and never count as a regular price (wolph's change).*
+
+- **Prijsarchief importeren** (Instellingen, Systeem; alleen de beheerder). Kies een bestand, en MealieShopper controleert het helemaal en toont per winkel hoeveel aanbiedingen en prijzen er nieuw zijn, hoeveel er al staan, wat overgeslagen wordt en welke periode het archief beslaat. Pas met **Importeren** komen ze erbij, op de server in één transactie; de pagina verlaten stopt niets. Anders dan **Back-up terugzetten** wordt er niets vervangen of verwijderd.
+- **Twee formaten.** De ZIP zoals **Download ZIP** van de gist hem geeft (`supermarket-manifest.json` met Base64-delen van het `.tar.gz`, daarin `data-manifest.json` en zes gegevensbestanden), of het losse `.tar.gz`. En een nieuw, gedocumenteerd eigen formaat, `mealieshopper-price-archive` versie 1: een `.jsonl` (of `.jsonl.gz`) met een kop en regels van de soort `offer`, `price` of `correction`. De handleiding beschrijft het, met een voorbeeld.
+- **Wat er al staat gaat voor.** Dubbele regels slaat de import over (zelfde winkel, adres en looptijd, of een aanbieding die de app zelf al kent), net als een prijs op een dag waarop de app al een eigen prijs heeft. De 153 correcties van wolph veranderen alleen een eerder geïmporteerde archiefregel waarvan de oude waarde precies klopt. Nog een keer importeren voegt niets toe.
+- **Niets wordt zomaar vertrouwd.** Elke controlesom (delen, archief en gegevensbestanden) en elke regel wordt gecontroleerd: winkel, datums, prijzen, https-adressen, lengtes en de bron van een prijs (alleen `public_press_release` of `public_observed_unknown`, dus nooit een eigen meting). Een fout weigert het hele bestand, met bestand, regelnummer en reden. De tar wordt alleen gelezen, nooit uitgepakt; scripts uit het pakket draaien nooit en afbeeldingsadressen neemt de app niet over. Een stuurteken in vrije tekst wordt een spatie (er staat een ESC in één Jumbo-folder).
+- **Snel en zuinig.** Het complete pakket (176.877 regels) controleert de app in een paar seconden. Bij het uploaden zet hij de nieuwe regels klaar, zodat de import zelf de database maar kort vasthoudt (op een testmachine 2,4 s). Het geüploade bestand blijft niet staan.
+- **Waargenomen prijzen** (van wolph, uit zijn branch `public-price-observations`). Prijzen met bron `public_observed_unknown` staan in de Prijsgeschiedenis als paarse ruiten en in een eigen tabel *Waargenomen prijzen*, met verpakking en bronlink. Ze tellen niet als gewone prijs, aanbieding of aankoop, en dus ook niet mee in het oordeel *echt voordelig*. `GET /api/prices/history` en de MCP-tool `get_price_history` geven ze apart als `observed`.
+- **API.** `GET /api/price-archive`, `POST /api/price-archive/stage`, `DELETE /api/price-archive/stage/<token>`, `POST /api/price-archive/jobs`, `GET /api/price-archive/jobs/latest` en `DELETE /api/price-archive/jobs/<id>`. Na een import staat er een regel in het auditlog.
+- **Documentatie**: een nieuwe paragraaf *Prijsarchief importeren* in de handleiding (NL en EN) met beide formaten, en *Waargenomen prijzen* bij Aanbiedingen. De README's noemen het prijsarchief bij de functies, bij *Grootste upload* (200 MB, net als een back-up) en bij *Data en back-ups*.
+- **Ontwikkeling**: `test_price_archive` (24 tests) bouwt een nep-gist-ZIP, een `.tar.gz` en het eigen formaat en test de import, het herhalen, wat al bestaat, de correcties en alles wat geweigerd wordt. Wolphs tests voor de waargenomen prijzen komen mee (`test_prices`, `test_backup`, `test_observed_prices_js`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.13.1
 
 ### Opgelost in 3.13.1

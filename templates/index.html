@@ -1676,6 +1676,33 @@
           <div id="backup-message"></div>
           <p class="muted" id="backup-timing"></p>
         </div>
+        <div class="box" id="price-archive-box">
+          <h2 data-i18n="price_archive.title">Prijsarchief importeren</h2>
+          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Er wordt niets vervangen: wat er al staat blijft staan, en dezelfde prijs komt er maar één keer in.</p>
+          <label class="field">
+            <span data-i18n="price_archive.file_label">Prijsarchief</span>
+            <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
+          </label>
+          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
+          <div class="backup-confirm" id="price-archive-confirm" hidden>
+            <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
+            <p class="muted" id="price-archive-source"></p>
+            <ul class="price-archive-stores" id="price-archive-summary"></ul>
+            <p class="muted" id="price-archive-corrections" hidden></p>
+            <p id="price-archive-total"></p>
+            <p class="muted" data-i18n="price_archive.keeps">Er wordt niets vervangen of verwijderd. Verlaat je de pagina, dan gaat de import door op de server.</p>
+            <div class="security-actions">
+              <button class="button" type="button" id="price-archive-import" data-i18n="price_archive.go">Importeren</button>
+              <button class="button button--secondary" type="button" id="price-archive-discard" data-i18n="common.cancel">Annuleren</button>
+            </div>
+          </div>
+          <div class="backup-progress" id="price-archive-progress" role="status" hidden>
+            <p id="price-archive-progress-label"></p>
+            <progress id="price-archive-progress-bar" max="100"></progress>
+            <p class="muted" id="price-archive-progress-note"></p>
+          </div>
+          <div id="price-archive-message"></div>
+        </div>
         <div class="box" id="cleanup-box">
           <h2 data-i18n="system.cleanup_title">Opschonen</h2>
           <p class="muted" data-i18n="system.cleanup_intro">Ruim op wat je niet meer nodig hebt.</p>
@@ -1823,6 +1850,7 @@
     <script src="{{ url_for('static', filename='updates.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='system.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='backup.js', v=config.ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='price_archive.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='audit.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='onboarding.js', v=config.ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='nav_tree.js', v=config.ASSET_VERSION) }}"></script>

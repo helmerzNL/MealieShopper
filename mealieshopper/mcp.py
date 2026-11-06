@@ -565,6 +565,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
                     for e in product.get("episodes", [])[-keep:]
                 ],
                 "regularPrices": product.get("regular", [])[-keep:],
+                "observed": product.get("observed", [])[-keep:],
                 "purchases": [
                     {"date": p["date"], "pricePerItem": p["price"], "quantity": p["quantity"], "source": p["source"]}
                     for p in product.get("purchases", [])[-keep:]
@@ -576,6 +577,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
             "Prijzen zijn per stuk. regularPrices zijn periodes met dezelfde normale prijs (uit zoekopdrachten, bestellingen en de prijs "
             "vóór een aanbieding); purchases komen uit bestellingen en kassabonnen (op een kassabon is de korting onderaan de bon niet "
             "afgetrokken). Een aanbieding is pas echt voordelig als de actieprijs onder de laagste normale prijs van de laatste weken ligt. "
+            "observed bevat waargenomen pakketprijzen met onbekende actiestatus. Die tellen niet als normale prijs. "
             "personal: een persoonlijke aanbieding (de AH Bonus Box), alleen voor de eigenaar en alleen als die haar in de AH-app activeerde."
         ),
     }
