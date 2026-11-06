@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -177,19 +177,19 @@ class RegistrationTest(McpTestCase):
         with mock.patch.object(oauth, "MAX_CLIENTS", 2):
             _, used = self.grant()
             unused = self.register()
-            with closing(oauth._connect()) as conn, conn:
+            with closing(auth.connect()) as conn, conn:
                 conn.execute("UPDATE oauth_clients SET created_at = ? WHERE client_id = ?", ((oauth._now() - timedelta(minutes=20)).isoformat(), unused))
             self.register()  # er is plek gemaakt
-            self.assertIsNone(oauth.get_client(unused))
-            self.assertIsNotNone(oauth.get_client(used))
+            self.assertIsNone(run(oauth.get_client(unused)))
+            self.assertIsNotNone(run(oauth.get_client(used)))
             self.assertEqual(SyncClient(self.app).post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 503)
 
     def test_stale_unused_clients_are_cleaned_up(self):
         client_id = self.register()
-        with closing(oauth._connect()) as conn, conn:
+        with closing(auth.connect()) as conn, conn:
             conn.execute("UPDATE oauth_clients SET created_at = ?", ((oauth._now() - timedelta(days=2)).isoformat(),))
         self.register()
-        self.assertIsNone(oauth.get_client(client_id))
+        self.assertIsNone(run(oauth.get_client(client_id)))
 
 
 class AuthorizeTest(McpTestCase):
@@ -294,7 +294,7 @@ class TokenTest(McpTestCase):
         tokens, _ = self.grant()
         self.assertEqual((tokens["token_type"], tokens["expires_in"], tokens["scope"]), ("Bearer", 3600, "mealieshopper"))
         self.assertTrue(tokens["access_token"].startswith("msa_") and tokens["refresh_token"].startswith("msr_"))
-        with closing(oauth._connect()) as conn:
+        with closing(auth.connect()) as conn:
             stored = json.dumps([dict(r) for r in conn.execute("SELECT * FROM oauth_tokens")] + [dict(r) for r in conn.execute("SELECT * FROM oauth_codes")])
         self.assertNotIn(tokens["access_token"], stored)
         self.assertNotIn(tokens["refresh_token"], stored)
@@ -329,7 +329,7 @@ class TokenTest(McpTestCase):
 
     def test_expired_code(self):
         client_id, verifier, code = self.code()
-        with closing(oauth._connect()) as conn, conn:
+        with closing(auth.connect()) as conn, conn:
             conn.execute("UPDATE oauth_codes SET expires_at = ?", ((oauth._now() - timedelta(seconds=1)).isoformat(),))
         self.assertEqual(self.exchange(client_id, code, verifier).status_code, 400)
 
@@ -365,7 +365,7 @@ class TokenTest(McpTestCase):
 
     def test_expired_access_token(self):
         tokens, _ = self.grant()
-        with closing(oauth._connect()) as conn, conn:
+        with closing(auth.connect()) as conn, conn:
             conn.execute("UPDATE oauth_tokens SET access_expires = ?", ((oauth._now() - timedelta(seconds=1)).isoformat(),))
         self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 401)
 
@@ -374,7 +374,7 @@ class UserBindingTest(McpTestCase):
     def test_a_token_acts_for_the_user_who_gave_consent(self):
         anna = self.join()
         tokens, _ = self.grant(anna)
-        self.assertEqual(oauth.verify_access_token(tokens["access_token"], MCP_URL)["username"], "anna")
+        self.assertEqual(run(oauth.verify_access_token(tokens["access_token"], MCP_URL))["username"], "anna")
         mine = anna.get("/api/mcp/status").get_json()["apps"]
         self.assertEqual([a["name"] for a in mine], ["Claude"])
         self.assertEqual(self.admin.get("/api/mcp/status").get_json()["apps"], [])  # de beheerder ziet de apps van Anna niet
@@ -408,7 +408,7 @@ class UserBindingTest(McpTestCase):
         anna_id = anna.get("/api/auth/status").get_json()["userId"]
         self.admin.delete(f"/api/users/{anna_id}")
         self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 401)
-        with closing(oauth._connect()) as conn:
+        with closing(auth.connect()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM oauth_tokens").fetchone()[0], 0)
 
     def test_status_requires_a_session(self):

@@ -30,8 +30,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     def mcp_url() -> str:
         return f"{base_url()}/mcp"
 
-    def serializer() -> URLSafeTimedSerializer:
-        return URLSafeTimedSerializer(auth.signing_secret(), salt="mealieshopper-oauth-authorize")
+    async def serializer() -> URLSafeTimedSerializer:
+        return URLSafeTimedSerializer(await auth.asigning_secret(), salt="mealieshopper-oauth-authorize")
 
     def unavailable() -> Response:
         _, reason = mcp.enabled()
@@ -122,7 +122,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if not isinstance(metadata, dict):
             return oauth_error(oauth.OAuthError("invalid_client_metadata", "Stuur een JSON-object"))
         try:
-            return _json(oauth.register_client(metadata), 201, Cache_Control="no-store")
+            return _json(await oauth.register_client(metadata), 201, Cache_Control="no-store")
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
@@ -142,15 +142,15 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return await error_page((await unavailable().get_json())["error"], 404)
         params = request.args.to_dict()
         try:
-            info = oauth.check_authorize_request(params, mcp_url())
+            info = await oauth.check_authorize_request(params, mcp_url())
         except oauth.OAuthError as exc:
             return await error_page(exc.description)
         if info["error"]:
             return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=base_url())
-        if not auth.current_user():
+        user = await auth.acurrent_user()
+        if not user:
             return redirect("/?" + urlencode({"next": request.full_path.rstrip("?")}), 302)
-        user = auth.current_user()
-        signed = serializer().dumps(
+        signed = (await serializer()).dumps(
             {k: info[k] for k in ("redirect_uri", "state", "code_challenge", "resource")}
             | {"client_id": info["client"]["client_id"], "user_id": user["id"]}
         )
@@ -169,21 +169,21 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
             return await error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
-        user = auth.current_user()
+        user = await auth.acurrent_user()
         if not user:
             return await error_page(tr("Je bent niet ingelogd.", "You are not logged in."), 401)
         try:
-            data = serializer().loads((await request.form).get("request", ""), max_age=600)
+            data = (await serializer()).loads((await request.form).get("request", ""), max_age=600)
         except BadSignature:
             return await error_page(tr("Dit verzoek is verlopen. Begin opnieuw vanuit de app.", "This request has expired. Start again from the app."))
         if data.get("user_id") != user["id"]:  # tussendoor als iemand anders ingelogd
             return await error_page(tr("Je bent ondertussen als iemand anders ingelogd. Begin opnieuw vanuit de app.", "You are now logged in as someone else. Start again from the app."), 403)
-        client = oauth.get_client(data["client_id"])
+        client = await oauth.get_client(data["client_id"])
         if not client or data["redirect_uri"] not in client["redirect_uris"]:
             return await error_page(tr("Onbekende app.", "Unknown app."))
         if (await request.form).get("decision") != "allow":
             return redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=base_url())
-        code = oauth.issue_code(user["id"], data["client_id"], data["redirect_uri"], data["code_challenge"], data["resource"])
+        code = await oauth.issue_code(user["id"], data["client_id"], data["redirect_uri"], data["code_challenge"], data["resource"])
         return redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=base_url())
 
     @app.route("/oauth/token", methods=["POST", "OPTIONS"])
@@ -193,7 +193,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if not mcp.enabled()[0]:
             return unavailable()
         try:
-            return _json(oauth.token_request(await form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
+            return _json(await oauth.token_request(await form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
@@ -201,7 +201,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def oauth_revoke():
         if request.method == "OPTIONS":
             return "", 204
-        oauth.revoke_token((await form_or_json()).get("token", ""))
+        await oauth.revoke_token((await form_or_json()).get("token", ""))
         return "", 200
 
     # --- MCP ---------------------------------------------------------------------------------------
@@ -222,7 +222,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return _json({"error": "Method not allowed"}, 405, Allow="POST")  # geen streams en geen sessies
         header = request.headers.get("Authorization", "")
         token = header[7:].strip() if header[:7].lower() == "bearer " else ""
-        identity = oauth.verify_access_token(token, mcp_url()) if token else None
+        identity = await oauth.verify_access_token(token, mcp_url()) if token else None
         if not identity:
             audit.mcp_rejected(401, "unauthorized", header_present=bool(token))
             return unauthorized(bool(token))
@@ -259,16 +259,16 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             {
                 "enabled": on,
                 "reason": reason,
-                "canConfigure": auth.is_owner(),
+                "canConfigure": await auth.ais_owner(),
                 "url": f"{base}/mcp",
                 "secure": base.startswith("https://") or host in oauth.LOOPBACK_HOSTS,
-                "apps": oauth.connected_apps(auth.acting_user_id()) if on else [],
+                "apps": await oauth.connected_apps(await auth.aacting_user_id()) if on else [],
                 "tools": server_settings.tools_payload(),
             }
         )
 
     @app.delete("/api/mcp/apps/<client_id>")
     async def mcp_revoke_app(client_id: str):
-        if not oauth.revoke_app(auth.acting_user_id(), client_id):
+        if not await oauth.revoke_app(await auth.aacting_user_id(), client_id):
             return jsonify({"error": tr("App niet gevonden.", "App not found.")}), 404
         return jsonify({"status": "ok"})

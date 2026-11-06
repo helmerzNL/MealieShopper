@@ -1,5 +1,7 @@
+import hashlib
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import closing
 from unittest import mock
@@ -219,7 +221,7 @@ class LoginTest(AuthPasswordTestCase):
         self.assertNotIn("Set-Cookie", wrong_pw.headers)
 
     def test_unknown_user_still_costs_a_hash(self):
-        with mock.patch.object(auth_password, "_burn_time") as burn:
+        with mock.patch.object(auth_password, "_burn_time", new_callable=mock.AsyncMock) as burn:
             self.login(username="iemand")
             burn.assert_called_once()
             burn.reset_mock()
@@ -248,6 +250,24 @@ class LoginTest(AuthPasswordTestCase):
         self.assertEqual(self.login().status_code, 200)
         for _ in range(auth_password.ATTEMPTS_PER_WINDOW - 1):
             self.assertEqual(self.login(password=OTHER).status_code, 401)
+
+    def test_scrypt_runs_off_the_event_loop(self):
+        """Hashen en controleren blokkeren de event loop niet: scrypt draait in een thread (`asyncio.to_thread`)."""
+        threads = []
+        real = hashlib.scrypt
+
+        def spy(*args, **kwargs):
+            threads.append(threading.get_ident())
+            return real(*args, **kwargs)
+
+        with mock.patch.object(auth_password.hashlib, "scrypt", side_effect=spy):
+            self.assertEqual(self.login().status_code, 200)  # controleren
+            self.assertEqual(self.login(username="iemand").status_code, 401)  # de nep-hash bij een onbekende naam
+            self.assertEqual(self.setup_password(password=OTHER).status_code, 403)  # zonder huidig wachtwoord geweigerd
+            self.assertEqual(self.post("/api/auth/password", {"password": OTHER, "currentPassword": PASSWORD}).status_code, 200)  # hashen
+        self.assertGreaterEqual(len(threads), 4)
+        # SyncClient draait de event loop in de thread van de test.
+        self.assertNotIn(threading.get_ident(), threads)
 
     def test_overlong_password_is_refused_without_hashing(self):
         with mock.patch.object(auth_password, "verify_password") as verify:

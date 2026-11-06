@@ -417,7 +417,7 @@ class EndpointTest(AuditTestCase):
 
     def test_mcp_requests_are_logged_through_the_http_endpoint(self):
         identity = {"client_id": "c1", "name": "ChatGPT", "user_id": auth.OWNER_ID, "username": "admin"}
-        with mock.patch.object(mcp, "enabled", return_value=(True, "")), mock.patch.object(oauth, "verify_access_token", return_value=identity), mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": lambda args: []}):
+        with mock.patch.object(mcp, "enabled", return_value=(True, "")), mock.patch.object(oauth, "verify_access_token", new_callable=mock.AsyncMock, return_value=identity), mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": lambda args: []}):
             reply = self.post([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_picnic_orders", "arguments": {}}}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
         self.assertEqual(reply.status_code, 200)
         self.assertEqual([(e["action"], e["actor"]) for e in self.entries()], [("tools/list", "mcp:ChatGPT"), ("list_picnic_orders", "mcp:ChatGPT")])

@@ -24,8 +24,8 @@ SETTING_DONE = "ONBOARDING_DONE"
 PRIVATE_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".intranet", ".private")
 
 
-def _flag(key: str) -> bool:
-    return auth.get_setting(key) == "1"
+async def _flag(key: str) -> bool:
+    return await auth.aget_setting(key) == "1"
 
 
 def hostname_info(host: str) -> dict[str, Any]:
@@ -75,6 +75,7 @@ def environment() -> dict[str, Any]:
 
 
 def _integrations_configured() -> bool:
+    # ah, crisp, jumbo, mealie en picnic blijven synchroon tot hun eigen taak.
     try:
         return (
             bool(mealie.mealie_url() and mealie.mealie_token())
@@ -87,56 +88,67 @@ def _integrations_configured() -> bool:
         return False
 
 
-def is_fresh() -> bool:
-    if auth.credentials_exist() or auth.auth_mode():
+async def is_fresh() -> bool:
+    if await auth.acredentials_exist() or await auth.aauth_mode():
         return False
     if not auth.auth_enabled() and _integrations_configured():
         return False  # bestaande installatie met inloggen uit en al gekoppeld
     return True
 
 
-def needed() -> bool:
-    if _flag(SETTING_DONE):
+async def needed() -> bool:
+    if await _flag(SETTING_DONE):
         return False
-    return _flag(SETTING_ACTIVE) or is_fresh()
+    return await _flag(SETTING_ACTIVE) or await is_fresh()
 
 
-def begin() -> None:
+async def begin() -> None:
     """Onthoud dat de onboarding is begonnen, ook als er daarna een inlogmethode bijkomt."""
-    if not _flag(SETTING_DONE) and not _flag(SETTING_ACTIVE) and is_fresh():
-        auth.set_setting(SETTING_ACTIVE, "1")
+    if not await _flag(SETTING_DONE) and not await _flag(SETTING_ACTIVE) and await is_fresh():
+        await auth.aset_setting(SETTING_ACTIVE, "1")
 
 
-def complete() -> None:
-    auth.set_setting(SETTING_DONE, "1")
-    auth.set_setting(SETTING_ACTIVE, "0")
+async def complete() -> None:
+    await auth.aset_setting(SETTING_DONE, "1")
+    await auth.aset_setting(SETTING_ACTIVE, "0")
 
 
 def register_routes(app: Quart) -> None:
     @app.get("/api/onboarding/status")
     async def onboarding_status():
         env = environment()
-        required = auth.auth_required()
+        required = await auth.aauth_required()
+        mode = await auth.aauth_mode()
+        if not auth.auth_enabled():
+            auth_mode = "off"
+        elif mode:
+            auth_mode = mode
+        elif await auth.apasskey_count():
+            auth_mode = "passkey"
+        elif await auth.apassword_configured():
+            auth_mode = "password"
+        else:
+            auth_mode = ""
         return jsonify(
             {
-                "needed": needed(),
+                "needed": await needed(),
                 **env,
                 "authEnabled": auth.auth_enabled(),
                 "authRequired": required,
-                "authDone": auth.credentials_exist() or auth.auth_mode() == "none" or not auth.auth_enabled(),
-                "authMode": "off" if not auth.auth_enabled() else (auth.auth_mode() or ("passkey" if auth.passkey_count() else "password" if auth.password_configured() else "")),
-                "authenticated": bool(auth.current_user()) or not required,
+                "authDone": await auth.acredentials_exist() or mode == "none" or not auth.auth_enabled(),
+                "authMode": auth_mode,
+                "authenticated": bool(await auth.acurrent_user()) or not required,
                 "minPasswordLength": 10,
             }
         )
 
     @app.post("/api/onboarding/start")
     async def onboarding_start():
-        begin()
-        return jsonify({"needed": needed()})
+        await begin()
+        return jsonify({"needed": await needed()})
 
     @app.post("/api/onboarding/complete")
     async def onboarding_complete():
         # Valt onder de gewone inlogcontrole: zonder sessie (als inloggen aan staat) komt dit er niet door.
-        complete()
+        await complete()
         return jsonify({"needed": False})

@@ -821,7 +821,7 @@ async def _log_oauth(response):
         try:
             from . import oauth
 
-            name = (oauth.get_client(client_id) or {}).get("name") or ""
+            name = (await oauth.get_client(client_id) or {}).get("name") or ""
         except Exception:  # noqa: BLE001
             name = ""
     grant = str(data.get("grant_type") or data.get("decision") or "")

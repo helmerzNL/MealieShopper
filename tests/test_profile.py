@@ -10,7 +10,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 from mealieshopper import auth, profile, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import ANNA, UsersTestCase  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
@@ -139,12 +139,12 @@ class ProfileTest(unittest.TestCase):
         self.assertEqual((profile.get("owner")["accent"], profile.get("owner")["darkBackground"]), ("#b0213f", "green"))
 
     def test_users_list_carries_the_profile_and_deleting_a_user_removes_it(self):
-        users.create_user("u1", "anna")
+        run(users.create_user("u1", "anna"))
         profile.set_display_name("u1", "Anna de Vries")
         profile.set_avatar("u1", PNG, "image/png")
-        listed = {user["id"]: user for user in users.list_users()}
+        listed = {user["id"]: user for user in run(users.list_users())}
         self.assertEqual((listed["u1"]["displayName"], listed["u1"]["hasAvatar"]), ("Anna de Vries", True))
-        self.assertTrue(users.delete_user("u1"))
+        self.assertTrue(run(users.delete_user("u1")))
         self.assertIsNone(profile.avatar("u1"))
         self.assertEqual(profile.get("u1")["displayName"], "")
 

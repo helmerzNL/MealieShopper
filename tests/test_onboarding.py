@@ -8,7 +8,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, auth, auth_password, jumbo, mealie, onboarding, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 
@@ -115,7 +115,7 @@ class LifecycleTest(OnboardingTestCase):
 
     def test_existing_install_with_a_password_is_left_alone(self):
         auth.ensure_db()
-        auth_password.store_password("owner", "admin", PASSWORD)
+        run(auth_password.store_password("owner", "admin", PASSWORD))
         self.assertFalse(self.status()["needed"])
         self.assertEqual(self.status()["authMode"], "password")
 

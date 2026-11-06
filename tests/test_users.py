@@ -160,7 +160,7 @@ class InviteTest(UsersTestCase):
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "Admin", "password": ANNA}, client).status_code, 400)  # naam bezet
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "anna", "password": "kort"}, client).status_code, 400)
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "", "password": ANNA}, client).status_code, 400)
-        self.assertEqual(len(users.list_users()), 1)  # niets half aangemaakt
+        self.assertEqual(len(run(users.list_users())), 1)  # niets half aangemaakt
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "anna", "password": ANNA}, client).status_code, 200)
 
     def test_a_name_in_a_pending_invite_is_reserved(self):
@@ -385,7 +385,7 @@ class ResetAndDeleteTest(UsersTestCase):
         self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).status_code, 401)
         self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": "nieuw-wachtwoord-123"}, SyncClient(self.app)).status_code, 200)
         self.assertFalse(anna.get("/api/auth/status").get_json()["authenticated"])  # oude sessie is weg
-        self.assertEqual(len(users.list_users()), 2)
+        self.assertEqual(len(run(users.list_users())), 2)
 
     def test_reset_also_drops_mfa(self):
         anna = self.join("anna", ANNA)
@@ -409,7 +409,7 @@ class ResetAndDeleteTest(UsersTestCase):
         self.assertEqual(self.admin.delete(f"/api/users/{anna_id}").status_code, 200)
         self.assertFalse(anna.get("/api/auth/status").get_json()["authenticated"])
         self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).status_code, 401)
-        self.assertEqual([u["username"] for u in users.list_users()], ["admin"])
+        self.assertEqual([u["username"] for u in run(users.list_users())], ["admin"])
         with closing(auth.connect()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM password_credentials WHERE user_id = ?", (anna_id,)).fetchone()[0], 0)
 

@@ -981,7 +981,7 @@ def register_routes(app: Quart) -> None:
 
         invite = None
         if body.get("invite"):
-            invite = users.find_invite(body.get("invite"))
+            invite = await users.find_invite(body.get("invite"))
             if not invite:
                 return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
         elif credentials_exist() and auth_required() and not current_user():
@@ -991,7 +991,7 @@ def register_routes(app: Quart) -> None:
         if invite:
             user_id = invite["userId"]
             username = invite["username"] if invite["kind"] == "reset" else str(body.get("username") or invite["username"]).strip()
-            problem = None if invite["kind"] == "reset" else users.check_new_username(username, invite)
+            problem = None if invite["kind"] == "reset" else await users.check_new_username(username, invite)
             if problem:
                 return jsonify({"error": problem}), 400
         else:
@@ -1026,7 +1026,7 @@ def register_routes(app: Quart) -> None:
 
         invite = None
         if body.get("invite"):
-            invite = users.find_invite(body.get("invite"))
+            invite = await users.find_invite(body.get("invite"))
             if not invite:
                 return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
             user_id = invite["userId"]
@@ -1052,14 +1052,14 @@ def register_routes(app: Quart) -> None:
         from . import onboarding  # lokaal: onboarding importeert dit module
 
         if invite:
-            if invite["kind"] == "new" and users.check_new_username(username, invite):
-                return jsonify({"error": users.check_new_username(username, invite)}), 409
+            if invite["kind"] == "new" and (taken := await users.check_new_username(username, invite)):
+                return jsonify({"error": taken}), 409
             try:
-                users.register_account(invite, username)  # nieuw account, of de oude inloggegevens wissen bij een reset
+                await users.register_account(invite, username)  # nieuw account, of de oude inloggegevens wissen bij een reset
             except users.UsernameTaken:
                 return jsonify({"error": tr("Deze naam is al in gebruik. Kies een andere.", "This name is already taken. Choose another one.")}), 409
         elif user_id == OWNER_ID:
-            onboarding.begin()
+            await onboarding.begin()
         now = utcnow().isoformat()
         with connect() as conn:
             conn.execute(
@@ -1082,7 +1082,7 @@ def register_routes(app: Quart) -> None:
                 (credential_id_b64, user_id, cose_key_bytes, sign_count, credential_name, now),
             )
         if invite:
-            users.consume_invite(invite["id"])
+            await users.consume_invite(invite["id"])
         elif user_id == OWNER_ID:
             set_setting(SETTING_AUTH_MODE, "passkey")
         token = create_token(user_id, username)

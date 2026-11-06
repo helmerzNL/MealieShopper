@@ -16,10 +16,13 @@ import hashlib
 import json
 import re
 import secrets
-from contextlib import closing
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
+
+import aiosqlite
 
 from . import auth
 
@@ -76,19 +79,26 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 class OAuthError(Exception):
     """Een fout met een code uit RFC 6749 en een uitleg voor de ontwikkelaar van de client."""
 
-    def __init__(self, code: str, description: str, status: int = 400):
+    def __init__(self, code: str, description: str, status: int = 400) -> None:
         super().__init__(description)
-        self.code = code
-        self.description = description
-        self.status = status
+        self.code: str = code
+        self.description: str = description
+        self.status: int = status
 
 
-def _connect():
-    auth.ensure_db()
-    conn = auth.connect()
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    return conn
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de OAuth-tabellen erbij en de foreign keys aan. Sluit zonder commit, zoals `auth.aconnect`."""
+    await auth.aensure_db()
+    async with auth.aconnect() as conn:
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.executescript(SCHEMA)
+        yield conn
+
+
+async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    async with conn.execute(sql, params) as cursor:
+        return await cursor.fetchone()
 
 
 def _now() -> datetime:
@@ -144,7 +154,7 @@ def _same_redirect(registered: str, requested: str) -> bool:
     )
 
 
-def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
+async def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
     uris = metadata.get("redirect_uris")
     if not isinstance(uris, list) or not uris or len(uris) > MAX_REDIRECT_URIS:
         raise OAuthError("invalid_redirect_uri", "redirect_uris moet een lijst met 1 tot 10 adressen zijn")
@@ -159,20 +169,21 @@ def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
     name = re.sub(r"\s+", " ", str(metadata.get("client_name") or "")).strip()[:80] or "Onbekende app"
 
     client_id = "msc_" + secrets.token_urlsafe(18)
-    with closing(_connect()) as conn, conn:
-        _purge_stale(conn)
-        count = conn.execute("SELECT COUNT(*) FROM oauth_clients").fetchone()[0]
+    async with _connect() as conn:
+        await _purge_stale(conn)
+        count = (await _fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
         if count >= MAX_CLIENTS:
             # Niemand mag de registratie blokkeren door het te vol te zetten: maak eerst plek door
             # apps weg te gooien die zich net registreerden maar nooit toestemming kregen.
-            _purge_stale(conn, max_age=timedelta(minutes=15))
-            count = conn.execute("SELECT COUNT(*) FROM oauth_clients").fetchone()[0]
+            await _purge_stale(conn, max_age=timedelta(minutes=15))
+            count = (await _fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
         if count >= MAX_CLIENTS:
             raise OAuthError("temporarily_unavailable", "Te veel geregistreerde apps; probeer het later opnieuw", 503)
-        conn.execute(
+        await conn.execute(
             "INSERT INTO oauth_clients (client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)",
             (client_id, name, json.dumps(uris), _iso(_now())),
         )
+        await conn.commit()
     return {
         "client_id": client_id,
         "client_name": name,
@@ -184,10 +195,10 @@ def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _purge_stale(conn, max_age: timedelta = timedelta(days=1)) -> None:
+async def _purge_stale(conn: aiosqlite.Connection, max_age: timedelta = timedelta(days=1)) -> None:
     """Verwijder apps die zich registreerden maar nooit toestemming kregen (standaard na een dag)."""
     cutoff = _iso(_now() - max_age)
-    conn.execute(
+    await conn.execute(
         """
         DELETE FROM oauth_clients
         WHERE created_at < ?
@@ -195,24 +206,24 @@ def _purge_stale(conn, max_age: timedelta = timedelta(days=1)) -> None:
         """,
         (cutoff,),
     )
-    conn.execute("DELETE FROM oauth_codes WHERE expires_at < ?", (_iso(_now() - timedelta(hours=1)),))
+    await conn.execute("DELETE FROM oauth_codes WHERE expires_at < ?", (_iso(_now() - timedelta(hours=1)),))
 
 
-def get_client(client_id: str) -> dict[str, Any] | None:
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (str(client_id or ""),)).fetchone()
+async def get_client(client_id: str) -> dict[str, Any] | None:
+    async with _connect() as conn:
+        row = await _fetchone(conn, "SELECT * FROM oauth_clients WHERE client_id = ?", (str(client_id or ""),))
     if not row:
         return None
     return {"client_id": row["client_id"], "name": row["client_name"], "redirect_uris": json.loads(row["redirect_uris"])}
 
 
-def check_authorize_request(params: dict[str, str], resource_url: str) -> dict[str, Any]:
+async def check_authorize_request(params: dict[str, str], resource_url: str) -> dict[str, Any]:
     """Controleer een autorisatieverzoek. Geeft de gegevens voor het toestemmingsscherm terug.
 
     Fouten voor client_id en redirect_uri mogen nooit naar het redirect-adres worden gestuurd
     (dat zou een open redirect zijn); die komen als gewone foutpagina terug.
     """
-    client = get_client(params.get("client_id", ""))
+    client = await get_client(params.get("client_id", ""))
     if not client:
         raise OAuthError("invalid_client", "Onbekende app. Voeg de connector opnieuw toe.")
     redirect_uri = params.get("redirect_uri", "")
@@ -245,23 +256,27 @@ def _authorize_error(params: dict[str, str], resource_url: str) -> OAuthError | 
 
 # --- codes en tokens -----------------------------------------------------------------------------
 
-def issue_code(user_id: str, client_id: str, redirect_uri: str, code_challenge: str, resource: str) -> str:
+async def issue_code(user_id: str, client_id: str, redirect_uri: str, code_challenge: str, resource: str) -> str:
     code = secrets.token_urlsafe(32)
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+    epoch = await auth.asession_epoch(user_id)
+    async with _connect() as conn:
+        await conn.execute(
             """
             INSERT INTO oauth_codes (code_hash, user_id, client_id, redirect_uri, code_challenge, resource, epoch, expires_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (_hash(code), user_id, client_id, redirect_uri, code_challenge, resource, auth.session_epoch(user_id), _iso(_now() + CODE_TTL)),
+            (_hash(code), user_id, client_id, redirect_uri, code_challenge, resource, epoch, _iso(_now() + CODE_TTL)),
         )
+        await conn.commit()
     return code
 
 
-def _new_token_row(conn, *, family: str, user_id: str, client_id: str, resource: str, epoch: int) -> dict[str, Any]:
+async def _new_token_row(
+    conn: aiosqlite.Connection, *, family: str, user_id: str, client_id: str, resource: str, epoch: int
+) -> dict[str, Any]:
     access, refresh = "msa_" + secrets.token_urlsafe(32), "msr_" + secrets.token_urlsafe(32)
     now = _now()
-    conn.execute(
+    await conn.execute(
         """
         INSERT INTO oauth_tokens
           (id, family, user_id, client_id, access_hash, refresh_hash, resource, epoch, access_expires, refresh_expires, created_at)
@@ -281,8 +296,13 @@ def _new_token_row(conn, *, family: str, user_id: str, client_id: str, resource:
     }
 
 
-def _user_exists(conn, user_id: str) -> bool:
-    return conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is not None
+async def _user_epoch(conn: aiosqlite.Connection, user_id: str) -> int | None:
+    """De sessieteller van de gebruiker, of None als die niet (meer) bestaat.
+
+    Op dezelfde verbinding: `auth.asession_epoch` zou een tweede verbinding openen terwijl deze al schrijft.
+    """
+    row = await _fetchone(conn, "SELECT session_epoch FROM users WHERE id = ?", (user_id,))
+    return int(row["session_epoch"]) if row else None
 
 
 def _pkce_ok(verifier: str, challenge: str) -> bool:
@@ -293,18 +313,19 @@ def _pkce_ok(verifier: str, challenge: str) -> bool:
     return secrets.compare_digest(expected, challenge)
 
 
-def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, Any]:
+async def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, Any]:
     client_id = form.get("client_id", "")
-    with closing(_connect()) as conn, conn:
-        row = conn.execute("SELECT * FROM oauth_codes WHERE code_hash = ?", (_hash(form.get("code", "")),)).fetchone()
+    # Elke fout hieronder sluit de verbinding zonder commit: wat er tot dan toe veranderde, telt niet.
+    async with _connect() as conn:
+        row = await _fetchone(conn, "SELECT * FROM oauth_codes WHERE code_hash = ?", (_hash(form.get("code", "")),))
         if not row or row["client_id"] != client_id:
             raise OAuthError("invalid_grant", "Onbekende of verlopen code")
         used = row["used"]
-        conn.execute("UPDATE oauth_codes SET used = 1 WHERE code_hash = ?", (row["code_hash"],))
+        await conn.execute("UPDATE oauth_codes SET used = 1 WHERE code_hash = ?", (row["code_hash"],))
         if used:
             # Een code die twee keer wordt ingewisseld is gestolen of gelekt: trek de tokens van de app in.
-            conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE client_id = ? AND user_id = ?", (client_id, row["user_id"]))
-            conn.commit()  # vóór de fout: anders draait de context manager het intrekken terug
+            await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE client_id = ? AND user_id = ?", (client_id, row["user_id"]))
+            await conn.commit()  # vóór de fout: anders sluit de verbinding zonder het intrekken
             raise OAuthError("invalid_grant", "Deze code is al gebruikt")
         if row["expires_at"] < _iso(_now()):
             raise OAuthError("invalid_grant", "Deze code is verlopen")
@@ -315,46 +336,51 @@ def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, Any]:
         resource = form.get("resource")
         if resource and resource.rstrip("/") != row["resource"].rstrip("/"):
             raise OAuthError("invalid_target", "resource komt niet overeen met het verzoek")
-        if not _user_exists(conn, row["user_id"]) or row["epoch"] != auth.session_epoch(row["user_id"]):
+        if row["epoch"] != await _user_epoch(conn, row["user_id"]):
             raise OAuthError("invalid_grant", "De inlog is sinds de toestemming gewijzigd; probeer opnieuw")
-        return _new_token_row(conn, family=secrets.token_hex(8), user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        tokens = await _new_token_row(conn, family=secrets.token_hex(8), user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        await conn.commit()
+        return tokens
 
 
-def refresh(form: dict[str, str]) -> dict[str, Any]:
+async def refresh(form: dict[str, str]) -> dict[str, Any]:
     client_id = form.get("client_id", "")
-    with closing(_connect()) as conn, conn:
-        row = conn.execute("SELECT * FROM oauth_tokens WHERE refresh_hash = ?", (_hash(form.get("refresh_token", "")),)).fetchone()
+    async with _connect() as conn:
+        row = await _fetchone(conn, "SELECT * FROM oauth_tokens WHERE refresh_hash = ?", (_hash(form.get("refresh_token", "")),))
         if not row or row["client_id"] != client_id or row["revoked"]:
             raise OAuthError("invalid_grant", "Onbekend of ingetrokken verversingstoken")
         if row["rotated"]:
             # Een oud verversingstoken opnieuw gebruikt: iemand heeft een kopie. Trek de hele reeks in.
-            conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
-            conn.commit()  # vóór de fout: anders draait de context manager het intrekken terug
+            await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
+            await conn.commit()  # vóór de fout: anders sluit de verbinding zonder het intrekken
             raise OAuthError("invalid_grant", "Dit verversingstoken is al gebruikt")
         if row["refresh_expires"] < _iso(_now()):
             raise OAuthError("invalid_grant", "Het verversingstoken is verlopen")
-        if not _user_exists(conn, row["user_id"]) or row["epoch"] != auth.session_epoch(row["user_id"]):
+        if row["epoch"] != await _user_epoch(conn, row["user_id"]):
             raise OAuthError("invalid_grant", "De inlog is gewijzigd; geef de app opnieuw toestemming")
-        conn.execute("UPDATE oauth_tokens SET rotated = 1 WHERE id = ?", (row["id"],))
-        return _new_token_row(conn, family=row["family"], user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        await conn.execute("UPDATE oauth_tokens SET rotated = 1 WHERE id = ?", (row["id"],))
+        tokens = await _new_token_row(conn, family=row["family"], user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
+        await conn.commit()
+        return tokens
 
 
-def token_request(form: dict[str, str], resource_url: str) -> dict[str, Any]:
+async def token_request(form: dict[str, str], resource_url: str) -> dict[str, Any]:
     grant = form.get("grant_type")
     if grant == "authorization_code":
-        return exchange_code(form, resource_url)
+        return await exchange_code(form, resource_url)
     if grant == "refresh_token":
-        return refresh(form)
+        return await refresh(form)
     raise OAuthError("unsupported_grant_type", "Gebruik authorization_code of refresh_token")
 
 
-def verify_access_token(token: str, resource_url: str) -> dict[str, Any] | None:
+async def verify_access_token(token: str, resource_url: str) -> dict[str, Any] | None:
     """De app en gebruiker achter een geldig toegangstoken, of None."""
     if not token.startswith("msa_"):
         return None
     now = _iso(_now())
-    with closing(_connect()) as conn, conn:
-        row = conn.execute(
+    async with _connect() as conn:
+        row = await _fetchone(
+            conn,
             """
             SELECT t.id, t.user_id, t.client_id, t.resource, t.epoch, t.access_expires, t.revoked, t.last_used_at,
                    c.client_name, u.username, u.session_epoch AS user_epoch
@@ -364,56 +390,62 @@ def verify_access_token(token: str, resource_url: str) -> dict[str, Any] | None:
             WHERE t.access_hash = ?
             """,
             (_hash(token),),
-        ).fetchone()
+        )
         if not row or row["revoked"] or row["access_expires"] < now or row["epoch"] != row["user_epoch"]:
             return None
         if not resource_ok(row["resource"], resource_url):
             return None
         if not row["last_used_at"] or row["last_used_at"][:16] != now[:16]:
-            conn.execute("UPDATE oauth_tokens SET last_used_at = ? WHERE id = ?", (now, row["id"]))
+            await conn.execute("UPDATE oauth_tokens SET last_used_at = ? WHERE id = ?", (now, row["id"]))
+            await conn.commit()
     return {"client_id": row["client_id"], "name": row["client_name"], "user_id": row["user_id"], "username": row["username"]}
 
 
-def revoke_token(token: str) -> None:
+async def revoke_token(token: str) -> None:
     """RFC 7009: geeft nooit een fout, ook niet voor een onbekend token."""
     digest = _hash(token or "")
-    with closing(_connect()) as conn, conn:
-        row = conn.execute("SELECT family FROM oauth_tokens WHERE access_hash = ? OR refresh_hash = ?", (digest, digest)).fetchone()
+    async with _connect() as conn:
+        row = await _fetchone(conn, "SELECT family FROM oauth_tokens WHERE access_hash = ? OR refresh_hash = ?", (digest, digest))
         if row:
-            conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
+            await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
+            await conn.commit()
 
 
 # --- beheer door de eigenaar ---------------------------------------------------------------------
 
-def connected_apps(user_id: str) -> list[dict[str, Any]]:
+async def connected_apps(user_id: str) -> list[dict[str, Any]]:
     """Apps van deze gebruiker met een actief (niet ingetrokken, niet verlopen) verversingstoken."""
     now = _iso(_now())
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+    epoch = await auth.asession_epoch(user_id)
+    async with _connect() as conn, conn.execute(
             """
             SELECT c.client_id, c.client_name, MIN(t.created_at) AS connected_at, MAX(t.last_used_at) AS last_used_at
             FROM oauth_clients c JOIN oauth_tokens t ON t.client_id = c.client_id
             WHERE t.user_id = ? AND t.revoked = 0 AND t.rotated = 0 AND t.refresh_expires > ? AND t.epoch = ?
             GROUP BY c.client_id ORDER BY MAX(t.created_at) DESC
             """,
-            (user_id, now, auth.session_epoch(user_id)),
-        ).fetchall()
+            (user_id, now, epoch),
+        ) as cursor:
+        rows = await cursor.fetchall()
     return [
         {"clientId": r["client_id"], "name": r["client_name"], "connectedAt": r["connected_at"], "lastUsedAt": r["last_used_at"]}
         for r in rows
     ]
 
 
-def revoke_app(user_id: str, client_id: str) -> bool:
+async def revoke_app(user_id: str, client_id: str) -> bool:
     """Trek de toegang van een app voor deze gebruiker in. False als de gebruiker die app niet heeft."""
-    with closing(_connect()) as conn, conn:
-        count = conn.execute("DELETE FROM oauth_tokens WHERE user_id = ? AND client_id = ?", (user_id, str(client_id or ""))).rowcount
-        conn.execute("DELETE FROM oauth_codes WHERE user_id = ? AND client_id = ?", (user_id, str(client_id or "")))
+    async with _connect() as conn:
+        cursor = await conn.execute("DELETE FROM oauth_tokens WHERE user_id = ? AND client_id = ?", (user_id, str(client_id or "")))
+        count = cursor.rowcount
+        await conn.execute("DELETE FROM oauth_codes WHERE user_id = ? AND client_id = ?", (user_id, str(client_id or "")))
+        await conn.commit()
         return count > 0
 
 
-def forget_user(user_id: str) -> None:
+async def forget_user(user_id: str) -> None:
     """Wis alle codes en tokens van een gebruiker (bij het verwijderen van het account)."""
-    with closing(_connect()) as conn, conn:
-        conn.execute("DELETE FROM oauth_tokens WHERE user_id = ?", (user_id,))
-        conn.execute("DELETE FROM oauth_codes WHERE user_id = ?", (user_id,))
+    async with _connect() as conn:
+        await conn.execute("DELETE FROM oauth_tokens WHERE user_id = ?", (user_id,))
+        await conn.execute("DELETE FROM oauth_codes WHERE user_id = ?", (user_id,))
+        await conn.commit()

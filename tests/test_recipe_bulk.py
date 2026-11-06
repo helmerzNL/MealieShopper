@@ -3,6 +3,8 @@ import json
 import os
 import re
 import tempfile
+import threading
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -452,7 +454,11 @@ class RoutesTest(BulkCase):
         cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
         cost.start()
         self.addCleanup(cost.stop)
-        thread = mock.patch.object(recipe_bulk.threading, "Thread", InlineThread)
+        # Alleen de threading van recipe_bulk, niet de module zelf: een patch op `threading.Thread` zou ook de
+        # werkthreads van `asyncio.to_thread` (scrypt bij het inloggen) inline draaien, en dan hangt de event loop.
+        inline = types.SimpleNamespace(**vars(threading))
+        inline.Thread = InlineThread
+        thread = mock.patch.object(recipe_bulk, "threading", inline)
         thread.start()
         self.addCleanup(thread.stop)
         self.app = create_app()

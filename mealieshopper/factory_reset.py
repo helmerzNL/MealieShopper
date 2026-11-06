@@ -14,11 +14,10 @@ Veiligheid in het kort:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import signal
-import threading
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -42,8 +41,11 @@ def restart_supported() -> bool:
 
 
 def wipe_data() -> list[str]:
-    """Verwijdert de database en het geheim; geeft de namen van de bestanden die er waren."""
-    removed = []
+    """Verwijdert de database en het geheim; geeft de namen van de bestanden die er waren.
+
+    Synchroon: alleen bestanden op schijf en het geheugen van auth, geen database-verbinding.
+    """
+    removed: list[str] = []
     for name in DATA_FILES:
         path = auth.data_dir() / name
         try:
@@ -71,35 +73,36 @@ def restart() -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _owner_methods() -> dict[str, bool]:
+async def _owner_methods() -> dict[str, bool]:
     return {
-        "password": auth.password_configured(auth.OWNER_ID),
-        "mfa": auth.mfa_enabled(auth.OWNER_ID),
-        "passkey": auth.auth_enabled() and auth.passkey_count(auth.OWNER_ID) > 0,
+        "password": await auth.apassword_configured(auth.OWNER_ID),
+        "mfa": await auth.amfa_enabled(auth.OWNER_ID),
+        "passkey": auth.auth_enabled() and await auth.apasskey_count(auth.OWNER_ID) > 0,
     }
 
 
-def _check_passkey(uid: str, credential: Any):
+async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply | None:
     """None als de passkey van de beheerder de uitdaging goed ondertekende; anders het foutantwoord."""
-    if auth_password.locked_seconds():
-        return auth_password._too_many()
-    challenge = auth.pop_challenge(f"reset:{uid}")
+    if await auth_password.locked_seconds():
+        return await auth_password._too_many()
+    challenge = await auth.apop_challenge(f"reset:{uid}")
     credential = credential if isinstance(credential, dict) else {}
     if not challenge:
         return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
-    with closing(auth.connect()) as conn:
-        stored = conn.execute(
-            "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
-            (str(credential.get("id") or ""), uid),
-        ).fetchone()
+    async with auth.aconnect() as conn, conn.execute(
+        "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
+        (str(credential.get("id") or ""), uid),
+    ) as cursor:
+        stored = await cursor.fetchone()
     try:
         if not stored:
             raise ValueError("Unknown credential")
-        auth.check_assertion(credential, challenge, bytes(stored["public_key"]))
+        # De webauthn-controle is rekenwerk: in een thread, met een kopie van de context (voor `request`).
+        await asyncio.to_thread(auth.check_assertion, credential, challenge, bytes(stored["public_key"]))
     except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
-        auth_password.register_failure()
+        await auth_password.register_failure()
         return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
-    auth_password.reset_failures()
+    await auth_password.reset_failures()
     return None
 
 
@@ -109,8 +112,8 @@ def register_routes(app: Quart) -> None:
         return jsonify(
             {
                 "phrase": CONFIRM_PHRASE,
-                "authRequired": auth.auth_required(),
-                "methods": _owner_methods(),
+                "authRequired": await auth.aauth_required(),
+                "methods": await _owner_methods(),
                 "restart": restart_supported(),
             }
         )
@@ -118,12 +121,14 @@ def register_routes(app: Quart) -> None:
     @app.post("/api/system/factory-reset/options")
     async def factory_reset_options():
         """De uitdaging voor de passkey waarmee de beheerder het wissen bevestigt."""
-        if not auth.auth_required() or not _owner_methods()["passkey"]:
+        if not await auth.aauth_required() or not (await _owner_methods())["passkey"]:
             return jsonify({"error": tr("Bevestigen met een passkey kan hier niet.", "Confirming with a passkey is not possible here.")}), 400
-        with closing(auth.connect()) as conn:
-            rows = conn.execute("SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)).fetchall()
+        async with auth.aconnect() as conn, conn.execute(
+            "SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)
+        ) as cursor:
+            rows = await cursor.fetchall()
         challenge = auth.make_challenge()
-        auth.store_challenge(f"reset:{auth.OWNER_ID}", challenge)
+        await auth.astore_challenge(f"reset:{auth.OWNER_ID}", challenge)
         return jsonify(
             {
                 "status": "ok",
@@ -143,14 +148,14 @@ def register_routes(app: Quart) -> None:
         if str(body.get("confirm") or "").strip() != CONFIRM_PHRASE:
             return jsonify({"error": tr(f"Typ {CONFIRM_PHRASE} om te bevestigen.", f"Type {CONFIRM_PHRASE} to confirm.")}), 400
 
-        if auth.auth_required():
-            user = auth.current_user()
+        if await auth.aauth_required():
+            user = await auth.acurrent_user()
             if not user or user["id"] != auth.OWNER_ID:
                 return jsonify({"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}), 403
             if body.get("credential"):
-                wrong = _check_passkey(user["id"], body.get("credential"))
-            elif _owner_methods()["password"]:
-                wrong = auth_password.reauthenticate(user["id"], body)
+                wrong = await _check_passkey(user["id"], body.get("credential"))
+            elif (await _owner_methods())["password"]:
+                wrong = await auth_password.reauthenticate(user["id"], body)
             else:
                 wrong = jsonify({"error": tr("Bevestig met je passkey.", "Confirm with your passkey.")}), 400
             if wrong:
@@ -160,7 +165,6 @@ def register_routes(app: Quart) -> None:
         removed = wipe_data()
         app.logger.warning("Fabrieksinstellingen: %d bestand(en) uit de data-map verwijderd (%s)", len(removed), ", ".join(removed))
         if restarting:
-            timer = threading.Timer(RESTART_DELAY_SECONDS, restart)
-            timer.daemon = True
-            timer.start()
+            # Eerst het antwoord, dan stopt het proces zichzelf: een timer op de event loop, geen thread.
+            asyncio.get_running_loop().call_later(RESTART_DELAY_SECONDS, restart)
         return await auth.clear_cookie_response({"status": "ok", "restarting": restarting})

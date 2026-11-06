@@ -17,7 +17,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -177,12 +177,18 @@ class BackupCase(unittest.TestCase):
 
 
 class ClassificationTest(BackupCase):
+    @staticmethod
+    async def oauth_schema() -> None:
+        async with oauth._connect():  # oauth maakt zijn tabellen bij de eerste verbinding
+            pass
+
     def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self):
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         backup.ensure_schemas()
-        for module in (audit, mealie_images, oauth, image_cache):
+        for module in (audit, mealie_images, image_cache):
             with closing(module._connect()):
                 pass
+        run(self.oauth_schema())
         with closing(self.connect()) as conn:
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         self.assertEqual(tables - set(backup.DATA_TABLES) - backup.EXCLUDED_TABLES, set(), "een tabel is niet ingedeeld")

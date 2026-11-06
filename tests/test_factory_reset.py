@@ -1,9 +1,14 @@
+import asyncio
 import os
 import re
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest import mock
+
+import pytest
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
@@ -11,6 +16,9 @@ from mealieshopper import auth, auth_password, factory_reset  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import FakeAuthenticator, b64  # noqa: E402
 from support import SyncClient  # noqa: E402
+
+if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
+    from quart.typing import TestClientProtocol
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -202,6 +210,21 @@ class PasskeyResetTest(FactoryResetCase):
         self.assertEqual(self.reset({"credential": stranger.get(options["challenge"])}).status_code, 403)
         self.assertIn("auth.sqlite3", self.files())
 
+    def test_the_signature_is_checked_off_the_event_loop(self):
+        threads = []
+        real = auth.check_assertion
+
+        def spy(*args):
+            threads.append(threading.get_ident())
+            return real(*args)
+
+        options = self.challenge()
+        with mock.patch.object(auth, "check_assertion", side_effect=spy):
+            response = self.reset({"credential": self.phone.get(options["challenge"])})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0], threading.get_ident(), "SyncClient draait de event loop in de thread van de test")
+
     def test_the_word_is_still_needed(self):
         options = self.challenge()
         response = self.admin.post(URL, json={"credential": self.phone.get(options["challenge"])})
@@ -225,17 +248,61 @@ class WithoutLoginTest(unittest.TestCase):
             self.assertEqual(sorted(path.name for path in Path(tmp).iterdir()), [])
 
 
-class RestartTest(FactoryResetCase):
-    def test_in_a_container_the_app_stops_itself_after_answering(self):
-        timer = mock.Mock()
-        with mock.patch.object(factory_reset, "restart_supported", return_value=True), mock.patch.object(
-            factory_reset.threading, "Timer", return_value=timer
-        ) as make_timer:
-            response = self.reset({"password": PASSWORD})
-        self.assertEqual(response.get_json(), {"status": "ok", "restarting": True})
-        make_timer.assert_called_once_with(factory_reset.RESTART_DELAY_SECONDS, factory_reset.restart)
-        timer.start.assert_called_once_with()
+@pytest.fixture
+async def admin(data_dir: Path, monkeypatch: pytest.MonkeyPatch, client: "TestClientProtocol") -> "TestClientProtocol":
+    """De async testclient, ingelogd als beheerder met een wachtwoord."""
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "true")
+    monkeypatch.setattr(auth_password, "SCRYPT_N", 2**4)
+    response = await client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+    assert response.status_code == 200, await response.get_json()
+    return client
 
+
+@pytest.fixture
+def in_a_container(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
+    """Een container (herstart mogelijk) met een nep-`restart`, zodat de test zichzelf geen SIGTERM stuurt."""
+    restart = mock.Mock()
+    monkeypatch.setattr(factory_reset, "restart_supported", lambda: True)
+    monkeypatch.setattr(factory_reset, "restart", restart)
+    return restart
+
+
+async def test_in_a_container_the_restart_is_scheduled_on_the_loop_after_answering(
+    admin: "TestClientProtocol", in_a_container: mock.Mock
+) -> None:
+    loop = asyncio.get_running_loop()
+    with mock.patch.object(loop, "call_later", wraps=loop.call_later) as call_later:
+        response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert await response.get_json() == {"status": "ok", "restarting": True}
+    restarts = [call for call in call_later.call_args_list if in_a_container in call.args]
+    assert restarts == [mock.call(factory_reset.RESTART_DELAY_SECONDS, in_a_container)]
+    assert factory_reset.RESTART_DELAY_SECONDS == 1.5
+    in_a_container.assert_not_called()  # eerst het antwoord, de herstart pas na de pauze
+
+
+async def test_in_a_container_the_app_stops_itself_after_the_delay(
+    admin: "TestClientProtocol", in_a_container: mock.Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(factory_reset, "RESTART_DELAY_SECONDS", 0.05)
+    response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert response.status_code == 200
+    in_a_container.assert_not_called()
+    await asyncio.sleep(0.2)
+    in_a_container.assert_called_once_with()
+
+
+async def test_outside_a_container_nothing_is_scheduled(admin: "TestClientProtocol", monkeypatch: pytest.MonkeyPatch) -> None:
+    restart = mock.Mock()
+    monkeypatch.setattr(factory_reset, "restart_supported", lambda: False)
+    monkeypatch.setattr(factory_reset, "restart", restart)
+    monkeypatch.setattr(factory_reset, "RESTART_DELAY_SECONDS", 0.01)
+    response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert await response.get_json() == {"status": "ok", "restarting": False}
+    await asyncio.sleep(0.05)
+    restart.assert_not_called()
+
+
+class RestartTest(FactoryResetCase):
     def test_restart_sends_sigterm_to_itself(self):
         with mock.patch.object(factory_reset.os, "kill") as kill:
             factory_reset.restart()
