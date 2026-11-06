@@ -9,8 +9,11 @@ gelden overal dezelfde regels:
 * de hooks van het auditlog (`audit.httpx_hooks()`).
 
 Een `httpx.AsyncClient` hoort bij de event loop waarin hij zijn verbindingen opent. Daarom bewaren we de
-clients per loop: een nieuwe loop (een test, `asyncio.run`) krijgt nieuwe clients, en een loop die verdwijnt
-neemt zijn clients mee uit het geheugen.
+clients per loop: een nieuwe loop (een test, `asyncio.run`) krijgt nieuwe clients. Een loop verdwijnt niet
+vanzelf uit `_clients`: een client die een verzoek deed, houdt open verbindingen vast, en die houden de loop
+vast. De regel voor een loop leeft dus zolang zijn clients open zijn. Productie heeft een loop en sluit de
+clients bij het afsluiten. Elke losse `asyncio.run(...)` die een client gebruikte, eindigt daarom met
+`await aclose_all()`.
 """
 
 from __future__ import annotations
@@ -42,8 +45,9 @@ def client(
 
     Alleen aan te roepen binnen een lopende loop (dus vanuit een coroutine): daarbuiten geeft
     `asyncio.get_running_loop()` een RuntimeError. `headers` komen over de standaard heen, dus een eigen
-    `User-Agent` wint. De instellingen horen bij de naam: wie dezelfde naam met andere instellingen opvraagt,
-    krijgt een ValueError. Headers of een time-out voor een enkel verzoek geef je aan dat verzoek zelf mee.
+    `User-Agent` wint. De instellingen van de eerste aanroep voor een naam gelden, latere aanroepen met andere
+    instellingen krijgen zonder melding dezelfde client terug. Headers of een time-out voor een enkel verzoek
+    geef je aan dat verzoek zelf mee.
     """
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
     clients: dict[str, httpx.AsyncClient] = _clients.setdefault(loop, {})
@@ -51,31 +55,10 @@ def client(
     wanted.update(headers or {})
     existing: httpx.AsyncClient | None = clients.get(name)
     if existing is not None and not existing.is_closed:
-        _check_settings(
-            name, existing, wanted, httpx.Timeout(timeout), follow_redirects
-        )
         return existing
     made: httpx.AsyncClient = _build(wanted, timeout, follow_redirects)
     clients[name] = made
     return made
-
-
-def _check_settings(
-    name: str,
-    existing: httpx.AsyncClient,
-    headers: httpx.Headers,
-    timeout: httpx.Timeout,
-    follow_redirects: bool,
-) -> None:
-    same_headers: bool = all(
-        existing.headers.get(key) == value for key, value in headers.items()
-    )
-    if (
-        not same_headers
-        or existing.timeout != timeout
-        or existing.follow_redirects != follow_redirects
-    ):
-        raise ValueError(f"http-client {name!r} bestaat al met andere instellingen")
 
 
 def _build(

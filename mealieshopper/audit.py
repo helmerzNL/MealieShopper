@@ -494,6 +494,13 @@ class _HttpxOrigin:
 
 
 async def _httpx_request(request: httpx.Request) -> None:
+    try:
+        _httpx_mark_start(request)
+    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
+        log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
+
+
+def _httpx_mark_start(request: httpx.Request) -> None:
     extensions: dict[str, Any] = request.extensions
     if _HTTPX_STARTED in extensions:
         extensions[_HTTPX_REDIRECTS] = extensions.get(_HTTPX_REDIRECTS, 0) + 1
@@ -510,24 +517,44 @@ async def _httpx_request(request: httpx.Request) -> None:
 
 
 async def _httpx_response(response: httpx.Response) -> None:
-    extensions: dict[str, Any] = response.request.extensions
-    origin: Any = extensions.get(_HTTPX_ORIGIN)
-    if not isinstance(origin, _HttpxOrigin):
+    try:
+        read: bool | None = _httpx_should_read(response)
+    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
+        log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
         return
-    content_type: str = response.headers.get("Content-Type", "")
-    # De hook loopt voordat httpx de body leest. We lezen hem alleen als hij in de log komt: een plaatje of
-    # een download blijft zo ongelezen, ook als de aanroeper streamt. Een gestreamde tekst wordt hier wel
-    # in het geheugen gelezen, de aanroeper leest daarna gewoon uit die kopie.
-    read: bool = bodies_enabled() and not _quiet.get() and _is_text(content_type)
+    if read is None:
+        return
     if read:
+        # Buiten de try: een fout bij het lezen van de body hoort bij het verzoek zelf en gaat naar de aanroeper.
         await response.aread()
+    try:
+        _httpx_log(response, read)
+    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
+        log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
+
+
+def _httpx_should_read(response: httpx.Response) -> bool | None:
+    """None als dit verzoek niet in de log komt, anders of de hook de body moet lezen.
+
+    De hook loopt voordat httpx de body leest. We lezen hem alleen als hij in de log komt: een plaatje of een
+    download blijft zo ongelezen, ook als de aanroeper streamt. Een gestreamde tekst wordt hier wel in het
+    geheugen gelezen, de aanroeper leest daarna gewoon uit die kopie.
+    """
+    if not isinstance(response.request.extensions.get(_HTTPX_ORIGIN), _HttpxOrigin):
+        return None
+    return bodies_enabled() and not _quiet.get() and _is_text(response.headers.get("Content-Type", ""))
+
+
+def _httpx_log(response: httpx.Response, read: bool) -> None:
+    extensions: dict[str, Any] = response.request.extensions
+    origin: _HttpxOrigin = extensions[_HTTPX_ORIGIN]
     outbound: _Outbound = _Outbound(
         method=origin.method,
         url=origin.url,
         request_body=origin.body,
         request_type=origin.content_type,
         status=response.status_code,
-        content_type=content_type,
+        content_type=response.headers.get("Content-Type", ""),
         response_body=response.content if read else None,
         response_length=None if read else _content_length(response.headers),
         redirects=extensions.get(_HTTPX_REDIRECTS, 0),
@@ -540,7 +567,7 @@ async def _httpx_response(response: httpx.Response) -> None:
         # Volgt hij wel, dan logt de hook bij het laatste antwoord.
         asyncio.get_running_loop().call_soon(_record_unfollowed_redirect, response, outbound, duration_ms)
         return
-    _safe_record_outbound(outbound, None, duration_ms)
+    _record_outbound(outbound, None, duration_ms)
 
 
 def _record_unfollowed_redirect(response: httpx.Response, outbound: _Outbound, duration_ms: int) -> None:

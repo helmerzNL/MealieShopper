@@ -1,8 +1,11 @@
 import asyncio
+import contextvars
 import json
 import os
 import tempfile
 import unittest
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeAlias
 from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
@@ -14,6 +17,10 @@ import respx  # noqa: E402
 from mealieshopper import audit, auth, http_client, mcp, oauth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient  # noqa: E402
+
+
+# Wat een respx-route teruggeeft: een vast antwoord of een functie die er een maakt.
+Answer: TypeAlias = httpx.Response | Callable[[httpx.Request], Awaitable[httpx.Response]]
 
 
 def fake_response(url, status=200, body=b"{}", content_type="application/json", headers=None):
@@ -189,17 +196,17 @@ class OutboundTest(AuditTestCase):
 class HttpxOutboundTest(AuditTestCase):
     """Hetzelfde auditlog voor httpx, via de hooks uit `audit.httpx_hooks()` die `http_client` aanhaakt."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         http_client.reset()
         self.addCleanup(http_client.reset)
 
-    def fetch(self, method, url, routes, **kwargs):
+    def fetch(self, method: str, url: str, routes: dict[str, Answer], **kwargs: Any) -> httpx.Response:
         """Een echt verzoek via `http_client`, met alleen het netwerk nagebootst door respx."""
 
-        follow_redirects = kwargs.pop("follow_redirects", True)
+        follow_redirects: bool = kwargs.pop("follow_redirects", True)
 
-        async def go():
+        async def go() -> httpx.Response:
             try:
                 with respx.mock(assert_all_called=False) as router:
                     for route_url, answer in routes.items():
@@ -207,7 +214,7 @@ class HttpxOutboundTest(AuditTestCase):
                             router.route(url=route_url).mock(side_effect=answer)
                         else:
                             router.route(url=route_url).mock(return_value=answer)
-                    response = await http_client.client("test", follow_redirects=follow_redirects).request(method, url, **kwargs)
+                    response: httpx.Response = await http_client.client("test", follow_redirects=follow_redirects).request(method, url, **kwargs)
                     await asyncio.sleep(0)  # de controle op een niet gevolgde doorverwijzing loopt in de volgende ronde van de loop
                     return response
             finally:
@@ -215,13 +222,14 @@ class HttpxOutboundTest(AuditTestCase):
 
         return asyncio.run(go())
 
-    def test_outbound_httpx_call_is_logged_with_service_status_and_duration(self):
-        async def slow(request):
+    def test_outbound_httpx_call_is_logged_with_service_status_and_duration(self) -> None:
+        async def slow(request: httpx.Request) -> httpx.Response:
             await asyncio.sleep(0.02)
             return httpx.Response(200, json={"products": [{"title": "Melk"}]})
 
-        url = "https://api.ah.nl/mobile-services/product/search/v2?query=melk&access_token=GEHEIM"
+        url: str = "https://api.ah.nl/mobile-services/product/search/v2?query=melk&access_token=GEHEIM"
         self.fetch("GET", url, {url: slow})
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual((entry["kind"], entry["service"], entry["method"], entry["status"], entry["ok"]), ("outbound", "ah", "GET", 200, True))
         self.assertEqual(entry["action"], "GET /mobile-services/product/search/v2")
@@ -230,77 +238,96 @@ class HttpxOutboundTest(AuditTestCase):
         self.assertGreaterEqual(entry["durationMs"], 20)
         self.assertEqual(entry["actor"], "system")
         self.assertEqual(entry["detail"]["contentType"], "application/json")
-        full = audit.get_entry(entry["id"])
+        full: dict[str, Any] = audit.get_entry(entry["id"])
         self.assertIn("Melk", full["response"])
         self.assertEqual(entry["respBytes"], len(b'{"products":[{"title":"Melk"}]}'))
 
-    def test_httpx_request_body_and_graphql_name_are_logged_without_secrets(self):
-        url = "https://www.jumbo.com/api/graphql"
+    def test_httpx_request_body_and_graphql_name_are_logged_without_secrets(self) -> None:
+        url: str = "https://www.jumbo.com/api/graphql"
         self.fetch("POST", url, {url: httpx.Response(500, text="kapot")}, json={"operationName": "Basket", "password": "hunter2"})
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual((entry["service"], entry["action"], entry["status"], entry["ok"]), ("jumbo", "GraphQL Basket", 500, False))
-        full = audit.get_entry(entry["id"])
+        full: dict[str, Any] = audit.get_entry(entry["id"])
         self.assertIn("Basket", full["request"])
         self.assertNotIn("hunter2", json.dumps(full))
         self.assertEqual(full["response"], "kapot")
 
-    def test_httpx_other_hosts_are_not_logged(self):
-        url = "https://mealie.example.com/api/recipes"
+    def test_httpx_other_hosts_are_not_logged(self) -> None:
+        url: str = "https://mealie.example.com/api/recipes"
         self.fetch("GET", url, {url: httpx.Response(200, json={})})
         self.assertEqual(self.entries(), [])
 
-    def test_httpx_redirects_count_as_one_request(self):
-        start, target = "https://www.jumbo.com/start", "https://www.jumbo.com/final"
+    def test_httpx_redirects_count_as_one_request(self) -> None:
+        start: str = "https://www.jumbo.com/start"
+        target: str = "https://www.jumbo.com/final"
         self.fetch("GET", start, {start: httpx.Response(302, headers={"Location": target}), target: httpx.Response(200, json={"ok": True})})
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual((entry["status"], entry["url"]), (200, start))
         self.assertEqual(entry["detail"]["redirects"], 1)
         self.assertEqual(entry["detail"]["finalUrl"], target)
 
-    def test_httpx_redirect_that_is_not_followed_is_logged_once(self):
-        start, target = "https://marleyspoon.nl/menu", "https://marleyspoon.nl/login"
-        response = self.fetch("GET", start, {start: httpx.Response(302, headers={"Location": target})}, follow_redirects=False)
+    def test_httpx_redirect_that_is_not_followed_is_logged_once(self) -> None:
+        start: str = "https://marleyspoon.nl/menu"
+        target: str = "https://marleyspoon.nl/login"
+        response: httpx.Response = self.fetch("GET", start, {start: httpx.Response(302, headers={"Location": target})}, follow_redirects=False)
         self.assertEqual(response.status_code, 302)
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual((entry["service"], entry["status"], entry["url"]), ("marleyspoon", 302, start))
         self.assertNotIn("redirects", entry["detail"])
 
-    def test_httpx_binary_responses_are_not_read(self):
-        url = "https://www.ah.nl/image.png"
+    def test_httpx_binary_responses_are_not_read(self) -> None:
+        url: str = "https://www.ah.nl/image.png"
         self.fetch("GET", url, {url: httpx.Response(200, content=b"\x89PNG\r\n", headers={"Content-Type": "image/png"})})
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual(audit.get_entry(entry["id"])["response"], "[image/png, 6 bytes]")
         self.assertEqual(entry["respBytes"], 6)
 
-    def test_httpx_bodies_can_be_turned_off_but_the_request_is_still_logged(self):
+    def test_httpx_bodies_can_be_turned_off_but_the_request_is_still_logged(self) -> None:
         os.environ["MEALIESHOPPER_AUDIT_BODIES"] = "false"
-        url = "https://www.jumbo.com/api/graphql"
+        url: str = "https://www.jumbo.com/api/graphql"
         self.fetch("POST", url, {url: httpx.Response(200, json={"data": 1})}, json={"operationName": "Basket"})
+        entry: dict[str, Any]
         (entry,) = self.entries()
-        full = audit.get_entry(entry["id"])
+        full: dict[str, Any] = audit.get_entry(entry["id"])
         self.assertEqual((full["request"], full["response"]), ("", ""))
         self.assertEqual(entry["action"], "GraphQL Basket")
 
-    def test_httpx_log_can_be_turned_off(self):
+    def test_httpx_log_can_be_turned_off(self) -> None:
         os.environ["MEALIESHOPPER_AUDIT_LOG"] = "false"
-        url = "https://www.ah.nl/x"
+        url: str = "https://www.ah.nl/x"
         self.fetch("GET", url, {url: httpx.Response(200, json={})})
         self.assertEqual(self.entries(), [])
 
-    def test_httpx_logging_failure_never_breaks_the_request(self):
-        url = "https://www.ah.nl/x"
+    def test_httpx_logging_failure_never_breaks_the_request(self) -> None:
+        url: str = "https://www.ah.nl/x"
         with mock.patch.object(audit, "_connect", side_effect=RuntimeError("schijf vol")):
-            response = self.fetch("GET", url, {url: httpx.Response(200, json={"ok": True})})
+            response: httpx.Response = self.fetch("GET", url, {url: httpx.Response(200, json={"ok": True})})
         self.assertEqual(response.json(), {"ok": True})
 
-    def test_httpx_mcp_caller_is_kept(self):
-        url = "https://www.jumbo.com/api/graphql"
-        token, corr = audit._actor.set("mcp:Claude"), audit._corr.set("abc123")
+    def test_httpx_hook_failure_never_breaks_the_request(self) -> None:
+        url: str = "https://www.ah.nl/x"
+        for target in ("_record_outbound", "_httpx_mark_start"):
+            with self.subTest(target), mock.patch.object(audit, target, side_effect=RuntimeError("kapot in de hook")):
+                with self.assertLogs("mealieshopper.audit", "WARNING") as logged:
+                    response: httpx.Response = self.fetch("GET", url, {url: httpx.Response(200, json={"ok": True})})
+                self.assertEqual(response.json(), {"ok": True})
+                self.assertIn("Kon een uitgaand verzoek niet loggen", logged.output[0])
+        self.assertEqual(self.entries(), [])
+
+    def test_httpx_mcp_caller_is_kept(self) -> None:
+        url: str = "https://www.jumbo.com/api/graphql"
+        token: contextvars.Token[str] = audit._actor.set("mcp:Claude")
+        corr: contextvars.Token[str] = audit._corr.set("abc123")
         try:
             self.fetch("GET", url, {url: httpx.Response(200, json={})})
         finally:
             audit._actor.reset(token)
             audit._corr.reset(corr)
+        entry: dict[str, Any]
         (entry,) = self.entries()
         self.assertEqual((entry["actor"], entry["corr"]), ("mcp:Claude", "abc123"))
 

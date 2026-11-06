@@ -63,16 +63,6 @@ async def test_settings_are_applied(closing_clients: None) -> None:
     assert default.follow_redirects is True
 
 
-async def test_a_name_reused_with_other_settings_is_refused(
-    closing_clients: None,
-) -> None:
-    http_client.client("test", timeout=5.0)
-    with pytest.raises(ValueError, match="test"):
-        http_client.client("test", timeout=10.0)
-    with pytest.raises(ValueError, match="test"):
-        http_client.client("test", timeout=5.0, headers={"User-Agent": "Anders/1.0"})
-
-
 def test_client_is_reused_within_a_loop_and_not_across_loops() -> None:
     async def get(name: str) -> httpx.AsyncClient:
         return http_client.client(name)
@@ -113,15 +103,16 @@ async def test_cookies_from_a_response_are_not_sent_back(
     assert len(shared.cookies) == 0
 
 
-async def test_trust_env_is_off(
-    monkeypatch: pytest.MonkeyPatch, respx_mock: respx.MockRouter, closing_clients: None
-) -> None:
+async def test_trust_env_is_off(monkeypatch: pytest.MonkeyPatch, closing_clients: None) -> None:
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
-    route: respx.Route = respx_mock.get(URL).respond(200)
+    trusting: httpx.AsyncClient = httpx.AsyncClient(trust_env=True)
+    try:
+        assert trusting._mounts, "met trust_env=True hangt httpx een proxy-transport voor HTTPS_PROXY"
+    finally:
+        await trusting.aclose()
     made: httpx.AsyncClient = http_client.client("test")
     assert made.trust_env is False
-    await made.get(URL)
-    assert route.called
+    assert made._mounts == {}, "geen proxy uit de omgeving"
 
 
 async def test_closed_client_is_replaced(closing_clients: None) -> None:
