@@ -18,6 +18,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): de tab Recepten bij Crisp met een nieuwe screenshot (`crisp-recipes.png`, scenario in `scripts/screenshots/scenarios/35-crisp.js`), Crisp bij het importeren in bulk, de receptvoorstellen en de MCP-tool. De README's en `docs/onderzoek-crisp.md` zijn bijgewerkt.
 - **Ontwikkeling**: nieuwe tests voor `crisp.get_saved_recipes`, de route, de verkenner, de bulk-import van Crisp (`CrispTest`), `_collect_crisp` en de MCP-tool. `test_ah_items_ui` en `test_store_switch` kennen de nieuwe tab: van Lijstjes naar Crisp opent nu Recepten.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#256](https://github.com/helmerzNL/MealieShopper/pull/256).
 
 ## v3.12.3
 
