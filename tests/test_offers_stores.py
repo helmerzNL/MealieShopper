@@ -516,9 +516,9 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await offers_schedule.status())["lastTrigger"], "scheduled")
 
     async def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value={"found": 1}) as link, \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value={"products": 2}) as fill, \
-             mock.patch.object(prices, "fill_regular_prices_nightly", return_value={"lines": 4}) as regular, \
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value={"found": 1}) as link, \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value={"products": 2}) as fill, \
+             mock.patch.object(prices, "fill_regular_prices_nightly", new_callable=mock.AsyncMock, return_value={"lines": 4}) as regular, \
              mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
             self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
@@ -531,8 +531,8 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
 
     async def test_the_button_does_not_wait_for_the_image_round(self):
         # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
              mock.patch.object(image_cache, "prefetch_nightly") as nightly, \
              mock.patch.object(image_cache, "prefetch_async") as background:
             result = await offers_schedule.sync_now()
@@ -541,8 +541,8 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("images", result)
 
     async def test_the_manual_run_skips_what_has_nothing_to_do(self):
-        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
-             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
+        with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
+             mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
              mock.patch.object(image_cache, "prefetch_nightly", return_value=None):
             result = await offers_schedule.sync_now()
         self.assertEqual(sorted(result), ["finishedAt", "stores"])

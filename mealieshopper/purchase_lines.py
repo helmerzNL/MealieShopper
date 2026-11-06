@@ -295,7 +295,7 @@ def status_kind(kind: str, row: Mapping[str, Any] | Any) -> tuple[str, str | Non
     return "planned", (row["state_text"] or None) if "state_text" in keys else None
 
 
-def fill_regular(
+async def fill_regular(
     store: str,
     *,
     order_ids: list[Any] | None = None,
@@ -307,7 +307,7 @@ def fill_regular(
     from . import prices
 
     try:
-        prices.fill_regular_prices(store, order_ids=order_ids, receipt_ids=receipt_ids)
+        await prices.fill_regular_prices(store, order_ids=order_ids, receipt_ids=receipt_ids)
     except Exception:  # noqa: BLE001 - de gewone prijs is een extraatje, de aankoop is wat je wilde zien
         log.warning(
             "Gewone prijs bij het openen van een aankoop mislukt voor %s",

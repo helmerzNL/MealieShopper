@@ -260,7 +260,7 @@ async def tool_search_products(args: dict[str, Any]) -> Any:
                 "bonus": item.get("isBonus"),
                 "url": ah.product_web_url(item["webshopId"]),
             }
-            for item in prices.recorded("ah", ah.search_products)(query, limit)
+            for item in await prices.recorded("ah", ah.search_products)(query, limit)
         ]
     }
 
@@ -279,7 +279,7 @@ async def tool_search_picnic_products(args: dict[str, Any]) -> Any:
     return {
         "products": [
             {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus")}
-            for item in prices.recorded("picnic", picnic.search_products)(query, limit)
+            for item in await prices.recorded("picnic", picnic.search_products)(query, limit)
         ]
     }
 
@@ -303,7 +303,7 @@ async def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     return {
         "products": [
             {"title": item["title"], "size": item.get("unitSize"), "price": item.get("price"), "promotion": item.get("isBonus"), "url": item.get("url")}
-            for item in prices.recorded("jumbo", jumbo.search_products)(query, limit)
+            for item in await prices.recorded("jumbo", jumbo.search_products)(query, limit)
         ]
     }
 
@@ -547,7 +547,7 @@ async def tool_get_price_history(args: dict[str, Any]) -> Any:
     store = args.get("store") or None
     if store is not None and store not in offers.STORES:
         raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
-    data = prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50), bought=bool(args.get("bought")))
+    data = await prices.history(store, _text(args.get("query"), 200), _int_arg(args, "limit", 10, 1, 50), bought=bool(args.get("bought")))
     keep = PRICE_HISTORY_ITEMS
     return {
         "total": data["total"],
@@ -599,12 +599,12 @@ def _copy_note(synced: str | None) -> str:
 
 
 async def tool_basket(args: dict[str, Any]) -> Any:
-    basket = ah_orders.get_basket()
+    basket = await ah_orders.get_basket()
     return {"note": _copy_note(basket["syncedAt"]) + " Dit is het AH-mandje: de producten die via MealieShopper of de AH-app op de boodschappenlijst staan.", **basket}
 
 
 async def tool_list_orders(args: dict[str, Any]) -> Any:
-    data = ah_orders.list_orders()
+    data = await ah_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
@@ -615,14 +615,14 @@ async def tool_get_order(args: dict[str, Any]) -> Any:
         order_id = int(args.get("order_id"))
     except (TypeError, ValueError):
         raise ToolError("Geef het nummer van een bestelling op (zie list_ah_orders)") from None
-    order = ah_orders.get_order(order_id)
+    order = await ah_orders.get_order(order_id)
     if not order:
         raise ToolError("Deze bestelling staat niet in de lokale kopie")
     return order
 
 
 async def tool_list_jumbo_orders(args: dict[str, Any]) -> Any:
-    data = jumbo_orders.list_orders()
+    data = await jumbo_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
@@ -630,20 +630,20 @@ async def tool_list_jumbo_orders(args: dict[str, Any]) -> Any:
 
 async def tool_get_jumbo_order(args: dict[str, Any]) -> Any:
     order_id = _text(args.get("order_id"), 30)
-    order = jumbo_orders.get_order(order_id) if order_id else None
+    order = await jumbo_orders.get_order(order_id) if order_id else None
     if not order:
         raise ToolError("Deze bestelling staat niet in de lokale kopie (zie list_jumbo_orders)")
     return order
 
 
 async def tool_list_receipts(args: dict[str, Any]) -> Any:
-    data = ah_orders.list_receipts()
+    data = await ah_orders.list_receipts()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     return {"note": _copy_note(data["syncedAt"]), "total": len(data["receipts"]), "receipts": data["receipts"][:limit]}
 
 
 async def tool_get_receipt(args: dict[str, Any]) -> Any:
-    receipt = ah_orders.get_receipt(_text(args.get("receipt_id"), 100))
+    receipt = await ah_orders.get_receipt(_text(args.get("receipt_id"), 100))
     if not receipt:
         raise ToolError("Deze kassabon staat niet in de lokale kopie (zie list_ah_receipts)")
     return receipt
@@ -653,7 +653,7 @@ async def tool_search_purchases(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    return ah_orders.search_purchases(query, limit=max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50))))
+    return await ah_orders.search_purchases(query, limit=max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50))))
 
 
 def _schema(properties: dict[str, Any] | None = None, required: list[str] | None = None) -> dict[str, Any]:

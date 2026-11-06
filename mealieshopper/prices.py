@@ -25,11 +25,15 @@ from __future__ import annotations
 
 import logging
 import re
-from contextlib import closing
+import sqlite3
+from collections.abc import AsyncIterator, Awaitable
+from contextlib import asynccontextmanager, closing
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, NamedTuple
 
-from . import ah, ah_lists, ah_orders, deals, offers, packs, price_import, product_links
+import aiosqlite
+
+from . import ah, ah_lists, ah_orders, auth, deals, offers, packs, price_import, product_links
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -160,10 +164,33 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _connect():
+def _connect() -> sqlite3.Connection:
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`, `product_images` (tot Taak 16) en het lezen rond
+    `_receipt_rows`, dat de verbinding doorgeeft aan `product_links.load` en `price_import.account_orders` (tot Taak 15). De rest
+    gebruikt `_aconnect`."""
     conn = offers._connect()  # maakt ook `offer_history` aan (en de rest van de aanbiedingen)
     conn.executescript(SCHEMA)
     return product_links.ensure(conn)  # je eigen koppelingen (#238), die voor de automatische gaan
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_connect`, voor de paden in de event loop. Sluit zonder commit, zoals `auth.aconnect`.
+
+    Het schema van de aanbiedingen en zijn migraties horen bij `offers`, dat tot Taak 16 synchroon is: dat deel zet
+    `offers._connect()` nog klaar. Daarna dit schema en wat `product_links.ensure` doet (de tabel en de SQL-functie `ms_fold`)."""
+    with closing(offers._connect()):
+        pass
+    async with auth.aconnect() as conn:
+        await conn.executescript(SCHEMA)
+        await conn.executescript(product_links.SCHEMA)
+        await conn.create_function("ms_fold", 1, product_links.fold, deterministic=True)
+        yield conn
+
+
+async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    async with conn.execute(sql, params) as cursor:
+        return await cursor.fetchone()
 
 
 def _number(value: Any) -> float | None:
@@ -207,7 +234,7 @@ def _url(store: str, product_id: str, given: Any = None) -> str:
     return ah.product_web_url(product_id) if store == "ah" else ""
 
 
-def record(store: str, products: Iterable[Any], source: str = "search", now: str | None = None) -> int:
+async def record(store: str, products: Iterable[Any], source: str = "search", now: str | None = None) -> int:
     """Bewaar de normale prijs van deze producten voor vandaag. Geeft het aantal bewaarde prijzen; een fout geeft 0 en wordt gelogd."""
     try:
         if store not in STORES:
@@ -225,8 +252,8 @@ def record(store: str, products: Iterable[Any], source: str = "search", now: str
                          _image(product), product.get("url") or None, price, stamp))
         if not rows:
             return 0
-        with closing(_connect()) as conn, conn:
-            conn.executemany(
+        async with _aconnect() as conn:
+            await conn.executemany(
                 """
                 INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -237,18 +264,20 @@ def record(store: str, products: Iterable[Any], source: str = "search", now: str
                 """,
                 rows,
             )
+            await conn.commit()
         return len(rows)
     except Exception:  # noqa: BLE001 - het bijhouden mag een zoekopdracht nooit laten mislukken
         log.warning("Prijzen bijhouden mislukt voor %s", store, exc_info=True)
         return 0
 
 
-def recorded(store: str, search: Callable[..., list[dict[str, Any]]]) -> Callable[..., list[dict[str, Any]]]:
-    """`search(query, limit)` van een winkel, die daarna de normale prijs van de gevonden producten bewaart."""
+def recorded(store: str, search: Callable[..., list[dict[str, Any]]]) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
+    """`search(query, limit)` van een winkel als coroutine, die daarna de normale prijs van de gevonden producten bewaart.
+    `search` zelf is nog synchroon: de winkelmodules volgen in Taak 20 en 21."""
 
-    def wrapper(query: Any, limit: int = 5) -> list[dict[str, Any]]:
+    async def wrapper(query: Any, limit: int = 5) -> list[dict[str, Any]]:
         products = search(query, limit)
-        record(store, products)
+        await record(store, products)
         return products
 
     return wrapper
@@ -257,13 +286,18 @@ def recorded(store: str, search: Callable[..., list[dict[str, Any]]]) -> Callabl
 # --- lezen ---------------------------------------------------------------------------------------------------------
 
 
-def _tables(conn) -> set[str]:
+def _tables(conn: sqlite3.Connection) -> set[str]:
     return {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
-def _purchase_sources(conn, store: str) -> list[str]:
-    """De SQL van de aankoopbronnen van een winkel waarvan de tabellen bestaan (een winkel die je nooit koppelde heeft ze niet)."""
-    tables = _tables(conn)
+async def _atables(conn: aiosqlite.Connection) -> set[str]:
+    """Async tweeling van `_tables`."""
+    return {row["name"] for row in await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+def _purchase_sources(tables: set[str], store: str) -> list[str]:
+    """De SQL van de aankoopbronnen van een winkel waarvan de tabellen bestaan (`tables`, van `_tables` of `_atables`: een winkel
+    die je nooit koppelde heeft ze niet)."""
     return [sql for needed, sql in _PURCHASES.get(store, ()) if set(needed) <= tables]
 
 
@@ -283,7 +317,7 @@ def _name_index(conn, store: str) -> dict[str, str]:
     sources = [
         ("SELECT product_id, title FROM offer_history WHERE store = ? GROUP BY product_id, title", (store,)),
         ("SELECT product_id, title FROM price_observations WHERE store = ? GROUP BY product_id, title", (store,)),
-    ] + [(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", ()) for sql in _purchase_sources(conn, store)]
+    ] + [(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", ()) for sql in _purchase_sources(_tables(conn), store)]
     for sql, args in sources:
         for row in conn.execute(sql, args):
             if row["product_id"] and row["title"]:
@@ -414,7 +448,7 @@ def _product_details(conn, store: str, ids: list[str]) -> dict[str, dict[str, An
     found: dict[str, dict[str, Any]] = {product_id: {} for product_id in ids}
     if not ids:
         return found
-    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(conn, store)] + [
+    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(_tables(conn), store)] + [
         ("SELECT product_id, title, brand, unit_size, image, day FROM price_observations WHERE store = ?", (store,)),
         ("SELECT product_id, title, brand, unit_size, image, last_seen AS day FROM offer_history WHERE store = ?", (store,)),
     ]
@@ -471,7 +505,7 @@ def _price_now(product: dict[str, Any]) -> float | None:
     return _number(price.get("now") if isinstance(price, dict) else price)
 
 
-def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT) -> dict[str, Any]:
+async def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT) -> dict[str, Any]:
     """De producten van een winkel om een regel aan te koppelen (#238): een zoekopdracht bij die winkel, in één vorm voor alle
     winkels ({"productId", "title", "brand", "unitSize", "image", "price"}). Zoals elke zoekopdracht bewaart hij de normale prijs
     van wat hij vindt (`recorded`), dus het gekozen product staat daarna ook in de Prijsgeschiedenis."""
@@ -480,7 +514,7 @@ def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT) -> d
     if not term:
         return {"store": key, "query": "", "products": []}
     products = []
-    for product in recorded(key, _search_function(key))(term, max(1, min(int(limit), 30))):
+    for product in await recorded(key, _search_function(key))(term, max(1, min(int(limit), 30))):
         product_id, title = _product_id(product), str(product.get("title") or "").strip()
         if product_id and title:
             products.append({
@@ -493,7 +527,7 @@ def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT) -> d
 def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
     """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`)."""
     found: set[str] = set()
-    for sql in _purchase_sources(conn, store):
+    for sql in _purchase_sources(_tables(conn), store):
         found.update(
             str(row["product_id"])
             for row in conn.execute(f"SELECT DISTINCT product_id FROM ({sql}) WHERE day <= ? AND paid > 0", (today,))
@@ -606,7 +640,7 @@ def _candidates(conn, store: str, query: _Query, today: str, receipts: list[dict
     columns = "product_id, title, brand, unit_size"
     add(conn.execute(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
     add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
-    for sql in _purchase_sources(conn, store):
+    for sql in _purchase_sources(_tables(conn), store):
         add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
     add({**row, "last": row["day"]} for row in receipts)
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
@@ -628,7 +662,7 @@ def _observations(conn, store: str, ids: list[str]) -> dict[str, list[Any]]:
 
 def _purchases(conn, store: str, ids: list[str], today: str, receipts: list[dict[str, Any]]) -> dict[str, list[Any]]:
     found: dict[str, list[Any]] = {}
-    for sql in _purchase_sources(conn, store):
+    for sql in _purchase_sources(_tables(conn), store):
         for row in conn.execute(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) AND day <= ? ORDER BY day, ref", (*ids, today)):
             found.setdefault(row["product_id"], []).append(row)
     wanted = set(ids)
@@ -721,20 +755,20 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
     return product
 
 
-def _lookup_receipt_names(lookup: Callable[[list[str]], Any], wanted: "_Query", today: str) -> None:
+async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
-    with closing(_connect()) as conn:
+    with closing(_connect()) as conn:  # `_receipt_rows` leest op sqlite3, zie `_connect`
         rows = _receipt_rows(conn, "ah", today)
     names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
     if names:
         try:
-            lookup(names)
+            await lookup(names)
         except Exception:  # noqa: BLE001 - zonder koppeling staat de regel er gewoon met de naam op de bon
             log.warning("Namen op de bon opzoeken mislukt", exc_info=True)
 
 
-def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
-            lookup: Callable[[list[str]], Any] | None = None, product: Any = None) -> dict[str, Any]:
+async def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | None = None, bought: bool = False,
+                  lookup: Callable[[list[str]], Awaitable[Any]] | None = None, product: Any = None) -> dict[str, Any]:
     """De prijsgeschiedenis van producten: aanbiedingen, normale prijs en aankopen, het meest recente bovenaan.
 
     Met `product` (een product-id) alleen dat ene product, zonder zoekterm en zonder `lookup`: zo haalt de kaart van een aanbieding
@@ -756,7 +790,9 @@ def history(store: Any = None, query: Any = "", limit: Any = 50, today: str | No
     today = today or _now()[:10]
     only = str(product) if product not in (None, "") else None
     if lookup and wanted.words and "ah" in stores and only is None:
-        _lookup_receipt_names(lookup, wanted, today)
+        await _lookup_receipt_names(lookup, wanted, today)
+    # Het lezen zelf blijft op een sqlite3-verbinding: het leunt op `_receipt_rows` (zie `_connect`) en op dezelfde helpers als
+    # `bought_ids` en `link_names`, die `product_images` en `price_import` nog synchroon aanroepen.
     with closing(_connect()) as conn:
         receipts = {name: _receipt_rows(conn, name, today) for name in stores}
         unsynced = {name: _unsynced(conn, name) for name in stores}
@@ -969,14 +1005,16 @@ def _episode_effective(row: Any) -> float | None:
     return effective if effective is not None else _number(row["price"])
 
 
-def signature(store: Any) -> str:
+async def signature(store: Any) -> str:
     """Verandert als er voor deze winkel een nieuwe gewone prijs is bewaard: zo ververst het oordeel bij de aanbiedingen (ETag)."""
     try:
-        with closing(_connect()) as conn:
-            row = conn.execute("SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),)).fetchone()
+        async with _aconnect() as conn:
+            row = await _fetchone(conn, "SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),))
             imported = ""
-            if "imported_purchases" in _tables(conn):
-                extra = conn.execute("SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)).fetchone()
+            if "imported_purchases" in await _atables(conn):
+                extra = await _fetchone(
+                    conn, "SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)
+                )
                 imported = f":{extra['n']}:{extra['last'] or ''}"
         return f"{row['n']}:{row['last'] or ''}{imported}"
     except Exception:  # noqa: BLE001 - de cache mag nooit de aanbiedingen tegenhouden
@@ -984,7 +1022,7 @@ def signature(store: Any) -> str:
         return ""
 
 
-def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) -> list[dict[str, Any]]:
+async def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) -> list[dict[str, Any]]:
     """Zet bij elke aanbieding een oordeel (`verdict`) en de prijs per eenheid (`unitPricePer`). Past de dicts aan en geeft ze terug.
 
     `verdict.kind` is `good` (minstens 20% onder de laagste gewone prijs van de laatste 30 dagen), `small` (wel lager, maar minder),
@@ -996,16 +1034,19 @@ def annotate(store: str, items: list[dict[str, Any]], today: str | None = None) 
     aanbiedingen staan zonder oordeel.
     """
     try:
-        _annotate(store, items, today or _now()[:10])
+        await _annotate(store, items, today or _now()[:10])
     except Exception:  # noqa: BLE001 - het oordeel is een extraatje; de aanbiedingen gaan altijd door
         log.warning("Oordeel bij de aanbiedingen mislukt voor %s", store, exc_info=True)
     return items
 
 
-def _history_points(conn, store: str, today: str) -> dict[str, list[tuple[str, float]]]:
+async def _history_points(
+    conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]
+) -> dict[str, list[tuple[str, float]]]:
     """Per product de (dag, effectieve prijs per stuk) uit alles wat de app bewaart: de afgesloten aanbiedingen (op hun begindag, wat
     een stuk met de actie kostte), de bewaarde gewone prijzen en de aankopen (wat je per stuk betaalde, gratis telt niet). De lopende
-    aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag."""
+    aanbieding zelf staat er niet in: die is wat we vergelijken. Gesorteerd op dag. `receipts` zijn de bonregels en ingelezen
+    aankopen van `_receipt_rows`."""
     points: dict[str, list[tuple[str, float]]] = {}
 
     def add(product_id: Any, day: Any, price: Any) -> None:
@@ -1013,14 +1054,16 @@ def _history_points(conn, store: str, today: str) -> dict[str, list[tuple[str, f
         if product_id and day and value is not None and value > 0 and str(day)[:10] <= today:
             points.setdefault(str(product_id), []).append((str(day)[:10], value))
 
-    for row in conn.execute("SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL ORDER BY product_id, first_seen, id", (store,)):
+    for row in await conn.execute_fetchall(
+        "SELECT * FROM offer_history WHERE store = ? AND ended_at IS NOT NULL ORDER BY product_id, first_seen, id", (store,)
+    ):
         add(row["product_id"], offers._episode_span(row)["start"], _episode_effective(row))
-    for row in conn.execute("SELECT product_id, day, price FROM price_observations WHERE store = ?", (store,)):
+    for row in await conn.execute_fetchall("SELECT product_id, day, price FROM price_observations WHERE store = ?", (store,)):
         add(row["product_id"], row["day"], row["price"])
-    for sql in _purchase_sources(conn, store):
-        for row in conn.execute(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0"):
+    for sql in _purchase_sources(await _atables(conn), store):
+        for row in await conn.execute_fetchall(f"SELECT product_id, day, paid FROM ({sql}) WHERE paid > 0"):
             add(row["product_id"], row["day"], row["paid"])
-    for row in _receipt_rows(conn, store, today):
+    for row in receipts:
         add(row["product_id"], row["day"], row["paid"])
     return {product_id: sorted(found) for product_id, found in points.items()}
 
@@ -1066,8 +1109,9 @@ def price_label(effective: float | None, points: list[tuple[str, float]], today:
     return label
 
 
-def _regulars_between(
-    conn, store: str, since: str, until: str, *, purchases_before_until: bool = False, measured: set[str] | None = None
+async def _regulars_between(
+    conn: aiosqlite.Connection, store: str, since: str, until: str, *, purchases_before_until: bool = False,
+    measured: set[str] | None = None,
 ) -> dict[str, list[float]]:
     """De gewone prijzen per product die golden tussen `since` en `until` (ISO-dagen, beide meegerekend), uit drie bronnen.
 
@@ -1089,14 +1133,18 @@ def _regulars_between(
         if is_measured and measured is not None:
             measured.add(str(product_id))
 
-    for row in conn.execute("SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ?", (store, since, until)):
+    for row in await conn.execute_fetchall(
+        "SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ?", (store, since, until)
+    ):
         add(row["product_id"], row["price"], True)
     last_day = "day < ?" if purchases_before_until else "day <= ?"
-    for sql in _purchase_sources(conn, store):
-        for row in conn.execute(f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL", (since, until)):
+    for sql in _purchase_sources(await _atables(conn), store):
+        for row in await conn.execute_fetchall(
+            f"SELECT product_id, regular FROM ({sql}) WHERE day >= ? AND {last_day} AND regular IS NOT NULL", (since, until)
+        ):
             add(row["product_id"], row["regular"], True)
     # De voorselectie in SQL is ruim (een jaar): `_episode_span` bepaalt het einde ook uit `ended_at`, wat de SQL niet ziet.
-    for row in conn.execute(
+    for row in await conn.execute_fetchall(
         "SELECT * FROM offer_history WHERE store = ? AND price_before IS NOT NULL AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ?",
         (store, _days_ago(until, YEAR_DAYS)),
     ):
@@ -1106,22 +1154,26 @@ def _regulars_between(
     return regulars
 
 
-def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
+async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None:
     since30, since_year, since_pack = _days_ago(today, VERDICT_DAYS), _days_ago(today, YEAR_DAYS), _days_ago(today, PACK_DAYS)
     measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
-    with closing(_connect()) as conn:
-        regulars = _regulars_between(conn, store, since30, today, measured=measured)
-        for row in conn.execute("SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? ORDER BY day", (store, since_pack, today)):
+    async with _aconnect() as conn:
+        regulars = await _regulars_between(conn, store, since30, today, measured=measured)
+        for row in await conn.execute_fetchall(
+            "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? ORDER BY day", (store, since_pack, today)
+        ):
             latest[row["product_id"]] = row
-        for row in conn.execute(
+        for row in await conn.execute_fetchall(
             "SELECT * FROM offer_history WHERE store = ? AND COALESCE(valid_until, substr(last_seen, 1, 10)) >= ? ORDER BY product_id, first_seen, id",
             (store, since_year),
         ):
             episodes.setdefault(row["product_id"], []).append(row)
         try:
-            points = _history_points(conn, store, today)
+            with closing(_connect()) as sync_conn:  # `_receipt_rows` leest op sqlite3, zie `_connect`
+                receipts = _receipt_rows(sync_conn, store, today)
+            points = await _history_points(conn, store, today, receipts)
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)
             points = {}
@@ -1245,7 +1297,7 @@ def _iso_day(value: Any) -> str | None:
         return None
 
 
-def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, float]:
+async def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, float]:
     """De gewone prijs per product bij een aankoop op `day`: de laagste van de 30 dagen ervoor (`VERDICT_DAYS`, `day` meegerekend).
 
     Dezelfde bronnen als het oordeel bij de aanbiedingen (`_regulars_between`), maar een bestelling van `day` zelf telt niet mee:
@@ -1254,12 +1306,14 @@ def regular_before(store: str, product_ids: list[str], day: str) -> dict[str, fl
     wanted: set[str] = {str(product_id) for product_id in product_ids if product_id not in (None, "")}
     if not wanted or _iso_day(day) is None:
         return {}
-    with closing(_connect()) as conn:
-        found = _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
+    async with _aconnect() as conn:
+        found = await _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
     return {product_id: min(values) for product_id, values in found.items() if product_id in wanted and values}
 
 
-def _lines_to_fill(conn, source: _LineSource, ids: list[Any] | None, *, recent_since: str, checked_before: str, limit: int) -> list[Any]:
+async def _lines_to_fill(
+    conn: aiosqlite.Connection, source: _LineSource, ids: list[Any] | None, *, recent_since: str, checked_before: str, limit: int
+) -> list[Any]:
     """De regels van één bron die (opnieuw) een gewone prijs nodig hebben, de nieuwste aankoop eerst.
 
     Zonder `ids`: nog nooit bepaald, of een aankoop van na `recent_since` die voor het laatst vóór `checked_before` is bepaald. Met
@@ -1269,18 +1323,18 @@ def _lines_to_fill(conn, source: _LineSource, ids: list[Any] | None, *, recent_s
         if not ids:
             return []
         marks = ", ".join("?" * len(ids))
-        return conn.execute(
+        return list(await conn.execute_fetchall(
             f"SELECT * FROM ({source.sql}) WHERE CAST(purchase AS TEXT) IN ({marks}) AND (checked IS NULL OR checked < ?)",
             (*[str(value) for value in ids], checked_before),
-        ).fetchall()
-    return conn.execute(
+        ))
+    return list(await conn.execute_fetchall(
         f"""SELECT * FROM ({source.sql}) WHERE checked IS NULL OR (day >= ? AND checked < ?)
             ORDER BY day DESC, purchase DESC, position LIMIT ?""",
         (recent_since, checked_before, limit),
-    ).fetchall()
+    ))
 
 
-def fill_regular_prices(
+async def fill_regular_prices(
     store: str, *, limit: int = REGULAR_LIMIT, recent_days: int = REGULAR_RECENT_DAYS, now: str | None = None,
     order_ids: list[Any] | None = None, receipt_ids: list[Any] | None = None,
 ) -> int:
@@ -1297,8 +1351,8 @@ def fill_regular_prices(
     recent_since = _days_ago(stamp[:10], recent_days)
     targeted = order_ids is not None or receipt_ids is not None
     done = 0
-    with closing(_connect()) as conn:
-        tables = _tables(conn)
+    async with _aconnect() as conn:
+        tables = await _atables(conn)
         by_day: dict[str, dict[str, list[float]]] = {}
         for source in _REGULAR_LINES.get(store, ()):
             if not source.needed <= tables or (not targeted and done >= limit):
@@ -1306,31 +1360,31 @@ def fill_regular_prices(
             ids = (order_ids if source.kind == "order" else receipt_ids) if targeted else None
             if targeted and ids is None:
                 continue
-            ah_orders._ensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
-            lines = _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
+            await ah_orders._aensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
+            lines = await _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
             updates: list[tuple[Any, ...]] = []
             for line in lines:
                 day = _iso_day(line["day"])
                 price: float | None = None
                 if day is not None and line["product_id"] is not None:
                     if day not in by_day:
-                        by_day[day] = _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
+                        by_day[day] = await _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
                     found = by_day[day].get(str(line["product_id"]))
                     price = min(found) if found else None
                 updates.append((price, stamp, line["purchase"], line["position"]))
-            with conn:
-                conn.executemany(
-                    f"UPDATE {source.table} SET regular_price = ?, regular_checked_at = ? WHERE {source.purchase_column} = ? AND position = ?",
-                    updates,
-                )
+            await conn.executemany(
+                f"UPDATE {source.table} SET regular_price = ?, regular_checked_at = ? WHERE {source.purchase_column} = ? AND position = ?",
+                updates,
+            )
+            await conn.commit()
             done += len(updates)
     return done
 
 
-def fill_regular_prices_nightly() -> dict[str, int] | None:
+async def fill_regular_prices_nightly() -> dict[str, int] | None:
     """Voor de nachtelijke taak: de gewone prijs bij AH- en Jumbo-aankopen, als er iets te doen was. Een fout laat de taak doorgaan."""
     try:
-        lines = fill_regular_prices("ah") + fill_regular_prices("jumbo")
+        lines = await fill_regular_prices("ah") + await fill_regular_prices("jumbo")
     except Exception:  # noqa: BLE001 - de gewone prijs per regel is een extraatje bij de aanbiedingen
         log.exception("Gewone prijs per aankoopregel: de nachtelijke ronde mislukte")
         return None
@@ -1350,15 +1404,17 @@ def _search_query(title: Any) -> str:
     return " ".join(words).strip() or str(title or "").strip()
 
 
-def _known_product(store: str, product_id: str) -> dict[str, Any] | None:
+async def _known_product(store: str, product_id: str) -> dict[str, Any] | None:
     """Een product uit de aanbiedingen van nu, anders uit de bewaarde prijzen: naam, merk, verpakking en prijs per stuk."""
     current = next((offer for offer in offers.load(store)["offers"] if str(offer["id"]) == product_id), None)
     if current:
         effective = _effective(current)
         return {"id": product_id, "title": current["title"], "brand": current.get("brand"), "unitSize": current.get("unitSize"),
                 "price": effective if effective is not None else current.get("price"), "onOffer": True, "promoLabel": current.get("promoLabel") or ""}
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT * FROM price_observations WHERE store = ? AND product_id = ? ORDER BY day DESC LIMIT 1", (store, product_id)).fetchone()
+    async with _aconnect() as conn:
+        row = await _fetchone(
+            conn, "SELECT * FROM price_observations WHERE store = ? AND product_id = ? ORDER BY day DESC LIMIT 1", (store, product_id)
+        )
     if row:
         return {"id": product_id, "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"], "onOffer": False, "promoLabel": ""}
     return None
@@ -1379,7 +1435,7 @@ def _candidate(store: str, product: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def compare(store: Any, product_id: Any) -> dict[str, Any]:
+async def compare(store: Any, product_id: Any) -> dict[str, Any]:
     """Andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar. Doet één zoekopdracht bij de winkel.
 
     De gevonden producten met dezelfde soort eenheid staan op prijs per eenheid, de goedkoopste eerst. `same` zegt of het hetzelfde
@@ -1389,12 +1445,12 @@ def compare(store: Any, product_id: Any) -> dict[str, Any]:
     """
     store = offers._valid_store(store)
     product_id = str(product_id or "").strip()
-    product = _known_product(store, product_id) if product_id else None
+    product = await _known_product(store, product_id) if product_id else None
     if not product:
         raise ValueError(tr("Dit product is niet bekend bij de aanbiedingen of de bewaarde prijzen", "This product is not known in the offers or the tracked prices"))
     product["unitPrice"] = unit_price(product["price"], product["unitSize"])
     query = _search_query(product["title"])
-    found = recorded(store, _search_function(store))(query, COMPARE_LIMIT)
+    found = await recorded(store, _search_function(store))(query, COMPARE_LIMIT)
     base = base_title(product["title"])
     unit = (product["unitPrice"] or {}).get("unit")
     candidates = [c for c in (_candidate(store, item) for item in found if isinstance(item, dict)) if c and c["unitPrice"]]
@@ -1469,8 +1525,8 @@ def _organic_pick(first: dict[str, Any], candidates: list[dict[str, Any]], query
     return (exact or same or [None])[0]
 
 
-def organic_first(
-    candidates: list[dict[str, Any]], search_more: Callable[[], list[dict[str, Any]]], query: Any = None
+async def organic_first(
+    candidates: list[dict[str, Any]], search_more: Callable[[], Awaitable[list[dict[str, Any]]]], query: Any = None
 ) -> tuple[list[dict[str, Any]], bool]:
     """Met *Liever biologisch* (#218): een biologisch product van dezelfde soort vooraan, als de winkel het heeft.
 
@@ -1483,7 +1539,7 @@ def organic_first(
     first = candidates[0]
     if first.get("organic"):
         return candidates, True
-    pick = _organic_pick(first, candidates, query) or _organic_pick(first, search_more(), query)
+    pick = _organic_pick(first, candidates, query) or _organic_pick(first, await search_more(), query)
     if pick is None:
         return candidates, False
     key = str(pick.get("productId"))

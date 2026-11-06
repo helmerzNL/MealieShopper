@@ -20,7 +20,8 @@ Verschillen met Flask die hier worden overbrugd:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
+from contextlib import AbstractAsyncContextManager
 from http.cookiejar import Cookie
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
@@ -246,3 +247,19 @@ class LiveClient:
     def stream(self, path: str, headers: dict[str, str], method: str = "POST") -> TestHTTPConnectionProtocol:
         """Een verzoek waarvan de test het lichaam zelf in stukken stuurt (zonder Content-Length, zoals chunked)."""
         return self._client.request(path, method=method, headers=headers)
+
+
+def in_db(aconnect: Callable[[], AbstractAsyncContextManager[Any]], *steps: Callable[[Any], Awaitable[Any]]) -> list[Any]:
+    """Voert `steps` na elkaar uit op een verbinding van `aconnect` (zoals `ah_orders._aconnect`), commit, en geeft hun uitkomsten.
+
+    Voor testgegevens via een async schrijfhelper die een verbinding vraagt (`ah_orders._save_order`), en voor een async leeshelper
+    met een verbinding (`ah_orders.receipt_linking_todo`).
+    """
+
+    async def go() -> list[Any]:
+        async with aconnect() as conn:
+            results: list[Any] = [await step(conn) for step in steps]
+            await conn.commit()
+            return results
+
+    return run(go())

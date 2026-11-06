@@ -9,6 +9,7 @@ from unittest import mock
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
+from support import in_db, run
 
 
 class DiscountTest(unittest.TestCase):
@@ -258,14 +259,17 @@ class TimesBeforeTest(unittest.TestCase):
     def test_orders_and_linked_receipt_lines_before_the_day_count_once_per_purchase(
         self,
     ):
-        with closing(ah_orders._connect()) as conn, conn:
-            line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
-            ah_orders._save_order(
+        line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
+        in_db(
+            ah_orders._aconnect,
+            lambda conn: ah_orders._save_order(
                 conn, {"id": 1, "deliveryDate": "2026-09-01"}, "delivered", [line, line]
-            )  # twee regels, één bestelling
-            ah_orders._save_order(
+            ),  # twee regels, één bestelling
+            lambda conn: ah_orders._save_order(
                 conn, {"id": 2, "deliveryDate": "2026-09-21"}, "delivered", [line]
-            )  # de dag zelf telt niet
+            ),  # de dag zelf telt niet
+        )
+        with closing(ah_orders._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
             )
@@ -303,8 +307,9 @@ class TimesBeforeTest(unittest.TestCase):
             )
 
     def test_jumbo_counts_its_own_orders_only(self):
-        with closing(jumbo_orders._connect()) as conn, conn:
-            jumbo_orders._save_order(
+        in_db(
+            jumbo_orders._aconnect,
+            lambda conn: jumbo_orders._save_order(
                 conn,
                 {"id": "J1", "deliveryDate": "2026-09-01"},
                 [
@@ -315,7 +320,9 @@ class TimesBeforeTest(unittest.TestCase):
                         "price": 1.0,
                     }
                 ],
-            )
+            ),
+        )
+        with closing(jumbo_orders._connect()) as conn:
             self.assertEqual(
                 purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21"),
                 {"123STK": 1},
@@ -328,11 +335,14 @@ class FillRegularTest(unittest.TestCase):
 
         with (
             mock.patch.object(
-                prices, "fill_regular_prices", side_effect=RuntimeError("kapot")
+                prices,
+                "fill_regular_prices",
+                new_callable=mock.AsyncMock,
+                side_effect=RuntimeError("kapot"),
             ),
             self.assertLogs("mealieshopper.purchase_lines", "WARNING"),
         ):
-            purchase_lines.fill_regular("ah", order_ids=[1])
+            run(purchase_lines.fill_regular("ah", order_ids=[1]))
 
 
 if __name__ == "__main__":

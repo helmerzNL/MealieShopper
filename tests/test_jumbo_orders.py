@@ -14,7 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, image_cache, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, in_db, run  # noqa: E402
 
 STREET = "Voorbeeldstraat"
 CUSTOMER = "11111111-2222-3333-4444-555555555555"
@@ -238,7 +238,7 @@ class LocalCopyTest(TempDataDirTest):
 
         with mock.patch.object(jumbo, "_persisted_query", return_value=page(listed_orders, receipts=receipts)), \
                 mock.patch.object(jumbo, "get_order", side_effect=get_order):
-            return jumbo_orders.sync_orders()
+            return run(jumbo_orders.sync_orders())
 
     def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
         with mock.patch.object(image_cache, "prefetch_async") as prefetch:
@@ -247,12 +247,12 @@ class LocalCopyTest(TempDataDirTest):
 
     def test_the_list_route_carries_a_summary_but_the_function_does_not_by_default(self):
         self.sync([listed(1)], {"1": order(1, [line(1, before="4.00", image="https://jumbo.com/1.png"), line(2, image=""), line(3, image="https://jumbo.com/3.png")])})
-        listed_order = jumbo_orders.list_orders(summary=True)["orders"][0]
+        listed_order = run(jumbo_orders.list_orders(summary=True))["orders"][0]
         self.assertEqual(listed_order["images"], ["https://jumbo.com/1.png", "https://jumbo.com/3.png"])
         self.assertEqual(listed_order["productNames"], ["Jumbo Kwark 1", "Jumbo Kwark 2", "Jumbo Kwark 3"])
         self.assertEqual((listed_order["savings"], listed_order["bonusCount"]), (0.81, 1))  # 4.00 - 3.19
         self.assertEqual((listed_order["statusKind"], listed_order["statusText"]), ("delivered", None))
-        self.assertNotIn("images", jumbo_orders.list_orders()["orders"][0])
+        self.assertNotIn("images", run(jumbo_orders.list_orders())["orders"][0])
         self.assertIn("images", SyncClient(create_app()).get("/api/jumbo/orders").get_json()["orders"][0])
 
     def test_sync_stores_orders_with_their_products_newest_first_and_no_address(self):
@@ -263,11 +263,11 @@ class LocalCopyTest(TempDataDirTest):
         )
         self.assertEqual((result["orders"], result["new"], result["remaining"], result["storeReceipts"]), (2, 2, 0, 4))
         self.assertNotIn("detailError", result)
-        overview = jumbo_orders.list_orders()
+        overview = run(jumbo_orders.list_orders())
         self.assertEqual([o["id"] for o in overview["orders"]], ["2", "1"])
         self.assertEqual((overview["orders"][0]["itemCount"], overview["orders"][0]["kind"], overview["orders"][0]["itemsSynced"]), (2, "delivered", True))
         self.assertTrue(overview["syncedAt"])
-        detail = jumbo_orders.get_order("1")
+        detail = run(jumbo_orders.get_order("1"))
         self.assertEqual((detail["total"], detail["items"][0]["quantity"], detail["slotStart"]), (42.5, 2, "2024-03-02T09:00:00Z"))
         with sqlite3.connect(auth.db_path()) as conn:
             dump = "\n".join(str(row) for table in ("jumbo_orders", "jumbo_order_items") for row in conn.execute(f"SELECT * FROM {table}"))
@@ -278,39 +278,39 @@ class LocalCopyTest(TempDataDirTest):
         self.sync([listed(1), listed(2)], {"1": order(1, [line(1)]), "2": order(2, [line(2)])})
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(3)])), \
                 mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(3, [line(3)]))) as get_order:
-            result = jumbo_orders.sync_orders()
+            result = run(jumbo_orders.sync_orders())
         get_order.assert_called_once_with("3")
         self.assertEqual(result["new"], 1)
-        self.assertEqual(sorted(o["id"] for o in jumbo_orders.list_orders()["orders"]), ["1", "2", "3"])
+        self.assertEqual(sorted(o["id"] for o in run(jumbo_orders.list_orders())["orders"]), ["1", "2", "3"])
 
     def test_cancelled_orders_are_not_kept_and_a_later_cancellation_removes_them(self):
         self.sync([listed(1), listed(2, status="CANCELLED")], {"1": order(1, [line(1)])})
-        self.assertEqual([o["id"] for o in jumbo_orders.list_orders()["orders"]], ["1"])
+        self.assertEqual([o["id"] for o in run(jumbo_orders.list_orders())["orders"]], ["1"])
         self.sync([listed(1, status="CANCELLED")])
-        self.assertEqual(jumbo_orders.list_orders()["orders"], [])
+        self.assertEqual(run(jumbo_orders.list_orders())["orders"], [])
 
     def test_without_products_the_list_is_still_kept_and_the_error_is_reported(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1), listed(2), listed(3)])), \
                 mock.patch.object(jumbo, "get_order", side_effect=jumbo.JumboSchemaError('Unknown argument "orderId" on field "order"')) as get_order:
-            result = jumbo_orders.sync_orders()
+            result = run(jumbo_orders.sync_orders())
         self.assertEqual(get_order.call_count, 3)
         self.assertEqual((result["orders"], result["remaining"]), (3, 3))
         self.assertTrue(result["detailError"].startswith("JumboSchemaError"))
         self.assertIn("orderId", result["detailError"])
-        orders = jumbo_orders.list_orders()["orders"]
+        orders = run(jumbo_orders.list_orders())["orders"]
         self.assertEqual([(o["id"], o["itemsSynced"], o["total"]) for o in orders], [("3", False, 42.5), ("2", False, 42.5), ("1", False, 42.5)])  # zelfde dag: hoogste nummer eerst
-        self.assertEqual(jumbo_orders.get_order("1")["items"], [])
+        self.assertEqual(run(jumbo_orders.get_order("1"))["items"], [])
 
     def test_products_follow_on_the_next_sync(self):
         self.sync([listed(1), listed(2)])
         result = self.sync([listed(1), listed(2)], {"1": order(1, [line(1)]), "2": order(2, [line(2)])})
         self.assertEqual((result["new"], result["remaining"]), (0, 0))
-        self.assertTrue(all(o["itemsSynced"] for o in jumbo_orders.list_orders()["orders"]))
+        self.assertTrue(all(o["itemsSynced"] for o in run(jumbo_orders.list_orders())["orders"]))
 
     def test_the_sync_reports_jumbos_own_words_for_the_refusal(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])), \
                 mock.patch.object(jumbo, "_graphql", side_effect=RuntimeError("400: Persisted query required")):
-            result = jumbo_orders.sync_orders()
+            result = run(jumbo_orders.sync_orders())
         self.assertTrue(result["detailError"].startswith("JumboOrderDetailError: 10 varianten geweigerd"))
         self.assertIn("Persisted query required", result["detailError"])
 
@@ -318,13 +318,13 @@ class LocalCopyTest(TempDataDirTest):
         listed_orders = [listed(i) for i in range(1, 11)]
         with mock.patch.object(jumbo, "_persisted_query", return_value=page(listed_orders)), \
                 mock.patch.object(jumbo, "get_order", side_effect=RuntimeError("nee")) as get_order:
-            result = jumbo_orders.sync_orders()
+            result = run(jumbo_orders.sync_orders())
         self.assertEqual((get_order.call_count, result["remaining"], result["detailError"]), (3, 10, "RuntimeError"))  # een andere fout: alleen het type
 
     def test_one_failing_order_does_not_stop_the_others(self):
         result = self.sync([listed(1), listed(2)], {"2": order(2, [line(2)])})
         self.assertEqual(result["remaining"], 1)
-        flags = {o["id"]: o["itemsSynced"] for o in jumbo_orders.list_orders()["orders"]}
+        flags = {o["id"]: o["itemsSynced"] for o in run(jumbo_orders.list_orders())["orders"]}
         self.assertEqual(flags, {"1": False, "2": True})
 
     def test_at_most_25_orders_get_their_products_per_sync(self):
@@ -337,10 +337,10 @@ class LocalCopyTest(TempDataDirTest):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])), \
                 mock.patch.object(jumbo, "get_order", side_effect=jumbo.JumboAuthError("koppeling")):
             with self.assertRaises(jumbo.JumboAuthError):
-                jumbo_orders.sync_orders()
+                run(jumbo_orders.sync_orders())
 
     def test_unknown_order_is_none(self):
-        self.assertIsNone(jumbo_orders.get_order("404"))
+        self.assertIsNone(run(jumbo_orders.get_order("404")))
 
     def test_search_finds_products_over_orders_and_reports_unsynced_ones(self):
         self.sync(
@@ -348,13 +348,13 @@ class LocalCopyTest(TempDataDirTest):
             {"1": order(1, [line(1, title="Campina Magere Kwark", quantity=2)]),
              "2": order(2, [line(2, title="Campina Halfvolle Melk", brand="Campina"), line(3, title="Jumbo Kwark Vanille")], date="2024-03-09T09:00:00Z")},
         )
-        found = jumbo_orders.search_purchases("kwark")
+        found = run(jumbo_orders.search_purchases("kwark"))
         self.assertEqual([entry["product"] for entry in found["occurrences"]], ["Jumbo Kwark Vanille", "Campina Magere Kwark"])
         self.assertEqual(found["occurrences"][0]["date"], "2024-03-09")
         self.assertEqual(found["unsearched"], 1)
         self.assertEqual(found["products"][1]["totalQuantity"], 2)
-        self.assertEqual(jumbo_orders.search_purchases("Campina")["total"], 2)  # ook op merk
-        self.assertEqual(jumbo_orders.search_purchases("   ")["occurrences"], [])
+        self.assertEqual(run(jumbo_orders.search_purchases("Campina"))["total"], 2)  # ook op merk
+        self.assertEqual(run(jumbo_orders.search_purchases("   "))["occurrences"], [])
 
 
 class RoutesTest(TempDataDirTest):
@@ -386,13 +386,15 @@ class RoutesTest(TempDataDirTest):
 
 class DetailEnrichmentTest(TempDataDirTest):
     def test_an_order_detail_carries_the_category_from_the_jumbo_taxonomy_the_discount_and_the_status(self):
-        with closing(jumbo_orders._connect()) as conn, conn:
-            jumbo_orders._save_order(conn, {"id": "J1", "deliveryDate": "2026-09-01"}, [
+        in_db(
+            jumbo_orders._aconnect,
+            lambda conn: jumbo_orders._save_order(conn, {"id": "J1", "deliveryDate": "2026-09-01"}, [
                 {"productId": "1STK", "title": "Jumbo Huismerk 1", "quantity": 1, "price": 1.19, "taxonomy": "Zuivel"},
-            ])
-            jumbo_orders._save_order(conn, {"id": "J2", "deliveryDate": "2026-09-21"}, [
+            ]),
+            lambda conn: jumbo_orders._save_order(conn, {"id": "J2", "deliveryDate": "2026-09-21"}, [
                 {"productId": "1STK", "title": "Jumbo Huismerk 1", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": "Zuivel"},
-            ])
+            ]),
+        )
         order = SyncClient(create_app()).get("/api/jumbo/orders/J2").get_json()
         item = order["items"][0]
         # De titel zegt niets, de taxonomie van Jumbo ("Zuivel") komt als hint mee. De gewone prijs komt uit bestelling J1.
@@ -406,7 +408,7 @@ class McpAndExplorerTest(TempDataDirTest):
     def seed(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])), \
                 mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(1, [line(1)]))):
-            jumbo_orders.sync_orders()
+            run(jumbo_orders.sync_orders())
 
     def test_the_tools_read_the_local_copy(self):
         self.assertEqual(run(mcp.tool_list_jumbo_orders({}))["total"], 0)

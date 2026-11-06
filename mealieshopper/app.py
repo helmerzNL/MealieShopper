@@ -463,44 +463,44 @@ def create_app() -> Quart:
 
     # --- bestelmandje, bestellingen en kassabonnen: lezen uit de lokale kopie, synchroniseren bij AH ----------
 
-    def ah_sync(action, error_text: str):
+    async def ah_sync(action: Callable[[], Awaitable[Any]], error_text: str) -> Response | tuple[Response, int]:
         try:
-            return jsonify(action())
+            return jsonify(await action())
         except Exception as exc:  # noqa: BLE001 - AH is onofficieel; toon de fout, de bewaarde kopie blijft staan
             app.logger.exception("AH order sync error")
             return jsonify({"error": str(exc) or error_text}), 424
 
     @app.get("/api/ah/basket")
     async def ah_basket():
-        return jsonify(ah_orders.get_basket())
+        return jsonify(await ah_orders.get_basket())
 
     @app.post("/api/ah/basket/sync")
     async def ah_basket_sync():
-        return ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
+        return await ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
 
     @app.get("/api/ah/orders")
     async def ah_orders_list():
-        return jsonify(ah_orders.list_orders(summary=True))
+        return jsonify(await ah_orders.list_orders(summary=True))
 
     @app.get("/api/ah/orders/<int:order_id>")
     async def ah_order_detail(order_id: int):
-        order = ah_orders.get_order(order_id)
+        order = await ah_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
 
     @app.post("/api/ah/orders/sync")
     async def ah_orders_sync():
-        return ah_sync(ah_orders.sync_orders, tr("Bestellingen ophalen mislukt", "Fetching the orders failed"))
+        return await ah_sync(ah_orders.sync_orders, tr("Bestellingen ophalen mislukt", "Fetching the orders failed"))
 
     @app.get("/api/ah/receipts")
     async def ah_receipts_list():
-        ah_orders.backfill_receipt_images_async()  # ontbreken er nog foto's bij gekoppelde bonregels, dan komen er nu wat bij
-        return jsonify(ah_orders.list_receipts(summary=True))
+        await ah_orders.backfill_receipt_images_async()  # ontbreken er nog foto's bij gekoppelde bonregels, dan komen er nu wat bij
+        return jsonify(await ah_orders.list_receipts(summary=True))
 
     @app.get("/api/ah/receipts/<receipt_id>")
     async def ah_receipt_detail(receipt_id: str):
-        receipt = ah_orders.get_receipt(receipt_id)
+        receipt = await ah_orders.get_receipt(receipt_id)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden", "Receipt not found")}), 404
         return jsonify(receipt)
@@ -510,7 +510,7 @@ def create_app() -> Quart:
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
         # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
         # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
-        receipt = ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"), images=True)
+        receipt = await ah_orders.get_receipt(receipt_id, lookup=lambda names: ah_orders.resolve_receipt_names(names, searches=ah_orders.RECEIPT_PRODUCTS_OPEN_SEARCHES, trigger="open"), images=True)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         return jsonify(receipt)
@@ -519,11 +519,11 @@ def create_app() -> Quart:
     async def ah_linking_status():
         # De toestand van het koppelen van bonregels en foto's: de pauze na een 403 of 429 van AH, het uurbudget, wat er nog open
         # staat en de volgende ronde (ah_orders.linking_status). Voor iedereen: de melding op de bestelpagina leest het.
-        return jsonify(ah_orders.linking_status())
+        return jsonify(await ah_orders.linking_status())
 
     @app.post("/api/ah/linking/run")
     async def ah_linking_run():
-        # Een ronde op afroep (de knop "Nu ophalen"), in een thread binnen het tempo van AH: voor een bon (receiptId) of voor alle
+        # Een ronde op afroep (de knop "Nu ophalen"), als achtergrondtask binnen het tempo van AH: voor een bon (receiptId) of voor alle
         # bonnen. Met images alleen de foto's van alle bonnen, zonder zoekopdrachten (de knop "Foto's aanvullen"). Samen met een
         # receiptId weigeren we dat. Met force heft de beheerder eerst de pauze na een 403 of 429 op. Iedereen mag een ronde starten.
         # Een lege aanvraag is een ronde voor alle bonnen. Een body die er wel is maar geen JSON-object is, weigeren we: anders start
@@ -539,16 +539,16 @@ def create_app() -> Quart:
             return jsonify({"error": tr("Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.", "Invalid request: filling in photos covers all receipts, not one receipt.")}), 400
         if force and not await auth.ais_owner():
             return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
-        if receipt_id and not ah_orders.receipt_exists(receipt_id):
+        if receipt_id and not await ah_orders.receipt_exists(receipt_id):
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
         try:
-            return jsonify(ah_orders.run_linking(receipt_id, force=force, images=images)), 202
+            return jsonify(await ah_orders.run_linking(receipt_id, force=force, images=images)), 202
         except ah_orders.LinkingBusy:
-            return jsonify(ah_orders.linking_status()), 409
+            return jsonify(await ah_orders.linking_status()), 409
 
     @app.post("/api/ah/receipts/sync")
     async def ah_receipts_sync():
-        return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
+        return await ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
 
     def search_limit(default: int) -> int:
         # De aankopentabel vraagt alles (limit=all) en filtert zelf; zonder limit blijft het de korte lijst.
@@ -559,11 +559,11 @@ def create_app() -> Quart:
 
     @app.get("/api/ah/receipts/search")
     async def ah_receipts_search():
-        return jsonify(ah_orders.search_receipts(request.args.get("q") or "", limit=search_limit(200)))
+        return jsonify(await ah_orders.search_receipts(request.args.get("q") or "", limit=search_limit(200)))
 
     @app.get("/api/ah/purchases/search")
     async def ah_purchases_search():
-        return jsonify(ah_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
+        return jsonify(await ah_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     @app.post("/api/ah/explore")
     async def ah_explore_routes():
@@ -595,15 +595,15 @@ def create_app() -> Quart:
         store = request.args.get("store") or "ah"
         week = offers_week()
         try:
-            etag = hashlib.sha1(f"{offers.signature(store, week)}|{prices.signature(store)}".encode("utf-8")).hexdigest()
+            etag = hashlib.sha1(f"{offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
-        def load_with_verdicts() -> dict[str, Any]:
+        async def load_with_verdicts() -> dict[str, Any]:
             data = offers.load(store, week)
-            prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178); een fout laat de lijst staan
+            await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
             return data
 
         response = await offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
@@ -714,7 +714,7 @@ def create_app() -> Quart:
     async def product_links_search():
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
-            return jsonify(prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
+            return jsonify(await prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
         except ValueError:
             return jsonify({"error": tr("Onbekende winkel (kies ah, picnic, jumbo of crisp)", "Unknown store (choose ah, picnic, jumbo or crisp)")}), 400
         except Exception:  # noqa: BLE001 - de winkel gaf een fout: niet gekoppeld, of niet bereikbaar
@@ -915,21 +915,21 @@ def create_app() -> Quart:
                     for product in products
                 ]
 
-            def search_organic() -> list[dict[str, Any]]:
+            async def search_organic() -> list[dict[str, Any]]:
                 try:
-                    return candidates_of(search(f"{prices.ORGANIC_QUERY} {query}", prices.COMPARE_LIMIT))
+                    return candidates_of(await search(f"{prices.ORGANIC_QUERY} {query}", prices.COMPARE_LIMIT))
                 except Exception:  # noqa: BLE001 - lukt de extra zoekopdracht niet, dan blijft het gewone product staan
                     return []
 
             try:
-                products = search(query, prices.COMPARE_LIMIT if compare else prices.CHECK_LIST_SIZE)
+                products = await search(query, prices.COMPARE_LIMIT if compare else prices.CHECK_LIST_SIZE)
             except Exception as exc:  # noqa: BLE001 - een mislukte zoekopdracht geldt alleen voor deze regel
                 result["error"] = str(exc)
                 return result
             candidates = candidates_of(products)
             regular = candidates[0] if candidates else None  # het gewone voorstel bepaalt de soort, ook met Liever biologisch (#223)
             if organic and candidates:
-                candidates, found = prices.organic_first(candidates, search_organic, query)
+                candidates, found = await prices.organic_first(candidates, search_organic, query)
                 result["organic"] = True
                 result["organicMissing"] = not found
             result["candidates"] = prices.check_list_candidates(candidates, compare, query, regular)
@@ -1151,7 +1151,7 @@ def create_app() -> Quart:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": prices.recorded("picnic", picnic.search_products)(query, 10)})
+            return jsonify({"products": await prices.recorded("picnic", picnic.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1335,7 +1335,7 @@ def create_app() -> Quart:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term missing")}), 400
         try:
-            return jsonify({"products": prices.recorded("crisp", crisp.search_products)(query, 10)})
+            return jsonify({"products": await prices.recorded("crisp", crisp.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1597,7 +1597,7 @@ def create_app() -> Quart:
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
         try:
-            return jsonify({"products": prices.recorded("jumbo", jumbo.search_products)(query, 10)})
+            return jsonify({"products": await prices.recorded("jumbo", jumbo.search_products)(query, 10)})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1714,11 +1714,11 @@ def create_app() -> Quart:
 
     @app.get("/api/jumbo/orders")
     async def jumbo_orders_list():
-        return jsonify(jumbo_orders.list_orders(summary=True))
+        return jsonify(await jumbo_orders.list_orders(summary=True))
 
     @app.get("/api/jumbo/orders/<order_id>")
     async def jumbo_order_detail(order_id: str):
-        order = jumbo_orders.get_order(order_id)
+        order = await jumbo_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
@@ -1726,13 +1726,13 @@ def create_app() -> Quart:
     @app.post("/api/jumbo/orders/sync")
     async def jumbo_orders_sync():
         try:
-            return jsonify(jumbo_orders.sync_orders())
+            return jsonify(await jumbo_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/purchases/search")
     async def jumbo_purchases_search():
-        return jsonify(jumbo_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
+        return jsonify(await jumbo_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     # Recepten: zoekresultaten, één recept met ingrediënten en bereiding, en importeren in Mealie.
 

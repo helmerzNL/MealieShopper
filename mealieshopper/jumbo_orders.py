@@ -13,9 +13,13 @@ Winkelbonnen kent MealieShopper bij Jumbo nog niet: we melden alleen hoeveel Jum
 """
 from __future__ import annotations
 
-from contextlib import closing
+import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 from typing import Any
+
+import aiosqlite
 
 from . import ah_orders, auth, image_cache, jumbo, price_import, purchase_lines
 from .ah_lists import _fold
@@ -56,12 +60,28 @@ CREATE TABLE IF NOT EXISTS jumbo_orders_meta (
 ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount", "price", "price_before_bonus", "bonus", "taxonomy", "image")
 
 
-def _connect():
+def _connect() -> sqlite3.Connection:
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas` en voor de aanroepen die nog een sqlite3-verbinding
+    vragen (`purchase_lines.enrich`, `price_import.search_lines`). De rest gebruikt `_aconnect`."""
     conn = auth.connect()
     conn.executescript(SCHEMA)
     # De gewone prijs per regel, zoals bij AH (zie `ah_orders.REGULAR_COLUMNS`). Een oudere database krijgt de kolommen erbij.
     ah_orders._ensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
     return conn
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_connect`: hetzelfde schema en dezelfde migratie. Sluit zonder commit, zoals `auth.aconnect`."""
+    async with auth.aconnect() as conn:
+        await conn.executescript(SCHEMA)
+        await ah_orders._aensure_columns(conn, "jumbo_order_items", ah_orders.REGULAR_COLUMNS)
+        yield conn
+
+
+async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    async with conn.execute(sql, params) as cursor:
+        return await cursor.fetchone()
 
 
 def _now() -> str:
@@ -85,17 +105,17 @@ def _item_json(row: Any) -> dict[str, Any]:
     }
 
 
-def synced_at(key: str = "orders") -> str | None:
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT synced_at FROM jumbo_orders_meta WHERE key = ?", (key,)).fetchone()
+async def synced_at(key: str = "orders") -> str | None:
+    async with _aconnect() as conn:
+        row = await _fetchone(conn, "SELECT synced_at FROM jumbo_orders_meta WHERE key = ?", (key,))
     return row["synced_at"] if row else None
 
 
-def _save_order(conn, header: dict[str, Any], items: list[dict[str, Any]] | None) -> None:
-    """Bewaar of werk een bestelling bij. `items=None` laat de bewaarde producten staan."""
+async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], items: list[dict[str, Any]] | None) -> None:
+    """Bewaar of werk een bestelling bij. `items=None` laat de bewaarde producten staan. Wie aanroept, commit."""
     now = _now()
-    existing = conn.execute("SELECT first_seen, items_synced FROM jumbo_orders WHERE order_id = ?", (header["id"],)).fetchone()
-    conn.execute(
+    existing = await _fetchone(conn, "SELECT first_seen, items_synced FROM jumbo_orders WHERE order_id = ?", (header["id"],))
+    await conn.execute(
         """
         INSERT INTO jumbo_orders (order_id, kind, state, shopping_type, method, total, delivery_date, slot_start, slot_end, items_synced, first_seen, synced_at)
         VALUES (?, 'delivered', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -114,8 +134,8 @@ def _save_order(conn, header: dict[str, Any], items: list[dict[str, Any]] | None
          existing["first_seen"] if existing else now, now),
     )
     if items is not None:
-        conn.execute("DELETE FROM jumbo_order_items WHERE order_id = ?", (header["id"],))
-        conn.executemany(
+        await conn.execute("DELETE FROM jumbo_order_items WHERE order_id = ?", (header["id"],))
+        await conn.executemany(
             f"INSERT INTO jumbo_order_items (order_id, position, {', '.join(ITEM_COLUMNS)}) VALUES (?, ?{', ?' * len(ITEM_COLUMNS)})",
             [(header["id"], position, *_item_values(item)) for position, item in enumerate(items)],
         )
@@ -128,7 +148,7 @@ def _error_name(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def sync_orders() -> dict[str, Any]:
+async def sync_orders() -> dict[str, Any]:
     """Haal de lijst met bestellingen op en daarna de producten van een aantal bestellingen.
 
     Nieuwste eerst: een eerste synchronisatie vult dus eerst de recente bestellingen met producten aan en elke volgende
@@ -137,9 +157,9 @@ def sync_orders() -> dict[str, Any]:
     """
     listed = jumbo.get_orders()
     orders = [order for order in listed["orders"] if not order["cancelled"]]
-    with closing(_connect()) as conn:
-        complete = {row["order_id"] for row in conn.execute("SELECT order_id FROM jumbo_orders WHERE items_synced = 1")}
-        known = {row["order_id"] for row in conn.execute("SELECT order_id FROM jumbo_orders")}
+    async with _aconnect() as conn:
+        complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM jumbo_orders WHERE items_synced = 1")}
+        known = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM jumbo_orders")}
     cancelled = {order["id"] for order in listed["orders"] if order["cancelled"]}
     new = sum(1 for order in orders if order["id"] not in known)
     wanted = [order for order in orders if order["id"] not in complete][:ORDER_DETAILS_PER_SYNC]
@@ -158,19 +178,20 @@ def sync_orders() -> dict[str, Any]:
             if not details and failures >= MAX_FIRST_FAILURES:
                 break  # er lukt niets: Jumbo wijst de query af, dus niet nog 20 keer proberen
 
-    with closing(_connect()) as conn, conn:
+    async with _aconnect() as conn:
         for order_id in cancelled:
-            conn.execute("DELETE FROM jumbo_order_items WHERE order_id = ?", (order_id,))
-            conn.execute("DELETE FROM jumbo_orders WHERE order_id = ?", (order_id,))
+            await conn.execute("DELETE FROM jumbo_order_items WHERE order_id = ?", (order_id,))
+            await conn.execute("DELETE FROM jumbo_orders WHERE order_id = ?", (order_id,))
         for order in orders:
             info = details.get(order["id"])
             header = {**order, **({key: value for key, value in info.items() if key != "items" and value} if info else {}), "id": order["id"]}
-            _save_order(conn, header, info["items"] if info else None)
-        conn.execute(
+            await _save_order(conn, header, info["items"] if info else None)
+        await conn.execute(
             "INSERT INTO jumbo_orders_meta (key, synced_at) VALUES ('orders', ?) ON CONFLICT(key) DO UPDATE SET synced_at = excluded.synced_at",
             (_now(),),
         )
-        remaining = conn.execute("SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0").fetchone()[0]
+        remaining = (await _fetchone(conn, "SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0"))[0]
+        await conn.commit()
     image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {
         "orders": len(orders), "new": new, "remaining": remaining, "storeReceipts": listed["storeReceipts"],
@@ -212,48 +233,50 @@ def _order_summary(row: Any) -> dict[str, Any]:
     }
 
 
-def list_orders(summary: bool = False) -> dict[str, Any]:
+async def list_orders(summary: bool = False) -> dict[str, Any]:
     """Alle bestellingen, de nieuwste eerst. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings`
     en `bonusCount` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+    async with _aconnect() as conn:
+        rows = await conn.execute_fetchall(
             f"""
             SELECT o.*, (SELECT COUNT(*) FROM jumbo_order_items i WHERE i.order_id = o.order_id) AS item_count
             {"," + _ORDER_SUMMARY_SQL if summary else ""}
             FROM jumbo_orders o
             ORDER BY COALESCE(NULLIF(o.delivery_date, ''), o.first_seen) DESC, o.order_id DESC
             """
-        ).fetchall()
+        )
     return {
-        "syncedAt": synced_at(),
+        "syncedAt": await synced_at(),
         "orders": [{**_order_json(row, row["item_count"]), **(_order_summary(row) if summary else {})} for row in rows],
     }
 
 
-def get_order(order_id: Any) -> dict[str, Any] | None:
+async def get_order(order_id: Any) -> dict[str, Any] | None:
     """Een bestelling met haar producten, verrijkt zoals bij AH (`ah_orders.get_order`): de categorie komt uit de titel met de
     taxonomie van Jumbo als hint."""
+    async with _aconnect() as conn:
+        row = await _fetchone(conn, "SELECT * FROM jumbo_orders WHERE order_id = ?", (str(order_id),))
+    if not row:
+        return None
+    await purchase_lines.fill_regular("jumbo", order_ids=[str(order_id)])
+    async with _aconnect() as conn:
+        rows = await conn.execute_fetchall("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),))
+    items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+    # `purchase_lines.enrich` blijft op een sqlite3-verbinding: `price_import` (Taak 15) roept hem ook aan.
     with closing(_connect()) as conn:
-        row = conn.execute("SELECT * FROM jumbo_orders WHERE order_id = ?", (str(order_id),)).fetchone()
-        if not row:
-            return None
-    purchase_lines.fill_regular("jumbo", order_ids=[str(order_id)])
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),)).fetchall()
-        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
         totals = purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
     kind, text = purchase_lines.status_kind("order", row)
     return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
-def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
+async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
     """Wanneer kocht je een product? Zoekt in de producten van je bestellingen (alle woorden moeten erin staan)."""
     words = _fold(query).split()
     if not words:
         return {"query": "", "products": [], "occurrences": [], "total": 0}
     occurrences: list[dict[str, Any]] = []
-    with closing(_connect()) as conn:
-        for row in conn.execute(
+    async with _aconnect() as conn:
+        for row in await conn.execute_fetchall(
             """
             SELECT i.title, i.brand, i.quantity, i.amount, o.order_id, o.delivery_date, o.first_seen
             FROM jumbo_order_items i JOIN jumbo_orders o ON o.order_id = i.order_id
@@ -265,8 +288,10 @@ def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "amount": row["amount"], "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"]),
                     "open": False,
                 })
-        occurrences += price_import.search_lines(conn, "jumbo", words, _fold)  # oude bestellingen uit je bevestigingsmails
-        unsearched = conn.execute("SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0").fetchone()[0]
+        unsearched = (await _fetchone(conn, "SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0"))[0]
+    # Oude bestellingen uit je bevestigingsmails: `price_import.search_lines` leest tot Taak 15 van een sqlite3-verbinding.
+    with closing(_connect()) as conn:
+        occurrences += price_import.search_lines(conn, "jumbo", words, _fold)
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:

@@ -15,7 +15,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, in_db, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = "2026-10-20"
@@ -62,8 +62,7 @@ class Case(unittest.TestCase):
             offers.sync(store)
 
     def bought(self, order_id, day, *items):
-        with closing(ah_orders._connect()) as conn, conn:
-            ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items))
+        in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items)))
 
     def rows(self, store="ah"):
         with closing(prices._connect()) as conn:
@@ -74,9 +73,9 @@ class BoughtFilterTest(Case):
     def test_the_switch_keeps_only_what_you_bought(self):
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"), offer("2", "AH Fusilli"), offer("3", "AH Macaroni"))
         self.bought(101, "2026-10-07", order_item(1, "AH Penne"))
-        prices.record("ah", [{"id": "4", "title": "AH Spaghetti", "price": 1.25}], now="2026-10-15T08:00:00+00:00")
-        everything = prices.history("ah", "", 50, today=TODAY)
-        mine = prices.history("ah", "", 50, today=TODAY, bought=True)
+        run(prices.record("ah", [{"id": "4", "title": "AH Spaghetti", "price": 1.25}], now="2026-10-15T08:00:00+00:00"))
+        everything = run(prices.history("ah", "", 50, today=TODAY))
+        mine = run(prices.history("ah", "", 50, today=TODAY, bought=True))
         self.assertEqual(everything["total"], 4)
         self.assertEqual(([p["productId"] for p in mine["products"]], mine["total"]), (["1"], 1))
         self.assertEqual(mine["products"][0]["timesBought"], 1)
@@ -86,14 +85,13 @@ class BoughtFilterTest(Case):
         with closing(ah_orders._connect()) as conn, conn:
             conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-10-16T12:00:00', 0, 1, 'x')")
             conn.execute("INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, NULL, 'AH FUSILLI', 1, 1.1, 1.1)")
-        self.assertEqual([p["productId"] for p in prices.history("ah", "", 50, today=TODAY, bought=True)["products"]], ["2"])
-        self.assertEqual(prices.history("ah", "penne", 50, today=TODAY, bought=True)["products"], [])
+        self.assertEqual([p["productId"] for p in run(prices.history("ah", "", 50, today=TODAY, bought=True))["products"]], ["2"])
+        self.assertEqual(run(prices.history("ah", "penne", 50, today=TODAY, bought=True))["products"], [])
 
     def test_an_order_that_is_not_delivered_yet_does_not_count(self):
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"))
-        with closing(ah_orders._connect()) as conn, conn:
-            ah_orders._save_order(conn, {"id": 102, "deliveryDate": "2026-10-22"}, "open", [order_item(1, "AH Penne")])
-        self.assertEqual(prices.history("ah", "", 50, today=TODAY, bought=True)["total"], 0)
+        in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": 102, "deliveryDate": "2026-10-22"}, "open", [order_item(1, "AH Penne")]))
+        self.assertEqual(run(prices.history("ah", "", 50, today=TODAY, bought=True))["total"], 0)
 
     def test_the_route_and_the_mcp_tool(self):
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"), offer("2", "AH Fusilli"))
@@ -264,7 +262,7 @@ class SaveBoughtTest(Case):
         self.bought(101, "2026-10-01", order_item(1, "AH Penne"))
         self.served[self.LARGE] = picture(100, 80)
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", self.URL))
-        product = prices.history("ah", "penne", 5, today=TODAY)["products"][0]
+        product = run(prices.history("ah", "penne", 5, today=TODAY))["products"][0]
         [saved] = product["savedImages"]
         self.assertEqual((saved["title"], saved["savedAt"], saved["width"], saved["height"]), ("AH Penne", "2026-10-05T05:00:00+00:00", 100, 80))
         self.assertRegex(saved["url"], r"^/api/prices/images/\d+\?v=[0-9a-f]{16}$")
@@ -277,7 +275,7 @@ class SaveBoughtTest(Case):
         self.assertEqual(reply.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(client.get("/api/prices/images/999").status_code, 404)
         self.assertEqual(client.get("/api/prices/images/abc").status_code, 404)
-        self.assertEqual(prices.history("ah", "fusilli", 5, today=TODAY)["products"], [])
+        self.assertEqual(run(prices.history("ah", "fusilli", 5, today=TODAY))["products"], [])
 
 
 class PageTest(unittest.TestCase):

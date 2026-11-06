@@ -110,7 +110,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         ("regularPrices", prices.fill_regular_prices_nightly),
     )
     for key, task in extras:
-        outcome = task()
+        outcome = await task()
         if outcome is not None:
             result = {**result, key: outcome}
     if wait_for_images:

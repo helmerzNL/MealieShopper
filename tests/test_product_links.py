@@ -17,7 +17,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, backup, image_cache, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, in_db, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-10-20T08:00:00+00:00"
@@ -50,8 +50,7 @@ class LinksCase(unittest.TestCase):
                          (article, product_id, title, image))
 
     def ah_order(self, order_id, day, *items):
-        with closing(ah_orders._connect()) as conn, conn:
-            ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items))
+        in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items)))
 
     def mail(self, store, *names, number="225301", day="2025-03-14"):
         items = [{"name": name, "quantity": 1, "price": 1.5, "total": 1.5, "discount": 0} for name in names]
@@ -59,7 +58,7 @@ class LinksCase(unittest.TestCase):
                          store, now=NOW)
 
     def history(self, query="", store="ah"):
-        return {p["productId"]: p for p in prices.history(store, query, 50, today=TODAY)["products"]}
+        return {p["productId"]: p for p in run(prices.history(store, query, 50, today=TODAY))["products"]}
 
 
 class SaveTest(LinksCase):
@@ -120,11 +119,11 @@ class ReceiptTest(LinksCase):
     def test_an_unknown_receipt_line_shows_the_product_you_chose_and_so_does_every_other_receipt(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29), (0, "STATIEGELD", 1, 0.15, 0.15))
         self.ah_receipt("R2", "2026-10-09T09:00:00", (20960, "COTTAGE CH", 2, 1.29, 2.58))
-        before = ah_orders.get_receipt("R1")["items"]
+        before = run(ah_orders.get_receipt("R1"))["items"]
         self.assertEqual([(line["product"], line["link"]) for line in before], [(None, None), (None, None)])
         product_links.save("ah", "COTTAGE CH", COTTAGE, article=20960)
         for receipt_id in ("R1", "R2"):
-            line = ah_orders.get_receipt(receipt_id)["items"][0]
+            line = run(ah_orders.get_receipt(receipt_id))["items"][0]
             self.assertEqual(line["product"], {"id": "4711", "title": "AH Cottage cheese", "image": COTTAGE["image"]}, receipt_id)
             self.assertEqual(line["link"], {"kind": "article", "key": "20960"})
             self.assertEqual(line["name"], "COTTAGE CH", "de naam op de bon blijft")
@@ -134,25 +133,25 @@ class ReceiptTest(LinksCase):
         self.ah_receipt("R2", "2026-10-09T09:00:00", (None, "Cottage  ch", 1, 1.29, 1.29))
         product_links.save("ah", "COTTAGE CH", COTTAGE, article=0)
         for receipt_id in ("R1", "R2"):
-            line = ah_orders.get_receipt(receipt_id)["items"][0]
+            line = run(ah_orders.get_receipt(receipt_id))["items"][0]
             self.assertEqual((line["product"]["id"], line["link"]), ("4711", {"kind": "name", "key": "cottage ch"}), receipt_id)
 
     def test_your_own_link_wins_from_the_automatic_one_and_unlinking_brings_that_back(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "AH BLOEMK", 1, 1.99, 1.99))
         self.auto_link(20960, 999, "AH Broccoli", "https://static.ah.nl/broccoli.jpg")  # fout gekoppeld
-        self.assertEqual(ah_orders.get_receipt("R1")["items"][0]["product"]["title"], "AH Broccoli")
+        self.assertEqual(run(ah_orders.get_receipt("R1"))["items"][0]["product"]["title"], "AH Broccoli")
         product_links.save("ah", "AH BLOEMK", BLOEMKOOL, article=20960)
-        line = ah_orders.get_receipt("R1")["items"][0]
+        line = run(ah_orders.get_receipt("R1"))["items"][0]
         self.assertEqual((line["product"]["id"], line["product"]["title"], line["link"]["kind"]), ("4183", "AH Bloemkool", "article"))
         product_links.remove("ah", "article", "20960")
-        line = ah_orders.get_receipt("R1")["items"][0]
+        line = run(ah_orders.get_receipt("R1"))["items"][0]
         self.assertEqual((line["product"]["id"], line["link"]), (999, None))
 
     def test_the_article_link_goes_before_a_name_link(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29))
         product_links.save("ah", "COTTAGE CH", BLOEMKOOL)  # op naam
         product_links.save("ah", "COTTAGE CH", COTTAGE, article=20960)  # op artikelnummer
-        self.assertEqual(ah_orders.get_receipt("R1")["items"][0]["product"]["id"], "4711")
+        self.assertEqual(run(ah_orders.get_receipt("R1"))["items"][0]["product"]["id"], "4711")
 
     def test_the_receipts_list_shows_the_photo_and_name_of_your_own_links(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29), (0, "AH BLOEMK", 1, 1.99, 1.99),
@@ -160,17 +159,17 @@ class ReceiptTest(LinksCase):
         self.auto_link(777, 88624, "Red Band Picolient", "https://static.ah.nl/picolient.jpg")
         product_links.save("ah", "COTTAGE CH", COTTAGE, article=20960)
         product_links.save("ah", "AH BLOEMK", BLOEMKOOL)
-        receipt = ah_orders.list_receipts(summary=True)["receipts"][0]
+        receipt = run(ah_orders.list_receipts(summary=True))["receipts"][0]
         self.assertEqual(receipt["images"], [COTTAGE["image"], BLOEMKOOL["image"], "https://static.ah.nl/picolient.jpg"])
         self.assertEqual(receipt["productNames"][:3], ["AH Cottage cheese", "AH Bloemkool", "Red Band Picolient"])
 
     def test_a_linked_article_number_is_no_longer_looked_up_at_ah(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29), (30001, "RB PICOLIENT", 1, 2.0, 2.0))
-        with closing(ah_orders._connect()) as conn:
-            self.assertEqual(sorted(group["name"] for group in ah_orders._todo_by_name(conn, NOW)), ["COTTAGE CH", "RB PICOLIENT"])
+        todo = in_db(ah_orders._aconnect, lambda conn: ah_orders._todo_by_name(conn, NOW))[0]
+        self.assertEqual(sorted(group["name"] for group in todo), ["COTTAGE CH", "RB PICOLIENT"])
         product_links.save("ah", "COTTAGE CH", COTTAGE, article=20960)
-        with closing(ah_orders._connect()) as conn:
-            self.assertEqual([group["name"] for group in ah_orders._todo_by_name(conn, NOW)], ["RB PICOLIENT"])
+        todo = in_db(ah_orders._aconnect, lambda conn: ah_orders._todo_by_name(conn, NOW))[0]
+        self.assertEqual([group["name"] for group in todo], ["RB PICOLIENT"])
 
 
 class PriceHistoryTest(LinksCase):
@@ -225,8 +224,8 @@ class ImportedOrderTest(LinksCase):
             self.assertEqual(listed["images"], [product["image"]] if product.get("image") else [], store)
 
     def test_link_names_prefers_what_the_store_knows_about_the_product(self):
-        prices.record("ah", [{"id": "4711", "title": "AH Cottage cheese naturel", "price": 1.29, "unitSize": "250 g",
-                              "images": [{"url": "https://static.ah.nl/nieuw.jpg"}]}], now=NOW)
+        run(prices.record("ah", [{"id": "4711", "title": "AH Cottage cheese naturel", "price": 1.29, "unitSize": "250 g",
+                              "images": [{"url": "https://static.ah.nl/nieuw.jpg"}]}], now=NOW))
         product_links.save("ah", "Huttenkase", COTTAGE)
         found = prices.link_names("ah", ["Huttenkase"])["Huttenkase"]
         self.assertEqual((found["title"], found["unitSize"], found["image"], found["brand"]),
