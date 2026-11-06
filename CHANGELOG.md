@@ -23,6 +23,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): *Alleen wat zeker bij één product hoort* (met de prijzen uit een archief) en *Zo zie je ze*.
 - **Ontwikkeling**: `test_price_archive` heeft 9 nieuwe tests: standaard alleen regels en prijzen die zeker bij een product horen (in één keer en in stukken geüpload), een prijs met een andere naam of verpakking, een multipack met dezelfde tekst, een onzekere koppeling uit het archief, een kapotte regel die ook overgeslagen zou worden, de optie `keep_unlinked`, en de korte actietekst (alleen de actie, en de app leest er geen actie in). De bestaande tests uploaden met `keep_unlinked` en volgen de nieuwe regels.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-13`). Ververs de pagina één keer.
+- Pull request [#272](https://github.com/helmerzNL/MealieShopper/pull/272).
 
 ## v3.20.1
 
