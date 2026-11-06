@@ -358,7 +358,7 @@ MealieShopper is free. If it is useful to you, a coffee keeps the development go
 
 ## License
 
-[MIT](LICENSE) © 2026 Helmer
+[MIT](LICENSE) © 2026 Flux76
 
 The components MealieShopper uses each have their own licence; see [Architecture](#architecture).
 
