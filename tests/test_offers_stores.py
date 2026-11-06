@@ -8,7 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -416,24 +416,24 @@ class SyncAllTest(TempDataDirTest):
 
     def test_unlinked_stores_are_skipped_and_linked_ones_synced(self):
         with self.fetchers(), mock.patch.object(offers, "linked", side_effect=lambda store: store != "picnic"):
-            result = offers.sync_all()
+            result = run(offers.sync_all())
         self.assertEqual(result["stores"]["ah"]["count"], 1)
         self.assertEqual(result["stores"]["jumbo"]["count"], 2)
         self.assertIn("skipped", result["stores"]["picnic"])
-        self.assertEqual(offers.load("picnic")["total"], 0)
+        self.assertEqual(run(offers.load("picnic"))["total"], 0)
 
     def test_one_failing_store_does_not_block_the_others_and_keeps_its_copy(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
-            offers.sync_all()
+            run(offers.sync_all())
 
         def boom():
             raise RuntimeError("Jumbo geweigerd")
 
         with self.fetchers(jumbo=boom), mock.patch.object(offers, "linked", return_value=True):
-            result = offers.sync_all()
+            result = run(offers.sync_all())
         self.assertEqual(result["stores"]["jumbo"], {"error": "Jumbo geweigerd"})
         self.assertEqual(result["stores"]["picnic"]["count"], 1)
-        self.assertEqual(offers.load("jumbo")["total"], 2, "de vorige kopie blijft staan")
+        self.assertEqual(run(offers.load("jumbo"))["total"], 2, "de vorige kopie blijft staan")
 
     def test_linked_follows_the_store_connections(self):
         self.assertTrue(offers.linked("ah"))
@@ -448,8 +448,8 @@ class SyncAllTest(TempDataDirTest):
 
     def test_overview_lists_every_store(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):
-            offers.sync_all()
-        overview = offers.overview()
+            run(offers.sync_all())
+        overview = run(offers.overview())
         self.assertEqual(sorted(overview), ["ah", "crisp", "jumbo", "picnic"])
         self.assertEqual(overview["crisp"]["total"], 1)
         self.assertEqual((overview["jumbo"]["total"], bool(overview["jumbo"]["syncedAt"])), (2, True))
@@ -461,7 +461,7 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "5", "MEALIESHOPPER_OFFERS_SCHEDULE": "true"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        fake = mock.patch.object(offers, "sync_all", return_value={"stores": {"ah": {"count": 1}}, "finishedAt": "x"})
+        fake = mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 1}}, "finishedAt": "x"})
         self.sync_all = fake.start()
         self.addCleanup(fake.stop)
 
@@ -561,7 +561,7 @@ class RoutesTest(TempDataDirTest):
     def test_status_and_sync_all(self):
         status = self.client.get("/api/offers/status").get_json()
         self.assertEqual(sorted(status["stores"]), ["ah", "crisp", "jumbo", "picnic"])
-        with mock.patch.object(offers, "sync_all", return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
+        with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
             response = self.client.post("/api/offers/sync-all")
         self.assertEqual((response.status_code, response.get_json()["stores"]["ah"]["count"]), (200, 2))
         self.assertEqual(self.client.get("/api/offers/status").get_json()["lastTrigger"], "manual")

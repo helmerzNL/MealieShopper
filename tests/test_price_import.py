@@ -12,7 +12,7 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, i18n, jumbo_orders, price_import, prices, product_links  # noqa: E402
+from mealieshopper import ah_orders, auth, i18n, jumbo_orders, offers, price_import, prices, product_images, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient, in_db, run  # noqa: E402
 
@@ -270,7 +270,7 @@ class HistoryTest(ImportCase):
 
     def test_imported_purchases_count_as_bought(self):
         self.run_import(mail_order())
-        self.assertIn("import:ah bananen tros", prices.bought_ids("ah", TODAY))
+        self.assertIn("import:ah bananen tros", run(prices.bought_ids("ah", TODAY)))
         self.assertEqual(run(prices.history("ah", "", 50, today=TODAY, bought=True))["total"], 2)
 
 
@@ -440,9 +440,8 @@ class OrdersTest(ImportCase):
 
 
 class EventLoopReadTest(ImportCase):
-    """Het leespad van de prijzen, de ingelezen bestellingen en de detail- en zoekfuncties van AH en Jumbo lezen alleen nog via
-    aiosqlite: een synchrone verbinding (`_connect`) of synchrone lezer (`product_links.load`, `price_import.account_orders`) in de
-    event loop faalt hier. Alleen `prices.bought_ids` blijft synchroon, voor `product_images`."""
+    """Het leespad van de prijzen, de ingelezen bestellingen, de aanbiedingen en de detail- en zoekfuncties van AH en Jumbo lezen
+    alleen nog via aiosqlite: een synchrone verbinding (`_connect`) in de event loop faalt hier."""
 
     def setUp(self):
         super().setUp()
@@ -459,7 +458,7 @@ class EventLoopReadTest(ImportCase):
         self.addCleanup(stack.close)
         refused = AssertionError("synchrone sqlite3 in de event loop")
         for module, name in ((ah_orders, "_connect"), (jumbo_orders, "_connect"), (prices, "_connect"), (price_import, "_connect"),
-                             (product_links, "_connect"), (product_links, "load"), (product_links, "ensure"), (price_import, "account_orders")):
+                             (product_links, "_connect"), (product_links, "ensure"), (offers, "_connect")):
             stack.enter_context(mock.patch.object(module, name, side_effect=refused))
 
     def test_the_ah_order_detail_and_receipt_enrich_on_the_async_connection(self):
@@ -489,6 +488,12 @@ class EventLoopReadTest(ImportCase):
         with self.assertNoLogs("mealieshopper.prices", "ERROR"):
             run(prices.annotate("ah", [offer], today=TODAY))
         self.assertIsNotNone(offer["priceLabel"])
+
+
+    def test_what_you_bought_the_offers_and_a_saved_image_read_on_the_async_connection(self):
+        self.assertIn("4183", run(prices.bought_ids("ah", TODAY)))
+        self.assertEqual(run(offers.load("ah"))["offers"], [])
+        self.assertIsNone(run(product_images.get(1)))
 
 
 class RouteTest(ImportCase):

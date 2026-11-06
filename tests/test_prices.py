@@ -25,7 +25,7 @@ class PricesCase(unittest.TestCase):
 
     def sync_offer(self, when, *items, store="ah"):
         with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
-            offers.sync(store)
+            run(offers.sync(store))
 
     def ah_order(self, order_id, kind, day, *items):
         in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, kind, list(items) if items else None))
@@ -49,7 +49,7 @@ def history_points(store: str = "ah") -> dict[str, list[tuple[str, float]]]:
     """`prices._history_points` zoals `_annotate` hem aanroept: met de bonregels van `_areceipt_rows` erbij, op dezelfde verbinding."""
 
     async def points(conn):
-        return await prices._history_points(conn, store, TODAY, await prices._areceipt_rows(conn, store, TODAY))
+        return await prices._history_points(conn, store, TODAY, await prices._receipt_rows(conn, store, TODAY))
 
     return in_db(prices._aconnect, points)[0]
 

@@ -185,7 +185,7 @@ class PriceHistoryTest(LinksCase):
         self.assertNotIn("bon:cottage ch", after)
         self.assertEqual((after["4711"]["timesBought"], [p["source"] for p in after["4711"]["purchases"]]), (2, ["order", "receipt"]))
         self.assertIn("4711", self.history("cottage ch"), "de naam op de bon vindt het product nog")
-        self.assertIn("4711", {p for p in prices.bought_ids("ah", TODAY)})
+        self.assertIn("4711", {p for p in run(prices.bought_ids("ah", TODAY))})
 
     def test_an_article_link_wins_from_a_matching_id_and_name(self):
         # Zonder koppeling hoort artikelnummer 20960 bij zichzelf (een bekend id met dezelfde naam); met je koppeling bij 4183.

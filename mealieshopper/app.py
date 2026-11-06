@@ -350,7 +350,7 @@ def create_app() -> Quart:
             return jsonify({"error": tr("Ongeldig recept", "Invalid recipe")}), 400
         version = (request.args.get("v") or "")[:64]
         try:
-            content_type, data = mealie_images.get_image(
+            content_type, data = await mealie_images.get_image(
                 recipe_id, request.args.get("size") or mealie_images.DEFAULT_SIZE, version
             )
         except mealie_images.ImageNotFound:
@@ -595,14 +595,14 @@ def create_app() -> Quart:
         store = request.args.get("store") or "ah"
         week = offers_week()
         try:
-            etag = hashlib.sha1(f"{offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
+            etag = hashlib.sha1(f"{await offers.signature(store, week)}|{await prices.signature(store)}".encode("utf-8")).hexdigest()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         headers = {"ETag": f'"{etag}"', "Cache-Control": "private, no-cache"}
         if request.if_none_match.contains(etag):
             return Response(status=304, headers=headers)
         async def load_with_verdicts() -> dict[str, Any]:
-            data = offers.load(store, week)
+            data = await offers.load(store, week)
             await prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178), een fout laat de lijst staan
             return data
 
@@ -633,7 +633,7 @@ def create_app() -> Quart:
     @app.get("/api/prices/images/<int:image_id>")
     async def prices_image(image_id: int):
         # Een bewaarde afbeelding van een aanbieding die je eerder kocht (zie product_images.py); uit de database, nooit van de winkel.
-        found = product_images.get(image_id)
+        found = await product_images.get(image_id)
         if not found:
             return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
         content_type, data = found

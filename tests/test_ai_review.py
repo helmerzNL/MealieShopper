@@ -15,7 +15,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ai_review, auth, auth_password, http_client, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, returned, run  # noqa: E402
 
 T = TypeVar("T")
 
@@ -111,15 +111,15 @@ class AiTestCase(unittest.TestCase):
             {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]},
         ]
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
-            offers.sync("ah")
-        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: recipes),)):
-            offers.sync_recipes()
+            run(offers.sync("ah"))
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(recipes)),)):
+            run(offers.sync_recipes())
 
     def set_key(self, provider="anthropic", key=None):
         call(ai_review.save({"keys": {provider: key or (CLAUDE_KEY if provider == "anthropic" else OPENAI_KEY)}}))
 
     def matched(self, recipe_id="r1"):
-        recipe = next(r for r in offers.suggest("ah")["recipes"] if r["id"] == recipe_id)
+        recipe = next(r for r in run(offers.suggest("ah"))["recipes"] if r["id"] == recipe_id)
         return {m["ingredient"]: m for m in recipe["matched"]}
 
 
@@ -282,9 +282,9 @@ class ReviewTest(AiTestCase):
         matched = self.matched()
         self.assertNotEqual(matched.get("400 g kipfilet", {}).get("offer", {}).get("id"), "1", "het foute product is verborgen")
         self.assertEqual(matched["4 tomaten"]["ai"], "ok")
-        listed = offers.list_mismatches("ah")["reports"]
+        listed = run(offers.list_mismatches("ah"))["reports"]
         self.assertEqual([(r["offerId"], r["source"], r["reason"]) for r in listed], [("1", "ai", "reden")])
-        data = offers.suggest("ah")
+        data = run(offers.suggest("ah"))
         self.assertEqual({key: data["ai"][key] for key in ("judged", "unjudged")}, {"judged": 1, "unjudged": 1}, "het volgende kipfilet-product (Jumbo) is nog niet beoordeeld")
 
     def test_a_pair_is_only_judged_once(self):
@@ -303,7 +303,7 @@ class ReviewTest(AiTestCase):
         self.set_key()
         with self.fake(wrong=("AH Kipfilet",)):
             call(ai_review.review("ah"))
-            offers.undo_mismatch("ah", "400 g kipfilet", "1")
+            run(offers.undo_mismatch("ah", "400 g kipfilet", "1"))
             calls = []
         with self.fake(wrong=("AH Kipfilet",), calls=calls):
             again = call(ai_review.review("ah"))
@@ -314,7 +314,7 @@ class ReviewTest(AiTestCase):
     def test_pairs_you_reported_yourself_are_not_sent(self):
         self.seed()
         self.set_key()
-        offers.report_mismatch("ah", "400 g kipfilet", "1")
+        run(offers.report_mismatch("ah", "400 g kipfilet", "1"))
         calls = []
         with self.fake(calls=calls):
             call(ai_review.review("ah"))

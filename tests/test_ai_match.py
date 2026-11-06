@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ai_match, ai_review, auth, auth_password, http_client, offers, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient  # noqa: E402
+from support import LiveClient, returned  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -128,11 +128,11 @@ class AiMatchCase(unittest.IsolatedAsyncioTestCase):
         {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten", "sla", "komkommer", "ui"]},
     ]
 
-    def seed(self, recipes=None, fetched=None):
+    async def seed(self, recipes=None, fetched=None):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched or self.FETCHED}):
-            offers.sync("ah")
-        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: recipes or self.RECIPES),)):
-            offers.sync_recipes()
+            await offers.sync("ah")
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(recipes or self.RECIPES)),)):
+            await offers.sync_recipes()
 
     async def key(self, provider="anthropic"):
         await ai_review.save({"keys": {provider: CLAUDE_KEY if provider == "anthropic" else OPENAI_KEY}})
@@ -142,14 +142,14 @@ class AiMatchCase(unittest.IsolatedAsyncioTestCase):
         with ai_provider(side_effect=provider):
             return await ai_match.search("ah", **kwargs), provider
 
-    def matched(self, recipe_id):
-        recipe = next((r for r in offers.suggest("ah")["recipes"] if r["id"] == recipe_id), None)
+    async def matched(self, recipe_id):
+        recipe = next((r for r in (await offers.suggest("ah"))["recipes"] if r["id"] == recipe_id), None)
         return None if recipe is None else {m["ingredient"]: m for m in recipe["matched"]}
 
 
 class RequestTest(AiMatchCase):
     async def test_claude_gets_the_numbered_offers_in_a_cacheable_block_and_a_forced_tool_call(self):
-        self.seed()
+        await self.seed()
         await self.key()
         _, provider = await self.run_search()
         call = provider.calls[0]
@@ -172,7 +172,7 @@ class RequestTest(AiMatchCase):
         self.assertNotIn("Kipsalade", sent)
 
     async def test_chatgpt_gets_the_offers_first_and_a_strict_schema(self):
-        self.seed()
+        await self.seed()
         await self.key("openai")
         _, provider = await self.run_search()
         call = provider.calls[0]
@@ -183,39 +183,39 @@ class RequestTest(AiMatchCase):
         schema = body["response_format"]["json_schema"]
         self.assertEqual((schema["name"], schema["strict"], schema["schema"]), (ai_match.TOOL, True, ai_match.SEARCH_SCHEMA))
 
-    def test_a_big_offer_is_capped(self):
+    async def test_a_big_offer_is_capped(self) -> None:
         many = [{"id": str(i), "title": f"AH Product {i}", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"} for i in range(30)]
-        self.seed(fetched=many)
+        await self.seed(fetched=many)
         with mock.patch.object(ai_match, "MAX_OFFERS", 10):
-            self.assertEqual(len(ai_match.food_offers("ah")[0]), 10)
+            self.assertEqual(len((await ai_match.food_offers("ah"))[0]), 10)
 
 
 class SearchTest(AiMatchCase):
     async def test_the_ai_matches_replace_ours_for_searched_recipes_only(self):
-        self.seed()
+        await self.seed()
         await self.key()
-        self.assertEqual(self.matched("r1")["400 g kipfilet"]["offer"]["id"], "1", "zonder AI: het eerste kipfilet-product")
+        self.assertEqual((await self.matched("r1"))["400 g kipfilet"]["offer"]["id"], "1", "zonder AI: het eerste kipfilet-product")
         result, _ = await self.run_search(max_recipes=1)
         self.assertEqual((result["searched"], result["matched"], result["remaining"], result["tokens"]), (1, 2, 1, 1200))
         self.assertEqual((result["provider"], result["model"], result["error"]), ("anthropic", "claude-haiku-5-5", ""))
-        found = self.matched("r1")
+        found = await self.matched("r1")
         self.assertEqual((found["400 g kipfilet"]["offer"]["id"], found["400 g kipfilet"]["ai"]), ("2", "search"), "de AI koos het Jumbo-product")
         self.assertEqual(found["4 tomaten"]["offer"]["id"], "3")
-        again = self.matched("r2")
+        again = await self.matched("r2")
         self.assertEqual(again["kipfilet"]["offer"]["id"], "1", "een recept dat de AI nog niet doorzocht heeft, houdt onze koppeling")
         self.assertNotIn("ai", again["kipfilet"])
-        data = offers.suggest("ah")
+        data = await offers.suggest("ah")
         self.assertEqual((data["ai"]["searched"], data["ai"]["recipes"]), (1, 2))
 
     async def test_a_searched_recipe_without_matches_drops_out(self):
-        self.seed()
+        await self.seed()
         await self.key()
         await self.run_search(Provider(rules={}))
-        self.assertEqual(offers.suggest("ah")["recipes"], [], "de AI vond niets: dat is het antwoord, onze koppelingen komen er niet bij")
-        self.assertEqual(offers.suggest("ah")["ai"]["searched"], 2)
+        self.assertEqual((await offers.suggest("ah"))["recipes"], [], "de AI vond niets: dat is het antwoord, onze koppelingen komen er niet bij")
+        self.assertEqual((await offers.suggest("ah"))["ai"]["searched"], 2)
 
     async def test_nothing_the_ai_makes_up_is_kept(self):
-        self.seed()
+        await self.seed()
         await self.key()
 
         def answer(provider, url, body):
@@ -239,55 +239,55 @@ class SearchTest(AiMatchCase):
 
         result, _ = await self.run_search(Provider(answer=answer))
         self.assertEqual((result["searched"], result["matched"]), (2, 4))
-        with ai_match.closing(offers._connect()) as conn:
-            rows = conn.execute("SELECT recipe_id, line_index, product_id FROM ai_recipe_matches ORDER BY recipe_id, line_index").fetchall()
+        async with offers._aconnect() as conn:
+            rows = await conn.execute_fetchall("SELECT recipe_id, line_index, product_id FROM ai_recipe_matches ORDER BY recipe_id, line_index")
         self.assertEqual([(r["recipe_id"], r["line_index"], r["product_id"]) for r in rows], [("r1", 0, "2"), ("r1", 1, "3"), ("r2", 0, "1"), ("r2", 4, "3")])
 
     async def test_a_recipe_the_ai_does_not_mention_stays_for_the_next_round(self):
-        self.seed()
+        await self.seed()
         await self.key()
         only_first = lambda provider, url, body: reply(url, {"recipes": [{"recipe": 1, "matches": [{"line": 1, "product": 2}]}]})  # noqa: E731
         result, _ = await self.run_search(Provider(answer=only_first))
         self.assertEqual((result["searched"], result["remaining"]), (1, 1))
-        self.assertEqual(ai_match.plan("ah")["todo"], 1)
+        self.assertEqual((await ai_match.plan("ah"))["todo"], 1)
 
     async def test_a_round_only_searches_what_is_new(self):
-        self.seed()
+        await self.seed()
         await self.key()
         await self.run_search()
-        done = ai_match.plan("ah")
+        done = await ai_match.plan("ah")
         self.assertEqual((done["todo"], done["chosen"], done["chunks"]), (0, 0, 0))
         result, provider = await self.run_search()
         self.assertEqual((result["searched"], provider.calls), (0, []), "niets te doen: geen aanroep")
         # Een nieuw aanbod: alles opnieuw.
         with mock.patch.object(offers, "_now", return_value="2031-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.FETCHED}):
-            offers.sync("ah")
-        self.assertEqual(ai_match.plan("ah")["todo"], 2)
+            await offers.sync("ah")
+        self.assertEqual((await ai_match.plan("ah"))["todo"], 2)
         await self.run_search()
-        self.assertEqual(ai_match.plan("ah")["todo"], 0)
+        self.assertEqual((await ai_match.plan("ah"))["todo"], 0)
         # Een recept met andere ingrediënten: alleen dat recept.
         changed = [dict(self.RECIPES[0], ingredients=["500 g kipfilet", "2 tomaten"]), self.RECIPES[1]]
-        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: changed),)):
-            offers.sync_recipes()
-        self.assertEqual(ai_match.plan("ah")["todo"], 1)
-        found = self.matched("r1")
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(changed)),)):
+            await offers.sync_recipes()
+        self.assertEqual((await ai_match.plan("ah"))["todo"], 1)
+        found = await self.matched("r1")
         self.assertEqual(found["500 g kipfilet"]["offer"]["id"], "1", "een recept met nieuwe ingrediënten gebruikt het oude AI-resultaat niet meer, maar onze koppelingen")
         self.assertNotIn("ai", found["500 g kipfilet"])
 
     async def test_products_that_left_the_offer_and_reported_matches_are_dropped(self):
-        self.seed()
+        await self.seed()
         await self.key()
         await self.run_search()
-        offers.report_mismatch("ah", "400 g kipfilet", "2")
-        found = self.matched("r1")
+        await offers.report_mismatch("ah", "400 g kipfilet", "2")
+        found = await self.matched("r1")
         self.assertNotIn("400 g kipfilet", found, "de vlag verbergt ook een koppeling van de AI")
         self.assertEqual(found["4 tomaten"]["offer"]["id"], "3")
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [self.FETCHED[0], self.FETCHED[1]]}):
-            offers.sync("ah")
-        self.assertIsNone(self.matched("r1"), "zonder tomaten blijft er niets over")
+            await offers.sync("ah")
+        self.assertIsNone(await self.matched("r1"), "zonder tomaten blijft er niets over")
 
     async def test_a_group_that_fails_keeps_the_ones_that_are_done_and_the_next_round_goes_on(self):
-        self.seed()
+        await self.seed()
         await self.key()
         failing = failure(401, {"error": {"message": f"weg {CLAUDE_KEY}"}})
         script = iter([None, failing])
@@ -303,11 +303,11 @@ class SearchTest(AiMatchCase):
             result, provider = await self.run_search()
             self.assertEqual((result["searched"], result["remaining"], len(provider.calls)), (1, 0, 1), "de tweede ronde zoekt alleen de rest")
             with ai_provider(return_value=failure(401, {"error": {"message": "weg"}})) as route:
-                self.assertEqual(ai_match.plan("ah")["todo"], 0)
+                self.assertEqual((await ai_match.plan("ah"))["todo"], 0)
             self.assertFalse(route.called, "het plan vraagt de aanbieder niets")
 
     async def test_the_first_group_failing_is_the_error_itself(self):
-        self.seed()
+        await self.seed()
         await self.key()
         with ai_provider(return_value=failure(401, {"error": {"message": "weg"}})):
             with self.assertRaises(ai_review.AiError):
@@ -315,33 +315,33 @@ class SearchTest(AiMatchCase):
 
     async def test_groups_the_maximum_and_the_plan(self):
         recipes = [{"id": f"r{i:02d}", "title": f"Recept {i}", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]} for i in range(5)]
-        self.seed(recipes=recipes)
+        await self.seed(recipes=recipes)
         await self.key()
         with mock.patch.object(ai_match, "GROUP_SIZE", 2):
-            plan = ai_match.plan("ah", 4)
+            plan = await ai_match.plan("ah", 4)
             self.assertEqual((plan["recipes"], plan["todo"], plan["chosen"], plan["chunks"], plan["offers"]), (5, 5, 4, 2, 3))
             self.assertGreater(plan["estimatedTokens"], 2 * ai_match.ANSWER_TOKENS)
             result, provider = await self.run_search(max_recipes=4)
         self.assertEqual((len(provider.calls), result["searched"], result["remaining"]), (2, 4, 1))
-        self.assertEqual(ai_match.plan("ah", 99999)["maxRecipes"], ai_match.MAX_RECIPES)
+        self.assertEqual((await ai_match.plan("ah", 99999))["maxRecipes"], ai_match.MAX_RECIPES)
 
     async def test_without_a_key_or_offers_nothing_happens(self):
         with ai_provider(side_effect=AssertionError("geen aanroep")) as route:
             with self.assertRaises(ValueError):
-                ai_match.plan("ah")  # geen aanbiedingen
-            self.seed()
+                await ai_match.plan("ah")  # geen aanbiedingen
+            await self.seed()
             with self.assertRaises(ValueError):
                 await ai_match.search("ah")  # geen sleutel
             with self.assertRaises(ValueError):
                 await ai_match.start("ah")
             with self.assertRaises(ValueError):
-                ai_match.plan("lidl")
+                await ai_match.plan("lidl")
         self.assertFalse(route.called)
 
 
 class BackgroundTest(AiMatchCase):
     async def test_a_round_runs_and_reports_its_progress(self):
-        self.seed()
+        await self.seed()
         await self.key()
         seen = []
         with ai_provider(side_effect=Provider()):
@@ -354,7 +354,7 @@ class BackgroundTest(AiMatchCase):
         self.assertEqual(seen, [])
 
     async def test_an_app_shutdown_does_not_leave_the_round_running(self) -> None:
-        self.seed()
+        await self.seed()
         await self.key()
         await ai_match.start("ah", 10)
         await tasks.cancel_all()
@@ -365,14 +365,14 @@ class BackgroundTest(AiMatchCase):
         self.assertEqual(state["state"], "done")
 
     async def test_only_one_round_at_a_time(self):
-        self.seed()
+        await self.seed()
         await self.key()
         ai_match._job.update(state="running")
         with self.assertRaises(ValueError):
             await ai_match.start("ah")
 
     async def test_an_error_ends_in_the_error_state_with_a_readable_text(self):
-        self.seed()
+        await self.seed()
         await self.key()
         with ai_provider(return_value=failure(401, {"error": {"message": f"bad {CLAUDE_KEY}"}})):
             state = await ai_match.start("ah", background=False)
@@ -413,7 +413,7 @@ class RoutesTest(AiMatchCase):
         self.assertEqual(ai_match.progress()["state"], "idle")
 
     async def test_plan_start_and_status_over_the_api(self):
-        self.seed()
+        await self.seed()
         await self.key()
         plan = (await self.admin.get("/api/offers/ai/search/plan?store=ah&max=50")).get_json()
         self.assertEqual((plan["todo"], plan["chosen"], plan["chunks"]), (2, 2, 1))

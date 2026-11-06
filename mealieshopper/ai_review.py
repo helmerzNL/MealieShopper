@@ -19,11 +19,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from contextlib import closing
 from os import environ
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+import aiosqlite
 import httpx
 
 from . import auth, http_client, offers
@@ -375,8 +375,8 @@ async def test(provider: Any = None) -> dict[str, Any]:
 # --- beoordelen en bewaren ----------------------------------------------------------------------
 
 
-def _judged(conn, store: str) -> set[tuple[str, str]]:
-    rows = conn.execute("SELECT product_id, head FROM offer_verdicts WHERE store = ?", (store,)).fetchall()
+async def _judged(conn: aiosqlite.Connection, store: str) -> set[tuple[str, str]]:
+    rows = await conn.execute_fetchall("SELECT product_id, head FROM offer_verdicts WHERE store = ?", (store,))
     return {(row["product_id"], row["head"]) for row in rows}
 
 
@@ -393,10 +393,10 @@ async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, An
     key, _ = await api_key(provider)
     model: str = await model_of(provider)
     limit = max(1, min(MAX_PAIRS, int(max_pairs or DEFAULT_MAX_PAIRS)))
-    # De tabel offer_verdicts hoort bij offers, dat tot zijn eigen taak synchroon sqlite3 gebruikt.
-    with closing(offers._connect()) as conn:
-        done = _judged(conn, store)
-    todo = [pair for pair in offers.unique_pairs(store) if (pair["offerId"], pair["head"]) not in done]
+    # De tabel offer_verdicts hoort bij offers, die haar schema op de verbinding zet.
+    async with offers._aconnect() as conn:
+        done = await _judged(conn, store)
+    todo = [pair for pair in await offers.unique_pairs(store) if (pair["offerId"], pair["head"]) not in done]
     batch_all = todo[:limit]
     result: dict[str, Any] = {"store": store, "provider": provider, "model": model, "judged": 0, "ok": 0, "wrong": 0, "tokens": 0, "error": ""}
     for start in range(0, len(batch_all), BATCH_SIZE):
@@ -409,21 +409,22 @@ async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, An
             result["error"] = str(exc)
             break
         result["tokens"] += tokens
-        with closing(offers._connect()) as conn, conn:
+        async with offers._aconnect() as conn:
             for number, (verdict, reason) in verdicts.items():
                 pair = group[number - 1]
-                conn.execute(
+                await conn.execute(
                     "INSERT OR REPLACE INTO offer_verdicts (store, product_id, head, ingredient, product_title, verdict, reason, provider, model, judged_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (store, pair["offerId"], pair["head"], pair["ingredient"], pair["product"], verdict, reason, provider, model, offers._now()),
                 )
+            await conn.commit()
         for number, (verdict, reason) in verdicts.items():
             pair = group[number - 1]
             result["judged"] += 1
             result["ok" if verdict == "ok" else "wrong"] += 1
             if verdict == "wrong":
                 try:
-                    offers.report_mismatch(store, pair["ingredient"], pair["offerId"], reason, source="ai")
+                    await offers.report_mismatch(store, pair["ingredient"], pair["offerId"], reason, source="ai")
                 except ValueError:
                     pass  # het product staat niet meer in de aanbiedingen; het oordeel blijft bewaard
     result["remaining"] = max(0, len(todo) - result["judged"])

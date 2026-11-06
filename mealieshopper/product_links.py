@@ -151,14 +151,8 @@ def _links(rows: Iterable[Any]) -> Links:
     return links
 
 
-def load(conn: sqlite3.Connection, store: str) -> Links:
-    """De eigen koppelingen van een winkel, uit een open verbinding (die `ensure` al zag). Synchroon voor `prices.bought_ids`
-    (`product_images`, tot Taak 16), de rest gebruikt `aload`."""
-    return _links(conn.execute(_LOAD_SQL, (store,)))
-
-
 async def aload(conn: aiosqlite.Connection, store: str) -> Links:
-    """Async tweeling van `load`, op een verbinding die `aensure` al zag."""
+    """De eigen koppelingen van een winkel, uit een open verbinding (die `aensure` al zag)."""
     return _links(await conn.execute_fetchall(_LOAD_SQL, (store,)))
 
 

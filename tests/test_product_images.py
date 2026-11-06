@@ -1,19 +1,23 @@
 """Prijsgeschiedenis: de schakelaar "Alleen eerder gekocht" en de bewaarde afbeeldingen van aanbiedingen die je kocht."""
+import asyncio
 import io
 import os
 import re
 import tempfile
 import time
 import unittest
+from collections.abc import AsyncIterator
 from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
+import httpx
+import respx
 from PIL import Image
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, crisp, mcp, offers, picnic, prices, product_images  # noqa: E402
+from mealieshopper import ah_orders, auth, crisp, http_client, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient, in_db, run  # noqa: E402
 
@@ -47,7 +51,7 @@ class Case(unittest.TestCase):
         # Nooit echt het internet op: elke test zegt zelf wat een adres teruggeeft.
         self.served: dict[str, bytes] = {}
         self.asked: list[str] = []
-        download = mock.patch.object(product_images, "_download", side_effect=self.download)
+        download = mock.patch.object(product_images, "_download", new_callable=mock.AsyncMock, side_effect=self.download)
         download.start()
         self.addCleanup(download.stop)
 
@@ -59,7 +63,7 @@ class Case(unittest.TestCase):
 
     def sync(self, when, *items, store="ah"):
         with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
-            offers.sync(store)
+            run(offers.sync(store))
 
     def bought(self, order_id, day, *items):
         in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items)))
@@ -230,15 +234,15 @@ class SaveBoughtTest(Case):
         self.served[self.LARGE] = b"<html>kapot</html>"
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", self.URL))
         self.assertEqual(self.rows(), [])
-        with mock.patch.object(prices, "bought_ids", side_effect=RuntimeError("stuk")):
+        with mock.patch.object(prices, "bought_ids", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")):
             self.sync("2026-10-06T05:00:00+00:00", offer("1", "AH Penne", self.URL))
-        self.assertEqual(offers.load("ah")["total"], 1)
+        self.assertEqual(run(offers.load("ah"))["total"], 1)
 
     def test_a_slow_store_does_not_hold_up_the_sync(self):
         self.bought(101, "2026-10-01", order_item(1, "AH Penne"))
 
-        def slow(url):
-            time.sleep(0.5)
+        async def slow(url: str) -> bytes:
+            await asyncio.sleep(0.5)
             return picture(100, 100)
 
         with mock.patch.object(product_images, "_download", side_effect=slow), mock.patch.object(product_images, "DEADLINE_SECONDS", 0.1):
@@ -246,6 +250,46 @@ class SaveBoughtTest(Case):
             self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", self.URL))
         self.assertLess(time.monotonic() - started, 0.45)
         self.assertEqual(self.rows(), [])
+
+    def test_what_still_runs_at_the_deadline_is_cancelled_and_the_rest_is_saved(self):
+        self.bought(101, "2026-10-01", order_item(1, "AH Penne"), order_item(2, "AH Fusilli"))
+        cancelled: list[str] = []
+
+        async def download(url: str) -> bytes:
+            if "fusilli" not in url:
+                return picture(60, 60)
+            try:
+                await asyncio.Event().wait()  # deze winkel antwoordt nooit
+            except asyncio.CancelledError:
+                cancelled.append(url)
+                raise
+            return b""
+
+        with mock.patch.object(product_images, "_download", side_effect=download), mock.patch.object(product_images, "DEADLINE_SECONDS", 0.2):
+            started = time.monotonic()
+            self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", "https://static.ah.nl/penne.jpg"),
+                      offer("2", "AH Fusilli", "https://static.ah.nl/fusilli.jpg"))
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual([r["product_id"] for r in self.rows()], ["1"], "wat op tijd binnen was, is bewaard")
+        self.assertEqual(cancelled, ["https://static.ah.nl/fusilli.jpg"], "wat na de deadline nog liep, is afgebroken")
+
+    def test_at_most_workers_downloads_at_once(self):
+        count = product_images.WORKERS * 3
+        self.bought(101, "2026-10-01", *(order_item(n, f"AH Product {n}") for n in range(1, count + 1)))
+        running: list[int] = [0]
+        most: list[int] = [0]
+
+        async def download(url: str) -> bytes:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+            await asyncio.sleep(0.01)
+            running[0] -= 1
+            return picture(20, 20, color=(int(url.rsplit("/", 1)[1].split(".")[0]), 0, 0))
+
+        with mock.patch.object(product_images, "_download", side_effect=download):
+            self.sync("2026-10-05T05:00:00+00:00", *(offer(str(n), f"AH Product {n}", f"https://static.ah.nl/{n}.jpg") for n in range(1, count + 1)))
+        self.assertEqual(most[0], product_images.WORKERS)
+        self.assertEqual(len(self.rows()), count)
 
     def test_at_most_ten_per_product_and_the_first_one_stays(self):
         self.bought(101, "2026-10-01", order_item(1, "AH Penne"))
@@ -276,6 +320,47 @@ class SaveBoughtTest(Case):
         self.assertEqual(client.get("/api/prices/images/999").status_code, 404)
         self.assertEqual(client.get("/api/prices/images/abc").status_code, 404)
         self.assertEqual(run(prices.history("ah", "fusilli", 5, today=TODAY))["products"], [])
+
+
+class DownloadTest(unittest.TestCase):
+    URL = "https://static.ah.nl/dam/product/AHI_1.jpg"
+
+    def test_the_download_asks_for_an_image_with_the_fixed_user_agent_and_follows_a_redirect(self):
+        with respx.mock(assert_all_called=False) as router:
+            router.get(self.URL).mock(return_value=httpx.Response(302, headers={"Location": "https://static.ah.nl/elders.jpg"}))
+            moved = router.get("https://static.ah.nl/elders.jpg").mock(return_value=httpx.Response(200, content=b"jpeg", headers={"Content-Type": "image/jpeg"}))
+            self.assertEqual(run(product_images._download(self.URL)), b"jpeg")
+        request = moved.calls.last.request
+        self.assertEqual((request.headers["Accept"], request.headers["User-Agent"]), ("image/*", http_client.DEFAULT_USER_AGENT))
+
+    def test_an_error_status_or_text_is_not_an_image(self):
+        for reply, message in ((httpx.Response(404), "HTTP 404"), (httpx.Response(200, text="<html>", headers={"Content-Type": "text/html"}), "geen afbeelding"),
+                               (httpx.Response(200, content=b"<svg/>", headers={"Content-Type": "image/svg+xml"}), "geen afbeelding")):
+            with self.subTest(message=message), respx.mock(assert_all_called=False) as router:
+                router.get(self.URL).mock(return_value=reply)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    run(product_images._download(self.URL))
+
+    def test_a_streamed_download_stops_at_the_size_cap(self):
+        chunk = b"x" * (64 * 1024)
+        sent: list[int] = [0]
+
+        async def endless() -> AsyncIterator[bytes]:
+            while True:  # een server die blijft sturen: de download stopt zelf bij de grens
+                sent[0] += 1
+                yield chunk
+
+        with respx.mock(assert_all_called=False) as router:
+            router.get(self.URL).mock(return_value=httpx.Response(200, content=endless(), headers={"Content-Type": "image/jpeg"}))
+            with self.assertRaisesRegex(RuntimeError, "te groot"):
+                run(product_images._download(self.URL))
+        self.assertLessEqual(sent[0], product_images.MAX_DOWNLOAD_BYTES // len(chunk) + 2, "niet verder gelezen dan de grens")
+
+    def test_a_download_at_the_cap_is_kept(self):
+        body = b"x" * product_images.MAX_DOWNLOAD_BYTES
+        with respx.mock(assert_all_called=False) as router:
+            router.get(self.URL).mock(return_value=httpx.Response(200, content=body, headers={"Content-Type": "image/jpeg"}))
+            self.assertEqual(len(run(product_images._download(self.URL))), len(body))
 
 
 class PageTest(unittest.TestCase):

@@ -33,12 +33,29 @@ from quart.typing import TestClientProtocol, TestHTTPConnectionProtocol
 from werkzeug.datastructures import FileStorage, Headers
 from werkzeug.wrappers import Response
 
+from mealieshopper import http_client
+
 T = TypeVar("T")
 
 
 def run(coro: Coroutine[Any, Any, T]) -> T:
-    """Draait een coroutine in een eigen event loop, voor `app.test_request_context()` en `app.app_context()`."""
-    return asyncio.run(coro)
+    """Draait een coroutine in een eigen event loop, voor `app.test_request_context()` en `app.app_context()`.
+
+    Daarna sluiten de http-clients van die loop (`http_client.aclose_all`), zoals bij elke losse `asyncio.run`."""
+
+    async def closing_clients() -> T:
+        try:
+            return await coro
+        finally:
+            await http_client.aclose_all()
+
+    return asyncio.run(closing_clients())
+
+
+async def returned(value: T) -> T:
+    """Een vaste waarde als coroutine, voor een patch op een async callee met een `lambda` (zoals de collectors van
+    `offers.COLLECTORS`): `lambda: returned(lijst)` geeft bij elke aanroep een nieuwe coroutine."""
+    return value
 
 
 class SyncResponse(Response):

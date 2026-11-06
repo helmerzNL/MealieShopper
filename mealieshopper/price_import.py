@@ -357,17 +357,12 @@ def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[d
 _TABLES_SQL: str = "SELECT name FROM sqlite_master WHERE type = 'table'"
 
 
-def _tables(conn: sqlite3.Connection) -> set[str]:
-    return {row["name"] for row in conn.execute(_TABLES_SQL)}
-
-
-async def _atables(conn: aiosqlite.Connection) -> set[str]:
-    """Async tweeling van `_tables` (die blijft voor `account_orders`)."""
+async def _tables(conn: aiosqlite.Connection) -> set[str]:
     return {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
 
 
 def _account_orders_sql(store: str) -> tuple[set[str], str]:
-    """(de tabellen die er moeten zijn, de SQL) voor `account_orders`: per bestelling met producten het nummer en de dag."""
+    """(de tabellen die er moeten zijn, de SQL) voor `aaccount_orders`: per bestelling met producten het nummer en de dag."""
     table, items = f"{store}_orders", f"{store}_order_items"
     return {table, items}, f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
             WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)"""
@@ -383,25 +378,15 @@ def _account_sets(rows: Iterable[Any]) -> tuple[set[str], set[str]]:
     return numbers, days
 
 
-def account_orders(conn: sqlite3.Connection, store: str) -> tuple[set[str], set[str]]:
+async def aaccount_orders(conn: aiosqlite.Connection, store: str) -> tuple[set[str], set[str]]:
     """(bestelnummers, dagen) van de bestellingen die de app met producten uit je account van de winkel heeft.
 
     Een bestelling waarvan de app de producten (nog) niet kon ophalen, telt niet mee (#222): Jumbo weigert de details van oude
     bestellingen, die dan alleen als kop in `jumbo_orders` staan. Zo'n bestelling is er voor de prijzen nog niet, dus de ingelezen
     versie uit je mails mag erbij. Komen de producten later toch binnen, dan telt de bestelling weer mee en valt de ingelezen versie
-    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt.
-
-    Synchroon voor `prices.bought_ids` (`product_images`, tot Taak 16), de rest gebruikt `aaccount_orders`."""
+    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt."""
     needed, sql = _account_orders_sql(store)
-    if not needed <= _tables(conn):
-        return set(), set()
-    return _account_sets(conn.execute(sql))
-
-
-async def aaccount_orders(conn: aiosqlite.Connection, store: str) -> tuple[set[str], set[str]]:
-    """Async tweeling van `account_orders`."""
-    needed, sql = _account_orders_sql(store)
-    if not needed <= await _atables(conn):
+    if not needed <= await _tables(conn):
         return set(), set()
     return _account_sets(await conn.execute_fetchall(sql))
 
@@ -618,7 +603,7 @@ async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
 async def search_lines(conn: aiosqlite.Connection, store: str, words: list[str], fold: Callable[[Any], str]) -> list[dict[str, Any]]:
     """De regels van de ingelezen bestellingen waar alle woorden in staan, in de vorm van `<winkel>_orders.search_purchases`
     (`fold` is de vouwfunctie van die zoekopdracht). Een bestelling die de app ook uit je account kent, telt niet mee."""
-    if "imported_purchases" not in await _atables(conn):
+    if "imported_purchases" not in await _tables(conn):
         return []
     numbers, days = await aaccount_orders(conn, store)
     found: list[dict[str, Any]] = []

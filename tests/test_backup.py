@@ -235,13 +235,15 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
 class ClassificationTest(BackupCase):
     @staticmethod
     async def oauth_schema() -> None:
-        async with oauth._connect():  # oauth maakt zijn tabellen bij de eerste verbinding
+        async with oauth._connect():  # oauth en mealie_images maken hun tabellen bij de eerste verbinding
+            pass
+        async with mealie_images._aconnect():
             pass
 
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         backup.ensure_schemas()
-        for module in (audit, mealie_images, image_cache):
+        for module in (audit, image_cache):
             with closing(module._connect()):
                 pass
         await self.oauth_schema()

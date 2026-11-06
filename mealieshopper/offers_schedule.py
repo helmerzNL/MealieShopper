@@ -100,7 +100,7 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
     van de artikelnummers op de kassabonnen koppelen (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de
     afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
     (prices.fill_regular_prices_nightly). Elk extraatje staat alleen in de uitkomst als het iets te doen had."""
-    result = offers.sync_all()
+    result = await offers.sync_all()
     # Het koppelen en de foto's van de bonnen krijgen hetzelfde tijdstip mee: zo staan ze samen in een laatste ronde
     # (ah_orders.SETTING_LAST_ROUND), net als bij een ronde op afroep.
     linking_now = _utc_iso(_local_now())
@@ -141,7 +141,7 @@ async def status(now: datetime | None = None) -> dict[str, Any]:
         "lastRun": row["last_run"] if row else None,
         "lastTrigger": row["trigger"] if row else None,
         "lastResult": json.loads(row["summary"]) if row else None,
-        "stores": offers.overview(),
+        "stores": await offers.overview(),
     }
 
 

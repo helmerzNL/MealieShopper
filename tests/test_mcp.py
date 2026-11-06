@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, returned, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -548,9 +548,9 @@ class OfferReviewToolsTest(McpTestCase):
             {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]},
         ]
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
-            offers.sync("ah")
-        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: recipes),)):
-            offers.sync_recipes()
+            run(offers.sync("ah"))
+        with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(recipes)),)):
+            run(offers.sync_recipes())
 
     def data(self, name, args=None):
         result = self.call(self.token, name, args)
@@ -583,7 +583,7 @@ class OfferReviewToolsTest(McpTestCase):
             self.assertTrue(self.call(self.token, name, args)["isError"], name)
 
     def test_the_app_flag_and_the_assistant_share_the_same_reports(self):
-        self.offers.report_mismatch("ah", "tomaten", "3")
+        run(self.offers.report_mismatch("ah", "tomaten", "3"))
         listed = self.data("list_offer_mismatches")
         self.assertEqual([(r["product"], r["source"]) for r in listed["reports"]], [("AH Tomaten rond", "app")])
 

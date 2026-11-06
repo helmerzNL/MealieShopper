@@ -518,7 +518,7 @@ def _int_arg(args: dict[str, Any], name: str, default: int, low: int, high: int)
 
 
 async def tool_review_offer_matches(args: dict[str, Any]) -> Any:
-    data = offers.review_pairs(args.get("store"), _int_arg(args, "limit", 40, 1, 100), _int_arg(args, "offset", 0, 0, 10**6))
+    data = await offers.review_pairs(args.get("store"), _int_arg(args, "limit", 40, 1, 100), _int_arg(args, "offset", 0, 0, 10**6))
     data["hint"] = (
         "Elk paar is een ingrediënt uit een recept en het aanbiedingsproduct waaraan MealieShopper het koppelde. Een koppeling klopt alleen als het "
         "product zelf het ingrediënt is, in dezelfde vorm: geen bereid product (saus, soep, maaltijd) voor een rauw ingrediënt, niet een andere soort, "
@@ -532,12 +532,12 @@ async def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
     if not store or not ingredient or offer_id in (None, ""):
         raise ToolError("Geef store, ingredient en offer_id op")
     if args.get("undo"):
-        return {"undone": True, **offers.undo_mismatch(store, ingredient, offer_id)}
-    return {"reported": True, **offers.report_mismatch(store, ingredient, offer_id, _text(args.get("reason"), 300), source="assistant")}
+        return {"undone": True, **await offers.undo_mismatch(store, ingredient, offer_id)}
+    return {"reported": True, **await offers.report_mismatch(store, ingredient, offer_id, _text(args.get("reason"), 300), source="assistant")}
 
 
 async def tool_list_offer_mismatches(args: dict[str, Any]) -> Any:
-    return offers.list_mismatches(args.get("store") or None, _int_arg(args, "limit", 100, 1, MAX_LIST_ITEMS))
+    return await offers.list_mismatches(args.get("store") or None, _int_arg(args, "limit", 100, 1, MAX_LIST_ITEMS))
 
 
 PRICE_HISTORY_ITEMS = 12  # per product de laatste aanbiedingen, prijsperiodes en aankopen; genoeg voor een oordeel, compact voor de assistent

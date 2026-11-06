@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any, Callable
+
+import aiosqlite
 
 from . import ai_review, offers, tasks
 from .ai_review import AiError
@@ -83,12 +84,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def food_offers(store: str) -> tuple[list[dict[str, Any]], str | None]:
+async def food_offers(store: str) -> tuple[list[dict[str, Any]], str | None]:
     """De producten die naar de AI gaan (alleen eten, hoogstens `MAX_OFFERS`) en het tijdstip van de laatste synchronisatie.
 
     Het aanbod van deze week: AH geeft de hele bonus van deze én volgende week (samen duizenden producten), en dat zou bij
     `MAX_OFFERS` willekeurig worden afgekapt."""
-    data = offers.load(store, date.today().isoformat())
+    data = await offers.load(store, date.today().isoformat())
     items = [offer for offer in data["offers"] if offer.get("category") not in offers.NOT_FOOD]
     return items[:MAX_OFFERS], data["syncedAt"]
 
@@ -106,37 +107,37 @@ def recipes_text(group: list[dict[str, Any]]) -> str:
     return "RECIPES (match each ingredient line number to a product number):\n" + "\n".join(blocks)
 
 
-def _recipes(conn) -> list[dict[str, Any]]:
-    rows = conn.execute("SELECT source, recipe_id, ingredients FROM offer_recipes").fetchall()
+async def _recipes(conn: aiosqlite.Connection) -> list[dict[str, Any]]:
+    rows = await conn.execute_fetchall("SELECT source, recipe_id, ingredients FROM offer_recipes")
     items = [{"source": row["source"], "id": row["recipe_id"], "ingredients": [str(line) for line in json.loads(row["ingredients"])]} for row in rows]
     # Eerst je eigen recepten (Mealie), dan AH, Jumbo en Picnic; binnen een bron op id, zodat elke ronde in dezelfde volgorde verder gaat.
     items.sort(key=lambda item: (offers.SOURCE_RANK.get(item["source"], 9), str(item["id"])))
     return [item for item in items if item["ingredients"]]
 
 
-def _runs(conn, store: str) -> dict[tuple[str, str], tuple[str, str]]:
-    rows = conn.execute("SELECT source, recipe_id, offers_synced_at, ingredients_hash FROM ai_recipe_runs WHERE store = ?", (store,)).fetchall()
+async def _runs(conn: aiosqlite.Connection, store: str) -> dict[tuple[str, str], tuple[str, str]]:
+    rows = await conn.execute_fetchall("SELECT source, recipe_id, offers_synced_at, ingredients_hash FROM ai_recipe_runs WHERE store = ?", (store,))
     return {(row["source"], row["recipe_id"]): (row["offers_synced_at"], row["ingredients_hash"]) for row in rows}
 
 
-def _todo(store: str, synced_at: str | None) -> tuple[list[dict[str, Any]], int]:
+async def _todo(store: str, synced_at: str | None) -> tuple[list[dict[str, Any]], int]:
     """(de recepten die nog doorzocht moeten worden, het aantal recepten in de index): nog nooit doorzocht, doorzocht bij een ouder aanbod
     of met andere ingrediënten."""
-    with closing(offers._connect()) as conn:
-        recipes = _recipes(conn)
-        runs = _runs(conn, store)
+    async with offers._aconnect() as conn:
+        recipes = await _recipes(conn)
+        runs = await _runs(conn, store)
     todo = [r for r in recipes if runs.get((r["source"], r["id"])) != (synced_at, offers.ingredients_hash(r["ingredients"]))]
     return todo, len(recipes)
 
 
-def plan(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES) -> dict[str, Any]:
+async def plan(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES) -> dict[str, Any]:
     """Wat een ronde zou doen en hoe groot die ongeveer is, om vooraf te laten zien: aantal recepten en aanvragen en een schatting van de tokens."""
     store = offers._valid_store(store)
-    items, synced_at = food_offers(store)
+    items, synced_at = await food_offers(store)
     if not synced_at or not items:
         raise ValueError(tr("Haal eerst de aanbiedingen van deze winkel op", "Fetch the offers of this store first"))
     limit = max(1, min(MAX_RECIPES, int(max_recipes or DEFAULT_MAX_RECIPES)))
-    todo, total = _todo(store, synced_at)
+    todo, total = await _todo(store, synced_at)
     chosen = todo[:limit]
     chunks = (len(chosen) + GROUP_SIZE - 1) // GROUP_SIZE
     offer_tokens = len(offers_text(items)) / CHARS_PER_TOKEN
@@ -181,27 +182,28 @@ def _valid_matches(entry: Any, recipe: dict[str, Any], product_count: int) -> li
     return result
 
 
-def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int, list[tuple[int, int]]], items: list[dict[str, Any]],
+async def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int, list[tuple[int, int]]], items: list[dict[str, Any]],
                 synced_at: str, provider: str, model: str) -> int:
     """Bewaart de doorzochte recepten van een groep (een recept vervangt zijn vorige resultaat) en geeft het aantal koppelingen."""
     now, matched = _now(), 0
-    with closing(offers._connect()) as conn, conn:
+    async with offers._aconnect() as conn:
         for number, found in answers.items():
             recipe = group[number - 1]
-            conn.execute("DELETE FROM ai_recipe_matches WHERE store = ? AND source = ? AND recipe_id = ?", (store, recipe["source"], recipe["id"]))
+            await conn.execute("DELETE FROM ai_recipe_matches WHERE store = ? AND source = ? AND recipe_id = ?", (store, recipe["source"], recipe["id"]))
             for line, product in found:
                 offer = items[product - 1]
-                conn.execute(
+                await conn.execute(
                     "INSERT INTO ai_recipe_matches (store, source, recipe_id, line_index, ingredient, product_id, product_title, provider, model, matched_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (store, recipe["source"], recipe["id"], line - 1, recipe["ingredients"][line - 1], str(offer["id"]), offer["title"], provider, model, now),
                 )
-            conn.execute(
+            await conn.execute(
                 "INSERT OR REPLACE INTO ai_recipe_runs (store, source, recipe_id, offers_synced_at, ingredients_hash, matched_count, provider, model, searched_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (store, recipe["source"], recipe["id"], synced_at, offers.ingredients_hash(recipe["ingredients"]), len(found), provider, model, now),
             )
             matched += len(found)
+        await conn.commit()
     return matched
 
 
@@ -217,11 +219,11 @@ async def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: C
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
     key, _ = await ai_review.api_key(provider)
     model: str = await ai_review.model_of(provider)
-    items, synced_at = food_offers(store)
+    items, synced_at = await food_offers(store)
     if not synced_at or not items:
         raise ValueError(tr("Haal eerst de aanbiedingen van deze winkel op", "Fetch the offers of this store first"))
     limit = max(1, min(MAX_RECIPES, int(max_recipes or DEFAULT_MAX_RECIPES)))
-    todo, _ = _todo(store, synced_at)
+    todo, _ = await _todo(store, synced_at)
     chosen = todo[:limit]
     prefix = offers_text(items)
     result: dict[str, Any] = {"store": store, "provider": provider, "model": model, "searched": 0, "matched": 0, "tokens": 0, "error": ""}
@@ -244,7 +246,7 @@ async def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: C
             if isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= len(group) and number not in answers:
                 answers[number] = _valid_matches(entry, group[number - 1], len(items))
         # Een recept dat de AI niet noemt, blijft voor de volgende ronde: het antwoord kan zijn afgekapt.
-        result["matched"] += _save_group(store, group, answers, items, synced_at, provider, model)
+        result["matched"] += await _save_group(store, group, answers, items, synced_at, provider, model)
         result["searched"] += len(answers)
         if progress:
             progress({"done": min(start + len(group), len(chosen)), "total": len(chosen), "matched": result["matched"], "tokens": result["tokens"]})
@@ -285,7 +287,7 @@ def _on_cancelled(task: asyncio.Task[None]) -> None:
 async def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: bool = True) -> dict[str, Any]:
     """Start een ronde. Er loopt er hoogstens een tegelijk; met `background=False` wacht deze aanroep tot de ronde klaar is."""
     store = offers._valid_store(store)
-    info = plan(store, max_recipes)  # controleert ook of er een sleutel en aanbiedingen zijn
+    info = await plan(store, max_recipes)  # controleert ook of er een sleutel en aanbiedingen zijn
     if not await ai_review.active_provider():
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
     if _job.get("state") == "running":

@@ -21,7 +21,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -178,7 +178,7 @@ class BonusBoxOffersTest(TempDataDirTest):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.national if national is None else national}), \
                 mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": fetch_box}), \
                 mock.patch.object(ah, "configured_refresh_token", return_value="r" if linked else ""):
-            return offers.sync("ah")
+            return run(offers.sync("ah"))
 
     def test_the_box_is_stored_on_top_of_the_offers_with_its_activation(self):
         data = self.sync()
@@ -187,13 +187,13 @@ class BonusBoxOffersTest(TempDataDirTest):
                          "de Bonus Box bovenaan; staat een product ook in de gewone bonus, dan blijven beide acties staan")
         self.assertEqual(data["personal"], {"supported": True, "linked": True, "count": 2, "activated": 1, "error": None})
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
-            week = offers.load("ah", self.monday.isoformat())
+            week = run(offers.load("ah", self.monday.isoformat()))
         self.assertEqual([(o["id"], o["personal"]) for o in week["offers"]], [("9", True), ("2", True), ("1", False), ("2", False)])
         self.assertEqual(week["personal"]["count"], 2)
 
     def test_the_history_records_the_box_and_prefers_the_national_bonus(self):
         self.sync()
-        history = {p["productId"]: p for p in offers.history("ah")["products"]}
+        history = {p["productId"]: p for p in run(offers.history("ah"))["products"]}
         self.assertTrue(history["9"]["episodes"][0]["personal"], "een product alleen in je Bonus Box staat er als persoonlijke aanbieding in")
         self.assertFalse(history["2"]["episodes"][0]["personal"], "staat het ook in de gewone bonus, dan telt die")
         self.assertEqual(history["2"]["episodes"][0]["price"], 1.0)
@@ -205,7 +205,7 @@ class BonusBoxOffersTest(TempDataDirTest):
         def broken():
             raise RuntimeError("AH Bonus Box ophalen mislukt (500)")
 
-        before = {o["id"]: o["category"] for o in offers.load("ah")["offers"] if o["personal"]}
+        before = {o["id"]: o["category"] for o in run(offers.load("ah"))["offers"] if o["personal"]}
         data = self.sync(box=broken)
         self.assertEqual(data["personal"]["error"], "AH Bonus Box ophalen mislukt (500)")
         self.assertEqual({o["id"]: o["category"] for o in data["offers"] if o["personal"]}, before, "ook met hun categorie")
@@ -220,23 +220,23 @@ class BonusBoxOffersTest(TempDataDirTest):
         called.assert_not_called()
         self.assertFalse(any(o["personal"] for o in data["offers"]))
         self.assertEqual(data["personal"], {"supported": True, "linked": False, "count": 0, "activated": 0, "error": None})
-        self.assertNotEqual(offers.signature("ah"), self.signature_when_linked(), "koppelen verandert de lijst, dus ook de ETag")
+        self.assertNotEqual(run(offers.signature("ah")), self.signature_when_linked(), "koppelen verandert de lijst, dus ook de ETag")
 
     def signature_when_linked(self):
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
-            return offers.signature("ah")
+            return run(offers.signature("ah"))
 
     def test_other_stores_have_no_box(self):
         with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: self.national}):
-            data = offers.sync("jumbo")
+            data = run(offers.sync("jumbo"))
         self.assertEqual(data["personal"]["supported"], False)
         self.assertFalse(any(o["personal"] for o in data["offers"]))
 
     def test_sync_all_and_the_overview_count_the_box(self):
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.national}), mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": lambda: self.box}), \
                 mock.patch.object(ah, "configured_refresh_token", return_value="r"), mock.patch.object(offers, "linked", side_effect=lambda store: store == "ah"):
-            result = offers.sync_all()
-            overview = offers.overview()
+            result = run(offers.sync_all())
+            overview = run(offers.overview())
         self.assertEqual(result["stores"]["ah"]["personal"]["count"], 2)
         self.assertEqual(result["stores"]["ah"]["count"], 4)
         self.assertEqual(overview["ah"]["personal"], {"linked": True, "count": 2, "error": None})
@@ -268,11 +268,11 @@ class BonusBoxOffersTest(TempDataDirTest):
             )
             conn.execute("CREATE TABLE offers_meta (store TEXT PRIMARY KEY, synced_at TEXT NOT NULL)")
             conn.execute("INSERT INTO offers_meta VALUES ('ah', '2026-11-01T06:00:00+00:00')")
-        data = offers.load("ah")
+        data = run(offers.load("ah"))
         self.assertEqual([(o["id"], o["personal"], o["activated"]) for o in data["offers"]], [("1", False, None)])
         self.assertIsNone(data["personal"]["error"])
         self.sync()
-        self.assertEqual(sum(1 for o in offers.load("ah")["offers"] if o["personal"]), 2)
+        self.assertEqual(sum(1 for o in run(offers.load("ah"))["offers"] if o["personal"]), 2)
 
 
 def function_source(source, name):

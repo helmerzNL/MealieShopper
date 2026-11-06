@@ -8,7 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, offer_categories, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class TempDataDirTest(unittest.TestCase):
 
     def sync(self, *items, store="ah"):
         with mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
-            return offers.sync(store)
+            return run(offers.sync(store))
 
 
 def item(product_id, title, price=1.0, before=2.0, label="2 voor 3", **extra):
@@ -71,7 +71,7 @@ class CategoriesInTheCopyTest(TempDataDirTest):
         self.sync(item("1", "Kipfilet"))
         with auth.connect() as conn:
             conn.execute("UPDATE offers SET category = NULL")
-        self.assertEqual(offers.load("ah")["offers"][0]["category"], "vlees")
+        self.assertEqual(run(offers.load("ah"))["offers"][0]["category"], "vlees")
 
     def test_an_old_database_without_the_column_is_upgraded(self):
         with auth.connect() as conn:
@@ -84,7 +84,7 @@ class HistoryTest(TempDataDirTest):
         self.sync(item("1", "Kipfilet"))
         self.sync(item("1", "Kipfilet"))
         self.sync(item("1", "Kipfilet"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], len(product["episodes"]), product["episodes"][0]["syncs"], product["onOfferNow"]), (1, 1, 3, True))
         self.assertEqual((product["episodes"][0]["from"], product["lastSeen"]), ("2026-10-01T05:00:00+00:00", "2026-10-03T05:00:00+00:00"))
 
@@ -92,7 +92,7 @@ class HistoryTest(TempDataDirTest):
         self.sync(item("1", "Kipfilet"))
         self.sync()
         self.sync(item("1", "Kipfilet"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], len(product["episodes"]), product["onOfferNow"]), (2, 2, True))
         first = product["episodes"][0]
         self.assertEqual((first["from"], first["to"]), ("2026-10-01T05:00:00+00:00", "2026-10-01T05:00:00+00:00"), "gesloten op het laatste moment dat hij er stond")
@@ -100,12 +100,12 @@ class HistoryTest(TempDataDirTest):
     def test_a_price_change_keeps_the_details_of_each_step_but_is_not_a_new_time(self):
         self.sync(item("1", "Kipfilet", 3.0, 4.0, "Bonus"))
         self.sync(item("1", "Kipfilet", 2.5, 4.0, "Bonus"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], [e["price"] for e in product["episodes"]], product["lowestPrice"]), (1, [3.0, 2.5], 2.5))
 
     def test_the_details_are_kept(self):
         self.sync(item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", brand="AH", unitSize="400 g", validUntil="2026-10-07", image="i.png", url="u"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         episode = product["episodes"][0]
         self.assertEqual((product["title"], product["brand"], product["unitSize"], product["category"], product["image"], product["url"]),
                          ("Kipfilet", "AH", "400 g", "vlees", "i.png", "u"))
@@ -113,7 +113,7 @@ class HistoryTest(TempDataDirTest):
 
     def test_the_period_of_the_store_is_kept_and_shown_as_start_and_end(self):
         self.sync(item("1", "Kipfilet", 3.49, 4.99, "2e halve prijs", validFrom="2026-10-26", validUntil="2026-11-01"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         episode = product["episodes"][0]
         self.assertEqual((episode["validFrom"], episode["start"], episode["end"], episode["open"]), ("2026-10-26", "2026-10-26", "2026-11-01", False))
         self.assertEqual((product["regularPrice"], product["highestPrice"], product["lowestPrice"]), (4.99, 3.49, 3.49))
@@ -122,19 +122,19 @@ class HistoryTest(TempDataDirTest):
         self.sync(item("1", "Kipfilet"))
         self.sync(item("1", "Kipfilet"))
         self.sync()
-        episode = offers.history("ah")["products"][0]["episodes"][0]
+        episode = run(offers.history("ah"))["products"][0]["episodes"][0]
         self.assertEqual((episode["start"], episode["end"], episode["open"]), ("2026-10-01", "2026-10-02", False))
 
     def test_an_ongoing_offer_has_no_end_while_it_runs(self):
         self.sync(item("1", "Kipfilet", validFrom="2026-10-26", validUntil=None))
-        episode = offers.history("ah")["products"][0]["episodes"][0]
+        episode = run(offers.history("ah"))["products"][0]["episodes"][0]
         self.assertEqual((episode["start"], episode["end"], episode["open"]), ("2026-10-26", None, True))
 
     def test_the_same_deal_in_a_new_week_is_a_new_time(self):
         self.sync(item("1", "Kipfilet", validFrom="2026-10-12", validUntil="2026-10-18"))
         self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
         self.sync(item("1", "Kipfilet", validFrom="2026-10-19", validUntil="2026-10-25"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], [(e["start"], e["end"]) for e in product["episodes"]]),
                          (2, [("2026-10-12", "2026-10-18"), ("2026-10-19", "2026-10-25")]))
         self.assertEqual(product["episodes"][1]["syncs"], 2)
@@ -142,14 +142,14 @@ class HistoryTest(TempDataDirTest):
     def test_a_row_from_before_the_dates_gets_its_start_without_splitting(self):
         self.sync(item("1", "Kipfilet"))
         self.sync(item("1", "Kipfilet", validFrom="2026-10-01", validUntil="2026-10-07"))
-        product = offers.history("ah")["products"][0]
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["timesOnOffer"], len(product["episodes"]), product["episodes"][0]["validFrom"]), (1, 1, "2026-10-01"))
 
     def test_an_old_history_table_without_the_column_is_upgraded(self):
         with auth.connect() as conn:
             conn.executescript("DROP TABLE IF EXISTS offer_history; CREATE TABLE offer_history (id INTEGER PRIMARY KEY AUTOINCREMENT, store TEXT NOT NULL, product_id TEXT NOT NULL, title TEXT NOT NULL, brand TEXT, unit_size TEXT, category TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, ended_at TEXT, syncs INTEGER NOT NULL DEFAULT 1, continued INTEGER NOT NULL DEFAULT 0);")
         self.sync(item("1", "Kipfilet", validFrom="2026-10-26", validUntil="2026-11-01"))
-        self.assertEqual(offers.history("ah")["products"][0]["episodes"][0]["start"], "2026-10-26")
+        self.assertEqual(run(offers.history("ah"))["products"][0]["episodes"][0]["start"], "2026-10-26")
 
     def test_a_failed_sync_leaves_the_history_alone(self):
         self.sync(item("1", "Kipfilet"))
@@ -158,24 +158,24 @@ class HistoryTest(TempDataDirTest):
             raise RuntimeError("stuk")
 
         with mock.patch.dict(offers.FETCHERS, {"ah": boom}), self.assertRaises(RuntimeError):
-            offers.sync("ah")
-        product = offers.history("ah")["products"][0]
+            run(offers.sync("ah"))
+        product = run(offers.history("ah"))["products"][0]
         self.assertEqual((product["onOfferNow"], product["episodes"][0]["syncs"]), (True, 1))
 
     def test_history_is_kept_per_store_and_searchable(self):
         self.sync(item("1", "Kipfilet"), item("2", "Bananen"))
         self.sync(item("1", "Kipfilet"), store="jumbo")
-        everything = offers.history()
+        everything = run(offers.history())
         self.assertEqual((everything["total"], sorted(p["store"] for p in everything["products"])), (3, ["ah", "ah", "jumbo"]))
-        self.assertEqual([p["title"] for p in offers.history("ah", "kip")["products"]], ["Kipfilet"])
-        self.assertEqual(offers.history("ah", "50%")["total"], 0, "% is geen jokerteken")
-        self.assertEqual(offers.history("ah", "a\\b")["total"], 0)
+        self.assertEqual([p["title"] for p in run(offers.history("ah", "kip"))["products"]], ["Kipfilet"])
+        self.assertEqual(run(offers.history("ah", "50%"))["total"], 0, "% is geen jokerteken")
+        self.assertEqual(run(offers.history("ah", "a\\b"))["total"], 0)
         with self.assertRaises(ValueError):
-            offers.history("lidl")
+            run(offers.history("lidl"))
 
     def test_duplicates_in_one_sync_count_once(self):
         self.sync(item("1", "Kipfilet"), item("1", "Kipfilet"))
-        self.assertEqual(offers.history("ah")["products"][0]["episodes"][0]["syncs"], 1)
+        self.assertEqual(run(offers.history("ah"))["products"][0]["episodes"][0]["syncs"], 1)
 
     def test_an_open_end_stored_before_v2_75_is_repaired(self):
         # v2.73 bewaarde AH's "doorlopend" als 2999-12-31; de grafiek liep dan tot het jaar 2999 (issue #178).
@@ -185,7 +185,7 @@ class HistoryTest(TempDataDirTest):
             conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")
             conn.execute("UPDATE offers SET valid_until = '2999-12-31'")
         getattr(offers, "_OPEN_ENDS_REPAIRED", set()).clear()  # zoals een nieuwe start van de app
-        products = {p["title"]: p for p in offers.history("ah")["products"]}
+        products = {p["title"]: p for p in run(offers.history("ah"))["products"]}
         running, ended = products["Magnum Almond 2-pack"]["episodes"][0], products["Kipfilet"]["episodes"][0]
         self.assertEqual((running["end"], running["open"]), (None, True))
         self.assertEqual((ended["end"], ended["open"]), ("2026-10-01", False), "het einde is de laatste keer dat we hem zagen")
@@ -195,10 +195,10 @@ class HistoryTest(TempDataDirTest):
     def test_the_open_end_repair_runs_once_per_database(self):
         self.sync(item("1", "Kipfilet"))
         offers._OPEN_ENDS_REPAIRED.clear()
-        offers.history("ah")
+        run(offers.history("ah"))
         with sqlite3.connect(auth.db_path()) as conn:
             conn.execute("UPDATE offer_history SET valid_until = '2999-12-31'")
-        offers.history("ah")
+        run(offers.history("ah"))
         with sqlite3.connect(auth.db_path()) as conn:
             self.assertEqual(conn.execute("SELECT valid_until FROM offer_history").fetchone()[0], "2999-12-31", "niet bij elke verbinding opnieuw")
 
