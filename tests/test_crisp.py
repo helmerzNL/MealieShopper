@@ -392,7 +392,7 @@ class RecipeTest(TempDataDirTest):
         self.assertEqual(data["recipeInstructions"][1], {"@type": "HowToStep", "text": "Snijd de pompoen."})
         self.assertEqual((data["recipeYield"], data["totalTime"]), ("2", "PT30M"))
         self.assertEqual(crisp.source_url(55), "https://crisp.nl/#recipe-55")
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(crisp.RecipeUnavailable):
             crisp.jsonld(crisp.recipe_details(recipe(ingredientGroups=[], instructions=[])))
 
 
@@ -413,14 +413,15 @@ class ExploreTest(TempDataDirTest):
             "/order/history": {"data": [{"type": "order", "item": order_item(55501)}], "cursor": "volgende"},
             "/order/55501": {"data": order_detail(55501)},
             "/order/count": {"openOrderIds": [55502]},
-            "/saved/list": {"items": [{"type": "product", "item": product(98765, "Geheime melk")}]},
+            "/saved/list": {"items": [{"type": "product", "item": product(98765, "Geheime melk")},
+                                      {"type": "recipe", "item": recipe(31338, title="Geheim recept")}]},
             "/promo/current": promo_page(),
         }
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
             report = crisp.explore()
         self.assertEqual((report["working"], len(report["checks"])), (11, 11))
         dumped = json.dumps(report)
-        for secret in ("98765", "31337", "4242", "55501", "55502", "Geheime", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
+        for secret in ("98765", "31337", "31338", "4242", "55501", "55502", "Geheim", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
             self.assertNotIn(secret, dumped)
         self.assertIn("weightIndication", dumped)
         self.assertIn("formattedQuantity", dumped)
@@ -428,6 +429,9 @@ class ExploreTest(TempDataDirTest):
         self.assertEqual(by_name["orderHistory"]["statuses"], ["done"])
         self.assertIn("address", by_name["order"]["orderFields"])  # alleen de veldnaam, niet het adres
         self.assertEqual(by_name["offers"]["blockKinds"], {"header": 1, "product": 1, "productGroup": 1, "promotion": 1})
+        saved = by_name["favorites"]
+        self.assertEqual((saved["types"], saved["recipeKinds"], saved["hasCursor"]), (["product", "recipe"], ["recipe"], False))
+        self.assertIn("cookingMethods", saved["recipeFields"])  # alleen de veldnamen van het bewaarde recept
 
     def test_failures_show_our_text_or_the_status_only(self):
         self.link()
@@ -616,6 +620,34 @@ class OrdersAndFavoritesTest(TempDataDirTest):
         self.assertEqual(call.call_args.args[1], "/saved/list")
         self.assertEqual(([p["id"] for p in result["products"]], result["total"]), (["1"], 1))
 
+    def test_saved_recipes_are_the_recipes_in_the_saved_list(self):
+        saved = {"items": [
+            {"type": "product", "item": product(1, "Kaas")},
+            {"type": "recipe", "item": recipe(2)},
+            {"type": "recipe", "item": recipe(3, title="Bundel", type="bundle")},
+            {"type": "recipe", "item": recipe(2)},
+            {"type": "recipe", "item": recipe(4, title="")},
+            {"type": "recipe", "item": "geen recept"},
+            {"type": "recipe", "item": recipe(5, title="Soep met brood", subTitle="", type="recipe")},
+        ]}
+        with mock.patch.object(crisp, "_call", return_value=saved) as call:
+            result = crisp.get_saved_recipes()
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(call.call_args.args[:2], ("GET", "/saved/list"))
+        self.assertEqual(([r["id"] for r in result["recipes"]], result["total"]), (["2", "5"], 2))
+        first = result["recipes"][0]
+        self.assertEqual((first["name"], first["minutes"], first["portions"], first["tags"]), ("Curry met pompoen", 30, 2, ["met zilvervliesrijst"]))
+        self.assertEqual(first["image"], "https://crispapp.nl/blob/recipeBlob456?thumb=512")
+        self.assertEqual(result["recipes"][1]["tags"], [])
+
+    def test_saved_recipes_without_a_list(self):
+        with mock.patch.object(crisp, "_call", return_value={}):
+            self.assertEqual(crisp.get_saved_recipes(), {"recipes": [], "total": 0})
+        with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
+            crisp.unlink()
+            with self.assertRaises(RuntimeError):
+                crisp.get_saved_recipes()
+
 
 class OffersTest(TempDataDirTest):
     def setUp(self):
@@ -674,6 +706,22 @@ class CrispNewRoutesTest(TempDataDirTest):
         with mock.patch.object(crisp_orders, "sync_orders", return_value={"orders": 1, "new": 1, "remaining": 0}):
             self.assertEqual(self.client.post("/api/crisp/orders/sync").get_json()["new"], 1)
         self.assertEqual(self.client.get("/api/crisp/orders").get_json(), {"syncedAt": None, "orders": []})
+
+    def test_recipe_list_route_gives_the_saved_recipes(self):
+        saved = {"recipes": [{"id": "2", "name": "Curry"}], "total": 1}
+        with mock.patch.object(crisp, "get_saved_recipes", return_value=saved), \
+                mock.patch.object(crisp, "search_recipes", side_effect=AssertionError("niet zoeken")):
+            self.assertEqual(self.client.get("/api/crisp/recipes").get_json(), {"source": "saved", **saved})
+            self.assertEqual(self.client.get("/api/crisp/recipes?source=saved").get_json()["total"], 1)
+        with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")):
+            reply = self.client.get("/api/crisp/recipes?source=cookbook")
+        self.assertEqual(reply.status_code, 400)
+        with mock.patch.object(crisp, "get_saved_recipes", side_effect=RuntimeError("500: ruwe tekst")):
+            reply = self.client.get("/api/crisp/recipes")
+        self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
+        # Met `q` blijft het zoeken, ook met een lege zoekterm (dan meldt het zoeken zelf dat die ontbreekt).
+        with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet de lijst")):
+            self.assertEqual(self.client.get("/api/crisp/recipes?q=").status_code, 400)
 
     def test_favorites_route(self):
         with mock.patch.object(crisp, "get_favorites", return_value={"products": [], "total": 0}):

@@ -1,4 +1,4 @@
-"""Recepten van AH en Jumbo in bulk in Mealie zetten (recipe_bulk.py), en de hulpfuncties in Mealie, AH en Jumbo daarvoor."""
+"""Recepten van AH, Jumbo en Crisp in bulk in Mealie zetten (recipe_bulk.py), en de hulpfuncties in Mealie, AH en Jumbo daarvoor."""
 import json
 import os
 import re
@@ -9,7 +9,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_recipes, audit, auth, auth_password, jumbo, jumbo_recipes, mealie, recipe_bulk  # noqa: E402
+from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -359,6 +359,90 @@ class JumboTest(BulkCase):
             recipe_bulk.start("jumbo", ["1/2"], background=False)
 
 
+class CrispTest(BulkCase):
+    def setUp(self):
+        super().setUp()
+        self.crisp_fetched = []
+        patches = [
+            mock.patch.object(crisp, "configured_client_id", return_value="apparaat-id"),
+            mock.patch.object(crisp, "get_recipe", side_effect=self.recipe),
+            mock.patch.object(crisp, "jsonld", side_effect=lambda recipe: {"@type": "Recipe", "name": recipe["name"]}),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def recipe(self, recipe_id):
+        self.crisp_fetched.append(recipe_id)
+        return {"id": recipe_id, "name": f"Crisp {recipe_id}", "ingredients": [], "steps": []}
+
+    @staticmethod
+    def saved(*ids):
+        recipes = [{"id": recipe_id, "name": f"Bewaard {recipe_id}"} for recipe_id in ids]
+        return {"recipes": recipes, "total": len(recipes)}
+
+    def test_a_selection_uses_the_titles_and_looks_in_mealie_first(self):
+        self.mealie.add("https://crisp.nl/#recipe-55", "al-in-mealie")
+        with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("een selectie haalt de lijst niet op")):
+            job = recipe_bulk.start("crisp", ["55", "56"], titles={"55": "Curry"}, background=False)
+        self.assertEqual(self.crisp_fetched, ["56"], "wat al in Mealie staat haalt de import niet bij Crisp op")
+        self.assertEqual(self.statuses(job), [("55", "existing", ""), ("56", "imported", "")])
+        self.assertEqual((job["storeName"], job["items"][0]["title"], job["items"][1]["title"]), ("Crisp", "Curry", "Crisp 56"))
+        self.assertEqual(self.mealie.imported, ["https://crisp.nl/#recipe-56"])
+        self.assertEqual([entry[1:3] for entry in self.mealie.organized], [(["Crisp"], []), (["Crisp"], [])])
+
+    def test_all_saved_recipes_are_fetched_by_the_import_itself(self):
+        with mock.patch.object(crisp, "get_saved_recipes", return_value=self.saved("1", "2", "3")) as saved, \
+                mock.patch.object(recipe_bulk.threading, "Thread", InlineThread):
+            job = recipe_bulk.start("crisp", None, whole=True)
+        saved.assert_called_once()
+        self.assertEqual(self.crisp_fetched, ["1", "2", "3"])
+        self.assertEqual((job["state"], job["whole"], job["groupSize"], job["category"]), ("done", True, 3, None))
+        self.assertEqual([item["title"] for item in job["items"]], ["Crisp 1", "Crisp 2", "Crisp 3"])
+        self.assertEqual(self.mealie.organized[0][1:3], (["Crisp"], []))
+
+    def test_start_itself_asks_crisp_nothing(self):
+        with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet in start")), \
+                mock.patch.object(recipe_bulk.threading, "Thread") as thread:
+            job = recipe_bulk.start("crisp", None, whole=True)
+        self.assertEqual((job["state"], job["phase"], job["total"]), ("running", "preparing", 0))
+        thread.return_value.start.assert_called_once()
+        recipe_bulk._job["state"] = "idle"
+
+    def test_a_recipe_without_content_is_not_a_store_failure(self):
+        empty = crisp.RecipeUnavailable("leeg")
+        with mock.patch.object(crisp, "jsonld", side_effect=[empty] * 6 + [{"@type": "Recipe", "name": "Crisp 7"}]):
+            job = recipe_bulk.start("crisp", [str(i) for i in range(1, 8)], background=False)
+        self.assertEqual(job["state"], "done", "zes lege recepten na elkaar stoppen de import niet")
+        self.assertEqual([item["error"] for item in job["items"]], ["no_content"] * 6 + [""])
+
+    def test_crisp_refusing_or_a_broken_link_stops(self):
+        for error, code in ((RuntimeError("429: te veel"), "crisp_blocked"), (crisp.CrispAuthError("verlopen"), "crisp_auth")):
+            with self.subTest(code), mock.patch.object(crisp, "get_recipe", side_effect=error):
+                job = recipe_bulk.start("crisp", ["1", "2"], background=False)
+                self.assertEqual((job["state"], job["error"]), ("error", code))
+                self.assertEqual([item["status"] for item in job["items"]], ["failed", "skipped"])
+        with mock.patch.object(crisp, "get_recipe", side_effect=RuntimeError("500: storing")):
+            job = recipe_bulk.start("crisp", ["1", "2"], background=False)
+        self.assertEqual((job["state"], [item["error"] for item in job["items"]]), ("done", ["store_failed", "store_failed"]))
+
+    def test_the_saved_list_failing_stops_with_its_own_code(self):
+        for error, code in ((RuntimeError("500: storing"), "crisp_saved_failed"), (crisp.CrispAuthError("verlopen"), "crisp_auth")):
+            with self.subTest(code), mock.patch.object(crisp, "get_saved_recipes", side_effect=error):
+                job = recipe_bulk.start("crisp", None, whole=True, background=False)
+                self.assertEqual((job["state"], job["error"], job["total"]), ("error", code, 0))
+
+    def test_no_link_a_bad_id_or_a_group(self):
+        with mock.patch.object(crisp, "configured_client_id", return_value=""), self.assertRaises(ValueError):
+            recipe_bulk.start("crisp", ["1"], background=False)
+        for bad in (["1/2"], ["abc"]):
+            with self.assertRaises(ValueError):
+                recipe_bulk.start("crisp", bad, background=False)
+        with self.assertRaises(ValueError):
+            recipe_bulk.start("crisp", None, "kerst", whole=True, background=False)
+        self.assertEqual(self.crisp_fetched, [])
+
+
 class RoutesTest(BulkCase):
     AUTH = "true"
 
@@ -531,10 +615,11 @@ class MarkupTest(unittest.TestCase):
         script = (ROOT / "static" / "recipe_bulk.js").read_text(encoding="utf-8")
         app_js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         jumbo_js = (ROOT / "static" / "jumbo.js").read_text(encoding="utf-8")
+        crisp_js = (ROOT / "static" / "crisp.js").read_text(encoding="utf-8")
         self.assertRegex(html, r'<dialog id="bulk-dialog" class="product-dialog')
         order = [html.index(f"filename='{name}'") for name in ("jumbo.js", "recipe_bulk.js", "router.js")]
         self.assertEqual(order, sorted(order))
-        for store in ("ah", "jumbo"):
+        for store in recipe_bulk.STORES:
             for kind in ("tools", "select", "group", "status", "bar", "count", "all", "clear", "import", "note"):
                 self.assertIn(f'data-bulk-{kind}="{store}"', html)
         for route in ("/api/mealie/bulk-import", "/api/mealie/bulk-import/group", "/api/mealie/bulk-import/cancel"):
@@ -542,9 +627,11 @@ class MarkupTest(unittest.TestCase):
         self.assertIn('data-store-recipe="ah:', app_js)
         self.assertIn('recipeBulkDecorate("ah")', app_js)
         self.assertIn('recipeBulkDecorate("jumbo")', jumbo_js)
+        self.assertIn('recipeBulkDecorate("crisp")', crisp_js)
+        self.assertIn('crisp: "#crisp-recipes"', script)
         self.assertIn("/api/mealie/bulk-import/group", auth.ADMIN_PATHS)
         self.assertNotIn("/api/mealie/bulk-import", auth.ADMIN_PATHS, "een selectie mag iedereen")
-        for code in ("ah_blocked", "jumbo_blocked", "jumbo_auth", "mealie_denied", "mealie_lookup", "too_many_failures", "list_failed", "list_unknown", "internal"):
+        for code in ("ah_blocked", "jumbo_blocked", "jumbo_auth", "crisp_blocked", "crisp_auth", "crisp_saved_failed", "mealie_denied", "mealie_lookup", "too_many_failures", "list_failed", "list_unknown", "internal"):
             self.assertIn(f'{code}: "bulk.error.{code}"', script, "elke foutcode van de server heeft een tekst")
         for code in ("no_content", "store_failed", "mealie_failed", "limit", "cancelled", "stopped"):
             self.assertIn(f'{code}: "bulk.item.{code}"', script)

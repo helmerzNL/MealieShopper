@@ -1,8 +1,8 @@
 """Winkels: wissel je van winkel, dan blijft het onderdeel open dat open stond, zoals bij Aanbiedingen.
 
 Sta je bij Albert Heijn op Lijstjes en kies je Jumbo, dan opent Lijstjes van Jumbo; van Bestellingen bij AH naar Picnic opent
-Bestellingen van Picnic. Heeft de nieuwe winkel het onderdeel niet (Lijstjes bij Picnic, Recepten bij Crisp), dan opent zijn
-eerste tab. De tab opent één keer: zo laadt hij één keer en krijgt het adres één stap in de geschiedenis.
+Bestellingen van Picnic. Heeft de nieuwe winkel het onderdeel niet (Lijstjes bij Picnic of Crisp, Favorieten bij AH), dan
+opent zijn eerste tab. De tab opent één keer: zo laadt hij één keer en krijgt het adres één stap in de geschiedenis.
 
 `switchItemsStore`, `renderItemsStore` en de hulpfuncties uit static/app.js draaien hier echt, in Node, met een nagebootste
 tabbalk. Zonder Node slaan de tests over.
@@ -23,7 +23,7 @@ ROUTER_JS = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
 SUBTABS = [
     "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
     "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
-    "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
+    "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
 ]
 
 
@@ -123,6 +123,9 @@ class StoreSwitchTest(unittest.TestCase):
             ("jumbo", "ah-items-lijstjes", "ah", "ah-items-lijstjes"),
             ("jumbo", "ah-items-jumbo-recepten", "picnic", "ah-items-picnic"),
             ("picnic", "ah-items-picnic", "ah", "ah-items-recepten"),
+            ("ah", "ah-items-recepten", "crisp", "ah-items-crisp-recepten"),
+            ("crisp", "ah-items-crisp-recepten", "picnic", "ah-items-picnic"),
+            ("crisp", "ah-items-crisp-recepten", "jumbo", "ah-items-jumbo-recepten"),
             ("picnic", "ah-items-picnic-favorieten", "crisp", "ah-items-crisp-favorieten"),
             ("picnic", "ah-items-picnic-bestellingen", "jumbo", "ah-items-bestellingen"),
             ("crisp", "ah-items-crisp-favorieten", "picnic", "ah-items-picnic-favorieten"),
@@ -139,7 +142,7 @@ class StoreSwitchTest(unittest.TestCase):
     def test_a_section_the_new_store_does_not_have_opens_its_first_tab(self):
         cases = [
             ("ah", "ah-items-lijstjes", "picnic", "ah-items-picnic"),
-            ("jumbo", "ah-items-lijstjes", "crisp", "ah-items-crisp-favorieten"),
+            ("jumbo", "ah-items-lijstjes", "crisp", "ah-items-crisp-recepten"),
             ("crisp", "ah-items-crisp-favorieten", "ah", "ah-items-recepten"),
             ("picnic", "ah-items-picnic-favorieten", "jumbo", "ah-items-jumbo-recepten"),
             ("crisp", "ah-items-crisp-favorieten", "ah", "ah-items-recepten"),
@@ -176,7 +179,7 @@ class StoreSwitchTest(unittest.TestCase):
             console.log(JSON.stringify({ lists, favorites, menu: $("#items-store-list").innerHTML }));
             """
         )
-        self.assertEqual(out["lists"], {"ah": "/stores/ah/lists", "jumbo": "/stores/jumbo/lists", "picnic": "/stores/picnic/recipes", "crisp": "/stores/crisp/favorites"})
+        self.assertEqual(out["lists"], {"ah": "/stores/ah/lists", "jumbo": "/stores/jumbo/lists", "picnic": "/stores/picnic/recipes", "crisp": "/stores/crisp/recipes"})
         self.assertEqual(out["favorites"], {"ah": "/stores/ah/recipes", "jumbo": "/stores/jumbo/recipes", "picnic": "/stores/picnic/favorites", "crisp": "/stores/crisp/favorites"})
         # router.js houdt de links in het menu daarna gelijk met dezelfde functie.
         self.assertIn('link.setAttribute("href", itemsStorePath(link.dataset.store))', ROUTER_JS)

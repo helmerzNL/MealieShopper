@@ -29,13 +29,13 @@ class StoreSubtabsTest(unittest.TestCase):
     ORDER = [
         "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
         "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
-        "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
+        "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
     ]
     STORES = {
         "ah": ["ah-items-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
         "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
         "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"],
-        "crisp": ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
+        "crisp": ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
     }
 
     def nav(self):
@@ -54,7 +54,7 @@ class StoreSubtabsTest(unittest.TestCase):
         self.assertIn('hide("ah-items-lijstjes", ownTabs);', script)
         self.assertIn('hide("ah-items-bestellingen", ownTabs);', script)
         self.assertIn('CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));', script)
-        self.assertIn('const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];', script)
+        self.assertIn('const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];', script)
         self.assertIn('PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));', script)
         self.assertIn('JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));', script)
         self.assertIn('const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];', script)

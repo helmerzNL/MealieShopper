@@ -672,6 +672,22 @@ class CourseCollectorsTest(TempDataDirTest):
                 mock.patch.object(offers.picnic_recipes, "source_url", return_value=""):
             self.assertEqual(offers._collect_picnic()[0]["course"], "soep")
 
+        crisp_recipe = {"id": "55", "name": "Curry", "image": "", "url": None,
+                        "ingredients": [{"line": "150 g rijst", "name": "rijst"}, {"line": "olie", "name": ""}, {"line": "", "name": ""}]}
+        with mock.patch.object(offers.crisp, "configured_client_id", return_value="x"), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", return_value={"recipes": [{"id": "55", "tags": ["Soep"]}], "total": 1}), \
+                mock.patch.object(offers.crisp, "get_recipe", return_value=crisp_recipe):
+            found = offers._collect_crisp()[0]
+        self.assertEqual((found["course"], found["ingredients"], found["url"]), ("soep", ["rijst", "olie"], "https://crisp.nl/#recipe-55"))
+        with mock.patch.object(offers.crisp, "get_recipe", return_value={**crisp_recipe, "url": "https://crisp.nl/r/abc"}), \
+                mock.patch.object(offers.crisp, "configured_client_id", return_value="x"), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", return_value={"recipes": [{"id": "55", "tags": []}], "total": 1}):
+            self.assertEqual(offers._collect_crisp()[0]["url"], "https://crisp.nl/r/abc", "de deellink van Crisp als die er is")
+        with mock.patch.object(offers.crisp, "configured_client_id", return_value=""), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")), \
+                self.assertRaises(LookupError):
+            offers._collect_crisp()
+
     def test_ah_reads_the_category_and_refetches_recipes_indexed_without_one(self):
         saved = {"recipes": [{"id": str(i), "title": f"R{i}", "image": "", "url": ""} for i in (1, 2)]}
         calls = []
