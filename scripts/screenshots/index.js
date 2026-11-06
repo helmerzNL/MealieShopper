@@ -1,5 +1,5 @@
 // Gebruik: start een lege MealieShopper met PASSKEY_AUTH_ENABLED=false (zie README, "Screenshots"), zet de Python-omgeving
-// van de app op het PATH (het consent-scenario gebruikt Flask) en draai
+// van de app op het PATH (het consent-scenario gebruikt Quart) en draai
 //   SHOT_URL=http://localhost:8000 node scripts/screenshots/index.js [--only plan,dark] [--lang nl]
 const fs = require("fs");
 const path = require("path");

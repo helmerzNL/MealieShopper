@@ -60,19 +60,21 @@ async function openProfile(page, subtab) {
 }
 
 // Het toestemmingsscherm is server-gerenderd (templates/oauth.html) en vraagt een ingelogde sessie en een
-// geregistreerde AI-app. We renderen het sjabloon zelf met de Flask-app en geven dat als antwoord op de aanvraag.
+// geregistreerde AI-app. We renderen het sjabloon zelf met de Quart-app en geven dat als antwoord op de aanvraag.
 // SHOT_PYTHON is de Python met de afhankelijkheden van MealieShopper (standaard python3).
 function renderConsent(lang) {
   const code = [
-    "import os, sys, tempfile",
+    "import asyncio, os, sys, tempfile",
     "os.environ['PASSKEY_AUTH_ENABLED'] = 'false'",
     "os.environ['MEALIESHOPPER_TESTING'] = '1'",
     "os.environ['MEALIESHOPPER_DATA_DIR'] = tempfile.mkdtemp()",
-    "from flask import render_template",
+    "from quart import render_template",
     "from mealieshopper.app import create_app",
     "app = create_app()",
-    `with app.test_request_context('/', headers={'Cookie': 'ms_lang=${lang}'}):`,
-    `    sys.stdout.write(render_template('oauth.html', error='', client='ChatGPT', signed='demo', base='${SERVER}', username='anna'))`,
+    "async def render():",
+    `    async with app.test_request_context('/', headers={'Cookie': 'ms_lang=${lang}'}):`,
+    `        return await render_template('oauth.html', error='', client='ChatGPT', signed='demo', base='${SERVER}', username='anna')`,
+    "sys.stdout.write(asyncio.run(render()))",
   ].join("\n");
   return execFileSync(process.env.SHOT_PYTHON || "python3", ["-c", code], {
     cwd: require("path").resolve(__dirname, "../../.."),

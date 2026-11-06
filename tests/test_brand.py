@@ -175,6 +175,16 @@ class ServedAssetsTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data[:4], b"\x00\x00\x01\x00")
 
+    def test_static_files_are_revalidated_and_not_cached_for_hours(self):
+        for path in ("/static/app.js?v=1", "/favicon.ico", "/static/manifest.webmanifest"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.cache_control.max_age, 0, response.headers.get("Cache-Control"))
+                self.assertIn("ETag", response.headers)
+                again = self.client.get(path, headers={"If-None-Match": response.headers["ETag"]})
+                self.assertEqual((again.status_code, again.get_data()), (304, b""), "ongewijzigd: geen bestand opnieuw versturen")
+
     def test_assets_work_before_login(self):
         # Browsers halen manifest, iconen en lettertypen op voordat iemand ingelogd is.
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "true"}):

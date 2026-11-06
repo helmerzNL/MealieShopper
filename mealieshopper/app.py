@@ -23,6 +23,9 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261106-3")
+    # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
+    # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
