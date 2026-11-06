@@ -1117,6 +1117,7 @@ function renderOffersSync() {
     lines.push(t("offers.sync.last", { when: formatSyncTime(status.lastRun), trigger: t(status.lastTrigger === "scheduled" ? "offers.sync.trigger.scheduled" : "offers.sync.trigger.manual") }));
   }
   $("#offers-sync-schedule").textContent = lines.join(" ");
+  applyStoreFold("offers", false); // inklapbaar onder Instellingen > Koppelen, standaard open (app.js)
 }
 
 async function loadOffersSyncStatus() {
