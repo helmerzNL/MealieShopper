@@ -18,6 +18,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Documentatie**: een nieuwe paragraaf *Prijsarchief importeren* in de handleiding (NL en EN) met beide formaten, en *Waargenomen prijzen* bij Aanbiedingen. De README's noemen het prijsarchief bij de functies, bij *Grootste upload* (200 MB, net als een back-up) en bij *Data en back-ups*.
 - **Ontwikkeling**: `test_price_archive` (24 tests) bouwt een nep-gist-ZIP, een `.tar.gz` en het eigen formaat en test de import, het herhalen, wat al bestaat, de correcties en alles wat geweigerd wordt. Wolphs tests voor de waargenomen prijzen komen mee (`test_prices`, `test_backup`, `test_observed_prices_js`).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#259](https://github.com/helmerzNL/MealieShopper/pull/259).
 
 ## v3.13.1
 
