@@ -415,13 +415,14 @@ class ExploreTest(TempDataDirTest):
             "/order/count": {"openOrderIds": [55502]},
             "/saved/list": {"items": [{"type": "product", "item": product(98765, "Geheime melk")},
                                       {"type": "recipe", "item": recipe(31338, title="Geheim recept")}]},
+            "/recipe/favorites": {"id": "favorites", "title": "Favorieten", "total": 1, "items": [recipe(31339, title="Geheime soep")]},
             "/promo/current": promo_page(),
         }
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
             report = crisp.explore()
-        self.assertEqual((report["working"], len(report["checks"])), (11, 11))
+        self.assertEqual((report["working"], len(report["checks"])), (12, 12))
         dumped = json.dumps(report)
-        for secret in ("98765", "31337", "31338", "4242", "55501", "55502", "Geheim", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
+        for secret in ("98765", "31337", "31338", "31339", "4242", "55501", "55502", "Geheim", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
             self.assertNotIn(secret, dumped)
         self.assertIn("weightIndication", dumped)
         self.assertIn("formattedQuantity", dumped)
@@ -432,6 +433,9 @@ class ExploreTest(TempDataDirTest):
         saved = by_name["favorites"]
         self.assertEqual((saved["types"], saved["recipeKinds"], saved["hasCursor"]), (["product", "recipe"], ["recipe"], False))
         self.assertIn("cookingMethods", saved["recipeFields"])  # alleen de veldnamen van het bewaarde recept
+        favorites = by_name["recipeFavorites"]
+        self.assertEqual((favorites["route"], favorites["count"], favorites["total"], favorites["itemTypes"]), ("GET /recipe/favorites", 1, 1, ["recipe"]))
+        self.assertIn("cookingMethods", favorites["itemFields"])
 
     def test_failures_show_our_text_or_the_status_only(self):
         self.link()
@@ -620,25 +624,64 @@ class OrdersAndFavoritesTest(TempDataDirTest):
         self.assertEqual(call.call_args.args[1], "/saved/list")
         self.assertEqual(([p["id"] for p in result["products"]], result["total"]), (["1"], 1))
 
-    def test_saved_recipes_are_the_recipes_in_the_saved_list(self):
-        saved = {"items": [
-            {"type": "product", "item": product(1, "Kaas")},
-            {"type": "recipe", "item": recipe(2)},
-            {"type": "recipe", "item": recipe(3, title="Bundel", type="bundle")},
-            {"type": "recipe", "item": recipe(2)},
-            {"type": "recipe", "item": recipe(4, title="")},
-            {"type": "recipe", "item": "geen recept"},
-            {"type": "recipe", "item": recipe(5, title="Soep met brood", subTitle="", type="recipe")},
+    def answers(self, favorites=None, saved=None):
+        """`_call` per route: de groep Favorieten (`/recipe/favorites`) en "Door jou bewaard" (`/saved/list`)."""
+        routes = {"/recipe/favorites": favorites if favorites is not None else {"id": "favorites", "items": []},
+                  "/saved/list": saved if saved is not None else {"items": []}}
+
+        def call(method, path, client_id, body=None):
+            self.assertEqual(method, "GET")
+            answer = routes[path]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return call
+
+    def test_saved_recipes_are_the_favorites_of_the_recipe_page(self):
+        # Zonder het experiment yourShop-saved staan de favoriete recepten alleen op de receptenpagina, niet in /saved/list.
+        favorites = {"id": "favorites", "title": "Favorieten", "total": 4, "items": [
+            recipe(2), recipe(3, title="Bundel", type="bundle"), recipe(6, title="Eigen recept", type="userRecipe"),
+            recipe(5, title="Soep met brood", subTitle="", type=""), "geen recept",
         ]}
-        with mock.patch.object(crisp, "_call", return_value=saved) as call:
+        saved = {"items": [{"type": "product", "item": product(1, "Kaas")}]}
+        with mock.patch.object(crisp, "_call", side_effect=self.answers(favorites, saved)) as call:
             result = crisp.get_saved_recipes()
-        self.assertEqual(call.call_count, 1)
-        self.assertEqual(call.call_args.args[:2], ("GET", "/saved/list"))
+        self.assertEqual(sorted(c.args[1] for c in call.call_args_list), ["/recipe/favorites", "/saved/list"])
         self.assertEqual(([r["id"] for r in result["recipes"]], result["total"]), (["2", "5"], 2))
         first = result["recipes"][0]
         self.assertEqual((first["name"], first["minutes"], first["portions"], first["tags"]), ("Curry met pompoen", 30, 2, ["met zilvervliesrijst"]))
         self.assertEqual(first["image"], "https://crispapp.nl/blob/recipeBlob456?thumb=512")
         self.assertEqual(result["recipes"][1]["tags"], [])
+
+    def test_saved_recipes_also_come_from_the_saved_list_without_duplicates(self):
+        # Met het experiment staan ze (ook) in "Door jou bewaard"; eerst de favorieten, dan wat daar nog niet in stond.
+        favorites = {"items": [recipe(2)]}
+        saved = {"items": [
+            {"type": "product", "item": product(1, "Kaas")},
+            {"type": "recipe", "item": recipe(7, title="Pasta pesto")},
+            {"type": "recipe", "item": recipe(2)},
+            {"type": "recipe", "item": recipe(4, title="")},
+            {"type": "recipe", "item": "geen recept"},
+            {"type": "recipe", "item": {**recipe(8, title="Nieuw soort recept"), "type": "seasonal", "itemType": "recipe"}},
+        ]}
+        with mock.patch.object(crisp, "_call", side_effect=self.answers(favorites, saved)):
+            result = crisp.get_saved_recipes()
+        self.assertEqual([r["id"] for r in result["recipes"]], ["2", "7", "8"], "een onbekende soort valt niet stil weg")
+
+    def test_one_source_failing_leaves_the_other(self):
+        saved = {"items": [{"type": "recipe", "item": recipe(7, title="Pasta pesto")}]}
+        with mock.patch.object(crisp, "_call", side_effect=self.answers(RuntimeError("404: niet gevonden"), saved)):
+            self.assertEqual([r["id"] for r in crisp.get_saved_recipes()["recipes"]], ["7"])
+        with mock.patch.object(crisp, "_call", side_effect=self.answers({"items": [recipe(2)]}, RuntimeError("500: storing"))):
+            self.assertEqual([r["id"] for r in crisp.get_saved_recipes()["recipes"]], ["2"])
+        with mock.patch.object(crisp, "_call", side_effect=self.answers(RuntimeError("500: eerste"), RuntimeError("500: tweede"))), \
+                self.assertRaisesRegex(RuntimeError, "eerste"):
+            crisp.get_saved_recipes()
+        # Een verlopen koppeling: meteen stoppen, de tweede bron helpt dan niet.
+        with mock.patch.object(crisp, "_call", side_effect=crisp.CrispAuthError("geweigerd")) as call, \
+                self.assertRaises(crisp.CrispAuthError):
+            crisp.get_saved_recipes()
+        self.assertEqual(call.call_count, 1)
 
     def test_saved_recipes_without_a_list(self):
         with mock.patch.object(crisp, "_call", return_value={}):

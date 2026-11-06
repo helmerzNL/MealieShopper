@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.13.1
+
+### Opgelost in 3.13.1
+
+*English summary: the Recipes tab of Crisp under Stores stayed empty for most accounts. The Crisp app keeps the recipes you mark with a heart as Favourites on its recipes page, read from `GET /recipe/favorites`; only accounts in an experiment of Crisp see them under Saved by you (`/saved/list`), the only list 3.13.0 read. MealieShopper now reads both, so your favourite recipes show up, also in the bulk import, the recipe suggestions and the MCP tool. The route explorer reports the new route as well.*
+
+- **Opgelost: je favoriete Crisp-recepten staan nu onder Winkels, Crisp, Recepten.** De tab bleef leeg. In de Crisp-app zet het hartje een recept bij je favorieten. Waar de app ze toont, hangt af van een experiment van Crisp (`202308:yourShop-saved`): wie dat heeft, ziet ze bij *Door jou bewaard* (`/saved/list`); alle anderen zien ze als *Favorieten* bovenaan de receptenpagina, uit `GET /recipe/favorites`. 3.13.0 las alleen `/saved/list`. Nu leest MealieShopper allebei, de favorieten eerst en zonder dubbelen. Lukt één van de twee niet, dan telt de andere; bij een verlopen koppeling stopt het meteen. Gevonden in de openbare Android-app (2.99, dezelfde als op 1 november): `app/domain/saved.ts`, `RecipeGroupsScreen.tsx` en `RecipeGroupScroller.tsx`.
+- **Ook in de bulk-import, de receptvoorstellen en de MCP-tool**, want die gebruiken dezelfde lijst (`crisp.get_saved_recipes`).
+- **Een onbekende soort recept valt niet meer stil weg.** Alleen de bekende soorten die geen gewoon recept zijn (bundels, eigen recepten, maaltijdboxen) blijven weg; een nieuwe soort van Crisp telt als recept.
+- **Verkenner.** *Crisp-routes verkennen* heeft een nieuwe check, `recipeFavorites` (`GET /recipe/favorites`), met het aantal, `total`, de veldnamen en de soorten van de items; nog steeds zonder id's of namen.
+- **Teksten.** De tab, de handleiding (NL en EN) en de MCP-tool spreken van favoriete recepten, zoals de app. `docs/onderzoek-crisp.md` beschrijft `/saved`, `/recipe/favorites` en het experiment.
+- **Ontwikkeling**: `test_crisp` test beide bronnen, het samenvoegen, één bron die mislukt en een verlopen koppeling; de verkenner heeft nu 12 checks.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#257](https://github.com/helmerzNL/MealieShopper/pull/257).
+
 ## v3.13.0
 
 ### Nieuw in 3.13.0
