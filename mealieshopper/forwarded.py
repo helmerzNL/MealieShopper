@@ -15,6 +15,14 @@ DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 WEBSOCKET_SCHEMES: dict[str, str] = {"http": "ws", "https": "wss"}
 
 
+def _parse_port(value: str) -> int | None:
+    """Een poort uit een header: alleen ASCII-cijfers (`int()` weigert bv. "²") en 1 tot en met 65535, anders None."""
+    text: str = value.strip()
+    if text.isascii() and text.isdigit() and 1 <= int(text) <= 65535:
+        return int(text)
+    return None
+
+
 def _split_host(value: str) -> tuple[str, int | None]:
     """Splitst "host:poort" (ook "[::1]:poort") in host en poort. Een ongeldige poort telt als afwezig."""
     host: str = value.strip()
@@ -25,13 +33,13 @@ def _split_host(value: str) -> tuple[str, int | None]:
     else:
         host, _, rest = host.partition(":")
         rest = f":{rest}" if rest else ""
-    if rest.startswith(":") and rest[1:].isdigit():
-        return host, int(rest[1:])
-    return host, None
+    return host, _parse_port(rest[1:]) if rest.startswith(":") else None
 
 
 class ForwardedHeaders:
     def __init__(self, app: ASGIApp, *, hops: int = 1) -> None:
+        if hops < 1:
+            raise ValueError("hops moet minstens 1 zijn, anders telt de eerste (te vervalsen) waarde")
         self.app: ASGIApp = app
         self.hops: int = hops
 
@@ -50,7 +58,10 @@ class ForwardedHeaders:
     def _rewrite(self, scope: Scope) -> Scope:
         headers: dict[str, str] = {}
         for name, value in scope.get("headers", ()):
-            headers.setdefault(name.decode("latin-1").lower(), value.decode("latin-1"))
+            key: str = name.decode("latin-1").lower()
+            text: str = value.decode("latin-1")
+            # Herhaalde regels van een forwarded-header telt als een kommalijst (zoals ProxyFix), in volgorde van binnenkomst.
+            headers[key] = f"{headers[key]},{text}" if key in headers and key.startswith("x-forwarded-") else headers.get(key, text)
         forwarded_for: str | None = self._last_hops(headers.get("x-forwarded-for"))
         proto: str = headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
         host_value: str = headers.get("x-forwarded-host", "").split(",")[0].strip()
@@ -69,7 +80,7 @@ class ForwardedHeaders:
         if host_value or port_value:
             old_host, old_port = _split_host(headers.get("host", ""))
             host, host_port = _split_host(host_value) if host_value else (old_host, old_port)
-            port: int | None = int(port_value) if port_value.isdigit() else host_port
+            port: int | None = _parse_port(port_value) or host_port
             if port is None:
                 port = DEFAULT_PORTS.get(scheme, 80)
             new["server"] = (host, port)

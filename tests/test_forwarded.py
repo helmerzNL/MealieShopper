@@ -20,7 +20,7 @@ def make_app() -> Quart:
     return app
 
 
-def ask(headers: dict[str, str]) -> dict[str, Any]:
+def ask(headers: dict[str, str] | list[tuple[str, str]]) -> dict[str, Any]:
     async def go() -> dict[str, Any]:
         response = await make_app().test_client().get("/who", headers=headers)
         return await response.get_json()
@@ -51,6 +51,42 @@ class ForwardedHeadersTest(unittest.TestCase):
     def test_only_the_last_hop_of_x_forwarded_for_counts(self) -> None:
         seen = ask({"X-Forwarded-For": "6.6.6.6, 198.51.100.7, 203.0.113.9"})
         self.assertEqual(seen["remote_addr"], "203.0.113.9")
+
+    def test_malformed_ports_are_ignored_and_the_request_still_works(self) -> None:
+        for bad in ("\u00b2", "abc", "99999", "0", ""):
+            with self.subTest(header="port", value=bad):
+                seen = ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": "shopper.ytm.nl", "X-Forwarded-Port": bad})
+                self.assertEqual((seen["scheme"], seen["host"]), ("https", "shopper.ytm.nl"))
+            with self.subTest(header="host", value=bad):
+                seen = ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": f"shopper.ytm.nl:{bad}"})
+                self.assertEqual((seen["scheme"], seen["host"]), ("https", "shopper.ytm.nl"))
+
+    def test_ipv6_hosts_with_and_without_a_port(self) -> None:
+        self.assertEqual(ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": "[2001:db8::1]"})["host"], "[2001:db8::1]")
+        self.assertEqual(ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": "[2001:db8::1]:8443"})["host"], "[2001:db8::1]:8443")
+
+    def test_a_port_in_the_host_without_a_forwarded_port_is_kept(self) -> None:
+        self.assertEqual(ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": "shopper.ytm.nl:8443"})["host"], "shopper.ytm.nl:8443")
+
+    def test_repeated_forwarded_for_lines_count_as_one_list(self) -> None:
+        seen = ask([("X-Forwarded-For", "6.6.6.6"), ("X-Forwarded-For", "198.51.100.7, 203.0.113.9")])
+        self.assertEqual(seen["remote_addr"], "203.0.113.9")
+
+    def test_fewer_than_one_hop_is_refused(self) -> None:
+        for hops in (0, -1):
+            with self.assertRaises(ValueError):
+                ForwardedHeaders(make_app().asgi_app, hops=hops)
+
+    def test_a_lifespan_scope_passes_through_unchanged(self) -> None:
+        scope: dict[str, Any] = {"type": "lifespan", "headers": [(b"x-forwarded-proto", b"https")]}
+        seen: list[Any] = []
+
+        async def inner(sc: Any, receive: Any, send: Any) -> None:
+            seen.append(sc)
+
+        asyncio.run(ForwardedHeaders(inner)(scope, None, None))
+        self.assertIs(seen[0], scope)
+        self.assertNotIn("scheme", scope)
 
     def test_the_scope_of_the_server_is_not_altered(self) -> None:
         scope: dict[str, Any] = {"type": "http", "scheme": "http", "server": ("a", 80), "client": ("1.1.1.1", 5), "headers": [(b"host", b"a"), (b"x-forwarded-proto", b"https")]}
