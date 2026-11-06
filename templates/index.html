@@ -1679,6 +1679,15 @@
             </label>
             <p class="muted" data-i18n="backup.links_hint">Zonder koppelingen moet je na het terugzetten alles opnieuw koppelen. Het wachtwoord wordt nergens bewaard: raak je het kwijt, dan zijn de koppelingen in dit bestand niet meer te lezen.</p>
           </div>
+          <label class="check">
+            <input type="checkbox" id="backup-offers" checked>
+            <span data-i18n="backup.offers_label">Neem de aanbiedingen van nu mee</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="backup-offer-history" checked>
+            <span data-i18n="backup.offer_history_label">Neem de historie van aanbiedingen mee</span>
+          </label>
+          <p class="muted" data-i18n="backup.parts_hint">Zonder de aanbiedingen wordt het bestand kleiner. Bij het terugzetten blijven de aanbiedingen die er dan staan zoals ze zijn. De aanbiedingen van nu haalt de app bij de volgende synchronisatie weer op, de historie niet.</p>
           <p class="muted" data-i18n="backup.never">Wat inlogt op MealieShopper zit er nooit in: passkeys, wachtwoorden, tweestapsverificatie, herstelcodes, uitnodigingen en de toegang van AI-assistenten (MCP). Het auditlog en de bewaarde receptafbeeldingen ook niet; die bouwen zich vanzelf weer op.</p>
           <div class="security-actions">
             <button class="button" type="button" id="backup-make" data-i18n="backup.make">Back-up maken</button>
@@ -1694,10 +1703,25 @@
             <p class="muted" id="backup-made"></p>
             <ul id="backup-summary"></ul>
             <p id="backup-links-line"></p>
+            <h4 data-i18n="backup.restore_choose">Wat zet je terug?</h4>
+            <label class="check" id="backup-restore-links-field" hidden>
+              <input type="checkbox" id="backup-restore-links" checked>
+              <span data-i18n="backup.restore_links">Zet de koppelingen terug</span>
+            </label>
+            <p class="muted" id="backup-restore-links-hint" data-i18n="backup.restore_links_hint" hidden>Daarvoor is het wachtwoord van dit bestand nodig. Wachtwoord kwijt? Vink dit uit: de koppelingen die er nu zijn, blijven dan staan.</p>
             <label class="field" id="backup-restore-passphrase-field" hidden>
               <span data-i18n="backup.restore_passphrase_label">Wachtwoord van dit bestand</span>
               <input class="input" id="backup-restore-passphrase" type="password" autocomplete="off">
             </label>
+            <label class="check" id="backup-restore-offers-field" hidden>
+              <input type="checkbox" id="backup-restore-offers" checked>
+              <span id="backup-restore-offers-text"></span>
+            </label>
+            <label class="check" id="backup-restore-offer-history-field" hidden>
+              <input type="checkbox" id="backup-restore-offer-history" checked>
+              <span id="backup-restore-offer-history-text"></span>
+            </label>
+            <p class="muted" data-i18n="backup.restore_choices_hint">Wat je uitvinkt, blijft zoals het nu is.</p>
             <div class="message error" role="alert">
               <strong data-i18n="backup.confirm_warning">Let op: wat er nu staat aan lijstjes, bestellingen, kassabonnen, aanbiedingen en instellingen wordt vervangen door de inhoud van dit bestand. Dat kan niet ongedaan worden gemaakt.</strong>
             </div>
