@@ -5,7 +5,8 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
@@ -211,10 +212,10 @@ class PasskeyResetTest(FactoryResetCase):
         self.assertIn("auth.sqlite3", self.files())
 
     def test_the_signature_is_checked_off_the_event_loop(self):
-        threads = []
-        real = auth.check_assertion
+        threads: list[int] = []
+        real: Callable[..., int] = auth.check_assertion
 
-        def spy(*args):
+        def spy(*args: Any) -> int:
             threads.append(threading.get_ident())
             return real(*args)
 

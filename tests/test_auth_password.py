@@ -1,16 +1,24 @@
+import asyncio
 import hashlib
 import os
 import tempfile
 import threading
 import unittest
+from collections.abc import Callable
 from contextlib import closing
+from typing import TYPE_CHECKING, Any
 from unittest import mock
+
+import pytest
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, auth_password  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient  # noqa: E402
+
+if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
+    from quart.typing import TestClientProtocol
 
 PASSWORD = "koffie-met-melk-42"
 OTHER = "een-heel-ander-wachtwoord"
@@ -253,10 +261,10 @@ class LoginTest(AuthPasswordTestCase):
 
     def test_scrypt_runs_off_the_event_loop(self):
         """Hashen en controleren blokkeren de event loop niet: scrypt draait in een thread (`asyncio.to_thread`)."""
-        threads = []
-        real = hashlib.scrypt
+        threads: list[int] = []
+        real: Callable[..., bytes] = hashlib.scrypt
 
-        def spy(*args, **kwargs):
+        def spy(*args: Any, **kwargs: Any) -> bytes:
             threads.append(threading.get_ident())
             return real(*args, **kwargs)
 
@@ -608,3 +616,39 @@ class MasterSecretTest(unittest.TestCase):
 
         with mock.patch.object(auth.time, "sleep", side_effect=finish):
             self.assertEqual(auth._read_secret_file(auth.Path(self.path), wait=True), full)
+
+
+# --- gelijktijdige pogingen (een event loop, een slot) -----------------------------------------------
+
+
+@pytest.fixture
+async def owner(data_dir: "object", monkeypatch: pytest.MonkeyPatch, client: "TestClientProtocol") -> "TestClientProtocol":
+    """De async testclient, ingelogd als beheerder met een wachtwoord."""
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "true")
+    monkeypatch.setattr(auth_password, "SCRYPT_N", 2**4)
+    response = await client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+    assert response.status_code == 200, await response.get_json()
+    return client
+
+
+async def test_concurrent_wrong_logins_are_throttled_like_serial_ones(owner: "TestClientProtocol") -> None:
+    burst: int = 10
+    replies = await asyncio.gather(
+        *(owner.post("/api/auth/password/login", json={"username": "admin", "password": OTHER}) for _ in range(burst))
+    )
+    statuses: list[int] = sorted(reply.status_code for reply in replies)
+    limit: int = auth_password.ATTEMPTS_PER_WINDOW
+    assert statuses == [401] * limit + [429] * (burst - limit)
+
+
+async def test_one_totp_code_works_once_even_at_the_same_moment(owner: "TestClientProtocol") -> None:
+    started = await (await owner.post("/api/auth/mfa/start", json={})).get_json()
+    secret: str = started["secret"].replace(" ", "")
+    confirmed = await owner.post("/api/auth/mfa/confirm", json={"code": auth_password.totp_code(secret)})
+    assert confirmed.status_code == 200
+    step_one = await (await owner.post("/api/auth/password/login", json={"username": "admin", "password": PASSWORD})).get_json()
+    code: str = auth_password.totp_code(secret, at=auth_password.time.time() + auth_password.TOTP_PERIOD)
+    replies = await asyncio.gather(
+        *(owner.post("/api/auth/password/mfa", json={"ticket": step_one["ticket"], "code": code}) for _ in range(2))
+    )
+    assert sorted(reply.status_code for reply in replies) == [200, 401]

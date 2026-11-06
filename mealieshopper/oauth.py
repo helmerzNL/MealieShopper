@@ -317,12 +317,13 @@ async def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, An
     client_id = form.get("client_id", "")
     # Elke fout hieronder sluit de verbinding zonder commit: wat er tot dan toe veranderde, telt niet.
     async with _connect() as conn:
+        # Een schrijftransactie vanaf het lezen: twee gelijktijdige inwisselingen lopen na elkaar.
+        await conn.execute("BEGIN IMMEDIATE")
         row = await _fetchone(conn, "SELECT * FROM oauth_codes WHERE code_hash = ?", (_hash(form.get("code", "")),))
         if not row or row["client_id"] != client_id:
             raise OAuthError("invalid_grant", "Onbekende of verlopen code")
-        used = row["used"]
-        await conn.execute("UPDATE oauth_codes SET used = 1 WHERE code_hash = ?", (row["code_hash"],))
-        if used:
+        claimed = await conn.execute("UPDATE oauth_codes SET used = 1 WHERE code_hash = ? AND used = 0", (row["code_hash"],))
+        if claimed.rowcount == 0:
             # Een code die twee keer wordt ingewisseld is gestolen of gelekt: trek de tokens van de app in.
             await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE client_id = ? AND user_id = ?", (client_id, row["user_id"]))
             await conn.commit()  # vóór de fout: anders sluit de verbinding zonder het intrekken
@@ -346,10 +347,13 @@ async def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, An
 async def refresh(form: dict[str, str]) -> dict[str, Any]:
     client_id = form.get("client_id", "")
     async with _connect() as conn:
+        # Een schrijftransactie vanaf het lezen: twee gelijktijdige verversingen lopen na elkaar.
+        await conn.execute("BEGIN IMMEDIATE")
         row = await _fetchone(conn, "SELECT * FROM oauth_tokens WHERE refresh_hash = ?", (_hash(form.get("refresh_token", "")),))
         if not row or row["client_id"] != client_id or row["revoked"]:
             raise OAuthError("invalid_grant", "Onbekend of ingetrokken verversingstoken")
-        if row["rotated"]:
+        claimed = await conn.execute("UPDATE oauth_tokens SET rotated = 1 WHERE id = ? AND rotated = 0", (row["id"],))
+        if claimed.rowcount == 0:
             # Een oud verversingstoken opnieuw gebruikt: iemand heeft een kopie. Trek de hele reeks in.
             await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
             await conn.commit()  # vóór de fout: anders sluit de verbinding zonder het intrekken
@@ -358,7 +362,6 @@ async def refresh(form: dict[str, str]) -> dict[str, Any]:
             raise OAuthError("invalid_grant", "Het verversingstoken is verlopen")
         if row["epoch"] != await _user_epoch(conn, row["user_id"]):
             raise OAuthError("invalid_grant", "De inlog is gewijzigd; geef de app opnieuw toestemming")
-        await conn.execute("UPDATE oauth_tokens SET rotated = 1 WHERE id = ?", (row["id"],))
         tokens = await _new_token_row(conn, family=row["family"], user_id=row["user_id"], client_id=client_id, resource=row["resource"], epoch=row["epoch"])
         await conn.commit()
         return tokens

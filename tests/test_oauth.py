@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import secrets
@@ -333,3 +334,33 @@ async def test_forget_user_removes_codes_and_tokens_of_that_user_only(
         await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE user_id = ?", (OWNER,))
         == 1
     )
+
+
+async def test_two_concurrent_exchanges_of_one_code_issue_one_token_and_revoke_it(owner: str) -> None:
+    client_id: str = await register()
+    code, verifier = await code_for(client_id)
+    form: dict[str, str] = exchange_form(client_id, code, verifier)
+    results: list[Any] = await asyncio.gather(
+        oauth.exchange_code(form, MCP_URL), oauth.exchange_code(form, MCP_URL), return_exceptions=True
+    )
+    tokens: list[dict[str, Any]] = [result for result in results if isinstance(result, dict)]
+    errors: list[BaseException] = [result for result in results if isinstance(result, BaseException)]
+    assert len(tokens) == 1, results
+    assert len(errors) == 1 and isinstance(errors[0], oauth.OAuthError), results
+    assert "al gebruikt" in errors[0].description
+    assert await scalar("SELECT COUNT(*) FROM oauth_tokens") == 1
+    assert await oauth.verify_access_token(tokens[0]["access_token"], MCP_URL) is None, "het hergebruik trekt in"
+
+
+async def test_two_concurrent_refreshes_of_one_token_rotate_once_and_revoke_the_family(owner: str) -> None:
+    client_id: str = await register()
+    first: dict[str, Any] = await tokens_for(client_id)
+    form: dict[str, str] = {"grant_type": "refresh_token", "client_id": client_id, "refresh_token": first["refresh_token"]}
+    results: list[Any] = await asyncio.gather(oauth.refresh(form), oauth.refresh(form), return_exceptions=True)
+    rotated: list[dict[str, Any]] = [result for result in results if isinstance(result, dict)]
+    errors: list[BaseException] = [result for result in results if isinstance(result, BaseException)]
+    assert len(rotated) == 1, results
+    assert len(errors) == 1 and isinstance(errors[0], oauth.OAuthError), results
+    assert "al gebruikt" in errors[0].description
+    assert await scalar("SELECT COUNT(*) FROM oauth_tokens") == 2
+    assert await scalar("SELECT COUNT(*) FROM oauth_tokens WHERE revoked = 0") == 0

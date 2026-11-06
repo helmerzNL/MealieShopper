@@ -41,7 +41,7 @@ def restart_supported() -> bool:
 
 
 def wipe_data() -> list[str]:
-    """Verwijdert de database en het geheim; geeft de namen van de bestanden die er waren.
+    """Verwijdert de database en het geheim. Geeft de namen van de bestanden die er waren.
 
     Synchroon: alleen bestanden op schijf en het geheugen van auth, geen database-verbinding.
     """
@@ -82,27 +82,31 @@ async def _owner_methods() -> dict[str, bool]:
 
 
 async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply | None:
-    """None als de passkey van de beheerder de uitdaging goed ondertekende; anders het foutantwoord."""
-    if await auth_password.locked_seconds():
-        return await auth_password._too_many()
-    challenge = await auth.apop_challenge(f"reset:{uid}")
+    """None als de passkey van de beheerder de uitdaging goed ondertekende, anders het foutantwoord.
+
+    Onder hetzelfde slot als inloggen: gelijktijdige pogingen tellen een voor een mee voor de begrenzing.
+    """
     credential = credential if isinstance(credential, dict) else {}
-    if not challenge:
-        return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
-    async with auth.aconnect() as conn, conn.execute(
-        "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
-        (str(credential.get("id") or ""), uid),
-    ) as cursor:
-        stored = await cursor.fetchone()
-    try:
-        if not stored:
-            raise ValueError("Unknown credential")
-        # De webauthn-controle is rekenwerk: in een thread, met een kopie van de context (voor `request`).
-        await asyncio.to_thread(auth.check_assertion, credential, challenge, bytes(stored["public_key"]))
-    except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
-        await auth_password.register_failure()
-        return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
-    await auth_password.reset_failures()
+    async with auth_password.attempt_lock():
+        if await auth_password.locked_seconds():
+            return await auth_password._too_many()
+        challenge = await auth.apop_challenge(f"reset:{uid}")
+        if not challenge:
+            return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
+        async with auth.aconnect() as conn, conn.execute(
+            "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
+            (str(credential.get("id") or ""), uid),
+        ) as cursor:
+            stored = await cursor.fetchone()
+        try:
+            if not stored:
+                raise ValueError("Unknown credential")
+            # De webauthn-controle is rekenwerk: in een thread, met een kopie van de context (voor `request`).
+            await asyncio.to_thread(auth.check_assertion, credential, challenge, bytes(stored["public_key"]))
+        except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
+            await auth_password.register_failure()
+            return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
+        await auth_password.reset_failures()
     return None
 
 
