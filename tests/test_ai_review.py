@@ -44,6 +44,11 @@ def answer(provider: str, verdicts: list[tuple[int, str, str]], tokens: tuple[in
     return reply(200, {"choices": [{"message": {"content": json.dumps(payload)}}], "usage": {"total_tokens": sum(tokens)}})
 
 
+def body_of_answer(provider: str, verdicts: list[tuple[int, str, str]]) -> dict[str, Any]:
+    """De JSON van `answer`, om in een antwoord met een andere status te stoppen."""
+    return json.loads(answer(provider, verdicts).content)
+
+
 def body_of(request: httpx.Request) -> dict[str, Any]:
     return json.loads(request.content)
 
@@ -140,6 +145,16 @@ class RequestAndAnswerTest(AiTestCase):
         self.assertEqual((verdicts, tokens), ({1: ("ok", "kip is kip")}, 120))
         self.assertEqual(sent.extensions["timeout"], {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT})
 
+    def test_the_timeout_holds_whoever_made_the_client_first(self):
+        async def judge_after_another_client() -> httpx.Request:
+            http_client.client("anthropic", timeout=5.0)  # een andere aanroeper was eerst, met een andere time-out
+            with provider(return_value=answer("anthropic", [(1, "ok", "ja")])) as route:
+                await ai_review.judge([self.pair()], "anthropic", CLAUDE_KEY, "m")
+            return route.calls.last.request
+
+        sent = call(judge_after_another_client())
+        self.assertEqual(sent.extensions["timeout"], {"connect": ai_review.TIMEOUT, "read": ai_review.TIMEOUT, "write": ai_review.TIMEOUT, "pool": ai_review.TIMEOUT})
+
     def test_chatgpt_gets_a_strict_json_schema(self):
         with provider(return_value=answer("openai", [(1, "wrong", "saus")])) as route:
             verdicts, tokens = call(ai_review.judge([self.pair()], "openai", OPENAI_KEY, "gpt-4o-mini"))
@@ -227,6 +242,15 @@ class ErrorsTest(AiTestCase):
     def test_an_unreadable_answer_is_an_error(self):
         with self.assertRaises(ai_review.AiError):
             self.judge([reply(200, None, text="<html>")])
+
+    def test_an_unfollowed_redirect_is_read_like_before(self):
+        # requests noemde alles onder 400 `ok`: een 3xx die niet gevolgd wordt (geen Location) gaat naar het lezen van het antwoord.
+        for status in (302, 304):
+            with self.subTest(status=status), self.assertRaisesRegex(ai_review.AiError, "cannot be read|niet te lezen"):
+                self.judge([httpx.Response(status, text="<html>verhuisd</html>")] * 3)
+            self.assertEqual((self.calls, self.pauses), (1, []), "geen herhaling: het antwoord was er, alleen onleesbaar")
+        (verdicts, _), _ = self.judge([httpx.Response(302, json=body_of_answer("anthropic", [(1, "ok", "ja")]))])
+        self.assertEqual((verdicts, self.calls), ({1: ("ok", "ja")}, 1), "een leesbaar antwoord bij een 3xx telt, zoals voorheen")
 
     def test_ai_calls_send_the_default_user_agent(self):
         # Geen van beide aanbieders had een eigen User-Agent: de standaard van http_client, niet die van httpx.

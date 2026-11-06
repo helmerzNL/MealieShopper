@@ -305,11 +305,15 @@ async def _call(provider: str, key: str, model: str, system: str, payload: str, 
     for attempt in range(RETRIES + 1):
         try:
             # De client heet naar de aanbieder ("anthropic" of "openai"). Geen eigen User-Agent: de standaard van http_client.
-            response: httpx.Response = await http_client.client(provider, timeout=TIMEOUT).post(url, headers=_headers(provider, key), json=body)
+            # De time-out ook per verzoek: de instellingen van een client gelden van wie hem het eerst aanmaakte.
+            response: httpx.Response = await http_client.client(provider, timeout=TIMEOUT).post(
+                url, headers=_headers(provider, key), json=body, timeout=TIMEOUT
+            )
         except httpx.HTTPError as exc:
             last = tr("Geen verbinding met {name}: {error}", "No connection to {name}: {error}").format(name=info["name"], error=_clean(exc, key))
         else:
-            if response.is_success:
+            # Zoals `response.ok` van requests: alles onder 400, dus ook een niet-gevolgde doorverwijzing gaat naar het lezen.
+            if response.status_code < 400:
                 try:
                     return _parse(provider, response.json())
                 except ValueError:
