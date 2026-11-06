@@ -118,6 +118,14 @@ PLAIN_SETTINGS = frozenset({
 })
 MAX_SETTING_CHARS = 20_000
 
+# Onderdelen die de beheerder bij het maken kan weglaten en bij het terugzetten kan overslaan (naast de koppelingen). Een
+# onderdeel dat niet in het bestand zit of niet wordt teruggezet, blijft op deze installatie zoals het is, net als de
+# koppelingen. De aanbiedingen van nu haalt de app bij de volgende synchronisatie ook weer op; de historie niet.
+OPTIONAL_PARTS: dict[str, tuple[str, ...]] = {
+    "offers": ("offers", "offers_meta"),  # de aanbiedingen van nu en wanneer ze per winkel zijn opgehaald
+    "offerHistory": ("offer_history",),
+}
+
 # Wat de beheerder ziet: tabellen samengevoegd tot een paar regels.
 COUNT_GROUPS: dict[str, tuple[str, ...]] = {
     "lists": ("ah_lists", "jumbo_lists"),
@@ -174,6 +182,7 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "bad_table": ("De back-up bevat een onderdeel dat hier niet hoort: {table}.", "The backup contains a part that does not belong here: {table}."),
     "bad_structure": ("De back-up is beschadigd of bewerkt: {detail}.", "The backup is damaged or edited: {detail}."),
     "bad_row": ("{table}, regel {line}: {error}", "{table}, row {line}: {error}"),
+    "bad_part": ("Dit onderdeel bestaat niet in een back-up: {part}.", "This part does not exist in a backup: {part}."),
     "bad_setting": ("De back-up bevat een instelling die hier niet hoort: {key}.", "The backup contains a setting that does not belong here: {key}."),
     "needs_passphrase": (
         "Deze back-up bevat koppelingen en is versleuteld. Vul het wachtwoord in dat je bij het maken koos.",
@@ -344,13 +353,19 @@ def _rows(conn: sqlite3.Connection, table: str, names: list[str]) -> Iterator[st
         yield json.dumps({name: _encode(row[index]) for index, name in enumerate(names)}, ensure_ascii=False, separators=(",", ":"))
 
 
-def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str, Any]:
+def write_backup(target: Path, *, links: bool, passphrase: str = "", leave_out: Any = ()) -> dict[str, Any]:
     """Schrijft de back-up naar `target` en geeft een samenvatting (aantallen en koppelingen).
 
-    Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als de app ondertussen doorwerkt.
+    `leave_out`: onderdelen uit OPTIONAL_PARTS die niet meegaan; het bestand zegt welke (`left_out`), zodat het terugzetten
+    die onderdelen laat zoals ze zijn. Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als
+    de app ondertussen doorwerkt.
     """
     if links and len(passphrase) < MIN_PASSPHRASE_LENGTH:
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
+    left_out = sorted(set(leave_out))
+    if any(part not in OPTIONAL_PARTS for part in left_out):
+        raise BackupError("bad_part", part=str(next(part for part in left_out if part not in OPTIONAL_PARTS))[:40])
+    skipped_tables = {table for part in left_out for table in OPTIONAL_PARTS[part]}
     ensure_schemas()
     counts: dict[str, int] = {}
     with closing(auth.connect()) as conn:
@@ -367,6 +382,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str
             "app_version": about.read_version(),
             "created_at": _now(),
             "includes_links": bool(links),
+            "left_out": left_out,
         }
         with target.open("w", encoding="utf-8") as handle:
             handle.write(json.dumps(header, ensure_ascii=False)[:-1])
@@ -374,7 +390,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str
             secrets_block = {"links": sorted({SECRET_KEYS[key] for key in stored}), "sealed": seal(stored, passphrase) if stored else None}
             handle.write(',"secrets":' + json.dumps(secrets_block, ensure_ascii=False))
             handle.write(',"tables":{')
-            for number, table in enumerate(DATA_TABLES):
+            for number, table in enumerate(table for table in DATA_TABLES if table not in skipped_tables):
                 names = [column["name"] for column in _columns(conn, table)]
                 handle.write(("," if number else "") + json.dumps(table) + ":[")
                 count = 0
@@ -385,7 +401,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str
                 counts[table] = count
             handle.write("}}")
         conn.rollback()
-    return {"counts": _group_counts(counts), "links": secrets_block["links"], "unreadableLinks": unreadable}
+    return {"counts": _group_counts(counts), "links": secrets_block["links"], "unreadableLinks": unreadable, "leftOut": left_out}
 
 
 def _group_counts(per_table: dict[str, int]) -> dict[str, int]:
@@ -434,10 +450,35 @@ class Plan:
         self.plain: dict[str, str] = {}
         self.secrets: dict[str, str] | None = None  # None zolang het wachtwoord niet is gebruikt
         self.tables: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+        self.left_out: list[str] = []  # onderdelen die niet in het bestand zitten
+        self.skipped: list[str] = []  # onderdelen die de beheerder niet terugzet
 
     @property
     def needs_passphrase(self) -> bool:
         return self.sealed is not None
+
+    def skip(self, *, links: bool = False, parts: Any = ()) -> None:
+        """Wat de beheerder niet wil terugzetten: dat blijft op deze installatie zoals het is.
+
+        Zonder de koppelingen is er geen wachtwoord nodig (handig als je het kwijt bent): de koppelingen van nu blijven staan.
+        """
+        if links:
+            self.links, self.sealed = [], None
+        for part in parts:
+            if part not in OPTIONAL_PARTS:
+                raise BackupError("bad_part", part=str(part)[:40])
+            if part not in self.left_out and part not in self.skipped:
+                self.skipped.append(part)
+                for table in OPTIONAL_PARTS[part]:
+                    self.tables.pop(table, None)
+        self.skipped.sort()
+
+    def kept_parts(self) -> list[str]:
+        """De onderdelen die het terugzetten niet aanraakt: niet in het bestand, of overgeslagen."""
+        return sorted(set(self.left_out) | set(self.skipped))
+
+    def kept_tables(self) -> set[str]:
+        return {table for part in self.kept_parts() for table in OPTIONAL_PARTS[part]}
 
     def counts(self) -> dict[str, int]:
         return _group_counts({table: len(rows) for table, rows in self.tables.items()})
@@ -470,12 +511,20 @@ def prepare(data: dict[str, Any]) -> Plan:
     if plan.links and not isinstance(plan.sealed, dict):
         raise BackupError("bad_structure", detail="secrets")
 
+    left_out = data.get("left_out") or []
+    if not isinstance(left_out, list) or not all(isinstance(part, str) and part in OPTIONAL_PARTS for part in left_out):
+        raise BackupError("bad_structure", detail="left_out")
+    plan.left_out = sorted(set(left_out))
+    absent = {table for part in plan.left_out for table in OPTIONAL_PARTS[part]}
+
     tables = data.get("tables", {})
     if not isinstance(tables, dict):
         raise BackupError("bad_structure", detail="tables")
     for table, rows in tables.items():
         if table not in DATA_TABLES:
             raise BackupError("bad_table", table=str(table)[:60])
+        if table in absent:  # het bestand zegt dat dit onderdeel er niet in zit, maar het staat er wel: bewerkt
+            raise BackupError("bad_structure", detail="left_out")
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
             raise BackupError("bad_structure", detail=str(table))
         plan.tables[table] = list(enumerate(rows, 1))
@@ -566,6 +615,7 @@ def summarize(plan: Plan) -> dict[str, Any]:
         "counts": plan.counts(),
         "links": plan.links,
         "needsPassphrase": plan.needs_passphrase,
+        "leftOut": plan.left_out,
     }
 
 
@@ -585,10 +635,14 @@ def replace_everything(
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
+        kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
-            conn.execute(f"DELETE FROM {_quote(table)}")
+            if table not in kept:
+                conn.execute(f"DELETE FROM {_quote(table)}")
         users = {row["id"] for row in conn.execute("SELECT id FROM users")}
         for table in DATA_TABLES:
+            if table in kept:
+                continue
             groups: dict[tuple[str, ...], list[list[Any]]] = {}
             for _, values in prepared.get(table, []):
                 if table == "user_profiles" and values.get("user_id") not in users:
@@ -620,6 +674,7 @@ def replace_everything(
             "links": sorted({SECRET_KEYS[key] for key in plan.secrets}) if plan.secrets is not None else [],
             "linksKept": plan.secrets is None,
             "skippedProfiles": skipped_profiles,
+            "kept": plan.kept_parts(),
         }
         on_commit(conn, summary)
         conn.execute("COMMIT")
@@ -758,12 +813,17 @@ def dismiss_job(job_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def start_job(token: str, passphrase: str) -> dict[str, Any]:
-    """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond."""
+def start_job(token: str, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> dict[str, Any]:
+    """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond.
+
+    `skip_links` en `skip_parts` (uit OPTIONAL_PARTS): wat de beheerder niet terugzet; dat blijft zoals het is.
+    """
     path = _stage_path(token)
     if not path.is_file():
         raise BackupError("stage_missing", 404)
+    skip_parts = tuple(skip_parts)
     plan = prepare(read_file(path))  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
+    plan.skip(links=skip_links, parts=skip_parts)
     if plan.needs_passphrase:
         unseal(plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
     running = path.with_name(path.name + ".job")
@@ -789,15 +849,19 @@ def start_job(token: str, passphrase: str) -> dict[str, Any]:
         except BaseException:
             conn.execute("ROLLBACK")
             raise
-    thread = threading.Thread(target=run_job, args=(job_id, running, passphrase), name=f"backup-restore-{job_id}", daemon=True)
+    thread = threading.Thread(
+        target=run_job, args=(job_id, running, passphrase), kwargs={"skip_links": skip_links, "skip_parts": skip_parts},
+        name=f"backup-restore-{job_id}", daemon=True,
+    )
     thread.start()
     return {"id": job_id}
 
 
-def run_job(job_id: str, staged: Path, passphrase: str) -> None:
+def run_job(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
     started = time.monotonic()
     try:
         plan = prepare(read_file(staged))
+        plan.skip(links=skip_links, parts=skip_parts)
         if plan.needs_passphrase:
             plan.secrets = unseal(plan.sealed, passphrase)
         prepared = check_rows(plan, lambda step, steps: _job_update(job_id, step=step, steps=steps))
@@ -845,11 +909,12 @@ def register_routes(app: Flask) -> None:
         body = request.get_json(silent=True) or {}
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
+        leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
         started = time.monotonic()
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
         try:
-            write_backup(path, links=links, passphrase=passphrase)
+            write_backup(path, links=links, passphrase=passphrase, leave_out=leave_out)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)
@@ -912,7 +977,11 @@ def register_routes(app: Flask) -> None:
     def backup_start():
         body = request.get_json(silent=True) or {}
         try:
-            job = start_job(str(body.get("token") or ""), str(body.get("passphrase") or ""))
+            job = start_job(
+                str(body.get("token") or ""), str(body.get("passphrase") or ""),
+                skip_links=body.get("links", True) is False,  # standaard zet je alles terug wat in het bestand zit
+                skip_parts=[part for part in OPTIONAL_PARTS if body.get(part, True) is False],
+            )
         except BackupError as exc:
             return _error(exc)
         return jsonify(job), 202

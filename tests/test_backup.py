@@ -859,6 +859,119 @@ class ChunkedUploadTest(BackupCase):
         self.assertFalse(path.exists())
 
 
+class OptionalPartsTest(BackupCase):
+    """De aanbiedingen van nu en de historie mogen bij het maken weg, en bij het terugzetten (net als de koppelingen) blijven."""
+
+    OFFERS = ("offers", "offers_meta")
+    HISTORY = ("offer_history",)
+
+    def change_offers(self):
+        """Wat er op deze installatie staat na het maken van de back-up: andere aanbiedingen en een andere historie."""
+        with closing(self.connect()) as conn, conn:
+            conn.execute("INSERT INTO offers (store, product_id, position, title) VALUES ('ah', 'nu', 1, 'Van nu')")
+            conn.execute("INSERT INTO offers_meta (store, synced_at) VALUES ('nu', 'vandaag')")
+            conn.execute("INSERT INTO offer_history (store, product_id, title, first_seen, last_seen) VALUES ('ah', 'nu', 'Van nu', 'a', 'b')")
+
+    def tables(self, names):
+        snapshot = self.snapshot()
+        return {name: snapshot[name] for name in names}
+
+    def test_a_backup_without_the_offers_leaves_them_out_and_says_so(self):
+        self.seed()
+        response, data = self.make(offers=False, offerHistory=False)
+        self.assertEqual(response.status_code, 200)
+        document = json.loads(data)
+        self.assertEqual(document["left_out"], ["offerHistory", "offers"])
+        for table in self.OFFERS + self.HISTORY:
+            self.assertNotIn(table, document["tables"])
+        self.assertIn("price_observations", document["tables"])
+        body = self.stage(data).get_json()
+        self.assertEqual(body["leftOut"], ["offerHistory", "offers"])
+        self.assertEqual((body["counts"]["offers"], body["counts"]["offerHistory"], body["counts"]["prices"]), (0, 0, 2))
+        _, everything = self.make()
+        self.assertEqual(json.loads(everything)["left_out"], [])
+        self.assertGreater(len(everything), len(data))
+
+    def test_what_a_backup_left_out_stays_as_it_is_and_the_rest_is_replaced(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make(offerHistory=False)
+        self.change_offers()
+        self.junk()
+        history = self.tables(self.HISTORY)
+        job = self.restore(data)
+        self.assertEqual(job["status"], "done", job)
+        self.assertEqual(job["summary"]["kept"], ["offerHistory"])
+        self.assertEqual(self.tables(self.HISTORY), history)  # de historie van nu, niet die van de back-up
+        self.assertEqual(self.tables(self.OFFERS), {table: before[table] for table in self.OFFERS})  # wel teruggezet
+        self.assertEqual(self.snapshot()["ah_lists"], before["ah_lists"])  # de rommel is weg
+
+    def test_parts_you_untick_when_restoring_stay_as_they_are(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make()
+        self.change_offers()
+        offers = self.tables(self.OFFERS)
+        token = self.stage(data).get_json()["token"]
+        started = self.admin.post("/api/backup/jobs", json={"token": token, "offers": False})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        job = self.wait()
+        self.assertEqual(job["status"], "done", job)
+        self.assertEqual(job["summary"]["kept"], ["offers"])
+        self.assertEqual(job["summary"]["counts"]["offers"], 0)
+        self.assertEqual(self.tables(self.OFFERS), offers)
+        self.assertEqual(self.tables(self.HISTORY), {table: before[table] for table in self.HISTORY})
+
+    def test_without_the_links_no_password_is_needed_and_the_links_of_now_stay(self):
+        # Wachtwoord kwijt: de gegevens terugzetten kan dan toch, zonder de koppelingen uit het bestand.
+        self.seed()
+        before = self.snapshot()
+        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        _, data = self.make(links=True, passphrase=PASSPHRASE)
+        auth.set_secret(mealie.SECRET_TOKEN, "TOKEN-VAN-NU-87654321")
+        self.wipe()
+        token = self.stage(data).get_json()["token"]
+        self.assertEqual(self.start(token).get_json()["code"], "needs_passphrase")  # met de koppelingen: wel een wachtwoord
+        started = self.admin.post("/api/backup/jobs", json={"token": token, "links": False})
+        self.assertEqual(started.status_code, 202, started.get_json())
+        job = self.wait()
+        self.assertEqual(job["status"], "done", job)
+        self.assertTrue(job["summary"]["linksKept"])
+        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "TOKEN-VAN-NU-87654321")
+        self.assertEqual(self.snapshot()["offer_history"], before["offer_history"])
+
+    def test_an_edited_file_that_hides_a_part_is_refused(self):
+        self.seed()
+        _, data = self.make()
+        for change in (
+            lambda doc: doc.update(left_out=["offers"]),  # zegt dat het er niet in zit, maar het staat er wel
+            lambda doc: doc.update(left_out=["users"]),
+            lambda doc: doc.update(left_out="offers"),
+        ):
+            response = self.stage(self.tweak(data, change))
+            self.assertEqual((response.status_code, response.get_json()["code"]), (400, "bad_structure"))
+        self.assertEqual(self.staged_files(), [])
+
+    def test_an_older_backup_without_left_out_replaces_the_offers_as_before(self):
+        self.seed()
+        before = self.snapshot()
+        _, data = self.make()
+        older = self.tweak(data, lambda doc: doc.pop("left_out"))
+        self.change_offers()
+        self.assertEqual(self.restore(older)["summary"]["kept"], [])
+        self.assertEqual(self.tables(self.OFFERS + self.HISTORY), {table: before[table] for table in self.OFFERS + self.HISTORY})
+
+    def test_every_optional_part_is_a_data_table_with_a_line_on_the_screen(self):
+        for part, tables in backup.OPTIONAL_PARTS.items():
+            self.assertIn(part, backup.COUNT_GROUPS)
+            for table in tables:
+                self.assertIn(table, backup.DATA_TABLES)
+            for lang in ("nl", "en"):
+                source = (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
+                for key in (f"backup.part.{part}", f"backup.restore_part.{part}"):
+                    self.assertIn(f'"{key}":', source)
+
+
 class PassphraseTest(BackupCase):
     def prepare(self):
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
