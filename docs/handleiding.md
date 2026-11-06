@@ -364,9 +364,10 @@ Het subtab **Recepten** toont de receptvoorstellen: recepten waarvan ingrediënt
 
 ### Prijsarchief importeren
 
-Onder **Instellingen, Systeem, Prijsarchief importeren** (alleen de beheerder) voeg je historische prijzen toe aan de Prijsgeschiedenis: aanbiedingen uit oude folders en gedateerde prijzen van vóór MealieShopper, bijvoorbeeld het folderarchief van Albert Heijn en Jumbo (2009-2026), Picnic (2022-2023) en Crisp (2021-2026). Anders dan **Back-up terugzetten** vervangt het niets. Kies het bestand: MealieShopper controleert het helemaal en toont per winkel hoeveel aanbiedingen en prijzen nieuw zijn, hoeveel er al staan en welke periode het archief beslaat. Pas met **Importeren** komen ze erbij, in één keer op de server; verlaat je de pagina, dan gaat het door. Dezelfde regel komt er maar één keer in, dus nog een keer importeren voegt niets toe.
+Onder **Instellingen, Systeem, Prijsarchief importeren** (alleen de beheerder) voeg je historische prijzen toe aan de Prijsgeschiedenis: aanbiedingen uit oude folders en gedateerde prijzen van vóór MealieShopper, bijvoorbeeld het folderarchief van Albert Heijn en Jumbo (2009-2026), Picnic (2022-2023) en Crisp (2021-2026). Anders dan **Back-up terugzetten** vervangt het niets, tenzij je **Vervang wat eerder uit een prijsarchief kwam** aanvinkt (zie hieronder). Kies het bestand: MealieShopper controleert het helemaal en toont per winkel hoeveel aanbiedingen en prijzen nieuw zijn, hoeveel er al staan en welke periode het archief beslaat. Pas met **Importeren** komen ze erbij, in één keer op de server; verlaat je de pagina, dan gaat het door. Dezelfde regel komt er maar één keer in, dus nog een keer importeren voegt niets toe.
 
 - **Wat er al staat, gaat voor.** Een aanbieding met dezelfde winkel, hetzelfde adres en dezelfde looptijd staat er al, en een aanbieding die de app zelf al kent (hetzelfde product en dezelfde looptijd) ook. Staat er op dezelfde dag al een prijs van hetzelfde product, dan blijft die staan. Een correctie verandert alleen een eerder geïmporteerde archiefregel (het `product_id` begint met `folder:`), en alleen als de oude waarde precies klopt.
+- **Vervangen.** Staat er al iets uit een prijsarchief, dan staat in de samenvatting het vinkje **Vervang wat eerder uit een prijsarchief kwam**, met hoeveel aanbiedingen en prijzen dat zijn. Vink je het aan, dan gaan die er eerst uit, in dezelfde transactie als de import: mislukt er iets, dan staat alles er nog. Een archiefregel herkent de app aan een product-id dat met `folder:` begint of een adres van supermarktaanbiedingen.com of voordeelmuis.nl (aanbiedingen), en aan de bron `public_press_release` of `public_observed_unknown` (prijzen); wat de app zelf ophaalde heeft dat nooit en blijft staan. Een eigen archief met andere adressen en echte product-id's herkent hij niet, en dat blijft dus ook staan. De samenvatting toont met het vinkje wat er na het vervangen bij komt.
 - **Niets wordt zomaar vertrouwd.** Elke controlesom, elke regel en elke waarde wordt gecontroleerd. Een fout weigert het hele bestand, met het bestand, het regelnummer en de reden, en verandert niets. Een stuurteken in vrije tekst (naam, merk, verpakking, actietekst) wordt een spatie. Een afbeeldingsadres uit een archief neemt de app niet over, en een script in een pakket wordt nooit uitgevoerd.
 - **Zo zie je ze.** Een archiefregel staat in de Prijsgeschiedenis als eigen product (bijvoorbeeld *Folder: Ajax allesreiniger*, merk *Folderarchief*), of bij het echte product als het archief het productnummer kent. Een prijs met bron `public_press_release` telt als gewone prijs; een prijs met bron `public_observed_unknown` staat apart bij de *Waargenomen prijzen* (zie [Aanbiedingen](#aanbiedingen-1)).
 - **Groot bestand.** Een prijsarchief mag tot 200 MB zijn, net als een back-up. Staat er een reverse proxy voor de app, dan moet die zo'n upload doorlaten (zie *Grootste upload* in de [README](../README.md#beheer)).
@@ -392,6 +393,27 @@ Onder **Instellingen, Systeem, Prijsarchief importeren** (alleen de beheerder) v
 - **`price`** komt in `price_observations`, één prijs per winkel, product en dag. Verplicht: `store`, `product_id`, `day`, `source`, `title` en `price` (groter dan 0). Verder `brand`, `unit_size`, `url` (https) en `seen_at` (standaard middernacht van `day`, en altijd op die dag). `source` is `public_press_release` (een gewone prijs) of `public_observed_unknown` (waargenomen, actiestatus onbekend).
 - **`correction`** verandert `price` en `price_before` van één bestaande archiefregel met die `url`: `store`, `url`, `old_price`, `old_before`, `new_price` en `new_before` (een waarde mag `null` zijn). Correcties raken alleen regels die er vóór de import al stonden.
 - **Grenzen:** datums vanaf 2000; een prijs of `day` niet in de toekomst, een looptijd hooguit een jaar vooruit; een prijs tot 100.000; hooguit 1 miljoen regels.
+
+**Het pakket van de gist omzetten.** Het script `scripts/price_archive_from_gist.py` (in de repository, niet in de container) zet het pakket om naar dit formaat:
+
+```bash
+python3 scripts/price_archive_from_gist.py https://gist.github.com/wolph/195c8964d4e63eb1774fc14ba35b4f09 -o prijsarchief.jsonl.gz
+```
+
+Het haalt het manifest en de delen zelf op bij GitHub, of leest de ZIP, het `.tar.gz` of een uitgepakte map, en controleert dezelfde controlesommen als de app. Het schrijft één `.jsonl.gz` van een paar MB in plaats van een ZIP van ruim 100 MB, en het schoont op, zodat de Prijsgeschiedenis geen vreemde producten krijgt:
+
+- **Koppelen aan jouw producten** (`--database`). Geef een kopie van `auth.sqlite3` uit je data-map mee; het script leest hem alleen. Elke folderregel die nog bij geen product hoort, koppelt het dan aan een product uit jouw aanbiedingen, bijgehouden prijzen of bestellingen, met de koppeling uit `import_archive.py` van wolph in hetzelfde pakket: eerst exact (dezelfde naam en verpakking), anders op woorden. Is de verpakking of variant dan niet zeker, dan krijgt de regel geen prijs, maar telt hij wel als *keer in de aanbieding* bij dat product.
+- **Combi-aanbiedingen weg.** Een folderregel voor meer producten tegelijk (*A of B*, *alle …*, *diverse soorten*; ruim 60% van het archief) die bij geen product hoort, laat het script weg. `--keep-groups` houdt ze.
+- **Geen prijs zonder verpakking.** Een folderregel die bij geen product hoort en geen gewicht, inhoud of aantal noemt (*Folder: AH Runderhamburgers*), krijgt geen prijs: anders staan prijzen van verschillende verpakkingen in één grafiek. `--keep-unknown-prices` houdt die prijzen.
+
+Met `--keep-groups --keep-unknown-prices` en zonder `--database` is de uitvoer gelijk aan het pakket zelf. De herkomstvelden (bronbedragen, Git-commits, oorspronkelijke titels) blijven in elke regel staan; `--compact` laat ze weg en `--no-gzip` schrijft een gewone `.jsonl`. Het script gebruikt alleen de standaardbibliotheek van Python 3.9 of nieuwer, pakt niets uit naar schijf en voert niets uit het pakket uit.
+
+**Al eerder geïmporteerd?** Zet het opgeschoonde bestand er dan overheen met **Vervang wat eerder uit een prijsarchief kwam** (zie hierboven):
+
+```bash
+cp /mnt/user/appdata/mealieshopper/auth.sqlite3 /tmp/auth-kopie.sqlite3
+python3 scripts/price_archive_from_gist.py https://gist.github.com/wolph/195c8964d4e63eb1774fc14ba35b4f09 --database /tmp/auth-kopie.sqlite3 -o prijsarchief.jsonl.gz
+```
 
 API: `GET /api/price-archive` (de grens), `POST /api/price-archive/stage` (het bestand als body; geeft een `token` en de samenvatting, met `stores` per winkel), `DELETE /api/price-archive/stage/<token>`, `POST /api/price-archive/jobs` met `{"token": …}`, `GET /api/price-archive/jobs/latest` en `DELETE /api/price-archive/jobs/<id>`. Na de import staat een regel in het auditlog (`price-archive`, `import`).
 
