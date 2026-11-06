@@ -76,7 +76,7 @@ def create_app() -> Quart:
     @app.context_processor
     async def offers_recipes_flag():
         # Het tabblad Recepten bij Aanbiedingen: aan met de omgevingsvariabele, of zodra er een AI-sleutel is ingesteld (zie ai_review.py).
-        return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or ai_review.configured()}
+        return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or await ai_review.configured()}
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
     auth.register_routes(app)
@@ -773,8 +773,8 @@ def create_app() -> Quart:
 
     # --- AI-beoordeling van de koppelingen (optioneel, alleen de beheerder: auth.ADMIN_PATHS) -------------
 
-    def ai_status():
-        data = ai_review.status()
+    async def ai_status() -> dict[str, Any]:
+        data: dict[str, Any] = await ai_review.status()
         # Het tabblad Recepten bij Aanbiedingen is zichtbaar met de omgevingsvariabele of zodra er een AI-sleutel is.
         data["recipesTab"] = bool(app.config["OFFERS_RECIPES"] or data["active"])
         data["search"] = ai_match.progress()  # de stand van een lopende ronde "Recepten zoeken met AI", ook na een herlading van de pagina
@@ -787,7 +787,11 @@ def create_app() -> Quart:
     @app.put("/api/offers/ai")
     async def offers_ai_save():
         body = await request.get_json(silent=True) or {}
-        return await offers_action(lambda: (ai_review.save(body), ai_status())[1], tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
+        async def save_and_report() -> dict[str, Any]:
+            await ai_review.save(body)
+            return await ai_status()
+
+        return await offers_action(save_and_report, tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
 
     @app.post("/api/offers/ai/test")
     async def offers_ai_test():

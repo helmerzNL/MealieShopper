@@ -205,18 +205,18 @@ def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int, list
     return matched
 
 
-def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+async def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Laat de AI de recepten doorzoeken die dat nog nodig hebben, tot `max_recipes` recepten, en bewaart het resultaat per groep.
 
     Geeft `{searched, matched, remaining, tokens, provider, model, error}`. Gaat er halverwege iets mis (sleutel ongeldig, tegoed op), dan
     blijven de klare groepen bewaard en staat de fout in `error`; is er dan nog niets doorzocht, dan volgt de fout zelf.
     """
     store = offers._valid_store(store)
-    provider = ai_review.active_provider()
+    provider: str = await ai_review.active_provider()
     if not provider:
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
-    key, _ = ai_review.api_key(provider)
-    model = ai_review.model_of(provider)
+    key, _ = await ai_review.api_key(provider)
+    model: str = await ai_review.model_of(provider)
     items, synced_at = food_offers(store)
     if not synced_at or not items:
         raise ValueError(tr("Haal eerst de aanbiedingen van deze winkel op", "Fetch the offers of this store first"))
@@ -228,7 +228,7 @@ def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: Callabl
     for start in range(0, len(chosen), GROUP_SIZE):
         group = chosen[start:start + GROUP_SIZE]
         try:
-            data, tokens = ai_review._call(
+            data, tokens = await ai_review._call(
                 provider, key, model, SYSTEM_PROMPT, recipes_text(group), schema=SEARCH_SCHEMA, tool=TOOL, prefix=prefix, max_tokens=MAX_ANSWER_TOKENS
             )
         except AiError as exc:
@@ -268,7 +268,7 @@ def _set(**values: Any) -> None:
 
 async def _run(store: str, max_recipes: int) -> None:
     try:
-        result = search(store, max_recipes, progress=lambda info: _set(**info))
+        result = await search(store, max_recipes, progress=lambda info: _set(**info))
         _set(state="error" if result["error"] else "done", result=result, error=result["error"], finishedAt=_now())
     except (AiError, ValueError) as exc:
         _set(state="error", error=str(exc), finishedAt=_now())
@@ -286,7 +286,7 @@ async def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: 
     """Start een ronde. Er loopt er hoogstens een tegelijk; met `background=False` wacht deze aanroep tot de ronde klaar is."""
     store = offers._valid_store(store)
     info = plan(store, max_recipes)  # controleert ook of er een sleutel en aanbiedingen zijn
-    if not ai_review.active_provider():
+    if not await ai_review.active_provider():
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
     if _job.get("state") == "running":
         raise ValueError(tr("Er loopt al een ronde", "A round is already running"))

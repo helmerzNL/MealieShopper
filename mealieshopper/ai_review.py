@@ -16,17 +16,17 @@ dezelfde API, zoals bij de officiële SDK's: een proxy als LiteLLM, Azure OpenAI
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-import time
 from contextlib import closing
 from os import environ
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-import requests
+import httpx
 
-from . import auth, offers
+from . import auth, http_client, offers
 from .i18n import tr
 
 BATCH_SIZE = 40
@@ -109,19 +109,19 @@ def _provider(name: Any) -> dict[str, str]:
     return PROVIDERS[key]
 
 
-def api_key(provider: str) -> tuple[str, str]:
+async def api_key(provider: str) -> tuple[str, str]:
     """(sleutel, bron): bron is "app" (in de app ingevuld), "env" (omgevingsvariabele) of "" zonder sleutel."""
-    info = PROVIDERS[provider]
-    stored = auth.get_secret(info["secret"]).strip()
+    info: dict[str, str] = PROVIDERS[provider]
+    stored: str = (await auth.aget_secret(info["secret"])).strip()
     if stored:
         return stored, "app"
     from_env = (environ.get(info["env"]) or "").strip()
     return (from_env, "env") if from_env else ("", "")
 
 
-def model_of(provider: str) -> str:
-    info = PROVIDERS[provider]
-    return auth.get_setting(info["model_setting"]).strip() or info["default_model"]
+async def model_of(provider: str) -> str:
+    info: dict[str, str] = PROVIDERS[provider]
+    return (await auth.aget_setting(info["model_setting"])).strip() or info["default_model"]
 
 
 def endpoint(provider: str) -> tuple[str, str]:
@@ -160,50 +160,53 @@ def _endpoint_status(provider: str) -> dict[str, str]:
     return {"endpoint": _shown(url), "endpointSource": source, "baseEnv": info["base_env"]}
 
 
-def active_provider() -> str:
+async def active_provider() -> str:
     """De gekozen aanbieder als die een sleutel heeft, anders de eerste die een sleutel heeft, anders ""."""
-    chosen = auth.get_setting(SETTING_PROVIDER).strip().lower()
-    if chosen in PROVIDERS and api_key(chosen)[0]:
+    chosen: str = (await auth.aget_setting(SETTING_PROVIDER)).strip().lower()
+    if chosen in PROVIDERS and (await api_key(chosen))[0]:
         return chosen
-    return next((name for name in PROVIDERS if api_key(name)[0]), "")
+    for name in PROVIDERS:
+        if (await api_key(name))[0]:
+            return name
+    return ""
 
 
-def configured() -> bool:
-    return bool(active_provider())
+async def configured() -> bool:
+    return bool(await active_provider())
 
 
 def _hint(key: str) -> str:
     return f"…{key[-4:]}" if len(key) >= 8 else ""
 
 
-def status() -> dict[str, Any]:
+async def status() -> dict[str, Any]:
     """Wat er is ingesteld, zonder de sleutels zelf: per aanbieder of er een sleutel is, waar die vandaan komt, de laatste vier tekens,
     het model en het adres van de aanvragen."""
-    providers = {}
+    providers: dict[str, dict[str, Any]] = {}
     for name, info in PROVIDERS.items():
-        key, source = api_key(name)
+        key, source = await api_key(name)
         providers[name] = {
             "name": info["name"], "configured": bool(key), "source": source, "hint": _hint(key),
-            "model": model_of(name), "defaultModel": info["default_model"], **_endpoint_status(name),
+            "model": await model_of(name), "defaultModel": info["default_model"], **_endpoint_status(name),
         }
-    chosen = auth.get_setting(SETTING_PROVIDER).strip().lower()
+    chosen: str = (await auth.aget_setting(SETTING_PROVIDER)).strip().lower()
     return {
-        "active": active_provider(), "chosen": chosen if chosen in PROVIDERS else "", "providers": providers,
+        "active": await active_provider(), "chosen": chosen if chosen in PROVIDERS else "", "providers": providers,
         "batchSize": BATCH_SIZE, "defaultMaxPairs": DEFAULT_MAX_PAIRS, "maxPairs": MAX_PAIRS,
     }
 
 
-def save(body: dict[str, Any]) -> dict[str, Any]:
+async def save(body: dict[str, Any]) -> dict[str, Any]:
     """Slaat de keuze van aanbieder, de modellen en de sleutels op. Een lege sleutel verandert niets; `clear` wist de sleutel van een aanbieder."""
     if "provider" in body:
         choice = str(body.get("provider") or "").strip().lower()
-        auth.set_setting(SETTING_PROVIDER, "" if choice in ("", "auto") else _name(choice))
+        await auth.aset_setting(SETTING_PROVIDER, "" if choice in ("", "auto") else _name(choice))
     for name, model in (body.get("models") or {}).items():
         info = _provider(name)
         text = " ".join(str(model or "").split())[:100]
         if text and not re.fullmatch(r"[A-Za-z0-9._:/\-]+", text):
             raise ValueError(tr("Een modelnaam bestaat uit letters, cijfers en . _ : / -", "A model name consists of letters, digits and . _ : / -"))
-        auth.set_setting(info["model_setting"], text)
+        await auth.aset_setting(info["model_setting"], text)
     for name, key in (body.get("keys") or {}).items():
         info = _provider(name)
         value = str(key or "").strip()
@@ -211,10 +214,10 @@ def save(body: dict[str, Any]) -> dict[str, Any]:
             continue
         if len(value) < 20 or re.search(r"\s", value):
             raise ValueError(tr("Dit lijkt geen geldige API-sleutel (zonder spaties, minstens 20 tekens).", "This does not look like a valid API key (no spaces, at least 20 characters)."))
-        auth.set_secret(info["secret"], value)
+        await auth.aset_secret(info["secret"], value)
     for name in body.get("clear") or []:
-        auth.delete_secret(_provider(name)["secret"])
-    return status()
+        await auth.adelete_secret(_provider(name)["secret"])
+    return await status()
 
 
 def _name(value: Any) -> str:
@@ -235,7 +238,7 @@ def _clean(text: Any, key: str = "") -> str:
     return value[:300]
 
 
-def _error_text(response: requests.Response, key: str) -> str:
+def _error_text(response: httpx.Response, key: str) -> str:
     try:
         data = response.json()
         message = (data.get("error") or {}).get("message") if isinstance(data.get("error"), dict) else data.get("error") or data.get("message")
@@ -293,18 +296,20 @@ def _parse(provider: str, data: Any) -> tuple[Any, int]:
         return None, tokens
 
 
-def _call(provider: str, key: str, model: str, system: str, payload: str, **options: Any) -> tuple[Any, int]:
-    info = PROVIDERS[provider]
+async def _call(provider: str, key: str, model: str, system: str, payload: str, **options: Any) -> tuple[Any, int]:
+    """Een aanvraag bij de aanbieder, met maximaal `RETRIES` herhalingen bij een drukke of falende server (2 en 4 seconden pauze)."""
+    info: dict[str, str] = PROVIDERS[provider]
     url, _ = endpoint(provider)
-    body = _request_body(provider, model, system, payload, **options)
-    last = ""
+    body: dict[str, Any] = _request_body(provider, model, system, payload, **options)
+    last: str = ""
     for attempt in range(RETRIES + 1):
         try:
-            response = requests.post(url, headers=_headers(provider, key), json=body, timeout=TIMEOUT)
-        except requests.RequestException as exc:
+            # De client heet naar de aanbieder ("anthropic" of "openai"). Geen eigen User-Agent: de standaard van http_client.
+            response: httpx.Response = await http_client.client(provider, timeout=TIMEOUT).post(url, headers=_headers(provider, key), json=body)
+        except httpx.HTTPError as exc:
             last = tr("Geen verbinding met {name}: {error}", "No connection to {name}: {error}").format(name=info["name"], error=_clean(exc, key))
         else:
-            if response.ok:
+            if response.is_success:
                 try:
                     return _parse(provider, response.json())
                 except ValueError:
@@ -318,11 +323,11 @@ def _call(provider: str, key: str, model: str, system: str, payload: str, **opti
             if response.status_code not in (408, 409, 429) and response.status_code < 500:
                 raise AiError(last)
         if attempt < RETRIES:
-            time.sleep(2 * (attempt + 1))
+            await asyncio.sleep(2 * (attempt + 1))
     raise AiError(last)
 
 
-def judge(pairs: list[dict[str, Any]], provider: str, key: str, model: str) -> tuple[dict[int, tuple[str, str]], int]:
+async def judge(pairs: list[dict[str, Any]], provider: str, key: str, model: str) -> tuple[dict[int, tuple[str, str]], int]:
     """Laat de AI een groep paren beoordelen. Geeft ({index: (oordeel, reden)}, tokens); een paar zonder bruikbaar oordeel ontbreekt."""
     items = [
         {
@@ -335,7 +340,7 @@ def judge(pairs: list[dict[str, Any]], provider: str, key: str, model: str) -> t
         }
         for index, pair in enumerate(pairs, start=1)
     ]
-    data, tokens = _call(provider, key, model, SYSTEM_PROMPT, json.dumps({"items": items}, ensure_ascii=False))
+    data, tokens = await _call(provider, key, model, SYSTEM_PROMPT, json.dumps({"items": items}, ensure_ascii=False))
     verdicts: dict[int, tuple[str, str]] = {}
     entries = data.get("verdicts") if isinstance(data, dict) else None
     for entry in entries if isinstance(entries, list) else []:
@@ -347,17 +352,17 @@ def judge(pairs: list[dict[str, Any]], provider: str, key: str, model: str) -> t
     return verdicts, tokens
 
 
-def test(provider: Any = None) -> dict[str, Any]:
+async def test(provider: Any = None) -> dict[str, Any]:
     """Een kleine proefaanroep met het gekozen model: werkt de sleutel en bestaat het model?"""
-    name = _name(provider) if provider else active_provider()
+    name: str = _name(provider) if provider else await active_provider()
     if not name:
         raise ValueError(tr("Vul eerst een API-sleutel in", "Enter an API key first"))
-    key, _ = api_key(name)
+    key, _ = await api_key(name)
     if not key:
         raise ValueError(tr("Voor {name} is geen API-sleutel ingesteld", "No API key is set for {name}").format(name=PROVIDERS[name]["name"]))
-    model = model_of(name)
-    pair = {"ingredient": "400 g kipfilet", "product": "AH Kipfilet", "category": "vlees"}
-    verdicts, tokens = judge([pair], name, key, model)
+    model: str = await model_of(name)
+    pair: dict[str, Any] = {"ingredient": "400 g kipfilet", "product": "AH Kipfilet", "category": "vlees"}
+    verdicts, tokens = await judge([pair], name, key, model)
     if 1 not in verdicts:
         raise AiError(tr("{name} antwoordde, maar niet in de verwachte vorm. Probeer een ander model.", "{name} answered, but not in the expected form. Try another model.").format(name=PROVIDERS[name]["name"]))
     return {"provider": name, "name": PROVIDERS[name]["name"], "model": model, "tokens": tokens, "ok": True}
@@ -371,19 +376,20 @@ def _judged(conn, store: str) -> set[tuple[str, str]]:
     return {(row["product_id"], row["head"]) for row in rows}
 
 
-def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, Any]:
+async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, Any]:
     """Laat de AI de nog niet beoordeelde koppelingen van een winkel beoordelen, tot `max_pairs` paren.
 
     Geeft `{judged, ok, wrong, remaining, tokens, provider, model}`. Gaat er halverwege iets mis (sleutel ongeldig, tegoed op),
     dan blijft bewaard wat al beoordeeld is en staat de fout in `error`; is er dan nog niets beoordeeld, dan volgt de fout zelf.
     """
     store = offers._valid_store(store)
-    provider = active_provider()
+    provider: str = await active_provider()
     if not provider:
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
-    key, _ = api_key(provider)
-    model = model_of(provider)
+    key, _ = await api_key(provider)
+    model: str = await model_of(provider)
     limit = max(1, min(MAX_PAIRS, int(max_pairs or DEFAULT_MAX_PAIRS)))
+    # De tabel offer_verdicts hoort bij offers, dat tot zijn eigen taak synchroon sqlite3 gebruikt.
     with closing(offers._connect()) as conn:
         done = _judged(conn, store)
     todo = [pair for pair in offers.unique_pairs(store) if (pair["offerId"], pair["head"]) not in done]
@@ -392,7 +398,7 @@ def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, Any]:
     for start in range(0, len(batch_all), BATCH_SIZE):
         group = batch_all[start:start + BATCH_SIZE]
         try:
-            verdicts, tokens = judge(group, provider, key, model)
+            verdicts, tokens = await judge(group, provider, key, model)
         except AiError as exc:
             if not result["judged"]:
                 raise
