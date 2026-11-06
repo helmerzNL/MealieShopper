@@ -20,12 +20,13 @@ Verschillen met Flask die hier worden overbrugd:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Coroutine, Mapping
-from contextlib import AbstractAsyncContextManager
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping
+from contextlib import AbstractAsyncContextManager, contextmanager
 from http.cookiejar import Cookie
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
+import respx
 from quart import Quart
 from quart import Response as QuartResponse
 from quart.testing.utils import make_test_body_with_headers, sentinel
@@ -280,3 +281,18 @@ def in_db(aconnect: Callable[[], AbstractAsyncContextManager[Any]], *steps: Call
             return results
 
     return run(go())
+
+
+@contextmanager
+def served(return_value: Any = None, side_effect: Any = None) -> Iterator[respx.Route]:
+    """Een respx-route die elk verzoek opvangt, zoals `mock.patch.object(module.requests, "get", ...)` dat deed.
+
+    `return_value` is een `httpx.Response` voor elk verzoek, `side_effect` een lijst antwoorden (een per verzoek, in volgorde),
+    een uitzondering of een functie. De route geeft `calls` en `call_count` terug, om te controleren wat er is gevraagd."""
+    with respx.mock(assert_all_called=False) as router:
+        route: respx.Route = router.route()
+        if side_effect is not None:
+            route.side_effect = side_effect
+        else:
+            route.mock(return_value=return_value)
+        yield route

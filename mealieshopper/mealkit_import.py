@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
-import requests
+import httpx
+import requests  # alleen voor de fouten van `mealie`, dat tot Taak 19 nog requests gebruikt
 
 from . import audit, mealie
 from .i18n import tr
@@ -57,36 +58,36 @@ def failure(exc: Exception, error: type[Exception]) -> Exception:
     """De fout die de gebruiker te zien krijgt: een tekst van onszelf, met hooguit de soort fout, nooit het antwoord van Mealie."""
     if isinstance(exc, (ValueError, error)):
         return exc
-    if isinstance(exc, requests.Timeout):
+    if isinstance(exc, (requests.Timeout, httpx.TimeoutException)):
         return error(tr(
             f"Mealie antwoordde niet binnen {MEALIE_TIMEOUT} seconden. Het recept kan toch zijn aangemaakt: kijk in Mealie voordat je het opnieuw probeert",
             f"Mealie did not answer within {MEALIE_TIMEOUT} seconds. The recipe may have been created anyway: check Mealie before trying again",
         ))
-    if isinstance(exc, requests.ConnectionError):
+    if isinstance(exc, (requests.ConnectionError, httpx.ConnectError)):
         return error(tr("Mealie is niet bereikbaar", "Mealie is not reachable"))
     return error(tr(f"Importeren in Mealie mislukt ({type(exc).__name__})", f"Importing into Mealie failed ({type(exc).__name__})"))
 
 
-def run_import(
+async def run_import(
     service: str,
     name: str,
     key: Any,
     valid: Callable[[str], bool],
     source_url: Callable[[str], str],
-    work: Callable[[str, list[dict[str, Any]]], str],
+    work: Callable[[str, list[dict[str, Any]]], Awaitable[str]],
     error: type[Exception],
 ) -> dict[str, str]:
     """Haal het recept op en zet het in Mealie: `{"slug", "mealieUrl"}`. Elke poging, gelukt of niet, komt in het auditlog
     (dienst `service`, actie "Mealie import"), met de duur en per poging wat er gebeurde. Een fout komt als `ValueError`
     of als `error` terug, met een tekst die de gebruiker mag zien. `work(key, attempts)` haalt het recept op, zet het in
-    Mealie en geeft het slug."""
+    Mealie en geeft het slug (een coroutine: het ophalen van het recept is async, het zetten in Mealie nog synchroon tot Taak 19)."""
     started = time.perf_counter()
     attempts: list[dict[str, Any]] = []
     recipe_key = str(key or "").strip()
     problem: Exception | None = None
     status: int | None = None
     try:
-        slug = work(recipe_key, attempts)
+        slug = await work(recipe_key, attempts)
         return {"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)}
     except Exception as exc:  # noqa: BLE001
         problem = exc
@@ -94,7 +95,7 @@ def run_import(
         logger.exception("%s-recept %s: importeren mislukt", name, recipe_key)
         raise failure(exc, error) from exc
     finally:
-        audit.record(
+        await audit.arecord(
             kind="outbound",
             service=service,
             action="Mealie import",

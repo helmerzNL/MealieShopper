@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -7,9 +8,12 @@ from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
+import httpx
+import respx
+
 from mealieshopper import audit, auth, hellofresh, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run, served  # noqa: E402
 
 KEY = "pasta-met-pesto-" + "a" * 24
 KEY_B = "salade-met-kip-" + "b" * 24
@@ -46,8 +50,8 @@ def recipe_page(**extra):
     return "".join(f'<script type="application/ld+json">{json.dumps(block)}</script>' for block in (crumbs, recipe))
 
 
-def page(text, status=200, url="https://www.hellofresh.nl/x"):
-    return mock.Mock(status_code=status, text=text, url=url)
+def page(text, status=200):
+    return httpx.Response(status, text=text)
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -97,62 +101,65 @@ class HelperTest(unittest.TestCase):
 
 class MenuTest(TempDataDirTest):
     def test_the_menu_is_read_and_kept_with_a_time(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Pasta met pesto"), course(KEY, "Dubbel"), course(KEY_B, "Salade")]))) as get:
-            menu = hellofresh.get_menu("2026-W44")
-        self.assertEqual(get.call_args.args[0], "https://www.hellofresh.nl/menus/2026-W44")
-        self.assertIn("MealieShopper/", get.call_args.kwargs["headers"]["User-Agent"])
+        with served(return_value=page(menu_page([course(KEY, "Pasta met pesto"), course(KEY, "Dubbel"), course(KEY_B, "Salade")]))) as get:
+            menu = run(hellofresh.get_menu("2026-W44"))
+        self.assertEqual(str(get.calls.last.request.url), "https://www.hellofresh.nl/menus/2026-W44")
+        self.assertIn("MealieShopper/", get.calls.last.request.headers["User-Agent"])
+        self.assertEqual(get.calls.last.request.headers["Accept-Language"], "nl-NL,nl;q=0.9")
         self.assertEqual([r["key"] for r in menu["recipes"]], [KEY, KEY_B], "een recept staat één keer in het menu")
         self.assertEqual((menu["week"], menu["previous"], menu["next"]), ("2026-W44", "2026-W43", "2026-W45"))
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("uit de kopie")):
-            self.assertEqual(hellofresh.get_menu("2026-W44")["recipes"], menu["recipes"])
+        with served(side_effect=AssertionError("uit de kopie")):
+            self.assertEqual(run(hellofresh.get_menu("2026-W44"))["recipes"], menu["recipes"])
 
     def test_a_stale_copy_or_a_refresh_asks_hellofresh_again(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Oud")]))):
-            hellofresh.get_menu("2026-W44")
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Nieuw")]))) as get:
-            self.assertEqual(hellofresh.get_menu("2026-W44", refresh=True)["recipes"][0]["name"], "Nieuw")
+        with served(return_value=page(menu_page([course(KEY, "Oud")]))):
+            run(hellofresh.get_menu("2026-W44"))
+        with served(return_value=page(menu_page([course(KEY, "Nieuw")]))) as get:
+            self.assertEqual(run(hellofresh.get_menu("2026-W44", refresh=True))["recipes"][0]["name"], "Nieuw")
         self.assertEqual(get.call_count, 1)
         old = (datetime.now(timezone.utc) - hellofresh.MENU_TTL - timedelta(minutes=1)).isoformat(timespec="seconds")
         with hellofresh._connect() as conn:
             conn.execute("UPDATE hellofresh_menus SET fetched_at = ?", (old,))
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Nieuwst")]))) as get:
-            self.assertEqual(hellofresh.get_menu("2026-W44")["recipes"][0]["name"], "Nieuwst")
+        with served(return_value=page(menu_page([course(KEY, "Nieuwst")]))) as get:
+            self.assertEqual(run(hellofresh.get_menu("2026-W44"))["recipes"][0]["name"], "Nieuwst")
         self.assertEqual(get.call_count, 1)
 
     def test_an_older_copy_is_better_than_nothing_when_hellofresh_fails(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Pasta")]))):
-            hellofresh.get_menu("2026-W44")
-        with mock.patch.object(hellofresh.requests, "get", side_effect=hellofresh.requests.ConnectionError("weg")):
-            self.assertEqual(len(hellofresh.get_menu("2026-W44", refresh=True)["recipes"]), 1)
+        with served(return_value=page(menu_page([course(KEY, "Pasta")]))):
+            run(hellofresh.get_menu("2026-W44"))
+        with served(side_effect=httpx.ConnectError("weg")):
+            self.assertEqual(len(run(hellofresh.get_menu("2026-W44", refresh=True))["recipes"]), 1)
             with self.assertRaises(hellofresh.HelloFreshError):
-                hellofresh.get_menu("2026-W45")
+                run(hellofresh.get_menu("2026-W45"))
 
     def test_a_week_without_a_menu_and_a_foreign_redirect_are_refused(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page("", status=404)):
+        with served(return_value=page("", status=404)):
             with self.assertRaises(ValueError):
-                hellofresh.get_menu("2026-W44")
-        with mock.patch.object(hellofresh.requests, "get", return_value=page("<html></html>", url="https://evil.example/menus")):
+                run(hellofresh.get_menu("2026-W44"))
+        with respx.mock(assert_all_called=False) as router:
+            router.get("https://www.hellofresh.nl/menus/2026-W44").respond(302, headers={"Location": "https://evil.example/menus"})
+            router.get("https://evil.example/menus").respond(200, text="<html></html>")
             with self.assertRaises(hellofresh.HelloFreshError):
-                hellofresh.get_menu("2026-W44")
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
+                run(hellofresh.get_menu("2026-W44"))
+        with served(side_effect=AssertionError("geen verzoek")):
             with self.assertRaises(ValueError):
-                hellofresh.get_menu("../etc/passwd")
+                run(hellofresh.get_menu("../etc/passwd"))
 
     def test_search_uses_only_the_menus_we_already_have(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Pasta met pesto"), course(KEY_B, "Salade met kip", cuisines=[{"name": "Frans"}])]))):
-            hellofresh.get_menu("2026-W44")
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
-            found = hellofresh.search("PESTO pasta")
+        with served(return_value=page(menu_page([course(KEY, "Pasta met pesto"), course(KEY_B, "Salade met kip", cuisines=[{"name": "Frans"}])]))):
+            run(hellofresh.get_menu("2026-W44"))
+        with served(side_effect=AssertionError("geen verzoek")):
+            found = run(hellofresh.search("PESTO pasta"))
             self.assertEqual((found["total"], found["weeks"], found["recipes"][0]["key"], found["recipes"][0]["week"]), (1, 1, KEY, "2026-W44"))
-            self.assertEqual(hellofresh.search("frans")["total"], 1)
-            self.assertEqual(hellofresh.search("sushi")["total"], 0)
+            self.assertEqual(run(hellofresh.search("frans"))["total"], 1)
+            self.assertEqual(run(hellofresh.search("sushi"))["total"], 0)
             with self.assertRaises(ValueError):
-                hellofresh.search("  ")
+                run(hellofresh.search("  "))
 
 
 class SearchLoadTest(TempDataDirTest):
     def weeks_asked(self, get):
-        return [call.args[0].rsplit("/", 1)[1] for call in get.call_args_list]
+        return [str(call.request.url).rsplit("/", 1)[1] for call in get.calls]
 
     def test_upcoming_weeks_start_with_this_week_and_are_limited(self):
         with mock.patch.object(hellofresh, "date", wraps=hellofresh.date) as fake:
@@ -165,74 +172,74 @@ class SearchLoadTest(TempDataDirTest):
         pages = [page(menu_page([course(KEY, "Pasta met pesto")], week=f"2026-W{n}")) for n in (44, 45, 46, 47)]
         with mock.patch.object(hellofresh, "date", wraps=hellofresh.date) as fake:
             fake.today.return_value = hellofresh.date(2026, 10, 27)
-            with mock.patch.object(hellofresh.requests, "get", side_effect=pages) as get:
-                found = hellofresh.search("pesto", load=4)
+            with served(side_effect=pages) as get:
+                found = run(hellofresh.search("pesto", load=4))
             self.assertEqual(self.weeks_asked(get), ["2026-W44", "2026-W45", "2026-W46", "2026-W47"])
             self.assertEqual((found["weeks"], found["total"]), (4, 1), "hetzelfde recept in meer weken staat er één keer")
-            with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("uit de kopie")):
-                self.assertEqual(hellofresh.search("pesto", load=4)["total"], 1)
+            with served(side_effect=AssertionError("uit de kopie")):
+                self.assertEqual(run(hellofresh.search("pesto", load=4))["total"], 1)
 
     def test_search_without_load_asks_hellofresh_nothing(self):
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
-            self.assertEqual(hellofresh.search("pesto")["total"], 0)
+        with served(side_effect=AssertionError("geen verzoek")):
+            self.assertEqual(run(hellofresh.search("pesto"))["total"], 0)
 
     def test_a_week_that_fails_is_skipped_and_all_failing_is_an_error_only_without_a_copy(self):
         with mock.patch.object(hellofresh, "date", wraps=hellofresh.date) as fake:
             fake.today.return_value = hellofresh.date(2026, 10, 27)
             pages = [page("", status=404), page(menu_page([course(KEY, "Pasta met pesto")], week="2026-W45")), page("", status=500), page("", status=500)]
-            with mock.patch.object(hellofresh.requests, "get", side_effect=pages):
-                self.assertEqual(hellofresh.search("pesto", load=4)["total"], 1)
+            with served(side_effect=pages):
+                self.assertEqual(run(hellofresh.search("pesto", load=4))["total"], 1)
             old = (datetime.now(timezone.utc) - hellofresh.MENU_TTL - timedelta(minutes=1)).isoformat(timespec="seconds")
             with hellofresh._connect() as conn:
                 conn.execute("UPDATE hellofresh_menus SET fetched_at = ?", (old,))
-            with mock.patch.object(hellofresh.requests, "get", return_value=page("", status=500)):
-                self.assertEqual(hellofresh.search("pesto", load=2)["total"], 1, "een bewaarde kopie is genoeg")
+            with served(return_value=page("", status=500)):
+                self.assertEqual(run(hellofresh.search("pesto", load=2))["total"], 1, "een bewaarde kopie is genoeg")
             with hellofresh._connect() as conn:
                 conn.execute("DELETE FROM hellofresh_menus")
-            with mock.patch.object(hellofresh.requests, "get", return_value=page("", status=500)):
+            with served(return_value=page("", status=500)):
                 with self.assertRaises(hellofresh.HelloFreshError):
-                    hellofresh.search("pesto", load=2)
+                    run(hellofresh.search("pesto", load=2))
 
     def test_the_search_route_limits_load_and_the_detail_route_has_the_shape_of_the_other_stores(self):
         client = SyncClient(create_app())
-        with mock.patch.object(hellofresh, "search", return_value={"weeks": 0, "total": 0, "recipes": []}) as search:
+        with mock.patch.object(hellofresh, "search", new_callable=mock.AsyncMock, return_value={"weeks": 0, "total": 0, "recipes": []}) as search:
             for raw, expected in (("4", 4), ("99", 4), ("-3", 0), ("x", 0), (None, 0)):
                 client.get("/api/hellofresh/search?q=a" + (f"&load={raw}" if raw is not None else ""))
                 self.assertEqual(search.call_args.kwargs["load"], expected, raw)
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())):
+        with served(return_value=page(recipe_page())):
             body = client.get(f"/api/hellofresh/recipes/{KEY}").get_json()
         self.assertEqual((body["id"], body["name"], body["portions"], body["nutrition"]), (KEY, "Pasta met pesto", "2", []))
         self.assertEqual(body["ingredients"][0], {"line": "200 gram Pasta"})
         self.assertEqual(body["url"], f"https://www.hellofresh.nl/recipes/{KEY}")
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             self.assertEqual(client.get("/api/hellofresh/recipes/zonder-id").status_code, 400)
 
 
 class RecipeTest(TempDataDirTest):
     def test_a_recipe_comes_from_the_schema_org_data_of_its_page(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())) as get:
-            recipe = hellofresh.get_recipe(KEY)
-        self.assertEqual(get.call_args.args[0], f"https://www.hellofresh.nl/recipes/{KEY}")
+        with served(return_value=page(recipe_page())) as get:
+            recipe = run(hellofresh.get_recipe(KEY))
+        self.assertEqual(str(get.calls.last.request.url), f"https://www.hellofresh.nl/recipes/{KEY}")
         self.assertEqual((recipe["name"], recipe["minutes"], recipe["portions"]), ("Pasta met pesto", 65, "2"))
         self.assertEqual(recipe["ingredients"], ["200 gram Pasta", "1 stuk(s) Ui", "naar smaak Peper en zout"])
         self.assertEqual(recipe["steps"], ["Kook de pasta.\nTip: zout het water.", "Meng alles & serveer."])
         self.assertEqual(recipe["description"], "Lekker snel.")
 
     def test_a_description_without_words_is_left_out(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page(description="."))):
-            self.assertEqual(hellofresh.get_recipe(KEY)["description"], "")
+        with served(return_value=page(recipe_page(description="."))):
+            self.assertEqual(run(hellofresh.get_recipe(KEY))["description"], "")
 
     def test_the_recipe_becomes_a_schema_org_recipe_for_mealie(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())):
-            data = hellofresh.jsonld(hellofresh.get_recipe(KEY))
+        with served(return_value=page(recipe_page())):
+            data = hellofresh.jsonld(run(hellofresh.get_recipe(KEY)))
         self.assertEqual((data["@type"], data["name"], data["totalTime"], data["recipeYield"]), ("Recipe", "Pasta met pesto", "PT65M", "2"))
         self.assertEqual(data["url"], hellofresh.source_url(KEY))
         self.assertEqual(data["recipeInstructions"][0], {"@type": "HowToStep", "text": "Kook de pasta.\nTip: zout het water."})
         self.assertEqual(data["nutrition"]["calories"], "600 kcal")
 
     def test_the_payload_for_mealie_is_clean(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page(image="https://img.hellofresh.com/f_auto,fl_lossy,h_640,q_auto,w_1200/hellofresh_s3/image/pasta-1.jpg"))):
-            recipe = hellofresh.get_recipe(KEY)
+        with served(return_value=page(recipe_page(image="https://img.hellofresh.com/f_auto,fl_lossy,h_640,q_auto,w_1200/hellofresh_s3/image/pasta-1.jpg"))):
+            recipe = run(hellofresh.get_recipe(KEY))
         data = hellofresh.jsonld(recipe)
         self.assertEqual(data["nutrition"], {"@type": "NutritionInformation", "calories": "600 kcal", "fatContent": "20.5 g"}, "geen null en geen servingSize")
         self.assertEqual(data["image"], ["https://img.hellofresh.com/f_jpg,q_auto,w_1200/hellofresh_s3/image/pasta-1.jpg"], "een vaste JPG, geen f_auto")
@@ -247,18 +254,44 @@ class RecipeTest(TempDataDirTest):
             self.assertEqual(hellofresh.image_url(url), url or "")
 
     def test_only_a_key_of_our_own_shape_is_ever_requested(self):
-        with mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             for key in ("", "6a0472a6b5c58db9dbcf6138", "../../my-account", f"{KEY}/../x", f"{KEY}?page=2", KEY.upper(), None):
                 with self.assertRaises(ValueError, msg=key):
-                    hellofresh.get_recipe(key)
+                    run(hellofresh.get_recipe(key))
 
     def test_a_recipe_without_content_or_in_another_format_is_not_imported(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page(recipeIngredient=[], recipeInstructions=[]))):
+        with served(return_value=page(recipe_page(recipeIngredient=[], recipeInstructions=[]))):
             with self.assertRaises(hellofresh.HelloFreshError):
-                hellofresh.jsonld(hellofresh.get_recipe(KEY))
-        with mock.patch.object(hellofresh.requests, "get", return_value=page("<html>geen recept</html>")):
+                hellofresh.jsonld(run(hellofresh.get_recipe(KEY)))
+        with served(return_value=page("<html>geen recept</html>")):
             with self.assertRaises(hellofresh.HelloFreshError):
-                hellofresh.get_recipe(KEY)
+                run(hellofresh.get_recipe(KEY))
+
+
+class PauseTest(TempDataDirTest):
+    def test_two_concurrent_requests_run_one_after_the_other_with_the_pause_between_them(self):
+        events: list[str] = []
+        waits: list[float] = []
+
+        async def wait(seconds: float) -> None:
+            waits.append(seconds)
+            events.append("pauze")
+            await asyncio.sleep(0)
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            events.append(request.url.path)
+            return page("<html></html>")
+
+        async def both() -> list[str]:
+            return await asyncio.gather(hellofresh._get("/menus/a"), hellofresh._get("/menus/b"))
+
+        with mock.patch.object(hellofresh, "MIN_GAP", 0.5), mock.patch.object(hellofresh, "_last_request", 0.0), \
+                mock.patch.object(hellofresh, "_wait", wait), served(side_effect=answer):
+            run(both())
+        self.assertEqual(events, ["/menus/a", "pauze", "/menus/b"], "het tweede verzoek wacht tot het eerste klaar is, en pauzeert dan")
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 0.4)
+        self.assertLessEqual(waits[0], 0.5)
 
 
 class RoutesTest(TempDataDirTest):
@@ -267,7 +300,7 @@ class RoutesTest(TempDataDirTest):
         self.client = SyncClient(create_app())
 
     def test_menu_and_search_routes(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Pasta met pesto")]))):
+        with served(return_value=page(menu_page([course(KEY, "Pasta met pesto")]))):
             body = self.client.get("/api/hellofresh/menu?week=2026-W44").get_json()
         self.assertEqual((body["week"], len(body["recipes"])), ("2026-W44", 1))
         self.assertEqual(self.client.get("/api/hellofresh/search?q=pesto").get_json()["total"], 1)
@@ -276,7 +309,7 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(self.client.get("/api/hellofresh/search").status_code, 400)
 
     def test_a_menu_we_cannot_read_says_so_in_our_words(self):
-        with mock.patch.object(hellofresh.requests, "get", side_effect=hellofresh.requests.ConnectionError("intern adres 10.0.0.1")):
+        with served(side_effect=httpx.ConnectError("intern adres 10.0.0.1")):
             reply = self.client.get("/api/hellofresh/menu?week=2026-W44")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "HelloFresh is niet bereikbaar"}))
 
@@ -284,7 +317,7 @@ class RoutesTest(TempDataDirTest):
         with mock.patch.object(mealie, "ensure_configured"), \
                 mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
                 mock.patch.object(mealie, "group_slug", return_value="home"), \
-                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", return_value="pasta-met-pesto") as send:
             body = self.client.post(f"/api/hellofresh/recipes/{KEY}/import").get_json()
         self.assertEqual(body, {"slug": "pasta-met-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-met-pesto"})
@@ -294,18 +327,18 @@ class RoutesTest(TempDataDirTest):
 
     def test_import_without_mealie_says_so_and_asks_hellofresh_nothing(self):
         with mock.patch.object(mealie, "ensure_configured", side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
-                mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("niet ophalen")):
+                served(side_effect=AssertionError("niet ophalen")):
             reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
     def test_an_invalid_key_is_refused_before_any_request(self):
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(hellofresh.requests, "get", side_effect=AssertionError("geen verzoek")):
+        with mock.patch.object(mealie, "ensure_configured"), served(side_effect=AssertionError("geen verzoek")):
             reply = self.client.post("/api/hellofresh/recipes/6a0472a6b5c58db9dbcf6138/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Geen geldig recept"}))
 
     def test_a_failed_import_does_not_leak_the_answer_of_mealie(self):
         with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
             reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
         self.assertEqual(reply.status_code, 424)
@@ -314,7 +347,7 @@ class RoutesTest(TempDataDirTest):
     def test_when_mealie_refuses_the_recipe_we_try_again_smaller_and_then_by_page(self):
         refused = mealie.MealieImportError("Mealie import mislukt (400): BAD_RECIPE_DATA", 400)
         with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
-                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", side_effect=[refused, "slim"]) as send, \
                 mock.patch.object(mealie, "import_via_url") as by_page:
             body = self.client.post(f"/api/hellofresh/recipes/{KEY}/import").get_json()
@@ -323,14 +356,14 @@ class RoutesTest(TempDataDirTest):
         self.assertNotIn("image", send.call_args_list[1].args[1])
         by_page.assert_not_called()
         with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
-                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+                served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", side_effect=[refused, refused]), \
                 mock.patch.object(mealie, "import_via_url", return_value="viapagina"):
             self.assertEqual(self.client.post(f"/api/hellofresh/recipes/{KEY}/import").get_json()["slug"], "viapagina")
 
     def test_a_refusal_shows_the_status_of_mealie_but_not_its_answer(self):
         refused = mealie.MealieImportError("Mealie import mislukt (400): geheim", 400)
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+        with mock.patch.object(mealie, "ensure_configured"), served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", side_effect=refused), mock.patch.object(mealie, "import_via_url", side_effect=refused):
             reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 400)"}))
@@ -338,7 +371,7 @@ class RoutesTest(TempDataDirTest):
 
     def test_a_server_error_of_mealie_is_not_retried_because_the_recipe_may_exist_already(self):
         broken = mealie.MealieImportError("Mealie import mislukt (500): geheim", 500)
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
+        with mock.patch.object(mealie, "ensure_configured"), served(return_value=page(recipe_page())), \
                 mock.patch.object(mealie, "import_via_jsonld", side_effect=broken) as send, mock.patch.object(mealie, "import_via_url") as by_page:
             reply = self.client.post(f"/api/hellofresh/recipes/{KEY}/import")
         self.assertEqual(reply.get_json(), {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 500)"})
@@ -350,7 +383,7 @@ class RoutesTest(TempDataDirTest):
 
     def post_import(self, **patches):
         with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
-                mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())):
+                served(return_value=page(recipe_page())):
             for name, value in patches.items():
                 patcher = mock.patch.object(mealie, name, **value)
                 patcher.start()
@@ -375,7 +408,7 @@ class RoutesTest(TempDataDirTest):
         self.assertTrue(all(a["status"] == 400 for a in full["detail"]["attempts"]))
 
     def test_a_timeout_of_mealie_says_so_and_is_in_the_audit_log(self):
-        reply = self.post_import(import_via_jsonld={"side_effect": hellofresh.requests.ReadTimeout("Read timed out")})
+        reply = self.post_import(import_via_jsonld={"side_effect": httpx.ReadTimeout("Read timed out")})
         self.assertEqual(reply.status_code, 424)
         self.assertIn("niet binnen 60 seconden", reply.get_json()["error"])
         (entry,) = self.audit_rows()
@@ -383,7 +416,7 @@ class RoutesTest(TempDataDirTest):
         self.assertIn("ReadTimeout", entry["error"])
 
     def test_mealie_not_reachable_is_said_in_our_words(self):
-        reply = self.post_import(import_via_jsonld={"side_effect": hellofresh.requests.ConnectionError("10.0.0.5 geheim")})
+        reply = self.post_import(import_via_jsonld={"side_effect": httpx.ConnectError("10.0.0.5 geheim")})
         self.assertEqual(reply.get_json(), {"error": "Mealie is niet bereikbaar"})
 
     def test_an_unexpected_error_shows_its_kind_but_not_its_text(self):
@@ -399,10 +432,10 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(self.audit_rows(), [])
 
     def test_nothing_here_writes_to_hellofresh(self):
-        with mock.patch.object(hellofresh.requests, "get", return_value=page(recipe_page())), \
-                mock.patch.object(hellofresh.requests, "post", side_effect=AssertionError("alleen lezen")), \
-                mock.patch.object(hellofresh.requests, "request", side_effect=AssertionError("alleen lezen")):
-            hellofresh.get_recipe(KEY)
+        with respx.mock(assert_all_called=False) as router:  # een ander verzoek dan GET heeft geen route en faalt
+            router.get(f"https://www.hellofresh.nl/recipes/{KEY}").respond(200, text=recipe_page())
+            run(hellofresh.get_recipe(KEY))
+            self.assertEqual([call.request.method for call in router.calls], ["GET"])
 
 
 if __name__ == "__main__":

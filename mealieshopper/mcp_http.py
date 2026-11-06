@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from quart import Quart, Response, jsonify, make_response, redirect, render_template, request
@@ -23,12 +23,12 @@ def _json(payload: Any, status: int = 200, **headers: str) -> Response:
     return response
 
 
-def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
+def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
     app.jinja_env.globals["tr"] = tr
     app.jinja_env.globals["lang"] = current_lang
 
-    def mcp_url() -> str:
-        return f"{base_url()}/mcp"
+    async def mcp_url() -> str:
+        return f"{await base_url()}/mcp"
 
     async def serializer() -> URLSafeTimedSerializer:
         return URLSafeTimedSerializer(await auth.asigning_secret(), salt="mealieshopper-oauth-authorize")
@@ -68,8 +68,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return await unavailable()
         return _json(
             {
-                "resource": mcp_url(),
-                "authorization_servers": [base_url()],
+                "resource": await mcp_url(),
+                "authorization_servers": [await base_url()],
                 "scopes_supported": [oauth.SCOPE],
                 "bearer_methods_supported": ["header"],
                 "resource_name": "MealieShopper",
@@ -82,7 +82,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return "", 204
         if not (await mcp.enabled())[0]:
             return await unavailable()
-        base = base_url()
+        base = await base_url()
         return _json(
             {
                 "issuer": base,
@@ -128,13 +128,13 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
-    def redirect_with(uri: str, **params: str) -> Response:
+    async def redirect_with(uri: str, **params: str) -> Response:
         parts = urlsplit(uri)
         query = parse_qsl(parts.query, keep_blank_values=True) + [(k, v) for k, v in params.items() if v]
         return redirect(urlunsplit(parts._replace(query=urlencode(query))), 302)
 
     async def error_page(message: str, status: int = 400) -> Response:
-        response = await make_response(await render_template("oauth.html", error=message, base=base_url()), status)
+        response = await make_response(await render_template("oauth.html", error=message, base=await base_url()), status)
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -144,11 +144,11 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return await error_page(await unavailable_text(), 404)
         params = request.args.to_dict()
         try:
-            info = await oauth.check_authorize_request(params, mcp_url())
+            info = await oauth.check_authorize_request(params, await mcp_url())
         except oauth.OAuthError as exc:
             return await error_page(exc.description)
         if info["error"]:
-            return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=base_url())
+            return await redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url())
         user = await auth.acurrent_user()
         if not user:
             return redirect("/?" + urlencode({"next": request.full_path.rstrip("?")}), 302)
@@ -157,7 +157,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             | {"client_id": info["client"]["client_id"], "user_id": user["id"]}
         )
         response = await make_response(
-            await render_template("oauth.html", error="", client=info["client"]["name"], signed=signed, base=base_url(), username=user["username"])
+            await render_template("oauth.html", error="", client=info["client"]["name"], signed=signed, base=await base_url(), username=user["username"])
         )
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Frame-Options"] = "DENY"
@@ -184,9 +184,9 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if not client or data["redirect_uri"] not in client["redirect_uris"]:
             return await error_page(tr("Onbekende app.", "Unknown app."))
         if (await request.form).get("decision") != "allow":
-            return redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=base_url())
+            return await redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=await base_url())
         code = await oauth.issue_code(user["id"], data["client_id"], data["redirect_uri"], data["code_challenge"], data["resource"])
-        return redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=base_url())
+        return await redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=await base_url())
 
     @app.route("/oauth/token", methods=["POST", "OPTIONS"])
     async def oauth_token():
@@ -195,7 +195,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if not (await mcp.enabled())[0]:
             return await unavailable()
         try:
-            return _json(await oauth.token_request(await form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
+            return _json(await oauth.token_request(await form_or_json(), await mcp_url()), Cache_Control="no-store", Pragma="no-cache")
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
@@ -208,8 +208,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
 
     # --- MCP ---------------------------------------------------------------------------------------
 
-    def unauthorized(invalid: bool) -> Response:
-        challenge = f'Bearer resource_metadata="{base_url()}/.well-known/oauth-protected-resource"'
+    async def unauthorized(invalid: bool) -> Response:
+        challenge = f'Bearer resource_metadata="{await base_url()}/.well-known/oauth-protected-resource"'
         if invalid:
             challenge += ', error="invalid_token"'
         return _json({"error": "unauthorized"}, 401, WWW_Authenticate=challenge)
@@ -224,10 +224,10 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return _json({"error": "Method not allowed"}, 405, Allow="POST")  # geen streams en geen sessies
         header = request.headers.get("Authorization", "")
         token = header[7:].strip() if header[:7].lower() == "bearer " else ""
-        identity = await oauth.verify_access_token(token, mcp_url()) if token else None
+        identity = await oauth.verify_access_token(token, await mcp_url()) if token else None
         if not identity:
             await audit.amcp_rejected(401, "unauthorized", header_present=bool(token))
-            return unauthorized(bool(token))
+            return await unauthorized(bool(token))
         version = request.headers.get("Mcp-Protocol-Version")
         if version and version not in mcp.SUPPORTED_PROTOCOLS:
             await audit.amcp_rejected(400, f"unsupported protocol {version}")
@@ -259,7 +259,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     @app.get("/api/mcp/status")
     async def mcp_status():
         on, reason = await mcp.enabled()
-        base = base_url()
+        base = await base_url()
         host = urlsplit(base).hostname or ""
         return jsonify(
             {
@@ -269,7 +269,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
                 "url": f"{base}/mcp",
                 "secure": base.startswith("https://") or host in oauth.LOOPBACK_HOSTS,
                 "apps": await oauth.connected_apps(await auth.aacting_user_id()) if on else [],
-                "tools": server_settings.tools_payload(),
+                "tools": await server_settings.tools_payload(),
             }
         )
 

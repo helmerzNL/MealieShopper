@@ -117,11 +117,11 @@ def create_app() -> Quart:
 
     public_base_url = server_settings.public_base_url  # in de app in te stellen, zie server_settings.py
 
-    def ah_callback_url() -> str:
-        return f"{public_base_url()}/api/ah/auth/callback"
+    async def ah_callback_url() -> str:
+        return f"{await public_base_url()}/api/ah/auth/callback"
 
-    def ah_proxy_base_url() -> str:
-        return f"{public_base_url()}/api/ah/auth/proxy"
+    async def ah_proxy_base_url() -> str:
+        return f"{await public_base_url()}/api/ah/auth/proxy"
 
     server_settings.register_routes(app)
     users.register_routes(app, public_base_url)
@@ -148,7 +148,7 @@ def create_app() -> Quart:
 
     @app.get("/")
     async def index(**_route):
-        return await render_template("index.html", public_base_url=public_base_url(), build_channel=about.build_channel())
+        return await render_template("index.html", public_base_url=await public_base_url(), build_channel=about.build_channel())
 
     # Elke pagina heeft een eigen adres (/recipes, /cart, /stores/ah/orders, ...): de server geeft dezelfde pagina terug en
     # static/router.js toont het juiste scherm. Zo werken herladen, een bladwijzer en Ctrl+klik naar een nieuw tabblad.
@@ -1495,21 +1495,21 @@ def create_app() -> Quart:
     async def hellofresh_menu():
         refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         try:
-            return jsonify(hellofresh.get_menu(request.args.get("week"), refresh=refresh))
+            return jsonify(await hellofresh.get_menu(request.args.get("week"), refresh=refresh))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
     @app.get("/api/hellofresh/search")
     async def hellofresh_search():
         try:
-            return jsonify(hellofresh.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await hellofresh.search(request.args.get("q"), load=load_weeks()))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
     @app.get("/api/hellofresh/recipes/<recipe_key>")
     async def hellofresh_recipe_detail(recipe_key: str):
         try:
-            return jsonify(hellofresh.detail(recipe_key))
+            return jsonify(await hellofresh.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
@@ -1524,7 +1524,7 @@ def create_app() -> Quart:
             if found:
                 return found
         try:
-            return jsonify(hellofresh.run_import(recipe_key))
+            return jsonify(await hellofresh.run_import(recipe_key))
         except Exception as exc:  # noqa: BLE001
             # run_import zet een tekst van onszelf in de fout (nooit het antwoord van Mealie of HelloFresh) en legt de
             # poging vast in het auditlog; het volledige antwoord staat alleen in het serverlogboek.
@@ -1541,21 +1541,21 @@ def create_app() -> Quart:
     async def marleyspoon_menu():
         refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         try:
-            return jsonify(marleyspoon.get_menu(request.args.get("week"), refresh=refresh))
+            return jsonify(await marleyspoon.get_menu(request.args.get("week"), refresh=refresh))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
     @app.get("/api/marleyspoon/search")
     async def marleyspoon_search():
         try:
-            return jsonify(marleyspoon.search(request.args.get("q"), load=load_weeks()))
+            return jsonify(await marleyspoon.search(request.args.get("q"), load=load_weeks()))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
     @app.get("/api/marleyspoon/recipes/<recipe_key>")
     async def marleyspoon_recipe_detail(recipe_key: str):
         try:
-            return jsonify(marleyspoon.detail(recipe_key))
+            return jsonify(await marleyspoon.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
@@ -1570,7 +1570,7 @@ def create_app() -> Quart:
             if found:
                 return found
         try:
-            return jsonify(marleyspoon.run_import(recipe_key))
+            return jsonify(await marleyspoon.run_import(recipe_key))
         except Exception as exc:  # noqa: BLE001
             # run_import zet een tekst van onszelf in de fout en legt de poging vast in het auditlog.
             return marleyspoon_error(exc)
@@ -1848,7 +1848,7 @@ def create_app() -> Quart:
         if not code:
             return redirect("/?ah_error=Geen+code+ontvangen")
 
-        callback_url = ah_callback_url()
+        callback_url = await ah_callback_url()
         try:
             ah.exchange_and_store_oauth_code(code, callback_url)
             return redirect("/?ah_connected=1")
@@ -1896,8 +1896,8 @@ def create_app() -> Quart:
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
         headers.setdefault("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         headers.setdefault("Accept-Language", "nl-NL,nl;q=0.9,en;q=0.8")
-        proxy_base = ah_proxy_base_url()
-        public_origin = public_base_url()
+        proxy_base = await ah_proxy_base_url()
+        public_origin = await public_base_url()
         if "Referer" in headers:
             headers["Referer"] = (
                 headers["Referer"]

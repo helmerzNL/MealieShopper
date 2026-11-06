@@ -26,7 +26,7 @@ MAX_LIST_ITEMS = 200
 
 async def enabled() -> tuple[bool, str]:
     """Staat de MCP-server aan, en zo niet: waarom niet (een korte code voor de interface)."""
-    if not server_settings.mcp_setting()[0]:
+    if not (await server_settings.mcp_setting())[0]:
         return False, "disabled"
     if not await auth.aauth_required() or not await auth.acredentials_exist():
         return False, "no_login"
@@ -1018,9 +1018,9 @@ def all_tool_descriptors() -> list[dict[str, Any]]:
     ]
 
 
-def tool_descriptors() -> list[dict[str, Any]]:
+async def tool_descriptors() -> list[dict[str, Any]]:
     """De tools die een assistent mag gebruiken: alles wat de beheerder niet heeft uitgezet."""
-    off = server_settings.disabled_tools()
+    off = await server_settings.disabled_tools()
     return [tool for tool in all_tool_descriptors() if tool["name"] not in off]
 
 
@@ -1028,7 +1028,7 @@ async def call_tool(name: str, arguments: Any) -> dict[str, Any]:
     tool = TOOLS.get(name)
     if not tool:
         raise KeyError(name)
-    if name in server_settings.disabled_tools():
+    if name in await server_settings.disabled_tools():
         # Geen protocolfout: het model leest dit en kan de gebruiker vertellen waarom het niet lukt.
         return {"content": [{"type": "text", "text": "Deze tool is door de beheerder van MealieShopper uitgezet."}], "isError": True}
     handler: Callable[[dict[str, Any]], Awaitable[Any]] = tool["handler"]
@@ -1088,7 +1088,7 @@ async def handle_message(message: Any) -> dict[str, Any] | None:
     if method == "ping":
         return {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tool_descriptors()}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": await tool_descriptors()}}
     if method == "tools/call":
         try:
             result = await call_tool(str(params.get("name") or ""), params.get("arguments") or {})

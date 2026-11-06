@@ -15,7 +15,7 @@ import hashlib
 import secrets
 import sqlite3
 from datetime import timedelta
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 import aiosqlite
 from quart import Quart, jsonify, request
@@ -211,9 +211,9 @@ async def check_new_username(username: str, invite: dict[str, Any]) -> str | Non
 
 # --- routes --------------------------------------------------------------------------------------
 
-def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
-    def invite_payload(created: dict[str, Any]) -> dict[str, Any]:
-        return {**created, "url": f"{base_url()}/#invite={created['token']}"}
+def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
+    async def invite_payload(created: dict[str, Any]) -> dict[str, Any]:
+        return {**created, "url": f"{await base_url()}/#invite={created['token']}"}
 
     @app.get("/api/users")
     async def users_list():
@@ -236,7 +236,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if len(await list_invites()) >= MAX_PENDING_INVITES:
             return jsonify({"error": tr("Er staan te veel uitnodigingen open.", "Too many invitations are open.")}), 400
         created = await create_invite(await auth.aacting_user_id(), "new", username=username)
-        return jsonify(invite_payload(created)), 201
+        return jsonify(await invite_payload(created)), 201
 
     @app.post("/api/users/<user_id>/reset")
     async def users_reset(user_id: str):
@@ -244,7 +244,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
         if not user or user_id == OWNER_ID:
             return jsonify({"error": tr("Gebruiker niet gevonden.", "User not found.")}), 404
         created = await create_invite(await auth.aacting_user_id(), "reset", user_id=user_id)
-        return jsonify(invite_payload(created)), 201
+        return jsonify(await invite_payload(created)), 201
 
     @app.delete("/api/users/invites/<invite_id>")
     async def users_invite_revoke(invite_id: str):

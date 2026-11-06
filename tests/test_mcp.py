@@ -893,7 +893,7 @@ class ToolSwitchTest(McpTestCase):
     def switch(self, name, enabled):
         from mealieshopper import server_settings
 
-        server_settings.set_tools_enabled({name: enabled})
+        run(server_settings.set_tools_enabled({name: enabled}))
 
     def listed(self):
         return {tool["name"] for tool in self.rpc(self.token, "tools/list").get_json()["result"]["tools"]}
