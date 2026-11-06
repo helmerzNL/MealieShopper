@@ -18,7 +18,8 @@ WEBSOCKET_SCHEMES: dict[str, str] = {"http": "ws", "https": "wss"}
 def _parse_port(value: str) -> int | None:
     """Een poort uit een header: alleen ASCII-cijfers (`int()` weigert bv. "²") en 1 tot en met 65535, anders None."""
     text: str = value.strip()
-    if text.isascii() and text.isdigit() and 1 <= int(text) <= 65535:
+    # Eerst de lengte: int() weigert meer dan 4300 cijfers met een ValueError.
+    if len(text) <= 5 and text.isascii() and text.isdigit() and 1 <= int(text) <= 65535:
         return int(text)
     return None
 
@@ -49,7 +50,9 @@ class ForwardedHeaders:
         await self.app(scope, receive, send)
 
     def _last_hops(self, value: str | None) -> str | None:
-        """De waarde van het `hops`-de adres van achteren, of None als de header leeg is of korter dan `hops`."""
+        """De `hops`-de waarde van achteren (zoals `ProxyFix._get_real_value`), of None als er minder waarden zijn dan `hops`.
+
+        Geldt voor elke forwarded-header: de proxy voegt zijn waarde achteraan toe, dus alles ervoor kan de client vervalsen."""
         if not value:
             return None
         parts: list[str] = [part.strip() for part in value.split(",") if part.strip()]
@@ -60,12 +63,12 @@ class ForwardedHeaders:
         for name, value in scope.get("headers", ()):
             key: str = name.decode("latin-1").lower()
             text: str = value.decode("latin-1")
-            # Herhaalde regels van een forwarded-header telt als een kommalijst (zoals ProxyFix), in volgorde van binnenkomst.
+            # Herhaalde regels van een forwarded-header tellen als een kommalijst (zoals ProxyFix), in volgorde van binnenkomst.
             headers[key] = f"{headers[key]},{text}" if key in headers and key.startswith("x-forwarded-") else headers.get(key, text)
         forwarded_for: str | None = self._last_hops(headers.get("x-forwarded-for"))
-        proto: str = headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        host_value: str = headers.get("x-forwarded-host", "").split(",")[0].strip()
-        port_value: str = headers.get("x-forwarded-port", "").split(",")[0].strip()
+        proto: str = (self._last_hops(headers.get("x-forwarded-proto")) or "").lower()
+        host_value: str = self._last_hops(headers.get("x-forwarded-host")) or ""
+        port_value: str = self._last_hops(headers.get("x-forwarded-port")) or ""
         if not (forwarded_for or proto or host_value or port_value):
             return scope
 

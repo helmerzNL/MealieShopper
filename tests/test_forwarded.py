@@ -53,7 +53,7 @@ class ForwardedHeadersTest(unittest.TestCase):
         self.assertEqual(seen["remote_addr"], "203.0.113.9")
 
     def test_malformed_ports_are_ignored_and_the_request_still_works(self) -> None:
-        for bad in ("\u00b2", "abc", "99999", "0", ""):
+        for bad in ("\u00b2", "abc", "99999", "0", "", "1" * 5000):
             with self.subTest(header="port", value=bad):
                 seen = ask({"X-Forwarded-Proto": "https", "X-Forwarded-Host": "shopper.ytm.nl", "X-Forwarded-Port": bad})
                 self.assertEqual((seen["scheme"], seen["host"]), ("https", "shopper.ytm.nl"))
@@ -71,6 +71,12 @@ class ForwardedHeadersTest(unittest.TestCase):
     def test_repeated_forwarded_for_lines_count_as_one_list(self) -> None:
         seen = ask([("X-Forwarded-For", "6.6.6.6"), ("X-Forwarded-For", "198.51.100.7, 203.0.113.9")])
         self.assertEqual(seen["remote_addr"], "203.0.113.9")
+
+    def test_only_the_value_the_proxy_appended_counts_for_proto_and_host(self) -> None:
+        commas = ask({"X-Forwarded-Proto": "http, https", "X-Forwarded-Host": "evil.example, shopper.example"})
+        lines = ask([("X-Forwarded-Proto", "http"), ("X-Forwarded-Proto", "https"), ("X-Forwarded-Host", "evil.example"), ("X-Forwarded-Host", "shopper.example")])
+        for seen in (commas, lines):
+            self.assertEqual((seen["scheme"], seen["host"]), ("https", "shopper.example"))
 
     def test_fewer_than_one_hop_is_refused(self) -> None:
         for hops in (0, -1):
