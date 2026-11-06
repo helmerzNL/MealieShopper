@@ -43,7 +43,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from flask import Flask, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -673,6 +673,23 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return _check_staged(token, path)
+
+
+def stage_upload(token: str, size: Any) -> dict[str, Any]:
+    """Als `stage`, voor een bestand dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
+    remove_old_staged_files()
+    path = _stage_path(token)
+    uploads.take(STAGE_PREFIX, token, size).replace(path)
+    return _check_staged(token, path)
+
+
+def _check_staged(token: str, path: Path) -> dict[str, Any]:
+    """Controleert het klaargezette bestand helemaal en geeft een samenvatting. De database verandert niet."""
+    try:
         plan = prepare(read_file(path))
         check_rows(plan)
         summary = summarize(plan)
@@ -867,6 +884,19 @@ def register_routes(app: Flask) -> None:
     def backup_stage():
         try:
             return jsonify(stage(request.stream, request.content_length))
+        except BackupError as exc:
+            return _error(exc)
+
+    # Hetzelfde in stukken (uploads.py): zo komt ook een back-up van 100 MB door een proxy die grote verzoeken weigert.
+    uploads.register_routes(app, "/api/backup/uploads", STAGE_PREFIX, MAX_STAGE_BYTES)
+
+    @app.post("/api/backup/uploads/<token>/stage")
+    def backup_stage_upload(token: str):
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(stage_upload(token, body.get("size")))
+        except uploads.UploadError as exc:
+            return uploads.error_response(exc)
         except BackupError as exc:
             return _error(exc)
 

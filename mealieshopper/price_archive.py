@@ -57,7 +57,7 @@ from typing import IO, Any, Callable, Iterator
 
 from flask import Flask, jsonify, request
 
-from . import audit, auth, offers, prices
+from . import audit, auth, offers, prices, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
@@ -944,8 +944,7 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
     directory.mkdir(parents=True, exist_ok=True)
     remove_old_staged_files()
     token = secrets.token_hex(16)
-    upload = directory / f"{STAGE_PREFIX}{token}.upload"
-    rows_path = _stage_path(token)
+    upload = _upload_path(token)
     received = 0
     try:
         with upload.open("wb") as handle:
@@ -958,7 +957,31 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
                 if received > MAX_UPLOAD_BYTES:
                     raise ArchiveError("too_large", 413, limit=limit)
                 handle.write(chunk)
-        if not received:
+    except BaseException:
+        upload.unlink(missing_ok=True)
+        raise
+    return _check_upload(token, upload)
+
+
+def stage_upload(token: str, size: Any) -> dict[str, Any]:
+    """Als `stage`, voor een archief dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
+    remove_old_staged_files()
+    upload = _upload_path(token)
+    uploads.take(STAGE_PREFIX, token, size).replace(upload)
+    return _check_upload(token, upload)
+
+
+def _upload_path(token: str) -> Path:
+    _stage_path(token)  # controleert het token
+    return auth.data_dir() / f"{STAGE_PREFIX}{token}.upload"
+
+
+def _check_upload(token: str, upload: Path) -> dict[str, Any]:
+    """Controleert het geüploade archief en zet de nieuwe regels klaar; het archief zelf gaat daarna weg."""
+    directory = auth.data_dir()
+    rows_path = _stage_path(token)
+    try:
+        if not upload.stat().st_size:
             raise ArchiveError("not_an_archive")
         archive = Archive(upload, directory)
         with closing(_connect()) as conn:
@@ -1186,6 +1209,19 @@ def register_routes(app: Flask) -> None:
     def price_archive_stage():
         try:
             return jsonify(stage(request.stream, request.content_length))
+        except ArchiveError as exc:
+            return _error(exc)
+
+    # Hetzelfde in stukken (uploads.py): zo komt ook een archief van 100 MB door een proxy die grote verzoeken weigert.
+    uploads.register_routes(app, "/api/price-archive/uploads", STAGE_PREFIX, MAX_UPLOAD_BYTES)
+
+    @app.post("/api/price-archive/uploads/<token>/stage")
+    def price_archive_stage_upload(token: str):
+        body = request.get_json(silent=True) or {}
+        try:
+            return jsonify(stage_upload(token, body.get("size")))
+        except uploads.UploadError as exc:
+            return uploads.error_response(exc)
         except ArchiveError as exc:
             return _error(exc)
 

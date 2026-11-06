@@ -15,7 +15,7 @@ from PIL import Image
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile  # noqa: E402
+from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, price_archive, prices, profile, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -148,6 +148,19 @@ class BackupCase(unittest.TestCase):
 
     def start(self, token, passphrase="", client=None):
         return (client or self.admin).post("/api/backup/jobs", json={"token": token, "passphrase": passphrase})
+
+    def upload(self, data: bytes, chunk: int = 1000, client=None):
+        """Zoals het scherm (static/upload.js): beginnen, stukken achter elkaar en dan laten controleren."""
+        client = client or self.admin
+        with mock.patch.object(uploads, "CHUNK_BYTES", chunk):
+            begun = client.post("/api/backup/uploads", json={"size": len(data)})
+            self.assertEqual(begun.status_code, 200, begun.get_json())
+            token = begun.get_json()["token"]
+            self.assertEqual(begun.get_json()["chunkBytes"], chunk)
+            for offset in range(0, len(data), chunk):
+                sent = client.put(f"/api/backup/uploads/{token}?offset={offset}", data=data[offset:offset + chunk], content_type="application/octet-stream")
+                self.assertEqual(sent.get_json(), {"received": min(offset + chunk, len(data))})
+        return token, client.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)})
 
     def wait(self, client=None, seconds=20):
         client = client or self.admin
@@ -667,6 +680,121 @@ class StageTest(BackupCase):
         self.assertEqual(path.stat().st_mode & 0o077, 0)
 
 
+class ChunkedUploadTest(BackupCase):
+    """Het scherm stuurt een back-up in stukken (uploads.py): één verzoek van 100 MB komt niet door elke proxy."""
+
+    def parts(self):
+        return sorted(path.name for path in self.data.glob(".restore-*.part"))
+
+    def put(self, token, offset, data: bytes):
+        return self.admin.put(f"/api/backup/uploads/{token}?offset={offset}", data=data, content_type="application/octet-stream")
+
+    def begin(self, size):
+        return self.admin.post("/api/backup/uploads", json={"size": size})
+
+    def test_a_backup_in_pieces_gives_the_same_summary_and_restores(self):
+        self.seed()
+        before, settings = self.snapshot(), self.settings()
+        _, data = self.make(links=False)
+        self.assertGreater(len(data), 3000)  # dus echt meerdere stukken
+        whole = self.stage(data).get_json()
+        self.wipe()
+        token, staged = self.upload(data)
+        self.assertEqual(staged.status_code, 200, staged.get_json())
+        body = staged.get_json()
+        self.assertEqual(body["token"], token)
+        self.assertEqual({k: v for k, v in body.items() if k != "token"}, {k: v for k, v in whole.items() if k != "token"})
+        self.assertEqual(self.parts(), [])
+        self.assertIn(".restore-" + token, self.staged_files())
+        self.assertEqual(self.start(token).status_code, 202)
+        self.assertEqual(self.wait()["status"], "done")
+        expected = dict(before)
+        expected["user_profiles"] = [row for row in before["user_profiles"] if row[0] == "owner"]  # "ghost" bestaat hier niet
+        self.assertEqual(self.snapshot(), expected)
+        self.assertEqual(self.settings(), settings)
+
+    def test_a_part_that_does_not_follow_on_gets_what_the_server_has(self):
+        _, data = self.make()
+        token = self.begin(len(data)).get_json()["token"]
+        self.assertEqual(self.put(token, 0, data[:100]).get_json(), {"received": 100})
+        for offset in (0, 50, 200, "x", ""):  # het antwoord ging verloren en het stuk komt nog eens, of het sluit niet aan
+            response = self.admin.put(f"/api/backup/uploads/{token}?offset={offset}", data=data[100:200], content_type="application/octet-stream")
+            self.assertEqual(response.status_code, 409, offset)
+            self.assertEqual(response.get_json()["received"], 100)
+            self.assertEqual(response.get_json()["code"], "upload_out_of_order")
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), data[:100])  # niets dubbel geplakt
+        self.assertEqual(self.put(token, 100, data[100:]).get_json(), {"received": len(data)})
+        self.assertEqual(self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)}).status_code, 200)
+
+    def test_a_file_that_is_too_large_is_refused_before_the_first_byte(self):
+        response = self.begin(backup.MAX_STAGE_BYTES + 1)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (413, "upload_too_large"))
+        self.assertIn("200 MB", response.get_json()["error"])
+        for size in (0, -1, "10", None, True, 1.5):
+            self.assertEqual(self.begin(size).status_code, 400, size)
+        self.assertEqual(self.parts(), [])
+
+    def test_a_part_larger_than_agreed_is_refused_and_leaves_nothing_behind(self):
+        token = self.begin(5000).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        with mock.patch.object(uploads, "CHUNK_BYTES", 100):
+            response = self.put(token, 10, b"x" * 101)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (413, "upload_chunk_too_large"))
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"{" * 10)
+
+    def test_the_upload_never_grows_past_the_limit(self):
+        token = uploads.begin(backup.STAGE_PREFIX, 10, 10)["token"]
+        with self.assertRaises(uploads.UploadError) as caught:
+            uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"x" * 11), None, 10)
+        self.assertEqual((caught.exception.key, caught.exception.status), ("too_large", 413))
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"")  # een half stuk blijft niet staan
+
+    def test_an_incomplete_upload_is_not_checked_and_is_removed(self):
+        _, data = self.make()
+        token = self.begin(len(data)).get_json()["token"]
+        self.put(token, 0, data[:100])
+        response = self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": len(data)})
+        self.assertEqual((response.status_code, response.get_json()["code"]), (409, "upload_incomplete"))
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual(self.put(token, 100, data[100:]).status_code, 404)
+
+    def test_a_refused_file_in_pieces_leaves_nothing_behind(self):
+        token, response = self.upload(b'{"format": "iets anders", "tables": {}}', chunk=7)
+        self.assertEqual((response.status_code, response.get_json()["code"]), (400, "not_a_backup"))
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual(self.start(token).status_code, 404)
+
+    def test_tokens_must_look_like_tokens(self):
+        for token in ("..", "x" * 32, "0" * 31, "0" * 32):
+            self.assertEqual(self.put(token, 0, b"{").status_code, 404, token)
+            self.assertEqual(self.admin.post(f"/api/backup/uploads/{token}/stage", json={"size": 1}).status_code, 404, token)
+        self.assertEqual(self.admin.delete("/api/backup/uploads/..").status_code, 404)
+
+    def test_changing_your_mind_halfway_removes_the_part(self):
+        token = self.begin(100).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        self.assertEqual(self.admin.delete(f"/api/backup/uploads/{token}").status_code, 200)
+        self.assertEqual(self.parts(), [])
+
+    def test_an_abandoned_upload_is_cleared_when_a_new_one_begins(self):
+        old = self.data / (".restore-" + "a" * 32 + ".part")
+        old.write_bytes(b"oud")
+        os.utime(old, (time.time() - 2 * 3600, time.time() - 2 * 3600))
+        young = self.data / (".restore-" + "b" * 32 + ".part")
+        young.write_bytes(b"jong")
+        self.assertEqual(self.begin(10).status_code, 200)
+        self.assertFalse(old.exists())
+        self.assertTrue(young.exists())
+
+    def test_a_part_is_private_and_goes_with_a_factory_reset(self):
+        token = self.begin(100).get_json()["token"]
+        self.put(token, 0, b"{" * 10)
+        path = self.data / f".restore-{token}.part"
+        self.assertEqual(path.stat().st_mode & 0o077, 0)
+        self.assertIn(path.name, factory_reset.wipe_data())
+        self.assertFalse(path.exists())
+
+
 class PassphraseTest(BackupCase):
     def prepare(self):
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
@@ -703,6 +831,8 @@ class AccessTest(BackupCase):
     ROUTES = (
         ("get", "/api/backup"), ("post", "/api/backup"), ("post", "/api/backup/stage"), ("delete", "/api/backup/stage/" + "0" * 32),
         ("post", "/api/backup/jobs"), ("get", "/api/backup/jobs/latest"), ("delete", "/api/backup/jobs/abc"),
+        ("post", "/api/backup/uploads"), ("put", "/api/backup/uploads/" + "0" * 32), ("delete", "/api/backup/uploads/" + "0" * 32),
+        ("post", "/api/backup/uploads/" + "0" * 32 + "/stage"),
     )
 
     def test_every_route_needs_a_session(self):
@@ -848,6 +978,7 @@ class JobTest(BackupCase):
 class PageTest(unittest.TestCase):
     HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     JS = (ROOT / "static" / "backup.js").read_text(encoding="utf-8")
+    UPLOAD_JS = (ROOT / "static" / "upload.js").read_text(encoding="utf-8")
 
     def test_the_card_has_a_live_progress_block_and_loads_after_app_js(self):
         self.assertRegex(self.HTML, r'<div class="backup-progress" id="backup-progress" role="status" hidden>')
@@ -858,8 +989,15 @@ class PageTest(unittest.TestCase):
 
     def test_the_screen_follows_the_contract(self):
         # Alleen een balk vullen die zijn totaal kent, de klus op de server volgen en niet herladen als wegklikken mislukt.
-        for needle in ("/api/backup/stage", "/api/backup/jobs/latest", "XMLHttpRequest", "upload.onprogress", "Content-Length", "dismissed", "BACKUP_POLL_MS"):
+        for needle in ("/api/backup/stage", "/api/backup/jobs/latest", "Content-Length", "dismissed", "BACKUP_POLL_MS"):
             self.assertIn(needle, self.JS)
+        # Het bestand gaat in stukken (upload.js), met een balk per verstuurde byte en een tijdslimiet per stuk.
+        self.assertIn('uploadInChunks(file, "/api/backup/uploads"', self.JS)
+        for needle in ("XMLHttpRequest", "upload.onprogress", "request.timeout", "status === 409", "/stage`"):
+            self.assertIn(needle, self.UPLOAD_JS)
+        self.assertLess(self.HTML.index("filename='app.js'"), self.HTML.index("filename='upload.js'"))
+        self.assertLess(self.HTML.index("filename='upload.js'"), self.HTML.index("filename='backup.js'"))
+        self.assertLess(self.HTML.index("filename='upload.js'"), self.HTML.index("filename='price_archive.js'"))
         self.assertNotIn("setInterval", self.JS)
         self.assertNotIn("file.text()", self.JS)  # het bestand wordt op de server gecontroleerd, niet in de browser
 
