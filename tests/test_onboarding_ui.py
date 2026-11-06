@@ -8,7 +8,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from helpers import AppTestCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -17,7 +17,7 @@ APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 OB_JS = (ROOT / "static" / "onboarding.js").read_text(encoding="utf-8")
 
 
-class MarkupTest(unittest.TestCase):
+class MarkupTest(AppTestCase):
     def test_login_page_has_password_mfa_and_passkey_parts(self):
         gate = HTML[HTML.index('id="auth-gate"'):HTML.index('id="onboarding"')]
         for needle in ('id="login-form"', 'id="login-username"', 'autocomplete="username"',
@@ -42,18 +42,18 @@ class MarkupTest(unittest.TestCase):
     def test_scripts_load_in_order(self):
         self.assertLess(HTML.index("app.js"), HTML.index("onboarding.js"))
 
-    def test_page_is_served_with_both_scripts_and_the_vendored_qr_code(self):
+    async def test_page_is_served_with_both_scripts_and_the_vendored_qr_code(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name}):
-            client = SyncClient(create_app())
-            html = client.get("/").get_data(as_text=True)
+            client = self.client_for(create_app())
+            html = (await client.get("/")).get_data(as_text=True)
             self.assertIn("onboarding.js?v=", html)
-            self.assertEqual(client.get("/static/onboarding.js").status_code, 200)
-            qr = client.get("/static/vendor/qrcode-2.0.4.js")
+            self.assertEqual((await client.get("/static/onboarding.js")).status_code, 200)
+            qr = await client.get("/static/vendor/qrcode-2.0.4.js")
             self.assertEqual(qr.status_code, 200)
             self.assertIn("Kazuhiko Arase", qr.get_data(as_text=True)[:400])
-            self.assertEqual(client.get("/static/vendor/LICENSE-qrcode.txt").status_code, 200)
+            self.assertEqual((await client.get("/static/vendor/LICENSE-qrcode.txt")).status_code, 200)
 
 
 def dictionary(lang: str) -> dict[str, str]:
@@ -66,7 +66,7 @@ def dictionary(lang: str) -> dict[str, str]:
 NL = dictionary("nl")
 
 
-class ScriptTest(unittest.TestCase):
+class ScriptTest(AppTestCase):
     def test_six_steps_in_the_asked_order(self):
         ids = re.findall(r'\{ id: "(\w+)" \}', OB_JS)
         self.assertEqual(ids, ["auth", "mealie", "ah", "jumbo", "picnic", "done"])
@@ -161,7 +161,7 @@ class ScriptTest(unittest.TestCase):
         self.assertIn("gebruikersnaam en wachtwoord", NL["sec.mfa.optional_note"])
 
 
-class StyleTest(unittest.TestCase):
+class StyleTest(AppTestCase):
     def test_overlay_covers_the_page_and_scrolls(self):
         rule = re.search(r"\n\.onboarding \{(.*?)\n\}", CSS, re.S).group(1)
         for declaration in ("position: fixed", "inset: 0", "overflow-y: auto", "z-index: 100"):

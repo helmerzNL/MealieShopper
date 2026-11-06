@@ -94,7 +94,7 @@ async def run_import(
         logger.exception("%s-recept %s: importeren mislukt", name, recipe_key)
         raise failure(exc, error) from exc
     finally:
-        await audit.arecord(
+        await audit.record(
             kind="outbound",
             service=service,
             action="Mealie import",
@@ -103,7 +103,7 @@ async def run_import(
             status=status,
             ok=problem is None,
             duration_ms=round((time.perf_counter() - started) * 1000),
-            actor=audit.current_actor(),
+            actor=await audit.current_actor(),
             error=f"{type(problem).__name__}: {problem}" if problem else "",
             detail={"key": recipe_key[:200], "attempts": attempts} if attempts or problem else {"key": recipe_key[:200]},
         )

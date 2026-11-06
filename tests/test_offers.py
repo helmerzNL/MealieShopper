@@ -14,7 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_recipes, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, returned, routes, run, served  # noqa: E402
+from helpers import AppTestCase, db, returned, routes, run, served  # noqa: E402
 
 BONUS_PAGE = {
     "bonusGroupOrProducts": [
@@ -57,17 +57,17 @@ BONUS_PROMOTIONS = {
 }
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
 
-class MatchingTest(unittest.TestCase):
+class MatchingTest(AppTestCase):
     def test_plural_and_double_vowels_match(self):
         for ingredient, title in (("tomaten", "AH Tomaat rond"), ("2 uien", "Ui geel"), ("6 eieren", "Ei"), ("kippen", "Kip")):
             head = offers.head_of(ingredient)
@@ -90,7 +90,7 @@ class MatchingTest(unittest.TestCase):
         self.assertTrue(offers.matches(offers.head_of("kip"), set(offers.tokens("Kipfilet 500 g"))))
 
 
-class BonusParsingTest(unittest.TestCase):
+class BonusParsingTest(AppTestCase):
     def test_products_are_found_by_shape_with_their_label_and_prices(self):
         products = {p["id"]: p for p in ah.bonus_products_in(BONUS_PAGE)}
         self.assertEqual(sorted(products), ["11", "12", "13"])
@@ -317,7 +317,7 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual(run(offers.load("ah", self.monday.isoformat()))["later"], 1)
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2 voor 5.00"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah"))["offers"]], ["25% korting"], "zonder week: elk product een keer, de actie van nu")
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             history = conn.execute("SELECT promo_label FROM offer_history WHERE product_id = '4004'").fetchall()
         self.assertEqual([row["promo_label"] for row in history], ["25% korting"], "de actie van volgende week komt in de geschiedenis als hij begint")
 
@@ -331,22 +331,22 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2e halve prijs"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["Feestfavoriet"])
 
-    def test_the_routes_take_the_week_and_default_to_this_week(self):
-        client = SyncClient(create_app())
-        default = client.get("/api/offers?store=ah")
+    async def test_the_routes_take_the_week_and_default_to_this_week(self):
+        client = self.client_for(create_app())
+        default = await client.get("/api/offers?store=ah")
         self.assertTrue(default.get_json()["week"]["current"])
         self.assertEqual(default.get_json()["later"], 1)
-        later = client.get(f"/api/offers?store=ah&week={self.next_monday.isoformat()}")
+        later = await client.get(f"/api/offers?store=ah&week={self.next_monday.isoformat()}")
         self.assertEqual({o["id"] for o in later.get_json()["offers"]}, {"volgende", "doorlopend"})
         self.assertNotEqual(later.headers["ETag"], default.headers["ETag"], "elke week heeft een eigen ETag")
-        self.assertEqual(client.get("/api/offers?store=ah&week=morgen").status_code, 400)
-        self.assertEqual(client.get("/api/offers/recipes?store=ah&week=morgen").status_code, 400)
-        self.assertEqual(client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}").status_code, 200)
+        self.assertEqual((await client.get("/api/offers?store=ah&week=morgen")).status_code, 400)
+        self.assertEqual((await client.get("/api/offers/recipes?store=ah&week=morgen")).status_code, 400)
+        self.assertEqual((await client.get(f"/api/offers/recipes?store=ah&week={self.next_monday.isoformat()}")).status_code, 200)
 
 
 class OffersTableMigrationTest(TempDataDirTest):
     def test_a_table_from_before_2_84_loses_its_key_and_keeps_its_rows(self):
-        with closing(auth.connect()) as conn, conn:
+        with closing(db()) as conn, conn:
             conn.execute(
                 "CREATE TABLE offers (store TEXT NOT NULL, product_id TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, brand TEXT, "
                 "unit_size TEXT, price REAL, price_before REAL, promo_label TEXT, image TEXT, url TEXT, valid_until TEXT, PRIMARY KEY (store, product_id))"
@@ -354,13 +354,13 @@ class OffersTableMigrationTest(TempDataDirTest):
             conn.execute("INSERT INTO offers (store, product_id, position, title, price, promo_label) VALUES ('ah', '1', 0, 'AH Kipfilet', 3.0, '1+1 gratis')")
         data = run(offers.load("ah"))
         self.assertEqual([(o["id"], o["title"], o["promoLabel"]) for o in data["offers"]], [("1", "AH Kipfilet", "1+1 gratis")])
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             self.assertFalse(any(row["pk"] for row in conn.execute("PRAGMA table_info(offers)")))
             conn.execute("INSERT INTO offers (store, product_id, position, title) VALUES ('ah', '1', 1, 'AH Kipfilet')")
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM offers WHERE product_id = '1'").fetchone()[0], 2, "een product mag er nu twee keer in")
 
 
-class LinkingTest(unittest.TestCase):
+class LinkingTest(AppTestCase):
     """Een ingrediënt hoort alleen bij een aanbieding die dat product zelf is, niet bij een bereid product waar het in zit."""
 
     def match(self, ingredient, title):
@@ -528,7 +528,7 @@ class SuggestionsTest(TempDataDirTest):
 
     def test_reports_from_before_reason_and_source_still_work(self):
         self.reported_setup()
-        with closing(offers._connect()) as conn, conn:
+        with closing(db(offers)) as conn, conn:
             conn.execute("DROP TABLE offer_rejections")
             conn.execute("CREATE TABLE offer_rejections (store TEXT NOT NULL, product_id TEXT NOT NULL, head TEXT NOT NULL, ingredient TEXT NOT NULL, "
                          "title TEXT NOT NULL, reported_at TEXT NOT NULL, PRIMARY KEY (store, product_id, head))")
@@ -599,15 +599,14 @@ class SuggestionsTest(TempDataDirTest):
         self.assertEqual(run(offers.suggest("ah"))["recipes"][0]["course"], "overig")
 
     def test_an_index_from_before_the_courses_gets_the_column(self):
-        import sqlite3
         from contextlib import closing
 
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             conn.execute("DROP TABLE offer_recipes")
             conn.execute("CREATE TABLE offer_recipes (source TEXT NOT NULL, recipe_id TEXT NOT NULL, title TEXT NOT NULL, image TEXT, url TEXT, ingredients TEXT NOT NULL, PRIMARY KEY (source, recipe_id))")
             conn.execute("INSERT INTO offer_recipes VALUES ('mealie', 'old', 'Oud recept', '', '', '[\"4 tomaten\"]')")
             conn.commit()
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             self.assertIn("course", {row["name"] for row in conn.execute("PRAGMA table_info(offer_recipes)")})
             self.assertIsNone(conn.execute("SELECT course FROM offer_recipes").fetchone()["course"])
 
@@ -621,18 +620,18 @@ class SuggestionsTest(TempDataDirTest):
             ("picnic", "none"): "",
             ("jumbo", "other"): "https://www.jumbo.com/dam-images/recipes/large.png",
         }
-        with closing(offers._connect()) as conn, conn:
+        with closing(db(offers)) as conn, conn:
             conn.executemany(
                 "INSERT INTO offer_recipes (source, recipe_id, title, image, url, ingredients) VALUES (?, ?, 'R', ?, '', '[\"kip\"]')",
                 [(source, recipe_id, image) for (source, recipe_id), image in rows.items()],
             )
         offers._PICNIC_IMAGES_REPAIRED.clear()  # zoals een nieuwe start van de app
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             images = {(row["source"], row["recipe_id"]): row["image"] for row in conn.execute("SELECT source, recipe_id, image FROM offer_recipes")}
         self.assertEqual(images, {**rows, ("picnic", "new"): f"{base}/recipes/ac1b02/1000x1000.png"})
-        with closing(offers._connect()) as conn, conn:
+        with closing(db(offers)) as conn, conn:
             conn.execute("UPDATE offer_recipes SET image = ? WHERE recipe_id = 'new'", (f"{base}/recipes/ac1b02/large.png",))
-        with closing(offers._connect()) as conn:
+        with closing(db(offers)) as conn:
             image = conn.execute("SELECT image FROM offer_recipes WHERE recipe_id = 'new'").fetchone()["image"]
         self.assertEqual(image, f"{base}/recipes/ac1b02/large.png", "niet bij elke verbinding opnieuw")
 
@@ -731,7 +730,7 @@ class CourseCollectorsTest(TempDataDirTest):
         # In de index, recept 1 mét soort en recept 2 zonder (ingelezen vóór de soorten): alleen 2 wordt opnieuw opgehaald.
         from contextlib import closing
 
-        with closing(offers._connect()) as conn, conn:
+        with closing(db(offers)) as conn, conn:
             for recipe_id, course in (("1", "hoofdgerecht"), ("2", None)):
                 conn.execute(
                     "INSERT OR REPLACE INTO offer_recipes (source, recipe_id, title, image, url, ingredients, course) VALUES ('ah', ?, 'R', '', '', '[\"kip\"]', ?)",
@@ -858,7 +857,7 @@ class CollectorPoolTest(TempDataDirTest):
             self.assert_pool(run(offers._collect_crisp()), state)
 
 
-class OffersTabMarkupTest(unittest.TestCase):
+class OffersTabMarkupTest(AppTestCase):
     def test_switching_store_shows_a_spinning_icon_while_the_offers_load(self):
         from pathlib import Path
 
@@ -1354,88 +1353,88 @@ class EnglishRecipesTest(TempDataDirTest):
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_routes_load_sync_and_suggest(self):
-        self.assertEqual(self.client.get("/api/offers?store=ah").get_json()["syncedAt"], None)
+    async def test_routes_load_sync_and_suggest(self):
+        self.assertEqual((await self.client.get("/api/offers?store=ah")).get_json()["syncedAt"], None)
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):
-            synced = self.client.post("/api/offers/sync", json={"store": "ah"})
+            synced = await self.client.post("/api/offers/sync", json={"store": "ah"})
         self.assertEqual((synced.status_code, synced.get_json()["total"]), (200, 3))
         with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned([
                 {"id": "r1", "title": "Kip", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"], "course": "hoofdgerecht"}])),)):
-            self.assertEqual(self.client.post("/api/offers/recipes/sync").status_code, 200)
-        suggestions = self.client.get("/api/offers/recipes?store=ah").get_json()
+            self.assertEqual((await self.client.post("/api/offers/recipes/sync")).status_code, 200)
+        suggestions = (await self.client.get("/api/offers/recipes?store=ah")).get_json()
         self.assertEqual([r["id"] for r in suggestions["recipes"]], ["r1"])
         self.assertEqual(suggestions["courses"], [{"id": "hoofdgerecht", "count": 1}])
-        self.assertEqual([r["id"] for r in self.client.get("/api/offers/recipes?store=ah&course=hoofdgerecht").get_json()["recipes"]], ["r1"])
-        self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=dessert").get_json()["recipes"], [])
-        self.assertEqual(self.client.get("/api/offers/recipes?store=ah&course=pannenkoek").status_code, 400)
+        self.assertEqual([r["id"] for r in (await self.client.get("/api/offers/recipes?store=ah&course=hoofdgerecht")).get_json()["recipes"]], ["r1"])
+        self.assertEqual((await self.client.get("/api/offers/recipes?store=ah&course=dessert")).get_json()["recipes"], [])
+        self.assertEqual((await self.client.get("/api/offers/recipes?store=ah&course=pannenkoek")).status_code, 400)
 
-    def test_reporting_a_match_over_the_api(self):
+    async def test_reporting_a_match_over_the_api(self):
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
-            self.client.post("/api/offers/sync", json={"store": "ah"})
+            await self.client.post("/api/offers/sync", json={"store": "ah"})
         body = {"store": "ah", "ingredient": "400 g kipfilet", "offerId": "1"}
-        response = self.client.post("/api/offers/rejections", json=body)
+        response = await self.client.post("/api/offers/rejections", json=body)
         self.assertEqual((response.status_code, response.get_json()["offerId"]), (200, "1"))
-        self.assertEqual(self.client.delete("/api/offers/rejections", json=body).status_code, 200)
-        self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "offerId": "nope"}).status_code, 400)
-        self.assertEqual(self.client.post("/api/offers/rejections", json={**body, "ingredient": ""}).status_code, 400)
+        self.assertEqual((await self.client.delete("/api/offers/rejections", json=body)).status_code, 200)
+        self.assertEqual((await self.client.post("/api/offers/rejections", json={**body, "offerId": "nope"})).status_code, 400)
+        self.assertEqual((await self.client.post("/api/offers/rejections", json={**body, "ingredient": ""})).status_code, 400)
 
-    def test_the_offers_are_cached_by_the_browser_and_only_resent_when_they_changed(self):
+    async def test_the_offers_are_cached_by_the_browser_and_only_resent_when_they_changed(self):
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
-            self.client.post("/api/offers/sync", json={"store": "ah"})
-        first = self.client.get("/api/offers?store=ah")
+            await self.client.post("/api/offers/sync", json={"store": "ah"})
+        first = await self.client.get("/api/offers?store=ah")
         etag = first.headers["ETag"]
         self.assertEqual((first.status_code, first.headers["Cache-Control"]), (200, "private, no-cache"))
         self.assertEqual(first.get_json()["total"], 1)
-        again = self.client.get("/api/offers?store=ah", headers={"If-None-Match": etag})
+        again = await self.client.get("/api/offers?store=ah", headers={"If-None-Match": etag})
         self.assertEqual((again.status_code, again.get_data()), (304, b""), "ongewijzigd: geen lijst opnieuw versturen")
         self.assertEqual(again.headers["ETag"], etag)
-        self.assertEqual(self.client.get("/api/offers?store=ah", headers={"If-None-Match": '"iets-anders"'}).status_code, 200)
-        self.assertNotEqual(self.client.get("/api/offers?store=jumbo").headers["ETag"], etag, "elke winkel heeft een eigen ETag")
+        self.assertEqual((await self.client.get("/api/offers?store=ah", headers={"If-None-Match": '"iets-anders"'})).status_code, 200)
+        self.assertNotEqual((await self.client.get("/api/offers?store=jumbo")).headers["ETag"], etag, "elke winkel heeft een eigen ETag")
         # Een nieuwe synchronisatie, een nieuwe dag en een nieuwe versie geven een andere ETag.
         with mock.patch.object(offers, "_now", return_value="2030-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
-            run(offers.sync("ah"))
-        self.assertNotEqual(self.client.get("/api/offers?store=ah").headers["ETag"], etag)
+            await offers.sync("ah")
+        self.assertNotEqual((await self.client.get("/api/offers?store=ah")).headers["ETag"], etag)
         with mock.patch.object(offers, "date") as fake_date:
             fake_date.today.return_value.isoformat.return_value = "2031-02-03"
             self.assertNotIn("2031-02-03", etag)
-            self.assertIn("2031-02-03", run(offers.signature("ah")))
-        with mock.patch.object(offers.about, "read_version", return_value="9.9.9"):
-            self.assertTrue(run(offers.signature("ah")).endswith("9.9.9"))
-        self.assertEqual(self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag}).status_code, 400)
+            self.assertIn("2031-02-03", await offers.signature("ah"))
+        with mock.patch.object(offers.about, "version", return_value="9.9.9"):
+            self.assertTrue((await offers.signature("ah")).endswith("9.9.9"))
+        self.assertEqual((await self.client.get("/api/offers?store=lidl", headers={"If-None-Match": etag})).status_code, 400)
 
-    def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
+    async def test_the_recipes_subtab_is_hidden_unless_switched_on(self):
         import re
 
-        def subtab(client):
-            html = client.get("/").get_data(as_text=True)
+        async def subtab(client):
+            html = (await client.get("/")).get_data(as_text=True)
             return re.search(r'<a class="subtab"[^>]*data-subtab="offers-suggestions"[^>]*>', html).group(0)
 
-        self.assertIn(" hidden", subtab(self.client))
+        self.assertIn(" hidden", await subtab(self.client))
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-0123456789abcdef"}):
-            self.assertNotIn(" hidden", subtab(self.client), "met een AI-sleutel verschijnt het tabblad ook zonder de variabele")
+            self.assertNotIn(" hidden", await subtab(self.client), "met een AI-sleutel verschijnt het tabblad ook zonder de variabele")
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_RECIPES": "true"}):
-            self.assertNotIn(" hidden", subtab(SyncClient(create_app())))
-        self.assertEqual(self.client.get("/api/offers/recipes?store=ah").status_code, 200, "de API blijft werken")
+            self.assertNotIn(" hidden", await subtab(self.client_for(create_app())))
+        self.assertEqual((await self.client.get("/api/offers/recipes?store=ah")).status_code, 200, "de API blijft werken")
 
-    def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
-        self.assertEqual(self.client.get("/api/offers?store=lidl").status_code, 400)
-        self.assertEqual(self.client.post("/api/offers/sync", json={"store": "lidl"}).status_code, 400)
+    async def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):
+        self.assertEqual((await self.client.get("/api/offers?store=lidl")).status_code, 400)
+        self.assertEqual((await self.client.post("/api/offers/sync", json={"store": "lidl"})).status_code, 400)
 
         def not_linked():
             raise RuntimeError("Jumbo account niet gekoppeld")
 
         with mock.patch.dict(offers.FETCHERS, {"jumbo": not_linked}):
-            self.assertEqual(self.client.post("/api/offers/sync", json={"store": "jumbo"}).status_code, 424)
+            self.assertEqual((await self.client.post("/api/offers/sync", json={"store": "jumbo"})).status_code, 424)
 
         def boom():
             raise RuntimeError("AH is stuk")
 
         with mock.patch.dict(offers.FETCHERS, {"ah": boom}):
-            response = self.client.post("/api/offers/sync", json={"store": "ah"})
+            response = await self.client.post("/api/offers/sync", json={"store": "ah"})
         self.assertEqual((response.status_code, response.get_json()["error"]), (424, "AH is stuk"))
 
 

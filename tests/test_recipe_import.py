@@ -9,7 +9,7 @@ import httpx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
-from support import routes, run, sent_json, served  # noqa: E402
+from helpers import routes, run, sent_json, served  # noqa: E402
 
 CREATE_HTML = "http://mealie/api/recipes/create/html-or-json"
 CREATE_URL = "http://mealie/api/recipes/create/url"

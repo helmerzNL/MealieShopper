@@ -9,7 +9,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, routes, run, sent_json, sent_url, served  # noqa: E402
+from helpers import AppTestCase, routes, run, sent_json, sent_url, served  # noqa: E402
 
 
 def graphql_response(result, total=None, has_next=True):
@@ -34,7 +34,7 @@ def item(recipe_id=1302917, **extra):
     return base
 
 
-class SearchTestCase(unittest.TestCase):
+class SearchTestCase(AppTestCase):
     def search(self, response, *args, **kwargs):
         with mock.patch.object(ah, "get_token", return_value="anon"), routes() as router:
             post = router.post().mock(return_value=response)
@@ -47,7 +47,7 @@ class SearchTestCase(unittest.TestCase):
         return sent_json(post.calls.last)["variables"]["query"]
 
 
-class PickImageTest(unittest.TestCase):
+class PickImageTest(AppTestCase):
     def test_closest_to_card_width(self):
         images = [{"url": "a", "width": 220}, {"url": "b", "width": 440}, {"url": "c", "width": 2048}]
         self.assertEqual(ah._pick_image(images), "b")
@@ -163,29 +163,29 @@ class SearchErrorsTest(SearchTestCase):
         self.assertEqual(result, {"recipes": [], "total": 0, "hasNextPage": False})
 
 
-class SearchRouteTest(unittest.TestCase):
+class SearchRouteTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_returns_cards_with_paging(self):
+    async def test_returns_cards_with_paging(self):
         found = {"recipes": [{"id": "1"}], "total": 30, "hasNextPage": True}
         with mock.patch.object(ah, "search_recipes", return_value=found) as search:
-            response = self.client.get("/api/ah/search?q=pasta&page=2")
+            response = await self.client.get("/api/ah/search?q=pasta&page=2")
         self.assertEqual(response.get_json(), found)
         search.assert_called_once_with("pasta", 2)
 
-    def test_requires_a_search_term(self):
-        self.assertEqual(self.client.get("/api/ah/search").status_code, 400)
-        self.assertEqual(self.client.get("/api/ah/search?q=%20").status_code, 400)
+    async def test_requires_a_search_term(self):
+        self.assertEqual((await self.client.get("/api/ah/search")).status_code, 400)
+        self.assertEqual((await self.client.get("/api/ah/search?q=%20")).status_code, 400)
 
-    def test_errors_come_through_as_424(self):
+    async def test_errors_come_through_as_424(self):
         with mock.patch.object(ah, "search_recipes", side_effect=RuntimeError("AH zoeken mislukt: kapot")):
-            response = self.client.get("/api/ah/search?q=pasta")
+            response = await self.client.get("/api/ah/search?q=pasta")
         self.assertEqual(response.status_code, 424)
         self.assertEqual(response.get_json()["error"], "AH zoeken mislukt: kapot")
 

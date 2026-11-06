@@ -88,17 +88,12 @@ class OAuthError(Exception):
 
 @asynccontextmanager
 async def _connect() -> AsyncIterator[aiosqlite.Connection]:
-    """Een verbinding met de OAuth-tabellen erbij en de foreign keys aan. Sluit zonder commit, zoals `auth.aconnect`."""
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
+    """Een verbinding met de OAuth-tabellen erbij en de foreign keys aan. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
         await conn.execute("PRAGMA foreign_keys = ON")
         await conn.executescript(SCHEMA)
         yield conn
-
-
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
 
 
 def _now() -> datetime:
@@ -171,12 +166,12 @@ async def register_client(metadata: dict[str, Any]) -> dict[str, Any]:
     client_id = "msc_" + secrets.token_urlsafe(18)
     async with _connect() as conn:
         await _purge_stale(conn)
-        count = (await _fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
+        count = (await auth.fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
         if count >= MAX_CLIENTS:
             # Niemand mag de registratie blokkeren door het te vol te zetten: maak eerst plek door
             # apps weg te gooien die zich net registreerden maar nooit toestemming kregen.
             await _purge_stale(conn, max_age=timedelta(minutes=15))
-            count = (await _fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
+            count = (await auth.fetchone(conn, "SELECT COUNT(*) FROM oauth_clients"))[0]
         if count >= MAX_CLIENTS:
             raise OAuthError("temporarily_unavailable", "Te veel geregistreerde apps; probeer het later opnieuw", 503)
         await conn.execute(
@@ -211,7 +206,7 @@ async def _purge_stale(conn: aiosqlite.Connection, max_age: timedelta = timedelt
 
 async def get_client(client_id: str) -> dict[str, Any] | None:
     async with _connect() as conn:
-        row = await _fetchone(conn, "SELECT * FROM oauth_clients WHERE client_id = ?", (str(client_id or ""),))
+        row = await auth.fetchone(conn, "SELECT * FROM oauth_clients WHERE client_id = ?", (str(client_id or ""),))
     if not row:
         return None
     return {"client_id": row["client_id"], "name": row["client_name"], "redirect_uris": json.loads(row["redirect_uris"])}
@@ -258,7 +253,7 @@ def _authorize_error(params: dict[str, str], resource_url: str) -> OAuthError | 
 
 async def issue_code(user_id: str, client_id: str, redirect_uri: str, code_challenge: str, resource: str) -> str:
     code = secrets.token_urlsafe(32)
-    epoch = await auth.asession_epoch(user_id)
+    epoch = await auth.session_epoch(user_id)
     async with _connect() as conn:
         await conn.execute(
             """
@@ -299,9 +294,9 @@ async def _new_token_row(
 async def _user_epoch(conn: aiosqlite.Connection, user_id: str) -> int | None:
     """De sessieteller van de gebruiker, of None als die niet (meer) bestaat.
 
-    Op dezelfde verbinding: `auth.asession_epoch` zou een tweede verbinding openen terwijl deze al schrijft.
+    Op dezelfde verbinding: `auth.session_epoch` zou een tweede verbinding openen terwijl deze al schrijft.
     """
-    row = await _fetchone(conn, "SELECT session_epoch FROM users WHERE id = ?", (user_id,))
+    row = await auth.fetchone(conn, "SELECT session_epoch FROM users WHERE id = ?", (user_id,))
     return int(row["session_epoch"]) if row else None
 
 
@@ -319,7 +314,7 @@ async def exchange_code(form: dict[str, str], resource_url: str) -> dict[str, An
     async with _connect() as conn:
         # Een schrijftransactie vanaf het lezen: twee gelijktijdige inwisselingen lopen na elkaar.
         await conn.execute("BEGIN IMMEDIATE")
-        row = await _fetchone(conn, "SELECT * FROM oauth_codes WHERE code_hash = ?", (_hash(form.get("code", "")),))
+        row = await auth.fetchone(conn, "SELECT * FROM oauth_codes WHERE code_hash = ?", (_hash(form.get("code", "")),))
         if not row or row["client_id"] != client_id:
             raise OAuthError("invalid_grant", "Onbekende of verlopen code")
         claimed = await conn.execute("UPDATE oauth_codes SET used = 1 WHERE code_hash = ? AND used = 0", (row["code_hash"],))
@@ -349,7 +344,7 @@ async def refresh(form: dict[str, str]) -> dict[str, Any]:
     async with _connect() as conn:
         # Een schrijftransactie vanaf het lezen: twee gelijktijdige verversingen lopen na elkaar.
         await conn.execute("BEGIN IMMEDIATE")
-        row = await _fetchone(conn, "SELECT * FROM oauth_tokens WHERE refresh_hash = ?", (_hash(form.get("refresh_token", "")),))
+        row = await auth.fetchone(conn, "SELECT * FROM oauth_tokens WHERE refresh_hash = ?", (_hash(form.get("refresh_token", "")),))
         if not row or row["client_id"] != client_id or row["revoked"]:
             raise OAuthError("invalid_grant", "Onbekend of ingetrokken verversingstoken")
         claimed = await conn.execute("UPDATE oauth_tokens SET rotated = 1 WHERE id = ? AND rotated = 0", (row["id"],))
@@ -382,7 +377,7 @@ async def verify_access_token(token: str, resource_url: str) -> dict[str, Any] |
         return None
     now = _iso(_now())
     async with _connect() as conn:
-        row = await _fetchone(
+        row = await auth.fetchone(
             conn,
             """
             SELECT t.id, t.user_id, t.client_id, t.resource, t.epoch, t.access_expires, t.revoked, t.last_used_at,
@@ -408,7 +403,7 @@ async def revoke_token(token: str) -> None:
     """RFC 7009: geeft nooit een fout, ook niet voor een onbekend token."""
     digest = _hash(token or "")
     async with _connect() as conn:
-        row = await _fetchone(conn, "SELECT family FROM oauth_tokens WHERE access_hash = ? OR refresh_hash = ?", (digest, digest))
+        row = await auth.fetchone(conn, "SELECT family FROM oauth_tokens WHERE access_hash = ? OR refresh_hash = ?", (digest, digest))
         if row:
             await conn.execute("UPDATE oauth_tokens SET revoked = 1 WHERE family = ?", (row["family"],))
             await conn.commit()
@@ -419,7 +414,7 @@ async def revoke_token(token: str) -> None:
 async def connected_apps(user_id: str) -> list[dict[str, Any]]:
     """Apps van deze gebruiker met een actief (niet ingetrokken, niet verlopen) verversingstoken."""
     now = _iso(_now())
-    epoch = await auth.asession_epoch(user_id)
+    epoch = await auth.session_epoch(user_id)
     async with _connect() as conn, conn.execute(
             """
             SELECT c.client_id, c.client_name, MIN(t.created_at) AS connected_at, MAX(t.last_used_at) AS last_used_at

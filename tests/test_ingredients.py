@@ -8,7 +8,7 @@ import httpx
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ingredients, mealie  # noqa: E402
-from support import routes, run, sent_json  # noqa: E402
+from helpers import routes, run, sent_json  # noqa: E402
 
 
 def unparsed(note, quantity=1):

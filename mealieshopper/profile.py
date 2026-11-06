@@ -11,9 +11,11 @@ vooraf; hier controleren we nog het type aan de inhoud en de grootte. SVG wordt 
 from __future__ import annotations
 
 import re
-import sqlite3
-from contextlib import closing
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
+
+import aiosqlite
 
 from quart import Quart, Response, jsonify, request
 
@@ -57,14 +59,21 @@ _ADDED_COLUMNS = {
 }
 
 
-def _connect() -> sqlite3.Connection:
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(user_profiles)")}
-    for name, definition in _ADDED_COLUMNS.items():
-        if name not in columns:
-            conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}")
-    return conn
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema en de kolommen die later kwamen. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
+        await conn.executescript(SCHEMA)
+        columns = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(user_profiles)")}
+        for name, definition in _ADDED_COLUMNS.items():
+            if name not in columns:
+                try:
+                    await conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {name} {definition}")
+                except aiosqlite.OperationalError as exc:  # een andere verbinding was ons net voor
+                    if "duplicate column" not in str(exc):
+                        raise
+        await conn.commit()
+        yield conn
 
 
 def clean_name(value: Any) -> str:
@@ -111,13 +120,14 @@ def clean_navbar_glass(value: Any) -> int:
     return value if valid_glass(value) else NAVBAR_GLASS_DEFAULT
 
 
-def get(user_id: str) -> dict[str, Any]:
-    with closing(_connect()) as conn:
-        row = conn.execute(
+async def get(user_id: str) -> dict[str, Any]:
+    async with _connect() as conn:
+        row = await auth.fetchone(
+            conn,
             "SELECT display_name, avatar IS NOT NULL AS has_avatar, avatar_version, prefer_organic, theme, dark_background, accent, "
             "navbar_style, navbar_glass FROM user_profiles WHERE user_id = ?",
             (user_id,),
-        ).fetchone()
+        )
     if not row:
         return {
             "displayName": "", "hasAvatar": False, "avatarVersion": 0, "preferOrganic": False,
@@ -137,38 +147,39 @@ def get(user_id: str) -> dict[str, Any]:
     }
 
 
-def info_map() -> dict[str, dict[str, Any]]:
+async def info_map() -> dict[str, dict[str, Any]]:
     """Het profiel van alle gebruikers, voor de gebruikerslijst."""
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT user_id, display_name, avatar IS NOT NULL AS has_avatar, avatar_version FROM user_profiles").fetchall()
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT user_id, display_name, avatar IS NOT NULL AS has_avatar, avatar_version FROM user_profiles")
     return {
         row["user_id"]: {"displayName": row["display_name"], "hasAvatar": bool(row["has_avatar"]), "avatarVersion": int(row["avatar_version"])}
         for row in rows
     }
 
 
-def _upsert(user_id: str, **fields: Any) -> None:
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+async def _upsert(user_id: str, **fields: Any) -> None:
+    async with _connect() as conn:
+        await conn.execute(
             "INSERT INTO user_profiles (user_id, updated_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
             (user_id, auth.utcnow().isoformat()),
         )
         for column, value in fields.items():
-            conn.execute(f"UPDATE user_profiles SET {column} = ?, updated_at = ? WHERE user_id = ?", (value, auth.utcnow().isoformat(), user_id))
+            await conn.execute(f"UPDATE user_profiles SET {column} = ?, updated_at = ? WHERE user_id = ?", (value, auth.utcnow().isoformat(), user_id))
+        await conn.commit()
 
 
-def set_display_name(user_id: str, name: Any) -> str:
+async def set_display_name(user_id: str, name: Any) -> str:
     name = clean_name(name)
-    _upsert(user_id, display_name=name)
+    await _upsert(user_id, display_name=name)
     return name
 
 
-def set_prefer_organic(user_id: str, value: bool) -> None:
+async def set_prefer_organic(user_id: str, value: bool) -> None:
     """*Liever biologisch* (#218): stelt de controlelijst van het weekmenu eerst een biologisch product voor."""
-    _upsert(user_id, prefer_organic=1 if value else 0)
+    await _upsert(user_id, prefer_organic=1 if value else 0)
 
 
-def set_appearance(
+async def set_appearance(
     user_id: str,
     *,
     theme: str | None = None,
@@ -181,7 +192,7 @@ def set_appearance(
     given = {"theme": theme, "dark_background": dark_background, "accent": accent, "navbar_style": navbar_style, "navbar_glass": navbar_glass}
     fields = {column: value for column, value in given.items() if value is not None}
     if fields:
-        _upsert(user_id, **fields)
+        await _upsert(user_id, **fields)
 
 
 def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
@@ -217,7 +228,7 @@ def parse_preferences(body: dict[str, Any]) -> dict[str, Any]:
     return wanted
 
 
-def set_avatar(user_id: str, data: bytes, content_type: str) -> None:
+async def set_avatar(user_id: str, data: bytes, content_type: str) -> None:
     if not data:
         raise ValueError(tr("Geen afbeelding ontvangen.", "No image received."))
     if len(data) > MAX_AVATAR_BYTES:
@@ -225,47 +236,50 @@ def set_avatar(user_id: str, data: bytes, content_type: str) -> None:
     kind = sniff(data)
     if content_type not in AVATAR_TYPES or kind != content_type:
         raise ValueError(tr("Kies een PNG-, JPEG- of WebP-afbeelding.", "Choose a PNG, JPEG or WebP image."))
-    _upsert(user_id, avatar=data, avatar_type=kind)
-    with closing(_connect()) as conn, conn:
-        conn.execute("UPDATE user_profiles SET avatar_version = avatar_version + 1 WHERE user_id = ?", (user_id,))
+    await _upsert(user_id, avatar=data, avatar_type=kind)
+    async with _connect() as conn:
+        await conn.execute("UPDATE user_profiles SET avatar_version = avatar_version + 1 WHERE user_id = ?", (user_id,))
+        await conn.commit()
 
 
-def clear_avatar(user_id: str) -> None:
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+async def clear_avatar(user_id: str) -> None:
+    async with _connect() as conn:
+        await conn.execute(
             "UPDATE user_profiles SET avatar = NULL, avatar_type = NULL, avatar_version = avatar_version + 1, updated_at = ? WHERE user_id = ?",
             (auth.utcnow().isoformat(), user_id),
         )
+        await conn.commit()
 
 
-def avatar(user_id: str) -> tuple[bytes, str] | None:
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT avatar, avatar_type FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
+async def avatar(user_id: str) -> tuple[bytes, str] | None:
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT avatar, avatar_type FROM user_profiles WHERE user_id = ?", (user_id,))
     if not row or row["avatar"] is None or row["avatar_type"] not in AVATAR_TYPES:
         return None
     return bytes(row["avatar"]), row["avatar_type"]
 
 
-def delete(user_id: str) -> None:
-    with closing(_connect()) as conn, conn:
-        conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+async def delete(user_id: str) -> None:
+    async with _connect() as conn:
+        await conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        await conn.commit()
 
 
 def register_routes(app: Quart) -> None:
-    def payload(user_id: str) -> dict[str, Any]:
-        user = auth.current_user()
-        return {"username": user["username"] if user else None, **get(user_id)}
+    async def payload(user_id: str) -> dict[str, Any]:
+        user = await auth.current_user()
+        return {"username": user["username"] if user else None, **await get(user_id)}
 
     @app.get("/api/profile")
     async def profile_get():
-        return jsonify(payload(auth.acting_user_id()))
+        return jsonify(await payload(await auth.acting_user_id()))
 
     @app.put("/api/profile")
     async def profile_put():
         body = await request.get_json(silent=True) or {}
-        user_id = auth.acting_user_id()
-        set_display_name(user_id, body.get("displayName"))
-        return jsonify(payload(user_id))
+        user_id = await auth.acting_user_id()
+        await set_display_name(user_id, body.get("displayName"))
+        return jsonify(await payload(user_id))
 
     @app.put("/api/profile/preferences")
     async def profile_preferences_put():
@@ -279,11 +293,11 @@ def register_routes(app: Quart) -> None:
             wanted = parse_preferences(body)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        user_id = auth.acting_user_id()
+        user_id = await auth.acting_user_id()
         if "prefer_organic" in wanted:
-            set_prefer_organic(user_id, wanted.pop("prefer_organic"))
-        set_appearance(user_id, **wanted)
-        return jsonify(payload(user_id))
+            await set_prefer_organic(user_id, wanted.pop("prefer_organic"))
+        await set_appearance(user_id, **wanted)
+        return jsonify(await payload(user_id))
 
     @app.post("/api/profile/avatar")
     async def profile_avatar_put():
@@ -291,22 +305,22 @@ def register_routes(app: Quart) -> None:
         # toestemming van de browser (preflight) namens jou sturen.
         if (request.content_length or 0) > MAX_AVATAR_BYTES:
             return jsonify({"error": tr("De afbeelding is te groot (hoogstens 256 kB).", "The image is too large (256 kB at most).")}), 413
-        user_id = auth.acting_user_id()
+        user_id = await auth.acting_user_id()
         try:
-            set_avatar(user_id, await request.get_data(), (request.mimetype or "").lower())
+            await set_avatar(user_id, await request.get_data(), (request.mimetype or "").lower())
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        return jsonify(payload(user_id))
+        return jsonify(await payload(user_id))
 
     @app.delete("/api/profile/avatar")
     async def profile_avatar_delete():
-        user_id = auth.acting_user_id()
-        clear_avatar(user_id)
-        return jsonify(payload(user_id))
+        user_id = await auth.acting_user_id()
+        await clear_avatar(user_id)
+        return jsonify(await payload(user_id))
 
     @app.get("/api/profile/avatar/<user_id>")
     async def profile_avatar_get(user_id: str):
-        found = avatar(user_id)
+        found = await avatar(user_id)
         if not found:
             return jsonify({"error": "Not found"}), 404
         data, content_type = found

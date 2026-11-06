@@ -123,7 +123,7 @@ async def _runs(conn: aiosqlite.Connection, store: str) -> dict[tuple[str, str],
 async def _todo(store: str, synced_at: str | None) -> tuple[list[dict[str, Any]], int]:
     """(de recepten die nog doorzocht moeten worden, het aantal recepten in de index): nog nooit doorzocht, doorzocht bij een ouder aanbod
     of met andere ingrediënten."""
-    async with offers._aconnect() as conn:
+    async with offers._connect() as conn:
         recipes = await _recipes(conn)
         runs = await _runs(conn, store)
     todo = [r for r in recipes if runs.get((r["source"], r["id"])) != (synced_at, offers.ingredients_hash(r["ingredients"]))]
@@ -186,7 +186,7 @@ async def _save_group(store: str, group: list[dict[str, Any]], answers: dict[int
                 synced_at: str, provider: str, model: str) -> int:
     """Bewaart de doorzochte recepten van een groep (een recept vervangt zijn vorige resultaat) en geeft het aantal koppelingen."""
     now, matched = _now(), 0
-    async with offers._aconnect() as conn:
+    async with offers._connect() as conn:
         for number, found in answers.items():
             recipe = group[number - 1]
             await conn.execute("DELETE FROM ai_recipe_matches WHERE store = ? AND source = ? AND recipe_id = ?", (store, recipe["source"], recipe["id"]))

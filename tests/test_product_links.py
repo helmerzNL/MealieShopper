@@ -17,7 +17,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, backup, image_cache, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, in_db, returned, run  # noqa: E402
+from helpers import AppTestCase, db, in_db, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-10-20T08:00:00+00:00"
@@ -26,17 +26,17 @@ COTTAGE = {"productId": "4711", "title": "AH Cottage cheese", "brand": "AH", "un
 BLOEMKOOL = {"productId": "4183", "title": "AH Bloemkool", "brand": "AH", "unitSize": "per stuk", "image": "https://static.ah.nl/bloemkool.jpg"}
 
 
-class LinksCase(unittest.TestCase):
+class LinksCase(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
     def ah_receipt(self, receipt_id, when, *lines):
-        with closing(ah_orders._connect()) as conn, conn:
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES (?, ?, 0, 1, ?)",
                          (receipt_id, when, when))
             conn.executemany(
@@ -45,12 +45,12 @@ class LinksCase(unittest.TestCase):
             )
 
     def auto_link(self, article, product_id, title, image=None):
-        with closing(ah_orders._connect()) as conn, conn:
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at, image) VALUES (?, ?, ?, 'x', ?)",
                          (article, product_id, title, image))
 
     def ah_order(self, order_id, day, *items):
-        in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items)))
+        run(in_db(ah_orders._connect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items))))
 
     def mail(self, store, *names, number="225301", day="2025-03-14"):
         items = [{"name": name, "quantity": 1, "price": 1.5, "total": 1.5, "discount": 0} for name in names]
@@ -165,10 +165,10 @@ class ReceiptTest(LinksCase):
 
     def test_a_linked_article_number_is_no_longer_looked_up_at_ah(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29), (30001, "RB PICOLIENT", 1, 2.0, 2.0))
-        todo = in_db(ah_orders._aconnect, lambda conn: ah_orders._todo_by_name(conn, NOW))[0]
+        todo = run(in_db(ah_orders._connect, lambda conn: ah_orders._todo_by_name(conn, NOW)))[0]
         self.assertEqual(sorted(group["name"] for group in todo), ["COTTAGE CH", "RB PICOLIENT"])
         run(product_links.save("ah", "COTTAGE CH", COTTAGE, article=20960))
-        todo = in_db(ah_orders._aconnect, lambda conn: ah_orders._todo_by_name(conn, NOW))[0]
+        todo = run(in_db(ah_orders._connect, lambda conn: ah_orders._todo_by_name(conn, NOW)))[0]
         self.assertEqual([group["name"] for group in todo], ["RB PICOLIENT"])
 
 
@@ -235,58 +235,58 @@ class ImportedOrderTest(LinksCase):
 class ApiTest(LinksCase):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_link_list_and_unlink_through_the_api(self):
+    async def test_link_list_and_unlink_through_the_api(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29))
-        saved = self.client.put("/api/product-links", json={"store": "ah", "name": "COTTAGE CH", "article": 20960, "product": COTTAGE})
+        saved = await self.client.put("/api/product-links", json={"store": "ah", "name": "COTTAGE CH", "article": 20960, "product": COTTAGE})
         self.assertEqual(saved.status_code, 200, saved.get_json())
         self.assertEqual(saved.get_json()["link"]["key"], "20960")
-        self.assertEqual(self.client.get("/api/ah/receipts/R1").get_json()["items"][0]["product"]["id"], "4711")
-        self.assertEqual(len(self.client.get("/api/product-links?store=ah").get_json()["links"]), 1)
-        removed = self.client.delete("/api/product-links/ah/article/20960")
+        self.assertEqual((await self.client.get("/api/ah/receipts/R1")).get_json()["items"][0]["product"]["id"], "4711")
+        self.assertEqual(len((await self.client.get("/api/product-links?store=ah")).get_json()["links"]), 1)
+        removed = await self.client.delete("/api/product-links/ah/article/20960")
         self.assertEqual(removed.get_json(), {"removed": True})
-        self.assertIsNone(self.client.get("/api/ah/receipts/R1").get_json()["items"][0]["product"])
+        self.assertIsNone((await self.client.get("/api/ah/receipts/R1")).get_json()["items"][0]["product"])
 
-    def test_a_name_with_a_slash_or_spaces_can_be_unlinked(self):
-        self.client.put("/api/product-links", json={"store": "jumbo", "name": "Melk 1/2 liter", "product": COTTAGE})
-        response = self.client.delete("/api/product-links/jumbo/name/" + "melk%201%2F2%20liter")
+    async def test_a_name_with_a_slash_or_spaces_can_be_unlinked(self):
+        await self.client.put("/api/product-links", json={"store": "jumbo", "name": "Melk 1/2 liter", "product": COTTAGE})
+        response = await self.client.delete("/api/product-links/jumbo/name/" + "melk%201%2F2%20liter")
         self.assertEqual(response.get_json(), {"removed": True})
 
-    def test_bad_input_gives_400(self):
-        self.assertEqual(self.client.put("/api/product-links", json={"store": "lidl", "name": "X", "product": COTTAGE}).status_code, 400)
-        self.assertEqual(self.client.put("/api/product-links", json={"store": "ah", "name": "X"}).status_code, 400)
-        self.assertEqual(self.client.delete("/api/product-links/ah/iets/x").status_code, 400)
-        self.assertEqual(self.client.get("/api/product-links/search?store=lidl&q=melk").status_code, 400)
+    async def test_bad_input_gives_400(self):
+        self.assertEqual((await self.client.put("/api/product-links", json={"store": "lidl", "name": "X", "product": COTTAGE})).status_code, 400)
+        self.assertEqual((await self.client.put("/api/product-links", json={"store": "ah", "name": "X"})).status_code, 400)
+        self.assertEqual((await self.client.delete("/api/product-links/ah/iets/x")).status_code, 400)
+        self.assertEqual((await self.client.get("/api/product-links/search?store=lidl&q=melk")).status_code, 400)
 
-    def test_search_gives_the_same_shape_for_every_store_and_records_the_prices(self):
+    async def test_search_gives_the_same_shape_for_every_store_and_records_the_prices(self):
         ah_result = [{"webshopId": "4711", "title": "AH Cottage cheese", "price": {"now": 1.29}, "images": [{"url": "https://static.ah.nl/c.jpg"}],
                       "brand": "AH", "unitSize": "200 g"}]
         picnic_result = [{"id": "s1", "title": "Hüttenkäse", "price": 1.49, "image": "https://picnic.app/h.png", "unitSize": "200 gram"},
                          {"id": "", "title": "zonder id"}]
         with mock.patch.object(prices, "_search_function", side_effect=lambda store: (lambda q, limit: returned(ah_result if store == "ah" else picnic_result))):
-            ah = self.client.get("/api/product-links/search?store=ah&q=cottage").get_json()
-            picnic = self.client.get("/api/product-links/search?store=picnic&q=huttenkase").get_json()
+            ah = (await self.client.get("/api/product-links/search?store=ah&q=cottage")).get_json()
+            picnic = (await self.client.get("/api/product-links/search?store=picnic&q=huttenkase")).get_json()
         self.assertEqual(ah["products"], [{"productId": "4711", "title": "AH Cottage cheese", "brand": "AH", "unitSize": "200 g",
                                            "image": "https://static.ah.nl/c.jpg", "price": 1.29}])
         self.assertEqual(picnic["products"], [{"productId": "s1", "title": "Hüttenkäse", "brand": None, "unitSize": "200 gram",
                                                "image": "https://picnic.app/h.png", "price": 1.49}])
-        with closing(prices._connect()) as conn:
+        with closing(db(prices)) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM price_observations").fetchone()[0], 2, "zoals elke zoekopdracht")
 
-    def test_a_store_failure_does_not_expose_exception_details(self):
+    async def test_a_store_failure_does_not_expose_exception_details(self):
         def broken(store):
             def search(query, limit):
                 raise RuntimeError("sensitive store error")
             return search
 
         with mock.patch.object(prices, "_search_function", side_effect=broken):
-            response = self.client.get("/api/product-links/search?store=crisp&q=melk")
+            response = await self.client.get("/api/product-links/search?store=crisp&q=melk")
         self.assertEqual((response.status_code, response.get_json()["error"]), (424, "Zoeken mislukt"))
 
-    def test_an_empty_search_asks_the_store_nothing(self):
+    async def test_an_empty_search_asks_the_store_nothing(self):
         with mock.patch.object(prices, "_search_function") as search:
-            found = self.client.get("/api/product-links/search?store=ah&q=%20").get_json()
+            found = (await self.client.get("/api/product-links/search?store=ah&q=%20")).get_json()
         self.assertEqual(found["products"], [])
         search.assert_not_called()
 
@@ -348,7 +348,7 @@ RECEIPT = {
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
-class ScreensTest(unittest.TestCase):
+class ScreensTest(AppTestCase):
     def run_js(self, scenario):
         script = f"{PRELUDE}\nconst receipt = {json.dumps(RECEIPT)};\n{scenario}"
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30, check=False)
@@ -417,7 +417,7 @@ class ScreensTest(unittest.TestCase):
         self.assertIn('<img src="https://x/b.jpg"', found[1])
 
 
-class PageTest(unittest.TestCase):
+class PageTest(AppTestCase):
     def test_the_dialog_is_on_the_page_and_the_script_loads_after_the_store_scripts(self):
         for needle in ('id="link-dialog"', 'aria-labelledby="link-dialog-title"', 'id="link-dialog-form" role="search"', 'id="link-dialog-query"',
                        'id="link-dialog-list"', 'id="link-dialog-message" role="status" aria-live="polite"', 'id="link-dialog-unlink" hidden',

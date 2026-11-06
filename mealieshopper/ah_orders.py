@@ -124,55 +124,21 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("regular_checked_at", "TEXT"))
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    auth.ensure_db()
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    # Een database van vóór de bonfoto's heeft die kolom nog niet; `backfill_receipt_images` vult hem 's nachts.
-    _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
-    for table in ("ah_order_items", "ah_receipt_items"):
-        _ensure_columns(conn, table, REGULAR_COLUMNS)
-    return product_links.ensure(conn)  # je eigen koppelingen (#238) gaan voor `ah_receipt_products`
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: hetzelfde schema en dezelfde migraties, plus de tabel en de SQL-functie `ms_fold` van
-    `product_links` (`product_links.aensure`). Sluit zonder commit, zoals `auth.aconnect`."""
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema en de migraties, plus de tabel en de SQL-functie `ms_fold` van
+    `product_links` (`product_links.ensure`). Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
-        await _aensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
+        await _ensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
         for table in ("ah_order_items", "ah_receipt_items"):
-            await _aensure_columns(conn, table, REGULAR_COLUMNS)
-        yield await product_links.aensure(conn)
+            await _ensure_columns(conn, table, REGULAR_COLUMNS)
+        yield await product_links.ensure(conn)
 
 
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
-
-
-def _ensure_columns(conn: sqlite3.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:
-    """Voeg de kolommen toe die een oudere database nog niet heeft."""
-    present: set[str] = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-    for column, kind in columns:
-        if column not in present:
-            _add_column(conn, table, column, kind)
-
-
-def _add_column(conn: sqlite3.Connection, table: str, column: str, kind: str) -> None:
-    """De migratie: twee verbindingen die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
-    try:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column" not in str(exc):
-            raise
-
-
-async def _aensure_columns(conn: aiosqlite.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:
-    """Async tweeling van `_ensure_columns`, voor `_aconnect` hier, in `jumbo_orders` en in `prices`."""
+async def _ensure_columns(conn: aiosqlite.Connection, table: str, columns: tuple[tuple[str, str], ...]) -> None:
+    """Voeg de kolommen toe die een oudere database nog niet heeft (voor `_connect` hier, in `jumbo_orders` en in `prices`)."""
     present: set[str] = {row["name"] for row in await conn.execute_fetchall(f"PRAGMA table_info({table})")}
     for column, kind in columns:
         if column in present:
@@ -220,15 +186,15 @@ async def _stamp(conn: aiosqlite.Connection, key: str) -> None:
 
 
 async def synced_at(key: str) -> str | None:
-    async with _aconnect() as conn:
-        row = await _fetchone(conn, "SELECT synced_at FROM ah_orders_meta WHERE key = ?", (key,))
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT synced_at FROM ah_orders_meta WHERE key = ?", (key,))
     return row["synced_at"] if row else None
 
 
 # --- bestelmandje ---------------------------------------------------------------------------------
 
 async def save_basket(basket: dict[str, Any]) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("DELETE FROM ah_basket")
         await conn.execute("DELETE FROM ah_basket_items")
         await conn.execute(
@@ -248,8 +214,8 @@ async def save_basket(basket: dict[str, Any]) -> None:
 
 async def get_basket() -> dict[str, Any]:
     """Het laatst opgehaalde bestelmandje. `syncedAt` is None als er nog nooit is gesynchroniseerd."""
-    async with _aconnect() as conn:
-        head = await _fetchone(conn, "SELECT * FROM ah_basket WHERE id = 1")
+    async with _connect() as conn:
+        head = await auth.fetchone(conn, "SELECT * FROM ah_basket WHERE id = 1")
         rows = await conn.execute_fetchall("SELECT * FROM ah_basket_items ORDER BY position")
     if not head:
         return {"syncedAt": None, "items": [], "itemCount": 0, "units": 0}
@@ -273,7 +239,7 @@ async def sync_basket() -> dict[str, Any]:
 async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], kind: str, items: list[dict[str, Any]] | None) -> None:
     """Bewaar of werk een bestelling bij. `items=None` laat de bewaarde producten staan. Wie aanroept, commit."""
     now = _now()
-    existing = await _fetchone(conn, "SELECT first_seen, items_synced FROM ah_orders WHERE order_id = ?", (header["id"],))
+    existing = await auth.fetchone(conn, "SELECT first_seen, items_synced FROM ah_orders WHERE order_id = ?", (header["id"],))
     await conn.execute(
         """
         INSERT INTO ah_orders (order_id, kind, state, state_text, shopping_type, method, total, delivery_date, slot_start, slot_end, items_synced, first_seen, synced_at)
@@ -345,7 +311,7 @@ async def sync_orders() -> dict[str, Any]:
     bij bestellingen komt die al bewaard zijn. Geannuleerde bestellingen bewaren we niet (ze komen ook bij "open" voorbij).
     """
     listed_open = await ah.get_open_fulfillments()
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         previously_open = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'open'")]
         complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")}
         incomplete = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")]
@@ -364,7 +330,7 @@ async def sync_orders() -> dict[str, Any]:
     details = {order_id: await _details_or_none(order_id) for order_id in list(dict.fromkeys(wanted))[:ORDER_DETAILS_PER_SYNC]}
 
     archived = 0
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for order in open_orders:
             info = fetched[order["id"]]
             header = {**order, **({"deliveryDate": info["deliveryDate"] or order["deliveryDate"]} if info else {})}
@@ -385,7 +351,7 @@ async def sync_orders() -> dict[str, Any]:
                 await _save_order(conn, order, "delivered", None)
                 archived += 1
         await _stamp(conn, "orders")
-        remaining = (await _fetchone(conn, "SELECT COUNT(*) FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0"))[0]
+        remaining = (await auth.fetchone(conn, "SELECT COUNT(*) FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0"))[0]
         unfinished = sum(1 for order_id in gone if details.get(order_id) is None)
         await conn.commit()
     await image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
@@ -395,7 +361,7 @@ async def sync_orders() -> dict[str, Any]:
 async def add_order_by_id(order_id: int) -> dict[str, Any]:
     """Haal één bestelling op uit AH (elke bestelling-id) en bewaar hem als afgeleverd."""
     details = await ah.get_order_details(order_id)
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await _save_order(conn, {**details, "id": order_id}, "delivered", details["items"])
         await conn.commit()
     return await get_order(order_id) or {}
@@ -445,7 +411,7 @@ def _status_fields(kind: str, row: Any) -> dict[str, Any]:
 async def list_orders(summary: bool = False) -> dict[str, Any]:
     """Alle bestellingen, open bovenaan. Met `summary` (de lijstroute) per bestelling ook `images`, `productNames`, `savings` en
     `bonusCount`, `statusKind` en `statusText` voor de kaarten en het overzicht; de MCP-tools vragen dat niet."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             f"""
             SELECT o.*, (SELECT COUNT(*) FROM ah_order_items i WHERE i.order_id = o.order_id) AS item_count
@@ -469,12 +435,12 @@ async def get_order(order_id: int) -> dict[str, Any] | None:
     """Een bestelling met haar producten. Elke regel krijgt de velden van `purchase_lines.enrich` (categorie, korting tegen de gewone
     prijs van 30 dagen, eerder gekocht), de bestelling `saved`, `savedPercent`, `statusKind` en `statusText`. De gewone prijs van de
     regels wordt eerst bijgewerkt (`purchase_lines.fill_regular`)."""
-    async with _aconnect() as conn:
-        row = await _fetchone(conn, "SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),))
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT * FROM ah_orders WHERE order_id = ?", (int(order_id),))
     if not row:
         return None
     await purchase_lines.fill_regular("ah", order_ids=[int(order_id)])
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),))
         items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
         totals = await purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
@@ -493,7 +459,7 @@ async def sync_receipts() -> dict[str, Any]:
         if len(batch) < RECEIPT_PAGE:
             break
     now = _now()
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         known = {row["receipt_id"] for row in await conn.execute_fetchall("SELECT receipt_id FROM ah_receipts")}
         new = [receipt for receipt in listed if receipt["id"] not in known]
         await conn.executemany(
@@ -510,7 +476,7 @@ async def sync_receipts() -> dict[str, Any]:
         except Exception:  # noqa: BLE001 - deze bon proberen we bij de volgende synchronisatie opnieuw
             failed += 1
             continue
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             await conn.execute(
                 "UPDATE ah_receipts SET details_synced = 1, discounts = ?, payments = ? WHERE receipt_id = ?",
                 (json.dumps(detail["discounts"]), json.dumps(detail["payments"]), receipt_id),
@@ -522,8 +488,8 @@ async def sync_receipts() -> dict[str, Any]:
                  for position, line in enumerate(detail["items"])],
             )
             await conn.commit()
-    async with _aconnect() as conn:
-        remaining = (await _fetchone(conn, "SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0"))[0]
+    async with _connect() as conn:
+        remaining = (await auth.fetchone(conn, "SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0"))[0]
         await _stamp(conn, "receipts")
         await conn.commit()
     try:
@@ -686,7 +652,7 @@ async def receipt_linking_todo(conn: aiosqlite.Connection, receipt_id: str, now:
     """De regels van een bon zonder webwinkelproduct (`unlinked`) en hoeveel daarvan een ronde nu zou opzoeken (`due`, dezelfde regel
     als `_todo_by_name`). Een regel die AH de laatste `RECEIPT_PRODUCTS_RECHECK_DAYS` dagen niet vond, telt wel bij `unlinked` en
     niet bij `due`: de knop op de bon zou er niets voor doen."""
-    row = await _fetchone(
+    row = await auth.fetchone(
         conn,
         f"""
         SELECT COUNT(*), COALESCE(SUM(CASE WHEN {_DUE_SQL} THEN 1 ELSE 0 END), 0) FROM ah_receipt_items l
@@ -713,8 +679,8 @@ def _name_key(name: Any) -> str:
 async def _pause(now: str, status: int) -> str:
     """Zet het koppelen `RECEIPT_PRODUCTS_BACKOFF_HOURS` uur stil na een 403 of 429 van AH, met de reden ernaast. Geeft het einde van de pauze."""
     until = (datetime.fromisoformat(now) + timedelta(hours=RECEIPT_PRODUCTS_BACKOFF_HOURS)).isoformat(timespec="seconds")
-    await auth.aset_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
-    await auth.aset_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, f"{status}@{now}")
+    await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, until)
+    await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, f"{status}@{now}")
     return until
 
 
@@ -728,14 +694,14 @@ async def _record_round(now: str, trigger: str, counts: dict[str, int]) -> None:
     en `trigger`) tellen bij elkaar op, een andere ronde begint opnieuw."""
     async with _lock("round"):
         try:
-            last = json.loads(await auth.aget_setting(SETTING_LAST_ROUND, "") or "{}")
+            last = json.loads(await auth.get_setting(SETTING_LAST_ROUND, "") or "{}")
         except ValueError:
             last = {}
         if not isinstance(last, dict) or last.get("at") != now or last.get("trigger") != trigger:
             last = {"at": now, **{key: 0 for key in _ROUND_COUNTS}, "trigger": trigger}
         for key in _ROUND_COUNTS:
             last[key] = int(last.get(key) or 0) + int(counts.get(key) or 0)
-        await auth.aset_setting(SETTING_LAST_ROUND, json.dumps(last))
+        await auth.set_setting(SETTING_LAST_ROUND, json.dumps(last))
 
 
 async def resolve_receipt_products(now: str | None = None, searches: int = RECEIPT_PRODUCTS_SEARCHES,
@@ -751,7 +717,7 @@ async def resolve_receipt_products(now: str | None = None, searches: int = RECEI
     "nightly", "lookup", "open", "receipt" of "manual"). Een ronde die door de pauze niets doet, laat de vorige staan."""
     now = now or _now()
     result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
-    paused = await auth.aget_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    paused = await auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
     result = await _resolve_groups(now, searches, deadline_seconds, only)
@@ -762,16 +728,16 @@ async def resolve_receipt_products(now: str | None = None, searches: int = RECEI
 async def _resolve_groups(now: str, searches: int, deadline_seconds: float, only: set[str] | None) -> dict[str, Any]:
     """Het eigenlijke koppelen van `resolve_receipt_products`, buiten de pauze."""
     result: dict[str, Any] = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
-    if await auth.aget_setting(SETTING_RECEIPT_PRODUCTS_VERSION, "") != RECEIPT_PRODUCTS_VERSION:
-        async with _aconnect() as conn:
+    if await auth.get_setting(SETTING_RECEIPT_PRODUCTS_VERSION, "") != RECEIPT_PRODUCTS_VERSION:
+        async with _connect() as conn:
             await conn.execute("DELETE FROM ah_receipt_products WHERE product_id IS NULL")
             await conn.commit()
-        await auth.aset_setting(SETTING_RECEIPT_PRODUCTS_VERSION, RECEIPT_PRODUCTS_VERSION)
-    async with _aconnect() as conn:
+        await auth.set_setting(SETTING_RECEIPT_PRODUCTS_VERSION, RECEIPT_PRODUCTS_VERSION)
+    async with _connect() as conn:
         groups = [group for group in await _todo_by_name(conn, now) if only is None or group["key"] in only]
     deadline = time.monotonic() + deadline_seconds
     for group in groups:
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             linked = await _linked(conn, group["ids"])
         left = [product_id for product_id in group["ids"] if product_id not in linked]
         result["found"] += len(group["ids"]) - len(left)  # gevonden bij de zoekopdracht van een andere naam
@@ -797,7 +763,7 @@ async def _resolve_groups(now: str, searches: int, deadline_seconds: float, only
                 break
             result["searches"] += 1
             found = {hit[0] for hit in hits}
-            async with _aconnect() as conn:
+            async with _connect() as conn:
                 await conn.executemany(_UPSERT_RECEIPT_PRODUCT, [(hq_id, webshop_id, title, now, image) for hq_id, webshop_id, title, image in hits])
                 await conn.commit()
             result["found"] += sum(1 for product_id in left if product_id in found)
@@ -805,7 +771,7 @@ async def _resolve_groups(now: str, searches: int, deadline_seconds: float, only
             if not left:
                 break
         if left and complete:
-            async with _aconnect() as conn:
+            async with _connect() as conn:
                 await conn.executemany(_MISSING_RECEIPT_PRODUCT, [(product_id, now) for product_id in left])
                 await conn.commit()
             result["missing"] += len(left)
@@ -832,7 +798,7 @@ async def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT
     gevraagd wordt. De uitkomst komt in `SETTING_LAST_ROUND` (zie `resolve_receipt_products`)."""
     now = now or _now()
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
-    paused = await auth.aget_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    paused = await auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if paused and paused > now:
         return {**result, "pausedUntil": paused}
     result = await _backfill_images(now, batches, only)
@@ -843,7 +809,7 @@ async def backfill_receipt_images(now: str | None = None, batches: int = RECEIPT
 async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dict[str, Any]:
     """Het eigenlijke ophalen van de foto's van `backfill_receipt_images`, buiten de pauze."""
     result: dict[str, Any] = {"products": 0, "requests": 0, "failed": 0}
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             "SELECT DISTINCT product_id FROM ah_receipt_products WHERE image IS NULL AND product_id IS NOT NULL ORDER BY checked_at DESC LIMIT ?",
             (RECEIPT_IMAGES_BATCH * batches if only is None else -1,),
@@ -867,7 +833,7 @@ async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dic
             return result
         result["requests"] += 1
         images = {int(product["id"]): str(product.get("image") or "") for product in products if product.get("id") is not None}
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             for product_id in ids:
                 await conn.execute(
                     "UPDATE ah_receipt_products SET image = ?, title = COALESCE(NULLIF(title, ''), ?) WHERE product_id = ? AND image IS NULL",
@@ -879,8 +845,8 @@ async def _backfill_images(now: str, batches: int, only: set[int] | None) -> dic
 
 
 async def _receipt_images_missing() -> bool:
-    async with _aconnect() as conn:
-        return await _fetchone(conn, f"SELECT 1 {_IMAGES_MISSING_FROM} LIMIT 1") is not None
+    async with _connect() as conn:
+        return await auth.fetchone(conn, f"SELECT 1 {_IMAGES_MISSING_FROM} LIMIT 1") is not None
 
 
 def _backfill_running() -> bool:
@@ -927,8 +893,8 @@ async def resolve_receipt_products_nightly(now: str | None = None) -> dict[str, 
     """Voor de nachtelijke taak: wat meer artikelnummers koppelen, als er bonnen zijn. Een fout laat de taak doorgaan. `now` deelt
     het met `backfill_receipt_images_nightly` (zie `offers_schedule.run_all`)."""
     try:
-        async with _aconnect() as conn:
-            if await _fetchone(conn, "SELECT 1 FROM ah_receipt_items LIMIT 1") is None:
+        async with _connect() as conn:
+            if await auth.fetchone(conn, "SELECT 1 FROM ah_receipt_items LIMIT 1") is None:
                 return None
         return await resolve_receipt_products(
             now, searches=RECEIPT_PRODUCTS_SEARCHES_NIGHTLY, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger="nightly"
@@ -956,10 +922,10 @@ class LinkingBusy(Exception):
 
 async def _pause_reason(now: str) -> tuple[str | None, str | None, int | None]:
     """De lopende pauze als (tot, sinds, status van AH), alle drie None als het koppelen niet stilligt."""
-    until = await auth.aget_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+    until = await auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
     if not until or until <= now:
         return None, None, None
-    status, _, since = (await auth.aget_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")).partition("@")
+    status, _, since = (await auth.get_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")).partition("@")
     return until, since or None, int(status) if status.isdigit() else None
 
 
@@ -977,13 +943,13 @@ def _budget(now: str) -> dict[str, Any]:
 
 async def _todo(now: str) -> dict[str, int]:
     """Wat er nog te koppelen is: artikelnummers zonder product (`_todo_by_name`), op hoeveel bonnen, en foto's die ontbreken."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         ids = [product_id for group in await _todo_by_name(conn, now) for product_id in group["ids"]]
         receipts = 0
         if ids:
             marks = ",".join("?" * len(ids))
-            receipts = (await _fetchone(conn, f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", tuple(ids)))[0]
-        images = (await _fetchone(conn, f"SELECT COUNT(DISTINCT product_id) {_IMAGES_MISSING_FROM}"))[0]
+            receipts = (await auth.fetchone(conn, f"SELECT COUNT(DISTINCT receipt_id) FROM ah_receipt_items WHERE product_id IN ({marks})", tuple(ids)))[0]
+        images = (await auth.fetchone(conn, f"SELECT COUNT(DISTINCT product_id) {_IMAGES_MISSING_FROM}"))[0]
     return {"lines": len(ids), "receipts": int(receipts), "images": int(images)}
 
 
@@ -999,7 +965,7 @@ def _next_round(now: str) -> str | None:
 
 async def _last_round() -> dict[str, Any] | None:
     try:
-        last = json.loads(await auth.aget_setting(SETTING_LAST_ROUND, "") or "null")
+        last = json.loads(await auth.get_setting(SETTING_LAST_ROUND, "") or "null")
     except ValueError:
         return None
     return last if isinstance(last, dict) else None
@@ -1031,14 +997,14 @@ async def linking_status(now: str | None = None) -> dict[str, Any]:
 
 
 async def receipt_exists(receipt_id: str) -> bool:
-    async with _aconnect() as conn:
-        return await _fetchone(conn, "SELECT 1 FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)) is not None
+    async with _connect() as conn:
+        return await auth.fetchone(conn, "SELECT 1 FROM ah_receipts WHERE receipt_id = ?", (receipt_id,)) is not None
 
 
 async def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
     """Een ronde voor een bon: de namen op die bon die nog niet gekoppeld zijn, elk met al zijn zoekopdrachten (de naam en het
     langste woord), en daarna de foto's die nog ontbreken bij de webwinkelproducten van die bon (`_RECEIPT_IMAGES_MISSING_SQL`)."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         on_receipt = {int(row[0]) for row in await conn.execute_fetchall(
             "SELECT DISTINCT product_id FROM ah_receipt_items WHERE receipt_id = ? AND product_id IS NOT NULL", (receipt_id,))}
         names = [group["name"] for group in await _todo_by_name(conn, now) if on_receipt.intersection(group["ids"])]
@@ -1046,7 +1012,7 @@ async def _receipt_round(receipt_id: str, now: str) -> dict[str, Any]:
     products = await resolve_receipt_names(
         names, searches=searches, now=now, deadline_seconds=RECEIPT_PRODUCTS_DEADLINE_NIGHTLY, trigger=_on_demand_trigger(receipt_id)
     )
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         missing = {int(row[0]) for row in await conn.execute_fetchall(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
     images = (
         await backfill_receipt_images(now, batches=2, only=missing, trigger=_on_demand_trigger(receipt_id))
@@ -1101,7 +1067,7 @@ async def _linking_worker(receipt_id: str | None, now: str, actor: str, images: 
         log.exception("Koppelen: de laatste ronde vastleggen mislukte")
     action = "images" if images else "receipt linking" if receipt_id else "linking"
     try:
-        await audit.arecord(
+        await audit.record(
             kind="task", service="ah", action=action, ok=problem is None,
             duration_ms=round((time.perf_counter() - started) * 1000), actor=actor,
             error=f"{type(problem).__name__}: {problem}" if problem else "",
@@ -1119,13 +1085,13 @@ async def run_linking(receipt_id: str | None = None, force: bool = False, images
         raise ValueError("an images round is for all receipts")
     global _LINKING_TASK, _LINKING_RECEIPT_ID
     now = _now()
-    actor = audit.current_actor()  # de task kent het verzoek niet meer
+    actor = await audit.current_actor()  # de task kent het verzoek niet meer
     async with _lock("linking"):
         if _linking_busy():
             raise LinkingBusy(receipt_id)
         if force:
-            await auth.aset_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
-            await auth.aset_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")
+            await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED, "")
+            await auth.set_setting(SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "")
         _LINKING_TASK = tasks.spawn("linking-run", _linking_worker(receipt_id, now, actor, images))
         _LINKING_RECEIPT_ID = receipt_id
     return await linking_status(now)
@@ -1177,7 +1143,7 @@ def _receipt_summary(row: Any) -> dict[str, Any]:
 
 async def list_receipts(summary: bool = False) -> dict[str, Any]:
     """Alle bonnen, de nieuwste eerst. Met `summary` (de lijstroute) per bon ook `images`, `productNames`, `savings` en `payment`."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             f"""
             SELECT r.*, (SELECT COUNT(*) FROM ah_receipt_items i WHERE i.receipt_id = r.receipt_id) AS item_count
@@ -1253,8 +1219,8 @@ async def get_receipt(
     in `products`, of None als het opzoeken zelf misging: de bon komt er dan gewoon zonder koppelingen. Met `images` komen daarna
     de foto's van de gekoppelde regels die nog geen foto hebben (een verzoek aan AH, `backfill_receipt_images`), in `images`."""
     receipt_id = str(receipt_id)
-    async with _aconnect() as conn:
-        row = await _fetchone(conn, "SELECT * FROM ah_receipts WHERE receipt_id = ?", (receipt_id,))
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT * FROM ah_receipts WHERE receipt_id = ?", (receipt_id,))
         if not row:
             return None
         lines = await _receipt_lines(conn, receipt_id)
@@ -1266,7 +1232,7 @@ async def get_receipt(
         except Exception:  # noqa: BLE001 - de koppeling is een extraatje; de bon zelf is wat je wilde zien
             result["products"] = None
     if images:
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             missing = {int(row_id[0]) for row_id in await conn.execute_fetchall(_RECEIPT_IMAGES_MISSING_SQL, (receipt_id,))}
         try:
             result["images"] = await backfill_receipt_images(batches=1, only=missing) if missing else {"products": 0, "requests": 0, "failed": 0}
@@ -1274,7 +1240,7 @@ async def get_receipt(
             result["images"] = None
     # Na het koppelen kunnen er regels bij een product horen, dus pas nu de gewone prijs van 30 dagen bijwerken en lezen.
     await purchase_lines.fill_regular("ah", receipt_ids=[receipt_id])
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         lines = await _receipt_lines(conn, receipt_id)
         linking_todo = await receipt_linking_todo(conn, receipt_id, _now())
         enriched = await _enrich_receipt(conn, row, lines)
@@ -1297,7 +1263,7 @@ async def search_receipts(query: Any, limit: int = 200) -> dict[str, Any]:
     `unsearched` telt de bonnen waarvan de regels nog niet zijn opgehaald: die kunnen nog niet worden doorzocht.
     """
     words = ah_lists._fold(query).split()
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         receipts = await conn.execute_fetchall("SELECT * FROM ah_receipts ORDER BY date_time DESC, receipt_id DESC")
         lines = (
             await conn.execute_fetchall("SELECT receipt_id, name, quantity, amount FROM ah_receipt_items ORDER BY receipt_id, position")
@@ -1318,7 +1284,7 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
     if not words:
         return {"query": "", "products": [], "occurrences": []}
     occurrences: list[dict[str, Any]] = []
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for row in await conn.execute_fetchall(
             """
             SELECT i.title, i.brand, i.quantity, i.amount, i.price, o.order_id, o.delivery_date, o.first_seen, o.kind
@@ -1340,7 +1306,7 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "amount": row["amount"], "date": (row["date_time"] or "")[:10], "id": row["receipt_id"], "open": False,
                 })
         # Bonnen en bestellingen waarvan de regels nog niet zijn opgehaald: die kunnen nog niet worden doorzocht.
-        unsearched = (await _fetchone(
+        unsearched = (await auth.fetchone(
             conn,
             "SELECT (SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0) + (SELECT COUNT(*) FROM ah_orders WHERE items_synced = 0)",
         ))[0]

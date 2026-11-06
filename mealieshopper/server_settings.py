@@ -51,7 +51,7 @@ def normalize_base_url(value: Any) -> str:
 
 async def configured_base_url() -> tuple[str, str]:
     """(adres, bron): bron is "setting" (in de app ingesteld), "env" of "auto" (herkend uit de aanvraag)."""
-    override = (await auth.aget_setting(SETTING_BASE_URL)).strip().rstrip("/")
+    override = (await auth.get_setting(SETTING_BASE_URL)).strip().rstrip("/")
     if override:
         return override, "setting"
     from_env = (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/")
@@ -66,7 +66,7 @@ async def public_base_url() -> str:
 
 async def mcp_setting() -> tuple[bool, str]:
     """(aan, bron): bron is "setting" (schakelaar in de app) of "default" (omgeving, anders aan)."""
-    value = await auth.aget_setting(SETTING_MCP)
+    value = await auth.get_setting(SETTING_MCP)
     if value:
         return value == "1", "setting"
     return environ.get("MEALIESHOPPER_MCP", "true").strip().lower() not in OFF, "default"
@@ -75,7 +75,7 @@ async def mcp_setting() -> tuple[bool, str]:
 async def disabled_tools() -> set[str]:
     """De MCP-tools die de beheerder heeft uitgezet. Alles staat standaard aan."""
     try:
-        names = json.loads(await auth.aget_setting(SETTING_TOOLS_OFF) or "[]")
+        names = json.loads(await auth.get_setting(SETTING_TOOLS_OFF) or "[]")
     except ValueError:
         return set()
     return {name for name in names if isinstance(name, str)} if isinstance(names, list) else set()
@@ -90,7 +90,7 @@ async def set_tools_enabled(changes: dict[str, bool]) -> None:
     off = await disabled_tools()
     for name, enabled in changes.items():
         (off.discard if enabled else off.add)(name)
-    await auth.aset_setting(SETTING_TOOLS_OFF, json.dumps(sorted(off)))
+    await auth.set_setting(SETTING_TOOLS_OFF, json.dumps(sorted(off)))
 
 
 async def tools_payload() -> list[dict[str, Any]]:
@@ -106,14 +106,14 @@ async def settings_payload() -> dict[str, Any]:
     return {
         "publicBaseUrl": base,
         "publicBaseUrlSource": source,
-        "publicBaseUrlOverride": await auth.aget_setting(SETTING_BASE_URL),
+        "publicBaseUrlOverride": await auth.get_setting(SETTING_BASE_URL),
         "detectedBaseUrl": detected_base_url(),
         "envBaseUrl": (environ.get("MEALIESHOPPER_PUBLIC_BASE_URL") or "").strip().rstrip("/"),
         "mcpEnabled": enabled,
         "mcpSource": mcp_source,
         "mcpTools": await tools_payload(),
         "weekStart": await mealie.week_start_setting(),  # "" = zoals in Mealie, "0".."6" = vaste dag (0 = zondag)
-        "loginOn": await auth.aauth_required() and await auth.acredentials_exist(),
+        "loginOn": await auth.auth_required() and await auth.credentials_exist(),
     }
 
 
@@ -167,7 +167,7 @@ def register_routes(app: Quart) -> None:
                 return jsonify({"error": tr(f"Onbekende tool: {', '.join(unknown)}", f"Unknown tool: {', '.join(unknown)}")}), 400
             tool_changes = changes
         for key, value in updates.items():
-            await auth.aset_setting(key, value)
+            await auth.set_setting(key, value)
         if tool_changes:
             await set_tools_enabled(tool_changes)
         return jsonify(await settings_payload())

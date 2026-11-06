@@ -13,7 +13,6 @@ Crisp, dus de bestelhistorie is ook te bekijken als Crisp niet bereikbaar is. Al
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -57,24 +56,12 @@ CREATE TABLE IF NOT EXISTS crisp_orders_meta (
 ITEM_COLUMNS = ("product_id", "title", "unit_size", "quantity", "price", "list_price", "image")
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    conn: sqlite3.Connection = auth.connect()
-    conn.executescript(SCHEMA)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: hetzelfde schema. Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
-
-
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
 
 
 def _now() -> str:
@@ -93,8 +80,8 @@ def _item_json(row: Any) -> dict[str, Any]:
 
 
 async def synced_at() -> str | None:
-    async with _aconnect() as conn:
-        row = await _fetchone(conn, "SELECT synced_at FROM crisp_orders_meta WHERE key = 'orders'")
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT synced_at FROM crisp_orders_meta WHERE key = 'orders'")
     return row["synced_at"] if row else None
 
 
@@ -107,7 +94,7 @@ def is_stored(status: Any) -> bool:
 async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], items: list[dict[str, Any]] | None) -> None:
     """Bewaar of werk een bestelling bij. `items=None` laat de bewaarde producten staan. Wie aanroept, commit."""
     now = _now()
-    existing = await _fetchone(conn, "SELECT first_seen, items_synced FROM crisp_orders WHERE order_id = ?", (header["id"],))
+    existing = await auth.fetchone(conn, "SELECT first_seen, items_synced FROM crisp_orders WHERE order_id = ?", (header["id"],))
     await conn.execute(
         """
         INSERT INTO crisp_orders (order_id, status, total, delivery_date, slot_start, slot_end, items_synced, first_seen, synced_at)
@@ -150,7 +137,7 @@ async def sync_orders() -> dict[str, Any]:
     Nieuwste eerst: een eerste synchronisatie vult dus eerst de recente bestellingen met producten aan en elke volgende
     de rest. Lukt het ophalen van de producten niet, dan blijft het overzicht staan en melden we `detailError`.
     """
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM crisp_orders WHERE items_synced = 1")}
         known = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM crisp_orders")}
     listed = [order for order in await _history(complete) if order.get("id")]
@@ -173,7 +160,7 @@ async def sync_orders() -> dict[str, Any]:
             if not details and failures >= MAX_FIRST_FAILURES:
                 break  # er lukt niets: niet nog 20 keer proberen
 
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for order_id in gone:
             await conn.execute("DELETE FROM crisp_order_items WHERE order_id = ?", (order_id,))
             await conn.execute("DELETE FROM crisp_orders WHERE order_id = ?", (order_id,))
@@ -185,7 +172,7 @@ async def sync_orders() -> dict[str, Any]:
             "INSERT INTO crisp_orders_meta (key, synced_at) VALUES ('orders', ?) ON CONFLICT(key) DO UPDATE SET synced_at = excluded.synced_at",
             (_now(),),
         )
-        counted = await _fetchone(conn, "SELECT COUNT(*) FROM crisp_orders WHERE items_synced = 0")
+        counted = await auth.fetchone(conn, "SELECT COUNT(*) FROM crisp_orders WHERE items_synced = 0")
         await conn.commit()
     remaining: int = counted[0] if counted else 0
     return {"orders": len(orders), "new": new, "remaining": remaining, **({"detailError": detail_error} if detail_error else {})}
@@ -202,7 +189,7 @@ def _order_json(row: Any, count: int | None = None, quantity: int | None = None)
 
 
 async def list_orders() -> dict[str, Any]:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             """
             SELECT o.*, (SELECT COUNT(*) FROM crisp_order_items i WHERE i.order_id = o.order_id) AS line_count,
@@ -215,8 +202,8 @@ async def list_orders() -> dict[str, Any]:
 
 
 async def get_order(order_id: Any) -> dict[str, Any] | None:
-    async with _aconnect() as conn:
-        row = await _fetchone(conn, "SELECT * FROM crisp_orders WHERE order_id = ?", (str(order_id),))
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT * FROM crisp_orders WHERE order_id = ?", (str(order_id),))
         if not row:
             return None
         items = await conn.execute_fetchall("SELECT * FROM crisp_order_items WHERE order_id = ? ORDER BY position", (str(order_id),))
@@ -229,7 +216,7 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
     if not words:
         return {"query": "", "products": [], "occurrences": [], "total": 0}
     occurrences: list[dict[str, Any]] = []
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for row in await conn.execute_fetchall(
             """
             SELECT i.title, i.quantity, o.order_id, o.delivery_date, o.first_seen
@@ -239,7 +226,7 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
             if all(word in _fold(row["title"]) for word in words):
                 occurrences.append({"product": row["title"], "quantity": row["quantity"],
                                     "date": (row["delivery_date"] or row["first_seen"] or "")[:10], "id": str(row["order_id"])})
-        counted = await _fetchone(conn, "SELECT COUNT(*) FROM crisp_orders WHERE items_synced = 0")
+        counted = await auth.fetchone(conn, "SELECT COUNT(*) FROM crisp_orders WHERE items_synced = 0")
     unsearched: int = counted[0] if counted else 0
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -164,28 +163,16 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, alleen voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    conn = offers._connect()  # maakt ook `offer_history` aan (en de rest van de aanbiedingen)
-    conn.executescript(SCHEMA)
-    return product_links.ensure(conn)  # je eigen koppelingen (#238), die voor de automatische gaan
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`, voor de paden in de event loop. Sluit zonder commit, zoals `auth.aconnect`.
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`.
 
-    Eerst het schema van de aanbiedingen en zijn migraties (`offers.aprepare`, het maakt ook `offer_history` aan), dan dit schema en
-    `product_links.aensure` (de tabel en de SQL-functie `ms_fold`)."""
-    async with auth.aconnect() as conn:
-        await offers.aprepare(conn)
+    Eerst het schema van de aanbiedingen en zijn migraties (`offers.prepare`, het maakt ook `offer_history` aan), dan dit schema en
+    `product_links.ensure` (de tabel en de SQL-functie `ms_fold`)."""
+    async with auth.connect() as conn:
+        await offers.prepare(conn)
         await conn.executescript(SCHEMA)
-        yield await product_links.aensure(conn)
-
-
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
+        yield await product_links.ensure(conn)
 
 
 def _number(value: Any) -> float | None:
@@ -247,7 +234,7 @@ async def record(store: str, products: Iterable[Any], source: str = "search", no
                          _image(product), product.get("url") or None, price, stamp))
         if not rows:
             return 0
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             await conn.executemany(
                 """
                 INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at)
@@ -381,7 +368,7 @@ FROM imported_purchases WHERE store = ? AND day <= ?
 
 
 def _not_in_account(rows: Iterable[Any], numbers: set[str], days: set[str]) -> list[Any]:
-    """De ingelezen aankopen zonder die van een bestelling uit je account (`price_import.aaccount_orders`)."""
+    """De ingelezen aankopen zonder die van een bestelling uit je account (`price_import.account_orders`)."""
     return [row for row in rows if row["ref"] not in numbers and row["day"] not in days]
 
 
@@ -390,7 +377,7 @@ async def _imported_rows(conn: aiosqlite.Connection, store: str, today: str) -> 
     bestelnummer, of een bestelling op dezelfde dag): die tellen anders dubbel."""
     if "imported_purchases" not in await _tables(conn):
         return []
-    return _not_in_account(await conn.execute_fetchall(_IMPORTED_SQL, (store, today)), *await price_import.aaccount_orders(conn, store))
+    return _not_in_account(await conn.execute_fetchall(_IMPORTED_SQL, (store, today)), *await price_import.account_orders(conn, store))
 
 
 def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
@@ -427,7 +414,7 @@ async def _receipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> l
     if not rows:
         return []
     return _link_receipt_rows(
-        store, rows, await _name_index(conn, store), await _receipt_products(conn), await product_links.aload(conn, store)
+        store, rows, await _name_index(conn, store), await _receipt_products(conn), await product_links.load(conn, store)
     )
 
 
@@ -499,8 +486,8 @@ async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, An
     names = {name for name in names if name}
     if not names:
         return {}
-    async with _aconnect() as conn:
-        mine = await product_links.aload(conn, store)
+    async with _connect() as conn:
+        mine = await product_links.load(conn, store)
         own = {name: link for name in names if (link := mine.names.get(_fold_name(name)))}
         index = await _name_index(conn, store)
         bare = _bare_index(index, store)
@@ -570,7 +557,7 @@ async def _bought(conn: aiosqlite.Connection, store: str, today: str, receipts: 
 async def bought_ids(store: str, today: str | None = None) -> set[str]:
     """De product-id's van een winkel die je minstens één keer kocht (uit je bestellingen en kassabonnen)."""
     today = today or _now()[:10]
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         return await _bought(conn, store, today, await _receipt_rows(conn, store, today))
 
 
@@ -600,7 +587,7 @@ async def _unsynced(conn: aiosqlite.Connection, store: str) -> dict[str, int]:
     counts = {"orders": 0, "receipts": 0}
     for kind, table, sql in _UNSYNCED.get(store, ()):
         if table in tables:
-            counts[kind] += (await _fetchone(conn, sql))[0]
+            counts[kind] += (await auth.fetchone(conn, sql))[0]
     return counts
 
 
@@ -787,7 +774,7 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
 
 async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await _receipt_rows(conn, "ah", today)
     names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
     if names:
@@ -821,7 +808,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
     only = str(product) if product not in (None, "") else None
     if lookup and wanted.words and "ah" in stores and only is None:
         await _lookup_receipt_names(lookup, wanted, today)
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         receipts = {name: await _receipt_rows(conn, name, today) for name in stores}
         unsynced = {name: await _unsynced(conn, name) for name in stores}
         candidates: dict[tuple[str, str], str] = {}
@@ -1036,11 +1023,11 @@ def _episode_effective(row: Any) -> float | None:
 async def signature(store: Any) -> str:
     """Verandert als er voor deze winkel een nieuwe gewone prijs is bewaard: zo ververst het oordeel bij de aanbiedingen (ETag)."""
     try:
-        async with _aconnect() as conn:
-            row = await _fetchone(conn, "SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),))
+        async with _connect() as conn:
+            row = await auth.fetchone(conn, "SELECT COUNT(*) AS n, MAX(seen_at) AS last FROM price_observations WHERE store = ?", (str(store),))
             imported = ""
             if "imported_purchases" in await _tables(conn):
-                extra = await _fetchone(
+                extra = await auth.fetchone(
                     conn, "SELECT COUNT(*) AS n, MAX(imported_at) AS last FROM imported_purchases WHERE store = ?", (str(store),)
                 )
                 imported = f":{extra['n']}:{extra['last'] or ''}"
@@ -1187,7 +1174,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
     measured: set[str] = set()  # producten met een gemeten gewone prijs (bewaard of betaald), niet alleen de claim van de winkel
     episodes: dict[str, list[Any]] = {}
     latest: dict[str, Any] = {}
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         regulars = await _regulars_between(conn, store, since30, today, measured=measured)
         for row in await conn.execute_fetchall(
             "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? ORDER BY day", (store, since_pack, today)
@@ -1333,7 +1320,7 @@ async def regular_before(store: str, product_ids: list[str], day: str) -> dict[s
     wanted: set[str] = {str(product_id) for product_id in product_ids if product_id not in (None, "")}
     if not wanted or _iso_day(day) is None:
         return {}
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         found = await _regulars_between(conn, store, _days_ago(day, VERDICT_DAYS), day, purchases_before_until=True)
     return {product_id: min(values) for product_id, values in found.items() if product_id in wanted and values}
 
@@ -1378,7 +1365,7 @@ async def fill_regular_prices(
     recent_since = _days_ago(stamp[:10], recent_days)
     targeted = order_ids is not None or receipt_ids is not None
     done = 0
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         tables = await _tables(conn)
         by_day: dict[str, dict[str, list[float]]] = {}
         for source in _REGULAR_LINES.get(store, ()):
@@ -1387,7 +1374,7 @@ async def fill_regular_prices(
             ids = (order_ids if source.kind == "order" else receipt_ids) if targeted else None
             if targeted and ids is None:
                 continue
-            await ah_orders._aensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
+            await ah_orders._ensure_columns(conn, source.table, ah_orders.REGULAR_COLUMNS)
             lines = await _lines_to_fill(conn, source, ids, recent_since=recent_since, checked_before=checked_before, limit=limit - done)
             updates: list[tuple[Any, ...]] = []
             for line in lines:
@@ -1438,8 +1425,8 @@ async def _known_product(store: str, product_id: str) -> dict[str, Any] | None:
         effective = _effective(current)
         return {"id": product_id, "title": current["title"], "brand": current.get("brand"), "unitSize": current.get("unitSize"),
                 "price": effective if effective is not None else current.get("price"), "onOffer": True, "promoLabel": current.get("promoLabel") or ""}
-    async with _aconnect() as conn:
-        row = await _fetchone(
+    async with _connect() as conn:
+        row = await auth.fetchone(
             conn, "SELECT * FROM price_observations WHERE store = ? AND product_id = ? ORDER BY day DESC LIMIT 1", (store, product_id)
         )
     if row:

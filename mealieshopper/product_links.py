@@ -17,7 +17,6 @@ anders in de app voorkomt.
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -105,32 +104,21 @@ RECEIPT_LINE_TITLE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.title WHEN k2.key
 RECEIPT_LINE_IMAGE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.image WHEN k2.key IS NOT NULL THEN k2.image ELSE p.image END"
 
 
-def ensure(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen."""
-    conn.executescript(SCHEMA)
-    conn.create_function("ms_fold", 1, fold, deterministic=True)
-    return conn
+async def ensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
+    """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen.
 
-
-async def aensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
-    """Async tweeling van `ensure`, voor de `_aconnect` van elke module die bonregels koppelt (en `purchase_lines.times_before`)."""
+    Voor de `_connect` van elke module die bonregels koppelt (en `purchase_lines.times_before`)."""
     await conn.executescript(SCHEMA)
     await conn.create_function("ms_fold", 1, fold, deterministic=True)
     return conn
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met de tabel, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    auth.ensure_db()
-    return ensure(auth.connect())
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`. Sluit zonder commit, zoals `auth.aconnect`."""
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
-        yield await aensure(conn)
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        yield await ensure(conn)
 
 
 def link_json(row: Any) -> dict[str, Any]:
@@ -151,8 +139,8 @@ def _links(rows: Iterable[Any]) -> Links:
     return links
 
 
-async def aload(conn: aiosqlite.Connection, store: str) -> Links:
-    """De eigen koppelingen van een winkel, uit een open verbinding (die `aensure` al zag)."""
+async def load(conn: aiosqlite.Connection, store: str) -> Links:
+    """De eigen koppelingen van een winkel, uit een open verbinding (die `ensure` al zag)."""
     return _links(await conn.execute_fetchall(_LOAD_SQL, (store,)))
 
 
@@ -192,7 +180,7 @@ async def save(store: Any, name: Any, product: Any, article: Any = None, now: st
         raise ValueError(tr("De regel heeft geen naam om op te koppelen", "The line has no name to link by"))
     values = (key_store, kind, key, product_id, title, _text(product.get("brand"), MAX_NAME_CHARS) or None,
               _text(product.get("unitSize"), MAX_SIZE_CHARS) or None, _image(product.get("image")), source_name or None, now or _now())
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             """INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -212,7 +200,7 @@ async def remove(store: Any, kind: Any, key: Any) -> bool:
     key_store = _store(store)
     if kind not in KINDS:
         raise ValueError(tr("Onbekend soort koppeling", "Unknown kind of link"))
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         cursor: aiosqlite.Cursor = await conn.execute(
             "DELETE FROM product_links WHERE store = ? AND kind = ? AND key = ?", (key_store, kind, str(key or ""))
         )
@@ -223,6 +211,6 @@ async def remove(store: Any, kind: Any, key: Any) -> bool:
 async def list_links(store: Any = None) -> dict[str, Any]:
     """Alle eigen koppelingen (of die van een winkel), de nieuwste eerst."""
     where, args = ("WHERE store = ?", (_store(store),)) if store not in (None, "") else ("", ())
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(f"SELECT * FROM product_links {where} ORDER BY created_at DESC, store, kind, key", args)
     return {"links": [link_json(row) for row in rows]}

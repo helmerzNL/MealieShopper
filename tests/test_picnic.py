@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, sent_json, sent_url, served  # noqa: E402
+from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
 
 
 def response(data=None, *, status=200, token=None):
@@ -61,18 +61,18 @@ def search_page(*tiles):
     return {"body": {"child": {"children": [{"content": list(tiles)}]}}}
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         picnic.clear_favorites_cache()
 
 
-class SearchParsingTest(unittest.TestCase):
+class SearchParsingTest(AppTestCase):
     def test_products_come_out_of_the_widget_tree(self):
         page = search_page(tile("s1", "Halfvolle melk", "1 l", 129), tile("s2", "Eieren", "10 stuks", 249))
         products = picnic.products_from_search_page(page)
@@ -105,7 +105,7 @@ class SearchParsingTest(unittest.TestCase):
             self.assertEqual(picnic.products_from_search_page(page), [])
 
 
-class CandidateTest(unittest.TestCase):
+class CandidateTest(AppTestCase):
     def test_same_shape_as_the_ah_candidates(self):
         product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49,
                    "image": "https://img", "isBonus": False, "maxCount": None}
@@ -316,7 +316,7 @@ def paths_and_bodies(call):
     return [(path_of(c), sent_json(c) if c.request.content else None) for c in call.calls]
 
 
-class RealCartShapeTest(unittest.TestCase):
+class RealCartShapeTest(AppTestCase):
     """De vorm van een gevuld mandje, zoals de verkenner hem meldde (veldnamen, geen echte waarden)."""
 
     def line(self, pid, display_price, price, quantity=1, max_count=10):
@@ -665,7 +665,7 @@ def pml_tile(unit, saved=None, where="analytics"):
     return node
 
 
-class SavedMarkersTest(unittest.TestCase):
+class SavedMarkersTest(AppTestCase):
     def page(self, *nodes, **extra):
         return {"body": {"children": list(nodes)}, **extra}
 
@@ -907,35 +907,35 @@ class FavoritesTest(TempDataDirTest):
                 run(picnic.get_favorites())
         self.assertEqual(set(calls), {"GET"})
 
-    def test_favorites_route(self):
-        client = SyncClient(create_app())
+    async def test_favorites_route(self):
+        client = self.client_for(create_app())
         found = {"products": [{"id": "s1", "title": "Melk"}], "total": 9, "filtered": True}
         with mock.patch.object(picnic, "get_favorites", return_value=found):
-            self.assertEqual(client.get("/api/picnic/favorites").get_json(), found)
+            self.assertEqual((await client.get("/api/picnic/favorites")).get_json(), found)
         with mock.patch.object(picnic, "get_favorites", side_effect=RuntimeError("500: antwoord met geheim")):
-            reply = client.get("/api/picnic/favorites")
+            reply = await client.get("/api/picnic/favorites")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
-    def test_favorites_route_passes_the_budget_and_refresh(self):
-        client = SyncClient(create_app())
+    async def test_favorites_route_passes_the_budget_and_refresh(self):
+        client = self.client_for(create_app())
         with mock.patch.object(picnic, "get_favorites", return_value={"products": [], "total": 0, "filtered": True, "pending": 0}) as get:
-            client.get("/api/picnic/favorites?budget=4&refresh=1")
-            client.get("/api/picnic/favorites?budget=999")
-            client.get("/api/picnic/favorites")
+            await client.get("/api/picnic/favorites?budget=4&refresh=1")
+            await client.get("/api/picnic/favorites?budget=999")
+            await client.get("/api/picnic/favorites")
         self.assertEqual([c.kwargs for c in get.call_args_list], [{"budget": 4, "refresh": True}, {"budget": 30, "refresh": False}, {"budget": None, "refresh": False}])
 
-    def test_delivery_route(self):
-        client = SyncClient(create_app())
+    async def test_delivery_route(self):
+        client = self.client_for(create_app())
         found = {"id": "d1", "items": [{"id": "s1", "title": "Melk", "quantity": 2}], "itemCount": 2}
         with mock.patch.object(picnic, "get_delivery", return_value=found) as get:
-            self.assertEqual(client.get("/api/picnic/deliveries/d1").get_json(), found)
+            self.assertEqual((await client.get("/api/picnic/deliveries/d1")).get_json(), found)
         self.assertEqual(get.call_args.args, ("d1",))
-        self.assertEqual(client.get("/api/picnic/deliveries/..%2Fcart").status_code, 404)
+        self.assertEqual((await client.get("/api/picnic/deliveries/..%2Fcart")).status_code, 404)
         with mock.patch.object(picnic, "get_delivery", side_effect=ValueError("Ongeldige bestelling")):
-            reply = client.get("/api/picnic/deliveries/x")
+            reply = await client.get("/api/picnic/deliveries/x")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Ongeldige bestelling"}))
         with mock.patch.object(picnic, "get_delivery", side_effect=RuntimeError("500: geheim")):
-            reply = client.get("/api/picnic/deliveries/d1")
+            reply = await client.get("/api/picnic/deliveries/d1")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_the_explorer_reports_how_the_page_marks_favorites_without_leaking(self):
@@ -1112,129 +1112,129 @@ class RecipeExploreTest(TempDataDirTest):
 class PicnicRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_search_route(self):
+    async def test_search_route(self):
         found = [{"id": "s1", "title": "Melk"}]
         with mock.patch.object(picnic, "search_products", return_value=found):
-            body = self.client.get("/api/picnic/search?q=melk").get_json()
+            body = (await self.client.get("/api/picnic/search?q=melk")).get_json()
         self.assertEqual(body, {"products": found})
-        self.assertEqual(self.client.get("/api/picnic/search").status_code, 400)
+        self.assertEqual((await self.client.get("/api/picnic/search")).status_code, 400)
 
-    def test_preview_uses_picnic_candidates(self):
+    async def test_preview_uses_picnic_candidates(self):
         products = [{"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": None}]
         with mock.patch.object(picnic, "search_products", return_value=products):
-            response_ = self.client.post("/api/picnic/cart/preview", json={"items": [
+            response_ = await self.client.post("/api/picnic/cart/preview", json={"items": [
                 {"query": "eieren", "quantity": 12, "unit": "stuks"}]})
         candidate = response_.get_json()["items"][0]["candidates"][0]
         self.assertEqual((candidate["productId"], candidate["packs"]), ("s1", 2))
 
-    def test_preview_reports_a_failed_search_per_line(self):
+    async def test_preview_reports_a_failed_search_per_line(self):
         with mock.patch.object(picnic, "search_products", side_effect=RuntimeError("stuk")):
-            body = self.client.post("/api/picnic/cart/preview", json={"items": [{"query": "melk"}]}).get_json()
+            body = (await self.client.post("/api/picnic/cart/preview", json={"items": [{"query": "melk"}]})).get_json()
         self.assertEqual(body["items"][0]["error"], "stuk")
         self.assertEqual(body["items"][0]["candidates"], [])
 
-    def test_cart_searches_and_adds(self):
+    async def test_cart_searches_and_adds(self):
         product = {"id": "s1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49}
         result = {"added": [{"productId": "s1", "quantity": 2}], "failed": [], "cart": {"items": []}}
         with mock.patch.object(picnic, "search_product", return_value=product), \
                 mock.patch.object(picnic, "add_to_cart", return_value=result) as add:
-            body = self.client.post("/api/picnic/cart", json={"items": [
-                {"query": "eieren", "quantity": 12, "unit": "stuks"}]}).get_json()
+            body = (await self.client.post("/api/picnic/cart", json={"items": [
+                {"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
         self.assertEqual((body["added"], body["skipped"]), (1, 0))
 
-    def test_cart_skips_products_that_are_not_found_or_fail(self):
+    async def test_cart_skips_products_that_are_not_found_or_fail(self):
         result = {"added": [], "failed": [{"productId": "s9", "error": "x"}], "cart": None}
         with mock.patch.object(picnic, "search_product", return_value=None), \
                 mock.patch.object(picnic, "add_to_cart", return_value=result):
-            body = self.client.post("/api/picnic/cart", json={"items": [
-                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "s9", "quantity": 1}]}).get_json()
+            body = (await self.client.post("/api/picnic/cart", json={"items": [
+                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "s9", "quantity": 1}]})).get_json()
         self.assertEqual(body["skippedItems"], ["iets", "zout"])
 
-    def test_cart_with_nothing_found_is_404_and_adds_nothing(self):
+    async def test_cart_with_nothing_found_is_404_and_adds_nothing(self):
         with mock.patch.object(picnic, "search_product", return_value=None), \
                 mock.patch.object(picnic, "add_to_cart", side_effect=AssertionError("niets toevoegen")):
-            response_ = self.client.post("/api/picnic/cart", json={"items": [{"query": "iets"}]})
+            response_ = await self.client.post("/api/picnic/cart", json={"items": [{"query": "iets"}]})
         self.assertEqual(response_.status_code, 404)
 
-    def test_confirmed_products_skip_the_search(self):
+    async def test_confirmed_products_skip_the_search(self):
         result = {"added": [{"productId": "s7", "quantity": 4}], "failed": [], "cart": None}
         with mock.patch.object(picnic, "search_product", side_effect=AssertionError("niet zoeken")), \
                 mock.patch.object(picnic, "add_to_cart", return_value=result) as add:
-            self.client.post("/api/picnic/cart", json={"items": [{"query": "melk", "productId": "s7", "quantity": 4}]})
+            await self.client.post("/api/picnic/cart", json={"items": [{"query": "melk", "productId": "s7", "quantity": 4}]})
         self.assertEqual(add.call_args.args[0], [{"productId": "s7", "quantity": 4, "query": "melk"}])
 
-    def test_empty_requests_are_400(self):
+    async def test_empty_requests_are_400(self):
         for path in ("/api/picnic/cart", "/api/picnic/cart/preview"):
-            self.assertEqual(self.client.post(path, json={"items": []}).status_code, 400, path)
+            self.assertEqual((await self.client.post(path, json={"items": []})).status_code, 400, path)
 
-    def test_quantity_route(self):
+    async def test_quantity_route(self):
         cart = {"items": [], "totalCount": 0}
         with mock.patch.object(picnic, "set_quantity", return_value=cart) as setq:
-            body = self.client.put("/api/picnic/cart/items/s1", json={"quantity": 3}).get_json()
+            body = (await self.client.put("/api/picnic/cart/items/s1", json={"quantity": 3})).get_json()
         setq.assert_called_once_with("s1", 3)
         self.assertEqual(body, cart)
         with mock.patch.object(picnic, "set_quantity", side_effect=ValueError("Het aantal moet een heel getal zijn")):
-            reply = self.client.put("/api/picnic/cart/items/s1", json={"quantity": "x"})
+            reply = await self.client.put("/api/picnic/cart/items/s1", json={"quantity": "x"})
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (400, "Het aantal moet een heel getal zijn"))
         with mock.patch.object(picnic, "set_quantity", side_effect=RuntimeError("500: stuk")):
-            self.assertEqual(self.client.put("/api/picnic/cart/items/s1", json={"quantity": 1}).status_code, 424)
+            self.assertEqual((await self.client.put("/api/picnic/cart/items/s1", json={"quantity": 1})).status_code, 424)
 
-    def test_clear_route_needs_confirmation(self):
+    async def test_clear_route_needs_confirmation(self):
         with mock.patch.object(picnic, "clear_cart", side_effect=AssertionError("niet zonder bevestiging")):
             for body in ({}, {"confirm": "yes"}, {"confirm": 1}, {"confirm": False}):
-                self.assertEqual(self.client.post("/api/picnic/cart/clear", json=body).status_code, 400, body)
+                self.assertEqual((await self.client.post("/api/picnic/cart/clear", json=body)).status_code, 400, body)
         with mock.patch.object(picnic, "clear_cart", return_value={"removed": 2, "cart": {"items": []}}) as clear:
-            body = self.client.post("/api/picnic/cart/clear", json={"confirm": True}).get_json()
+            body = (await self.client.post("/api/picnic/cart/clear", json={"confirm": True})).get_json()
         clear.assert_called_once_with()
         self.assertEqual(body["removed"], 2)
 
-    def test_slots_route(self):
+    async def test_slots_route(self):
         slots = [{"id": "s1", "available": True}]
         with mock.patch.object(picnic, "get_delivery_slots", return_value=slots) as get:
-            body = self.client.get("/api/picnic/slots?limit=3").get_json()
+            body = (await self.client.get("/api/picnic/slots?limit=3")).get_json()
         self.assertEqual(body, {"slots": slots})
         get.assert_called_once_with(3)
         with mock.patch.object(picnic, "get_delivery_slots", side_effect=RuntimeError("500: stuk")):
-            self.assertEqual(self.client.get("/api/picnic/slots").status_code, 424)
+            self.assertEqual((await self.client.get("/api/picnic/slots")).status_code, 424)
 
-    def test_user_errors_are_400_and_picnic_errors_are_424(self):
+    async def test_user_errors_are_400_and_picnic_errors_are_424(self):
         with mock.patch.object(picnic, "login", side_effect=picnic.PicnicAuthError("fout wachtwoord")):
-            self.assertEqual(self.client.post("/api/picnic/auth", json={}).status_code, 400)
+            self.assertEqual((await self.client.post("/api/picnic/auth", json={})).status_code, 400)
         with mock.patch.object(picnic, "get_cart", side_effect=RuntimeError("500: stuk")):
-            self.assertEqual(self.client.get("/api/picnic/cart").status_code, 424)
+            self.assertEqual((await self.client.get("/api/picnic/cart")).status_code, 424)
 
-    def test_user_errors_show_our_own_explanation(self):
+    async def test_user_errors_show_our_own_explanation(self):
         bad = response({"error": {"code": "AUTH_INVALID_CRED", "message": "geheim detail van Picnic"}}, status=401)
         with served(return_value=bad):
-            reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "fout"})
+            reply = await self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "fout"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("e-mailadres en wachtwoord", reply.get_json()["error"])
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
-    def test_a_blocked_network_shows_our_explanation_instead_of_a_generic_error(self):
+    async def test_a_blocked_network_shows_our_explanation_instead_of_a_generic_error(self):
         with served(return_value=blocked_page()):
-            reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "goed"})
+            reply = await self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "goed"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("netwerk", reply.get_json()["error"])
         self.assertNotIn("<html>", reply.get_data(as_text=True))
 
-    def test_wrong_code_shows_our_text_not_picnics(self):
+    async def test_wrong_code_shows_our_text_not_picnics(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
         with served(return_value=login):
-            run(picnic.login("jan@example.com", "geheim"))
+            await picnic.login("jan@example.com", "geheim")
         bad = response({"error": {"code": "TWO_FA_INVALID", "message": "geheim detail van Picnic"}})
         with served(return_value=bad):
-            reply = self.client.post("/api/picnic/auth/2fa/verify", json={"code": "000000"})
+            reply = await self.client.post("/api/picnic/auth/2fa/verify", json={"code": "000000"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("code", reply.get_json()["error"])
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
-    def test_picnic_failures_stay_generic_for_the_user(self):
+    async def test_picnic_failures_stay_generic_for_the_user(self):
         with mock.patch.object(picnic, "get_cart", side_effect=RuntimeError("500: antwoord met geheim")):
-            reply = self.client.get("/api/picnic/cart")
+            reply = await self.client.get("/api/picnic/cart")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_status_check_does_not_echo_picnic_responses(self):
@@ -1248,16 +1248,16 @@ class PicnicRoutesTest(TempDataDirTest):
         self.assertIn("Koppel opnieuw", result["error"])
         self.assertNotIn("geheim", json.dumps(result))
 
-    def test_login_routes_delegate(self):
+    async def test_login_routes_delegate(self):
         with mock.patch.object(picnic, "login", return_value={"connected": False, "twoFactorRequired": True}) as login:
-            body = self.client.post("/api/picnic/auth", json={"email": "a@b.nl", "password": "pw"}).get_json()
+            body = (await self.client.post("/api/picnic/auth", json={"email": "a@b.nl", "password": "pw"})).get_json()
         login.assert_called_once_with("a@b.nl", "pw")
         self.assertTrue(body["twoFactorRequired"])
         with mock.patch.object(picnic, "request_2fa_code") as request_code:
-            self.client.post("/api/picnic/auth/2fa/request", json={"channel": "EMAIL"})
+            await self.client.post("/api/picnic/auth/2fa/request", json={"channel": "EMAIL"})
         request_code.assert_called_once_with("EMAIL")
         with mock.patch.object(picnic, "verify_2fa", return_value={"connected": True}) as verify:
-            self.client.post("/api/picnic/auth/2fa/verify", json={"code": "123456"})
+            await self.client.post("/api/picnic/auth/2fa/verify", json={"code": "123456"})
         verify.assert_called_once_with("123456")
 
 

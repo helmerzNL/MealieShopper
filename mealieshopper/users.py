@@ -17,7 +17,6 @@ import sqlite3
 from datetime import timedelta
 from typing import Any, Awaitable, Callable
 
-import aiosqlite
 from quart import Quart, jsonify, request
 
 from . import auth, oauth, profile
@@ -34,8 +33,8 @@ def _hash(token: str) -> str:
 
 
 async def username_taken(username: str, except_id: str | None = None) -> bool:
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
+    await auth.ensure_db()
+    async with auth.connect() as conn:
         async with conn.execute("SELECT id, username FROM users") as cursor:
             rows = await cursor.fetchall()
         async with conn.execute("SELECT user_id, username FROM invites WHERE kind = 'new' AND expires_at >= ?", (auth.utcnow().isoformat(),)) as cursor:
@@ -46,12 +45,12 @@ async def username_taken(username: str, except_id: str | None = None) -> bool:
 
 
 async def list_users() -> list[dict[str, Any]]:
-    await auth.aensure_db()
-    async with auth.aconnect() as conn, conn.execute(
+    await auth.ensure_db()
+    async with auth.connect() as conn, conn.execute(
         "SELECT id, username, created_at FROM users ORDER BY (id = ?) DESC, LOWER(username)", (OWNER_ID,)
     ) as cursor:
         rows = await cursor.fetchall()
-    profiles = profile.info_map()  # profile blijft synchroon tot zijn eigen taak
+    profiles = await profile.info_map()
     return [
         {
             "id": row["id"],
@@ -59,9 +58,9 @@ async def list_users() -> list[dict[str, Any]]:
             **profiles.get(row["id"], {"displayName": "", "hasAvatar": False, "avatarVersion": 0}),
             "role": "owner" if row["id"] == OWNER_ID else "user",
             "createdAt": row["created_at"],
-            "passkeys": await auth.apasskey_count(row["id"]),
-            "password": await auth.apassword_configured(row["id"]),
-            "mfa": await auth.amfa_enabled(row["id"]),
+            "passkeys": await auth.passkey_count(row["id"]),
+            "password": await auth.password_configured(row["id"]),
+            "mfa": await auth.mfa_enabled(row["id"]),
         }
         for row in rows
     ]
@@ -72,7 +71,7 @@ async def get_user(user_id: str) -> dict[str, Any] | None:
 
 
 async def create_user(user_id: str, username: str) -> None:
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         await conn.execute(
             "INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)",
             (user_id, username, auth.utcnow().isoformat()),
@@ -82,23 +81,23 @@ async def create_user(user_id: str, username: str) -> None:
 
 async def clear_credentials(user_id: str) -> None:
     """Verwijder alle manieren om in te loggen van een gebruiker en log die overal uit."""
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         for table in ("passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes"):
             await conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         await conn.commit()
-    await auth.abump_session_epoch(user_id)
+    await auth.bump_session_epoch(user_id)
 
 
 async def delete_user(user_id: str) -> bool:
     """Verwijder een gewone gebruiker. De beheerder blijft altijd bestaan."""
     if user_id == OWNER_ID or not await get_user(user_id):
         return False
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         for table in ("passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes", "invites"):
             await conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
         await conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
         await conn.commit()
-    profile.delete(user_id)  # profile blijft synchroon tot zijn eigen taak
+    await profile.delete(user_id)
     await oauth.forget_user(user_id)  # ook de AI-apps van deze gebruiker
     return True
 
@@ -106,12 +105,12 @@ async def delete_user(user_id: str) -> bool:
 # --- uitnodigingen -------------------------------------------------------------------------------
 
 async def create_invite(created_by: str, kind: str = "new", user_id: str | None = None, username: str = "") -> dict[str, Any]:
-    await auth.aensure_db()
+    await auth.ensure_db()
     now = auth.utcnow()
     token = secrets.token_urlsafe(32)
     invite_id = secrets.token_hex(4)
     user_id = user_id or "u_" + secrets.token_hex(8)
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         await conn.execute("DELETE FROM invites WHERE expires_at < ?", (now.isoformat(),))
         if kind == "reset":
             await conn.execute("DELETE FROM invites WHERE user_id = ? AND kind = 'reset'", (user_id,))  # één tegelijk
@@ -123,22 +122,17 @@ async def create_invite(created_by: str, kind: str = "new", user_id: str | None 
     return {"id": invite_id, "token": token, "expiresAt": (now + INVITE_TTL).isoformat(), "kind": kind, "username": username}
 
 
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
-
-
 async def find_invite(token: Any) -> dict[str, Any] | None:
     """De uitnodiging bij een token, als die bestaat en niet verlopen is."""
     if not token or not isinstance(token, str):
         return None
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
-        row = await _fetchone(conn, "SELECT * FROM invites WHERE token_hash = ?", (_hash(token),))
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        row = await auth.fetchone(conn, "SELECT * FROM invites WHERE token_hash = ?", (_hash(token),))
         if not row or row["expires_at"] < auth.utcnow().isoformat():
             return None
-        inviter = await _fetchone(conn, "SELECT username FROM users WHERE id = ?", (row["created_by"],))
-        existing = await _fetchone(conn, "SELECT username FROM users WHERE id = ?", (row["user_id"],))
+        inviter = await auth.fetchone(conn, "SELECT username FROM users WHERE id = ?", (row["created_by"],))
+        existing = await auth.fetchone(conn, "SELECT username FROM users WHERE id = ?", (row["user_id"],))
     username = existing["username"] if row["kind"] == "reset" and existing else row["username"]
     if row["kind"] == "reset" and not existing:
         return None
@@ -153,8 +147,8 @@ async def find_invite(token: Any) -> dict[str, Any] | None:
 
 
 async def list_invites() -> list[dict[str, Any]]:
-    await auth.aensure_db()
-    async with auth.aconnect() as conn, conn.execute(
+    await auth.ensure_db()
+    async with auth.connect() as conn, conn.execute(
             """
             SELECT i.id, i.kind, i.username, i.user_id, i.created_at, i.expires_at, u.username AS target
             FROM invites i LEFT JOIN users u ON u.id = i.user_id
@@ -170,7 +164,7 @@ async def list_invites() -> list[dict[str, Any]]:
 
 
 async def revoke_invite(invite_id: str) -> bool:
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         cursor = await conn.execute("DELETE FROM invites WHERE id = ?", (str(invite_id or ""),))
         await conn.commit()
         return cursor.rowcount > 0
@@ -235,7 +229,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
             return jsonify({"error": tr("Het maximum aantal gebruikers is bereikt.", "The maximum number of users has been reached.")}), 400
         if len(await list_invites()) >= MAX_PENDING_INVITES:
             return jsonify({"error": tr("Er staan te veel uitnodigingen open.", "Too many invitations are open.")}), 400
-        created = await create_invite(await auth.aacting_user_id(), "new", username=username)
+        created = await create_invite(await auth.acting_user_id(), "new", username=username)
         return jsonify(await invite_payload(created)), 201
 
     @app.post("/api/users/<user_id>/reset")
@@ -243,7 +237,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         user = await get_user(user_id)
         if not user or user_id == OWNER_ID:
             return jsonify({"error": tr("Gebruiker niet gevonden.", "User not found.")}), 404
-        created = await create_invite(await auth.aacting_user_id(), "reset", user_id=user_id)
+        created = await create_invite(await auth.acting_user_id(), "reset", user_id=user_id)
         return jsonify(await invite_payload(created)), 201
 
     @app.delete("/api/users/invites/<invite_id>")

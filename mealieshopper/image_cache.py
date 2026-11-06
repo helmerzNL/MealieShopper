@@ -159,9 +159,9 @@ async def _wait(seconds: float) -> None:
 
 
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Een verbinding met de tabel `image_cache`. Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel `image_cache`. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
@@ -271,7 +271,7 @@ async def register(url: str, now: str | None = None) -> int:
     """Zet een adres in de tabel (of ververs `seen_at`) en geef het id."""
     now = now or _now()
     host: str = urlsplit(url).hostname or ""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             "INSERT INTO image_cache (url, host, seen_at) VALUES (?, ?, ?) ON CONFLICT(url) DO UPDATE SET seen_at = excluded.seen_at",
             (url, host, now),
@@ -285,19 +285,19 @@ async def register(url: str, now: str | None = None) -> int:
 
 async def lookup(url: str) -> dict[str, Any] | None:
     """De rij van een adres als dict, of None."""
-    async with _aconnect() as conn, conn.execute("SELECT * FROM image_cache WHERE url = ?", (url,)) as cursor:
+    async with _connect() as conn, conn.execute("SELECT * FROM image_cache WHERE url = ?", (url,)) as cursor:
         row: aiosqlite.Row | None = await cursor.fetchone()
     return dict(row) if row else None
 
 
 async def _rows() -> list[dict[str, Any]]:
-    async with _aconnect() as conn, conn.execute("SELECT * FROM image_cache ORDER BY id") as cursor:
+    async with _connect() as conn, conn.execute("SELECT * FROM image_cache ORDER BY id") as cursor:
         return [dict(row) for row in await cursor.fetchall()]
 
 
 async def stats(now: str | None = None) -> dict[str, Any]:
     """Hoeveel foto's er in de cache staan en hoeveel bytes dat is, en welke winkels nu in pauze staan (`pauses`)."""
-    async with _aconnect() as conn, conn.execute(
+    async with _connect() as conn, conn.execute(
         "SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS b FROM image_cache WHERE path IS NOT NULL"
     ) as cursor:
         row: aiosqlite.Row | None = await cursor.fetchone()
@@ -306,7 +306,7 @@ async def stats(now: str | None = None) -> dict[str, Any]:
 
 
 async def _record_failure(url: str, now: str, count: int, error: str) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             "UPDATE image_cache SET attempts = attempts + ?, last_attempt_at = ?, error = ? WHERE url = ?",
             (count, now, error[:300], url),
@@ -324,7 +324,7 @@ async def _record_success(
     height: int,
     digest: str,
 ) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             """
             UPDATE image_cache SET path = ?, content_type = ?, bytes = ?, width = ?, height = ?, digest = ?, fetched_at = ?, error = NULL
@@ -337,7 +337,7 @@ async def _record_success(
 
 async def _forget_file(url: str) -> None:
     """Het bestand is weg (een opgeruimde map): de rij weer op 'nog op te halen'."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("UPDATE image_cache SET path = NULL, fetched_at = NULL WHERE url = ?", (url,))
         await conn.commit()
 
@@ -362,7 +362,7 @@ def due(row: dict[str, Any], now: str) -> bool:
 
 
 async def paused_until(host: str) -> str | None:
-    value: str = await auth.aget_setting(SETTING_PAUSED + host, "")
+    value: str = await auth.get_setting(SETTING_PAUSED + host, "")
     return value or None
 
 
@@ -370,8 +370,8 @@ async def pauses(now: str | None = None) -> list[dict[str, str]]:
     """De hosts die nu in pauze staan, met de winkel en tot wanneer: `[{host, store, until}]`, de vroegste eerst. Voor de regel
     onder Instellingen > Systeem, zodat je ziet waarom er van een winkel even geen nieuwe foto's komen."""
     now = now or _now()
-    await auth.aensure_db()
-    async with auth.aconnect() as conn, conn.execute(
+    await auth.ensure_db()
+    async with auth.connect() as conn, conn.execute(
         "SELECT key, value FROM app_settings WHERE key LIKE ? AND value > ? ORDER BY value", (SETTING_PAUSED + "%", now)
     ) as cursor:
         rows: list[aiosqlite.Row] = list(await cursor.fetchall())
@@ -392,14 +392,14 @@ async def lift_stale_pauses() -> list[str]:
     voor een foto die er niet is) als een blokkade en zette hij Picnic twaalf uur stil. Die pauze stond in de database en bleef
     na een update gewoon lopen, zonder dat je het zag: na de update naar 3.7.2 kwam er daardoor geen enkele receptfoto (#236).
     Geeft de hosts waarvan de pauze is opgeheven. Een echte blokkade zet een host bij het volgende verzoek opnieuw stil."""
-    if await auth.aget_setting(SETTING_STALE_PAUSES_LIFTED, ""):
+    if await auth.get_setting(SETTING_STALE_PAUSES_LIFTED, ""):
         return []
     lifted: list[str] = []
     for pause in await pauses():
         if pause["store"] == "picnic":
-            await auth.aset_setting(SETTING_PAUSED + pause["host"], "")
+            await auth.set_setting(SETTING_PAUSED + pause["host"], "")
             lifted.append(pause["host"])
-    await auth.aset_setting(SETTING_STALE_PAUSES_LIFTED, _now())
+    await auth.set_setting(SETTING_STALE_PAUSES_LIFTED, _now())
     return lifted
 
 
@@ -407,7 +407,7 @@ async def _pause(host: str, now: str) -> str:
     until: str = (datetime.fromisoformat(now) + timedelta(hours=PAUSE_HOURS)).isoformat(
         timespec="seconds"
     )
-    await auth.aset_setting(SETTING_PAUSED + host, until)
+    await auth.set_setting(SETTING_PAUSED + host, until)
     return until
 
 
@@ -621,7 +621,7 @@ async def collect_known(now: str | None = None) -> int:
     """Zet elk winkeladres uit de tabellen van de interface in `image_cache` en geef het aantal nieuwe adressen."""
     now = now or _now()
     added: int = 0
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
             tables: set[str] = {row["name"] for row in await cursor.fetchall()}
         for table, column in KNOWN_IMAGE_COLUMNS:
@@ -655,7 +655,7 @@ async def prefetch(*, limit: int = PREFETCH_LIMIT, deadline_seconds: float = PRE
         return {**result, "running": True}
     async with lock:  # een vrij slot pakken heeft geen wachtmoment: niemand komt tussen de controle en het pakken
         await collect_known(now)
-        async with _aconnect() as conn, conn.execute(
+        async with _connect() as conn, conn.execute(
             "SELECT * FROM image_cache WHERE path IS NULL ORDER BY seen_at DESC, id DESC"
         ) as cursor:
             rows: list[dict[str, Any]] = [dict(row) for row in await cursor.fetchall()]
@@ -694,7 +694,7 @@ async def prefetch_nightly() -> dict[str, Any] | None:
     except Exception:  # noqa: BLE001 - de cache is een extraatje
         log.exception("Afbeeldingencache: de nachtelijke ronde mislukte")
         return None
-    await audit.arecord(kind="task", service="images", action="prefetch", detail=result)
+    await audit.record(kind="task", service="images", action="prefetch", detail=result)
     return result
 
 

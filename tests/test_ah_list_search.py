@@ -7,7 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, run  # noqa: E402
 
 
 def item(n, title, brand="AH"):
@@ -15,14 +15,14 @@ def item(n, title, brand="AH"):
             "product": {"id": n, "title": title, "brand": brand, "unitSize": "1 st", "price": 1, "image": "", "isBonus": False}}
 
 
-class ListSearchTest(unittest.TestCase):
+class ListSearchTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         env = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         env.start()
         self.addCleanup(env.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
         run(ah_lists.save_snapshot({"id": "a", "name": "Weekboodschappen", "items": [
             item(1, "AH Halfvolle melk"), item(2, "Bio Café crème", brand="Douwe Egberts"), item(3, "Pindakaas")]}))
         run(ah_lists.save_snapshot({"id": "b", "name": "Borrel", "items": [item(4, "Nootjes"), item(5, "AH Melkchocolade")]}))
@@ -46,12 +46,12 @@ class ListSearchTest(unittest.TestCase):
         run(ah_lists.save_snapshot({"id": "c", "name": "Veel", "items": [item(n, f"Appel {n}") for n in range(10, 20)]}))
         self.assertEqual(len(run(ah_lists.search_items("appel"))["C"]), 3)
 
-    def test_route_is_local_only(self):
+    async def test_route_is_local_only(self):
         with mock.patch.object(ah_lists.ah, "get_favorite_lists", side_effect=AssertionError("geen AH-aanroep")):
-            res = self.client.get("/api/ah/lists/search?q=melk")
+            res = await self.client.get("/api/ah/lists/search?q=melk")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.get_json()["items"]["A"], ["AH Halfvolle melk"])
-        self.assertEqual(self.client.get("/api/ah/lists/search").get_json()["items"], {})
+        self.assertEqual((await self.client.get("/api/ah/lists/search")).get_json()["items"], {})
 
 
 if __name__ == "__main__":

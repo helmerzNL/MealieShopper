@@ -3,7 +3,7 @@
 
     python scripts/build_brand.py [--out MAP]
 
-Vereist Pillow, alleen tijdens het exporteren; de Flask-app heeft geen extra
+Vereist Pillow, alleen tijdens het exporteren; de Quart-app heeft geen extra
 dependency nodig. De vorm van het M-tasje staat hieronder op een plek: de SVG's
 en de PNG's komen uit dezelfde geometrie, zodat ze niet uit elkaar lopen.
 Tekst (woordmerk, deelafbeelding) gebruikt Manrope uit static/fonts/.

@@ -12,7 +12,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from quart import Quart, jsonify, request
+from quart import Quart, jsonify
 
 from . import ah, auth, crisp, jumbo, mealie, picnic
 from .i18n import tr
@@ -25,7 +25,7 @@ PRIVATE_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal", ".loca
 
 
 async def _flag(key: str) -> bool:
-    return await auth.aget_setting(key) == "1"
+    return await auth.get_setting(key) == "1"
 
 
 def hostname_info(host: str) -> dict[str, Any]:
@@ -88,7 +88,7 @@ async def _integrations_configured() -> bool:
 
 
 async def is_fresh() -> bool:
-    if await auth.acredentials_exist() or await auth.aauth_mode():
+    if await auth.credentials_exist() or await auth.auth_mode():
         return False
     if not auth.auth_enabled() and await _integrations_configured():
         return False  # bestaande installatie met inloggen uit en al gekoppeld
@@ -104,27 +104,27 @@ async def needed() -> bool:
 async def begin() -> None:
     """Onthoud dat de onboarding is begonnen, ook als er daarna een inlogmethode bijkomt."""
     if not await _flag(SETTING_DONE) and not await _flag(SETTING_ACTIVE) and await is_fresh():
-        await auth.aset_setting(SETTING_ACTIVE, "1")
+        await auth.set_setting(SETTING_ACTIVE, "1")
 
 
 async def complete() -> None:
-    await auth.aset_setting(SETTING_DONE, "1")
-    await auth.aset_setting(SETTING_ACTIVE, "0")
+    await auth.set_setting(SETTING_DONE, "1")
+    await auth.set_setting(SETTING_ACTIVE, "0")
 
 
 def register_routes(app: Quart) -> None:
     @app.get("/api/onboarding/status")
     async def onboarding_status():
         env = environment()
-        required = await auth.aauth_required()
-        mode = await auth.aauth_mode()
+        required = await auth.auth_required()
+        mode = await auth.auth_mode()
         if not auth.auth_enabled():
             auth_mode = "off"
         elif mode:
             auth_mode = mode
-        elif await auth.apasskey_count():
+        elif await auth.passkey_count():
             auth_mode = "passkey"
-        elif await auth.apassword_configured():
+        elif await auth.password_configured():
             auth_mode = "password"
         else:
             auth_mode = ""
@@ -134,9 +134,9 @@ def register_routes(app: Quart) -> None:
                 **env,
                 "authEnabled": auth.auth_enabled(),
                 "authRequired": required,
-                "authDone": await auth.acredentials_exist() or mode == "none" or not auth.auth_enabled(),
+                "authDone": await auth.credentials_exist() or mode == "none" or not auth.auth_enabled(),
                 "authMode": auth_mode,
-                "authenticated": bool(await auth.acurrent_user()) or not required,
+                "authenticated": bool(await auth.current_user()) or not required,
                 "minPasswordLength": 10,
             }
         )

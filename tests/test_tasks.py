@@ -231,3 +231,56 @@ async def test_shielded_work_finishes_although_its_caller_is_cancelled() -> None
     await tasks.cancel_all()  # wacht ook op afgeschermd werk dat nog loopt
     assert done == ["bewaard"]
 
+
+
+async def test_map_bounded_stops_what_it_started_when_the_items_raise() -> None:
+    """Gooit de iterable zelf halverwege, dan blijven de al gestarte items niet als losse tasks achter."""
+    started: list[int] = []
+    release: asyncio.Event = asyncio.Event()
+
+    async def slow(item: int) -> int:
+        started.append(item)
+        await release.wait()
+        return item
+
+    def items() -> Any:
+        yield 1
+        yield 2
+        raise ValueError("kapotte invoer")
+
+    before: set[asyncio.Task[Any]] = asyncio.all_tasks()
+    with pytest.raises(ValueError, match="kapotte invoer"):
+        await tasks.map_bounded(2, slow, items())
+    await _yield(2)
+    assert asyncio.all_tasks() - before == set(), "geen achtergebleven tasks"
+
+
+async def test_a_failed_shielded_task_without_a_caller_is_logged_as_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Een afgeschermde task die faalt nadat zijn aanroeper weg is: de fout (een token dat niet bewaard is) moet zichtbaar zijn."""
+    release: asyncio.Event = asyncio.Event()
+
+    async def store() -> None:
+        await release.wait()
+        raise RuntimeError("niet bewaard")
+
+    caller: asyncio.Task = asyncio.create_task(tasks.shielded(store()))
+    await _yield(2)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    with caplog.at_level(logging.WARNING, logger=tasks.log.name):
+        release.set()
+        await tasks.cancel_all()
+    assert any(record.levelno == logging.WARNING and "niet bewaard" in str(record.exc_info[1]) for record in caplog.records if record.exc_info)
+
+
+async def test_a_failed_shielded_task_with_its_caller_waiting_is_no_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Wacht de aanroeper nog, dan krijgt die de fout zelf: geen waarschuwing erbij."""
+
+    async def store() -> None:
+        raise RuntimeError("niet gekoppeld")
+
+    with caplog.at_level(logging.WARNING, logger=tasks.log.name), pytest.raises(RuntimeError):
+        await tasks.shielded(store())
+    await _yield(2)
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]

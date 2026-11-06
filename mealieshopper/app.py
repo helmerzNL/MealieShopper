@@ -77,7 +77,6 @@ def create_app() -> Quart:
     async def offers_recipes_flag():
         # Het tabblad Recepten bij Aanbiedingen: aan met de omgevingsvariabele, of zodra er een AI-sleutel is ingesteld (zie ai_review.py).
         return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or await ai_review.configured()}
-    audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
     auth.register_routes(app)
     auth_password.register_routes(app)
@@ -92,11 +91,11 @@ def create_app() -> Quart:
     async def _startup() -> None:
         """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
         try:
-            await auth.ainit_db()  # idempotent, het lazy pad (ensure_db, aensure_db) blijft bestaan
+            await auth.init_db()  # idempotent: schema en migratie een keer bij het starten, `ensure_db` vangt een latere eerste aanroep op
         except (sqlite3.Error, OSError):
             app.logger.warning("Kon de database niet aanmaken", exc_info=True)
         try:
-            removed = await auth.apurge_obsolete_secrets()
+            removed = await auth.purge_obsolete_secrets()
             if removed:
                 app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)
         except (sqlite3.Error, OSError):
@@ -141,7 +140,7 @@ def create_app() -> Quart:
 
     @app.before_request
     async def require_passkey_auth():
-        blocked = await auth.arequire_auth_for_request()
+        blocked = await auth.require_auth_for_request()
         if blocked:
             payload, status = blocked
             return jsonify(payload), status
@@ -169,16 +168,16 @@ def create_app() -> Quart:
 
     @app.get("/api/about")
     async def about_info():
-        return jsonify(about.about())
+        return jsonify(await about.about())
 
     # Alleen de beheerder: /api/update staat in auth.ADMIN_PREFIXES.
     @app.get("/api/update")
     async def update_status():
-        return jsonify(updates.status())
+        return jsonify(await updates.status())
 
     @app.post("/api/update/check")
     async def update_check():
-        return jsonify(updates.status(force=True))
+        return jsonify(await updates.status(force=True))
 
     @app.get("/api/mealplan")
     async def mealplan():
@@ -264,7 +263,7 @@ def create_app() -> Quart:
             return jsonify({"error": tr("De import starten is mislukt", "Starting the import failed")}), 424
 
     async def bulk_user() -> dict[str, Any] | None:
-        return await auth.acurrent_user() if await auth.aauth_required() else None
+        return await auth.current_user() if await auth.auth_required() else None
 
     async def bulk_start(whole: bool) -> tuple[Response, int]:
         body = await request.get_json(silent=True) or {}
@@ -292,7 +291,7 @@ def create_app() -> Quart:
     @app.post("/api/mealie/bulk-import/cancel")
     async def bulk_import_cancel():
         async def cancel() -> Any:
-            return recipe_bulk.cancel(await bulk_user(), await auth.ais_owner())
+            return recipe_bulk.cancel(await bulk_user(), await auth.is_owner())
 
         return await bulk_action(cancel)
 
@@ -540,7 +539,7 @@ def create_app() -> Quart:
         receipt_id = (receipt_id or "").strip() or None
         if images and receipt_id:
             return jsonify({"error": tr("Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.", "Invalid request: filling in photos covers all receipts, not one receipt.")}), 400
-        if force and not await auth.ais_owner():
+        if force and not await auth.is_owner():
             return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
         if receipt_id and not await ah_orders.receipt_exists(receipt_id):
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404

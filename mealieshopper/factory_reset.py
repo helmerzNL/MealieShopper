@@ -75,9 +75,9 @@ def restart() -> None:
 
 async def _owner_methods() -> dict[str, bool]:
     return {
-        "password": await auth.apassword_configured(auth.OWNER_ID),
-        "mfa": await auth.amfa_enabled(auth.OWNER_ID),
-        "passkey": auth.auth_enabled() and await auth.apasskey_count(auth.OWNER_ID) > 0,
+        "password": await auth.password_configured(auth.OWNER_ID),
+        "mfa": await auth.mfa_enabled(auth.OWNER_ID),
+        "passkey": auth.auth_enabled() and await auth.passkey_count(auth.OWNER_ID) > 0,
     }
 
 
@@ -90,10 +90,10 @@ async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply 
     async with auth_password.attempt_lock():
         if await auth_password.locked_seconds():
             return await auth_password._too_many()
-        challenge = await auth.apop_challenge(f"reset:{uid}")
+        challenge = await auth.pop_challenge(f"reset:{uid}")
         if not challenge:
             return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
-        async with auth.aconnect() as conn, conn.execute(
+        async with auth.connect() as conn, conn.execute(
             "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
             (str(credential.get("id") or ""), uid),
         ) as cursor:
@@ -102,7 +102,7 @@ async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply 
             if not stored:
                 raise ValueError("Unknown credential")
             # De webauthn-controle is rekenwerk: in een thread, met een kopie van de context (voor `request`).
-            await asyncio.to_thread(auth.check_assertion, credential, challenge, bytes(stored["public_key"]))
+            await auth.check_assertion(credential, challenge, bytes(stored["public_key"]))
         except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
             await auth_password.register_failure()
             return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
@@ -116,7 +116,7 @@ def register_routes(app: Quart) -> None:
         return jsonify(
             {
                 "phrase": CONFIRM_PHRASE,
-                "authRequired": await auth.aauth_required(),
+                "authRequired": await auth.auth_required(),
                 "methods": await _owner_methods(),
                 "restart": restart_supported(),
             }
@@ -125,14 +125,14 @@ def register_routes(app: Quart) -> None:
     @app.post("/api/system/factory-reset/options")
     async def factory_reset_options():
         """De uitdaging voor de passkey waarmee de beheerder het wissen bevestigt."""
-        if not await auth.aauth_required() or not (await _owner_methods())["passkey"]:
+        if not await auth.auth_required() or not (await _owner_methods())["passkey"]:
             return jsonify({"error": tr("Bevestigen met een passkey kan hier niet.", "Confirming with a passkey is not possible here.")}), 400
-        async with auth.aconnect() as conn, conn.execute(
+        async with auth.connect() as conn, conn.execute(
             "SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)
         ) as cursor:
             rows = await cursor.fetchall()
         challenge = auth.make_challenge()
-        await auth.astore_challenge(f"reset:{auth.OWNER_ID}", challenge)
+        await auth.store_challenge(f"reset:{auth.OWNER_ID}", challenge)
         return jsonify(
             {
                 "status": "ok",
@@ -152,8 +152,8 @@ def register_routes(app: Quart) -> None:
         if str(body.get("confirm") or "").strip() != CONFIRM_PHRASE:
             return jsonify({"error": tr(f"Typ {CONFIRM_PHRASE} om te bevestigen.", f"Type {CONFIRM_PHRASE} to confirm.")}), 400
 
-        if await auth.aauth_required():
-            user = await auth.acurrent_user()
+        if await auth.auth_required():
+            user = await auth.current_user()
             if not user or user["id"] != auth.OWNER_ID:
                 return jsonify({"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}), 403
             if body.get("credential"):

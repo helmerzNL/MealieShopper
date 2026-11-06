@@ -69,12 +69,15 @@ async def map_bounded(limit: int, fn: Callable[[T], Awaitable[R]], items: Iterab
         async with slots:
             return await fn(item)
 
-    started: list[asyncio.Task[R]] = [asyncio.create_task(one(item)) for item in items]
-    if not started:
-        return []
+    started: list[asyncio.Task[R]] = []
     try:
+        # In de try: gooit `items` zelf halverwege, dan stoppen we wat al liep in plaats van het los te laten.
+        for item in items:
+            started.append(asyncio.create_task(one(item)))
+        if not started:
+            return []
         await asyncio.wait(started, return_when=asyncio.FIRST_EXCEPTION)
-    except asyncio.CancelledError:
+    except BaseException:
         await _stop(started)
         raise
     failed: list[asyncio.Task[R]] = [task for task in started if task.done() and not task.cancelled() and task.exception()]
@@ -102,6 +105,13 @@ def _shielded_done(task: asyncio.Task[Any]) -> None:
         log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
 
 
+def _orphan_done(task: asyncio.Task[Any]) -> None:
+    """Afgeschermd werk waarvan de aanroeper weg is (geannuleerd): niemand anders ziet een fout, dus die komt als
+    waarschuwing in het logboek. Een vernieuwd token dat niet bewaard is, moet opvallen."""
+    if not task.cancelled() and task.exception() is not None:
+        log.warning("Afgeschermd werk mislukt nadat de aanroeper wegging", exc_info=task.exception())
+
+
 async def shielded(coro: Coroutine[Any, Any, T]) -> T:
     """Draait `coro` als eigen task en wacht erop, zonder dat een annulering van de aanroeper die task afbreekt.
 
@@ -113,7 +123,11 @@ async def shielded(coro: Coroutine[Any, Any, T]) -> T:
     task: asyncio.Task[T] = asyncio.create_task(coro)
     _shielded.add(task)
     task.add_done_callback(_shielded_done)
-    return await asyncio.shield(task)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(_orphan_done)
+        raise
 
 
 def running() -> dict[str, asyncio.Task[Any]]:

@@ -31,7 +31,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         return f"{await base_url()}/mcp"
 
     async def serializer() -> URLSafeTimedSerializer:
-        return URLSafeTimedSerializer(await auth.asigning_secret(), salt="mealieshopper-oauth-authorize")
+        return URLSafeTimedSerializer(await auth.signing_secret(), salt="mealieshopper-oauth-authorize")
 
     async def unavailable_text() -> str:
         _, reason = await mcp.enabled()
@@ -149,7 +149,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
             return await error_page(exc.description)
         if info["error"]:
             return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=await base_url())
-        user = await auth.acurrent_user()
+        user = await auth.current_user()
         if not user:
             return redirect("/?" + urlencode({"next": request.full_path.rstrip("?")}), 302)
         signed = (await serializer()).dumps(
@@ -171,7 +171,7 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
             return await error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
-        user = await auth.acurrent_user()
+        user = await auth.current_user()
         if not user:
             return await error_page(tr("Je bent niet ingelogd.", "You are not logged in."), 401)
         try:
@@ -226,23 +226,23 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
         token = header[7:].strip() if header[:7].lower() == "bearer " else ""
         identity = await oauth.verify_access_token(token, await mcp_url()) if token else None
         if not identity:
-            await audit.amcp_rejected(401, "unauthorized", header_present=bool(token))
+            await audit.mcp_rejected(401, "unauthorized", header_present=bool(token))
             return await unauthorized(bool(token))
         version = request.headers.get("Mcp-Protocol-Version")
         if version and version not in mcp.SUPPORTED_PROTOCOLS:
-            await audit.amcp_rejected(400, f"unsupported protocol {version}")
+            await audit.mcp_rejected(400, f"unsupported protocol {version}")
             return _json({"error": f"Unsupported MCP protocol version: {version}"}, 400)
         if (request.content_length or 0) > MAX_BODY:
-            await audit.amcp_rejected(413, "request too large")
+            await audit.mcp_rejected(413, "request too large")
             return _json({"error": "Request too large"}, 413)
         try:
             message = json.loads(await request.get_data(as_text=True))
         except ValueError:
-            await audit.amcp_rejected(400, "parse error")
+            await audit.mcp_rejected(400, "parse error")
             return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
 
         async def handle(item: Any) -> dict[str, Any] | None:
-            return await audit.amcp_message(item, mcp.handle_message, identity)
+            return await audit.mcp_message(item, mcp.handle_message, identity)
 
         if isinstance(message, list):
             replies: list[dict[str, Any]] = []
@@ -265,16 +265,16 @@ def register_routes(app: Quart, base_url: Callable[[], Awaitable[str]]) -> None:
             {
                 "enabled": on,
                 "reason": reason,
-                "canConfigure": await auth.ais_owner(),
+                "canConfigure": await auth.is_owner(),
                 "url": f"{base}/mcp",
                 "secure": base.startswith("https://") or host in oauth.LOOPBACK_HOSTS,
-                "apps": await oauth.connected_apps(await auth.aacting_user_id()) if on else [],
+                "apps": await oauth.connected_apps(await auth.acting_user_id()) if on else [],
                 "tools": await server_settings.tools_payload(),
             }
         )
 
     @app.delete("/api/mcp/apps/<client_id>")
     async def mcp_revoke_app(client_id: str):
-        if not await oauth.revoke_app(await auth.aacting_user_id(), client_id):
+        if not await oauth.revoke_app(await auth.acting_user_id(), client_id):
             return jsonify({"error": tr("App niet gevonden.", "App not found.")}), 404
         return jsonify({"status": "ok"})

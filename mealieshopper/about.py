@@ -8,6 +8,7 @@ worden live uit de installatie gelezen, zodat ze altijd kloppen.
 """
 from __future__ import annotations
 
+import asyncio
 import platform
 import sqlite3
 import subprocess
@@ -40,7 +41,6 @@ COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] 
     ("pyasn1", "server", "pyasn1", "pyasn1", None, "BSD-2-Clause", "https://github.com/pyasn1/pyasn1"),
     ("pyasn1modules", "server", "pyasn1-modules", "pyasn1_modules", None, "BSD-2-Clause", "https://github.com/pyasn1/pyasn1-modules"),
     ("pyopenssl", "server", "pyOpenSSL", "pyOpenSSL", None, "Apache-2.0", "https://pyopenssl.org"),
-    ("requests", "server", "Requests", "requests", None, "Apache-2.0", "https://requests.readthedocs.io"),
     ("httpx", "server", "HTTPX", "httpx", None, "BSD-3-Clause", "https://www.python-httpx.org"),
     ("aiosqlite", "server", "aiosqlite", "aiosqlite", None, "MIT", "https://github.com/omnilib/aiosqlite"),
     ("pillow", "server", "Pillow", "Pillow", None, "MIT-CMU", "https://pillow.readthedocs.io"),
@@ -63,7 +63,15 @@ def read_version() -> str:
     return text.lstrip("vV") or "0.0.0"
 
 
+@lru_cache(maxsize=1)
+def version() -> str:
+    """`read_version`, een keer gelezen: VERSION en MEALIESHOPPER_VERSION veranderen niet zolang de app draait. Voor de
+    User-Agent en de ETag van elk verzoek, zonder dat elk verzoek het bestand leest."""
+    return read_version()
+
+
 def read_commit() -> str:
+    """De commit van deze build. Kan `git` starten, dus vanaf de event loop alleen via `build_info` (in een thread)."""
     configured = environ.get("MEALIESHOPPER_COMMIT", "").strip()
     if configured and configured.lower() != "unknown":
         return configured[:7]
@@ -88,10 +96,24 @@ def build_channel() -> str:
     return "beta" if "beta" in read_tag().lower() else "stable"
 
 
-@lru_cache(maxsize=1)
-def build_info() -> dict[str, str]:
-    version, commit = read_version(), read_commit()
-    return {"version": version, "commit": commit, "label": f"v{version}" + (f" ({commit})" if commit else "")}
+_build_info: dict[str, str] | None = None
+
+
+async def build_info() -> dict[str, str]:
+    """Versie, commit en label, een keer bepaald. `read_commit` loopt in een thread: `git` mag de event loop niet vasthouden."""
+    global _build_info
+    if _build_info is None:
+        commit: str = await asyncio.to_thread(read_commit)
+        number: str = read_version()
+        _build_info = {"version": number, "commit": commit, "label": f"v{number}" + (f" ({commit})" if commit else "")}
+    return _build_info
+
+
+def reset() -> None:
+    """Vergeet de bewaarde versie en build (tests)."""
+    global _build_info
+    _build_info = None
+    version.cache_clear()
 
 
 def _component_version(package: str | None, fixed: str | None) -> str:
@@ -109,9 +131,9 @@ def _component_version(package: str | None, fixed: str | None) -> str:
     return ""
 
 
-def about() -> dict[str, Any]:
+async def about() -> dict[str, Any]:
     return {
-        **build_info(),
+        **await build_info(),
         "channel": build_channel(),
         "coffeeUrl": COFFEE_URL,
         "components": [

@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, run  # noqa: E402
 
 
 def list_data(*items, active=True, typename="ShoppingList"):
@@ -20,17 +20,17 @@ def raw(item_id, term, sku=None, completed=False):
     return {"id": item_id, "term": term, "sku": sku, "completed": completed}
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
         jumbo._working_variant.clear()
-        auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+        run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
 
 
 class ShoppingListApiTest(TempDataDirTest):
@@ -228,73 +228,73 @@ class LocalCopyTest(TempDataDirTest):
 class ListRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_overview_is_always_200(self):
+    async def test_overview_is_always_200(self):
         with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")), \
                 mock.patch.object(jumbo, "get_product_lists", side_effect=RuntimeError("x")):
-            response = self.client.get("/api/jumbo/lists")
+            response = await self.client.get("/api/jumbo/lists")
         self.assertEqual((response.status_code, response.get_json()["lists"]), (200, []))
 
-    def test_sync_detail_quantity_reset_roundtrip(self):
+    async def test_sync_detail_quantity_reset_roundtrip(self):
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, return_value=LocalCopyTest.LIVE):
-            synced = self.client.post("/api/jumbo/lists/jumbo/sync").get_json()
+            synced = (await self.client.post("/api/jumbo/lists/jumbo/sync")).get_json()
         self.assertEqual(synced["totalSize"], 2)
-        self.assertEqual(self.client.get("/api/jumbo/lists/JUMBO").get_json()["source"], "local")
-        changed = self.client.patch("/api/jumbo/lists/JUMBO/items/0", json={"quantity": 3}).get_json()
+        self.assertEqual((await self.client.get("/api/jumbo/lists/JUMBO")).get_json()["source"], "local")
+        changed = (await self.client.patch("/api/jumbo/lists/JUMBO/items/0", json={"quantity": 3})).get_json()
         self.assertEqual(changed["items"][0]["quantity"], 3)
-        self.assertEqual(self.client.patch("/api/jumbo/lists/JUMBO/items/0", json={"quantity": 0}).status_code, 400)
-        self.assertEqual(self.client.patch("/api/jumbo/lists/JUMBO/items/7", json={"quantity": 2}).status_code, 404)
-        self.assertEqual(self.client.post("/api/jumbo/lists/JUMBO/reset").get_json()["items"][0]["quantity"], 1)
-        self.assertEqual(self.client.get("/api/jumbo/lists/search?q=melk").get_json()["items"], {"JUMBO": ["Halfvolle melk"]})
+        self.assertEqual((await self.client.patch("/api/jumbo/lists/JUMBO/items/0", json={"quantity": 0})).status_code, 400)
+        self.assertEqual((await self.client.patch("/api/jumbo/lists/JUMBO/items/7", json={"quantity": 2})).status_code, 404)
+        self.assertEqual((await self.client.post("/api/jumbo/lists/JUMBO/reset")).get_json()["items"][0]["quantity"], 1)
+        self.assertEqual((await self.client.get("/api/jumbo/lists/search?q=melk")).get_json()["items"], {"JUMBO": ["Halfvolle melk"]})
 
-    def test_an_unsynced_list_is_shown_live(self):
+    async def test_an_unsynced_list_is_shown_live(self):
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, return_value=LocalCopyTest.LIVE):
-            body = self.client.get("/api/jumbo/lists/JUMBO").get_json()
+            body = (await self.client.get("/api/jumbo/lists/JUMBO")).get_json()
         self.assertEqual((body["source"], body["items"][0]["product"]["title"]), ("jumbo", "Halfvolle melk"))
 
-    def test_sync_errors_are_generic(self):
+    async def test_sync_errors_are_generic(self):
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, side_effect=RuntimeError("geheim")):
-            response = self.client.post("/api/jumbo/lists/JUMBO/sync")
+            response = await self.client.post("/api/jumbo/lists/JUMBO/sync")
         self.assertEqual((response.status_code, response.get_json()["error"]), (424, "Jumbo fout"))
 
-    def test_list_to_cart_adds_skus_directly_and_searches_text_lines(self):
-        run(jumbo_lists.save_snapshot(LocalCopyTest.LIVE))
-        run(jumbo_lists.set_quantity("JUMBO", 1, 2))
+    async def test_list_to_cart_adds_skus_directly_and_searches_text_lines(self):
+        await jumbo_lists.save_snapshot(LocalCopyTest.LIVE)
+        await jumbo_lists.set_quantity("JUMBO", 1, 2)
         result = {"added": [], "failed": [], "cart": None}
         with mock.patch.object(jumbo, "search_product", return_value={"id": "S9", "title": "Brood"}) as search, \
                 mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
-            body = self.client.post("/api/jumbo/lists/JUMBO/cart").get_json()
+            body = (await self.client.post("/api/jumbo/lists/JUMBO/cart")).get_json()
         search.assert_called_once_with("brood")
         self.assertEqual([(m["productId"], m["quantity"]) for m in add.call_args.args[0]], [("S1", 1), ("S9", 2)])
         self.assertEqual((body["added"], body["units"], body["name"]), (2, 3, "Jumbo-lijstje"))
 
-    def test_list_to_cart_reports_lines_it_could_not_place(self):
-        run(jumbo_lists.save_snapshot(LocalCopyTest.LIVE))
+    async def test_list_to_cart_reports_lines_it_could_not_place(self):
+        await jumbo_lists.save_snapshot(LocalCopyTest.LIVE)
         result = {"added": [], "failed": [{"productId": "S1", "error": "x"}], "cart": None}
         with mock.patch.object(jumbo, "search_product", return_value=None), mock.patch.object(jumbo, "add_to_cart", return_value=result):
-            body = self.client.post("/api/jumbo/lists/JUMBO/cart").get_json()
+            body = (await self.client.post("/api/jumbo/lists/JUMBO/cart")).get_json()
         self.assertEqual((body["added"], sorted(body["skippedItems"])), (0, ["brood", "melk"]))
 
-    def test_list_to_cart_without_products_is_400(self):
-        run(jumbo_lists.save_snapshot({**LocalCopyTest.LIVE, "items": []}))
-        self.assertEqual(self.client.post("/api/jumbo/lists/JUMBO/cart").status_code, 400)
+    async def test_list_to_cart_without_products_is_400(self):
+        await jumbo_lists.save_snapshot({**LocalCopyTest.LIVE, "items": []})
+        self.assertEqual((await self.client.post("/api/jumbo/lists/JUMBO/cart")).status_code, 400)
 
-    def test_ingredients_go_on_the_list_with_the_chosen_product(self):
+    async def test_ingredients_go_on_the_list_with_the_chosen_product(self):
         with mock.patch.object(jumbo, "add_to_shopping_list", return_value={"added": ["Halfvolle melk"], "skipped": ["eieren"]}) as add:
-            body = self.client.post("/api/jumbo/list", json={"items": [
-                {"query": "melk", "title": "Halfvolle melk", "productId": "S1", "quantity": 2}, {"query": "eieren"}]}).get_json()
+            body = (await self.client.post("/api/jumbo/list", json={"items": [
+                {"query": "melk", "title": "Halfvolle melk", "productId": "S1", "quantity": 2}, {"query": "eieren"}]})).get_json()
         self.assertEqual(add.call_args.args[0], [{"term": "Halfvolle melk", "sku": "S1"}, {"term": "eieren", "sku": None}])
         self.assertEqual((body["added"], body["skipped"], body["skippedItems"]), (1, 1, ["eieren"]))
-        self.assertEqual(self.client.post("/api/jumbo/list", json={"items": []}).status_code, 400)
+        self.assertEqual((await self.client.post("/api/jumbo/list", json={"items": []})).status_code, 400)
 
-    def test_list_errors_are_generic_and_users_can_read_the_list(self):
+    async def test_list_errors_are_generic_and_users_can_read_the_list(self):
         with mock.patch.object(jumbo, "add_to_shopping_list", side_effect=RuntimeError("geheim")):
-            response = self.client.post("/api/jumbo/list", json={"items": [{"query": "melk"}]})
+            response = await self.client.post("/api/jumbo/list", json={"items": [{"query": "melk"}]})
         self.assertEqual((response.status_code, response.get_json()["error"]), (424, "Jumbo fout"))
 
 
-class ScriptsTest(unittest.TestCase):
+class ScriptsTest(AppTestCase):
     def test_every_script_function_is_defined_once(self):
         # Klassieke scripts delen één naamruimte: een tweede `function renderStoreChoice` in een later script
         # overschrijft stilletjes de eerste (zo verdween Jumbo uit de keuzelijst van de planner).
@@ -321,7 +321,7 @@ class McpAndExploreTest(TempDataDirTest):
     def test_the_mcp_tool_needs_a_link(self):
         from mealieshopper import mcp
 
-        auth.delete_secret(jumbo.REFRESH_SECRET)
+        run(auth.delete_secret(jumbo.REFRESH_SECRET))
         with self.assertRaises(mcp.ToolError):
             run(mcp.tool_jumbo_list({}))
 

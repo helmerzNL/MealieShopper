@@ -22,7 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient, SyncResponse  # noqa: E402
+from helpers import AppClient, db, ReadResponse, run_aside  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
     from quart.typing import TestAppProtocol
@@ -84,8 +84,8 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
         self.admin = self.new_client()
         await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
-    def new_client(self) -> LiveClient:
-        return LiveClient(self.test_app.test_client())
+    def new_client(self) -> AppClient:
+        return AppClient(self.test_app.test_client())
 
     def new_data_dir(self) -> Path:
         tmp = tempfile.TemporaryDirectory()
@@ -100,7 +100,7 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
     # --- gegevens ---
 
     def connect(self) -> sqlite3.Connection:
-        backup.ensure_schemas()
+        run_aside(backup.ensure_schemas())  # ook vanuit een async test: in een eigen loop
         conn = sqlite3.connect(auth.db_path())
         conn.row_factory = sqlite3.Row
         return conn
@@ -163,20 +163,20 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
 
     # --- aanroepen ---
 
-    async def make(self, client: LiveClient | None = None, **body: Any) -> tuple[SyncResponse, bytes]:
+    async def make(self, client: AppClient | None = None, **body: Any) -> tuple[ReadResponse, bytes]:
         body.setdefault("links", False)
         response = await (client or self.admin).post("/api/backup", json=body)
         return response, response.get_data()
 
-    async def stage(self, data: bytes, client: LiveClient | None = None) -> SyncResponse:
+    async def stage(self, data: bytes, client: AppClient | None = None) -> ReadResponse:
         # Quart zet zelf geen Content-Length bij een testverzoek, een browser wel: de route leest hem.
         headers = {"Content-Type": "application/octet-stream", **({"Content-Length": str(len(data))} if data else {})}
         return await (client or self.admin).post("/api/backup/stage", data=data, headers=headers)
 
-    async def start(self, token: str, passphrase: str = "", client: LiveClient | None = None) -> SyncResponse:
+    async def start(self, token: str, passphrase: str = "", client: AppClient | None = None) -> ReadResponse:
         return await (client or self.admin).post("/api/backup/jobs", json={"token": token, "passphrase": passphrase})
 
-    async def latest(self, client: LiveClient | None = None) -> dict[str, Any] | None:
+    async def latest(self, client: AppClient | None = None) -> dict[str, Any] | None:
         return (await (client or self.admin).get("/api/backup/jobs/latest")).get_json()["job"]
 
     async def current(self) -> dict[str, Any]:
@@ -186,7 +186,7 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
             self.fail("er is geen klus")
         return job
 
-    async def wait(self, client: LiveClient | None = None, seconds: float = 20) -> dict[str, Any]:
+    async def wait(self, client: AppClient | None = None, seconds: float = 20) -> dict[str, Any]:
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             job = await self.latest(client)
@@ -195,7 +195,7 @@ class BackupCase(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
         self.fail("de klus is niet klaar gekomen")
 
-    async def restore(self, data: bytes, passphrase: str = "", client: LiveClient | None = None) -> dict[str, Any]:
+    async def restore(self, data: bytes, passphrase: str = "", client: AppClient | None = None) -> dict[str, Any]:
         staged = await self.stage(data, client)
         self.assertEqual(staged.status_code, 200, staged.get_json())
         started = await self.start(staged.get_json()["token"], passphrase, client)
@@ -237,15 +237,15 @@ class ClassificationTest(BackupCase):
     async def oauth_schema() -> None:
         async with oauth._connect():  # oauth en mealie_images maken hun tabellen bij de eerste verbinding
             pass
-        async with mealie_images._aconnect():
+        async with mealie_images._connect():
             pass
 
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
-        backup.ensure_schemas()
-        with closing(audit._connect()):
+        await backup.ensure_schemas()
+        with closing(db(audit)):
             pass
-        async with image_cache._aconnect():
+        async with image_cache._connect():
             pass
         await self.oauth_schema()
         with closing(self.connect()) as conn:
@@ -271,10 +271,10 @@ class RoundTripTest(BackupCase):
     async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
-        auth.set_setting("AI_PROVIDER", "anthropic")
-        auth.set_setting("MCP_ENABLED", "0")
-        auth.set_setting("WEEK_START", "6")
+            await auth.set_secret(key, value)
+        await auth.set_setting("AI_PROVIDER", "anthropic")
+        await auth.set_setting("MCP_ENABLED", "0")
+        await auth.set_setting("WEEK_START", "6")
         before = self.snapshot()
         self.assertTrue(all(before[table] for table in backup.DATA_TABLES))
         response, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -286,9 +286,9 @@ class RoundTripTest(BackupCase):
         self.wipe()
         self.junk()
         for key in SECRETS:
-            auth.delete_secret(key)
-        auth.set_setting("AI_PROVIDER", "openai")
-        auth.set_setting("WEEK_START", "")
+            await auth.delete_secret(key)
+        await auth.set_setting("AI_PROVIDER", "openai")
+        await auth.set_setting("WEEK_START", "")
 
         job = await self.restore(data, PASSPHRASE)
         self.assertEqual(job["status"], "done", job)
@@ -299,15 +299,15 @@ class RoundTripTest(BackupCase):
         self.assertEqual(job["summary"]["skippedProfiles"], 1)
         self.assertEqual(sorted(job["summary"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         for key, value in SECRETS.items():
-            self.assertEqual(auth.get_secret(key), value, key)
-        self.assertEqual(auth.get_setting("AI_PROVIDER"), "anthropic")
-        self.assertEqual(auth.get_setting("MCP_ENABLED"), "0")
-        self.assertEqual(auth.get_setting("WEEK_START"), "6", "de eerste dag van de week gaat mee terug")
+            self.assertEqual(await auth.get_secret(key), value, key)
+        self.assertEqual(await auth.get_setting("AI_PROVIDER"), "anthropic")
+        self.assertEqual(await auth.get_setting("MCP_ENABLED"), "0")
+        self.assertEqual(await auth.get_setting("WEEK_START"), "6", "de eerste dag van de week gaat mee terug")
         self.assertEqual((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"]["status"], "done")  # nog niet weggeklikt
 
     async def test_the_links_work_on_another_server_with_another_secret_key(self) -> None:
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
+            await auth.set_secret(key, value)
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         old_secret = (self.data / "secret.key").read_text()
 
@@ -319,7 +319,7 @@ class RoundTripTest(BackupCase):
         self.assertEqual(job["status"], "done", job)
         self.assertNotEqual((self.data_dir() / "secret.key").read_text(), old_secret)
         for key, value in SECRETS.items():
-            self.assertEqual(auth.get_secret(key), value, key)
+            self.assertEqual(await auth.get_secret(key), value, key)
         self.assertEqual(await mealie.mealie_token(), SECRETS[mealie.SECRET_TOKEN])
         self.assertNotIn(SECRETS[mealie.SECRET_TOKEN], self.settings()[mealie.SECRET_TOKEN])  # opgeslagen met de sleutel van deze server
 
@@ -330,20 +330,20 @@ class RoundTripTest(BackupCase):
         self.seed()
         _, data = await self.make(links=False)
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
+            await auth.set_secret(key, value)
         self.wipe()
         job = await self.restore(data)
         self.assertEqual(job["status"], "done", job)
         self.assertTrue(job["summary"]["linksKept"])
-        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), SECRETS[mealie.SECRET_TOKEN])
+        self.assertEqual(await auth.get_secret(mealie.SECRET_TOKEN), SECRETS[mealie.SECRET_TOKEN])
 
     async def test_a_backup_with_links_replaces_the_links_that_are_there(self) -> None:
-        auth.set_secret("PICNIC_AUTH_KEY", "PICNIC-KEY-abcdefgh")
+        await auth.set_secret("PICNIC_AUTH_KEY", "PICNIC-KEY-abcdefgh")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)  # alleen Picnic zit erin
-        auth.set_secret("JUMBO_REFRESH_TOKEN", "JUMBO-REFRESH-zyxwvuts")
+        await auth.set_secret("JUMBO_REFRESH_TOKEN", "JUMBO-REFRESH-zyxwvuts")
         self.assertEqual((await self.restore(data, PASSPHRASE))["status"], "done")
-        self.assertEqual(auth.get_secret("PICNIC_AUTH_KEY"), "PICNIC-KEY-abcdefgh")
-        self.assertEqual(auth.get_secret("JUMBO_REFRESH_TOKEN"), "")
+        self.assertEqual(await auth.get_secret("PICNIC_AUTH_KEY"), "PICNIC-KEY-abcdefgh")
+        self.assertEqual(await auth.get_secret("JUMBO_REFRESH_TOKEN"), "")
 
     async def test_numbers_carry_on_after_a_restore(self) -> None:
         self.seed()
@@ -390,7 +390,7 @@ class FileContentTest(BackupCase):
     async def test_the_file_holds_nothing_that_unlocks_the_app(self) -> None:
         self.seed()
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
+            await auth.set_secret(key, value)
         with closing(self.connect()) as conn, conn:
             conn.execute("INSERT INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('CRED-ID-777', 'owner', ?, 'telefoon', 'nu')", (b"PUBLIC-KEY-777",))
             conn.execute("INSERT INTO mfa_recovery_codes (code_hash, user_id, created_at) VALUES ('RECOVERY-HASH-777', 'owner', 'nu')")
@@ -412,7 +412,7 @@ class FileContentTest(BackupCase):
 
     async def test_the_links_are_encrypted_and_the_password_is_not_in_the_file(self) -> None:
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
+            await auth.set_secret(key, value)
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         text = data.decode("utf-8")
         document = json.loads(text)
@@ -432,7 +432,7 @@ class FileContentTest(BackupCase):
 
     async def test_a_backup_without_links_has_none(self) -> None:
         for key, value in SECRETS.items():
-            auth.set_secret(key, value)
+            await auth.set_secret(key, value)
         _, data = await self.make(links=False)
         document = json.loads(data)
         self.assertEqual(document["secrets"], {"links": [], "sealed": None})
@@ -460,7 +460,7 @@ class FileContentTest(BackupCase):
         self.assertEqual(list(self.data.glob(".backup-*")), [])
 
     async def test_a_link_that_cannot_be_read_is_left_out(self) -> None:
-        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         with closing(self.connect()) as conn, conn:
             conn.execute("UPDATE app_settings SET value = 'gAAAAB-een-andere-sleutel' WHERE key = ?", (mealie.SECRET_TOKEN,))
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -481,12 +481,12 @@ class OlderBackupTest(BackupCase):
 
         job = await self.restore(self.tweak(data, older))
         self.assertEqual(job["status"], "done", job)
-        self.assertFalse(profile.get("owner")["preferOrganic"])
+        self.assertFalse((await profile.get("owner"))["preferOrganic"])
 
     async def test_a_backup_from_before_the_appearance_settings_still_restores(self) -> None:
         # De weergave gaf user_profiles de kolommen theme, dark_background en accent; een oudere back-up zet de standaard terug.
         self.seed()
-        profile.set_appearance("owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0)
+        await profile.set_appearance("owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0)
         _, data = await self.make()
         row = json.loads(data)["tables"]["user_profiles"][0]
         self.assertEqual((row["accent"], row["navbar_style"], row["navbar_glass"]), ("#0a84ff", "android", 0), "de weergave zit in de back-up")
@@ -499,7 +499,7 @@ class OlderBackupTest(BackupCase):
         job = await self.restore(self.tweak(data, older))
         self.assertEqual(job["status"], "done", job)
         self.assertEqual(
-            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
+            {key: (await profile.get("owner"))[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
             {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
         )
 
@@ -524,7 +524,7 @@ class OlderBackupTest(BackupCase):
         self.assertEqual((history, meta), (2, ["ah"]))
         for table in ("jumbo_lists", "ah_orders", "user_profiles"):
             self.assertEqual(after[table], [], f"{table} is vervangen door de lege sectie uit het bestand")
-        self.assertEqual(auth.get_setting(mealie.SETTING_WEEK_START), "1")
+        self.assertEqual(await auth.get_setting(mealie.SETTING_WEEK_START), "1")
 
 
 class RefusalTest(BackupCase):
@@ -561,7 +561,7 @@ class RefusalTest(BackupCase):
         for key in ("AUTH_MODE", "SESSION_EPOCH", "ONBOARDING_DONE", "PUBLIC_BASE_URL", "iets"):
             data = self.tweak(self.data_bytes, lambda doc, k=key: doc["settings"].update({k: "none"}))
             await self.refused(data, "bad_setting")
-        self.assertTrue(auth.auth_required())
+        self.assertTrue(await auth.auth_required())
 
     async def test_a_row_that_does_not_fit_names_the_table_and_the_line(self) -> None:
         def spoil(doc):
@@ -640,9 +640,9 @@ class RefusalTest(BackupCase):
         self.assertEqual(self.snapshot(), junk_state)
 
     async def test_a_tampered_encrypted_block_is_refused(self) -> None:
-        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
-        auth.delete_secret(mealie.SECRET_TOKEN)
+        await auth.delete_secret(mealie.SECRET_TOKEN)
         # De inhoud wordt pas met het wachtwoord gelezen, dus deze bestanden komen wel klaar te staan en falen bij het starten.
         for change in (
             lambda doc: doc["secrets"]["sealed"].update(token="x" + doc["secrets"]["sealed"]["token"][1:]),
@@ -656,12 +656,12 @@ class RefusalTest(BackupCase):
             await self.admin.delete(f"/api/backup/stage/{staged.get_json()['token']}")
         # Koppelingen aangekondigd zonder versleuteld blok: dat is een beschadigd bestand.
         self.assertEqual((await self.stage(self.tweak(data, lambda doc: doc["secrets"].update(sealed=None)))).status_code, 400)
-        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "")
+        self.assertEqual(await auth.get_secret(mealie.SECRET_TOKEN), "")
         self.assertEqual(self.staged_files(), [])
 
     async def test_secrets_in_the_block_must_be_known_links(self) -> None:
         sealed = backup.seal({"AUTH_MODE": "none"}, PASSPHRASE)
-        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         planted = self.tweak(data, lambda doc: doc["secrets"].update(sealed=sealed))
         staged = await self.stage(planted)
@@ -735,9 +735,9 @@ class StageTest(BackupCase):
 
 class PassphraseTest(BackupCase):
     async def prepare(self) -> bytes:
-        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
-        auth.delete_secret(mealie.SECRET_TOKEN)
+        await auth.delete_secret(mealie.SECRET_TOKEN)
         return data
 
     async def test_the_summary_says_a_password_is_needed(self) -> None:
@@ -751,11 +751,11 @@ class PassphraseTest(BackupCase):
             response = await self.start(token, passphrase)
             self.assertEqual((response.status_code, response.get_json()["code"]), (status, code))
             self.assertEqual(self.staged_files(), [".restore-" + token])
-        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "")
+        self.assertEqual(await auth.get_secret(mealie.SECRET_TOKEN), "")
         self.assertEqual((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"], None)
         self.assertEqual((await self.start(token, PASSPHRASE)).status_code, 202)  # en meteen opnieuw proberen kan
         self.assertEqual((await self.wait())["status"], "done")
-        self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "MEALIE-TOKEN-12345678")
+        self.assertEqual(await auth.get_secret(mealie.SECRET_TOKEN), "MEALIE-TOKEN-12345678")
 
     async def test_the_password_is_never_stored(self) -> None:
         data = await self.prepare()
@@ -816,13 +816,15 @@ class JobTest(BackupCase):
 
     async def test_a_failure_halfway_changes_nothing_and_says_so(self) -> None:
         self.seed()
-        auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
+        await auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         self.junk()
         before, settings = self.snapshot(), self.settings()
         staged = (await self.stage(data)).get_json()["token"]
         # Pas na het wissen en invoegen van alle tabellen gaat het mis: de transactie moet alles terugdraaien.
-        with mock.patch.object(auth, "secret_box", side_effect=RuntimeError("stuk")), self.assertLogs("mealieshopper.backup", "ERROR"):
+        broken = mock.Mock(spec=backup.Fernet)
+        broken.encrypt.side_effect = RuntimeError("stuk")  # bij het opnieuw versleutelen van de koppelingen, binnen de transactie
+        with mock.patch.object(auth, "secret_box", new_callable=mock.AsyncMock, return_value=broken), self.assertLogs("mealieshopper.backup", "ERROR"):
             self.assertEqual((await self.start(staged, PASSPHRASE)).status_code, 202)
             job = await self.wait()
         self.assertEqual(job["status"], "failed")
@@ -844,7 +846,7 @@ class JobTest(BackupCase):
             raise RuntimeError("het markeren als klaar mislukt")
 
         with self.assertRaises(RuntimeError):
-            backup.replace_everything(plan, prepared, refuse)
+            backup.replace_everything(plan, prepared, refuse, None)  # een back-up zonder koppelingen: geen sleutel nodig
         self.assertEqual(self.snapshot(), before)  # de gegevens zijn pas vervangen als de klus ook als klaar is gemarkeerd
 
     async def test_a_refused_file_in_the_job_fails_with_its_reason(self) -> None:
@@ -917,7 +919,7 @@ class TaskTest(BackupCase):
         _, data = await self.make()
         token: str = (await self.stage(data)).get_json()["token"]
         entered, release = self.gate_after_checking()
-        started: SyncResponse = await self.start(token)
+        started: ReadResponse = await self.start(token)
         self.assertEqual(started.status_code, 202, started.get_json())
         job_id: str = started.get_json()["id"]
         self.assertTrue(await asyncio.to_thread(entered.wait, 10), "de controle van de rijen is niet begonnen")
@@ -973,10 +975,10 @@ class TaskTest(BackupCase):
         entered, release = threading.Event(), threading.Event()
         original: Callable[..., dict[str, Any]] = backup.replace_everything
 
-        def gated(plan: backup.Plan, prepared: dict[str, Any], on_commit: Callable[..., None]) -> dict[str, Any]:
+        def gated(plan: backup.Plan, prepared: dict[str, Any], on_commit: Callable[..., None], box: Any) -> dict[str, Any]:
             entered.set()
             release.wait(10)
-            return original(plan, prepared, on_commit)
+            return original(plan, prepared, on_commit, box)
 
         patch = mock.patch.object(backup, "replace_everything", gated)
         patch.start()
@@ -1035,7 +1037,7 @@ class StreamTest(BackupCase):
         self.assertEqual(consumed, [], "het lichaam is niet gelezen")
         self.assertEqual(self.staged_files(), [])
         # Via de route: dezelfde melding als JSON, op de Content-Length alleen.
-        response: SyncResponse = await self.admin.post(
+        response: ReadResponse = await self.admin.post(
             "/api/backup/stage", data=b"{}", headers={"Content-Type": "application/octet-stream", "Content-Length": str(backup.MAX_STAGE_BYTES + 1)},
         )
         self.assertEqual((response.status_code, response.get_json()["code"]), (413, "too_large"))

@@ -272,7 +272,7 @@ MealieShopper is een onofficieel hulpmiddel en heeft geen band met Mealie, Alber
 | [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
 | [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Wordt door py_webauthn gebruikt om passkey-certificaten te lezen. |
 | [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Wordt door py_webauthn gebruikt om passkey-certificaten te controleren. |
-| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Praat met Mealie en de supermarkten. |
+| [HTTPX](https://www.python-httpx.org) | BSD-3-Clause | Praat met Mealie en de supermarkten. |
 | [SQLite](https://sqlite.org) | Public domain | De database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | De iconen. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Tekent in je browser de QR-code voor tweestapsverificatie. |

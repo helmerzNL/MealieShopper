@@ -4,15 +4,18 @@ import json
 import os
 import tempfile
 import unittest
+from collections.abc import Iterator
 from datetime import date, timedelta
 from unittest import mock
 
 import httpx
+import pytest
+import respx
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah  # noqa: E402
-from support import routes, run  # noqa: E402
+from mealieshopper import ah, tasks  # noqa: E402
+from helpers import routes, run  # noqa: E402
 
 REJECTED = '{"error_description":"member not active","error":"invalid_grant"}'
 ANONYMOUS = f"{ah.AH_API_BASE}/mobile-auth/v1/auth/token/anonymous"
@@ -202,3 +205,61 @@ class UserTokenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.fixture
+def fresh_tokens() -> Iterator[None]:
+    ah.anon_token_cache = None
+    ah.user_token_cache = None
+    yield
+    ah.anon_token_cache = None
+    ah.user_token_cache = None
+
+
+async def test_a_cancelled_status_check_keeps_the_rotated_refresh_token(fresh_tokens: None, respx_mock: respx.MockRouter) -> None:
+    """`auth_status(verify=True)` vernieuwt met het opgeslagen refresh-token. Een geannuleerde controle (de browser gaat weg)
+    mag het vervangen token niet kwijtraken: AH heeft het oude dan al ingetrokken."""
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def refresh(request: httpx.Request) -> httpx.Response:
+        entered.set()
+        await release.wait()
+        return Reply(data={"access_token": "user-1", "refresh_token": "rotated-1", "expires_in": 3600})
+
+    respx_mock.post(REFRESH).mock(side_effect=refresh)
+    with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
+            mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+        check = asyncio.create_task(ah.auth_status(verify=True))
+        await entered.wait()
+        check.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await check
+        release.set()
+        await tasks.cancel_all()  # wacht op het afgeschermde werk
+    save.assert_awaited_once_with("rotated-1")
+
+
+async def test_a_status_check_next_to_a_token_request_refreshes_once(fresh_tokens: None, respx_mock: respx.MockRouter) -> None:
+    """Een controle en een verzoek dat het gebruikerstoken nodig heeft, tegelijk: AH krijgt een vernieuwing, niet twee met
+    hetzelfde oude refresh-token."""
+    used: list[str] = []
+    stored: list[str] = ["old"]
+
+    async def refresh(request: httpx.Request) -> httpx.Response:
+        used.append(json.loads(request.content)["refreshToken"])
+        await handed_out()
+        return Reply(data={"access_token": f"user-{len(used)}", "refresh_token": f"rotated-{len(used)}", "expires_in": 3600})
+
+    async def configured() -> str:
+        return stored[-1]
+
+    async def save(token: str) -> None:
+        stored.append(token)
+
+    respx_mock.post(REFRESH).mock(side_effect=refresh)
+    with mock.patch.object(ah, "configured_refresh_token", side_effect=configured), mock.patch.object(ah, "save_refresh_token", side_effect=save):
+        status, token = await asyncio.gather(ah.auth_status(verify=True), ah.get_user_token())
+    assert status["connected"] is True and status["verified"] is True
+    assert used == ["old"]
+    assert token == "user-1"
+    assert stored == ["old", "rotated-1"]

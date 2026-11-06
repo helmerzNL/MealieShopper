@@ -7,7 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, run  # noqa: E402
 
 
 def recipe(n):
@@ -27,7 +27,7 @@ def group(group_id, name, ids, default=False):
     return {"id": str(group_id), "name": name, "isDefault": default, "recipeIds": list(ids)}
 
 
-class SavedRecipesCacheTestCase(unittest.TestCase):
+class SavedRecipesCacheTestCase(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -38,7 +38,7 @@ class SavedRecipesCacheTestCase(unittest.TestCase):
         groups = mock.patch.object(ah, "get_saved_recipe_groups", return_value=[])
         self.groups = groups.start()
         self.addCleanup(groups.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
 
 class CacheTest(SavedRecipesCacheTestCase):
@@ -186,35 +186,35 @@ class GroupsTest(SavedRecipesCacheTestCase):
 
 
 class RouteTest(SavedRecipesCacheTestCase):
-    def test_route_serves_the_groups(self):
+    async def test_route_serves_the_groups(self):
         self.groups.return_value = [group(4, "Feest", [2, 1])]
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
-            data = self.client.get("/api/ah/recipes/saved").get_json()
+            data = (await self.client.get("/api/ah/recipes/saved")).get_json()
         self.assertEqual(data["groups"], [{"id": "4", "name": "Feest", "isDefault": False, "count": 2, "recipeIds": ["2", "1"]}])
 
-    def test_route_serves_the_copy_and_refresh_goes_to_ah(self):
+    async def test_route_serves_the_copy_and_refresh_goes_to_ah(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(4)) as live:
-            first = self.client.get("/api/ah/recipes/saved").get_json()
-            again = self.client.get("/api/ah/recipes/saved").get_json()
+            first = (await self.client.get("/api/ah/recipes/saved")).get_json()
+            again = (await self.client.get("/api/ah/recipes/saved")).get_json()
             self.assertEqual(live.call_count, 1)
             self.assertEqual(first["recipes"], again["recipes"])
-            self.client.get("/api/ah/recipes/saved?refresh=1")
+            await self.client.get("/api/ah/recipes/saved?refresh=1")
             self.assertEqual(live.call_count, 2)
 
-    def test_route_cached_flag_never_calls_ah(self):
+    async def test_route_cached_flag_never_calls_ah(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("niet bij AH vragen")):
-            res = self.client.get("/api/ah/recipes/saved?cached=1")
+            res = await self.client.get("/api/ah/recipes/saved?cached=1")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.get_json()["source"], "none")
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)) as live:
-            self.client.get("/api/ah/recipes/saved?refresh=1&cached=1")
+            await self.client.get("/api/ah/recipes/saved?refresh=1&cached=1")
         self.assertEqual(live.call_count, 1, "refresh wint van cached")
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError):
-            self.assertEqual(self.client.get("/api/ah/recipes/saved?cached=1").get_json()["total"], 2)
+            self.assertEqual((await self.client.get("/api/ah/recipes/saved?cached=1")).get_json()["total"], 2)
 
-    def test_route_error_without_a_copy_is_424(self):
+    async def test_route_error_without_a_copy_is_424(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=RuntimeError("AH sessie verlopen")):
-            res = self.client.get("/api/ah/recipes/saved")
+            res = await self.client.get("/api/ah/recipes/saved")
         self.assertEqual(res.status_code, 424)
         self.assertEqual(res.get_json()["error"], "AH sessie verlopen")
 

@@ -146,12 +146,12 @@ async def start_login() -> str:
         "platform": "mobile",
         "prompt": "login",
     }
-    await auth.aset_secret(PENDING_SECRET, json.dumps({"verifier": verifier, "state": state, "at": time.time()}))
+    await auth.set_secret(PENDING_SECRET, json.dumps({"verifier": verifier, "state": state, "at": time.time()}))
     return f"{AUTH_BASE}/authorize?{urlencode(params)}"
 
 
 async def _pending() -> dict[str, Any]:
-    raw = await auth.aget_secret(PENDING_SECRET)
+    raw = await auth.get_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -204,7 +204,7 @@ async def _remember_tokens(data: dict[str, Any], used_refresh: str = "") -> None
     _access_cache["expires_at"] = time.time() + int(data.get("expires_in") or 86400) - TOKEN_MARGIN_SECONDS
     new = str(data.get("refresh_token") or "").strip()
     if new and new != used_refresh:
-        await auth.aset_secret(REFRESH_SECRET, new)  # Auth0 kan het refresh-token bij elke vernieuwing vervangen
+        await auth.set_secret(REFRESH_SECRET, new)  # Auth0 kan het refresh-token bij elke vernieuwing vervangen
 
 
 async def link_account(value: str) -> dict[str, Any]:
@@ -218,7 +218,7 @@ async def link_account(value: str) -> dict[str, Any]:
             {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": text,
              "audience": AUDIENCE, "scope": SCOPE}
         )
-        await auth.aset_secret(REFRESH_SECRET, text)
+        await auth.set_secret(REFRESH_SECRET, text)
         await _remember_tokens(data, used_refresh=text)
         return {"connected": True, "type": "refresh"}
 
@@ -247,17 +247,17 @@ async def link_account(value: str) -> dict[str, Any]:
             tr("Jumbo gaf geen refresh-token terug", "Jumbo returned no refresh token")
         )
     await _remember_tokens(data)
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.delete_secret(PENDING_SECRET)
     return {"connected": True, "type": "code"}
 
 
 async def configured_refresh_token() -> str:
-    return await auth.aget_secret(REFRESH_SECRET)
+    return await auth.get_secret(REFRESH_SECRET)
 
 
 async def unlink() -> dict[str, Any]:
-    await auth.adelete_secret(REFRESH_SECRET)
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.delete_secret(REFRESH_SECRET)
+    await auth.delete_secret(PENDING_SECRET)
     _access_cache.update(token="", expires_at=0.0)
     return {"connected": False}
 

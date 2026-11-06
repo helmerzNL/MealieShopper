@@ -7,7 +7,6 @@ pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pyOpenSSL==26.4.0
 PyJWT==2.15.0
-requests==2.33.0
 httpx==0.28.1
 aiosqlite==0.22.1
 Pillow==13.0.0

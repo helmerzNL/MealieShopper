@@ -16,7 +16,7 @@ from unittest import mock
 import httpx
 import pytest
 import respx
-from support import routes, sent_json, sent_timeout, served
+from helpers import routes, run, sent_json, sent_timeout, served
 
 from mealieshopper import auth, jumbo, jumbo_explore
 
@@ -26,8 +26,8 @@ OPENID: str = f"{jumbo.AUTH_BASE}/.well-known/openid-configuration"
 @pytest.fixture
 def linked(data_dir: Path) -> Iterator[None]:
     """Een Jumbo-koppeling met een geldig toegangstoken, zodat niets een token hoeft te vernieuwen."""
-    auth.init_db()
-    auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+    run(auth.init_db())
+    run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
     jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
     jumbo._persisted_route.clear()
     yield

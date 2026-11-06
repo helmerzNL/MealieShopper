@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient, routes, run, sent_json, sent_params, served  # noqa: E402
+from helpers import AppClient, routes, run, sent_json, sent_params, served  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -71,7 +71,7 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
         })
         env.start()
         self.addCleanup(env.stop)
-        auth.init_db()
+        run(auth.init_db())
         recipe_bulk._job.clear()
         recipe_bulk._job["state"] = "idle"
         recipe_bulk._cancel.clear()
@@ -487,18 +487,17 @@ class RoutesTest(BulkCase):
 
     async def asyncSetUp(self) -> None:
         await self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
-        # De import loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
-        # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
+        # De import loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`).
         self.test_app = self.app.test_app()
         await self.test_app.startup()
         self.addAsyncCleanup(self.test_app.shutdown)
         self.admin = self.new_client()
         await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
-    def new_client(self) -> LiveClient:
-        return LiveClient(self.test_app.test_client())
+    def new_client(self) -> AppClient:
+        return AppClient(self.test_app.test_client())
 
-    async def join(self) -> LiveClient:
+    async def join(self) -> AppClient:
         invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
         token = invite.get_json()["token"]
         client = self.new_client()

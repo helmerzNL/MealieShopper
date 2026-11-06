@@ -145,7 +145,7 @@ async def times_before(
     if conn is None or not ids or store not in ("ah", "jumbo"):
         return {}
     if store == "ah":
-        await product_links.aensure(conn)  # de tabel en `ms_fold` voor de bonregels, ook op een verbinding van `price_import`
+        await product_links.ensure(conn)  # de tabel en `ms_fold` voor de bonregels, ook op een verbinding van `price_import`
     tables: set[str] = await _tables(conn)
     counts: dict[str, int] = {}
     if {f"{store}_orders", f"{store}_order_items"} <= tables:

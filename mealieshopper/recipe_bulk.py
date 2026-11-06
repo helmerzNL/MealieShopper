@@ -540,21 +540,21 @@ async def _run(plan: dict[str, Any]) -> None:
         _skip_rest(start, "stopped")
         _finish("error", "internal")
     finally:
-        _record(plan, started)
+        await _record(plan, started)
 
 
-def _record(plan: dict[str, Any], started: float) -> None:
+async def _record(plan: dict[str, Any], started: float) -> None:
     """Eén regel in het auditlog per import, met de aantallen en de mislukte recepten."""
     job = progress()
     failures = [{"id": item["id"], "error": item["error"]} for item in job.get("items") or [] if item["status"] == "failed"]
-    audit.record(
+    await audit.record(
         kind="outbound",
         service=plan["store"],
         action="Mealie bulk import",
         method="POST",
         ok=job.get("state") == "done",
         duration_ms=round((time.perf_counter() - started) * 1000),
-        actor=audit.current_actor(),
+        actor=await audit.current_actor(),
         error=job.get("error") or "",
         detail={
             "scope": "group" if plan["whole"] else "selection",

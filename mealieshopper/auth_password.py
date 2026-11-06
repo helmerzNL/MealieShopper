@@ -152,13 +152,14 @@ def validate_password(password: Any, username: str = "") -> str | None:
 
 
 async def _fetchone(sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with auth.aconnect() as conn, conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
+    """`auth.fetchone` op een eigen, kortlevende verbinding."""
+    async with auth.connect() as conn:
+        return await auth.fetchone(conn, sql, params)
 
 
 async def _execute(sql: str, params: tuple[Any, ...] = ()) -> int:
     """Een losse schrijfactie met commit. Geeft het aantal geraakte rijen."""
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         cursor = await conn.execute(sql, params)
         await conn.commit()
         return cursor.rowcount
@@ -177,7 +178,7 @@ async def _username_of(user_id: str = OWNER_ID) -> str:
 async def store_password(user_id: str, username: str, password: str) -> None:
     now = auth.utcnow().isoformat()
     password_hash = await _hash_in_thread(password)
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         await conn.execute(
             """
             INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)
@@ -198,7 +199,7 @@ async def store_password(user_id: str, username: str, password: str) -> None:
 async def _user_by_name(username: str) -> tuple[str, str] | None:
     """(id, wachtwoordhash) van de gebruiker met dit wachtwoord-login, zonder hoofdletters te onderscheiden."""
     wanted = username.casefold()
-    async with auth.aconnect() as conn, conn.execute(
+    async with auth.connect() as conn, conn.execute(
         "SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id"
     ) as cursor:
         rows = await cursor.fetchall()
@@ -213,7 +214,7 @@ async def _user_by_name(username: str) -> tuple[str, str] | None:
 # Controleren, wachtwoord of code nakijken en de poging tellen gebeurt onder een slot. Zonder slot komt een salvo
 # gelijktijdige pogingen langs `locked_seconds()` voordat de eerste fout geteld is, en werkt een TOTP-code twee keer.
 # Er is een werkproces, dus een asyncio.Lock geeft dezelfde volgorde als vroeger de threads met hun eigen verbinding.
-# Een slot per event loop, zoals in http_client: de tests (SyncClient) draaien elk verzoek in een eigen loop.
+# Een slot per event loop, zoals in http_client: elke test heeft een eigen loop.
 _attempt_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 
 
@@ -234,7 +235,7 @@ async def locked_seconds() -> int:
     """Hoeveel seconden je nog moet wachten (0 = je mag proberen)."""
     now = auth.utcnow()
     remaining = 0
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         for key in _client_keys():
             async with conn.execute("SELECT locked_until FROM login_attempts WHERE key = ?", (key,)) as cursor:
                 row = await cursor.fetchone()
@@ -247,7 +248,7 @@ async def locked_seconds() -> int:
 async def register_failure() -> None:
     now = auth.utcnow()
     limits = {"alle": ATTEMPTS_PER_WINDOW_TOTAL}
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         # Lezen en schrijven in een transactie: een ander proces kan er geen telling tussen schuiven.
         await conn.execute("BEGIN IMMEDIATE")
         for key in _client_keys():
@@ -347,7 +348,7 @@ async def _read_totp(user_id: str, confirmed: bool | None = None) -> dict[str, A
     if confirmed is not None and bool(row["confirmed"]) != confirmed:
         return None
     try:
-        secret = (await auth.asecret_box()).decrypt(str(row["secret"]).encode("ascii")).decode("ascii")
+        secret = (await auth.secret_box()).decrypt(str(row["secret"]).encode("ascii")).decode("ascii")
     except Exception:  # noqa: BLE001 - sleutel veranderd: alleen herstelcodes werken nog
         secret = ""
     return {"secret": secret, "confirmed": bool(row["confirmed"]), "lastCounter": int(row["last_counter"])}
@@ -377,7 +378,7 @@ def new_recovery_codes() -> list[str]:
 
 async def _store_recovery_codes(user_id: str, codes: list[str]) -> None:
     now = auth.utcnow().isoformat()
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         await conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (user_id,))
         await conn.executemany(
             "INSERT INTO mfa_recovery_codes (code_hash, user_id, created_at) VALUES (?, ?, ?)",
@@ -403,23 +404,23 @@ async def _make_ticket(user_id: str) -> str:
         {
             "purpose": "mfa",
             "sub": user_id,
-            "ep": await auth.asession_epoch(user_id),
+            "ep": await auth.session_epoch(user_id),
             "exp": auth.utcnow() + timedelta(seconds=MFA_TICKET_SECONDS),
         },
-        await auth.asigning_secret(),
+        await auth.signing_secret(),
         algorithm="HS256",
     )
 
 
 async def _read_ticket(ticket: Any) -> str | None:
     """Het gebruikers-id waarvoor het kaartje is uitgegeven, of None als het ongeldig of verlopen is."""
-    secret = await auth.asigning_secret()
+    secret = await auth.signing_secret()
     try:
         payload = jwt.decode(str(ticket or ""), secret, algorithms=["HS256"])
     except Exception:  # noqa: BLE001
         return None
     user_id = str(payload.get("sub") or "")
-    if payload.get("purpose") != "mfa" or not user_id or int(payload.get("ep") or 0) != await auth.asession_epoch(user_id):
+    if payload.get("purpose") != "mfa" or not user_id or int(payload.get("ep") or 0) != await auth.session_epoch(user_id):
         return None
     return user_id
 
@@ -436,14 +437,14 @@ def _json_error(message: str, status: int) -> tuple[Response, int]:
 
 async def session_response(user_id: str, payload: dict[str, Any] | None = None) -> Response:
     username = await _username_of(user_id) or "admin"
-    token = await auth.acreate_token(user_id, username)
+    token = await auth.create_token(user_id, username)
     return await auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, token)
 
 
 async def _needs_session() -> ErrorReply | None:
     """None als het mag; anders het 401-antwoord."""
     # Op een nieuwe installatie (nog geen inlogmethode) is er geen sessie om te vragen.
-    if await auth.aauth_required() and await auth.acredentials_exist() and not await auth.acurrent_user():
+    if await auth.auth_required() and await auth.credentials_exist() and not await auth.current_user():
         return _json_error(tr("Log eerst in.", "Log in first."), 401)
     return None
 
@@ -452,7 +453,7 @@ async def reauthenticate(user_id: str, body: dict[str, Any]) -> ErrorReply | Non
     """Vraagt een ingelogde gebruiker om nog eens te bewijzen wie hij is: wachtwoord (`password`) en, bij
     tweestapsverificatie, ook de code (`code`, of een herstelcode). None als het klopt; anders het foutantwoord.
     Telt mee voor dezelfde begrenzing als inloggen."""
-    if not await auth.apassword_configured(user_id):
+    if not await auth.password_configured(user_id):
         return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
     async with attempt_lock():
         if await locked_seconds():
@@ -460,7 +461,7 @@ async def reauthenticate(user_id: str, body: dict[str, Any]) -> ErrorReply | Non
         if not await _matches(str(body.get("password") or ""), await _stored_hash(user_id)):
             await register_failure()
             return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
-        if await auth.amfa_enabled(user_id):
+        if await auth.mfa_enabled(user_id):
             code = str(body.get("code") or "").strip()
             if not code:
                 return jsonify({"error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."), "mfaRequired": True}), 400
@@ -486,14 +487,14 @@ def register_routes(app: Quart) -> None:
             return _json_error(
                 tr("Inloggen staat al uit via de omgevingsvariabelen.", "Login is already turned off through the environment variables."), 400
             )
-        if await auth.acredentials_exist():
+        if await auth.credentials_exist():
             return _json_error(tr("Er is al een manier om in te loggen ingesteld.", "A way to log in is already set up."), 409)
         if body.get("confirm") is not True:
             return _json_error(
                 tr("Bevestig dat je zonder beveiliging verder wilt.", "Confirm that you want to continue without security."), 400
             )
         await onboarding.begin()
-        await auth.aset_setting(auth.SETTING_AUTH_MODE, "none")
+        await auth.set_setting(auth.SETTING_AUTH_MODE, "none")
         return jsonify({"status": "ok"})
 
     @app.post("/api/auth/password")
@@ -509,7 +510,7 @@ def register_routes(app: Quart) -> None:
         if denied:
             return denied
         body = await request.get_json(silent=True) or {}
-        uid = await auth.aacting_user_id()
+        uid = await auth.acting_user_id()
         own_name = await _username_of(uid)
         # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt de naam uit de uitnodiging.
         wanted = body.get("username") if uid == OWNER_ID else None
@@ -524,7 +525,7 @@ def register_routes(app: Quart) -> None:
         if problem:
             return _json_error(problem, 400)
 
-        replacing = await auth.apassword_configured(uid)
+        replacing = await auth.password_configured(uid)
         if replacing:
             async with attempt_lock():
                 if await locked_seconds():
@@ -538,14 +539,14 @@ def register_routes(app: Quart) -> None:
             await onboarding.begin()
         await store_password(uid, username, password)
         if uid == OWNER_ID:
-            await auth.aset_setting(auth.SETTING_AUTH_MODE, "password" if await auth.apasskey_count() == 0 else "")
+            await auth.set_setting(auth.SETTING_AUTH_MODE, "password" if await auth.passkey_count() == 0 else "")
         if replacing:
-            await auth.abump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
+            await auth.bump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
         return await session_response(uid, {"replaced": replacing})
 
     @app.post("/api/auth/password/login")
     async def password_login():
-        if not await auth.aauth_required() or not await auth.apassword_configured():
+        if not await auth.auth_required() or not await auth.password_configured():
             return _json_error(tr("Inloggen met een wachtwoord is niet ingesteld.", "Password login is not set up."), 400)
         body = await request.get_json(silent=True) or {}
         username = str(body.get("username") or "").strip()
@@ -563,7 +564,7 @@ def register_routes(app: Quart) -> None:
             if not matches:
                 await register_failure()
                 return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
-            mfa = await auth.amfa_enabled(found[0])
+            mfa = await auth.mfa_enabled(found[0])
             if not mfa:
                 await reset_failures()
         if mfa:
@@ -577,7 +578,7 @@ def register_routes(app: Quart) -> None:
             if await locked_seconds():
                 return await _too_many()
             uid = await _read_ticket(body.get("ticket"))
-            if not uid or not await auth.amfa_enabled(uid):
+            if not uid or not await auth.mfa_enabled(uid):
                 return _json_error(
                     tr(
                         "Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.",
@@ -595,21 +596,21 @@ def register_routes(app: Quart) -> None:
                 await register_failure()
                 return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
             await reset_failures()
-        return await session_response(uid, {"recoveryCodesLeft": await auth.arecovery_codes_left(uid)})
+        return await session_response(uid, {"recoveryCodesLeft": await auth.recovery_codes_left(uid)})
 
     @app.post("/api/auth/mfa/start")
     async def mfa_start():
         denied = await _needs_session()
         if denied:
             return denied
-        uid = await auth.aacting_user_id()
-        if not await auth.apassword_configured(uid):
+        uid = await auth.acting_user_id()
+        if not await auth.password_configured(uid):
             return _json_error(tr("Stel eerst een wachtwoord in.", "Set a password first."), 400)
-        if await auth.amfa_enabled(uid):
+        if await auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat al aan.", "Two-step verification is already on."), 409)
         secret = new_totp_secret()
-        encrypted = (await auth.asecret_box()).encrypt(secret.encode("ascii")).decode("ascii")
-        async with auth.aconnect() as conn:
+        encrypted = (await auth.secret_box()).encrypt(secret.encode("ascii")).decode("ascii")
+        async with auth.connect() as conn:
             await conn.execute(
                 """
                 INSERT INTO mfa_totp (user_id, secret, confirmed, last_counter, created_at) VALUES (?, ?, 0, 0, ?)
@@ -637,7 +638,7 @@ def register_routes(app: Quart) -> None:
         if denied:
             return denied
         body = await request.get_json(silent=True) or {}
-        uid = await auth.aacting_user_id()
+        uid = await auth.acting_user_id()
         async with attempt_lock():
             if await locked_seconds():
                 return await _too_many()
@@ -664,11 +665,11 @@ def register_routes(app: Quart) -> None:
             codes = new_recovery_codes()
             await _store_recovery_codes(uid, codes)
             await _execute("UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, uid))
-        await auth.abump_session_epoch(uid)
+        await auth.bump_session_epoch(uid)
         return await session_response(uid, {"recoveryCodes": codes})
 
     async def _check_current_password(uid: str, body: dict[str, Any]) -> ErrorReply | None:
-        if not await auth.apassword_configured(uid):
+        if not await auth.password_configured(uid):
             return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
         async with attempt_lock():
             if await locked_seconds():
@@ -684,15 +685,15 @@ def register_routes(app: Quart) -> None:
         denied = await _needs_session()
         if denied:
             return denied
-        uid = await auth.aacting_user_id()
+        uid = await auth.acting_user_id()
         wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:
             return wrong
-        async with auth.aconnect() as conn:
+        async with auth.connect() as conn:
             await conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (uid,))
             await conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (uid,))
             await conn.commit()
-        await auth.abump_session_epoch(uid)
+        await auth.bump_session_epoch(uid)
         return await session_response(uid)
 
     @app.post("/api/auth/mfa/recovery")
@@ -700,8 +701,8 @@ def register_routes(app: Quart) -> None:
         denied = await _needs_session()
         if denied:
             return denied
-        uid = await auth.aacting_user_id()
-        if not await auth.amfa_enabled(uid):
+        uid = await auth.acting_user_id()
+        if not await auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
         wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:

@@ -12,10 +12,10 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, returned, run, served  # noqa: E402
+from helpers import AppTestCase, returned, run, served  # noqa: E402
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -28,7 +28,7 @@ class TempDataDirTest(unittest.TestCase):
         background = mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock)
         background.start()
         self.addCleanup(background.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._search_variant = 0
         jumbo._promo_dates = True
 
@@ -254,7 +254,7 @@ class PicnicOffersTest(TempDataDirTest):
         with self.serve({}):
             with self.assertRaisesRegex(RuntimeError, "geen aanbiedingen|no offers"):
                 run(picnic.get_offers())
-        auth.set_secret(picnic.AUTH_KEY_SECRET, "")
+        run(auth.set_secret(picnic.AUTH_KEY_SECRET, ""))
         with self.assertRaises(RuntimeError):
             run(picnic.get_offers())
 
@@ -447,13 +447,13 @@ class PicnicExplorerDetailTest(TempDataDirTest):
         self.assertGreater(len(asked), short)
         self.assertFalse(any("liked_sellables" in path for path in asked[:short]))
 
-    def test_the_route_passes_extended_on(self):
+    async def test_the_route_passes_extended_on(self):
         from mealieshopper import picnic_explore
 
-        client = SyncClient(create_app())
+        client = self.client_for(create_app())
         with mock.patch.object(picnic_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0, "linked": True}) as explore:
-            client.post("/api/picnic/explore")
-            client.post("/api/picnic/explore?extended=1")
+            await client.post("/api/picnic/explore")
+            await client.post("/api/picnic/explore?extended=1")
         self.assertEqual([call.kwargs for call in explore.call_args_list], [{"extended": False}, {"extended": True}])
 
 
@@ -494,10 +494,10 @@ class SyncAllTest(TempDataDirTest):
         self.assertFalse(run(offers.linked("picnic")))
         self.assertFalse(run(offers.linked("jumbo")))
         run(picnic.save_auth_key("key"))
-        auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+        run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
         self.assertTrue(run(offers.linked("picnic")) and run(offers.linked("jumbo")))
         self.assertFalse(run(offers.linked("crisp")))
-        auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
+        run(auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x"))
         self.assertTrue(run(offers.linked("crisp")))
 
     def test_overview_lists_every_store(self):
@@ -610,15 +610,15 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_status_and_sync_all(self):
-        status = self.client.get("/api/offers/status").get_json()
+    async def test_status_and_sync_all(self):
+        status = (await self.client.get("/api/offers/status")).get_json()
         self.assertEqual(sorted(status["stores"]), ["ah", "crisp", "jumbo", "picnic"])
         with mock.patch.object(offers, "sync_all", new_callable=mock.AsyncMock, return_value={"stores": {"ah": {"count": 2}}, "finishedAt": "x"}):
-            response = self.client.post("/api/offers/sync-all")
+            response = await self.client.post("/api/offers/sync-all")
         self.assertEqual((response.status_code, response.get_json()["stores"]["ah"]["count"]), (200, 2))
-        self.assertEqual(self.client.get("/api/offers/status").get_json()["lastTrigger"], "manual")
+        self.assertEqual((await self.client.get("/api/offers/status")).get_json()["lastTrigger"], "manual")
 
     def test_sync_all_is_for_the_administrator_only(self):
         from mealieshopper import auth as auth_module
@@ -627,8 +627,8 @@ class RoutesTest(TempDataDirTest):
         self.assertFalse(auth_module.admin_only("/api/offers/status"))
         self.assertFalse(auth_module.admin_only("/api/offers/sync"))
 
-    def test_the_connect_page_has_the_sync_button(self):
-        html = self.client.get("/").get_data(as_text=True)
+    async def test_the_connect_page_has_the_sync_button(self):
+        html = (await self.client.get("/")).get_data(as_text=True)
         link = html[html.index('id="settings-link"'):html.index('id="settings-users"')]
         self.assertIn('id="offers-sync-all"', link)
         self.assertIn('id="offers-sync-stores"', link)

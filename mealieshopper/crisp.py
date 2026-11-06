@@ -83,7 +83,7 @@ def _not_linked() -> RuntimeError:
 
 
 def _user_agent() -> str:
-    return f"MealieShopper/{about.read_version()} (+https://github.com/helmerzNL/MealieShopper)"
+    return f"MealieShopper/{about.version()} (+https://github.com/helmerzNL/MealieShopper)"
 
 
 def generate_client_id() -> str:
@@ -120,11 +120,11 @@ async def _call(method: str, path: str, client_id: str, body: Any = None) -> Any
 
 
 async def configured_client_id() -> str:
-    return await auth.aget_secret(CLIENT_SECRET)
+    return await auth.get_secret(CLIENT_SECRET)
 
 
 async def country() -> str:
-    value = (await auth.aget_secret(COUNTRY_SECRET) or "").strip().lower()
+    value = (await auth.get_secret(COUNTRY_SECRET) or "").strip().lower()
     return value if value in COUNTRIES else "nl"
 
 
@@ -144,13 +144,13 @@ async def _authed(method: str, path: str, body: Any = None) -> Any:
 
 
 async def _save_link(client_id: str, chosen_country: str) -> None:
-    await auth.aset_secret(CLIENT_SECRET, client_id)
-    await auth.aset_secret(COUNTRY_SECRET, chosen_country)
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.set_secret(CLIENT_SECRET, client_id)
+    await auth.set_secret(COUNTRY_SECRET, chosen_country)
+    await auth.delete_secret(PENDING_SECRET)
 
 
 async def _pending() -> dict[str, str]:
-    raw = await auth.aget_secret(PENDING_SECRET)
+    raw = await auth.get_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -184,7 +184,7 @@ async def start_login(email: Any, chosen_country: Any = "nl") -> dict[str, Any]:
                 )
             )
         raise CrispLoginError(tr("Crisp weigerde de login: controleer het e-mailadres en het land", "Crisp refused the login: check the email address and the country"))
-    await auth.aset_secret(PENDING_SECRET, json.dumps({"clientId": client_id, "email": email, "country": chosen_country, "at": time.time()}))
+    await auth.set_secret(PENDING_SECRET, json.dumps({"clientId": client_id, "email": email, "country": chosen_country, "at": time.time()}))
     return {"connected": False, "codeRequired": True}
 
 
@@ -213,7 +213,7 @@ async def unlink() -> dict[str, Any]:
         except Exception:  # noqa: BLE001 - ontkoppelen moet ook lukken als Crisp niet bereikbaar is
             pass
     for key in (CLIENT_SECRET, COUNTRY_SECRET, PENDING_SECRET):
-        await auth.adelete_secret(key)
+        await auth.delete_secret(key)
     return {"connected": False}
 
 

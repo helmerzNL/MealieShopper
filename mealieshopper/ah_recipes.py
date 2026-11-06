@@ -11,7 +11,6 @@ recepten wel bewaard, zonder groepen.
 """
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -56,17 +55,10 @@ CREATE TABLE IF NOT EXISTS ah_saved_recipe_group_items (
 """
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    conn: sqlite3.Connection = auth.connect()
-    conn.executescript(SCHEMA)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: hetzelfde schema. Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
@@ -95,7 +87,7 @@ async def _groups(conn: aiosqlite.Connection, recipe_ids: list[str]) -> list[dic
 
 async def load() -> dict[str, Any] | None:
     """De lokale kopie, of None als er nog nooit is opgehaald."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         found = await conn.execute_fetchall("SELECT synced_at FROM ah_saved_recipes_meta WHERE id = 1")
         meta = next(iter(found), None)
         if not meta:
@@ -167,7 +159,7 @@ async def refresh() -> dict[str, Any]:
             if recipe_id in known and recipe_id not in seen:
                 seen.add(recipe_id)
                 member_rows.append((group_id, recipe_id, len(seen) - 1))
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("DELETE FROM ah_saved_recipes")
         await conn.execute("DELETE FROM ah_saved_recipe_group_items")
         await conn.execute("DELETE FROM ah_saved_recipe_groups")

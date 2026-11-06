@@ -125,14 +125,14 @@ async def _call(
 async def configured_auth_key() -> str:
     # Picnic vernieuwt de key bij gebruik en we bewaren de nieuwste. Een omgevingsvariabele als
     # startwaarde is er niet: de key komt uit een login met sms-code en is dus niet vooraf te maken.
-    return await auth.aget_secret(AUTH_KEY_SECRET)
+    return await auth.get_secret(AUTH_KEY_SECRET)
 
 
 async def save_auth_key(key: str) -> None:
     value = str(key or "").strip()
     if not value:
         raise RuntimeError(tr("Picnic gaf geen sessie terug", "Picnic returned no session"))
-    await auth.aset_secret(AUTH_KEY_SECRET, value)
+    await auth.set_secret(AUTH_KEY_SECRET, value)
 
 
 async def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> Any:
@@ -161,11 +161,11 @@ async def _authed_call(method: str, path: str, token: str, body: Any, text: bool
 
 
 async def _save_pending(token: str) -> None:
-    await auth.aset_secret(PENDING_SECRET, json.dumps({"token": token, "at": time.time()}))
+    await auth.set_secret(PENDING_SECRET, json.dumps({"token": token, "at": time.time()}))
 
 
 async def _pending_token() -> str:
-    raw = await auth.aget_secret(PENDING_SECRET)
+    raw = await auth.get_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -205,7 +205,7 @@ async def login(email: str, password: str) -> dict[str, Any]:
         await _save_pending(token)
         return {"connected": False, "twoFactorRequired": True}
     await save_auth_key(token or "")
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.delete_secret(PENDING_SECRET)
     return {"connected": True, "twoFactorRequired": False}
 
 
@@ -223,7 +223,7 @@ async def verify_2fa(code: str) -> dict[str, Any]:
     token = await _pending_token()
     new_token = await _two_factor("/user/2fa/verify", {"otp": code}, token=token)
     await save_auth_key(new_token or token)
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.delete_secret(PENDING_SECRET)
     return {"connected": True}
 
 
@@ -242,8 +242,8 @@ async def _two_factor(path: str, body: dict[str, Any], *, token: str | None = No
 
 
 async def unlink() -> dict[str, Any]:
-    await auth.adelete_secret(AUTH_KEY_SECRET)
-    await auth.adelete_secret(PENDING_SECRET)
+    await auth.delete_secret(AUTH_KEY_SECRET)
+    await auth.delete_secret(PENDING_SECRET)
     return {"connected": False}
 
 

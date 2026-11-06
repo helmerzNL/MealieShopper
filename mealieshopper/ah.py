@@ -458,7 +458,7 @@ async def configured_refresh_token() -> str:
     # De opgeslagen token gaat voor: AH kan de refresh token bij elke vernieuwing
     # vervangen, en die nieuwe waarde bewaren we in de database. De omgevings-
     # variabele is alleen de startwaarde.
-    return await auth.aget_secret("AH_REFRESH_TOKEN") or environ.get("AH_REFRESH_TOKEN", "").strip()
+    return await auth.get_secret("AH_REFRESH_TOKEN") or environ.get("AH_REFRESH_TOKEN", "").strip()
 
 
 async def _store_rotated_refresh_token(used: str, new: Any) -> None:
@@ -471,7 +471,7 @@ async def save_refresh_token(refresh_token: str) -> None:
     token = str(refresh_token or "").strip()
     if not token:
         raise RuntimeError("Refresh token ontbreekt")
-    await auth.aset_secret("AH_REFRESH_TOKEN", token)
+    await auth.set_secret("AH_REFRESH_TOKEN", token)
 
 
 async def link_account(value: str) -> dict[str, Any]:
@@ -526,9 +526,27 @@ async def auth_status(verify: bool = False) -> dict[str, Any]:
         return {"connected": False}
     if not verify:
         return {"connected": True, "verified": False}
-    result = await verify_token(token)
-    if result.get("ok") and result.get("type") == "refresh":
-        await _store_rotated_refresh_token(token, result.get("refreshToken"))
+    # Controleren vernieuwt met het opgeslagen refresh-token, net als `get_user_token`: zelfde slot en afgeschermd, zodat
+    # een geannuleerde controle het vervangen token niet kwijtraakt en er nooit twee vernieuwingen met hetzelfde token zijn.
+    return await tasks.shielded(_verify_stored_token())
+
+
+async def _verify_stored_token() -> dict[str, Any]:
+    """Het opgeslagen refresh-token controleren (`verify_token`) en wat AH teruggeeft bewaren, achter het slot `user`.
+
+    Een geslaagde vernieuwing levert ook een gebruikerstoken: dat gaat in de cache, zodat een verzoek dat erop wachtte
+    niet nog eens vernieuwt."""
+    global user_token_cache
+
+    async with _token_lock("user"):
+        token: str = await configured_refresh_token()
+        if not token:
+            return {"connected": False}
+        result: dict[str, Any] = await verify_token(token)
+        if result.get("ok") and result.get("type") == "refresh":
+            await _store_rotated_refresh_token(token, result.get("refreshToken"))
+            if result.get("accessToken"):
+                user_token_cache = TokenCache(token=result["accessToken"], expires_at=time.time() + max(0, int(result.get("expiresIn") or 3600) - 60))
     return {
         "connected": bool(result.get("ok")),
         "verified": True,
@@ -590,10 +608,18 @@ async def verify_token(token: str) -> dict[str, Any]:
     )
     if refresh_response.status_code < 400:
         try:
-            rotated = (refresh_response.json() or {}).get("refresh_token")
+            body: Any = refresh_response.json() or {}
         except ValueError:
-            rotated = None
-        return {"ok": True, "type": "refresh", "refreshToken": rotated or token}
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        return {
+            "ok": True,
+            "type": "refresh",
+            "refreshToken": body.get("refresh_token") or token,
+            "accessToken": body.get("access_token") or "",
+            "expiresIn": body.get("expires_in"),
+        }
 
     access_response: httpx.Response = await _client().get(
         f"{AH_API_BASE}/mobile-services/member/v2/profile",

@@ -7,7 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, db, run  # noqa: E402
 
 
 def live_list(list_id="abc", name="Favorieten", items=None):
@@ -28,14 +28,14 @@ def live_list(list_id="abc", name="Favorieten", items=None):
     return {"id": list_id, "name": name, "totalSize": len(items), "items": items}
 
 
-class AhListsTestCase(unittest.TestCase):
+class AhListsTestCase(AppTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": self.tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
 
 class SnapshotTest(AhListsTestCase):
@@ -96,39 +96,39 @@ class MergedListsTest(AhListsTestCase):
 
 
 class RoutesTest(AhListsTestCase):
-    def test_overview_is_200_even_when_ah_fails(self):
+    async def test_overview_is_200_even_when_ah_fails(self):
         with mock.patch.object(ah, "get_favorite_lists", side_effect=RuntimeError("AH account niet gekoppeld")):
-            response = self.client.get("/api/ah/lists")
+            response = await self.client.get("/api/ah/lists")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["ahError"], "AH account niet gekoppeld")
 
-    def test_sync_then_open_works_without_ah(self):
+    async def test_sync_then_open_works_without_ah(self):
         with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list()):
-            response = self.client.post("/api/ah/lists/abc/sync")
+            response = await self.client.post("/api/ah/lists/abc/sync")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["totalSize"], 2)
         with mock.patch.object(ah, "get_favorite_list_items", side_effect=AssertionError("AH mag niet worden gebruikt")):
-            detail = self.client.get("/api/ah/lists/abc")
+            detail = await self.client.get("/api/ah/lists/abc")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.get_json()["source"], "local")
         self.assertEqual(detail.get_json()["items"][0]["product"]["title"], "Melk")
 
-    def test_open_unsynced_list_goes_live(self):
+    async def test_open_unsynced_list_goes_live(self):
         with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("zzz")):
-            detail = self.client.get("/api/ah/lists/zzz")
+            detail = await self.client.get("/api/ah/lists/zzz")
         self.assertEqual(detail.get_json()["source"], "ah")
 
-    def test_failed_sync_keeps_previous_copy(self):
-        run(ah_lists.save_snapshot(live_list()))
+    async def test_failed_sync_keeps_previous_copy(self):
+        await ah_lists.save_snapshot(live_list())
         with mock.patch.object(ah, "get_favorite_list_items", side_effect=RuntimeError("boom")):
-            response = self.client.post("/api/ah/lists/abc/sync")
+            response = await self.client.post("/api/ah/lists/abc/sync")
         self.assertEqual(response.status_code, 424)
         self.assertEqual(response.get_json()["error"], "boom")
-        self.assertEqual(len(run(ah_lists.get_snapshot("abc"))["items"]), 2)
+        self.assertEqual(len((await ah_lists.get_snapshot("abc"))["items"]), 2)
 
-    def test_open_unsynced_list_reports_ah_error(self):
+    async def test_open_unsynced_list_reports_ah_error(self):
         with mock.patch.object(ah, "get_favorite_list_items", side_effect=RuntimeError("niet gevonden")):
-            response = self.client.get("/api/ah/lists/zzz")
+            response = await self.client.get("/api/ah/lists/zzz")
         self.assertEqual(response.status_code, 424)
 
 
@@ -190,9 +190,8 @@ class QuantityTest(AhListsTestCase):
     def test_database_from_before_editable_quantities_is_upgraded(self):
         from contextlib import closing
 
-        from mealieshopper import auth
 
-        with closing(auth.connect()) as conn, conn:
+        with closing(db()) as conn, conn:
             conn.executescript(
                 """
                 CREATE TABLE ah_lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, synced_at TEXT NOT NULL);
@@ -266,16 +265,16 @@ class SyncKeepsEditsTest(AhListsTestCase):
         after = run(ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 3)])))
         self.assertEqual(self.quantities(after)[1], (6, 3, True))  # reset zet hem terug naar 3
 
-    def test_sync_through_the_route_reports_what_happened(self):
-        run(ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)])))
-        run(ah_lists.set_quantity("abc", 0, 4))
+    async def test_sync_through_the_route_reports_what_happened(self):
+        await ah_lists.save_snapshot(live_list("abc", items=[entry("a", 1, 2)]))
+        await ah_lists.set_quantity("abc", 0, 4)
         with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("abc", items=[entry("a", 1, 2), entry("b", 2, 1)])):
-            data = self.client.post("/api/ah/lists/abc/sync").get_json()
+            data = (await self.client.post("/api/ah/lists/abc/sync")).get_json()
         self.assertEqual(data["sync"], {"new": 1, "removed": 0, "keptQuantities": 1})
         self.assertEqual([item["quantity"] for item in data["items"]], [4, 1])
 
 
-class ResetWarningTest(unittest.TestCase):
+class ResetWarningTest(AppTestCase):
     def test_the_reset_button_asks_before_it_resets(self):
         from pathlib import Path
 
@@ -287,46 +286,46 @@ class ResetWarningTest(unittest.TestCase):
 
 
 class QuantityRoutesTest(AhListsTestCase):
-    def test_patch_reset_and_validation(self):
-        run(ah_lists.save_snapshot(live_list()))
-        response = self.client.patch("/api/ah/lists/abc/items/0", json={"quantity": 4})
+    async def test_patch_reset_and_validation(self):
+        await ah_lists.save_snapshot(live_list())
+        response = await self.client.patch("/api/ah/lists/abc/items/0", json={"quantity": 4})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["items"][0]["quantity"], 4)
-        self.assertEqual(self.client.patch("/api/ah/lists/abc/items/0", json={"quantity": 0}).status_code, 400)
-        self.assertEqual(self.client.patch("/api/ah/lists/abc/items/9", json={"quantity": 2}).status_code, 404)
-        reset = self.client.post("/api/ah/lists/abc/reset")
+        self.assertEqual((await self.client.patch("/api/ah/lists/abc/items/0", json={"quantity": 0})).status_code, 400)
+        self.assertEqual((await self.client.patch("/api/ah/lists/abc/items/9", json={"quantity": 2})).status_code, 404)
+        reset = await self.client.post("/api/ah/lists/abc/reset")
         self.assertEqual(reset.get_json()["items"][0]["quantity"], 2)
-        self.assertEqual(self.client.post("/api/ah/lists/nope/reset").status_code, 404)
+        self.assertEqual((await self.client.post("/api/ah/lists/nope/reset")).status_code, 404)
 
 
 class ListToCartTest(AhListsTestCase):
-    def test_whole_list_goes_to_the_basket_with_the_edited_quantities(self):
-        run(ah_lists.save_snapshot(live_list()))
-        run(ah_lists.set_quantity("abc", 0, 6))
+    async def test_whole_list_goes_to_the_basket_with_the_edited_quantities(self):
+        await ah_lists.save_snapshot(live_list())
+        await ah_lists.set_quantity("abc", 0, 6)
         with mock.patch.object(ah, "add_to_shopping_list") as add:
-            response = self.client.post("/api/ah/lists/abc/cart")
+            response = await self.client.post("/api/ah/lists/abc/cart")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"added": 2, "units": 7, "name": "Favorieten"})
         sent = add.call_args.args[0]
         self.assertEqual([(i["productId"], i["quantity"]) for i in sent], [(10, 6), (11, 1)])
         self.assertEqual(sent[0]["title"], "Melk")
 
-    def test_unsynced_list_is_added_live(self):
+    async def test_unsynced_list_is_added_live(self):
         with mock.patch.object(ah, "get_favorite_list_items", return_value=live_list("zzz")), \
                 mock.patch.object(ah, "add_to_shopping_list") as add:
-            response = self.client.post("/api/ah/lists/zzz/cart")
+            response = await self.client.post("/api/ah/lists/zzz/cart")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["added"], 2)
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
 
-    def test_empty_list_and_ah_errors(self):
-        run(ah_lists.save_snapshot(live_list(items=[])))
+    async def test_empty_list_and_ah_errors(self):
+        await ah_lists.save_snapshot(live_list(items=[]))
         with mock.patch.object(ah, "add_to_shopping_list") as add:
-            self.assertEqual(self.client.post("/api/ah/lists/abc/cart").status_code, 400)
+            self.assertEqual((await self.client.post("/api/ah/lists/abc/cart")).status_code, 400)
         add.assert_not_called()
-        run(ah_lists.save_snapshot(live_list()))
+        await ah_lists.save_snapshot(live_list())
         with mock.patch.object(ah, "add_to_shopping_list", side_effect=RuntimeError("AH account niet gekoppeld")):
-            response = self.client.post("/api/ah/lists/abc/cart")
+            response = await self.client.post("/api/ah/lists/abc/cart")
         self.assertEqual(response.status_code, 424)
         self.assertEqual(response.get_json()["error"], "AH account niet gekoppeld")
 

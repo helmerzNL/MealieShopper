@@ -8,7 +8,7 @@ import httpx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah  # noqa: E402
-from support import routes, run, sent_json, sent_params, served  # noqa: E402
+from helpers import routes, run, sent_json, sent_params, served  # noqa: E402
 
 GRAPHQL = f"{ah.AH_API_BASE}/graphql"
 LISTS_REST = f"{ah.AH_API_BASE}/mobile-services/lists/v3/lists"
@@ -66,7 +66,7 @@ class RotatedRefreshTokenTest(unittest.TestCase):
         with served(httpx.Response(200, json={"refresh_token": "rotated"})) as route:
             result = run(ah.verify_token("old"))
         self.assertEqual(route.calls.last.request.method, "POST")
-        self.assertEqual(result, {"ok": True, "type": "refresh", "refreshToken": "rotated"})
+        self.assertEqual(result, {"ok": True, "type": "refresh", "refreshToken": "rotated", "accessToken": "", "expiresIn": None})
 
 
 class FavoriteListsTest(unittest.TestCase):

@@ -14,7 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, sent_json, sent_url, served  # noqa: E402
+from helpers import AppTestCase, run, sent_json, sent_url, served  # noqa: E402
 
 
 def reply(data=None, *, status=200, text=None, content_type="application/json"):
@@ -32,20 +32,20 @@ def product(sku, title, price=299, promo=None, **extra):
             "availability": {"isAvailable": True}, "promotions": [], **extra}
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._access_cache.update(token="", expires_at=0.0)
         jumbo._search_variant = 0
         jumbo._promo_dates = True
 
     def link(self, refresh="ref"):
-        auth.set_secret(jumbo.REFRESH_SECRET, refresh)
+        run(auth.set_secret(jumbo.REFRESH_SECRET, refresh))
 
 
 class LoginTest(TempDataDirTest):
@@ -58,7 +58,7 @@ class LoginTest(TempDataDirTest):
         self.assertEqual(query["response_type"], "code")
         self.assertEqual(query["code_challenge_method"], "S256")
         self.assertIn("offline_access", query["scope"])
-        pending = json.loads(auth.get_secret(jumbo.PENDING_SECRET))
+        pending = json.loads(run(auth.get_secret(jumbo.PENDING_SECRET)))
         digest = hashlib.sha256(pending["verifier"].encode()).digest()
         self.assertEqual(query["code_challenge"], base64.urlsafe_b64encode(digest).rstrip(b"=").decode())
         self.assertEqual(query["state"], pending["state"])
@@ -67,7 +67,7 @@ class LoginTest(TempDataDirTest):
     def test_a_pasted_console_line_is_exchanged_with_the_verifier(self):
         url = run(jumbo.start_login())
         state = parse_qs(urlsplit(url).query)["state"][0]
-        verifier = json.loads(auth.get_secret(jumbo.PENDING_SECRET))["verifier"]
+        verifier = json.loads(run(auth.get_secret(jumbo.PENDING_SECRET)))["verifier"]
         line = f"Failed to launch 'jumbo://callbacks/login?code=abc123&state={state}' because the protocol"
         with served(return_value=reply(TOKENS)) as post:
             result = run(jumbo.link_account(line))
@@ -78,7 +78,7 @@ class LoginTest(TempDataDirTest):
         self.assertEqual((sent["audience"], sent["redirect_uri"]), (jumbo.AUDIENCE, jumbo.REDIRECT_URI))
         self.assertEqual(result, {"connected": True, "type": "code"})
         self.assertEqual(run(jumbo.configured_refresh_token()), "ref")
-        self.assertEqual(auth.get_secret(jumbo.PENDING_SECRET), "")
+        self.assertEqual(run(auth.get_secret(jumbo.PENDING_SECRET)), "")
 
     def test_a_code_from_another_login_attempt_is_refused(self):
         run(jumbo.start_login())
@@ -128,7 +128,7 @@ class LoginTest(TempDataDirTest):
         run(jumbo.start_login())
         jumbo._access_cache["token"] = "x"
         self.assertEqual(run(jumbo.unlink()), {"connected": False})
-        self.assertEqual((run(jumbo.configured_refresh_token()), auth.get_secret(jumbo.PENDING_SECRET), jumbo._access_cache["token"]), ("", "", ""))
+        self.assertEqual((run(jumbo.configured_refresh_token()), run(auth.get_secret(jumbo.PENDING_SECRET)), jumbo._access_cache["token"]), ("", "", ""))
 
 
 class AccessTokenTest(TempDataDirTest):
@@ -473,25 +473,25 @@ class BasketTest(TempDataDirTest):
 class JumboRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_start_redirects_to_the_jumbo_login(self):
-        response = self.client.get("/api/jumbo/auth/start")
+    async def test_start_redirects_to_the_jumbo_login(self):
+        response = await self.client.get("/api/jumbo/auth/start")
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].startswith("https://auth.jumbo.com/authorize?"))
 
-    def test_status_route(self):
-        self.assertEqual(self.client.get("/api/jumbo/auth/status").get_json()["connected"], False)
+    async def test_status_route(self):
+        self.assertEqual((await self.client.get("/api/jumbo/auth/status")).get_json()["connected"], False)
 
-    def test_link_route_delegates_and_maps_errors(self):
+    async def test_link_route_delegates_and_maps_errors(self):
         with mock.patch.object(jumbo, "link_account", return_value={"connected": True, "type": "code"}) as link:
-            body = self.client.post("/api/jumbo/auth", json={"code": "jumbo://x?code=1"}).get_json()
+            body = (await self.client.post("/api/jumbo/auth", json={"code": "jumbo://x?code=1"})).get_json()
         link.assert_called_once_with("jumbo://x?code=1")
         self.assertTrue(body["connected"])
         with mock.patch.object(jumbo, "link_account", side_effect=jumbo.JumboAuthError("verlopen")):
-            self.assertEqual(self.client.post("/api/jumbo/auth", json={}).status_code, 400)
+            self.assertEqual((await self.client.post("/api/jumbo/auth", json={})).status_code, 400)
         with mock.patch.object(jumbo, "get_cart", side_effect=RuntimeError("500: stuk")):
-            response = self.client.get("/api/jumbo/cart")
+            response = await self.client.get("/api/jumbo/cart")
         self.assertEqual(response.status_code, 424)
         self.assertEqual(response.get_json()["error"], "Jumbo fout")
 
@@ -499,38 +499,38 @@ class JumboRoutesTest(TempDataDirTest):
         report, _ = run(jumbo_explore._probe("test", mock.Mock(side_effect=RuntimeError("private response body"))))
         self.assertEqual(report["error"], "RuntimeError")
 
-    def test_preview_uses_jumbo_candidates(self):
+    async def test_preview_uses_jumbo_candidates(self):
         products = [{"id": "1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49, "image": None, "url": "https://www.jumbo.com/p/1"}]
         with mock.patch.object(jumbo, "search_products", return_value=products):
-            body = self.client.post("/api/jumbo/cart/preview", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]}).get_json()
+            body = (await self.client.post("/api/jumbo/cart/preview", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         candidate = body["items"][0]["candidates"][0]
         self.assertEqual((candidate["productId"], candidate["packs"], candidate["url"]), ("1", 2, "https://www.jumbo.com/p/1"))
 
-    def test_cart_searches_and_adds(self):
+    async def test_cart_searches_and_adds(self):
         found = {"id": "1", "title": "Eieren", "unitSize": "10 stuks", "price": 2.49}
         result = {"added": [{"productId": "1", "quantity": 2}], "failed": [], "cart": {"items": []}}
         with mock.patch.object(jumbo, "search_product", return_value=found), \
                 mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
-            body = self.client.post("/api/jumbo/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]}).get_json()
+            body = (await self.client.post("/api/jumbo/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
         self.assertEqual((body["added"], body["skipped"]), (1, 0))
 
-    def test_cart_reports_failed_and_missing_products(self):
+    async def test_cart_reports_failed_and_missing_products(self):
         result = {"added": [], "failed": [{"productId": "9", "error": "x"}], "cart": None}
         with mock.patch.object(jumbo, "search_product", return_value=None), \
                 mock.patch.object(jumbo, "add_to_cart", return_value=result):
-            body = self.client.post("/api/jumbo/cart", json={"items": [
-                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "9", "quantity": 1}]}).get_json()
+            body = (await self.client.post("/api/jumbo/cart", json={"items": [
+                {"query": "iets", "quantity": 1}, {"query": "zout", "productId": "9", "quantity": 1}]})).get_json()
         self.assertEqual(body["skippedItems"], ["iets", "zout"])
 
-    def test_cart_with_nothing_found_is_404(self):
+    async def test_cart_with_nothing_found_is_404(self):
         with mock.patch.object(jumbo, "search_product", return_value=None), \
                 mock.patch.object(jumbo, "add_to_cart", side_effect=AssertionError("niets toevoegen")):
-            self.assertEqual(self.client.post("/api/jumbo/cart", json={"items": [{"query": "iets"}]}).status_code, 404)
+            self.assertEqual((await self.client.post("/api/jumbo/cart", json={"items": [{"query": "iets"}]})).status_code, 404)
 
-    def test_empty_requests_are_400(self):
+    async def test_empty_requests_are_400(self):
         for path in ("/api/jumbo/cart", "/api/jumbo/cart/preview"):
-            self.assertEqual(self.client.post(path, json={"items": []}).status_code, 400, path)
+            self.assertEqual((await self.client.post(path, json={"items": []})).status_code, 400, path)
 
 
 class ExploreTest(TempDataDirTest):

@@ -272,7 +272,7 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | [pyasn1](https://github.com/pyasn1/pyasn1) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
 | [pyasn1-modules](https://github.com/pyasn1/pyasn1-modules) | BSD-2-Clause | Used by py_webauthn to read passkey certificates. |
 | [pyOpenSSL](https://pyopenssl.org) | Apache-2.0 | Used by py_webauthn to check passkey certificates. |
-| [Requests](https://requests.readthedocs.io) | Apache-2.0 | Talks to Mealie and the supermarkets. |
+| [HTTPX](https://www.python-httpx.org) | BSD-3-Clause | Talks to Mealie and the supermarkets. |
 | [SQLite](https://sqlite.org) | Public domain | The database. |
 | [Material Design Icons](https://pictogrammers.com/library/mdi/) | Apache-2.0 | The icons. |
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | MIT | Draws the QR code for two-step verification in your browser. |

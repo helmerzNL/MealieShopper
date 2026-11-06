@@ -15,7 +15,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_recipes, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, served  # noqa: E402
+from helpers import AppTestCase, run, served  # noqa: E402
 
 
 def card(recipe_id, title, *, time=20, persons=4, rating=(3, 4.5), image="https://img/r.jpg", author="jumbo", tip=""):
@@ -63,17 +63,17 @@ RECIPE = {
 }
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
         jumbo._persisted_route.clear()
-        auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+        run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
 
 
 class RecipeTest(TempDataDirTest):
@@ -277,56 +277,56 @@ class ListTest(TempDataDirTest):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_list_search_detail_and_import(self):
+    async def test_list_search_detail_and_import(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=search_answer([card("1001249", "Een")], total=820)):
-            found = self.client.get("/api/jumbo/recipes?q=pasta&offset=24").get_json()
+            found = (await self.client.get("/api/jumbo/recipes?q=pasta&offset=24")).get_json()
         self.assertEqual((found["total"], found["pageSize"], found["recipes"][0]["id"]), (820, 24, "1001249"))
-        self.assertEqual(self.client.get("/api/jumbo/recipes").status_code, 400)  # zonder zoekterm
+        self.assertEqual((await self.client.get("/api/jumbo/recipes")).status_code, 400)  # zonder zoekterm
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}):
-            detail = self.client.get("/api/jumbo/recipes/700001").get_json()
+            detail = (await self.client.get("/api/jumbo/recipes/700001")).get_json()
             self.assertEqual((detail["name"], len(detail["ingredients"]), len(detail["steps"])), ("Romige pasta met tomaat", 4, 3))
             with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                     mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="romige-pasta") as imported, \
                     mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/g/home/r/romige-pasta"):
-                done = self.client.post("/api/jumbo/recipes/700001/import")
+                done = await self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((done.status_code, done.get_json()["slug"]), (200, "romige-pasta"))
         url, data = imported.call_args.args
         self.assertEqual((url, data["name"]), ("https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001", "Romige pasta met tomaat"))
 
-    def test_the_favourites_route_pages(self):
+    async def test_the_favourites_route_pages(self):
         answer = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 30, "hasNextPage": True}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}]}}
         with mock.patch.object(jumbo, "_persisted_query", return_value=answer) as query:
-            body = self.client.get("/api/jumbo/favorite-recipes?page=2").get_json()
+            body = (await self.client.get("/api/jumbo/favorite-recipes?page=2")).get_json()
         self.assertEqual(query.call_args.args[1], {"size": 24, "page": 2})
         self.assertEqual((body["total"], body["hasNext"], body["pageSize"], body["recipes"][0]["id"]), (30, True, 24, "700001"))
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
-            self.assertEqual(self.client.get("/api/jumbo/favorite-recipes").status_code, 424)
+            self.assertEqual((await self.client.get("/api/jumbo/favorite-recipes")).status_code, 424)
 
-    def test_the_list_routes(self):
+    async def test_the_list_routes(self):
         with mock.patch.object(jumbo_recipes, "get_lists", new_callable=mock.AsyncMock, return_value=ListTest.LISTS):
-            lists = self.client.get("/api/jumbo/recipe-lists").get_json()["lists"]
+            lists = (await self.client.get("/api/jumbo/recipe-lists")).get_json()["lists"]
         self.assertEqual([item["name"] for item in lists], ["Favorieten", "Dit willen we vaker eten!", "Kerst"])
         own = {"x": {"items": {"paginationInfo": {"totalSize": 2, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}}
         with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
-            body = self.client.get("/api/jumbo/recipe-lists/639d928592257300137bcad7?page=1").get_json()
+            body = (await self.client.get("/api/jumbo/recipe-lists/639d928592257300137bcad7?page=1")).get_json()
         self.assertEqual(query.call_args.args[0], "getRecipeListById")
         self.assertEqual((body["total"], body["pageSize"], body["recipes"][0]["id"]), (2, 24, "700001"))
-        self.assertEqual(self.client.get("/api/jumbo/recipe-lists/a%20b").status_code, 400)
+        self.assertEqual((await self.client.get("/api/jumbo/recipe-lists/a%20b")).status_code, 400)
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
-            self.assertEqual(self.client.get("/api/jumbo/recipe-lists/abc").status_code, 424)
+            self.assertEqual((await self.client.get("/api/jumbo/recipe-lists/abc")).status_code, 424)
 
-    def test_errors_are_clear(self):
-        self.assertEqual(self.client.get("/api/jumbo/recipes/niet%20geldig").status_code, 400)
+    async def test_errors_are_clear(self):
+        self.assertEqual((await self.client.get("/api/jumbo/recipes/niet%20geldig")).status_code, 400)
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
-            self.assertEqual(self.client.get("/api/jumbo/recipes?q=pasta").status_code, 424)
+            self.assertEqual((await self.client.get("/api/jumbo/recipes?q=pasta")).status_code, 424)
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")):
-            refused = self.client.post("/api/jumbo/recipes/700001/import")
+            refused = await self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((refused.status_code, refused.get_json()["error"]), (400, "Mealie is niet gekoppeld."))
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}), mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
-            failed = self.client.post("/api/jumbo/recipes/700001/import")
+            failed = await self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((failed.status_code, failed.get_json()["error"]), (424, "Importeren in Mealie mislukt"))
 
 
@@ -344,7 +344,7 @@ class UrlImportTest(TempDataDirTest):
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(jumbo, "_persisted_query", side_effect=RuntimeError("stuk")), \
                 mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock, return_value="viapagina"):
             self.assertEqual(run(mealie.import_from_url(url)), "viapagina")
-        auth.delete_secret(jumbo.REFRESH_SECRET)
+        run(auth.delete_secret(jumbo.REFRESH_SECRET))
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(jumbo, "_persisted_query") as query, \
                 mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock, return_value="viapagina"):
             self.assertEqual(run(mealie.import_from_url(url)), "viapagina")

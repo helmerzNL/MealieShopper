@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mcp, picnic, picnic_orders  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, served  # noqa: E402
+from helpers import AppTestCase, db, run, served  # noqa: E402
 
 
 def summary(delivery_id, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
@@ -26,14 +26,14 @@ def detail(delivery_id, *names, status="COMPLETED", start="2026-10-10T10:00:00+0
                        "listPrice": None, "image": "https://img/p.png"} for n, name in enumerate(names, 1)]}
 
 
-class PicnicOrdersTest(unittest.TestCase):
+class PicnicOrdersTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         self.listed = []
         self.details = {}
         self.asked = []
@@ -126,8 +126,7 @@ class PicnicOrdersTest(unittest.TestCase):
         self.listed = [summary("d1")]
         self.details = {"d1": {**detail("d1", "Melk"), "address": {"street": "Geheimstraat"}}}
         self.sync()
-        import sqlite3
-        with auth.connect() as conn:
+        with db() as conn:
             dump = " ".join(str(tuple(row)) for table in ("picnic_orders", "picnic_order_items") for row in conn.execute(f"SELECT * FROM {table}"))
         self.assertNotIn("Geheimstraat", dump)
 
@@ -140,21 +139,21 @@ class PicnicOrdersTest(unittest.TestCase):
         self.assertEqual(run(picnic_orders.search_purchases(""))["total"], 0)
         self.assertEqual(run(picnic_orders.search_purchases("zalm"))["total"], 0)
 
-    def test_routes(self):
+    async def test_routes(self):
         self.listed = [summary("d1")]
         self.details = {"d1": detail("d1", "Melk")}
-        client = SyncClient(create_app())
+        client = self.client_for(create_app())
         with mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)), \
                 mock.patch.object(picnic, "get_delivery", side_effect=lambda i: self.details[i]):
-            reply = client.post("/api/picnic/orders/sync")
+            reply = await client.post("/api/picnic/orders/sync")
         self.assertEqual((reply.status_code, reply.get_json()["orders"]), (200, 1))
-        self.assertEqual(client.get("/api/picnic/orders").get_json()["orders"][0]["id"], "d1")
-        self.assertEqual(client.get("/api/picnic/orders/d1").get_json()["items"][0]["title"], "Melk")
-        self.assertEqual(client.get("/api/picnic/orders/nope").status_code, 404)
+        self.assertEqual((await client.get("/api/picnic/orders")).get_json()["orders"][0]["id"], "d1")
+        self.assertEqual((await client.get("/api/picnic/orders/d1")).get_json()["items"][0]["title"], "Melk")
+        self.assertEqual((await client.get("/api/picnic/orders/nope")).status_code, 404)
         with mock.patch.object(picnic, "get_deliveries", side_effect=RuntimeError("500: geheim")):
-            reply = client.post("/api/picnic/orders/sync")
+            reply = await client.post("/api/picnic/orders/sync")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
-        self.assertEqual(len(client.get("/api/picnic/orders").get_json()["orders"]), 1)  # de kopie blijft staan
+        self.assertEqual(len((await client.get("/api/picnic/orders")).get_json()["orders"]), 1)  # de kopie blijft staan
 
     def test_mcp_tools_read_the_local_copy(self):
         self.listed = [summary("d1")]

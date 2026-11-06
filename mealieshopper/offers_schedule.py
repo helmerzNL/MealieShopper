@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -69,22 +68,15 @@ def next_slot(now: datetime) -> datetime:
     return latest_slot(now) + timedelta(days=1)
 
 
-def _connect() -> sqlite3.Connection:
-    """Synchrone tweeling van `_aconnect`, alleen voor `backup.ensure_schemas` (dat werk blijft sync, zoals bij de winkelmodules)."""
-    conn: sqlite3.Connection = auth.connect()
-    conn.executescript(SCHEMA)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
 
 async def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             """
             INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, ?, ?, ?)
@@ -130,7 +122,7 @@ async def sync_now(trigger: str = "manual") -> dict[str, Any]:
 
 async def status(now: datetime | None = None) -> dict[str, Any]:
     now = now or _local_now()
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         async with conn.execute("SELECT last_run, trigger, summary FROM offers_schedule WHERE id = 1") as cursor:
             row = await cursor.fetchone()
     on = enabled()
@@ -148,7 +140,7 @@ async def status(now: datetime | None = None) -> dict[str, Any]:
 async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
     slot = _utc_iso(latest_slot(now))
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("INSERT OR IGNORE INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}')")
         claimed = await conn.execute(
             "UPDATE offers_schedule SET last_run = ?, trigger = 'scheduled' WHERE id = 1 AND last_run < ?",

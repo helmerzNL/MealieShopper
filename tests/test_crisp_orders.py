@@ -14,7 +14,7 @@ from unittest import mock
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, crisp, crisp_orders  # noqa: E402
-from support import run  # noqa: E402
+from helpers import db, run  # noqa: E402
 
 
 def header(order_id, status="done", date="2026-10-10"):
@@ -36,7 +36,7 @@ class CrispOrdersTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         self.pages = {}  # cursor -> (orders, volgende cursor)
         self.details = {}
         self.asked = []
@@ -123,11 +123,11 @@ class CrispOrdersTest(unittest.TestCase):
                          "address": {"street": "Dorpsstraat", "postal": "1234AB"}, "mandateIban": "NL00BANK0123456789",
                          "invoiceUrl": "https://crispapp.nl/factuur/geheim", "deliveryLink": "https://crispapp.nl/volg/geheim",
                          "products": [{"id": 5, "title": "Melk", "count": 1, "totalPrice": "1.00"}]}}
-        auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
+        run(auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x"))
         answers = {"/order/history": page, "/order/1": full}
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
             run(crisp_orders.sync_orders())
-        with closing(crisp_orders._connect()) as conn:
+        with closing(db(crisp_orders)) as conn:
             rows = [dict(row) for table in ("crisp_orders", "crisp_order_items") for row in conn.execute(f"SELECT * FROM {table}")]
         dumped = json.dumps(rows)
         self.assertIn("Melk", dumped)

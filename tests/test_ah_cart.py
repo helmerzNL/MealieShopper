@@ -14,10 +14,10 @@ from mealieshopper import ah  # noqa: E402
 from mealieshopper.i18n import tr  # noqa: E402
 from mealieshopper import app as app_module  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, sent_json, sent_params, served  # noqa: E402
+from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
 
 
-class NormalizeQuantityTest(unittest.TestCase):
+class NormalizeQuantityTest(AppTestCase):
     def test_values(self):
         cases = {
             500: 99, 99: 99, 100: 99, 98: 98, 1: 1, 0: 1, -3: 1,
@@ -27,7 +27,7 @@ class NormalizeQuantityTest(unittest.TestCase):
             self.assertEqual(ah.normalize_quantity(value), expected, repr(value))
 
 
-class ParsePackSizeTest(unittest.TestCase):
+class ParsePackSizeTest(AppTestCase):
     def test_sizes(self):
         cases = {
             "6 stuks": (6, "count"), "10 stuks": (10, "count"), "per stuk": (1, "count"),
@@ -43,7 +43,7 @@ class ParsePackSizeTest(unittest.TestCase):
             self.assertIsNone(ah.parse_pack_size(text), repr(text))
 
 
-class PacksNeededTest(unittest.TestCase):
+class PacksNeededTest(AppTestCase):
     def test_eggs_by_the_pack(self):
         self.assertEqual(ah.packs_needed(6, None, "6 stuks"), 1)
         self.assertEqual(ah.packs_needed(6, None, "10 stuks"), 1)
@@ -83,7 +83,7 @@ class PacksNeededTest(unittest.TestCase):
         self.assertEqual(ah.packs_needed(250, None, "1 stuk"), 99)
 
 
-class AssessPacksTest(unittest.TestCase):
+class AssessPacksTest(AppTestCase):
     def test_clear_cases_have_no_doubt(self):
         for args, packs in (
             ((6, None, "10 stuks"), 1),
@@ -119,7 +119,7 @@ class AssessPacksTest(unittest.TestCase):
         self.assertEqual(ah.packs_needed(8, None, "6 stuks"), ah.assess_packs(8, None, "6 stuks")[0])
 
 
-class AddToShoppingListTest(unittest.TestCase):
+class AddToShoppingListTest(AppTestCase):
     def test_quantities_are_clamped_in_the_payload(self):
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
                 served(httpx.Response(200)) as patch:
@@ -165,7 +165,7 @@ class AddToShoppingListTest(unittest.TestCase):
                 run(ah.add_to_shopping_list([{"productId": 1, "quantity": 1}]))
 
 
-class SearchRetryTest(unittest.TestCase):
+class SearchRetryTest(AppTestCase):
     def search(self, side_effect: Any) -> tuple[Any, Any, list[float]]:
         """Zoek met `side_effect` als antwoorden van AH. Geeft (uitkomst of fout, de route, de pauzes van `_wait`)."""
         with mock.patch.object(ah, "get_token", return_value="tok"), \
@@ -210,7 +210,7 @@ def ah_product(webshop_id, title, brand="AH", bundle=False):
             "currentPrice": 1.0, "salesUnitSize": "500 g", "images": []}
 
 
-class SearchRankTest(unittest.TestCase):
+class SearchRankTest(AppTestCase):
     """Issue #175: AH's eigen volgorde zette een multipack guacamolekruiden boven "AH Penne"."""
 
     # Zo gaf AH ze echt terug voor "AH Penne" (ingekort): de multipack stond door AH onder Penne.
@@ -344,7 +344,7 @@ class SearchRankTest(unittest.TestCase):
         self.assertEqual(found[-1]["title"], "AH Guacamole seasoning mix 3-pack")
 
 
-class OrganicFlagTest(unittest.TestCase):
+class OrganicFlagTest(AppTestCase):
     """#218: AH zegt zelf of een product biologisch is, met het kenmerk "biologisch" in `propertyIcons`."""
 
     def test_the_organic_property_icon(self):
@@ -359,45 +359,45 @@ class OrganicFlagTest(unittest.TestCase):
         self.assertIsNone(ah._search_product_dict(ah_product(2, "AH Penne"), "penne")["category"])
 
 
-class CartRouteTest(unittest.TestCase):
+class CartRouteTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def post(self, items, unit_size):
+    async def post(self, items, unit_size):
         product = {"webshopId": "42", "title": "Product", "unitSize": unit_size,
                    "price": {"now": 2.0}, "images": []}
         with mock.patch.object(ah, "search_product", return_value=product), \
                 mock.patch.object(ah, "add_to_shopping_list") as add:
-            response = self.client.post("/api/ah/cart", json={"items": items})
+            response = await self.client.post("/api/ah/cart", json={"items": items})
         return response, add
 
-    def test_eggs_become_one_pack(self):
-        response, add = self.post([{"query": "eieren", "quantity": 6, "unit": None}], "10 stuks")
+    async def test_eggs_become_one_pack(self):
+        response, add = await self.post([{"query": "eieren", "quantity": 6, "unit": None}], "10 stuks")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(add.call_args.args[0], [{"productId": "42", "quantity": 1}])
         self.assertEqual(response.get_json()["items"][0]["quantity"], 1)
 
-    def test_weight_uses_the_pack_size(self):
-        _, add = self.post([{"query": "kaas", "quantity": 500, "unit": "gram"}], "200 g")
+    async def test_weight_uses_the_pack_size(self):
+        _, add = await self.post([{"query": "kaas", "quantity": 500, "unit": "gram"}], "200 g")
         self.assertEqual(add.call_args.args[0], [{"productId": "42", "quantity": 3}])
 
-    def test_oversized_amounts_never_exceed_99(self):
-        _, add = self.post([{"query": "iets", "quantity": 100000, "unit": "g"}], "10 g")
+    async def test_oversized_amounts_never_exceed_99(self):
+        _, add = await self.post([{"query": "iets", "quantity": 100000, "unit": "g"}], "10 g")
         self.assertEqual(add.call_args.args[0][0]["quantity"], 99)
 
-    def test_old_clients_without_unit_still_work(self):
-        _, add = self.post([{"query": "melk", "quantity": 2}], None)
+    async def test_old_clients_without_unit_still_work(self):
+        _, add = await self.post([{"query": "melk", "quantity": 2}], None)
         self.assertEqual(add.call_args.args[0], [{"productId": "42", "quantity": 2}])
 
-    def test_confirmed_products_skip_the_search(self):
+    async def test_confirmed_products_skip_the_search(self):
         with mock.patch.object(ah, "search_product", side_effect=AssertionError("niet zoeken")), \
                 mock.patch.object(ah, "add_to_shopping_list") as add:
-            response = self.client.post("/api/ah/cart", json={"items": [
+            response = await self.client.post("/api/ah/cart", json={"items": [
                 {"query": "eieren", "productId": 7, "quantity": 500, "title": "AH Eieren 10 stuks",
                  "price": 2.99, "unitSize": "10 stuks", "image": "https://img/7.jpg"},
             ]})
@@ -417,25 +417,25 @@ def search_result(webshop_id, title, unit_size, price=1.5):
     }
 
 
-class CartPreviewRouteTest(unittest.TestCase):
+class CartPreviewRouteTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def preview(self, items, search):
+    async def preview(self, items, search):
         with mock.patch.object(ah, "search_products", side_effect=search):
-            return self.client.post("/api/ah/cart/preview", json={"items": items})
+            return await self.client.post("/api/ah/cart/preview", json={"items": items})
 
-    def test_candidates_carry_packs_and_doubt(self):
+    async def test_candidates_carry_packs_and_doubt(self):
         results = {
             "eieren": [search_result(1, "AH Eieren 10", "10 stuks"), search_result(2, "AH Eieren 6", "6 stuks")],
             "kaas": [search_result(3, "Kaas plak", None)],
         }
-        response = self.preview(
+        response = await self.preview(
             [
                 {"query": "eieren", "display": "8 eieren", "quantity": 8, "unit": None},
                 {"query": "kaas", "display": "200 g kaas", "quantity": 200, "unit": "g"},
@@ -452,29 +452,29 @@ class CartPreviewRouteTest(unittest.TestCase):
         self.assertEqual(eggs["candidates"][0]["imageLarge"], "https://img/1.jpg")
         self.assertEqual(cheese["candidates"][0]["doubt"], "Verpakkingsgrootte onbekend")
 
-    def test_large_photo_is_the_size_closest_to_800_pixels(self):
+    async def test_large_photo_is_the_size_closest_to_800_pixels(self):
         # De foto in het groot (het venster bij de controlelijst) neemt het formaat van AH dat het best past.
         found = search_result(1, "AH Eieren 10", "10 stuks")
         found["images"] = [{"url": f"https://img/1-{width}.jpg", "width": width} for width in (48, 200, 400, 800, 1600)]
-        response = self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
+        response = await self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
         candidate = response.get_json()["items"][0]["candidates"][0]
         self.assertEqual(candidate["imageLarge"], "https://img/1-800.jpg")
 
-    def test_no_photos_means_no_large_photo(self):
+    async def test_no_photos_means_no_large_photo(self):
         found = search_result(1, "AH Eieren 10", "10 stuks")
         found["images"] = []
-        response = self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
+        response = await self.preview([{"query": "eieren", "quantity": 1}], lambda query, limit: [found])
         candidate = response.get_json()["items"][0]["candidates"][0]
         self.assertIsNone(candidate["image"])
         self.assertIsNone(candidate["imageLarge"])
 
-    def test_not_found_and_errors_are_per_row(self):
+    async def test_not_found_and_errors_are_per_row(self):
         def search(query, limit):
             if query == "kapot":
                 raise RuntimeError("AH productzoekopdracht mislukt (500)")
             return []
 
-        response = self.preview(
+        response = await self.preview(
             [{"query": "niets", "quantity": 1}, {"query": "kapot", "quantity": 1}], search
         )
         self.assertEqual(response.status_code, 200)
@@ -483,26 +483,26 @@ class CartPreviewRouteTest(unittest.TestCase):
         self.assertNotIn("error", nothing)
         self.assertEqual(broken["error"], "AH productzoekopdracht mislukt (500)")
 
-    def test_a_single_row_can_be_searched_again_under_another_name(self):
+    async def test_a_single_row_can_be_searched_again_under_another_name(self):
         # De controlelijst zoekt een niet gevonden regel opnieuw met de zoekterm van de gebruiker. Het antwoord
         # moet dan de oorspronkelijke hoeveelheid en eenheid meegeven, en de verpakkingen daarvan berekenen.
         def search(query, limit):
             return [search_result(9, "AH Pak choi", "250 g")] if query == "pak choi" else []
 
-        response = self.preview(
+        response = await self.preview(
             [{"query": "pak choi", "display": "500 g paksoi", "quantity": 500, "unit": "g"}], search
         )
         (row,) = response.get_json()["items"]
         self.assertEqual((row["query"], row["display"], row["quantity"], row["unit"]), ("pak choi", "500 g paksoi", 500, "g"))
         self.assertEqual([(c["productId"], c["packs"]) for c in row["candidates"]], [("9", 2)])
 
-    def test_requires_items(self):
-        response = self.client.post("/api/ah/cart/preview", json={"items": []})
+    async def test_requires_items(self):
+        response = await self.client.post("/api/ah/cart/preview", json={"items": []})
         self.assertEqual(response.status_code, 400)
 
-    def test_order_is_preserved(self):
+    async def test_order_is_preserved(self):
         queries = [f"p{n}" for n in range(12)]
-        response = self.preview(
+        response = await self.preview(
             [{"query": q, "quantity": 1} for q in queries],
             lambda query, limit: [search_result(int(query[1:]) + 1, query, "per stuk")],
         )
@@ -510,7 +510,7 @@ class CartPreviewRouteTest(unittest.TestCase):
         self.assertEqual([i["query"] for i in rows], queries)
         self.assertEqual([[c["productId"] for c in row["candidates"]] for row in rows], [[str(n + 1)] for n in range(12)])
 
-    def test_searches_run_inside_the_request(self) -> None:
+    async def test_searches_run_inside_the_request(self) -> None:
         # Geen threadpool meer: elke zoekopdracht draait in de event loop van het verzoek en ziet dus ook de taal van de
         # gebruiker. Hoeveel er tegelijk lopen, toetst de test hieronder.
         threads: set[int] = set()
@@ -520,13 +520,13 @@ class CartPreviewRouteTest(unittest.TestCase):
             raise RuntimeError(tr("Zoeken mislukt", "Search failed"))
 
         with mock.patch.object(ah, "search_products", side_effect=search):
-            response = self.client.post(
+            response = await self.client.post(
                 "/api/ah/cart/preview", json={"items": [{"query": f"p{n}"} for n in range(8)]}, headers={"Cookie": "ms_lang=en"}
             )
         self.assertEqual([row["error"] for row in response.get_json()["items"]], ["Search failed"] * 8)
         self.assertEqual(threads, {threading.get_ident()})
 
-    def test_at_most_six_rows_search_at_once_and_the_order_is_kept(self) -> None:
+    async def test_at_most_six_rows_search_at_once_and_the_order_is_kept(self) -> None:
         # Twaalf regels, en elke zoekopdracht geeft de loop een paar keer vrij: zonder grens lopen ze alle twaalf tegelijk,
         # met de grens precies zes. Een latere regel is eerder klaar, en toch blijft de volgorde van de regels staan.
         queries: list[str] = [f"p{n}" for n in range(12)]
@@ -540,7 +540,7 @@ class CartPreviewRouteTest(unittest.TestCase):
             state[0] -= 1
             return [search_result(int(query[1:]) + 1, query, "per stuk")]
 
-        response = self.preview([{"query": q, "quantity": 1} for q in queries], search)
+        response = await self.preview([{"query": q, "quantity": 1} for q in queries], search)
         rows = response.get_json()["items"]
         self.assertEqual([row["query"] for row in rows], queries)
         self.assertEqual([[c["productId"] for c in row["candidates"]] for row in rows], [[str(n + 1)] for n in range(12)])
@@ -552,7 +552,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class DoubtLanguageTest(unittest.TestCase):
+class DoubtLanguageTest(AppTestCase):
     """De twijfelmeldingen bij het winkelmandje volgen de taal van de gebruiker."""
 
     def doubt(self, lang, *args):

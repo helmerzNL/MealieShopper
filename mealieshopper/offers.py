@@ -17,7 +17,6 @@ import asyncio
 import hashlib
 import json
 import re
-import sqlite3
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
@@ -200,7 +199,7 @@ CREATE TABLE IF NOT EXISTS offer_recipes_meta (
 """
 
 
-# De kolommen die er later bij kwamen, in de volgorde waarin `_connect` en `_aconnect` ze toevoegen: (tabel, kolom, soort).
+# De kolommen die er later bij kwamen, in de volgorde waarin `_connect` en `_connect` ze toevoegen: (tabel, kolom, soort).
 # - `offers.category`: een database van vóór de categorieën heeft die kolom nog niet.
 # - `offers.valid_from`: een kopie van vóór de looptijd heeft geen begindatum, die komt bij de volgende synchronisatie.
 # - `offer_history.valid_from`: een geschiedenis van vóór de looptijd heeft geen begindatum: oude rijen houden `first_seen` als begin.
@@ -224,45 +223,25 @@ ADD_COLUMN_SQL = "ALTER TABLE {table} ADD COLUMN {column} {kind}"
 OFFERS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS offers_store ON offers (store, position)"
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema en de migraties, voor `backup.ensure_schemas` (en `prices._connect`). De rest gebruikt
-    `_aconnect`."""
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    for table, column, kind in COLUMN_MIGRATIONS:
-        if column not in {row["name"] for row in conn.execute(COLUMNS_SQL.format(table=table))}:
-            conn.execute(ADD_COLUMN_SQL.format(table=table, column=column, kind=kind))
-    _drop_offers_key(conn)
-    conn.execute(OFFERS_INDEX_SQL)
-    _repair_open_ends(conn)
-    _repair_picnic_recipe_images(conn)
-    return conn
-
-
-async def aprepare(conn: aiosqlite.Connection) -> aiosqlite.Connection:
+async def prepare(conn: aiosqlite.Connection) -> aiosqlite.Connection:
     """Het schema van de aanbiedingen en zijn migraties op een open aiosqlite-verbinding, zoals `_connect` ze toepast. Ook voor
-    `prices._aconnect`, dat `offer_history` en de rest van de aanbiedingen nodig heeft."""
+    `prices._connect`, dat `offer_history` en de rest van de aanbiedingen nodig heeft."""
     await conn.executescript(SCHEMA)
     for table, column, kind in COLUMN_MIGRATIONS:
         if column not in {row["name"] for row in await conn.execute_fetchall(COLUMNS_SQL.format(table=table))}:
             await conn.execute(ADD_COLUMN_SQL.format(table=table, column=column, kind=kind))
-    await _adrop_offers_key(conn)
+    await _drop_offers_key(conn)
     await conn.execute(OFFERS_INDEX_SQL)
-    await _arepair_open_ends(conn)
-    await _arepair_picnic_recipe_images(conn)
+    await _repair_open_ends(conn)
+    await _repair_picnic_recipe_images(conn)
     return conn
 
 
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: hetzelfde schema en dezelfde migraties (`aprepare`). Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
-        yield await aprepare(conn)
-
-
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema en de migraties (`prepare`). Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
+        yield await prepare(conn)
 
 
 # De databases waarvan de einddatums al zijn nagekeken, zodat dat per proces een keer gebeurt en niet bij elke verbinding.
@@ -270,22 +249,10 @@ _OPEN_ENDS_REPAIRED: set[str] = set()
 OPEN_ENDS_SQL = "UPDATE {table} SET valid_until = NULL WHERE valid_until >= ?"
 
 
-def _repair_open_ends(conn: sqlite3.Connection) -> None:
+async def _repair_open_ends(conn: aiosqlite.Connection) -> None:
     """Een aanbieding die voor v2.75.0 werd opgeslagen kan AH's "doorlopend" (2999-12-31) nog als einddatum hebben. Sinds v2.75.0 maakt
     `ah._bonus_end` daar None van, maar oude rijen houden die datum: een lopende rij tot de volgende synchronisatie, een afgesloten rij voor
     altijd. Dan loopt de grafiek van de Prijsgeschiedenis tot het jaar 2999 en telt `prices` de aanbieding als nog lopend."""
-    key = str(auth.db_path())
-    if key in _OPEN_ENDS_REPAIRED:
-        return
-    cutoff = f"{ah.OPEN_ENDED_YEAR:04d}"
-    with conn:
-        for table in ("offers", "offer_history"):
-            conn.execute(OPEN_ENDS_SQL.format(table=table), (cutoff,))
-    _OPEN_ENDS_REPAIRED.add(key)
-
-
-async def _arepair_open_ends(conn: aiosqlite.Connection) -> None:
-    """Async tweeling van `_repair_open_ends`."""
     key = str(auth.db_path())
     if key in _OPEN_ENDS_REPAIRED:
         return
@@ -306,22 +273,10 @@ def _picnic_image_changes(rows: Iterable[Any]) -> list[tuple[str, str]]:
     return [(picnic.current_image(row["image"]), row["recipe_id"]) for row in rows if picnic.current_image(row["image"]) != row["image"]]
 
 
-def _repair_picnic_recipe_images(conn: sqlite3.Connection) -> None:
+async def _repair_picnic_recipe_images(conn: aiosqlite.Connection) -> None:
     """Een recept van Picnic dat voor v3.7.2 in de index kwam, heeft een foto met een maatnaam (`…/recipes/<hash>/large.png`). Een
     nieuwer recept heeft die maat niet en dan bleef de foto weg (#236). De index wordt alleen op verzoek opnieuw ingelezen, dus zetten
     we de adressen hier om naar de maat in pixels (`picnic.current_image`); dan haalt ook de afbeeldingencache de goede op."""
-    key = str(auth.db_path())
-    if key in _PICNIC_IMAGES_REPAIRED:
-        return
-    changed = _picnic_image_changes(conn.execute(PICNIC_IMAGES_SQL).fetchall())
-    if changed:
-        with conn:
-            conn.executemany(PICNIC_IMAGE_UPDATE_SQL, changed)
-    _PICNIC_IMAGES_REPAIRED.add(key)
-
-
-async def _arepair_picnic_recipe_images(conn: aiosqlite.Connection) -> None:
-    """Async tweeling van `_repair_picnic_recipe_images`."""
     key = str(auth.db_path())
     if key in _PICNIC_IMAGES_REPAIRED:
         return
@@ -336,42 +291,19 @@ OFFERS_KEY_SQL = "PRAGMA table_info(offers)"
 OFFERS_COPY_SQL = "INSERT INTO offers_rebuilt ({columns}) SELECT {columns} FROM offers"
 
 
-def _offers_keyed(conn: sqlite3.Connection) -> bool:
-    return any(row["pk"] for row in conn.execute(OFFERS_KEY_SQL))
-
-
-async def _aoffers_keyed(conn: aiosqlite.Connection) -> bool:
+async def _offers_keyed(conn: aiosqlite.Connection) -> bool:
     return any(row["pk"] for row in await conn.execute_fetchall(OFFERS_KEY_SQL))
 
 
-def _drop_offers_key(conn: sqlite3.Connection) -> None:
+async def _drop_offers_key(conn: aiosqlite.Connection) -> None:
     """Een tabel van vóór 2.84.0 heeft een sleutel op (winkel, product), en dan past de bonus van volgende week er niet naast die van
     deze week. SQLite kan een sleutel niet weghalen, dus bouwen we de tabel een keer opnieuw op, met dezelfde rijen."""
-    if not _offers_keyed(conn):
-        return
-    conn.commit()
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        if _offers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
-            columns = ", ".join(row["name"] for row in conn.execute(OFFERS_KEY_SQL))
-            conn.execute(OFFERS_TABLE.format(name="offers_rebuilt"))
-            conn.execute(OFFERS_COPY_SQL.format(columns=columns))
-            conn.execute("DROP TABLE offers")
-            conn.execute("ALTER TABLE offers_rebuilt RENAME TO offers")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-
-async def _adrop_offers_key(conn: aiosqlite.Connection) -> None:
-    """Async tweeling van `_drop_offers_key`."""
-    if not await _aoffers_keyed(conn):
+    if not await _offers_keyed(conn):
         return
     await conn.commit()
     await conn.execute("BEGIN IMMEDIATE")
     try:
-        if await _aoffers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
+        if await _offers_keyed(conn):  # een andere verbinding kan het intussen gedaan hebben
             columns = ", ".join(row["name"] for row in await conn.execute_fetchall(OFFERS_KEY_SQL))
             await conn.execute(OFFERS_TABLE.format(name="offers_rebuilt"))
             await conn.execute(OFFERS_COPY_SQL.format(columns=columns))
@@ -411,11 +343,11 @@ async def signature(store: Any, week: Any = None) -> str:
     tekst afgeleid). Goedkoop: een rij uit de database. Dient als ETag, zodat een browser met de lijst al in de cache geen nieuwe hoeft te krijgen."""
     store = _valid_store(store)
     monday = week_bounds(week)[0].isoformat() if week is not None else ""
-    async with _aconnect() as conn:
-        meta = await _fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
     personal = "personal" if await personal_linked(store) else ""
-    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.read_version()))
+    return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.version()))
 
 
 def _for_week(offers: list[dict[str, Any]], week: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -482,8 +414,8 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
     koppelingen die er bekend zijn).
     """
     store = _valid_store(store)
-    async with _aconnect() as conn:
-        meta = await _fetchone(conn, "SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,))
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at, personal_error FROM offers_meta WHERE store = ?", (store,))
         rows = await conn.execute_fetchall(
             """
             SELECT product_id, title, brand, unit_size, price, price_before, promo_label, image, url, valid_from, valid_until, category,
@@ -569,7 +501,7 @@ async def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str 
 
 async def _previous_personal(store: str) -> list[dict[str, Any]]:
     """De persoonlijke aanbiedingen uit de kopie, in de vorm van een fetcher: voor als het ophalen ervan mislukt."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT * FROM offers WHERE store = ? AND personal = 1 ORDER BY position", (store,))
     return [
         {"id": row["product_id"], "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"],
@@ -635,7 +567,7 @@ async def sync(store: Any) -> dict[str, Any]:
         )
         for position, item in enumerate(items)
     ]
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("DELETE FROM offers WHERE store = ?", (store,))
         await conn.executemany(
             """
@@ -760,7 +692,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50) -> dict[s
     except (TypeError, ValueError):
         limit = 50
     marks = ",".join("?" * len(stores))
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             f"""
             SELECT * FROM offer_history WHERE store IN ({marks}) AND title LIKE ? ESCAPE '\\'
@@ -782,7 +714,7 @@ async def history_of(store: Any, product_ids: Iterable[Any]) -> dict[str, dict[s
     if not ids:
         return {}
     rows: list[Any] = []
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for start in range(0, len(ids), 500):
             chunk = ids[start:start + 500]
             rows += await conn.execute_fetchall(
@@ -853,7 +785,7 @@ async def sync_all() -> dict[str, Any]:
 
 async def overview() -> dict[str, Any]:
     """Per winkel: wanneer de aanbiedingen voor het laatst zijn opgehaald en hoeveel er staan."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         metas = {row["store"]: row for row in await conn.execute_fetchall("SELECT store, synced_at, personal_error FROM offers_meta")}
         counts = {row["store"]: (row["n"], row["p"]) for row in await conn.execute_fetchall("SELECT store, COUNT(*) AS n, SUM(personal) AS p FROM offers GROUP BY store")}
     result: dict[str, Any] = {}
@@ -1239,8 +1171,8 @@ async def report_mismatch(store: Any, ingredient: Any, offer_id: Any, reason: An
     `reason` is een korte toelichting (van een AI-assistent) en `source` wie meldde: `app` (jij, met de vlag) of `assistant`."""
     store = _valid_store(store)
     head = _rejection_head(ingredient)
-    async with _aconnect() as conn:
-        offer = await _fetchone(conn, "SELECT title FROM offers WHERE store = ? AND product_id = ?", (store, str(offer_id)))
+    async with _connect() as conn:
+        offer = await auth.fetchone(conn, "SELECT title FROM offers WHERE store = ? AND product_id = ?", (store, str(offer_id)))
         if offer is None:
             raise ValueError(tr("Dit product staat niet meer in de aanbiedingen", "This product is no longer in the offers"))
         await conn.execute(
@@ -1255,7 +1187,7 @@ async def undo_mismatch(store: Any, ingredient: Any, offer_id: Any) -> dict[str,
     """Haalt een melding van `report_mismatch` weer weg."""
     store = _valid_store(store)
     head = _rejection_head(ingredient)
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("DELETE FROM offer_rejections WHERE store = ? AND product_id = ? AND head = ?", (store, str(offer_id), head))
         await conn.commit()
     return {"store": store, "offerId": str(offer_id), "head": head}
@@ -1265,12 +1197,12 @@ async def list_mismatches(store: Any = None, limit: int = 100) -> dict[str, Any]
     """De gemelde koppelingen, de nieuwste eerst: ingrediënt, product, wie meldde en waarom."""
     store = _valid_store(store) if store else None
     where, params = ("WHERE store = ?", (store,)) if store else ("", ())
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             f"SELECT store, product_id, head, ingredient, title, reported_at, reason, source FROM offer_rejections {where} ORDER BY reported_at DESC LIMIT ?",
             (*params, max(1, min(500, int(limit)))),
         )
-        counted = await _fetchone(conn, f"SELECT COUNT(*) FROM offer_rejections {where}", params)
+        counted = await auth.fetchone(conn, f"SELECT COUNT(*) FROM offer_rejections {where}", params)
     total = counted[0] if counted else 0
     return {
         "total": total,
@@ -1290,7 +1222,7 @@ def ingredients_hash(ingredients: list[str]) -> str:
 async def _ai_search_data(store: str) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], list[tuple[str, str]]]]:
     """Wat het zoeken door een AI voor deze winkel heeft opgeleverd: per recept de vingerafdruk van de ingrediënten waarmee gezocht is en
     de koppelingen (ingrediëntregel, product)."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         runs = await conn.execute_fetchall("SELECT source, recipe_id, ingredients_hash FROM ai_recipe_runs WHERE store = ?", (store,))
         rows = await conn.execute_fetchall(
             "SELECT source, recipe_id, ingredient, product_id FROM ai_recipe_matches WHERE store = ? ORDER BY line_index", (store,)
@@ -1302,13 +1234,13 @@ async def _ai_search_data(store: str) -> tuple[dict[tuple[str, str], str], dict[
 
 
 async def _verdicts(store: str) -> dict[tuple[str, str], str]:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT product_id, head, verdict FROM offer_verdicts WHERE store = ?", (store,))
     return {(row["product_id"], row["head"]): row["verdict"] for row in rows}
 
 
 async def _rejections(store: str) -> set[tuple[str, str]]:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT product_id, head FROM offer_rejections WHERE store = ?", (store,))
     return {(row["product_id"], row["head"]) for row in rows}
 
@@ -1335,8 +1267,8 @@ async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 10
     offers_by_id = {str(offer["id"]): offer for offer in offers["offers"]}
     prepared = [(offer, *offer_parts(offer["title"])) for offer in offers["offers"]]
     offer_index = head_index(core for _, core, _ in prepared)
-    async with _aconnect() as conn:
-        meta = await _fetchone(conn, "SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1")
+    async with _connect() as conn:
+        meta = await auth.fetchone(conn, "SELECT synced_at, summary FROM offer_recipes_meta WHERE id = 1")
         rows = await conn.execute_fetchall("SELECT source, recipe_id, title, image, url, ingredients, course FROM offer_recipes")
     results: list[dict[str, Any]] = []
     for row in rows:
@@ -1611,7 +1543,7 @@ async def _collect_crisp() -> list[dict[str, Any]]:
 
 async def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
     """Wat er van een bron al in de index staat: per recept de ingrediënten en de soort (None als die nog niet is ingelezen)."""
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT recipe_id, ingredients, course FROM offer_recipes WHERE source = ?", (source,))
     return {row["recipe_id"]: (json.loads(row["ingredients"]), row["course"]) for row in rows}
 
@@ -1667,7 +1599,7 @@ async def sync_recipes() -> dict[str, Any]:
             summary[source] = {"count": 0, "skipped": str(exc)}
         except Exception as exc:  # noqa: BLE001 - een bron die faalt mag de andere niet blokkeren
             summary[source] = {"count": 0, "error": str(exc)[:200] or tr("mislukt", "failed")}
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         for source, items in collected.items():
             await conn.execute("DELETE FROM offer_recipes WHERE source = ?", (source,))
             await conn.executemany(

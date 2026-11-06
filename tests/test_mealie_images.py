@@ -14,7 +14,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import http_client, mealie, mealie_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, run  # noqa: E402
 
 RECIPE_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 OTHER_ID = "2b4e28ba-2fa1-11d2-883f-0016d3cca427"
@@ -37,7 +37,7 @@ def mealie_media(side_effect: Any = None, *, return_value: httpx.Response | None
         yield route
 
 
-class MealieImagesTestCase(unittest.TestCase):
+class MealieImagesTestCase(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -53,10 +53,10 @@ class MealieImagesTestCase(unittest.TestCase):
             patcher = mock.patch.object(mealie, name, new_callable=mock.AsyncMock, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
 
-class ImagePathTest(unittest.TestCase):
+class ImagePathTest(AppTestCase):
     def test_path_for_a_recipe_with_an_image(self):
         self.assertEqual(
             mealie_images.image_path({"id": RECIPE_ID, "image": "abc123"}),
@@ -159,32 +159,32 @@ class FetchAndCacheTest(MealieImagesTestCase):
 
 
 class ImageRouteTest(MealieImagesTestCase):
-    def test_serves_the_image_with_long_cache_when_versioned(self):
+    async def test_serves_the_image_with_long_cache_when_versioned(self):
         with mealie_media(return_value=response()):
-            res = self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image?v=v1")
+            res = await self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image?v=v1")
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data, WEBP)
         self.assertEqual(res.mimetype, "image/webp")
         self.assertIn("immutable", res.headers["Cache-Control"])
         self.assertEqual(res.headers["X-Content-Type-Options"], "nosniff")
 
-    def test_without_version_the_browser_cache_is_short(self):
+    async def test_without_version_the_browser_cache_is_short(self):
         with mealie_media(return_value=response()):
-            res = self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image")
+            res = await self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image")
         self.assertNotIn("immutable", res.headers["Cache-Control"])
 
-    def test_rejects_ids_that_are_not_recipe_ids(self):
+    async def test_rejects_ids_that_are_not_recipe_ids(self):
         with mealie_media(return_value=response()) as get:
             for bad in ("abc", "..%2f..%2fapi%2fusers", "1b4e28ba-2fa1-11d2-883f-0016d3cca42"):
                 # Een gecodeerde slash haalt de route al niet meer binnen (404); de rest geeft 400.
-                self.assertIn(self.client.get(f"/api/mealie/recipes/{bad}/image").status_code, (400, 404), bad)
+                self.assertIn((await self.client.get(f"/api/mealie/recipes/{bad}/image")).status_code, (400, 404), bad)
         self.assertFalse(get.called)
 
-    def test_no_image_is_404_and_errors_are_424_json(self):
+    async def test_no_image_is_404_and_errors_are_424_json(self):
         with mealie_media(return_value=response(404)):
-            self.assertEqual(self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image").status_code, 404)
+            self.assertEqual((await self.client.get(f"/api/mealie/recipes/{RECIPE_ID}/image")).status_code, 404)
         with mealie_media(httpx.ConnectError("down")):
-            res = self.client.get(f"/api/mealie/recipes/{OTHER_ID}/image")
+            res = await self.client.get(f"/api/mealie/recipes/{OTHER_ID}/image")
         self.assertEqual(res.status_code, 424)
         self.assertEqual(res.get_json()["error"], "down")
 

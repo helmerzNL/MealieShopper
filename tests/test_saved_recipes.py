@@ -8,7 +8,7 @@ import httpx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah  # noqa: E402
-from support import run, sent_json, served  # noqa: E402
+from helpers import run, sent_json, served  # noqa: E402
 
 API_RESULT = {"recipes": [{"id": "1", "title": "Soep", "image": "", "url": "u"}], "total": 1}
 BROWSER_RESULT = {"recipes": [{"id": "2", "title": "Stamppot", "image": "", "url": "v"}], "total": 1}

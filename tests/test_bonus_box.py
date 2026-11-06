@@ -21,19 +21,19 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, returned, run  # noqa: E402
+from helpers import AppTestCase, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
 
 def _box_promotion(pid, label, products, status="ACTIVATED", start="2026-11-02", end="2026-11-08", kind="PERSONAL", price=None):
@@ -73,7 +73,7 @@ def fake_graphql(box=BOX, periods=PERIODS, calls=None):
     return graphql
 
 
-class BonusBoxFetchTest(unittest.TestCase):
+class BonusBoxFetchTest(AppTestCase):
     def linked(self, token="u"):
         return mock.patch.multiple(ah, configured_refresh_token=mock.AsyncMock(return_value="refresh"), get_user_token=mock.AsyncMock(return_value=token))
 
@@ -173,58 +173,58 @@ class BonusBoxOffersTest(TempDataDirTest):
             {"id": "2", "title": "AH Halfvolle melk", "price": 0.8, "priceBefore": 1.2, "promoLabel": "Bonus Box", "activated": False, **week},
         ]
 
-    def sync(self, box=None, linked=True, national=None):
+    async def sync(self, box=None, linked=True, national=None):
         fetch_box = box if callable(box) else (lambda: returned(self.box if box is None else box))
         with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.national if national is None else national)}), \
                 mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": fetch_box}), \
                 mock.patch.object(ah, "configured_refresh_token", return_value="r" if linked else ""):
-            return run(offers.sync("ah"))
+            return await offers.sync("ah")
 
-    def test_the_box_is_stored_on_top_of_the_offers_with_its_activation(self):
-        data = self.sync()
+    async def test_the_box_is_stored_on_top_of_the_offers_with_its_activation(self):
+        data = await self.sync()
         listed = [(o["id"], o["personal"], o["activated"]) for o in data["offers"]]
         self.assertEqual(listed, [("9", True, True), ("2", True, False), ("1", False, None), ("2", False, None)],
                          "de Bonus Box bovenaan; staat een product ook in de gewone bonus, dan blijven beide acties staan")
         self.assertEqual(data["personal"], {"supported": True, "linked": True, "count": 2, "activated": 1, "error": None})
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
-            week = run(offers.load("ah", self.monday.isoformat()))
+            week = await offers.load("ah", self.monday.isoformat())
         self.assertEqual([(o["id"], o["personal"]) for o in week["offers"]], [("9", True), ("2", True), ("1", False), ("2", False)])
         self.assertEqual(week["personal"]["count"], 2)
 
-    def test_the_history_records_the_box_and_prefers_the_national_bonus(self):
-        self.sync()
-        history = {p["productId"]: p for p in run(offers.history("ah"))["products"]}
+    async def test_the_history_records_the_box_and_prefers_the_national_bonus(self):
+        await self.sync()
+        history = {p["productId"]: p for p in (await offers.history("ah"))["products"]}
         self.assertTrue(history["9"]["episodes"][0]["personal"], "een product alleen in je Bonus Box staat er als persoonlijke aanbieding in")
         self.assertFalse(history["2"]["episodes"][0]["personal"], "staat het ook in de gewone bonus, dan telt die")
         self.assertEqual(history["2"]["episodes"][0]["price"], 1.0)
 
-    def test_a_failing_box_keeps_the_previous_box_and_reports_the_error(self):
-        self.sync()
+    async def test_a_failing_box_keeps_the_previous_box_and_reports_the_error(self):
+        await self.sync()
         self.national[0]["price"] = 4.5
 
         def broken():
             raise RuntimeError("AH Bonus Box ophalen mislukt (500)")
 
-        before = {o["id"]: o["category"] for o in run(offers.load("ah"))["offers"] if o["personal"]}
-        data = self.sync(box=broken)
+        before = {o["id"]: o["category"] for o in (await offers.load("ah"))["offers"] if o["personal"]}
+        data = await self.sync(box=broken)
         self.assertEqual(data["personal"]["error"], "AH Bonus Box ophalen mislukt (500)")
         self.assertEqual({o["id"]: o["category"] for o in data["offers"] if o["personal"]}, before, "ook met hun categorie")
         self.assertEqual([(o["id"], o["activated"]) for o in data["offers"] if o["personal"]], [("9", True), ("2", False)])
         self.assertEqual(next(o for o in data["offers"] if o["id"] == "1")["price"], 4.5, "de gewone bonus is wel bijgewerkt")
-        data = self.sync()
+        data = await self.sync()
         self.assertIsNone(data["personal"]["error"], "de volgende keer dat het lukt is de fout weg")
 
-    def test_without_a_link_there_is_no_box_and_the_list_says_so(self):
+    async def test_without_a_link_there_is_no_box_and_the_list_says_so(self):
         called = mock.AsyncMock(return_value=self.box)
-        data = self.sync(box=called, linked=False)
+        data = await self.sync(box=called, linked=False)
         called.assert_not_called()
         self.assertFalse(any(o["personal"] for o in data["offers"]))
         self.assertEqual(data["personal"], {"supported": True, "linked": False, "count": 0, "activated": 0, "error": None})
-        self.assertNotEqual(run(offers.signature("ah")), self.signature_when_linked(), "koppelen verandert de lijst, dus ook de ETag")
+        self.assertNotEqual(await offers.signature("ah"), await self.signature_when_linked(), "koppelen verandert de lijst, dus ook de ETag")
 
-    def signature_when_linked(self):
+    async def signature_when_linked(self):
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
-            return run(offers.signature("ah"))
+            return await offers.signature("ah")
 
     def test_other_stores_have_no_box(self):
         with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: returned(self.national)}):
@@ -242,15 +242,15 @@ class BonusBoxOffersTest(TempDataDirTest):
         self.assertEqual(overview["ah"]["personal"], {"linked": True, "count": 2, "error": None})
         self.assertNotIn("personal", overview["jumbo"])
 
-    def test_the_offers_route_gives_the_box(self):
-        self.sync()
-        client = SyncClient(create_app())
+    async def test_the_offers_route_gives_the_box(self):
+        await self.sync()
+        client = self.client_for(create_app())
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
-            data = client.get(f"/api/offers?store=ah&week={self.monday.isoformat()}").get_json()
+            data = (await client.get(f"/api/offers?store=ah&week={self.monday.isoformat()}")).get_json()
         self.assertEqual(data["personal"]["count"], 2)
         self.assertEqual([o["id"] for o in data["offers"] if o["personal"]], ["9", "2"])
 
-    def test_a_database_from_before_the_box_gets_the_new_columns(self):
+    async def test_a_database_from_before_the_box_gets_the_new_columns(self):
         path = auth.db_path()
         with closing(sqlite3.connect(path)) as conn, conn:
             for table in ("offers", "offer_history", "offers_meta"):
@@ -268,11 +268,11 @@ class BonusBoxOffersTest(TempDataDirTest):
             )
             conn.execute("CREATE TABLE offers_meta (store TEXT PRIMARY KEY, synced_at TEXT NOT NULL)")
             conn.execute("INSERT INTO offers_meta VALUES ('ah', '2026-11-01T06:00:00+00:00')")
-        data = run(offers.load("ah"))
+        data = await offers.load("ah")
         self.assertEqual([(o["id"], o["personal"], o["activated"]) for o in data["offers"]], [("1", False, None)])
         self.assertIsNone(data["personal"]["error"])
-        self.sync()
-        self.assertEqual(sum(1 for o in run(offers.load("ah"))["offers"] if o["personal"]), 2)
+        await self.sync()
+        self.assertEqual(sum(1 for o in (await offers.load("ah"))["offers"] if o["personal"]), 2)
 
 
 def function_source(source, name):
@@ -282,7 +282,7 @@ def function_source(source, name):
     return match.group(0)
 
 
-class BonusBoxSwitchTest(unittest.TestCase):
+class BonusBoxSwitchTest(AppTestCase):
     script = (ROOT / "static" / "offers.js").read_text(encoding="utf-8")
     html = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 

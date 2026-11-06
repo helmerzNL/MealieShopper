@@ -62,25 +62,14 @@ def normalize_id(list_id: Any) -> str:
     return LIST_ID if text.upper() == LIST_ID else text
 
 
-# De migratie van een database van voor de eigen lijstjes (1.9.0), gedeeld door `_connect` en `_aconnect`.
+# De migratie van een database van voor de eigen lijstjes (1.9.0), gedeeld door `_connect` en `_connect`.
 MIGRATE_BRAND: str = "ALTER TABLE jumbo_list_items ADD COLUMN brand TEXT"
 
 
-def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
-    conn: sqlite3.Connection = auth.connect()
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    columns: set[str] = {row["name"] for row in conn.execute("PRAGMA table_info(jumbo_list_items)")}
-    if "brand" not in columns:  # database van voor de eigen lijstjes (1.9.0)
-        conn.execute(MIGRATE_BRAND)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: foreign keys aan, hetzelfde schema en dezelfde migratie. Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met foreign keys aan, het schema en de migratie. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
         await conn.execute("PRAGMA foreign_keys = ON")
         await conn.executescript(SCHEMA)
         columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(jumbo_list_items)")}
@@ -91,11 +80,6 @@ async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
                 if "duplicate column" not in str(exc):
                     raise
         yield conn
-
-
-async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
-    async with conn.execute(sql, params) as cursor:
-        return await cursor.fetchone()
 
 
 def _now() -> str:
@@ -184,7 +168,7 @@ async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     list_id = normalize_id(live.get("id")) or LIST_ID
     items = live.get("items") or []
     synced_at = _now()
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
         previous: list[Any] = list(await conn.execute_fetchall(
             "SELECT position, item_id, sku, term, quantity, default_quantity FROM jumbo_list_items WHERE list_id = ? ORDER BY position",
@@ -235,7 +219,7 @@ async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
 
 
 async def list_snapshots() -> list[dict[str, Any]]:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall(
             """
             SELECT l.id, l.name, l.synced_at,
@@ -251,8 +235,8 @@ async def list_snapshots() -> list[dict[str, Any]]:
 
 async def get_snapshot(list_id: str) -> dict[str, Any] | None:
     list_id = normalize_id(list_id)
-    async with _aconnect() as conn:
-        head = await _fetchone(conn, "SELECT id, name, synced_at FROM jumbo_lists WHERE id = ?", (list_id,))
+    async with _connect() as conn:
+        head = await auth.fetchone(conn, "SELECT id, name, synced_at FROM jumbo_lists WHERE id = ?", (list_id,))
         if not head:
             return None
         rows = await conn.execute_fetchall("SELECT * FROM jumbo_list_items WHERE list_id = ? ORDER BY position", (list_id,))
@@ -287,7 +271,7 @@ async def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
     words = _fold(query).split()
     if not words:
         return {}
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         rows = await conn.execute_fetchall("SELECT list_id, term, title FROM jumbo_list_items ORDER BY list_id, position")
     found: dict[str, list[str]] = {}
     for row in rows:
@@ -310,7 +294,7 @@ async def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, 
         raise ValueError("Aantal moet een geheel getal zijn") from None
     if not 1 <= value <= MAX_QUANTITY:
         raise ValueError(f"Aantal moet tussen 1 en {MAX_QUANTITY} liggen")
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         cursor = await conn.execute(
             "UPDATE jumbo_list_items SET quantity = ? WHERE list_id = ? AND position = ?",
             (value, normalize_id(list_id), position),
@@ -323,7 +307,7 @@ async def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, 
 async def reset_quantities(list_id: str) -> dict[str, Any] | None:
     if not await get_snapshot(list_id):
         return None
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             "UPDATE jumbo_list_items SET quantity = COALESCE(default_quantity, quantity) WHERE list_id = ?",
             (normalize_id(list_id),),

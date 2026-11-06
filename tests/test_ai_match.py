@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ai_match, ai_review, auth, auth_password, http_client, offers, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient, returned  # noqa: E402
+from helpers import AppClient, returned, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -110,7 +110,7 @@ class AiMatchCase(unittest.IsolatedAsyncioTestCase):
         ai_match._job["state"] = "idle"
         auth.forget_runtime_state()
         self.addCleanup(auth.forget_runtime_state)
-        auth.init_db()
+        run(auth.init_db())
         self.app = create_app()
 
     async def asyncTearDown(self) -> None:
@@ -239,7 +239,7 @@ class SearchTest(AiMatchCase):
 
         result, _ = await self.run_search(Provider(answer=answer))
         self.assertEqual((result["searched"], result["matched"]), (2, 4))
-        async with offers._aconnect() as conn:
+        async with offers._connect() as conn:
             rows = await conn.execute_fetchall("SELECT recipe_id, line_index, product_id FROM ai_recipe_matches ORDER BY recipe_id, line_index")
         self.assertEqual([(r["recipe_id"], r["line_index"], r["product_id"]) for r in rows], [("r1", 0, "2"), ("r1", 1, "3"), ("r2", 0, "1"), ("r2", 4, "3")])
 
@@ -387,18 +387,17 @@ class BackgroundTest(AiMatchCase):
 
 class RoutesTest(AiMatchCase):
     async def asyncSetUp(self) -> None:
-        # De ronde loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
-        # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
+        # De ronde loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`).
         self.test_app = self.app.test_app()
         await self.test_app.startup()
         self.addAsyncCleanup(self.test_app.shutdown)
         self.admin = self.new_client()
         await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
-    def new_client(self) -> LiveClient:
-        return LiveClient(self.test_app.test_client())
+    def new_client(self) -> AppClient:
+        return AppClient(self.test_app.test_client())
 
-    async def join(self) -> LiveClient:
+    async def join(self) -> AppClient:
         invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
         client = self.new_client()
         await client.post("/api/invites/password", json={"token": invite.get_json()["token"], "password": ANNA})

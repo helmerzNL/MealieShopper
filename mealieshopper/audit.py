@@ -3,10 +3,9 @@
 Zo zie je precies hoe alles werkt: welke verzoeken naar de winkels gaan, wat die antwoorden, hoe lang het
 duurde en welk MCP-verzoek van welke assistent erachter zat.
 
-* Uitgaand verkeer wordt op één plek vastgelegd, in `requests.Session.send`. Dat dekt elke aanroep van
-  `requests.get/post/request` in de hele app, ook nieuwe, zonder dat die iets hoeven te weten. De dienst
+* Uitgaand verkeer wordt op één plek vastgelegd, in de hooks uit `httpx_hooks()`: `http_client` hangt ze aan
+  elke client. Dat dekt elk verzoek in de hele app, ook nieuwe, zonder dat die iets hoeven te weten. De dienst
   volgt uit de host (ah.nl, picnicinternational.com, jumbo.com); ander verkeer (Mealie, GitHub) blijft erbuiten.
-  Voor httpx doen de hooks uit `httpx_hooks()` hetzelfde: `http_client` hangt ze aan elke client.
 * MCP-verzoeken (initialize, tools/list, tools/call) en de OAuth-stappen waarmee een assistent koppelt komen
   uit `mcp_http.py`. Een verzoek aan de winkels dat tijdens een MCP-tool loopt, krijgt dezelfde `corr`
   (correlatie-id) als het MCP-verzoek, zodat je bij een tool ziet welke winkelverzoeken eruit volgden.
@@ -26,11 +25,10 @@ import json
 import logging
 import re
 import secrets
-import threading
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, closing, contextmanager
-from dataclasses import dataclass, replace
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from os import environ
 from typing import Any, Awaitable, Callable, Iterator, Mapping, TypeAlias
@@ -38,7 +36,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiosqlite
 import httpx
-import requests
 from quart import Quart, Response, has_request_context, jsonify, request
 
 from . import auth
@@ -77,7 +74,7 @@ _SENSITIVE_KEY = re.compile(
 )
 _TEXT_SECRET = re.compile(
     r"""(?P<key>["']?(?:pass(?:word|wd)?|secret|[\w-]*token|authori[sz]ation|cookie|code_verifier|x-picnic-auth)["']?\s*[:=]\s*)"""
-    r"""(?P<value>"[^"]*"|'[^']*'|[^\s&,;}]+)""",
+    r"""(?P<value>"[^"]*"|'[^']*'|(?:(?:bearer|basic|token)\s+)?[^\s&,;}]+)""",  # ook met het schema ervoor, zoals "Authorization: Bearer <token>"
     re.I,
 )
 _BEARER = re.compile(r"(Bearer\s+)[\w.~+/=-]+", re.I)
@@ -88,9 +85,7 @@ _TEXT_TYPES = ("json", "text", "xml", "javascript", "x-www-form-urlencoded", "gr
 _corr: contextvars.ContextVar[str] = contextvars.ContextVar("audit_corr", default="")
 _actor: contextvars.ContextVar[str] = contextvars.ContextVar("audit_actor", default="")
 _quiet: contextvars.ContextVar[bool] = contextvars.ContextVar("audit_quiet", default=False)
-_depth: contextvars.ContextVar[int] = contextvars.ContextVar("audit_depth", default=0)
 
-_init_lock = threading.Lock()
 _initialised: set[str] = set()
 _since_prune = 0
 
@@ -230,26 +225,8 @@ def service_for(url: str) -> str:
 
 # --- opslag ----------------------------------------------------------------------------------------
 
-def _connect():
-    conn = auth.connect()
-    key = str(auth.db_path())
-    if key not in _initialised:
-        with _init_lock:
-            conn.executescript(SCHEMA)
-            conn.commit()
-            _initialised.add(key)
-    return conn
-
-
 def _now() -> str:
     return auth.utcnow().isoformat()
-
-
-def _prune(conn) -> None:
-    days = retention_days()
-    if days:
-        conn.execute("DELETE FROM audit_log WHERE ts < ?", ((auth.utcnow() - timedelta(days=days)).isoformat(),))
-    conn.execute("DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?", (MAX_ROWS,))
 
 
 _INSERT_SQL: str = (
@@ -277,7 +254,7 @@ def _row_values(
     error: str,
     detail: dict[str, Any] | None,
 ) -> tuple[str | int | None, ...]:
-    """De waarden voor `_INSERT_SQL`, ingekort en geredigeerd. Gedeeld door `record` en `arecord`."""
+    """De waarden voor `_INSERT_SQL`, ingekort en geredigeerd. Voor `record`."""
     return (
         _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
         request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
@@ -285,7 +262,29 @@ def _row_values(
     )
 
 
-def record(
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding op `auth.connect` met het schema, een keer per database. Geen commit bij het verlaten.
+
+    Geen slot nodig: het schema is `IF NOT EXISTS`, twee coroutines die het tegelijk draaien zitten elkaar niet in de weg.
+    """
+    async with auth.connect() as conn:
+        key = str(auth.db_path())
+        if key not in _initialised:
+            await conn.executescript(SCHEMA)
+            await conn.commit()
+            _initialised.add(key)
+        yield conn
+
+
+async def _prune(conn: aiosqlite.Connection) -> None:
+    days = retention_days()
+    if days:
+        await conn.execute("DELETE FROM audit_log WHERE ts < ?", ((auth.utcnow() - timedelta(days=days)).isoformat(),))
+    await conn.execute("DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?", (MAX_ROWS,))
+
+
+async def record(
     *,
     kind: str,
     service: str,
@@ -309,73 +308,7 @@ def record(
     if not enabled():
         return None
     try:
-        with closing(_connect()) as conn, conn:
-            cursor = conn.execute(
-                _INSERT_SQL,
-                _row_values(
-                    kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok,
-                    duration_ms=duration_ms, actor=actor, corr=corr, request_body=request_body, response_body=response_body,
-                    req_bytes=req_bytes, resp_bytes=resp_bytes, error=error, detail=detail,
-                ),
-            )
-            row_id = cursor.lastrowid
-            _since_prune += 1
-            if _since_prune >= PRUNE_EVERY:
-                _since_prune = 0
-                _prune(conn)
-        return row_id
-    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
-        log.warning("Kon geen auditregel schrijven", exc_info=True)
-        return None
-
-
-@asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Zoals `_connect`, op `auth.aconnect`: het schema een keer per database, en ook hier geen commit bij het verlaten.
-
-    Geen slot nodig: het schema is `IF NOT EXISTS`, twee coroutines die het tegelijk draaien zitten elkaar niet in de weg.
-    """
-    async with auth.aconnect() as conn:
-        key = str(auth.db_path())
-        if key not in _initialised:
-            await conn.executescript(SCHEMA)
-            await conn.commit()
-            _initialised.add(key)
-        yield conn
-
-
-async def _aprune(conn: aiosqlite.Connection) -> None:
-    days = retention_days()
-    if days:
-        await conn.execute("DELETE FROM audit_log WHERE ts < ?", ((auth.utcnow() - timedelta(days=days)).isoformat(),))
-    await conn.execute("DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?", (MAX_ROWS,))
-
-
-async def arecord(
-    *,
-    kind: str,
-    service: str,
-    action: str,
-    method: str = "",
-    url: str = "",
-    status: int | None = None,
-    ok: bool = True,
-    duration_ms: int = 0,
-    actor: str = "",
-    corr: str = "",
-    request_body: str = "",
-    response_body: str = "",
-    req_bytes: int | None = None,
-    resp_bytes: int | None = None,
-    error: str = "",
-    detail: dict[str, Any] | None = None,
-) -> int | None:
-    """Async tweeling van `record`: dezelfde regel, via aiosqlite. Mislukt het schrijven, dan gaat de aanvraag door."""
-    global _since_prune
-    if not enabled():
-        return None
-    try:
-        async with _aconnect() as conn:
+        async with _connect() as conn:
             cursor = await conn.execute(
                 _INSERT_SQL,
                 _row_values(
@@ -388,7 +321,7 @@ async def arecord(
             _since_prune += 1
             if _since_prune >= PRUNE_EVERY:
                 _since_prune = 0
-                await _aprune(conn)
+                await _prune(conn)
             await conn.commit()
         return row_id
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
@@ -398,33 +331,18 @@ async def arecord(
 
 # --- herkomst --------------------------------------------------------------------------------------
 
-def current_actor() -> str:
+async def current_actor() -> str:
     """`mcp:<app>` binnen een MCP-aanroep, `app:<gebruiker>` voor een scherm in de app, anders `system`."""
     actor = _actor.get()
     if actor:
         return actor
     if has_request_context():
         try:
-            user = auth.current_user()
+            user = await auth.current_user()
         except Exception:  # noqa: BLE001
             user = None
         return f"app:{user['username']}" if user else "app"
     return "system"
-
-
-def propagate(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Voor een ThreadPoolExecutor: de threads erven anders niet van wie het verzoek komt."""
-    corr, actor = _corr.get(), current_actor()
-
-    def run(*args: Any, **kwargs: Any) -> Any:
-        tokens = (_corr.set(corr), _actor.set(actor))
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            _corr.reset(tokens[0])
-            _actor.reset(tokens[1])
-
-    return run
 
 
 @contextmanager
@@ -448,7 +366,7 @@ def _action_for(method: str, url: str, request_json: Any) -> str:
 
 @dataclass(frozen=True)
 class _Outbound:
-    """Een uitgaand verzoek en zijn antwoord, los van requests of httpx."""
+    """Een uitgaand verzoek en zijn antwoord, zoals het in de log komt."""
 
     method: str
     url: str
@@ -482,7 +400,7 @@ def _response_summary(outbound: _Outbound, quiet: bool) -> tuple[str, int | None
     return ("" if quiet else text), size
 
 
-def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
+async def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
     service: str = service_for(outbound.url)
     if not service:
         return
@@ -515,7 +433,7 @@ def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: 
         detail["finalUrl"] = redact_url(outbound.final_url)
     if quiet:
         detail["loginProxy"] = True
-    record(
+    await record(
         kind="outbound",
         service=service,
         action=_action_for(method, outbound.url, request_json),
@@ -524,7 +442,7 @@ def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: 
         status=outbound.status,
         ok=ok,
         duration_ms=duration_ms,
-        actor=current_actor(),
+        actor=await current_actor(),
         corr=_corr.get(),
         request_body=request_body,
         response_body=response_body,
@@ -535,43 +453,19 @@ def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: 
     )
 
 
-def _safe_record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
+async def _safe_record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
     try:
-        _record_outbound(outbound, error, duration_ms)
+        await _record_outbound(outbound, error, duration_ms)
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
         log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
 
 
-def _log_outbound(prepared: requests.PreparedRequest, response: requests.Response | None, error: Exception | None, started: float, stream: bool) -> None:
-    duration_ms: int = round((time.perf_counter() - started) * 1000)
-    body: bytes | str | None = prepared.body if isinstance(prepared.body, (bytes, str)) else None
-    outbound: _Outbound = _Outbound(
-        method=prepared.method or "",
-        url=prepared.url or "",
-        request_body=body,
-        request_type=prepared.headers.get("Content-Type", "") if body else "",
-        status=response.status_code if response is not None else None,
-    )
-    if response is not None:
-        outbound = replace(
-            outbound,
-            content_type=response.headers.get("Content-Type", ""),
-            response_body=None if stream else response.content,
-            response_length=_content_length(response.headers) if stream else None,
-            streamed=stream,
-            redirects=len(response.history),
-            final_url=response.url if response.history else "",
-        )
-    _record_outbound(outbound, error, duration_ms)
-
-
 # --- uitgaand verkeer via httpx --------------------------------------------------------------------
 #
-# httpx kent geen `send` om heen te leggen zoals requests: `http_client` hangt deze hooks aan elke client.
-# De request-hook loopt voor elk verzoek, ook voor elke doorverwijzing die httpx volgt. httpx geeft het
-# volgende verzoek een kopie van de `extensions` mee, dus wat de hook daar bij het eerste verzoek neerzet,
-# ziet hij bij elke volgende stap terug. Zo leggen we, net als `_depth` bij requests, alleen het eerste
-# verzoek vast, met het eindresultaat en het aantal doorverwijzingen.
+# `http_client` hangt deze hooks aan elke client. De request-hook loopt voor elk verzoek, ook voor elke
+# doorverwijzing die httpx volgt. httpx geeft het volgende verzoek een kopie van de `extensions` mee, dus wat
+# de hook daar bij het eerste verzoek neerzet, ziet hij bij elke volgende stap terug. Zo leggen we alleen het
+# eerste verzoek vast, met het eindresultaat en het aantal doorverwijzingen.
 #
 # Een fout (time-out, geen verbinding) bereikt de response-hook niet: httpx gooit hem voordat er een
 # antwoord is. Zo'n verzoek komt dus niet in het auditlog, alleen in wat de aanroeper zelf logt. Dat is
@@ -629,7 +523,7 @@ async def _httpx_response(response: httpx.Response) -> None:
         # Buiten de try: een fout bij het lezen van de body hoort bij het verzoek zelf en gaat naar de aanroeper.
         await response.aread()
     try:
-        _httpx_log(response, read)
+        await _httpx_log(response, read)
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
         log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
 
@@ -646,7 +540,7 @@ def _httpx_should_read(response: httpx.Response) -> bool | None:
     return bodies_enabled() and not _quiet.get() and _is_text(response.headers.get("Content-Type", ""))
 
 
-def _httpx_log(response: httpx.Response, read: bool) -> None:
+async def _httpx_log(response: httpx.Response, read: bool) -> None:
     extensions: dict[str, Any] = response.request.extensions
     origin: _HttpxOrigin = extensions[_HTTPX_ORIGIN]
     outbound: _Outbound = _Outbound(
@@ -664,53 +558,24 @@ def _httpx_log(response: httpx.Response, read: bool) -> None:
     duration_ms: int = round((time.perf_counter() - extensions[_HTTPX_STARTED]) * 1000)
     if response.has_redirect_location:
         # Of httpx deze doorverwijzing volgt, staat pas vast na de hooks: volgt hij niet, dan zet hij zonder
-        # tussenliggende `await` `response.next_request`. In de volgende ronde van de loop is dat dus bekend.
-        # Volgt hij wel, dan logt de hook bij het laatste antwoord.
-        asyncio.get_running_loop().call_soon(_record_unfollowed_redirect, response, outbound, duration_ms)
+        # tussenliggende `await` `response.next_request`. De eerste stap van een nieuwe task loopt in de volgende
+        # ronde van de loop, dan is dat dus bekend. Volgt hij wel, dan logt de hook bij het laatste antwoord.
+        # `tasks.spawn` houdt de task vast, anders kan hij halverwege worden opgeruimd.
+        from . import tasks  # lokaal: tasks importeert http_client, en dat importeert dit module
+
+        tasks.spawn("audit-redirect", _record_unfollowed_redirect(response, outbound, duration_ms))
         return
-    _record_outbound(outbound, None, duration_ms)
+    await _record_outbound(outbound, None, duration_ms)
 
 
-def _record_unfollowed_redirect(response: httpx.Response, outbound: _Outbound, duration_ms: int) -> None:
+async def _record_unfollowed_redirect(response: httpx.Response, outbound: _Outbound, duration_ms: int) -> None:
     if response.next_request is not None:
-        _safe_record_outbound(outbound, None, duration_ms)
+        await _safe_record_outbound(outbound, None, duration_ms)
 
 
 def httpx_hooks() -> dict[str, list[HttpxHook]]:
-    """De `event_hooks` voor een `httpx.AsyncClient`: zelfde regels in de log als bij requests."""
+    """De `event_hooks` voor een `httpx.AsyncClient`."""
     return {"request": [_httpx_request], "response": [_httpx_response]}
-
-
-def install() -> None:
-    """Hang de log aan `requests.Session.send`. Veilig om vaker aan te roepen."""
-    original = requests.Session.send
-    if getattr(original, "_audited", False):
-        return
-
-    def audited_send(self: requests.Session, prepared: requests.PreparedRequest, **kwargs: Any) -> requests.Response:
-        # Een redirect gaat via send() opnieuw door dezelfde sessie: alleen het eerste verzoek loggen,
-        # met het eindresultaat en het aantal doorverwijzingen.
-        if _depth.get() or not enabled() or not service_for(prepared.url or ""):
-            return original(self, prepared, **kwargs)
-        token = _depth.set(1)
-        started = time.perf_counter()
-        response: requests.Response | None = None
-        error: Exception | None = None
-        try:
-            response = original(self, prepared, **kwargs)
-            return response
-        except Exception as exc:  # noqa: BLE001 - alles wat requests gooit, wordt na het loggen opnieuw gegooid
-            error = exc
-            raise
-        finally:
-            _depth.reset(token)
-            try:
-                _log_outbound(prepared, response, error, started, bool(kwargs.get("stream")))
-            except Exception:  # noqa: BLE001
-                log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
-
-    audited_send._audited = True  # type: ignore[attr-defined]
-    requests.Session.send = audited_send  # type: ignore[method-assign]
 
 
 # --- MCP en OAuth ----------------------------------------------------------------------------------
@@ -785,7 +650,7 @@ def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | Non
     }
 
 
-async def amcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str, Any] | None]], identity: dict[str, Any] | None) -> dict[str, Any] | None:
+async def mcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str, Any] | None]], identity: dict[str, Any] | None) -> dict[str, Any] | None:
     """Verwerk één JSON-RPC-bericht en leg het vast, met de winkelverzoeken die eruit volgen."""
     rpc, params = _mcp_parts(message)
     if not enabled() or _mcp_unlogged(rpc):
@@ -809,7 +674,7 @@ async def amcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str
         _corr.reset(tokens[0])
         _actor.reset(tokens[1])
         try:
-            await arecord(**_mcp_fields(str(rpc), params, identity, actor, corr, started, reply, failure))
+            await record(**_mcp_fields(str(rpc), params, identity, actor, corr, started, reply, failure))
         except Exception:  # noqa: BLE001
             log.warning("Kon een MCP-verzoek niet loggen", exc_info=True)
 
@@ -829,9 +694,9 @@ def _mcp_rejected_fields(status: int, reason: str, header_present: bool) -> dict
     }
 
 
-async def amcp_rejected(status: int, reason: str, *, header_present: bool = False) -> None:
+async def mcp_rejected(status: int, reason: str, *, header_present: bool = False) -> None:
     """Een verzoek aan /mcp dat niet werd toegelaten (geen of ongeldig token, te groot, ...)."""
-    await arecord(**_mcp_rejected_fields(status, reason, header_present))
+    await record(**_mcp_rejected_fields(status, reason, header_present))
 
 
 async def _log_oauth(response):
@@ -854,7 +719,7 @@ async def _log_oauth(response):
         except Exception:  # noqa: BLE001
             name = ""
     grant = str(data.get("grant_type") or data.get("decision") or "")
-    record(
+    await record(
         kind="oauth",
         service="mcp",
         action=f"{request.method} {request.path}" + (f" ({grant})" if grant else ""),
@@ -901,20 +766,21 @@ def _row(row, *, full: bool) -> dict[str, Any]:
     return entry
 
 
-def list_entries(
+async def list_entries(
     *, service: str = "", kind: str = "", only_errors: bool = False, query: str = "", limit: int = PAGE_SIZE, before: int | None = None
 ) -> dict[str, Any]:
     limit = max(1, min(MAX_PAGE_SIZE, limit))
     where, params = _filters(service, kind, only_errors, query, before)
     sql = "SELECT * FROM audit_log" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
-    with closing(_connect()) as conn:
-        rows = conn.execute(sql, (*params, limit + 1)).fetchall()
+    async with _connect() as conn:
+        rows = list(await conn.execute_fetchall(sql, (*params, limit + 1)))
         since = (auth.utcnow() - timedelta(hours=24)).isoformat()
-        counts = conn.execute(
+        counts = await conn.execute_fetchall(
             "SELECT service, COUNT(*) AS total, SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS errors FROM audit_log WHERE ts >= ? GROUP BY service",
             (since,),
-        ).fetchall()
-        total = conn.execute("SELECT COUNT(*) AS n FROM audit_log").fetchone()["n"]
+        )
+        found = await auth.fetchone(conn, "SELECT COUNT(*) AS n FROM audit_log")
+    total = found["n"] if found else 0
     more = len(rows) > limit
     entries = [_row(row, full=False) for row in rows[:limit]]
     return {
@@ -947,12 +813,12 @@ def _filters(service: str, kind: str, only_errors: bool, query: str, before: int
     return where, params
 
 
-def export_entries(*, service: str = "", kind: str = "", only_errors: bool = False, query: str = "") -> list[dict[str, Any]]:
+async def export_entries(*, service: str = "", kind: str = "", only_errors: bool = False, query: str = "") -> list[dict[str, Any]]:
     """De nieuwste regels die bij de filters passen, oudste eerst, mét verzoek en antwoord."""
     where, params = _filters(service, kind, only_errors, query, None)
     sql = "SELECT * FROM audit_log" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC LIMIT ?"
-    with closing(_connect()) as conn:
-        rows = conn.execute(sql, (*params, MAX_EXPORT)).fetchall()
+    async with _connect() as conn:
+        rows = list(await conn.execute_fetchall(sql, (*params, MAX_EXPORT)))
     return [_row(row, full=True) for row in reversed(rows)]
 
 
@@ -972,27 +838,29 @@ def entries_csv(entries: list[dict[str, Any]]) -> str:
     return out.getvalue()
 
 
-def get_entry(entry_id: int) -> dict[str, Any] | None:
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT * FROM audit_log WHERE id = ?", (entry_id,)).fetchone()
+async def get_entry(entry_id: int) -> dict[str, Any] | None:
+    async with _connect() as conn:
+        row = await auth.fetchone(conn, "SELECT * FROM audit_log WHERE id = ?", (entry_id,))
         if not row:
             return None
         entry = _row(row, full=True)
         if row["corr"]:
             if row["kind"] == "mcp":
-                related = conn.execute("SELECT * FROM audit_log WHERE corr = ? AND kind = 'outbound' ORDER BY id", (row["corr"],)).fetchall()
+                related = await conn.execute_fetchall("SELECT * FROM audit_log WHERE corr = ? AND kind = 'outbound' ORDER BY id", (row["corr"],))
             else:
-                related = conn.execute("SELECT * FROM audit_log WHERE corr = ? AND kind = 'mcp' ORDER BY id", (row["corr"],)).fetchall()
+                related = await conn.execute_fetchall("SELECT * FROM audit_log WHERE corr = ? AND kind = 'mcp' ORDER BY id", (row["corr"],))
             entry["related"] = [_row(item, full=False) for item in related]
         else:
             entry["related"] = []
     return entry
 
 
-def clear(actor: str = "") -> int:
-    with closing(_connect()) as conn, conn:
-        removed = conn.execute("DELETE FROM audit_log").rowcount
-    record(kind="audit", service="audit", action="log cleared", actor=actor, detail={"removed": removed})
+async def clear(actor: str = "") -> int:
+    async with _connect() as conn:
+        cursor = await conn.execute("DELETE FROM audit_log")
+        await conn.commit()
+    removed = cursor.rowcount
+    await record(kind="audit", service="audit", action="log cleared", actor=actor, detail={"removed": removed})
     return removed
 
 
@@ -1008,7 +876,7 @@ def register_routes(app: Quart) -> None:
         except ValueError:
             return jsonify({"error": tr("Ongeldige waarde.", "Invalid value.")}), 400
         return jsonify(
-            list_entries(
+            await list_entries(
                 service=request.args.get("service", ""),
                 kind=request.args.get("kind", ""),
                 only_errors=request.args.get("status") == "error",
@@ -1020,14 +888,14 @@ def register_routes(app: Quart) -> None:
 
     @app.get("/api/audit/export")
     async def audit_export():
-        entries = export_entries(
+        entries = await export_entries(
             service=request.args.get("service", ""),
             kind=request.args.get("kind", ""),
             only_errors=request.args.get("status") == "error",
             query=request.args.get("q", "").strip()[:100],
         )
-        user = auth.current_user()
-        record(kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)})
+        user = await auth.current_user()
+        await record(kind="audit", service="audit", action="log exported", actor=f"app:{user['username']}" if user else "app", detail={"entries": len(entries)})
         stamp = auth.utcnow().strftime("%Y%m%d-%H%M%S")
         if request.args.get("format") == "csv":
             body, mimetype, name = "\ufeff" + entries_csv(entries), "text/csv", f"mealieshopper-audit-{stamp}.csv"  # BOM: Excel leest anders de accenten verkeerd
@@ -1037,13 +905,13 @@ def register_routes(app: Quart) -> None:
 
     @app.get("/api/audit/<int:entry_id>")
     async def audit_entry(entry_id: int):
-        entry = get_entry(entry_id)
+        entry = await get_entry(entry_id)
         if not entry:
             return jsonify({"error": tr("Regel niet gevonden.", "Entry not found.")}), 404
         return jsonify(entry)
 
     @app.delete("/api/audit")
     async def audit_clear():
-        user = auth.current_user()
-        removed = clear(f"app:{user['username']}" if user else "app")
+        user = await auth.current_user()
+        removed = await clear(f"app:{user['username']}" if user else "app")
         return jsonify({"status": "ok", "removed": removed})

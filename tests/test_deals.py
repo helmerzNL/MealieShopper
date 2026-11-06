@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 from unittest import mock  # noqa: E402
 
 from mealieshopper import ah, ah_explore, deals, jumbo, jumbo_explore, picnic  # noqa: E402
-from support import run  # noqa: E402
+from helpers import run  # noqa: E402
 
 
 class ParseMechanicTests(unittest.TestCase):

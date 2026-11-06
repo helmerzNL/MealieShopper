@@ -255,14 +255,14 @@ async def _save_bought(store: str, items: list[dict[str, Any]], now: str) -> int
     bought = await prices.bought_ids(store, now[:10])
     if not bought:
         return 0
-    async with prices._aconnect() as conn:
+    async with prices._connect() as conn:
         wanted = await _wanted(conn, store, items, bought)
     if not wanted:
         return 0
     fetched, failed = await _fetch_all(store, wanted)
     saved = 0
     if fetched:
-        async with prices._aconnect() as conn:
+        async with prices._connect() as conn:
             for (product_id, title, url), image in fetched:
                 saved += await _store(conn, store, product_id, title, url, image, now)
             await conn.commit()
@@ -277,7 +277,7 @@ async def get(image_id: Any) -> tuple[str, bytes] | None:
         key = int(image_id)
     except (TypeError, ValueError):
         return None
-    async with prices._aconnect() as conn:
+    async with prices._connect() as conn:
         found = await conn.execute_fetchall("SELECT content_type, data FROM product_images WHERE id = ?", (key,))
     row = found[0] if found else None
     return (row["content_type"], bytes(row["data"])) if row else None

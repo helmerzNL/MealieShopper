@@ -10,42 +10,42 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 from mealieshopper import auth, profile, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import ANNA, UsersTestCase  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from helpers import AppTestCase, db, run  # noqa: E402
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
 WEBP = b"RIFF\x04\x00\x00\x00WEBPVP8 "
 
 
-class ProfileTest(unittest.TestCase):
+class ProfileTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
-        self.client = SyncClient(create_app())
+        run(auth.init_db())
+        self.client = self.client_for(create_app())
 
-    def test_display_name_is_cleaned_and_shown_in_the_status(self):
-        response = self.client.put("/api/profile", json={"displayName": "  Helmer \n  Z\x00  "})
+    async def test_display_name_is_cleaned_and_shown_in_the_status(self):
+        response = await self.client.put("/api/profile", json={"displayName": "  Helmer \n  Z\x00  "})
         self.assertEqual(response.get_json()["displayName"], "Helmer Z")
-        self.assertEqual(self.client.get("/api/auth/status").get_json()["displayName"], "Helmer Z")
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["displayName"], "Helmer Z")
         self.assertEqual(len(profile.clean_name("x" * 100)), profile.MAX_NAME_LENGTH)
-        self.assertEqual(self.client.put("/api/profile", json={"displayName": ""}).get_json()["displayName"], "")
+        self.assertEqual((await self.client.put("/api/profile", json={"displayName": ""})).get_json()["displayName"], "")
 
-    def test_avatar_roundtrip_with_version_and_removal(self):
-        first = self.client.post("/api/profile/avatar", data=PNG, content_type="image/png").get_json()
+    async def test_avatar_roundtrip_with_version_and_removal(self):
+        first = (await self.client.post("/api/profile/avatar", data=PNG, content_type="image/png")).get_json()
         self.assertEqual((first["hasAvatar"], first["avatarVersion"]), (True, 1))
-        served = self.client.get(f"/api/profile/avatar/{auth.OWNER_ID}")
+        served = await self.client.get(f"/api/profile/avatar/{auth.OWNER_ID}")
         self.assertEqual((served.status_code, served.mimetype, served.data), (200, "image/png", PNG))
         self.assertEqual(served.headers["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(self.client.post("/api/profile/avatar", data=JPEG, content_type="image/jpeg").get_json()["avatarVersion"], 2)
-        gone = self.client.delete("/api/profile/avatar").get_json()
+        self.assertEqual((await self.client.post("/api/profile/avatar", data=JPEG, content_type="image/jpeg")).get_json()["avatarVersion"], 2)
+        gone = (await self.client.delete("/api/profile/avatar")).get_json()
         self.assertEqual((gone["hasAvatar"], gone["avatarVersion"]), (False, 3))
-        self.assertEqual(self.client.get(f"/api/profile/avatar/{auth.OWNER_ID}").status_code, 404)
+        self.assertEqual((await self.client.get(f"/api/profile/avatar/{auth.OWNER_ID}")).status_code, 404)
 
-    def test_only_real_png_jpeg_or_webp_under_the_limit_is_accepted(self):
+    async def test_only_real_png_jpeg_or_webp_under_the_limit_is_accepted(self):
         for data, content_type in (
             (b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image/svg+xml"),
             (b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image/png"),  # SVG die zich als PNG voordoet
@@ -53,136 +53,136 @@ class ProfileTest(unittest.TestCase):
             (b"", "image/png"),
             (PNG, "text/html"),
         ):
-            response = self.client.post("/api/profile/avatar", data=data, content_type=content_type)
+            response = await self.client.post("/api/profile/avatar", data=data, content_type=content_type)
             self.assertEqual(response.status_code, 400, content_type)
-        self.assertEqual(self.client.post("/api/profile/avatar", data=PNG + b"0" * profile.MAX_AVATAR_BYTES, content_type="image/png").status_code, 413)
-        self.assertEqual(self.client.post("/api/profile/avatar", data=WEBP, content_type="image/webp").status_code, 200)
+        self.assertEqual((await self.client.post("/api/profile/avatar", data=PNG + b"0" * profile.MAX_AVATAR_BYTES, content_type="image/png")).status_code, 413)
+        self.assertEqual((await self.client.post("/api/profile/avatar", data=WEBP, content_type="image/webp")).status_code, 200)
 
-    def test_prefer_organic_is_kept_without_touching_the_display_name(self):
-        self.client.put("/api/profile", json={"displayName": "Helmer"})
-        self.assertFalse(self.client.get("/api/auth/status").get_json()["preferOrganic"])  # standaard uit
-        reply = self.client.put("/api/profile/preferences", json={"preferOrganic": True})
+    async def test_prefer_organic_is_kept_without_touching_the_display_name(self):
+        await self.client.put("/api/profile", json={"displayName": "Helmer"})
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["preferOrganic"])  # standaard uit
+        reply = await self.client.put("/api/profile/preferences", json={"preferOrganic": True})
         self.assertEqual((reply.status_code, reply.get_json()["preferOrganic"], reply.get_json()["displayName"]), (200, True, "Helmer"))
-        status = self.client.get("/api/auth/status").get_json()
+        status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["preferOrganic"], status["displayName"]), (True, "Helmer"))
         for bad in ({}, {"preferOrganic": "ja"}, {"preferOrganic": 1}):
-            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
-        self.assertFalse(self.client.put("/api/profile/preferences", json={"preferOrganic": False}).get_json()["preferOrganic"])
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertFalse((await self.client.put("/api/profile/preferences", json={"preferOrganic": False})).get_json()["preferOrganic"])
 
-    def test_appearance_is_stored_per_field_and_shown_in_the_status(self):
-        self.client.put("/api/profile", json={"displayName": "Helmer"})
-        status = self.client.get("/api/auth/status").get_json()
+    async def test_appearance_is_stored_per_field_and_shown_in_the_status(self):
+        await self.client.put("/api/profile", json={"displayName": "Helmer"})
+        status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["theme"], status["darkBackground"], status["accent"]), (None, "green", ""), "standaard: niets gekozen")
-        reply = self.client.put("/api/profile/preferences", json={"theme": "dark", "darkBackground": "grey", "accent": "#0A84FF"})
+        reply = await self.client.put("/api/profile/preferences", json={"theme": "dark", "darkBackground": "grey", "accent": "#0A84FF"})
         self.assertEqual(reply.status_code, 200)
         data = reply.get_json()
         self.assertEqual((data["theme"], data["darkBackground"], data["accent"], data["displayName"]), ("dark", "grey", "#0a84ff", "Helmer"))
         # Alleen wat in het verzoek staat verandert.
-        self.client.put("/api/profile/preferences", json={"preferOrganic": True})
-        self.client.put("/api/profile/preferences", json={"theme": "system"})
-        status = self.client.get("/api/auth/status").get_json()
+        await self.client.put("/api/profile/preferences", json={"preferOrganic": True})
+        await self.client.put("/api/profile/preferences", json={"theme": "system"})
+        status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual(
             (status["theme"], status["darkBackground"], status["accent"], status["preferOrganic"]), ("system", "grey", "#0a84ff", True)
         )
-        self.assertEqual(self.client.put("/api/profile/preferences", json={"accent": ""}).get_json()["accent"], "", "terug naar de huisstijl")
+        self.assertEqual((await self.client.put("/api/profile/preferences", json={"accent": ""})).get_json()["accent"], "", "terug naar de huisstijl")
 
-    def test_appearance_refuses_values_it_does_not_know(self):
+    async def test_appearance_refuses_values_it_does_not_know(self):
         for bad in (
             {"theme": "sepia"}, {"theme": None}, {"darkBackground": "black"}, {"accent": "red"}, {"accent": "#12345"},
             {"accent": "#1234567"}, {"accent": 123}, {"accent": "#12345g"}, {"accent": "url(x)"},
             {"theme": "dark", "accent": "nope"},  # alles of niets
         ):
-            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
-        self.assertIsNone(self.client.get("/api/auth/status").get_json()["theme"], "een geweigerd verzoek verandert niets")
-        self.assertEqual(self.client.put("/api/profile/preferences", data="[]", content_type="application/json").status_code, 400)
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertIsNone((await self.client.get("/api/auth/status")).get_json()["theme"], "een geweigerd verzoek verandert niets")
+        self.assertEqual((await self.client.put("/api/profile/preferences", data="[]", content_type="application/json")).status_code, 400)
 
-    def test_navigation_bar_style_and_glass(self):
+    async def test_navigation_bar_style_and_glass(self):
         # Zoals de richtlijn navigation-bar.md van App-Guidance: elke stijl en het glas 0 en 100 mogen, de rest geeft 400.
-        status = self.client.get("/api/auth/status").get_json()
+        status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("auto", 60), "standaard: de balk van het toestel")
         for style in ("ios", "android", "auto"):
-            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarStyle": style}).get_json()["navbarStyle"], style)
+            self.assertEqual((await self.client.put("/api/profile/preferences", json={"navbarStyle": style})).get_json()["navbarStyle"], style)
         for glass in (0, 100, 35):
-            self.assertEqual(self.client.put("/api/profile/preferences", json={"navbarGlass": glass}).get_json()["navbarGlass"], glass)
-        self.client.put("/api/profile/preferences", json={"navbarStyle": "android"})
+            self.assertEqual((await self.client.put("/api/profile/preferences", json={"navbarGlass": glass})).get_json()["navbarGlass"], glass)
+        await self.client.put("/api/profile/preferences", json={"navbarStyle": "android"})
         for bad in ({"navbarStyle": "windows"}, {"navbarStyle": None}, {"navbarGlass": -1}, {"navbarGlass": 101},
                     {"navbarGlass": 50.5}, {"navbarGlass": "50"}, {"navbarGlass": True}, {"navbarGlass": None}):
-            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
-        status = self.client.get("/api/auth/status").get_json()
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
 
     def test_a_bad_stored_value_counts_as_no_choice(self):
-        profile.set_display_name("owner", "x")
-        with closing(auth.connect()) as conn, conn:  # zoals een handmatig gewijzigde back-up
+        run(profile.set_display_name("owner", "x"))
+        with closing(db()) as conn, conn:  # zoals een handmatig gewijzigde back-up
             conn.execute(
                 "UPDATE user_profiles SET theme = 'sepia', dark_background = 'black', accent = 'javascript:x', "
                 "navbar_style = 'windows', navbar_glass = 500"
             )
         self.assertEqual(
-            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
+            {key: run(profile.get("owner"))[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
             {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
         )
 
     def test_an_older_database_gets_the_prefer_organic_column(self):
-        with closing(auth.connect()) as conn, conn:  # zoals de tabel was voor #218
+        with closing(db()) as conn, conn:  # zoals de tabel was voor #218
             conn.execute("DROP TABLE IF EXISTS user_profiles")
             conn.execute(
                 "CREATE TABLE user_profiles (user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '', avatar BLOB, "
                 "avatar_type TEXT, avatar_version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL)"
             )
             conn.execute("INSERT INTO user_profiles (user_id, display_name, updated_at) VALUES ('owner', 'Oud', '2026-01-01')")
-        self.assertEqual(profile.get("owner")["preferOrganic"], False)
-        profile.set_prefer_organic("owner", True)
-        self.assertEqual((profile.get("owner")["preferOrganic"], profile.get("owner")["displayName"]), (True, "Oud"))
-        self.assertEqual((profile.get("owner")["theme"], profile.get("owner")["accent"]), (None, ""), "en de kolommen van de weergave")
-        profile.set_appearance("owner", accent="#b0213f")
-        self.assertEqual((profile.get("owner")["accent"], profile.get("owner")["darkBackground"]), ("#b0213f", "green"))
+        self.assertEqual(run(profile.get("owner"))["preferOrganic"], False)
+        run(profile.set_prefer_organic("owner", True))
+        self.assertEqual((run(profile.get("owner"))["preferOrganic"], run(profile.get("owner"))["displayName"]), (True, "Oud"))
+        self.assertEqual((run(profile.get("owner"))["theme"], run(profile.get("owner"))["accent"]), (None, ""), "en de kolommen van de weergave")
+        run(profile.set_appearance("owner", accent="#b0213f"))
+        self.assertEqual((run(profile.get("owner"))["accent"], run(profile.get("owner"))["darkBackground"]), ("#b0213f", "green"))
 
     def test_users_list_carries_the_profile_and_deleting_a_user_removes_it(self):
         run(users.create_user("u1", "anna"))
-        profile.set_display_name("u1", "Anna de Vries")
-        profile.set_avatar("u1", PNG, "image/png")
+        run(profile.set_display_name("u1", "Anna de Vries"))
+        run(profile.set_avatar("u1", PNG, "image/png"))
         listed = {user["id"]: user for user in run(users.list_users())}
         self.assertEqual((listed["u1"]["displayName"], listed["u1"]["hasAvatar"]), ("Anna de Vries", True))
         self.assertTrue(run(users.delete_user("u1")))
-        self.assertIsNone(profile.avatar("u1"))
-        self.assertEqual(profile.get("u1")["displayName"], "")
+        self.assertIsNone(run(profile.avatar("u1")))
+        self.assertEqual(run(profile.get("u1"))["displayName"], "")
 
 
 class ProfileWithLoginTest(UsersTestCase):
-    def test_everything_needs_a_login(self):
-        anonymous = SyncClient(self.app)
-        self.assertEqual(anonymous.get("/api/profile").status_code, 401)
-        self.assertEqual(anonymous.put("/api/profile", json={"displayName": "x"}).status_code, 401)
-        self.assertEqual(anonymous.post("/api/profile/avatar", data=PNG, content_type="image/png").status_code, 401)
-        self.assertEqual(anonymous.get(f"/api/profile/avatar/{auth.OWNER_ID}").status_code, 401)
+    async def test_everything_needs_a_login(self):
+        anonymous = self.client_for(self.app)
+        self.assertEqual((await anonymous.get("/api/profile")).status_code, 401)
+        self.assertEqual((await anonymous.put("/api/profile", json={"displayName": "x"})).status_code, 401)
+        self.assertEqual((await anonymous.post("/api/profile/avatar", data=PNG, content_type="image/png")).status_code, 401)
+        self.assertEqual((await anonymous.get(f"/api/profile/avatar/{auth.OWNER_ID}")).status_code, 401)
 
-    def test_each_user_only_changes_their_own_profile(self):
-        anna = self.join("anna", ANNA)
-        self.assertEqual(anna.put("/api/profile", json={"displayName": "Anna de Vries"}).get_json()["displayName"], "Anna de Vries")
-        self.assertEqual(anna.post("/api/profile/avatar", data=PNG, content_type="image/png").status_code, 200)
-        self.assertEqual(self.admin.get("/api/profile").get_json()["displayName"], "", "de beheerder houdt zijn eigen profiel")
-        status = anna.get("/api/auth/status").get_json()
+    async def test_each_user_only_changes_their_own_profile(self):
+        anna = await self.join("anna", ANNA)
+        self.assertEqual((await anna.put("/api/profile", json={"displayName": "Anna de Vries"})).get_json()["displayName"], "Anna de Vries")
+        self.assertEqual((await anna.post("/api/profile/avatar", data=PNG, content_type="image/png")).status_code, 200)
+        self.assertEqual((await self.admin.get("/api/profile")).get_json()["displayName"], "", "de beheerder houdt zijn eigen profiel")
+        status = (await anna.get("/api/auth/status")).get_json()
         self.assertEqual((status["displayName"], status["hasAvatar"], status["username"]), ("Anna de Vries", True, "anna"))
-        listed = {u["username"]: u for u in self.admin.get("/api/users").get_json()["users"]}
+        listed = {u["username"]: u for u in (await self.admin.get("/api/users")).get_json()["users"]}
         self.assertEqual((listed["anna"]["displayName"], listed["anna"]["hasAvatar"]), ("Anna de Vries", True))
-        self.assertEqual(self.admin.get(f"/api/profile/avatar/{listed['anna']['id']}").data, PNG)
-        self.assertEqual(self.admin.get("/api/profile/avatar/owner").status_code, 404)
+        self.assertEqual((await self.admin.get(f"/api/profile/avatar/{listed['anna']['id']}")).data, PNG)
+        self.assertEqual((await self.admin.get("/api/profile/avatar/owner")).status_code, 404)
 
-    def test_each_user_has_their_own_appearance(self):
-        anna = self.join("anna", ANNA)
-        self.assertEqual(anna.put("/api/profile/preferences", json={"accent": "#e0457b", "darkBackground": "grey"}).status_code, 200)
-        self.assertEqual(self.admin.put("/api/profile/preferences", json={"accent": "#0c9aa6", "theme": "dark"}).status_code, 200)
-        mine = anna.get("/api/auth/status").get_json()
-        theirs = self.admin.get("/api/auth/status").get_json()
+    async def test_each_user_has_their_own_appearance(self):
+        anna = await self.join("anna", ANNA)
+        self.assertEqual((await anna.put("/api/profile/preferences", json={"accent": "#e0457b", "darkBackground": "grey"})).status_code, 200)
+        self.assertEqual((await self.admin.put("/api/profile/preferences", json={"accent": "#0c9aa6", "theme": "dark"})).status_code, 200)
+        mine = (await anna.get("/api/auth/status")).get_json()
+        theirs = (await self.admin.get("/api/auth/status")).get_json()
         self.assertEqual((mine["accent"], mine["darkBackground"], mine["theme"]), ("#e0457b", "grey", None))
-        self.assertEqual(anna.put("/api/profile/preferences", json={"navbarStyle": "android"}).status_code, 200)
-        self.assertEqual(self.admin.get("/api/auth/status").get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
+        self.assertEqual((await anna.put("/api/profile/preferences", json={"navbarStyle": "android"})).status_code, 200)
+        self.assertEqual((await self.admin.get("/api/auth/status")).get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
         self.assertEqual((theirs["accent"], theirs["darkBackground"], theirs["theme"]), ("#0c9aa6", "green", "dark"))
-        self.assertEqual(SyncClient(self.app).put("/api/profile/preferences", json={"accent": "#000000"}).status_code, 401)
+        self.assertEqual((await self.client_for(self.app).put("/api/profile/preferences", json={"accent": "#000000"})).status_code, 401)
 
 
-class ProfileMarkupTest(unittest.TestCase):
+class ProfileMarkupTest(AppTestCase):
     @classmethod
     def setUpClass(cls):
         from pathlib import Path

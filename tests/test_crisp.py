@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, crisp, crisp_orders, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, sent_json, sent_timeout, served  # noqa: E402
+from helpers import AppTestCase, run, sent_json, sent_timeout, served  # noqa: E402
 
 
 def response(data=None, *, status=200):
@@ -83,28 +83,28 @@ def promo_page():
     ]}}
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
     def link(self, country="nl"):
-        auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
-        auth.set_secret(crisp.COUNTRY_SECRET, country)
+        run(auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x"))
+        run(auth.set_secret(crisp.COUNTRY_SECRET, country))
 
 
-class ClientIdTest(unittest.TestCase):
+class ClientIdTest(AppTestCase):
     def test_client_id_looks_like_the_app_makes_it(self):
         first, second = crisp.generate_client_id(), crisp.generate_client_id()
         self.assertRegex(first, r"^[A-Za-z0-9]{20}$")
         self.assertNotEqual(first, second)
 
 
-class CallTest(unittest.TestCase):
+class CallTest(AppTestCase):
     def test_headers_follow_the_app_and_name_mealieshopper(self):
         with served(response({"ok": True})) as route:
             self.assertEqual(run(crisp._call("POST", "/search", "CLIENT", {"query": "melk"})), {"ok": True})
@@ -202,7 +202,7 @@ class LoginTest(TempDataDirTest):
             self.assertEqual(run(crisp.unlink()), {"connected": False})
         self.assertEqual(call.call_args.args[3], {"logout": True})
         self.assertEqual(run(crisp.configured_client_id()), "")
-        self.assertEqual(auth.get_secret(crisp.COUNTRY_SECRET), "")
+        self.assertEqual(run(auth.get_secret(crisp.COUNTRY_SECRET)), "")
 
     def test_verify_checks_that_crisp_still_knows_the_user(self):
         self.link("be")
@@ -228,7 +228,7 @@ class LoginTest(TempDataDirTest):
                 run(crisp.get_cart())
 
 
-class ProductTest(unittest.TestCase):
+class ProductTest(AppTestCase):
     def test_product_in_the_shape_of_the_other_stores(self):
         summary = crisp.product_summary(product(supplier={"name": "Weidemelk"}))
         self.assertEqual(summary, {
@@ -447,60 +447,60 @@ class ExploreTest(TempDataDirTest):
 class CrispRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_login_routes(self):
+    async def test_login_routes(self):
         with mock.patch.object(crisp, "start_login", return_value={"connected": False, "codeRequired": True}) as start:
-            body = self.client.post("/api/crisp/auth", json={"email": "iemand@example.com", "country": "be"}).get_json()
+            body = (await self.client.post("/api/crisp/auth", json={"email": "iemand@example.com", "country": "be"})).get_json()
         self.assertEqual(start.call_args.args, ("iemand@example.com", "be"))
         self.assertTrue(body["codeRequired"])
         with mock.patch.object(crisp, "verify_login", side_effect=crisp.CrispLoginError("Crisp weigerde de code")):
-            reply = self.client.post("/api/crisp/auth/verify", json={"code": "1"})
+            reply = await self.client.post("/api/crisp/auth/verify", json={"code": "1"})
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (400, "Crisp weigerde de code"))
         with mock.patch.object(crisp, "_call", return_value={}):
-            self.assertEqual(self.client.post("/api/crisp/auth/logout").get_json(), {"connected": False})
-        self.assertEqual(self.client.get("/api/crisp/auth/status").get_json()["connected"], False)
+            self.assertEqual((await self.client.post("/api/crisp/auth/logout")).get_json(), {"connected": False})
+        self.assertEqual((await self.client.get("/api/crisp/auth/status")).get_json()["connected"], False)
 
-    def test_store_errors_hide_the_answer_of_crisp(self):
+    async def test_store_errors_hide_the_answer_of_crisp(self):
         with mock.patch.object(crisp, "get_cart", side_effect=RuntimeError("500: ruwe tekst")):
-            reply = self.client.get("/api/crisp/cart")
+            reply = await self.client.get("/api/crisp/cart")
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
 
-    def test_preview_and_cart_use_the_shared_flow(self):
+    async def test_preview_and_cart_use_the_shared_flow(self):
         found = [crisp.product_summary(product(1, "Eieren", weightIndication="6 stuks", price="2.49"))]
         with mock.patch.object(crisp, "search_products", return_value=found):
-            candidate = self.client.post("/api/crisp/cart/preview", json={"items": [
-                {"query": "eieren", "quantity": 12, "unit": "stuks"}]}).get_json()["items"][0]["candidates"][0]
+            candidate = (await self.client.post("/api/crisp/cart/preview", json={"items": [
+                {"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()["items"][0]["candidates"][0]
         self.assertEqual((candidate["productId"], candidate["packs"]), ("1", 2))
         result = {"added": [{"productId": "1", "quantity": 2}], "failed": [], "cart": None}
         with mock.patch.object(crisp, "search_product", return_value=found[0]), \
                 mock.patch.object(crisp, "add_to_cart", return_value=result) as add:
-            body = self.client.post("/api/crisp/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]}).get_json()
+            body = (await self.client.post("/api/crisp/cart", json={"items": [{"query": "eieren", "quantity": 12, "unit": "stuks"}]})).get_json()
         self.assertEqual(add.call_args.args[0][0]["quantity"], 2)
         self.assertEqual(body["added"], 1)
 
-    def test_recipe_routes_and_import(self):
+    async def test_recipe_routes_and_import(self):
         with mock.patch.object(crisp, "search_recipes", return_value={"recipes": [], "total": 0}):
-            self.assertEqual(self.client.get("/api/crisp/recipes?q=curry").get_json(), {"recipes": [], "total": 0})
+            self.assertEqual((await self.client.get("/api/crisp/recipes?q=curry")).get_json(), {"recipes": [], "total": 0})
         detail = crisp.recipe_details(recipe())
         with mock.patch.object(crisp, "get_recipe", return_value=detail):
-            self.assertEqual(self.client.get("/api/crisp/recipes/55").get_json()["name"], "Curry met pompoen")
+            self.assertEqual((await self.client.get("/api/crisp/recipes/55")).get_json()["name"], "Curry met pompoen")
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(crisp, "get_recipe", return_value=detail), \
                 mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="curry") as imported, \
                 mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/curry"):
-            body = self.client.post("/api/crisp/recipes/55/import").get_json()
+            body = (await self.client.post("/api/crisp/recipes/55/import")).get_json()
         self.assertEqual(body, {"slug": "curry", "mealieUrl": "http://mealie/curry"})
         self.assertEqual(imported.call_args.args[0], "https://crisp.nl/#recipe-55")
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock):
-            self.assertEqual(self.client.post("/api/crisp/recipes/abc/import").status_code, 400)
+            self.assertEqual((await self.client.post("/api/crisp/recipes/abc/import")).status_code, 400)
 
-    def test_planning_reuses_a_recipe_that_is_already_in_mealie(self):
+    async def test_planning_reuses_a_recipe_that_is_already_in_mealie(self):
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value="curry") as find, \
                 mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/curry"), \
                 mock.patch.object(crisp, "get_recipe", side_effect=AssertionError("niet ophalen")):
-            body = self.client.post("/api/crisp/recipes/55/import?reuse=1").get_json()
+            body = (await self.client.post("/api/crisp/recipes/55/import?reuse=1")).get_json()
         self.assertTrue(body["reused"])
         self.assertEqual(find.call_args.args[0], "https://crisp.nl/#recipe-55")
 
@@ -717,59 +717,59 @@ class OffersTest(TempDataDirTest):
 class CrispNewRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_quantity_and_clear_routes(self):
+    async def test_quantity_and_clear_routes(self):
         with mock.patch.object(crisp, "set_quantity", return_value={"items": []}) as setter:
-            self.assertEqual(self.client.put("/api/crisp/cart/items/101", json={"quantity": 2}).status_code, 200)
+            self.assertEqual((await self.client.put("/api/crisp/cart/items/101", json={"quantity": 2})).status_code, 200)
         self.assertEqual(setter.call_args.args, ("101", 2))
         with mock.patch.object(crisp, "set_quantity", side_effect=crisp.CrispBasketError("Crisp paste het mandje niet aan")):
-            reply = self.client.put("/api/crisp/cart/items/101", json={"quantity": 2})
+            reply = await self.client.put("/api/crisp/cart/items/101", json={"quantity": 2})
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (400, "Crisp paste het mandje niet aan"))
         with mock.patch.object(crisp, "clear_cart", side_effect=AssertionError("niet zonder bevestiging")):
-            self.assertEqual(self.client.post("/api/crisp/cart/clear", json={}).status_code, 400)
+            self.assertEqual((await self.client.post("/api/crisp/cart/clear", json={})).status_code, 400)
         with mock.patch.object(crisp, "clear_cart", return_value={"removed": 2, "cart": {"items": []}}):
-            self.assertEqual(self.client.post("/api/crisp/cart/clear", json={"confirm": True}).get_json()["removed"], 2)
+            self.assertEqual((await self.client.post("/api/crisp/cart/clear", json={"confirm": True})).get_json()["removed"], 2)
 
-    def test_order_routes_use_the_local_copy_first(self):
+    async def test_order_routes_use_the_local_copy_first(self):
         stored = {"id": "1", "itemsSynced": True, "items": [{"id": "101"}]}
         with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=stored), \
                 mock.patch.object(crisp, "get_order", side_effect=AssertionError("niet live")):
-            self.assertEqual(self.client.get("/api/crisp/orders/1").get_json(), stored)
+            self.assertEqual((await self.client.get("/api/crisp/orders/1")).get_json(), stored)
         live = {"id": "2", "itemsSynced": True, "items": []}
         with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=None), mock.patch.object(crisp, "get_order", return_value=live):
-            self.assertEqual(self.client.get("/api/crisp/orders/2").get_json(), live)
+            self.assertEqual((await self.client.get("/api/crisp/orders/2")).get_json(), live)
         pending = {"id": "3", "itemsSynced": False, "items": []}
         with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=pending), \
                 mock.patch.object(crisp, "get_order", side_effect=RuntimeError("offline")):
-            self.assertEqual(self.client.get("/api/crisp/orders/3").get_json(), pending)
+            self.assertEqual((await self.client.get("/api/crisp/orders/3")).get_json(), pending)
         with mock.patch.object(crisp, "get_open_orders", return_value=[{"id": "9"}]):
-            self.assertEqual(self.client.get("/api/crisp/orders/open").get_json(), {"orders": [{"id": "9"}]})
+            self.assertEqual((await self.client.get("/api/crisp/orders/open")).get_json(), {"orders": [{"id": "9"}]})
         with mock.patch.object(crisp_orders, "sync_orders", new_callable=mock.AsyncMock, return_value={"orders": 1, "new": 1, "remaining": 0}):
-            self.assertEqual(self.client.post("/api/crisp/orders/sync").get_json()["new"], 1)
-        self.assertEqual(self.client.get("/api/crisp/orders").get_json(), {"syncedAt": None, "orders": []})
+            self.assertEqual((await self.client.post("/api/crisp/orders/sync")).get_json()["new"], 1)
+        self.assertEqual((await self.client.get("/api/crisp/orders")).get_json(), {"syncedAt": None, "orders": []})
 
-    def test_recipe_list_route_gives_the_saved_recipes(self):
+    async def test_recipe_list_route_gives_the_saved_recipes(self):
         saved = {"recipes": [{"id": "2", "name": "Curry"}], "total": 1}
         with mock.patch.object(crisp, "get_saved_recipes", return_value=saved), \
                 mock.patch.object(crisp, "search_recipes", side_effect=AssertionError("niet zoeken")):
-            self.assertEqual(self.client.get("/api/crisp/recipes").get_json(), {"source": "saved", **saved})
-            self.assertEqual(self.client.get("/api/crisp/recipes?source=saved").get_json()["total"], 1)
+            self.assertEqual((await self.client.get("/api/crisp/recipes")).get_json(), {"source": "saved", **saved})
+            self.assertEqual((await self.client.get("/api/crisp/recipes?source=saved")).get_json()["total"], 1)
         with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")):
-            reply = self.client.get("/api/crisp/recipes?source=cookbook")
+            reply = await self.client.get("/api/crisp/recipes?source=cookbook")
         self.assertEqual(reply.status_code, 400)
         with mock.patch.object(crisp, "get_saved_recipes", side_effect=RuntimeError("500: ruwe tekst")):
-            reply = self.client.get("/api/crisp/recipes")
+            reply = await self.client.get("/api/crisp/recipes")
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
         # Met `q` blijft het zoeken, ook met een lege zoekterm (dan meldt het zoeken zelf dat die ontbreekt).
         with mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet de lijst")):
-            self.assertEqual(self.client.get("/api/crisp/recipes?q=").status_code, 400)
+            self.assertEqual((await self.client.get("/api/crisp/recipes?q=")).status_code, 400)
 
-    def test_favorites_route(self):
+    async def test_favorites_route(self):
         with mock.patch.object(crisp, "get_favorites", return_value={"products": [], "total": 0}):
-            self.assertEqual(self.client.get("/api/crisp/favorites").get_json(), {"products": [], "total": 0})
+            self.assertEqual((await self.client.get("/api/crisp/favorites")).get_json(), {"products": [], "total": 0})
         with mock.patch.object(crisp, "get_favorites", side_effect=RuntimeError("500: ruwe tekst")):
-            reply = self.client.get("/api/crisp/favorites")
+            reply = await self.client.get("/api/crisp/favorites")
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
 
 

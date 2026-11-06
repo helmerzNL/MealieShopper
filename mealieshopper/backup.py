@@ -251,30 +251,31 @@ def _quote(name: str) -> str:
 
 
 def _thread_connect() -> sqlite3.Connection:
-    """Een eigen synchrone verbinding voor het werk in een thread (`asyncio.to_thread`), niet voor de event loop."""
-    # Gelijk aan auth.connect, maar zonder die aan te roepen: de synchrone auth.connect verdwijnt (Taak 22), dit werk blijft sync.
+    """Een eigen synchrone verbinding voor het werk in een thread (`asyncio.to_thread`), niet voor de event loop.
+
+    De tabellen bestaan dan al: wie de thread start, roept eerst `ensure_schemas` aan."""
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     conn: sqlite3.Connection = sqlite3.connect(auth.db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def ensure_schemas() -> None:
+async def ensure_schemas() -> None:
     """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik).
 
-    Synchroon: draait in de thread van een fase. De winkelmodules hebben nog een synchrone `_connect`.
+    Op de event loop, voordat een fase naar zijn thread gaat: elke module maakt haar tabellen en migraties met haar eigen
+    `_connect`, dus het schema staat op een plek. De thread zelf werkt daarna alleen met `_thread_connect`.
     """
-    auth.ensure_db()
+    await auth.ensure_db()
     for module in SCHEMA_OWNERS:
-        with closing(module._connect()):
+        async with module._connect():
             pass
-    with closing(_jobs_connect()):
+    async with _ajobs_connect():
         pass
 
 
 def _jobs_connect() -> sqlite3.Connection:
     """De tabel van de klussen op een verbinding voor een thread (de voortgang tijdens het controleren)."""
-    auth.ensure_db()
     conn: sqlite3.Connection = _thread_connect()
     conn.executescript(JOB_SCHEMA)
     return conn
@@ -282,9 +283,9 @@ def _jobs_connect() -> sqlite3.Connection:
 
 @asynccontextmanager
 async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.aconnect`."""
-    await auth.aensure_db()
-    async with auth.aconnect() as conn:
+    """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
         await conn.executescript(JOB_SCHEMA)
         yield conn
 
@@ -359,7 +360,7 @@ def unseal(sealed: Any, passphrase: str) -> dict[str, str]:
 # --- de back-up maken -------------------------------------------------------------------------------------------
 
 
-def _stored_secrets(conn: sqlite3.Connection) -> tuple[dict[str, str], int]:
+def _stored_secrets(conn: sqlite3.Connection, box: Fernet) -> tuple[dict[str, str], int]:
     """De opgeslagen koppelingen, ontsleuteld; en hoeveel er onleesbaar waren (andere sleutel: opnieuw koppelen)."""
     found: dict[str, str] = {}
     unreadable = 0
@@ -369,7 +370,7 @@ def _stored_secrets(conn: sqlite3.Connection) -> tuple[dict[str, str], int]:
     for row in rows:
         value = str(row["value"] or "")
         try:
-            value = auth.secret_box().decrypt(value.encode("ascii")).decode("utf-8")
+            value = box.decrypt(value.encode("ascii")).decode("utf-8")
         except (InvalidToken, ValueError):
             if value.startswith(FERNET_PREFIX):
                 unreadable += 1
@@ -385,18 +386,18 @@ def _rows(conn: sqlite3.Connection, table: str, names: list[str]) -> Iterator[st
         yield json.dumps({name: _encode(row[index]) for index, name in enumerate(names)}, ensure_ascii=False, separators=(",", ":"))
 
 
-def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str, Any]:
+def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: str = "") -> dict[str, Any]:
     """Schrijft de back-up naar `target` en geeft een samenvatting (aantallen en koppelingen).
 
     Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als de app ondertussen doorwerkt.
+    `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
     """
     if links and len(passphrase) < MIN_PASSPHRASE_LENGTH:
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
-    ensure_schemas()
     counts: dict[str, int] = {}
     with closing(_thread_connect()) as conn:
         conn.execute("BEGIN")
-        stored, unreadable = _stored_secrets(conn) if links else ({}, 0)
+        stored, unreadable = _stored_secrets(conn, box) if links and box else ({}, 0)
         plain = {
             row["key"]: row["value"]
             for row in conn.execute("SELECT key, value FROM app_settings ORDER BY key")
@@ -405,7 +406,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str
         header = {
             "format": FORMAT,
             "format_version": FORMAT_VERSION,
-            "app_version": about.read_version(),
+            "app_version": about.version(),
             "created_at": _now(),
             "includes_links": bool(links),
         }
@@ -580,8 +581,8 @@ def check_rows(plan: Plan, progress: Callable[[int, int], None] | None = None) -
     """Legt elke rij tegen een lege kopie van het schema (types, verplichte kolommen, dubbele sleutels).
 
     Geeft de rijen terug zoals ze ingevoegd gaan worden (waarden ontcijferd). Niets in de echte database verandert.
+    Eerst `ensure_schemas`.
     """
-    ensure_schemas()
     with closing(_thread_connect()) as real, closing(_schema_copy(real)) as scratch:
         known = {table: _column_rules(real, table) for table in DATA_TABLES}
         prepared: dict[str, list[tuple[int, dict[str, Any]]]] = {}
@@ -622,9 +623,13 @@ def replace_everything(
     plan: Plan,
     prepared: dict[str, list[tuple[int, dict[str, Any]]]],
     on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None],
+    box: Fernet | None,
 ) -> dict[str, Any]:
-    """Zet alles in één transactie over de bestaande gegevens heen. `on_commit` loopt in dezelfde transactie."""
-    ensure_schemas()
+    """Zet alles in één transactie over de bestaande gegevens heen. `on_commit` loopt in dezelfde transactie.
+
+    `box` versleutelt de koppelingen opnieuw met de sleutel van deze installatie (`auth.secret_box`), nodig als het plan
+    koppelingen heeft. Eerst `ensure_schemas`.
+    """
     skipped_profiles = 0
     conn = _thread_connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
@@ -655,11 +660,13 @@ def replace_everything(
         for key, value in plan.plain.items():
             conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, value, now))
         if plan.secrets is not None:
+            if box is None:
+                raise ValueError("replace_everything: koppelingen terugzetten vraagt om `box`")
             # Een back-up met koppelingen is de nieuwe stand: een koppeling die er niet in zit, verdwijnt hier.
             for key in SECRET_KEYS:
                 conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
             for key, value in plan.secrets.items():
-                token = auth.secret_box().encrypt(value.encode("utf-8")).decode("ascii")
+                token = box.encrypt(value.encode("utf-8")).decode("ascii")
                 conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, token, now))
         summary = {
             "counts": plan.counts(),
@@ -744,6 +751,7 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+        await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
         path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
@@ -875,11 +883,11 @@ async def start_job(token: str, passphrase: str) -> dict[str, Any]:
         except BaseException:
             await conn.rollback()
             raise
-    tasks.spawn(f"backup-restore-{job_id}", arun_job(job_id, running, passphrase))
+    tasks.spawn(f"backup-restore-{job_id}", run_job(job_id, running, passphrase))
     return {"id": job_id}
 
 
-async def arun_job(job_id: str, staged: Path, passphrase: str) -> None:
+async def run_job(job_id: str, staged: Path, passphrase: str) -> None:
     """De klus zelf, als achtergrondtask (zie `_run_phases`).
 
     Een geweigerd bestand of een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van
@@ -915,6 +923,7 @@ async def _run_phases(job_id: str, staged: Path, passphrase: str) -> None:
     plan: Plan = await asyncio.to_thread(read_plan, staged)
     if plan.needs_passphrase:
         plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
+    await ensure_schemas()
     prepared: dict[str, list[tuple[int, dict[str, Any]]]] = await asyncio.to_thread(
         check_rows, plan, lambda step, steps: _job_update(job_id, step=step, steps=steps)
     )
@@ -927,7 +936,9 @@ async def _run_phases(job_id: str, staged: Path, passphrase: str) -> None:
         now: str = _now()
         conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - replacing_started, 2), now, now, job_id))
 
-    await asyncio.to_thread(replace_everything, plan, prepared, done)
+    box: Fernet | None = await auth.secret_box() if plan.secrets is not None else None  # alleen voor de koppelingen
+    await ensure_schemas()
+    await asyncio.to_thread(replace_everything, plan, prepared, done, box)
     log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
 
 
@@ -953,7 +964,9 @@ def register_routes(app: Quart) -> None:
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
         try:
-            await asyncio.to_thread(write_backup, path, links=links, passphrase=passphrase)
+            await ensure_schemas()
+            box = await auth.secret_box() if links else None  # zonder koppelingen hoeft er niets ontsleuteld
+            await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)

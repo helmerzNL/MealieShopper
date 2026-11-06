@@ -60,15 +60,15 @@ def image_path(recipe: dict[str, Any] | None) -> str | None:
 
 
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Een verbinding met de tabel van de afbeeldingen. Sluit zonder commit, zoals `auth.aconnect`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel van de afbeeldingen. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
 
 async def _cached(recipe_id: str, size: str) -> tuple[str, str, bytes] | None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         async with conn.execute(
             "SELECT version, content_type, data FROM mealie_images WHERE recipe_id = ? AND size = ?",
             (recipe_id, size),
@@ -78,7 +78,7 @@ async def _cached(recipe_id: str, size: str) -> tuple[str, str, bytes] | None:
 
 
 async def _store(recipe_id: str, size: str, version: str, content_type: str, data: bytes) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             """
             INSERT INTO mealie_images (recipe_id, size, version, content_type, data, fetched_at)

@@ -85,7 +85,7 @@ async def _ui_secret(key: str) -> str:
     """Lees een in de UI opgeslagen waarde; een onleesbare database laat de omgevingsvariabelen intact."""
     global _db_warned
     try:
-        return (await auth.aget_secret(key)).strip()
+        return (await auth.get_secret(key)).strip()
     except (sqlite3.Error, OSError) as exc:
         if not _db_warned:
             _db_warned = True
@@ -232,15 +232,15 @@ async def link(url: Any, token: Any) -> dict[str, Any]:
     if re.search(r"\s", clean_token):
         raise ValueError("De token bevat spaties of regeleinden. Kopieer hem opnieuw uit Mealie.")
     checked = await check_connection(clean_url, clean_token)
-    await auth.aset_secret(SECRET_URL, clean_url)
-    await auth.aset_secret(SECRET_TOKEN, clean_token)
+    await auth.set_secret(SECRET_URL, clean_url)
+    await auth.set_secret(SECRET_TOKEN, clean_token)
     return {**(await status()), **checked, "verified": True, "connected": True}
 
 
 async def clear() -> dict[str, Any]:
     """Verwijder de koppeling uit de UI; daarna geldt weer een eventuele omgevingsconfiguratie."""
-    await auth.adelete_secret(SECRET_URL)
-    await auth.adelete_secret(SECRET_TOKEN)
+    await auth.delete_secret(SECRET_URL)
+    await auth.delete_secret(SECRET_TOKEN)
     return await status()
 
 
@@ -748,7 +748,7 @@ async def first_day_of_week() -> int | None:
 async def week_start_setting() -> str:
     """De keuze van de beheerder: "" (zoals in Mealie) of "0".."6". Een onleesbare of ongeldige waarde telt als "zoals in Mealie"."""
     try:
-        value = (await auth.aget_setting(SETTING_WEEK_START)).strip()
+        value = (await auth.get_setting(SETTING_WEEK_START)).strip()
     except (sqlite3.Error, OSError):
         return ""
     return value if value in {str(day) for day in range(7)} else ""

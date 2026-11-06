@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import aiosqlite
 import httpx
@@ -123,16 +123,10 @@ async def _wait(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-def _connect():
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: dezelfde verbinding en hetzelfde schema, via `auth.aconnect()`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema, via `auth.connect()`. Sluit zonder commit."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
@@ -145,11 +139,14 @@ def _now() -> datetime:
 
 
 def _user_agent() -> str:
-    return f"MealieShopper/{about.read_version()} (+https://github.com/helmerzNL/MealieShopper)"
+    return f"MealieShopper/{about.version()} (+https://github.com/helmerzNL/MealieShopper)"
 
 
-async def _send(method: str, url: str, host: str, **kwargs: Any) -> Any:
-    """Eén verzoek aan Marley Spoon: één tegelijk, met een pauze ertussen, zonder redirects, alleen naar `host`."""
+async def _send(method: str, url: str, host: str, **kwargs: Any) -> httpx.Response:
+    """Eén verzoek aan Marley Spoon: één tegelijk, met een pauze ertussen, zonder redirects, alleen naar `host`.
+
+    Een doorverwijzing volgen we niet. Wijst die naar een andere host, dan zegt de fout dat, anders telt hij als elk ander
+    antwoord dat geen 200 is."""
     global _last_request
     headers = {"User-Agent": _user_agent(), "Accept-Language": "nl-NL,nl;q=0.9", **kwargs.pop("headers", {})}
     async with _gap_lock():
@@ -162,7 +159,8 @@ async def _send(method: str, url: str, host: str, **kwargs: Any) -> Any:
             raise MarleySpoonError(tr("Marley Spoon is niet bereikbaar", "Marley Spoon is not reachable")) from exc
         finally:
             _last_request = time.monotonic()
-    if (urlsplit(str(response.url)).hostname or "").lower() != host:
+    location: str = response.headers.get("Location", "") if response.is_redirect else ""
+    if location and (urlsplit(urljoin(str(response.url), location)).hostname or "").lower() != host:
         raise MarleySpoonError(tr("Marley Spoon stuurde ons ergens anders heen", "Marley Spoon redirected us elsewhere"))
     if response.status_code == 404:
         raise ValueError(tr("Marley Spoon heeft dit niet (meer)", "Marley Spoon does not have this (any more)"))
@@ -239,7 +237,7 @@ def parse_menu(data: dict[str, Any], start: date) -> dict[str, Any]:
 
 
 async def _stored(week: str) -> tuple[datetime, dict[str, Any]] | None:
-    async with _aconnect() as conn, conn.execute("SELECT fetched_at, payload FROM marleyspoon_menus WHERE week = ?", (week,)) as cursor:
+    async with _connect() as conn, conn.execute("SELECT fetched_at, payload FROM marleyspoon_menus WHERE week = ?", (week,)) as cursor:
         row = await cursor.fetchone()
     if not row:
         return None
@@ -250,7 +248,7 @@ async def _stored(week: str) -> tuple[datetime, dict[str, Any]] | None:
 
 
 async def _store(week: str, menu: dict[str, Any]) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             "INSERT INTO marleyspoon_menus (week, fetched_at, payload) VALUES (?, ?, ?) "
             "ON CONFLICT(week) DO UPDATE SET fetched_at = excluded.fetched_at, payload = excluded.payload",
@@ -295,7 +293,7 @@ async def search(query: Any, load: int = 0) -> dict[str, Any]:
     if not words:
         raise ValueError(tr("Vul een zoekwoord in", "Enter a search term"))
     failure = await load_upcoming(get_menu, load, (MarleySpoonError, ValueError)) if load else None
-    async with _aconnect() as conn, conn.execute("SELECT week, payload FROM marleyspoon_menus ORDER BY week DESC") as cursor:
+    async with _connect() as conn, conn.execute("SELECT week, payload FROM marleyspoon_menus ORDER BY week DESC") as cursor:
         rows = await cursor.fetchall()
     if failure and not rows:
         raise failure

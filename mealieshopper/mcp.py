@@ -28,7 +28,7 @@ async def enabled() -> tuple[bool, str]:
     """Staat de MCP-server aan, en zo niet: waarom niet (een korte code voor de interface)."""
     if not (await server_settings.mcp_setting())[0]:
         return False, "disabled"
-    if not await auth.aauth_required() or not await auth.acredentials_exist():
+    if not await auth.auth_required() or not await auth.credentials_exist():
         return False, "no_login"
     return True, ""
 
@@ -1101,4 +1101,4 @@ async def handle_message(message: Any) -> dict[str, Any] | None:
 def _version() -> str:
     from . import about
 
-    return about.build_info()["version"]
+    return about.version()

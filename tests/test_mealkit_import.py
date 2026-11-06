@@ -12,7 +12,7 @@ import httpx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import audit, auth, mealie, mealkit_import  # noqa: E402
-from support import returned, run  # noqa: E402
+from helpers import returned, run  # noqa: E402
 
 
 class BoxError(RuntimeError):
@@ -34,7 +34,7 @@ class Case(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
 
 class ImportIntoMealieTest(Case):
@@ -97,7 +97,7 @@ class FailureTest(unittest.TestCase):
 
 class RunImportTest(Case):
     def entries(self):
-        return audit.list_entries(service="box", query="Mealie import")["entries"]
+        return run(audit.list_entries(service="box", query="Mealie import"))["entries"]
 
     def test_a_working_import_gives_slug_and_url_and_an_audit_line(self):
         async def work(key, attempts):

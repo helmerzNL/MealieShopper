@@ -14,14 +14,14 @@ from unittest import mock
 
 import httpx
 import pytest
-from support import run, served
+from helpers import run, served
 
 from mealieshopper import auth, picnic, picnic_explore
 
 
 @pytest.fixture
 def linked(data_dir: Path) -> None:
-    auth.init_db()
+    run(auth.init_db())
     run(picnic.save_auth_key("key"))
 
 

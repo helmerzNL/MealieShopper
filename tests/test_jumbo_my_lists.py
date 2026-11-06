@@ -16,7 +16,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, sent_json, sent_params, served  # noqa: E402
+from helpers import AppTestCase, run, sent_json, sent_params, served  # noqa: E402
 
 OWN = "5e8f398d5c1add2c185b229d"
 OWN2 = "5eeb8bd189e849bb83470697"
@@ -56,18 +56,18 @@ def list_page(items, count, title="Basis Lijstje", list_id=OWN):
     return {"productListV2": {"id": list_id, "type": "CUSTOMER", "title": title, "productsCount": count, "items": items}}
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
         jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
         jumbo._working_variant.clear()
         jumbo._persisted_route.clear()
-        auth.set_secret(jumbo.REFRESH_SECRET, "ref")
+        run(auth.set_secret(jumbo.REFRESH_SECRET, "ref"))
 
 
 class OverviewTest(TempDataDirTest):
@@ -281,31 +281,31 @@ class LocalCopyTest(TempDataDirTest):
 class RoutesAndToolsTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def test_a_list_opens_live_with_its_own_id_and_jumbo_s_quantities(self):
+    async def test_a_list_opens_live_with_its_own_id_and_jumbo_s_quantities(self):
         live = {"id": OWN, "name": "Basis Lijstje", "items": [jumbo._product_list_item(product_item(1, amount=3))]}
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, return_value=live) as fetch:
-            body = self.client.get(f"/api/jumbo/lists/{OWN}").get_json()
+            body = (await self.client.get(f"/api/jumbo/lists/{OWN}")).get_json()
         fetch.assert_called_once_with(OWN)
         self.assertEqual((body["source"], body["items"][0]["quantity"], body["items"][0]["product"]["brand"]), ("jumbo", 3, "Jumbo"))
 
-    def test_sync_cart_and_a_bad_id(self):
+    async def test_sync_cart_and_a_bad_id(self):
         live = {"id": OWN, "name": "Basis Lijstje", "items": [jumbo._product_list_item(product_item(n, amount=n)) for n in (1, 2)]}
         with mock.patch.object(jumbo_lists, "fetch_live", new_callable=mock.AsyncMock, return_value=live):
-            self.assertEqual(self.client.post(f"/api/jumbo/lists/{OWN}/sync").get_json()["totalSize"], 2)
+            self.assertEqual((await self.client.post(f"/api/jumbo/lists/{OWN}/sync")).get_json()["totalSize"], 2)
         result = {"added": [], "failed": [], "cart": None}
         with mock.patch.object(jumbo, "search_product", side_effect=AssertionError("producten hebben al een SKU")), \
                 mock.patch.object(jumbo, "add_to_cart", return_value=result) as add:
-            body = self.client.post(f"/api/jumbo/lists/{OWN}/cart").get_json()
+            body = (await self.client.post(f"/api/jumbo/lists/{OWN}/cart")).get_json()
         self.assertEqual([(m["productId"], m["quantity"]) for m in add.call_args.args[0]], [("000001ZK", 1), ("000002ZK", 2)])
         self.assertEqual((body["added"], body["units"], body["name"]), (2, 3, "Basis Lijstje"))
-        self.assertEqual(self.client.get("/api/jumbo/lists/bad%20id").status_code, 400)
+        self.assertEqual((await self.client.get("/api/jumbo/lists/bad%20id")).status_code, 400)
 
-    def test_the_overview_route_has_all_kinds(self):
+    async def test_the_overview_route_has_all_kinds(self):
         with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}), \
                 mock.patch.object(jumbo, "get_product_lists", return_value=[{"id": OWN, "name": "Basis Lijstje", "kind": "own", "itemCount": 24, "description": None}]):
-            body = self.client.get("/api/jumbo/lists").get_json()
+            body = (await self.client.get("/api/jumbo/lists")).get_json()
         self.assertEqual([i["kind"] for i in body["lists"]], ["shopping", "own"])
 
     def overview(self):

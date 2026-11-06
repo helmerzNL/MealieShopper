@@ -31,13 +31,13 @@ def pkce() -> tuple[str, str]:
 
 async def execute(sql: str, params: tuple[Any, ...] = ()) -> None:
     """Een losse schrijfactie, om een tijdstip of vlag in de tests klaar te zetten."""
-    async with auth.aconnect() as conn:
+    async with auth.connect() as conn:
         await conn.execute(sql, params)
         await conn.commit()
 
 
 async def scalar(sql: str, params: tuple[Any, ...] = ()) -> Any:
-    async with auth.aconnect() as conn, conn.execute(sql, params) as cursor:
+    async with auth.connect() as conn, conn.execute(sql, params) as cursor:
         row = await cursor.fetchone()
     return row[0] if row else None
 
@@ -45,7 +45,7 @@ async def scalar(sql: str, params: tuple[Any, ...] = ()) -> Any:
 @pytest.fixture
 async def owner(data_dir: Path) -> str:
     """Een database met alleen de eigenaar (`admin`)."""
-    await auth.aensure_db()
+    await auth.ensure_db()
     await execute(
         "INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)",
         (OWNER, "admin", auth.utcnow().isoformat()),
@@ -170,7 +170,7 @@ async def test_check_authorize_request_finds_the_client_and_checks_the_redirect(
 async def test_issue_code_and_exchange_it_for_tokens(owner: str) -> None:
     client_id: str = await register()
     code, verifier = await code_for(client_id)
-    assert await scalar("SELECT epoch FROM oauth_codes") == await auth.asession_epoch(
+    assert await scalar("SELECT epoch FROM oauth_codes") == await auth.session_epoch(
         OWNER
     )
     tokens: dict[str, Any] = await oauth.token_request(
@@ -228,7 +228,7 @@ async def test_a_session_epoch_bump_invalidates_the_code_and_the_token(
     client_id: str = await register()
     tokens: dict[str, Any] = await tokens_for(client_id)
     code, verifier = await code_for(client_id)
-    await auth.abump_session_epoch(OWNER)
+    await auth.bump_session_epoch(OWNER)
     assert await oauth.verify_access_token(tokens["access_token"], MCP_URL) is None
     with pytest.raises(oauth.OAuthError, match="gewijzigd"):
         await oauth.exchange_code(exchange_form(client_id, code, verifier), MCP_URL)

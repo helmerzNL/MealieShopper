@@ -8,7 +8,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from helpers import AppTestCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
@@ -55,14 +55,14 @@ def contrast(a, b) -> float:
     return (la + 0.05) / (lb + 0.05)
 
 
-class TabbarMarkupTest(unittest.TestCase):
-    def setUp(self):
+class TabbarMarkupTest(AppTestCase):
+    async def asyncSetUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.html = SyncClient(create_app()).get("/").get_data(as_text=True)
+        self.html = (await self.client_for(create_app()).get("/")).get_data(as_text=True)
         self.nav = re.search(r'<nav class="tabs".*?</nav>', self.html, re.S).group(0)
 
     def test_viewport_reaches_under_the_home_indicator(self):
@@ -184,7 +184,7 @@ class TabbarMarkupTest(unittest.TestCase):
         self.assertIn("window.scrollTo({ top: 0 })", handler)
 
 
-class TabbarStyleTest(unittest.TestCase):
+class TabbarStyleTest(AppTestCase):
     def setUp(self):
         self.media = CSS[CSS.index("/* Onderste menubalk: een zwevende"):]
 
@@ -282,7 +282,7 @@ class TabbarStyleTest(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", code)
 
 
-class TabbarContrastTest(unittest.TestCase):
+class TabbarContrastTest(AppTestCase):
     """Labels moeten leesbaar blijven, ook als er een donkere of witte foto onder het glas ligt, bij elke stand van de schuif."""
 
     def setUp(self):
@@ -324,7 +324,7 @@ class TabbarContrastTest(unittest.TestCase):
         self.assertGreater(contrast(tinted, glass), 1.1, "het geselecteerde vlak valt op")
 
 
-class TabbarDocsTest(unittest.TestCase):
+class TabbarDocsTest(AppTestCase):
     def test_style_guide_explains_the_bar_and_how_to_preview_it(self):
         guide = (ROOT / "docs" / "huisstijl.md").read_text(encoding="utf-8")
         for needle in ("onderste menubalk", "?tabbar=1", "?tabbar=0", "viewport-fit=cover"):

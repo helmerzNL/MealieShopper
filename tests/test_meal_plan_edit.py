@@ -12,7 +12,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, routes, run, sent_json, sent_params, sent_url  # noqa: E402
+from helpers import AppTestCase, routes, run, sent_json, sent_params, sent_url  # noqa: E402
 
 URL = "https://mealie.example.nl"
 TOKEN = "mealie-token"
@@ -33,7 +33,7 @@ def about(version):
     return response(body={"version": version})
 
 
-class MealPlanTestCase(unittest.TestCase):
+class MealPlanTestCase(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -48,39 +48,39 @@ class MealPlanTestCase(unittest.TestCase):
         self.addCleanup(mealie._group_slug_cache.clear)
         mealie._week_start_cache.clear()
         self.addCleanup(mealie._week_start_cache.clear)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
 
 class CreateTest(MealPlanTestCase):
-    def test_plan_a_recipe(self):
+    async def test_plan_a_recipe(self):
         created = {"id": 7, "date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID}
         with routes() as api:
             post = api.post(PLANS).mock(return_value=response(201, created))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID})
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(answer.get_json()["id"], 7)
         self.assertEqual(sent_json(post.calls.last), {"date": "2026-11-03", "entryType": "dinner", "title": "", "text": "", "recipeId": RECIPE_ID})
         self.assertEqual(post.calls.last.request.headers["Authorization"], f"Bearer {TOKEN}")
 
-    def test_a_slug_becomes_the_recipe_id(self):
+    async def test_a_slug_becomes_the_recipe_id(self):
         # Na een import kent de app alleen de slug; Mealie wil het id.
         with routes() as api:
             get = api.get(f"{URL}/api/recipes/pasta-pesto").mock(return_value=response(body={"id": RECIPE_ID, "slug": "pasta-pesto"}))
             post = api.post(PLANS).mock(return_value=response(201, {"id": 8}))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-04", "recipeSlug": "pasta-pesto"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-04", "recipeSlug": "pasta-pesto"})
         self.assertEqual(answer.status_code, 201)
         self.assertTrue(get.called)
         self.assertEqual(sent_json(post.calls.last)["recipeId"], RECIPE_ID)
         self.assertEqual(sent_json(post.calls.last)["entryType"], "dinner", "zonder keuze is het diner")
 
-    def test_plan_a_note(self):
+    async def test_plan_a_note(self):
         with routes() as api:
             post = api.post(PLANS).mock(return_value=response(201, {"id": 9}))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "lunch", "title": "  Uit   eten ", "text": "Pizzeria\nom 18 uur"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "lunch", "title": "  Uit   eten ", "text": "Pizzeria\nom 18 uur"})
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(sent_json(post.calls.last), {"date": "2026-11-05", "entryType": "lunch", "title": "Uit eten", "text": "Pizzeria\nom 18 uur", "recipeId": None})
 
-    def test_invalid_input_never_reaches_mealie(self):
+    async def test_invalid_input_never_reaches_mealie(self):
         cases = [
             {"date": "2026-11-05"},  # geen recept en geen titel
             {"date": "morgen", "title": "Restjes"},
@@ -92,16 +92,16 @@ class CreateTest(MealPlanTestCase):
         with routes() as api:
             anything = api.route()
             for body in cases:
-                answer = self.client.post("/api/mealplan", json=body)
+                answer = await self.client.post("/api/mealplan", json=body)
                 self.assertEqual(answer.status_code, 400, body)
                 self.assertTrue(answer.get_json()["error"], body)
         self.assertFalse(anything.called)
 
-    def test_snack_drink_and_dessert_need_mealie_3_7(self):
+    async def test_snack_drink_and_dessert_need_mealie_3_7(self):
         with routes() as api:
             api.get(ABOUT).mock(return_value=about("v2.8.0"))
             post = api.post(PLANS)
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "snack", "title": "Fruit"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "snack", "title": "Fruit"})
         self.assertEqual(answer.status_code, 400)
         self.assertIn("3.7", answer.get_json()["error"])
         self.assertFalse(post.called)
@@ -109,20 +109,20 @@ class CreateTest(MealPlanTestCase):
         with routes() as api:
             api.get(ABOUT).mock(return_value=about("v3.7.0"))
             post = api.post(PLANS).mock(return_value=response(201, {"id": 10}))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "snack", "title": "Fruit"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "entryType": "snack", "title": "Fruit"})
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(sent_json(post.calls.last)["entryType"], "snack")
 
-    def test_options_follow_the_mealie_version(self):
+    async def test_options_follow_the_mealie_version(self):
         with routes() as api:
             about_route = api.get(ABOUT).mock(return_value=about("v3.12.0"))
-            self.assertEqual(self.client.get("/api/mealplan/options").get_json()["entryTypes"],
+            self.assertEqual((await self.client.get("/api/mealplan/options")).get_json()["entryTypes"],
                              ["breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"])
         self.assertNotIn("Authorization", about_route.calls.last.request.headers, "de versie vraagt geen token")
         mealie._version_cache.clear()
         with routes() as api:
             api.get(ABOUT).mock(side_effect=httpx.ConnectError("weg"))
-            self.assertEqual(self.client.get("/api/mealplan/options").get_json()["entryTypes"], ["breakfast", "lunch", "dinner", "side"])
+            self.assertEqual((await self.client.get("/api/mealplan/options")).get_json()["entryTypes"], ["breakfast", "lunch", "dinner", "side"])
 
     def test_the_version_is_remembered(self):
         with routes() as api:
@@ -138,30 +138,30 @@ class CreateTest(MealPlanTestCase):
             self.assertIsNone(run(mealie.version()))
         self.assertFalse(elsewhere.called)
 
-    def test_a_refusal_from_mealie_is_readable(self):
+    async def test_a_refusal_from_mealie_is_readable(self):
         refusal = response(422, {"detail": [{"loc": ["body", "recipeId"], "msg": "Input should be a valid UUID", "type": "uuid_parsing"}]})
         with routes() as api:
             api.post(PLANS).mock(return_value=refusal)
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 424)
         self.assertIn("(422)", answer.get_json()["error"])
         self.assertIn("valid UUID", answer.get_json()["error"])
         with routes() as api:
             api.post(PLANS).mock(return_value=response(401, {"detail": "Not authenticated"}))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertIn("token", answer.get_json()["error"])
 
-    def test_without_mealie_nothing_is_sent(self):
+    async def test_without_mealie_nothing_is_sent(self):
         with mock.patch.dict(os.environ, {"MEALIE_URL": "", "MEALIE_API_TOKEN": ""}), routes() as api:
             anything = api.route()
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 424)
         self.assertIn("niet gekoppeld", answer.get_json()["error"])
         self.assertFalse(anything.called)
 
 
 class WeekTest(MealPlanTestCase):
-    def test_a_note_without_a_recipe_does_not_break_the_week(self):
+    async def test_a_note_without_a_recipe_does_not_break_the_week(self):
         # Mealie geeft bij een notitie "recipe": null; dat liet het hele weekmenu eerder mislukken.
         week = {"items": [
             {"id": 1, "date": "2026-11-02", "entryType": "dinner", "title": "Uit eten", "text": "", "recipeId": None, "recipe": None},
@@ -173,7 +173,7 @@ class WeekTest(MealPlanTestCase):
             plans = api.get(PLANS).mock(return_value=response(body=week))
             api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body=recipe))
             api.get(f"{URL}/api/users/self").mock(return_value=response(body={"groupSlug": None}))
-            answer = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")
+            answer = await self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")
         self.assertEqual(sent_params(plans.calls.last), {"start_date": "2026-11-02", "end_date": "2026-11-08", "perPage": "50"})
         self.assertEqual(answer.status_code, 200)
         entries = answer.get_json()
@@ -181,7 +181,7 @@ class WeekTest(MealPlanTestCase):
         self.assertIsNone(entries[0]["imageUrl"])
         self.assertIsNone(entries[0]["servings"], "een notitie heeft geen porties")
 
-    def test_a_recipe_brings_its_time_and_link_for_the_recipe_window(self):
+    async def test_a_recipe_brings_its_time_and_link_for_the_recipe_window(self):
         # Een tik op een maaltijd opent het recept in een venster: met de bereidingstijd en de link naar Mealie erbij.
         week = {"items": [
             {"id": 1, "date": "2026-11-02", "entryType": "dinner", "title": "Uit eten", "text": "", "recipeId": None, "recipe": None},
@@ -193,19 +193,19 @@ class WeekTest(MealPlanTestCase):
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
             api.get(PLANS).mock(return_value=response(body=week))
             api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body=recipe))
-            entries = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08").get_json()
+            entries = (await self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")).get_json()
         note, meal = entries
         self.assertEqual((meal["recipeMinutes"], meal["recipeUrl"]), (90, f"{URL}/g/thuis/r/pasta"))
         self.assertEqual(meal["recipeDetail"]["recipeInstructions"], [{"text": "Kook de pasta."}])
         self.assertEqual((note["recipeMinutes"], note["recipeUrl"]), (None, None), "een notitie heeft geen recept")
 
-    def test_a_recipe_mealie_could_not_give_keeps_its_link(self):
+    async def test_a_recipe_mealie_could_not_give_keeps_its_link(self):
         week = {"items": [{"id": 2, "date": "2026-11-03", "entryType": "dinner", "recipeId": RECIPE_ID, "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta"}}]}
 
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value=None):
             api.get(PLANS).mock(return_value=response(body=week))
             api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(500, {"detail": "kapot"}))
-            entry = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08").get_json()[0]
+            entry = (await self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")).get_json()[0]
         self.assertIsNone(entry["recipeDetail"])
         self.assertEqual((entry["recipeMinutes"], entry["recipeUrl"]), (None, f"{URL}/recipe/pasta"))
 
@@ -252,7 +252,7 @@ SPAGHETTI = {"quantity": 400, "unit": {"name": "gram", "abbreviation": "g", "use
 class ServingsTest(MealPlanTestCase):
     """Issue #159: de porties uit de planner van Mealie (`recipeScale`, sinds v3.29.0) rekenen de hoeveelheden om."""
 
-    def week(self, *scales, servings=2):
+    async def week(self, *scales, servings=2):
         items = []
         for number, scale in enumerate(scales, start=1):
             item = {"id": number, "date": f"2026-11-0{number + 1}", "entryType": "dinner", "recipeId": RECIPE_ID,
@@ -265,34 +265,34 @@ class ServingsTest(MealPlanTestCase):
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value=None):
             api.get(PLANS).mock(return_value=response(body={"items": items}))
             api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body=recipe))
-            answer = self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")
+            answer = await self.client.get("/api/mealplan?start=2026-11-02&end=2026-11-08")
         self.assertEqual(answer.status_code, 200)
         return answer.get_json()
 
-    def test_planned_servings_scale_the_ingredients(self):
-        entry = self.week(2)[0]
+    async def test_planned_servings_scale_the_ingredients(self):
+        entry = (await self.week(2))[0]
         self.assertEqual(entry["servings"], {"scale": 2.0, "base": 2, "planned": 4})
         self.assertEqual([(i["quantity"], i["display"]) for i in entry["recipeDetail"]["recipeIngredient"]], [(800, "800 g spaghetti")])
 
-    def test_the_same_recipe_twice_with_another_scale(self):
+    async def test_the_same_recipe_twice_with_another_scale(self):
         # Mealie haalt het recept één keer op; elke maaltijd krijgt een eigen kopie, met haar eigen schaal.
-        first, second, third = self.week(1.5, 0.5, 1)
+        first, second, third = await self.week(1.5, 0.5, 1)
         self.assertEqual([e["servings"]["planned"] for e in (first, second, third)], [3, 1, 2])
         self.assertEqual([e["recipeDetail"]["recipeIngredient"][0]["quantity"] for e in (first, second, third)], [600, 200, 400])
 
-    def test_older_mealie_or_odd_values_mean_scale_one(self):
+    async def test_older_mealie_or_odd_values_mean_scale_one(self):
         for scale in (..., 0, -2, "x", True, None):
-            entry = self.week(scale)[0]
+            entry = (await self.week(scale))[0]
             self.assertEqual(entry["servings"], {"scale": 1.0, "base": 2, "planned": 2}, scale)
             self.assertEqual(entry["recipeDetail"]["recipeIngredient"][0]["display"], "400 g spaghetti", scale)
 
-    def test_a_recipe_without_servings(self):
-        entry = self.week(1.5, servings=None)[0]
+    async def test_a_recipe_without_servings(self):
+        entry = (await self.week(1.5, servings=None))[0]
         self.assertEqual(entry["servings"], {"scale": 1.5, "base": None, "planned": None})
         self.assertEqual(entry["recipeDetail"]["recipeIngredient"][0]["quantity"], 600)
 
-    def test_odd_servings_are_rounded(self):
-        self.assertEqual(self.week(1 / 3, servings=4)[0]["servings"]["planned"], 1.3)
+    async def test_odd_servings_are_rounded(self):
+        self.assertEqual((await self.week(1 / 3, servings=4))[0]["servings"]["planned"], 1.3)
 
 
 class UpdateDeleteTest(MealPlanTestCase):
@@ -301,11 +301,11 @@ class UpdateDeleteTest(MealPlanTestCase):
         "title": "", "text": "", "recipeId": RECIPE_ID, "recipe": {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta"}, "updatedAt": "2026-11-01T10:00:00",
     }
 
-    def test_move_to_another_day_keeps_the_rest(self):
+    async def test_move_to_another_day_keeps_the_rest(self):
         with routes() as api:
             get = api.get(f"{PLANS}/7").mock(return_value=response(body=dict(self.CURRENT)))
             put = api.put(f"{PLANS}/7").mock(return_value=response(body={**self.CURRENT, "date": "2026-11-06"}))
-            answer = self.client.patch("/api/mealplan/7", json={"date": "2026-11-06", "entryType": "lunch"})
+            answer = await self.client.patch("/api/mealplan/7", json={"date": "2026-11-06", "entryType": "lunch"})
         self.assertEqual(answer.status_code, 200)
         self.assertTrue(get.called)
         sent = sent_json(put.calls.last)
@@ -313,88 +313,88 @@ class UpdateDeleteTest(MealPlanTestCase):
         self.assertEqual(sent, {"id": 7, "groupId": GROUP_ID, "userId": USER_ID, "date": "2026-11-06", "entryType": "lunch",
                                 "title": "", "text": "", "recipeId": RECIPE_ID})
 
-    def test_the_servings_from_mealie_stay(self):
+    async def test_the_servings_from_mealie_stay(self):
         # Mealie v3.29 zet een PUT zonder `recipeScale` terug op 1: de porties moeten dus mee terug.
         current = {**self.CURRENT, "recipeScale": 2.0}
         with routes() as api:
             api.get(f"{PLANS}/7").mock(return_value=response(body=current))
             put = api.put(f"{PLANS}/7").mock(return_value=response(body=current))
-            self.client.patch("/api/mealplan/7", json={"date": "2026-11-06"})
-            self.client.patch("/api/mealplan/7", json={"date": "2026-11-06", "recipeId": RECIPE_ID.upper()})
+            await self.client.patch("/api/mealplan/7", json={"date": "2026-11-06"})
+            await self.client.patch("/api/mealplan/7", json={"date": "2026-11-06", "recipeId": RECIPE_ID.upper()})
         self.assertEqual([sent_json(call)["recipeScale"] for call in put.calls], [2.0, 2.0], "zelfde recept: zelfde porties")
 
-    def test_another_recipe_or_a_note_starts_at_scale_one(self):
+    async def test_another_recipe_or_a_note_starts_at_scale_one(self):
         current = {**self.CURRENT, "recipeScale": 2.0}
         other = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         with routes() as api:
             api.get(f"{PLANS}/7").mock(return_value=response(body=current))
             put = api.put(f"{PLANS}/7").mock(return_value=response(body=current))
-            self.client.patch("/api/mealplan/7", json={"recipeId": other})
-            self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
+            await self.client.patch("/api/mealplan/7", json={"recipeId": other})
+            await self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
         self.assertEqual([sent_json(call)["recipeScale"] for call in put.calls], [1.0, 1.0])
 
-    def test_an_older_mealie_gets_no_scale_field(self):
+    async def test_an_older_mealie_gets_no_scale_field(self):
         with routes() as api:
             api.get(f"{PLANS}/7").mock(return_value=response(body=dict(self.CURRENT)))
             put = api.put(f"{PLANS}/7").mock(return_value=response(body={}))
-            self.client.patch("/api/mealplan/7", json={"recipeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+            await self.client.patch("/api/mealplan/7", json={"recipeId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
         self.assertNotIn("recipeScale", sent_json(put.calls.last))
 
-    def test_a_recipe_becomes_a_note(self):
+    async def test_a_recipe_becomes_a_note(self):
         with routes() as api:
             api.get(f"{PLANS}/7").mock(return_value=response(body=dict(self.CURRENT)))
             put = api.put(f"{PLANS}/7").mock(return_value=response(body={}))
-            answer = self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
+            answer = await self.client.patch("/api/mealplan/7", json={"title": "Uit eten", "recipeId": None})
         self.assertEqual(answer.status_code, 200)
         self.assertEqual((sent_json(put.calls.last)["recipeId"], sent_json(put.calls.last)["title"]), (None, "Uit eten"))
 
-    def test_removing_the_recipe_without_a_title_is_refused(self):
+    async def test_removing_the_recipe_without_a_title_is_refused(self):
         with routes() as api:
             api.get(f"{PLANS}/7").mock(return_value=response(body=dict(self.CURRENT)))
             put = api.put(f"{PLANS}/7")
-            answer = self.client.patch("/api/mealplan/7", json={"recipeId": None})
+            answer = await self.client.patch("/api/mealplan/7", json={"recipeId": None})
         self.assertEqual(answer.status_code, 400)
         self.assertFalse(put.called)
 
-    def test_unknown_meal(self):
+    async def test_unknown_meal(self):
         with routes() as api:
             api.get(f"{PLANS}/99").mock(return_value=response(404, {"detail": {"message": "Not found"}}))
             put = api.put(f"{PLANS}/99")
-            answer = self.client.patch("/api/mealplan/99", json={"date": "2026-11-06"})
+            answer = await self.client.patch("/api/mealplan/99", json={"date": "2026-11-06"})
         self.assertEqual(answer.status_code, 424)
         self.assertIn("Not found", answer.get_json()["error"])
         self.assertFalse(put.called)
 
-    def test_delete(self):
+    async def test_delete(self):
         with routes() as api:
             delete = api.delete(f"{PLANS}/7").mock(return_value=response(body=dict(self.CURRENT)))
-            answer = self.client.delete("/api/mealplan/7")
+            answer = await self.client.delete("/api/mealplan/7")
         self.assertEqual((answer.status_code, answer.get_json()), (200, {"id": 7, "deleted": True}))
         self.assertEqual(sent_url(delete.calls.last), f"{URL}/api/households/mealplans/7")
-        self.assertEqual(self.client.delete("/api/mealplan/abc").status_code, 404, "alleen een getal is een maaltijd")
+        self.assertEqual((await self.client.delete("/api/mealplan/abc")).status_code, 404, "alleen een getal is een maaltijd")
         with self.assertRaises(ValueError):
-            run(mealie.delete_meal_plan_entry(0))
+            await mealie.delete_meal_plan_entry(0)
 
 
 class SurpriseTest(MealPlanTestCase):
-    def test_mealie_picks_a_recipe(self):
+    async def test_mealie_picks_a_recipe(self):
         with routes() as api:
             post = api.post(f"{PLANS}/random").mock(return_value=response(200, {"id": 11, "recipe": {"name": "Curry"}}))
-            answer = self.client.post("/api/mealplan/random", json={"date": "2026-11-07", "entryType": "dinner"})
+            answer = await self.client.post("/api/mealplan/random", json={"date": "2026-11-07", "entryType": "dinner"})
         self.assertEqual(answer.status_code, 201)
         self.assertEqual(sent_json(post.calls.last), {"date": "2026-11-07", "entryType": "dinner"})
 
-    def test_no_recipe_matches_the_rules(self):
+    async def test_no_recipe_matches_the_rules(self):
         with routes() as api:
             api.post(f"{PLANS}/random").mock(return_value=response(404, {"detail": {"message": "No recipes match your rules"}}))
-            answer = self.client.post("/api/mealplan/random", json={"date": "2026-11-07"})
+            answer = await self.client.post("/api/mealplan/random", json={"date": "2026-11-07"})
         self.assertEqual(answer.status_code, 424)
         self.assertIn("planregels", answer.get_json()["error"])
 
-    def test_invalid_day(self):
+    async def test_invalid_day(self):
         with routes() as api:
             anything = api.route()
-            self.assertEqual(self.client.post("/api/mealplan/random", json={"date": ""}).status_code, 400)
+            self.assertEqual((await self.client.post("/api/mealplan/random", json={"date": ""})).status_code, 400)
         self.assertFalse(anything.called)
 
 
@@ -408,10 +408,10 @@ class RecipeSearchTest(MealPlanTestCase):
         ],
     }
 
-    def test_search_gives_cards_like_the_stores(self):
+    async def test_search_gives_cards_like_the_stores(self):
         with routes() as api:
             get = api.get(f"{URL}/api/recipes").mock(return_value=response(body=self.PAGE))
-            answer = self.client.get("/api/mealie/recipes?q=pasta&page=1")
+            answer = await self.client.get("/api/mealie/recipes?q=pasta&page=1")
         self.assertEqual(answer.status_code, 200)
         data = answer.get_json()
         self.assertEqual((data["total"], data["page"], data["more"]), (30, 1, True))
@@ -421,21 +421,21 @@ class RecipeSearchTest(MealPlanTestCase):
         }])
         self.assertEqual(sent_params(get.calls.last), {"page": "1", "perPage": "24", "search": "pasta"}, "Mealie sorteert zoekresultaten zelf")
 
-    def test_without_a_query_all_recipes_by_name(self):
+    async def test_without_a_query_all_recipes_by_name(self):
         with routes() as api:
             get = api.get(f"{URL}/api/recipes").mock(return_value=response(body={**self.PAGE, "page": 2}))
-            data = self.client.get("/api/mealie/recipes?page=2").get_json()
+            data = (await self.client.get("/api/mealie/recipes?page=2")).get_json()
         self.assertEqual(sent_params(get.calls.last), {"page": "2", "perPage": "24", "orderBy": "name", "orderDirection": "asc"})
         self.assertFalse(data["more"], "pagina 2 van 2 is de laatste")
 
-    def test_search_failure(self):
+    async def test_search_failure(self):
         with routes() as api:
             api.get(f"{URL}/api/recipes").mock(return_value=response(500, {"detail": "kapot"}))
-            answer = self.client.get("/api/mealie/recipes?q=pasta")
+            answer = await self.client.get("/api/mealie/recipes?q=pasta")
         self.assertEqual(answer.status_code, 424)
         self.assertIn("(500)", answer.get_json()["error"])
 
-    def test_detail(self):
+    async def test_detail(self):
         recipe = {
             "id": RECIPE_ID, "slug": "pasta-pesto", "name": "Pasta pesto", "image": "abc1", "description": " Snel en groen. ",
             "recipeServings": 2, "totalTime": "20 min",
@@ -444,7 +444,7 @@ class RecipeSearchTest(MealPlanTestCase):
         }
         with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
             api.get(f"{URL}/api/recipes/pasta-pesto").mock(return_value=response(body=recipe))
-            answer = self.client.get("/api/mealie/recipes/pasta-pesto")
+            answer = await self.client.get("/api/mealie/recipes/pasta-pesto")
         self.assertEqual(answer.status_code, 200)
         data = answer.get_json()
         self.assertEqual((data["name"], data["portions"], data["minutes"], data["description"]), ("Pasta pesto", 2, 20, "Snel en groen."))
@@ -452,11 +452,11 @@ class RecipeSearchTest(MealPlanTestCase):
         self.assertEqual(data["steps"], ["Kook de pasta.", "Roer de pesto erdoor."])
         self.assertEqual(data["url"], f"{URL}/g/thuis/r/pasta-pesto")
 
-    def test_detail_refuses_odd_slugs(self):
+    async def test_detail_refuses_odd_slugs(self):
         with routes() as api:
             anything = api.route()
             for slug in ("..", "a.b", "-pasta", "a" * 201):
-                self.assertIn(self.client.get(f"/api/mealie/recipes/{slug}").status_code, (400, 404), slug)
+                self.assertIn((await self.client.get(f"/api/mealie/recipes/{slug}")).status_code, (400, 404), slug)
         self.assertFalse(anything.called)
 
     def test_minutes_from_free_text(self):
@@ -466,22 +466,22 @@ class RecipeSearchTest(MealPlanTestCase):
 
 
 class AccessTest(MealPlanTestCase):
-    def test_every_user_may_plan(self):
+    async def test_every_user_may_plan(self):
         # Net als recepten importeren: plannen en zoeken in Mealie mag iedereen die is ingelogd, niet alleen de beheerder.
         for path in ("/api/mealplan", "/api/mealplan/7", "/api/mealplan/random", "/api/mealplan/options", "/api/mealie/recipes", "/api/mealie/recipes/pasta"):
             self.assertFalse(auth.admin_only(path), path)
         regular = {"id": "anna-id", "username": "anna"}  # niet auth.OWNER_ID: een gewone gebruiker
-        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=regular), \
+        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=regular), \
                 routes() as api:
             api.post(PLANS).mock(return_value=response(201, {"id": 12}))
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 201)
 
-    def test_not_logged_in_is_refused(self):
-        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=None), \
+    async def test_not_logged_in_is_refused(self):
+        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None), \
                 routes() as api:
             anything = api.route()
-            answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
+            answer = await self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 401)
         self.assertFalse(anything.called)
 

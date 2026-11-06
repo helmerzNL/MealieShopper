@@ -85,16 +85,10 @@ async def _wait(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-def _connect():
-    conn = auth.connect()
-    conn.executescript(SCHEMA)
-    return conn
-
-
 @asynccontextmanager
-async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
-    """Async tweeling van `_connect`: dezelfde verbinding en hetzelfde schema, via `auth.aconnect()`."""
-    async with auth.aconnect() as conn:
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met het schema, via `auth.connect()`. Sluit zonder commit."""
+    async with auth.connect() as conn:
         await conn.executescript(SCHEMA)
         yield conn
 
@@ -107,7 +101,7 @@ def _now() -> datetime:
 
 
 def _user_agent() -> str:
-    return f"MealieShopper/{about.read_version()} (+https://github.com/helmerzNL/MealieShopper)"
+    return f"MealieShopper/{about.version()} (+https://github.com/helmerzNL/MealieShopper)"
 
 
 async def _get(path: str) -> str:
@@ -263,7 +257,7 @@ def parse_menu(page: str) -> dict[str, Any]:
 
 
 async def _stored(week: str) -> tuple[datetime, dict[str, Any]] | None:
-    async with _aconnect() as conn, conn.execute("SELECT fetched_at, payload FROM hellofresh_menus WHERE week = ?", (week,)) as cursor:
+    async with _connect() as conn, conn.execute("SELECT fetched_at, payload FROM hellofresh_menus WHERE week = ?", (week,)) as cursor:
         row = await cursor.fetchone()
     if not row:
         return None
@@ -274,7 +268,7 @@ async def _stored(week: str) -> tuple[datetime, dict[str, Any]] | None:
 
 
 async def _store(menu: dict[str, Any]) -> None:
-    async with _aconnect() as conn:
+    async with _connect() as conn:
         await conn.execute(
             "INSERT INTO hellofresh_menus (week, fetched_at, payload) VALUES (?, ?, ?) "
             "ON CONFLICT(week) DO UPDATE SET fetched_at = excluded.fetched_at, payload = excluded.payload",
@@ -318,7 +312,7 @@ async def search(query: Any, load: int = 0) -> dict[str, Any]:
     if not words:
         raise ValueError(tr("Vul een zoekwoord in", "Enter a search term"))
     failure = await load_upcoming(get_menu, load, (HelloFreshError, ValueError)) if load else None
-    async with _aconnect() as conn, conn.execute("SELECT week, payload FROM hellofresh_menus ORDER BY week DESC") as cursor:
+    async with _connect() as conn, conn.execute("SELECT week, payload FROM hellofresh_menus ORDER BY week DESC") as cursor:
         rows = await cursor.fetchall()
     if failure and not rows:
         raise failure

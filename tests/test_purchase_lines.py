@@ -9,7 +9,7 @@ from unittest import mock
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, jumbo_orders, product_links, purchase_lines
-from support import in_db, run
+from helpers import db, in_db, run
 
 
 class DiscountTest(unittest.TestCase):
@@ -254,22 +254,22 @@ class TimesBeforeTest(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
     def test_orders_and_linked_receipt_lines_before_the_day_count_once_per_purchase(
         self,
     ):
         line = {"productId": 1, "title": "AH Bananen", "quantity": 1, "price": 1.0}
-        in_db(
-            ah_orders._aconnect,
+        run(in_db(
+            ah_orders._connect,
             lambda conn: ah_orders._save_order(
                 conn, {"id": 1, "deliveryDate": "2026-09-01"}, "delivered", [line, line]
             ),  # twee regels, één bestelling
             lambda conn: ah_orders._save_order(
                 conn, {"id": 2, "deliveryDate": "2026-09-21"}, "delivered", [line]
             ),  # de dag zelf telt niet
-        )
-        with closing(ah_orders._connect()) as conn, conn:
+        ))
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
             )
@@ -279,17 +279,17 @@ class TimesBeforeTest(unittest.TestCase):
             conn.execute(
                 "INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 1, 'AH Bananen', 'x')"
             )
-        found = in_db(
-            ah_orders._aconnect,
+        found = run(in_db(
+            ah_orders._connect,
             lambda conn: purchase_lines.times_before(
                 conn, "ah", ["1", None, "", 2], "2026-09-21"
             ),
-        )[0]
+        ))[0]
         self.assertEqual(found, {"1": 2})
 
     def test_a_receipt_line_you_linked_yourself_counts_as_an_earlier_purchase(self):
         # Geen automatische koppeling voor 555, wel je eigen (#238): de bon telt bij product 1. De naamkoppeling van "KWARK" telt bij 2.
-        with closing(ah_orders._connect()) as conn, conn:
+        with closing(db(ah_orders)) as conn, conn:
             conn.execute(
                 "INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1, 1, 'x')"
             )
@@ -300,19 +300,19 @@ class TimesBeforeTest(unittest.TestCase):
         run(product_links.save("ah", "BANANEN", {"productId": "1", "title": "AH Bananen"}, article=555))
         run(product_links.save("ah", "KWARK", {"productId": "2", "title": "AH Kwark"}))
         # Op een kale verbinding zonder `ms_fold`: `times_before` zet die (en de tabel van `product_links`) er zelf bij.
-        found = in_db(
-            auth.aconnect, lambda conn: purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
-        )[0]
+        found = run(in_db(
+            auth.connect, lambda conn: purchase_lines.times_before(conn, "ah", ["1", "2", "3"], "2026-09-21")
+        ))[0]
         self.assertEqual(found, {"1": 1, "2": 1})
 
     def test_a_store_without_tables_counts_nothing(self):
         self.assertEqual(
-            in_db(auth.aconnect, lambda conn: purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21"))[0], {}
+            run(in_db(auth.connect, lambda conn: purchase_lines.times_before(conn, "picnic", ["1"], "2026-09-21")))[0], {}
         )
 
     def test_jumbo_counts_its_own_orders_only(self):
-        in_db(
-            jumbo_orders._aconnect,
+        run(in_db(
+            jumbo_orders._connect,
             lambda conn: jumbo_orders._save_order(
                 conn,
                 {"id": "J1", "deliveryDate": "2026-09-01"},
@@ -325,9 +325,9 @@ class TimesBeforeTest(unittest.TestCase):
                     }
                 ],
             ),
-        )
+        ))
         self.assertEqual(
-            in_db(jumbo_orders._aconnect, lambda conn: purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21"))[0],
+            run(in_db(jumbo_orders._connect, lambda conn: purchase_lines.times_before(conn, "jumbo", ["123STK"], "2026-09-21")))[0],
             {"123STK": 1},
         )
 

@@ -22,7 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, routes, run, sent_timeout  # noqa: E402
+from helpers import AppTestCase, routes, run, sent_timeout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -46,7 +46,7 @@ def preferences(first_day):
     return response(body={"privateHousehold": True, "firstDayOfWeek": first_day, "recipePublic": True, "id": "voorkeuren"})
 
 
-class WeekStartTestCase(unittest.TestCase):
+class WeekStartTestCase(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -58,17 +58,17 @@ class WeekStartTestCase(unittest.TestCase):
         auth._INITIALIZED = False
         mealie._week_start_cache.clear()
         self.addCleanup(mealie._week_start_cache.clear)
-        self.client = SyncClient(create_app())
+        self.client = self.client_for(create_app())
 
-    def link(self):
-        auth.set_secret("MEALIE_URL", URL)
-        auth.set_secret("MEALIE_API_TOKEN", TOKEN)
+    async def link(self):
+        await auth.set_secret("MEALIE_URL", URL)
+        await auth.set_secret("MEALIE_API_TOKEN", TOKEN)
 
 
 class FirstDayFromMealieTest(WeekStartTestCase):
-    def setUp(self):
-        super().setUp()
-        self.link()
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        await self.link()
 
     def test_read_from_the_household_preferences_with_the_token(self):
         with routes() as api:
@@ -114,7 +114,7 @@ class FirstDayFromMealieTest(WeekStartTestCase):
             self.assertEqual(run(mealie.first_day_of_week()), 6)
 
     def test_without_a_link_there_is_no_request(self):
-        auth.delete_secret("MEALIE_URL")
+        run(auth.delete_secret("MEALIE_URL"))
         with routes() as api:
             anything = api.route()
             self.assertIsNone(run(mealie.first_day_of_week()))
@@ -122,66 +122,66 @@ class FirstDayFromMealieTest(WeekStartTestCase):
 
 
 class WeekStartChoiceTest(WeekStartTestCase):
-    def test_follows_mealie_by_default(self):
-        self.link()
+    async def test_follows_mealie_by_default(self):
+        await self.link()
         with routes() as api:
             api.get(PREFERENCES).mock(return_value=preferences(6))
-            self.assertEqual(run(mealie.week_start()), {"day": 6, "source": "mealie", "setting": "", "mealie": 6})
+            self.assertEqual(await mealie.week_start(), {"day": 6, "source": "mealie", "setting": "", "mealie": 6})
 
-    def test_a_fixed_day_wins_without_asking_mealie(self):
-        self.link()
-        auth.set_setting(mealie.SETTING_WEEK_START, "1")
+    async def test_a_fixed_day_wins_without_asking_mealie(self):
+        await self.link()
+        await auth.set_setting(mealie.SETTING_WEEK_START, "1")
         with routes() as api:
             anything = api.route()
-            self.assertEqual(run(mealie.week_start()), {"day": 1, "source": "setting", "setting": "1", "mealie": None})
-            auth.set_setting(mealie.SETTING_WEEK_START, "0")
-            self.assertEqual(run(mealie.week_start())["day"], 0, "zondag is ook een vaste dag")
+            self.assertEqual(await mealie.week_start(), {"day": 1, "source": "setting", "setting": "1", "mealie": None})
+            await auth.set_setting(mealie.SETTING_WEEK_START, "0")
+            self.assertEqual((await mealie.week_start())["day"], 0, "zondag is ook een vaste dag")
         self.assertFalse(anything.called)
 
-    def test_monday_when_mealie_does_not_say(self):
+    async def test_monday_when_mealie_does_not_say(self):
         with routes() as api:
             anything = api.route()
-            self.assertEqual(run(mealie.week_start()), {"day": 1, "source": "default", "setting": "", "mealie": None})
+            self.assertEqual(await mealie.week_start(), {"day": 1, "source": "default", "setting": "", "mealie": None})
         self.assertFalse(anything.called)
-        self.link()
+        await self.link()
         with routes() as api:
             api.get(PREFERENCES).mock(side_effect=httpx.ReadTimeout("traag"))
-            self.assertEqual(run(mealie.week_start())["source"], "default")
+            self.assertEqual((await mealie.week_start())["source"], "default")
 
-    def test_a_broken_stored_value_counts_as_following_mealie(self):
-        self.link()
+    async def test_a_broken_stored_value_counts_as_following_mealie(self):
+        await self.link()
         for value in ("7", "ma", " ", "1.0"):
-            auth.set_setting(mealie.SETTING_WEEK_START, value)
+            await auth.set_setting(mealie.SETTING_WEEK_START, value)
             mealie._week_start_cache.clear()
             with routes() as api:
                 api.get(PREFERENCES).mock(return_value=preferences(6))
-                self.assertEqual(run(mealie.week_start())["source"], "mealie", repr(value))
+                self.assertEqual((await mealie.week_start())["source"], "mealie", repr(value))
 
 
 class StatusTest(WeekStartTestCase):
-    def test_the_status_says_where_the_week_starts(self):
-        data = self.client.get("/api/mealie/status").get_json()
+    async def test_the_status_says_where_the_week_starts(self):
+        data = (await self.client.get("/api/mealie/status")).get_json()
         self.assertEqual(data["weekStart"], {"day": 1, "source": "default", "setting": "", "mealie": None})
-        self.link()
+        await self.link()
         with routes() as api:
             api.get(PREFERENCES).mock(return_value=preferences(6))
-            data = self.client.get("/api/mealie/status").get_json()
+            data = (await self.client.get("/api/mealie/status")).get_json()
         self.assertEqual(data["weekStart"]["day"], 6)
         self.assertNotIn(TOKEN, json.dumps(data))
 
-    def test_checking_the_link_picks_up_a_change_in_mealie_at_once(self):
-        self.link()
+    async def test_checking_the_link_picks_up_a_change_in_mealie_at_once(self):
+        await self.link()
         with routes() as api:
             api.get(PREFERENCES).mock(return_value=preferences(1))
-            self.assertEqual(self.client.get("/api/mealie/status").get_json()["weekStart"]["day"], 1)
+            self.assertEqual((await self.client.get("/api/mealie/status")).get_json()["weekStart"]["day"], 1)
         with routes() as api:
             api.get(PREFERENCES).mock(return_value=preferences(6))
-            self.assertEqual(self.client.get("/api/mealie/status").get_json()["weekStart"]["day"], 1, "nog onthouden")
+            self.assertEqual((await self.client.get("/api/mealie/status")).get_json()["weekStart"]["day"], 1, "nog onthouden")
         with routes() as api:
             api.get(f"{URL}/api/users/self").mock(return_value=response(body={"username": "helmer"}))
             api.get(f"{URL}/api/app/about").mock(return_value=response(body={"version": "v3.30.0"}))
             api.get(PREFERENCES).mock(return_value=preferences(6))
-            self.assertEqual(self.client.get("/api/mealie/status?verify=1").get_json()["weekStart"]["day"], 6)
+            self.assertEqual((await self.client.get("/api/mealie/status?verify=1")).get_json()["weekStart"]["day"], 6)
 
 
 class WeekMenuToolTest(WeekStartTestCase):
@@ -225,7 +225,7 @@ def function_source(source, name):
 
 
 @unittest.skipUnless(shutil.which("node"), "Node is niet geïnstalleerd")
-class BrowserWeekTest(unittest.TestCase):
+class BrowserWeekTest(AppTestCase):
     """De weekberekening in de browser, in de tijdzone van Nederland (ook over de wintertijd heen)."""
 
     def run_js(self, expression):
@@ -270,7 +270,7 @@ class BrowserWeekTest(unittest.TestCase):
         self.assertEqual(friday["start"], "2026-11-09")
 
 
-class BrowserWiringTest(unittest.TestCase):
+class BrowserWiringTest(AppTestCase):
     def test_monday_is_no_longer_hardcoded(self):
         self.assertNotIn("mondayOf", APP_JS + OFFERS_JS)
         self.assertIn("return weekFrom(weekStartOf(today));", function_source(APP_JS, "getWeekBounds"))

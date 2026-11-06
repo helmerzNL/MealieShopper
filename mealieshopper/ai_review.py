@@ -112,7 +112,7 @@ def _provider(name: Any) -> dict[str, str]:
 async def api_key(provider: str) -> tuple[str, str]:
     """(sleutel, bron): bron is "app" (in de app ingevuld), "env" (omgevingsvariabele) of "" zonder sleutel."""
     info: dict[str, str] = PROVIDERS[provider]
-    stored: str = (await auth.aget_secret(info["secret"])).strip()
+    stored: str = (await auth.get_secret(info["secret"])).strip()
     if stored:
         return stored, "app"
     from_env = (environ.get(info["env"]) or "").strip()
@@ -121,7 +121,7 @@ async def api_key(provider: str) -> tuple[str, str]:
 
 async def model_of(provider: str) -> str:
     info: dict[str, str] = PROVIDERS[provider]
-    return (await auth.aget_setting(info["model_setting"])).strip() or info["default_model"]
+    return (await auth.get_setting(info["model_setting"])).strip() or info["default_model"]
 
 
 def endpoint(provider: str) -> tuple[str, str]:
@@ -162,7 +162,7 @@ def _endpoint_status(provider: str) -> dict[str, str]:
 
 async def active_provider() -> str:
     """De gekozen aanbieder als die een sleutel heeft, anders de eerste die een sleutel heeft, anders ""."""
-    chosen: str = (await auth.aget_setting(SETTING_PROVIDER)).strip().lower()
+    chosen: str = (await auth.get_setting(SETTING_PROVIDER)).strip().lower()
     if chosen in PROVIDERS and (await api_key(chosen))[0]:
         return chosen
     for name in PROVIDERS:
@@ -189,7 +189,7 @@ async def status() -> dict[str, Any]:
             "name": info["name"], "configured": bool(key), "source": source, "hint": _hint(key),
             "model": await model_of(name), "defaultModel": info["default_model"], **_endpoint_status(name),
         }
-    chosen: str = (await auth.aget_setting(SETTING_PROVIDER)).strip().lower()
+    chosen: str = (await auth.get_setting(SETTING_PROVIDER)).strip().lower()
     return {
         "active": await active_provider(), "chosen": chosen if chosen in PROVIDERS else "", "providers": providers,
         "batchSize": BATCH_SIZE, "defaultMaxPairs": DEFAULT_MAX_PAIRS, "maxPairs": MAX_PAIRS,
@@ -200,13 +200,13 @@ async def save(body: dict[str, Any]) -> dict[str, Any]:
     """Slaat de keuze van aanbieder, de modellen en de sleutels op. Een lege sleutel verandert niets; `clear` wist de sleutel van een aanbieder."""
     if "provider" in body:
         choice = str(body.get("provider") or "").strip().lower()
-        await auth.aset_setting(SETTING_PROVIDER, "" if choice in ("", "auto") else _name(choice))
+        await auth.set_setting(SETTING_PROVIDER, "" if choice in ("", "auto") else _name(choice))
     for name, model in (body.get("models") or {}).items():
         info = _provider(name)
         text = " ".join(str(model or "").split())[:100]
         if text and not re.fullmatch(r"[A-Za-z0-9._:/\-]+", text):
             raise ValueError(tr("Een modelnaam bestaat uit letters, cijfers en . _ : / -", "A model name consists of letters, digits and . _ : / -"))
-        await auth.aset_setting(info["model_setting"], text)
+        await auth.set_setting(info["model_setting"], text)
     for name, key in (body.get("keys") or {}).items():
         info = _provider(name)
         value = str(key or "").strip()
@@ -214,9 +214,9 @@ async def save(body: dict[str, Any]) -> dict[str, Any]:
             continue
         if len(value) < 20 or re.search(r"\s", value):
             raise ValueError(tr("Dit lijkt geen geldige API-sleutel (zonder spaties, minstens 20 tekens).", "This does not look like a valid API key (no spaces, at least 20 characters)."))
-        await auth.aset_secret(info["secret"], value)
+        await auth.set_secret(info["secret"], value)
     for name in body.get("clear") or []:
-        await auth.adelete_secret(_provider(name)["secret"])
+        await auth.delete_secret(_provider(name)["secret"])
     return await status()
 
 
@@ -394,7 +394,7 @@ async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, An
     model: str = await model_of(provider)
     limit = max(1, min(MAX_PAIRS, int(max_pairs or DEFAULT_MAX_PAIRS)))
     # De tabel offer_verdicts hoort bij offers, die haar schema op de verbinding zet.
-    async with offers._aconnect() as conn:
+    async with offers._connect() as conn:
         done = await _judged(conn, store)
     todo = [pair for pair in await offers.unique_pairs(store) if (pair["offerId"], pair["head"]) not in done]
     batch_all = todo[:limit]
@@ -409,7 +409,7 @@ async def review(store: Any, max_pairs: Any = DEFAULT_MAX_PAIRS) -> dict[str, An
             result["error"] = str(exc)
             break
         result["tokens"] += tokens
-        async with offers._aconnect() as conn:
+        async with offers._connect() as conn:
             for number, (verdict, reason) in verdicts.items():
                 pair = group[number - 1]
                 await conn.execute(
