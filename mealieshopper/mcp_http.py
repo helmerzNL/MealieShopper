@@ -33,8 +33,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def serializer() -> URLSafeTimedSerializer:
         return URLSafeTimedSerializer(await auth.asigning_secret(), salt="mealieshopper-oauth-authorize")
 
-    def unavailable() -> Response:
-        _, reason = mcp.enabled()
+    async def unavailable() -> Response:
+        _, reason = await mcp.enabled()
         text = (
             tr("De MCP-server staat uit.", "The MCP server is turned off.")
             if reason == "disabled"
@@ -62,8 +62,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def protected_resource():
         if request.method == "OPTIONS":
             return "", 204
-        if not mcp.enabled()[0]:
-            return unavailable()
+        if not (await mcp.enabled())[0]:
+            return await unavailable()
         return _json(
             {
                 "resource": mcp_url(),
@@ -78,8 +78,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def authorization_server():
         if request.method == "OPTIONS":
             return "", 204
-        if not mcp.enabled()[0]:
-            return unavailable()
+        if not (await mcp.enabled())[0]:
+            return await unavailable()
         base = base_url()
         return _json(
             {
@@ -116,8 +116,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def oauth_register():
         if request.method == "OPTIONS":
             return "", 204
-        if not mcp.enabled()[0]:
-            return unavailable()
+        if not (await mcp.enabled())[0]:
+            return await unavailable()
         metadata = await request.get_json(silent=True)
         if not isinstance(metadata, dict):
             return oauth_error(oauth.OAuthError("invalid_client_metadata", "Stuur een JSON-object"))
@@ -138,8 +138,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
 
     @app.get("/oauth/authorize")
     async def oauth_authorize():
-        if not mcp.enabled()[0]:
-            return await error_page((await unavailable().get_json())["error"], 404)
+        if not (await mcp.enabled())[0]:
+            return await error_page((await (await unavailable()).get_json())["error"], 404)
         params = request.args.to_dict()
         try:
             info = await oauth.check_authorize_request(params, mcp_url())
@@ -164,8 +164,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
 
     @app.post("/oauth/authorize")
     async def oauth_authorize_decision():
-        if not mcp.enabled()[0]:
-            return await error_page((await unavailable().get_json())["error"], 404)
+        if not (await mcp.enabled())[0]:
+            return await error_page((await (await unavailable()).get_json())["error"], 404)
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
             return await error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
@@ -190,8 +190,8 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def oauth_token():
         if request.method == "OPTIONS":
             return "", 204
-        if not mcp.enabled()[0]:
-            return unavailable()
+        if not (await mcp.enabled())[0]:
+            return await unavailable()
         try:
             return _json(await oauth.token_request(await form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
         except oauth.OAuthError as exc:
@@ -216,43 +216,43 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def mcp_endpoint():
         if request.method == "OPTIONS":
             return "", 204
-        if not mcp.enabled()[0]:
-            return unavailable()
+        if not (await mcp.enabled())[0]:
+            return await unavailable()
         if request.method != "POST":
             return _json({"error": "Method not allowed"}, 405, Allow="POST")  # geen streams en geen sessies
         header = request.headers.get("Authorization", "")
         token = header[7:].strip() if header[:7].lower() == "bearer " else ""
         identity = await oauth.verify_access_token(token, mcp_url()) if token else None
         if not identity:
-            audit.mcp_rejected(401, "unauthorized", header_present=bool(token))
+            await audit.amcp_rejected(401, "unauthorized", header_present=bool(token))
             return unauthorized(bool(token))
         version = request.headers.get("Mcp-Protocol-Version")
         if version and version not in mcp.SUPPORTED_PROTOCOLS:
-            audit.mcp_rejected(400, f"unsupported protocol {version}")
+            await audit.amcp_rejected(400, f"unsupported protocol {version}")
             return _json({"error": f"Unsupported MCP protocol version: {version}"}, 400)
         if (request.content_length or 0) > MAX_BODY:
-            audit.mcp_rejected(413, "request too large")
+            await audit.amcp_rejected(413, "request too large")
             return _json({"error": "Request too large"}, 413)
         try:
             message = json.loads(await request.get_data(as_text=True))
         except ValueError:
-            audit.mcp_rejected(400, "parse error")
+            await audit.amcp_rejected(400, "parse error")
             return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
 
-        def handle(item: Any) -> dict[str, Any] | None:
-            return audit.mcp_message(item, mcp.handle_message, identity)
+        async def handle(item: Any) -> dict[str, Any] | None:
+            return await audit.amcp_message(item, mcp.handle_message, identity)
 
         if isinstance(message, list):
-            replies = [reply for reply in map(handle, message) if reply is not None]
+            replies = [reply for reply in [await handle(item) for item in message] if reply is not None]
             return _json(replies) if replies else Response(status=202)
-        reply = handle(message)
+        reply = await handle(message)
         return _json(reply) if reply is not None else Response(status=202)
 
     # --- beheer in de app (achter de gewone inlog) ---------------------------------------------------
 
     @app.get("/api/mcp/status")
     async def mcp_status():
-        on, reason = mcp.enabled()
+        on, reason = await mcp.enabled()
         base = base_url()
         host = urlsplit(base).hostname or ""
         return jsonify(

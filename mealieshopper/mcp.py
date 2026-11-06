@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime
 import ipaddress
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 from . import ah, ah_lists, offers, ah_orders, ah_recipes, auth, crisp, jumbo, jumbo_lists, jumbo_orders, jumbo_recipes, mealie, picnic, picnic_orders, picnic_recipes, prices, server_settings
@@ -24,11 +24,11 @@ MAX_RESULT_CHARS = 60_000
 MAX_LIST_ITEMS = 200
 
 
-def enabled() -> tuple[bool, str]:
+async def enabled() -> tuple[bool, str]:
     """Staat de MCP-server aan, en zo niet: waarom niet (een korte code voor de interface)."""
     if not server_settings.mcp_setting()[0]:
         return False, "disabled"
-    if not auth.auth_required() or not auth.credentials_exist():
+    if not await auth.aauth_required() or not await auth.acredentials_exist():
         return False, "no_login"
     return True, ""
 
@@ -57,7 +57,7 @@ def _text(value: Any, limit: int = 300) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
-def tool_week_menu(args: dict[str, Any]) -> Any:
+async def tool_week_menu(args: dict[str, Any]) -> Any:
     if args.get("start_date") in (None, ""):
         # Alleen dan is de eerste dag van de week nodig (die kan Mealie vragen).
         start = _week_start(datetime.date.today(), mealie.week_start()["day"])
@@ -91,7 +91,7 @@ def tool_week_menu(args: dict[str, Any]) -> Any:
     return {"from": start.isoformat(), "to": end.isoformat(), "meals": meals}
 
 
-def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
+async def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -107,7 +107,7 @@ def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_plan_meal(args: dict[str, Any]) -> Any:
+async def tool_plan_meal(args: dict[str, Any]) -> Any:
     slug = _text(args.get("recipe_slug"), 200)
     title = _text(args.get("title"), mealie.TITLE_MAX)
     if not slug and not title:
@@ -129,13 +129,13 @@ def tool_plan_meal(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_remove_planned_meal(args: dict[str, Any]) -> Any:
+async def tool_remove_planned_meal(args: dict[str, Any]) -> Any:
     if args.get("id") in (None, ""):
         raise ToolError("Geef het id van de maaltijd op (zie get_week_menu)")
     return mealie.delete_meal_plan_entry(args.get("id"))
 
 
-def tool_search_recipes(args: dict[str, Any]) -> Any:
+async def tool_search_recipes(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -155,7 +155,7 @@ def tool_search_recipes(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_saved_recipes(args: dict[str, Any]) -> Any:
+async def tool_saved_recipes(args: dict[str, Any]) -> Any:
     data = ah_recipes.get()
     try:
         group = ah_recipes.resolve_group(data.get("groups") or [], _text(args.get("group"), 120))
@@ -180,7 +180,7 @@ def tool_saved_recipes(args: dict[str, Any]) -> Any:
     return result
 
 
-def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
+async def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
     """De receptgroepen van de bewaarde AH-recepten, uit de lokale kopie. Alleen lezen."""
     data = ah_recipes.get()
     return {
@@ -190,7 +190,7 @@ def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_list_lists(args: dict[str, Any]) -> Any:
+async def tool_list_lists(args: dict[str, Any]) -> Any:
     data = ah_lists.merged_lists()
     return {
         "lists": [
@@ -221,7 +221,7 @@ def _list_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def tool_get_list(args: dict[str, Any]) -> Any:
+async def tool_get_list(args: dict[str, Any]) -> Any:
     list_id = _text(args.get("list_id"), 100)
     if not list_id:
         raise ToolError("Geef het id van een lijstje op (zie list_ah_lists)")
@@ -236,7 +236,7 @@ def tool_get_list(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_search_list_items(args: dict[str, Any]) -> Any:
+async def tool_search_list_items(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -245,7 +245,7 @@ def tool_search_list_items(args: dict[str, Any]) -> Any:
     return {"matches": [{"list": names.get(list_id, list_id), "listId": list_id, "products": titles} for list_id, titles in found.items()]}
 
 
-def tool_search_products(args: dict[str, Any]) -> Any:
+async def tool_search_products(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -270,7 +270,7 @@ def _picnic_linked() -> None:
         raise ToolError("Picnic is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Picnic.")
 
 
-def tool_search_picnic_products(args: dict[str, Any]) -> Any:
+async def tool_search_picnic_products(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -284,7 +284,7 @@ def tool_search_picnic_products(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_picnic_basket(args: dict[str, Any]) -> Any:
+async def tool_picnic_basket(args: dict[str, Any]) -> Any:
     _picnic_linked()
     return picnic.get_cart()
 
@@ -294,7 +294,7 @@ def _jumbo_linked() -> None:
         raise ToolError("Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Jumbo.")
 
 
-def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
+async def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -325,7 +325,7 @@ def _resolve_jumbo_list(wanted: Any) -> str:
     raise ToolError(f"Welk lijstje bedoel je? Kies uit: {names}" if found else f"Geen lijstje met die naam. Kies uit: {names}")
 
 
-def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
+async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
     """Alle Jumbo-lijstjes: het boodschappenlijstje, je eigen lijstjes en Favorieten. Alleen lezen."""
     _jumbo_linked()
     overview = jumbo_lists.merged_lists()
@@ -339,7 +339,7 @@ def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_jumbo_list(args: dict[str, Any]) -> Any:
+async def tool_jumbo_list(args: dict[str, Any]) -> Any:
     """Een Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
     _jumbo_linked()
     list_id = _resolve_jumbo_list(args.get("list"))
@@ -367,7 +367,7 @@ def tool_jumbo_list(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
+async def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     """Zoek in de recepten van Jumbo. Alleen lezen."""
     _jumbo_linked()
     query = _text(args.get("query"), 100)
@@ -384,13 +384,13 @@ def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
+async def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
     """Je receptenlijsten bij Jumbo: Favorieten en eigen lijstjes, met aantallen. Alleen lezen."""
     _jumbo_linked()
     return {"lists": jumbo_recipes.get_lists()}
 
 
-def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
+async def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
     """De recepten van een Jumbo-receptenlijst (standaard Favorieten), per pagina. Alleen lezen."""
     _jumbo_linked()
     try:
@@ -410,7 +410,7 @@ def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
+async def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
     """Een Jumbo-recept met ingrediënten en bereiding. Alleen lezen; er wordt niets geïmporteerd."""
     _jumbo_linked()
     try:
@@ -423,17 +423,17 @@ def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_jumbo_basket(args: dict[str, Any]) -> Any:
+async def tool_jumbo_basket(args: dict[str, Any]) -> Any:
     _jumbo_linked()
     return jumbo.get_cart()
 
 
-def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
+async def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
     _picnic_linked()
     return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
 
 
-def tool_picnic_delivery(args: dict[str, Any]) -> Any:
+async def tool_picnic_delivery(args: dict[str, Any]) -> Any:
     _picnic_linked()
     try:
         found = picnic.get_delivery(args.get("id"))
@@ -443,14 +443,14 @@ def tool_picnic_delivery(args: dict[str, Any]) -> Any:
     return {**{k: v for k, v in found.items() if k != "items"}, "items": items}
 
 
-def tool_list_picnic_orders(args: dict[str, Any]) -> Any:
+async def tool_list_picnic_orders(args: dict[str, Any]) -> Any:
     data = picnic_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
 
 
-def tool_get_picnic_order(args: dict[str, Any]) -> Any:
+async def tool_get_picnic_order(args: dict[str, Any]) -> Any:
     order_id = _text(args.get("order_id"), 80)
     order = picnic_orders.get_order(order_id) if order_id else None
     if not order:
@@ -458,13 +458,13 @@ def tool_get_picnic_order(args: dict[str, Any]) -> Any:
     return order
 
 
-def tool_picnic_slots(args: dict[str, Any]) -> Any:
+async def tool_picnic_slots(args: dict[str, Any]) -> Any:
     _picnic_linked()
     limit = max(1, min(30, int(args.get("limit") or 10)))
     return {"slots": picnic.get_delivery_slots(limit)}
 
 
-def tool_picnic_favorites(args: dict[str, Any]) -> Any:
+async def tool_picnic_favorites(args: dict[str, Any]) -> Any:
     _picnic_linked()
     limit = max(1, min(100, int(args.get("limit") or 50)))
     found = picnic.get_favorites()
@@ -474,7 +474,7 @@ def tool_picnic_favorites(args: dict[str, Any]) -> Any:
     return {"total": len(products), "onlyFavorites": found["filtered"], "products": brief}
 
 
-def tool_picnic_recipes(args: dict[str, Any]) -> Any:
+async def tool_picnic_recipes(args: dict[str, Any]) -> Any:
     _picnic_linked()
     source = str(args.get("source") or "saved").strip().lower()
     if source not in picnic_recipes.SOURCES:
@@ -491,7 +491,7 @@ def _crisp_linked() -> None:
         raise ToolError("Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Crisp.")
 
 
-def tool_crisp_recipes(args: dict[str, Any]) -> Any:
+async def tool_crisp_recipes(args: dict[str, Any]) -> Any:
     _crisp_linked()
     limit = max(1, min(100, int(args.get("limit") or 30)))
     found = crisp.get_saved_recipes()
@@ -517,7 +517,7 @@ def _int_arg(args: dict[str, Any], name: str, default: int, low: int, high: int)
     return max(low, min(high, int(args.get(name) if args.get(name) is not None else default)))
 
 
-def tool_review_offer_matches(args: dict[str, Any]) -> Any:
+async def tool_review_offer_matches(args: dict[str, Any]) -> Any:
     data = offers.review_pairs(args.get("store"), _int_arg(args, "limit", 40, 1, 100), _int_arg(args, "offset", 0, 0, 10**6))
     data["hint"] = (
         "Elk paar is een ingrediënt uit een recept en het aanbiedingsproduct waaraan MealieShopper het koppelde. Een koppeling klopt alleen als het "
@@ -527,7 +527,7 @@ def tool_review_offer_matches(args: dict[str, Any]) -> Any:
     return data
 
 
-def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
+async def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
     store, ingredient, offer_id = args.get("store"), args.get("ingredient"), args.get("offer_id")
     if not store or not ingredient or offer_id in (None, ""):
         raise ToolError("Geef store, ingredient en offer_id op")
@@ -536,14 +536,14 @@ def tool_report_offer_mismatch(args: dict[str, Any]) -> Any:
     return {"reported": True, **offers.report_mismatch(store, ingredient, offer_id, _text(args.get("reason"), 300), source="assistant")}
 
 
-def tool_list_offer_mismatches(args: dict[str, Any]) -> Any:
+async def tool_list_offer_mismatches(args: dict[str, Any]) -> Any:
     return offers.list_mismatches(args.get("store") or None, _int_arg(args, "limit", 100, 1, MAX_LIST_ITEMS))
 
 
 PRICE_HISTORY_ITEMS = 12  # per product de laatste aanbiedingen, prijsperiodes en aankopen; genoeg voor een oordeel, compact voor de assistent
 
 
-def tool_get_price_history(args: dict[str, Any]) -> Any:
+async def tool_get_price_history(args: dict[str, Any]) -> Any:
     store = args.get("store") or None
     if store is not None and store not in offers.STORES:
         raise ToolError("Kies als winkel ah, picnic, jumbo of crisp")
@@ -581,7 +581,7 @@ def tool_get_price_history(args: dict[str, Any]) -> Any:
     }
 
 
-def tool_import_recipe(args: dict[str, Any]) -> Any:
+async def tool_import_recipe(args: dict[str, Any]) -> Any:
     url = _text(args.get("url"), 2000)
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -598,19 +598,19 @@ def _copy_note(synced: str | None) -> str:
     return f"Uit de lokale kopie van {synced[:16].replace('T', ' ')} (UTC)." if synced else "Nog niet gesynchroniseerd: de kopie is leeg. De eigenaar synchroniseert onder AH Items > Bestellingen."
 
 
-def tool_basket(args: dict[str, Any]) -> Any:
+async def tool_basket(args: dict[str, Any]) -> Any:
     basket = ah_orders.get_basket()
     return {"note": _copy_note(basket["syncedAt"]) + " Dit is het AH-mandje: de producten die via MealieShopper of de AH-app op de boodschappenlijst staan.", **basket}
 
 
-def tool_list_orders(args: dict[str, Any]) -> Any:
+async def tool_list_orders(args: dict[str, Any]) -> Any:
     data = ah_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
 
 
-def tool_get_order(args: dict[str, Any]) -> Any:
+async def tool_get_order(args: dict[str, Any]) -> Any:
     try:
         order_id = int(args.get("order_id"))
     except (TypeError, ValueError):
@@ -621,14 +621,14 @@ def tool_get_order(args: dict[str, Any]) -> Any:
     return order
 
 
-def tool_list_jumbo_orders(args: dict[str, Any]) -> Any:
+async def tool_list_jumbo_orders(args: dict[str, Any]) -> Any:
     data = jumbo_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
 
 
-def tool_get_jumbo_order(args: dict[str, Any]) -> Any:
+async def tool_get_jumbo_order(args: dict[str, Any]) -> Any:
     order_id = _text(args.get("order_id"), 30)
     order = jumbo_orders.get_order(order_id) if order_id else None
     if not order:
@@ -636,20 +636,20 @@ def tool_get_jumbo_order(args: dict[str, Any]) -> Any:
     return order
 
 
-def tool_list_receipts(args: dict[str, Any]) -> Any:
+async def tool_list_receipts(args: dict[str, Any]) -> Any:
     data = ah_orders.list_receipts()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     return {"note": _copy_note(data["syncedAt"]), "total": len(data["receipts"]), "receipts": data["receipts"][:limit]}
 
 
-def tool_get_receipt(args: dict[str, Any]) -> Any:
+async def tool_get_receipt(args: dict[str, Any]) -> Any:
     receipt = ah_orders.get_receipt(_text(args.get("receipt_id"), 100))
     if not receipt:
         raise ToolError("Deze kassabon staat niet in de lokale kopie (zie list_ah_receipts)")
     return receipt
 
 
-def tool_search_purchases(args: dict[str, Any]) -> Any:
+async def tool_search_purchases(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -1024,18 +1024,18 @@ def tool_descriptors() -> list[dict[str, Any]]:
     return [tool for tool in all_tool_descriptors() if tool["name"] not in off]
 
 
-def call_tool(name: str, arguments: Any) -> dict[str, Any]:
+async def call_tool(name: str, arguments: Any) -> dict[str, Any]:
     tool = TOOLS.get(name)
     if not tool:
         raise KeyError(name)
     if name in server_settings.disabled_tools():
         # Geen protocolfout: het model leest dit en kan de gebruiker vertellen waarom het niet lukt.
         return {"content": [{"type": "text", "text": "Deze tool is door de beheerder van MealieShopper uitgezet."}], "isError": True}
-    handler: Callable[[dict[str, Any]], Any] = tool["handler"]
+    handler: Callable[[dict[str, Any]], Awaitable[Any]] = tool["handler"]
     try:
         if not isinstance(arguments, dict):
             raise ToolError("arguments moet een object zijn")
-        text = json.dumps(handler(arguments), ensure_ascii=False, indent=1, default=str)
+        text = json.dumps(await handler(arguments), ensure_ascii=False, indent=1, default=str)
         if len(text) > MAX_RESULT_CHARS:
             text = text[:MAX_RESULT_CHARS] + "\n… (ingekort)"
         return {"content": [{"type": "text", "text": text}], "isError": False}
@@ -1053,7 +1053,7 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-def handle_message(message: Any) -> dict[str, Any] | None:
+async def handle_message(message: Any) -> dict[str, Any] | None:
     """Verwerk één JSON-RPC-bericht. None voor een notificatie (geen antwoord)."""
     if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
         return _error(None, -32600, "Ongeldig JSON-RPC-verzoek")
@@ -1091,7 +1091,7 @@ def handle_message(message: Any) -> dict[str, Any] | None:
         return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tool_descriptors()}}
     if method == "tools/call":
         try:
-            result = call_tool(str(params.get("name") or ""), params.get("arguments") or {})
+            result = await call_tool(str(params.get("name") or ""), params.get("arguments") or {})
         except KeyError:
             return _error(request_id, -32602, f"Onbekende tool: {params.get('name')}")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}

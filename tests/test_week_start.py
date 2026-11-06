@@ -22,7 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -176,7 +176,7 @@ class WeekMenuToolTest(WeekStartTestCase):
         for first, isoweekday in ((6, 6), (0, 7), (1, 1), (3, 3)):
             with mock.patch.object(mealie, "week_start", return_value={"day": first}), \
                     mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
-                data = mcp.tool_week_menu({})
+                data = run(mcp.tool_week_menu({}))
             start, end = (datetime.date.fromisoformat(day) for day in plan.call_args.args)
             self.assertEqual(start.isoweekday(), isoweekday, first)
             self.assertEqual((end - start).days, 6)
@@ -187,7 +187,7 @@ class WeekMenuToolTest(WeekStartTestCase):
     def test_an_explicit_start_date_does_not_ask_for_the_week_start(self):
         with mock.patch.object(mealie, "week_start", side_effect=AssertionError("niet nodig")), \
                 mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
-            mcp.tool_week_menu({"start_date": "2026-11-07", "days": 7})
+            run(mcp.tool_week_menu({"start_date": "2026-11-07", "days": 7}))
         plan.assert_called_once_with("2026-11-07", "2026-11-13")
 
     def test_week_start_counts_like_mealie(self):

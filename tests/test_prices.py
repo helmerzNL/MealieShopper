@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 TODAY = "2026-10-20"
 
@@ -352,13 +352,13 @@ class RouteAndToolTest(PricesCase):
     def test_the_mcp_tool_is_compact(self):
         self.sync_offer("2026-10-05T05:00:00+00:00", offer("1", "AH Penne", 0.89, 1.19))
         self.ah_order(101, "delivered", "2026-10-07", order_item(1, "AH Penne", 0.89, quantity=2, before=1.19, bonus=True))
-        data = mcp.TOOLS["get_price_history"]["handler"]({"query": "penne", "store": "ah"})
+        data = run(mcp.TOOLS["get_price_history"]["handler"]({"query": "penne", "store": "ah"}))
         product = data["products"][0]
         self.assertEqual((product["title"], product["timesOnOffer"], product["timesBought"], product["regularPrice"]), ("AH Penne", 1, 1, 1.19))
         self.assertEqual(product["purchases"], [{"date": "2026-10-07", "pricePerItem": 0.89, "quantity": 2, "source": "order"}])
         self.assertIn("hint", data)
         with self.assertRaises(mcp.ToolError):
-            mcp.TOOLS["get_price_history"]["handler"]({"store": "lidl"})
+            run(mcp.TOOLS["get_price_history"]["handler"]({"store": "lidl"}))
 
 
 

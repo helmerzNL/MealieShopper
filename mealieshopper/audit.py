@@ -719,22 +719,83 @@ def _rpc_text(result: dict[str, Any]) -> str:
     return "\n".join(str(part.get("text", "")) for part in result.get("content") or [] if isinstance(part, dict))
 
 
-def mcp_message(message: Any, handler: Callable[[Any], dict[str, Any] | None], identity: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Verwerk één JSON-RPC-bericht en leg het vast, met de winkelverzoeken die eruit volgen."""
+def _mcp_parts(message: Any) -> tuple[str | None, dict[str, Any]]:
+    """De JSON-RPC-methode en de params van een bericht (None en {} als het geen geldig bericht is)."""
     rpc = message.get("method") if isinstance(message, dict) else None
     params = message.get("params") if isinstance(message, dict) and isinstance(message.get("params"), dict) else {}
-    if not enabled() or not isinstance(rpc, str) or rpc == "ping" or rpc.startswith("notifications/"):
-        return handler(message)
+    return rpc, params
+
+
+def _mcp_unlogged(rpc: str | None) -> bool:
+    """Berichten die nooit een regel krijgen: ping, notificaties en alles zonder methode."""
+    return not isinstance(rpc, str) or rpc == "ping" or rpc.startswith("notifications/")
+
+
+def _mcp_actor(identity: dict[str, Any] | None) -> str:
+    app_name = str((identity or {}).get("name") or "")
+    return f"mcp:{app_name}" if app_name else "mcp"
+
+
+def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | None, actor: str, corr: str, started: float, reply: dict[str, Any] | None, failure: Exception | None) -> dict[str, Any]:
+    """De velden van de regel voor een verwerkt MCP-bericht."""
     identity = identity or {}
-    app_name = str(identity.get("name") or "")
-    actor = f"mcp:{app_name}" if app_name else "mcp"
+    tool = str(params.get("name") or "") if rpc == "tools/call" else ""
+    arguments = params.get("arguments") if rpc == "tools/call" else params
+    request_body, req_bytes = summarize_body(json.dumps(arguments, ensure_ascii=False, default=str) if arguments else "", "application/json")
+    result = (reply or {}).get("result") if isinstance(reply, dict) else None
+    rpc_error = (reply or {}).get("error") if isinstance(reply, dict) else None
+    tool_error = bool(isinstance(result, dict) and result.get("isError"))
+    if rpc == "tools/call" and isinstance(result, dict):
+        response_text = _rpc_text(result)
+    elif rpc == "tools/list" and isinstance(result, dict):
+        response_text = f"{len(result.get('tools') or [])} tools"
+    elif isinstance(result, dict):
+        response_text = json.dumps(result, ensure_ascii=False)
+    else:
+        response_text = ""
+    response_body, resp_bytes = summarize_body(response_text, "text/plain")
+    if rpc == "tools/list":
+        response_body = response_text
+    error = ""
+    if failure:
+        error = f"{type(failure).__name__}: {failure}"
+    elif isinstance(rpc_error, dict):
+        error = str(rpc_error.get("message") or "")
+    elif tool_error:
+        error = " ".join(response_text.split())[:300]
+    return {
+        "kind": "mcp",
+        "service": "mcp",
+        "action": tool or rpc,
+        "method": rpc,
+        "url": "/mcp",
+        "status": 200 if not failure else 500,
+        "ok": not (failure or rpc_error or tool_error),
+        "duration_ms": round((time.perf_counter() - started) * 1000),
+        "actor": actor,
+        "corr": corr,
+        "request_body": request_body,
+        "response_body": response_body,
+        "req_bytes": req_bytes or None,
+        "resp_bytes": resp_bytes or None,
+        "error": error,
+        "detail": {"user": identity.get("username") or "", "clientId": identity.get("client_id") or ""},
+    }
+
+
+async def amcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str, Any] | None]], identity: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Verwerk één JSON-RPC-bericht en leg het vast, met de winkelverzoeken die eruit volgen."""
+    rpc, params = _mcp_parts(message)
+    if not enabled() or _mcp_unlogged(rpc):
+        return await handler(message)
+    actor = _mcp_actor(identity)
     corr = secrets.token_hex(8)
     tokens = (_corr.set(corr), _actor.set(actor))
     started = time.perf_counter()
     reply: dict[str, Any] | None = None
     failure: Exception | None = None
     try:
-        reply = handler(message)
+        reply = await handler(message)
         return reply
     except Exception as exc:  # noqa: BLE001
         failure = exc
@@ -743,66 +804,29 @@ def mcp_message(message: Any, handler: Callable[[Any], dict[str, Any] | None], i
         _corr.reset(tokens[0])
         _actor.reset(tokens[1])
         try:
-            tool = str(params.get("name") or "") if rpc == "tools/call" else ""
-            arguments = params.get("arguments") if rpc == "tools/call" else params
-            request_body, req_bytes = summarize_body(json.dumps(arguments, ensure_ascii=False, default=str) if arguments else "", "application/json")
-            result = (reply or {}).get("result") if isinstance(reply, dict) else None
-            rpc_error = (reply or {}).get("error") if isinstance(reply, dict) else None
-            tool_error = bool(isinstance(result, dict) and result.get("isError"))
-            if rpc == "tools/call" and isinstance(result, dict):
-                response_text = _rpc_text(result)
-            elif rpc == "tools/list" and isinstance(result, dict):
-                response_text = f"{len(result.get('tools') or [])} tools"
-            elif isinstance(result, dict):
-                response_text = json.dumps(result, ensure_ascii=False)
-            else:
-                response_text = ""
-            response_body, resp_bytes = summarize_body(response_text, "text/plain")
-            if rpc == "tools/list":
-                response_body = response_text
-            error = ""
-            if failure:
-                error = f"{type(failure).__name__}: {failure}"
-            elif isinstance(rpc_error, dict):
-                error = str(rpc_error.get("message") or "")
-            elif tool_error:
-                error = " ".join(response_text.split())[:300]
-            record(
-                kind="mcp",
-                service="mcp",
-                action=tool or rpc,
-                method=rpc,
-                url="/mcp",
-                status=200 if not failure else 500,
-                ok=not (failure or rpc_error or tool_error),
-                duration_ms=round((time.perf_counter() - started) * 1000),
-                actor=actor,
-                corr=corr,
-                request_body=request_body,
-                response_body=response_body,
-                req_bytes=req_bytes or None,
-                resp_bytes=resp_bytes or None,
-                error=error,
-                detail={"user": identity.get("username") or "", "clientId": identity.get("client_id") or ""},
-            )
+            await arecord(**_mcp_fields(str(rpc), params, identity, actor, corr, started, reply, failure))
         except Exception:  # noqa: BLE001
             log.warning("Kon een MCP-verzoek niet loggen", exc_info=True)
 
 
-def mcp_rejected(status: int, reason: str, *, header_present: bool = False) -> None:
+def _mcp_rejected_fields(status: int, reason: str, header_present: bool) -> dict[str, Any]:
+    return {
+        "kind": "mcp",
+        "service": "mcp",
+        "action": reason,
+        "method": request.method,
+        "url": "/mcp",
+        "status": status,
+        "ok": False,
+        "actor": "mcp",
+        "error": reason,
+        "detail": {"token": "ongeldig / invalid" if header_present else "ontbreekt / missing", "ip": request.remote_addr or ""},
+    }
+
+
+async def amcp_rejected(status: int, reason: str, *, header_present: bool = False) -> None:
     """Een verzoek aan /mcp dat niet werd toegelaten (geen of ongeldig token, te groot, ...)."""
-    record(
-        kind="mcp",
-        service="mcp",
-        action=reason,
-        method=request.method,
-        url="/mcp",
-        status=status,
-        ok=False,
-        actor="mcp",
-        error=reason,
-        detail={"token": "ongeldig / invalid" if header_present else "ontbreekt / missing", "ip": request.remote_addr or ""},
-    )
+    await arecord(**_mcp_rejected_fields(status, reason, header_present))
 
 
 async def _log_oauth(response):

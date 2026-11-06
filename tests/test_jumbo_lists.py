@@ -8,7 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 def list_data(*items, active=True, typename="ShoppingList"):
@@ -282,7 +282,7 @@ class McpAndExploreTest(TempDataDirTest):
 
         jumbo_lists.save_snapshot(LocalCopyTest.LIVE)
         with mock.patch.object(jumbo_lists, "fetch_live", side_effect=AssertionError("niet live")):
-            result = mcp.tool_jumbo_list({})
+            result = run(mcp.tool_jumbo_list({}))
         self.assertEqual((result["source"], result["total"], result["items"][0]["item"]), ("lokale kopie", 2, "Halfvolle melk"))
 
     def test_the_mcp_tool_needs_a_link(self):
@@ -290,7 +290,7 @@ class McpAndExploreTest(TempDataDirTest):
 
         auth.delete_secret(jumbo.REFRESH_SECRET)
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_jumbo_list({})
+            run(mcp.tool_jumbo_list({}))
 
     def test_the_empty_list_write_probe_adds_nothing(self):
         with mock.patch.object(jumbo, "_graphql", return_value={"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}) as graphql:

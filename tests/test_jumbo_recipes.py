@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_recipes, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 def card(recipe_id, title, *, time=20, persons=4, rating=(3, 4.5), image="https://img/r.jpg", author="jumbo", tip=""):
@@ -351,30 +351,30 @@ class UrlImportTest(TempDataDirTest):
 class McpAndExplorerTest(TempDataDirTest):
     def test_the_tools_read_recipes(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=search_answer([card("1001249", "Een"), card("1001250", "Twee")], total=9)):
-            found = mcp.tool_search_jumbo_recipes({"query": "pasta", "limit": 1})
+            found = run(mcp.tool_search_jumbo_recipes({"query": "pasta", "limit": 1}))
         self.assertEqual((found["total"], [r["id"] for r in found["recipes"]]), (9, ["1001249"]))
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_search_jumbo_recipes({})
+            run(mcp.tool_search_jumbo_recipes({}))
         with mock.patch.object(jumbo_recipes, "get_lists", return_value=ListTest.LISTS):
-            self.assertEqual([item["name"] for item in mcp.tool_list_jumbo_recipe_lists({})["lists"]], ["Favorieten", "Dit willen we vaker eten!", "Kerst"])
+            self.assertEqual([item["name"] for item in run(mcp.tool_list_jumbo_recipe_lists({}))["lists"]], ["Favorieten", "Dit willen we vaker eten!", "Kerst"])
             own = {"x": {"items": {"paginationInfo": {"totalSize": 2, "hasNextPage": False}, "recipeListItems": [{"recipe": card("700001", "Een")}]}}}
             with mock.patch.object(jumbo, "_persisted_query", return_value=own) as query:
-                kerst = mcp.tool_get_jumbo_recipe_list({"list": "Kerst"})
+                kerst = run(mcp.tool_get_jumbo_recipe_list({"list": "Kerst"}))
             self.assertEqual((query.call_args.args[0], kerst["list"], kerst["total"], [r["id"] for r in kerst["recipes"]]), ("getRecipeListById", "Kerst", 2, ["700001"]))
             favourites = {"recipeListsV2": {"items": [{"items": {"paginationInfo": {"totalSize": 5, "hasNextPage": True}, "recipeListItems": [{"recipe": card("700003", "Drie")}]}}]}}
             with mock.patch.object(jumbo, "_persisted_query", return_value=favourites) as query:
-                mine = mcp.tool_get_jumbo_recipe_list({"page": 1})
+                mine = run(mcp.tool_get_jumbo_recipe_list({"page": 1}))
             self.assertEqual((query.call_args.args[0], mine["list"], mine["hasNext"]), ("FavoriteRecipes", "Favorieten", True))
             with self.assertRaises(mcp.ToolError):
-                mcp.tool_get_jumbo_recipe_list({"list": "zomer"})
+                run(mcp.tool_get_jumbo_recipe_list({"list": "zomer"}))
         for name in ("list_jumbo_recipe_lists", "get_jumbo_recipe_list"):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}):
-            recipe = mcp.tool_get_jumbo_recipe({"recipe_id": "700001"})
+            recipe = run(mcp.tool_get_jumbo_recipe({"recipe_id": "700001"}))
         self.assertEqual(recipe["ingredients"][0], "2 Uien")
         self.assertEqual(len(recipe["steps"]), 3)
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_get_jumbo_recipe({"recipe_id": "a b"})
+            run(mcp.tool_get_jumbo_recipe({"recipe_id": "a b"}))
         for name in ("search_jumbo_recipes", "get_jumbo_recipe"):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
 

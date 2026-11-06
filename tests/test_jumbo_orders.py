@@ -14,7 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, image_cache, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 STREET = "Voorbeeldstraat"
 CUSTOMER = "11111111-2222-3333-4444-555555555555"
@@ -409,15 +409,15 @@ class McpAndExplorerTest(TempDataDirTest):
             jumbo_orders.sync_orders()
 
     def test_the_tools_read_the_local_copy(self):
-        self.assertEqual(mcp.tool_list_jumbo_orders({})["total"], 0)
+        self.assertEqual(run(mcp.tool_list_jumbo_orders({}))["total"], 0)
         self.seed()
-        listing = mcp.tool_list_jumbo_orders({"limit": 5})
+        listing = run(mcp.tool_list_jumbo_orders({"limit": 5}))
         self.assertEqual((listing["total"], listing["orders"][0]["id"]), (1, "1"))
-        self.assertEqual(mcp.tool_get_jumbo_order({"order_id": "1"})["items"][0]["title"], "Jumbo Kwark 1")
+        self.assertEqual(run(mcp.tool_get_jumbo_order({"order_id": "1"}))["items"][0]["title"], "Jumbo Kwark 1")
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_get_jumbo_order({"order_id": "99"})
+            run(mcp.tool_get_jumbo_order({"order_id": "99"}))
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_get_jumbo_order({})
+            run(mcp.tool_get_jumbo_order({}))
         for name in ("list_jumbo_orders", "get_jumbo_order"):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
 

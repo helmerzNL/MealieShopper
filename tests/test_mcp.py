@@ -96,20 +96,20 @@ class McpTestCase(unittest.TestCase):
 class AvailabilityTest(McpTestCase):
     def test_off_without_login(self):
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):
-            self.assertEqual(mcp.enabled(), (False, "no_login"))
+            self.assertEqual(run(mcp.enabled()), (False, "no_login"))
             self.assertEqual(SyncClient(self.app).post("/mcp", json={}).status_code, 404)
             self.assertEqual(SyncClient(self.app).get("/.well-known/oauth-authorization-server").status_code, 404)
             self.assertEqual(SyncClient(self.app).post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 404)
 
     def test_can_be_switched_off(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_MCP": "false"}):
-            self.assertEqual(mcp.enabled(), (False, "disabled"))
+            self.assertEqual(run(mcp.enabled()), (False, "disabled"))
             self.assertEqual(SyncClient(self.app).post("/mcp", json={}).status_code, 404)
             status = self.admin.get("/api/mcp/status").get_json()
             self.assertEqual((status["enabled"], status["reason"]), (False, "disabled"))
 
     def test_on_with_login(self):
-        self.assertEqual(mcp.enabled(), (True, ""))
+        self.assertEqual(run(mcp.enabled()), (True, ""))
 
 
 class MetadataTest(McpTestCase):

@@ -19,7 +19,7 @@ import respx  # noqa: E402
 
 from mealieshopper import audit, auth, http_client, mcp, oauth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 # Wat een respx-route teruggeeft: een vast antwoord of een functie die er een maakt.
@@ -335,14 +335,23 @@ class HttpxOutboundTest(AuditTestCase):
         self.assertEqual((entry["actor"], entry["corr"]), ("mcp:Claude", "abc123"))
 
 
+def _async_result(value: Any) -> Callable[[dict[str, Any]], Awaitable[Any]]:
+    """Een tool-handler die zonder te wachten `value` teruggeeft."""
+
+    async def handler(args: dict[str, Any]) -> Any:
+        return value
+
+    return handler
+
+
 class McpTest(AuditTestCase):
     IDENTITY = {"name": "Claude", "username": "admin", "client_id": "c1"}
 
     def call(self, message, handler=None):
-        return audit.mcp_message(message, handler or mcp.handle_message, self.IDENTITY)
+        return run(audit.amcp_message(message, handler or mcp.handle_message, self.IDENTITY))
 
     def test_a_tool_call_is_logged_with_its_arguments_and_result(self):
-        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": lambda args: [{"name": "Melk"}]}):
+        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result([{"name": "Melk"}])}):
             self.call({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}}})
         (entry,) = self.entries()
         self.assertEqual((entry["kind"], entry["service"], entry["action"], entry["method"]), ("mcp", "mcp", "search_jumbo_products", "tools/call"))
@@ -351,8 +360,21 @@ class McpTest(AuditTestCase):
         self.assertIn("melk", full["request"])
         self.assertIn("Melk", full["response"])
 
+    def test_amcp_message_records_the_full_row(self) -> None:
+        message: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk"}}}
+        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result({"name": "Melk"})}):
+            reply: dict[str, Any] | None = self.call(message)
+        self.assertFalse(reply["result"]["isError"])
+        (entry,) = self.entries()
+        self.assertEqual(
+            (entry["kind"], entry["service"], entry["action"], entry["method"], entry["url"], entry["status"], entry["ok"], entry["actor"], entry["error"]),
+            ("mcp", "mcp", "search_jumbo_products", "tools/call", "/mcp", 200, True, "mcp:Claude", ""),
+        )
+        self.assertEqual(entry["detail"], {"user": "admin", "clientId": "c1"})
+        self.assertTrue(entry["corr"])
+
     def test_store_requests_made_by_a_tool_are_linked_to_it(self):
-        def tool(args):
+        async def tool(args):
             self.send("GET", "https://www.jumbo.com/api/graphql")
             return {"ok": True}
 
@@ -370,7 +392,7 @@ class McpTest(AuditTestCase):
         self.assertEqual([item["id"] for item in back["related"]], [tool_row["id"]])
 
     def test_a_failing_tool_is_logged_as_an_error(self):
-        def tool(args):
+        async def tool(args):
             raise mcp.ToolError("Jumbo wil niet")
 
         with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": tool}):
@@ -394,7 +416,7 @@ class McpTest(AuditTestCase):
         self.assertRegex(audit.get_entry(self.entries()[0]["id"])["response"], r"^\d+ tools$")
 
     def test_a_secret_in_the_arguments_is_hidden(self):
-        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": lambda args: []}):
+        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": _async_result([])}):
             self.call({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {"query": "melk", "token": "GEHEIM123"}}})
         self.assertNotIn("GEHEIM123", json.dumps(audit.get_entry(self.entries()[0]["id"])))
 
@@ -417,13 +439,13 @@ class EndpointTest(AuditTestCase):
 
     def test_mcp_requests_are_logged_through_the_http_endpoint(self):
         identity = {"client_id": "c1", "name": "ChatGPT", "user_id": auth.OWNER_ID, "username": "admin"}
-        with mock.patch.object(mcp, "enabled", return_value=(True, "")), mock.patch.object(oauth, "verify_access_token", new_callable=mock.AsyncMock, return_value=identity), mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": lambda args: []}):
+        with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")), mock.patch.object(oauth, "verify_access_token", new_callable=mock.AsyncMock, return_value=identity), mock.patch.dict(mcp.TOOLS["list_picnic_orders"], {"handler": _async_result([])}):
             reply = self.post([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_picnic_orders", "arguments": {}}}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
         self.assertEqual(reply.status_code, 200)
         self.assertEqual([(e["action"], e["actor"]) for e in self.entries()], [("tools/list", "mcp:ChatGPT"), ("list_picnic_orders", "mcp:ChatGPT")])
 
     def test_rejected_requests_are_logged(self):
-        with mock.patch.object(mcp, "enabled", return_value=(True, "")):
+        with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")):
             self.assertEqual(self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token="").status_code, 401)
             self.assertEqual(self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, token="msa_fout").status_code, 401)
         first, second = reversed(self.entries())
@@ -431,7 +453,7 @@ class EndpointTest(AuditTestCase):
         self.assertEqual(second["detail"]["token"].split(" /")[0], "ongeldig")
 
     def test_oauth_steps_are_logged_without_secrets(self):
-        with mock.patch.object(mcp, "enabled", return_value=(True, "")):
+        with mock.patch.object(mcp, "enabled", new_callable=mock.AsyncMock, return_value=(True, "")):
             registered = self.client.post("/oauth/register", json={"client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]})
             self.assertEqual(registered.status_code, 201)
             self.client.post("/oauth/token", data={"grant_type": "authorization_code", "code": "GEHEIMECODE", "code_verifier": "GEHEIMVERIFIER", "client_id": registered.get_json()["client_id"]})

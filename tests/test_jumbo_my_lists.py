@@ -14,7 +14,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 OWN = "5e8f398d5c1add2c185b229d"
 OWN2 = "5eeb8bd189e849bb83470697"
@@ -312,7 +312,7 @@ class RoutesAndToolsTest(TempDataDirTest):
 
     def test_mcp_lists_and_resolves_lists_by_name(self):
         with self.overview():
-            result = mcp.tool_list_jumbo_lists({})
+            result = run(mcp.tool_list_jumbo_lists({}))
             self.assertEqual([(i["name"], i["kind"]) for i in result["lists"]],
                              [("Boodschappenlijstje", "shopping"), ("Basis Lijstje", "own"), ("Favorieten", "favorites")])
             self.assertEqual(mcp._resolve_jumbo_list(None), "JUMBO")
@@ -328,7 +328,7 @@ class RoutesAndToolsTest(TempDataDirTest):
     def test_mcp_reads_the_chosen_list(self):
         jumbo_lists.save_snapshot({"id": OWN, "name": "Basis Lijstje", "items": [jumbo._product_list_item(product_item(1, amount=2))]})
         with self.overview(), mock.patch.object(jumbo_lists, "fetch_live", side_effect=AssertionError("lokale kopie gebruiken")):
-            result = mcp.tool_jumbo_list({"list": "basis"})
+            result = run(mcp.tool_jumbo_list({"list": "basis"}))
         self.assertEqual((result["name"], result["source"], result["total"]), ("Basis Lijstje", "lokale kopie", 1))
         self.assertEqual((result["items"][0]["quantity"], result["items"][0]["brand"]), (2, "Jumbo"))
 

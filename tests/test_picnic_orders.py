@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mcp, picnic, picnic_orders  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 def summary(delivery_id, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
@@ -160,11 +160,11 @@ class PicnicOrdersTest(unittest.TestCase):
         self.listed = [summary("d1")]
         self.details = {"d1": detail("d1", "Melk")}
         self.sync()
-        listing = mcp.tool_list_picnic_orders({"limit": 5})
+        listing = run(mcp.tool_list_picnic_orders({"limit": 5}))
         self.assertEqual((listing["total"], listing["orders"][0]["id"]), (1, "d1"))
-        self.assertEqual(mcp.tool_get_picnic_order({"order_id": "d1"})["items"][0]["title"], "Melk")
+        self.assertEqual(run(mcp.tool_get_picnic_order({"order_id": "d1"}))["items"][0]["title"], "Melk")
         with self.assertRaises(mcp.ToolError):
-            mcp.tool_get_picnic_order({"order_id": "nope"})
+            run(mcp.tool_get_picnic_order({"order_id": "nope"}))
         self.assertNotIn("address", json.dumps(listing))
 
 

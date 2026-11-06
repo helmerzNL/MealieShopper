@@ -15,7 +15,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = "2026-10-20"
@@ -105,7 +105,7 @@ class BoughtFilterTest(Case):
         self.assertEqual(client.get("/api/prices/history?store=ah&bought=0").get_json()["total"], 2)
         tool = mcp.TOOLS["get_price_history"]
         self.assertIn("bought", tool["inputSchema"]["properties"])
-        self.assertEqual([p["productId"] for p in tool["handler"]({"store": "ah", "bought": True})["products"]], ["2"])
+        self.assertEqual([p["productId"] for p in run(tool["handler"]({"store": "ah", "bought": True}))["products"]], ["2"])
 
 
 class ShrinkTest(unittest.TestCase):
