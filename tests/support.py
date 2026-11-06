@@ -20,6 +20,7 @@ Verschillen met Flask die hier worden overbrugd:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, contextmanager
 from http.cookiejar import Cookie
@@ -296,3 +297,34 @@ def served(return_value: Any = None, side_effect: Any = None) -> Iterator[respx.
         else:
             route.mock(return_value=return_value)
         yield route
+
+
+@contextmanager
+def routes() -> Iterator[respx.MockRouter]:
+    """Een respx-router voor een test met routes per methode of adres, zoals een `mock.patch` per functie van requests.
+
+    Een verzoek zonder passende route faalt met een `AssertionError` van respx (geen `httpx.HTTPError`), zodat een
+    vergeten route nooit stil als "Mealie niet bereikbaar" telt."""
+    with respx.mock(assert_all_called=False) as router:
+        yield router
+
+
+def sent_url(call: respx.models.Call) -> str:
+    """Het adres van een opgevangen verzoek zonder query, zoals het eerste argument van `requests.get` was."""
+    return str(call.request.url.copy_with(query=None))
+
+
+def sent_params(call: respx.models.Call) -> dict[str, str]:
+    """De query van een opgevangen verzoek. httpx stuurt elke waarde als tekst, dus `1` komt terug als `"1"`."""
+    return dict(call.request.url.params)
+
+
+def sent_json(call: respx.models.Call) -> Any:
+    """Het JSON-lichaam van een opgevangen verzoek."""
+    return json.loads(call.request.content)
+
+
+def sent_timeout(call: respx.models.Call) -> float | None:
+    """De leestime-out van een opgevangen verzoek (httpx zet `timeout=15` op alle vier de time-outs)."""
+    timeout: dict[str, float | None] = call.request.extensions["timeout"]
+    return timeout["read"]

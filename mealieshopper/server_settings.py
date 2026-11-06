@@ -112,7 +112,7 @@ async def settings_payload() -> dict[str, Any]:
         "mcpEnabled": enabled,
         "mcpSource": mcp_source,
         "mcpTools": await tools_payload(),
-        "weekStart": mealie.week_start_setting(),  # "" = zoals in Mealie, "0".."6" = vaste dag (0 = zondag)
+        "weekStart": await mealie.week_start_setting(),  # "" = zoals in Mealie, "0".."6" = vaste dag (0 = zondag)
         "loginOn": await auth.aauth_required() and await auth.acredentials_exist(),
     }
 

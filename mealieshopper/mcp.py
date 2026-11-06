@@ -60,12 +60,12 @@ def _text(value: Any, limit: int = 300) -> str:
 async def tool_week_menu(args: dict[str, Any]) -> Any:
     if args.get("start_date") in (None, ""):
         # Alleen dan is de eerste dag van de week nodig (die kan Mealie vragen).
-        start = _week_start(datetime.date.today(), mealie.week_start()["day"])
+        start = _week_start(datetime.date.today(), (await mealie.week_start())["day"])
     else:
         start = _parse_date(args.get("start_date"), datetime.date.today())
     days = max(1, min(14, int(args.get("days") or 7)))
     end = start + datetime.timedelta(days=days - 1)
-    entries = mealie.get_meal_plan_with_recipes(start.isoformat(), end.isoformat())
+    entries = await mealie.get_meal_plan_with_recipes(start.isoformat(), end.isoformat())
     meals = []
     for entry in sorted(entries, key=lambda item: (item.get("date") or "", item.get("entryType") or "")):
         recipe = entry.get("recipe") or {}
@@ -78,7 +78,7 @@ async def tool_week_menu(args: dict[str, Any]) -> Any:
                 "meal": entry.get("entryType"),
                 "recipe": recipe.get("name") or entry.get("title") or "",
                 "note": _text(entry.get("text"), 500) or None,
-                "url": mealie.recipe_page_url(slug) if slug else None,
+                "url": await mealie.recipe_page_url(slug) if slug else None,
                 # De porties uit de planner van Mealie; de ingrediënten hieronder zijn daarvoor al omgerekend.
                 "servings": (entry.get("servings") or {}).get("planned"),
                 "ingredients": [
@@ -96,12 +96,12 @@ async def tool_search_mealie_recipes(args: dict[str, Any]) -> Any:
     if not query:
         raise ToolError("Geef een zoekterm op")
     limit = _int_arg(args, "limit", 20, 1, 50)
-    data = mealie.search_recipes(query, 1, limit)
+    data = await mealie.search_recipes(query, 1, limit)
     return {
         "total": data["total"],
         "recipes": [
             {"slug": r["slug"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "tags": r["tags"],
-             "url": mealie.recipe_page_url(r["slug"])}
+             "url": await mealie.recipe_page_url(r["slug"])}
             for r in data["recipes"]
         ],
     }
@@ -118,21 +118,21 @@ async def tool_plan_meal(args: dict[str, Any]) -> Any:
     values = {"date": args.get("date"), "entryType": args.get("meal") or "dinner", "title": title, "text": _text(args.get("note"), mealie.TEXT_MAX)}
     if slug:
         values["recipeSlug"] = slug
-    entry = mealie.create_meal_plan_entry(values)
+    entry = await mealie.create_meal_plan_entry(values)
     recipe = entry.get("recipe") or {}
     return {
         "id": entry.get("id"),
         "date": entry.get("date"),
         "meal": entry.get("entryType"),
         "recipe": recipe.get("name") or entry.get("title") or "",
-        "url": mealie.recipe_page_url(recipe["slug"]) if recipe.get("slug") else None,
+        "url": await mealie.recipe_page_url(recipe["slug"]) if recipe.get("slug") else None,
     }
 
 
 async def tool_remove_planned_meal(args: dict[str, Any]) -> Any:
     if args.get("id") in (None, ""):
         raise ToolError("Geef het id van de maaltijd op (zie get_week_menu)")
-    return mealie.delete_meal_plan_entry(args.get("id"))
+    return await mealie.delete_meal_plan_entry(args.get("id"))
 
 
 async def tool_search_recipes(args: dict[str, Any]) -> Any:
@@ -590,8 +590,8 @@ async def tool_import_recipe(args: dict[str, Any]) -> Any:
     # je eigen netwerk laten we daarom niet door Mealie ophalen.
     if _private_host(parts.hostname):
         raise ToolError("Dit adres staat op een eigen netwerk. Importeer alleen recepten van het internet.")
-    slug = mealie.import_from_url(url)
-    return {"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)}
+    slug = await mealie.import_from_url(url)
+    return {"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)}
 
 
 def _copy_note(synced: str | None) -> str:

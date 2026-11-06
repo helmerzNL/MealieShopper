@@ -7,11 +7,13 @@ from typing import Any, Callable
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_recipes, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, returned, run  # noqa: E402
+from support import SyncClient, returned, routes, run  # noqa: E402
 
 BONUS_PAGE = {
     "bonusGroupOrProducts": [
@@ -655,9 +657,9 @@ class CourseCollectorsTest(TempDataDirTest):
     def test_each_source_gives_its_course(self):
         recipe = {"id": "m1", "name": "Pasta", "slug": "pasta", "recipeIngredient": [{"food": {"name": "pasta"}}],
                   "recipeCategory": [{"name": "Avondeten"}], "tags": [{"name": "Snel"}]}
-        with mock.patch.object(offers.mealie, "list_recipes", return_value=[{"slug": "pasta"}]), \
-                mock.patch.object(offers.mealie, "get_recipe", return_value=recipe), \
-                mock.patch.object(offers.mealie, "recipe_page_url", return_value="http://m/pasta"), \
+        with mock.patch.object(offers.mealie, "list_recipes", new_callable=mock.AsyncMock, return_value=[{"slug": "pasta"}]), \
+                mock.patch.object(offers.mealie, "get_recipe", new_callable=mock.AsyncMock, return_value=recipe), \
+                mock.patch.object(offers.mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://m/pasta"), \
                 mock.patch.object(offers.mealie_images, "image_path", return_value=""):
             self.assertEqual(run(offers._collect_mealie())[0]["course"], "hoofdgerecht")
 
@@ -776,12 +778,35 @@ class CollectorPoolTest(TempDataDirTest):
         self.assertLessEqual(state[1], offers.WORKERS)
 
     def test_the_mealie_pool(self) -> None:
-        fetch, state = self.counting(lambda slug: {"id": slug, "name": f"R{slug}", "recipeIngredient": [{"food": {"name": "kip"}}]})
-        with mock.patch.object(offers.mealie, "list_recipes", return_value=self.cards()), \
-                mock.patch.object(offers.mealie, "get_recipe", side_effect=fetch), \
-                mock.patch.object(offers.mealie, "recipe_page_url", return_value=""), \
-                mock.patch.object(offers.mealie_images, "image_path", return_value=""):
-            self.assert_pool(run(offers._collect_mealie()), state)
+        # Mealie is async: de pool laat echt WORKERS recepten tegelijk ophalen, niet meer en niet minder.
+        state: list[int] = [0, 0]  # nu, hoogste
+
+        async def recipe(request: httpx.Request) -> httpx.Response:
+            slug = request.url.path.rsplit("/", 1)[1]
+            state[0] += 1
+            state[1] = max(state[1], state[0])
+            try:
+                for _ in range(30):  # hooguit 0,3 s wachten tot de pool vol is
+                    if state[0] >= offers.WORKERS:
+                        break
+                    await asyncio.sleep(0.01)
+                await asyncio.sleep(0.01)
+            finally:
+                state[0] -= 1
+            if slug == "4":
+                return httpx.Response(500, json={"detail": "recept 4 lukt niet"})
+            return httpx.Response(200, json={"id": slug, "name": f"R{slug}", "recipeIngredient": [{"food": {"name": "kip"}}]})
+
+        with mock.patch.object(offers.mealie, "list_recipes", new_callable=mock.AsyncMock, return_value=self.cards()), \
+                mock.patch.object(offers.mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://mealie.test"), \
+                mock.patch.object(offers.mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"), \
+                mock.patch.object(offers.mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value=""), \
+                mock.patch.object(offers.mealie_images, "image_path", return_value=""), routes() as api:
+            fetched = api.get(url__regex=r"^http://mealie\.test/api/recipes/\d+$").mock(side_effect=recipe)
+            found = run(offers._collect_mealie())
+        self.assertEqual(fetched.call_count, 12)
+        self.assertEqual([item["id"] for item in found], [str(n) for n in range(12) if n != 4], "de volgorde van de kaarten, zonder het mislukte recept")
+        self.assertEqual(state[1], offers.WORKERS)
 
     def test_the_jumbo_pool(self) -> None:
         fetch, state = self.counting(lambda recipe_id: {"id": recipe_id, "name": f"R{recipe_id}", "ingredients": [{"name": "kip"}]})
@@ -1150,14 +1175,14 @@ class RealRecipesTest(TempDataDirTest):
         )
         with mock.patch.object(offers, "COLLECTORS", collectors):
             run(offers.sync_recipes())
-        with mock.patch.object(offers.mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(offers.mealie, "group_slug", return_value="zb"):
+        with mock.patch.object(offers.mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(offers.mealie, "group_slug", new_callable=mock.AsyncMock, return_value="zb"):
             urls = {recipe["id"]: recipe["url"] for recipe in run(offers.suggest("ah"))["recipes"]}
         self.assertEqual(urls["a"], "https://mealie.example/g/zb/r/witlof-met-ham", "het oude adres is gecorrigeerd")
         self.assertEqual(urls["b"], "https://mealie.example/g/zb/r/al-goed", "een goed adres blijft goed")
         self.assertEqual(urls["c"], "https://www.jumbo.com/recepten/recipe/xyz", "alleen Mealie-adressen worden aangepast")
         # Zonder koppeling met Mealie blijft het bewaarde adres staan.
-        with mock.patch.object(offers.mealie, "mealie_url", return_value=""):
+        with mock.patch.object(offers.mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""):
             urls = {recipe["id"]: recipe["url"] for recipe in run(offers.suggest("ah"))["recipes"]}
         self.assertEqual(urls["a"], "https://mealie.example/recipe/witlof-met-ham")
 
@@ -1168,8 +1193,8 @@ class RealRecipesTest(TempDataDirTest):
                                            "ingredients": ["400 g kipfilet", "4 tomaten"]}])),)
         with mock.patch.object(offers, "COLLECTORS", collectors):
             run(offers.sync_recipes())
-        with mock.patch.object(offers.mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(offers.mealie, "recipe_page_url", side_effect=RuntimeError("weg")):
+        with mock.patch.object(offers.mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(offers.mealie, "recipe_page_url", new_callable=mock.AsyncMock, side_effect=RuntimeError("weg")):
             recipes = run(offers.suggest("ah"))["recipes"]
         self.assertEqual(recipes[0]["url"], "https://mealie.example/recipe/x")
 

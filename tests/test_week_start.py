@@ -16,13 +16,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import requests
+import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, routes, run, sent_timeout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -33,13 +33,13 @@ TOKEN = "eyJhbGciOiJIUzI1NiJ9.geheime-mealie-token.handtekening"
 URL = "https://mealie.example.nl"
 
 
+PREFERENCES = f"{URL}/api/households/preferences"
+
+
 def response(status=200, body=None, json_error=False):
-    r = mock.Mock(status_code=status, ok=200 <= status < 300, text="")
     if json_error:
-        r.json.side_effect = ValueError("geen json")
-    else:
-        r.json.return_value = body
-    return r
+        return httpx.Response(status, text="geen json")
+    return httpx.Response(status, json=body)
 
 
 def preferences(first_day):
@@ -71,76 +71,91 @@ class FirstDayFromMealieTest(WeekStartTestCase):
         self.link()
 
     def test_read_from_the_household_preferences_with_the_token(self):
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(6)) as get:
-            self.assertEqual(mealie.first_day_of_week(), 6)
-        self.assertEqual(get.call_args.args[0], f"{URL}/api/households/preferences")
-        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], f"Bearer {TOKEN}")
-        self.assertIn("timeout", get.call_args.kwargs)
+        with routes() as api:
+            get = api.get(PREFERENCES).mock(return_value=preferences(6))
+            self.assertEqual(run(mealie.first_day_of_week()), 6)
+        self.assertEqual(get.calls.last.request.headers["Authorization"], f"Bearer {TOKEN}")
+        self.assertEqual(sent_timeout(get.calls.last), 10)
 
     def test_sunday_is_zero_like_in_mealie(self):
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(0)):
-            self.assertEqual(mealie.first_day_of_week(), 0)
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(0))
+            self.assertEqual(run(mealie.first_day_of_week()), 0)
 
     def test_remembered_so_every_page_load_does_not_ask_mealie(self):
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(1)) as get:
+        with routes() as api:
+            get = api.get(PREFERENCES).mock(return_value=preferences(1))
             for _ in range(20):
-                self.assertEqual(mealie.first_day_of_week(), 1)
+                self.assertEqual(run(mealie.first_day_of_week()), 1)
         self.assertEqual(get.call_count, 1)
 
     def test_anything_but_a_day_from_0_to_6_is_unknown(self):
         for value in (True, False, 7, -1, "1", 1.0, None):
             mealie._week_start_cache.clear()
-            with mock.patch.object(mealie.requests, "get", return_value=preferences(value)):
-                self.assertIsNone(mealie.first_day_of_week(), repr(value))
+            with routes() as api:
+                api.get(PREFERENCES).mock(return_value=preferences(value))
+                self.assertIsNone(run(mealie.first_day_of_week()), repr(value))
         for answer in (response(body={"privateHousehold": True}), response(body=None), response(body=[1]), response(json_error=True),
                        response(status=401), response(status=404)):
             mealie._week_start_cache.clear()
-            with mock.patch.object(mealie.requests, "get", return_value=answer):
-                self.assertIsNone(mealie.first_day_of_week())
+            with routes() as api:
+                api.get(PREFERENCES).mock(return_value=answer)
+                self.assertIsNone(run(mealie.first_day_of_week()))
 
     def test_a_failure_never_raises_and_is_retried_after_a_minute(self):
-        with mock.patch.object(mealie.requests, "get", side_effect=requests.ConnectionError("weg")) as get:
-            self.assertIsNone(mealie.first_day_of_week())
-            self.assertIsNone(mealie.first_day_of_week())
+        with routes() as api:
+            get = api.get(PREFERENCES).mock(side_effect=httpx.ConnectError("weg"))
+            self.assertIsNone(run(mealie.first_day_of_week()))
+            self.assertIsNone(run(mealie.first_day_of_week()))
         self.assertEqual(get.call_count, 1, "binnen een minuut niet opnieuw")
         mealie._week_start_cache[URL] = (0, None)  # de wachttijd is voorbij
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(6)):
-            self.assertEqual(mealie.first_day_of_week(), 6)
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(6))
+            self.assertEqual(run(mealie.first_day_of_week()), 6)
 
     def test_without_a_link_there_is_no_request(self):
         auth.delete_secret("MEALIE_URL")
-        with mock.patch.object(mealie.requests, "get", side_effect=AssertionError("geen verzoek")):
-            self.assertIsNone(mealie.first_day_of_week())
+        with routes() as api:
+            anything = api.route()
+            self.assertIsNone(run(mealie.first_day_of_week()))
+        self.assertFalse(anything.called)
 
 
 class WeekStartChoiceTest(WeekStartTestCase):
     def test_follows_mealie_by_default(self):
         self.link()
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(6)):
-            self.assertEqual(mealie.week_start(), {"day": 6, "source": "mealie", "setting": "", "mealie": 6})
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(6))
+            self.assertEqual(run(mealie.week_start()), {"day": 6, "source": "mealie", "setting": "", "mealie": 6})
 
     def test_a_fixed_day_wins_without_asking_mealie(self):
         self.link()
         auth.set_setting(mealie.SETTING_WEEK_START, "1")
-        with mock.patch.object(mealie.requests, "get", side_effect=AssertionError("geen verzoek")):
-            self.assertEqual(mealie.week_start(), {"day": 1, "source": "setting", "setting": "1", "mealie": None})
-        auth.set_setting(mealie.SETTING_WEEK_START, "0")
-        self.assertEqual(mealie.week_start()["day"], 0, "zondag is ook een vaste dag")
+        with routes() as api:
+            anything = api.route()
+            self.assertEqual(run(mealie.week_start()), {"day": 1, "source": "setting", "setting": "1", "mealie": None})
+            auth.set_setting(mealie.SETTING_WEEK_START, "0")
+            self.assertEqual(run(mealie.week_start())["day"], 0, "zondag is ook een vaste dag")
+        self.assertFalse(anything.called)
 
     def test_monday_when_mealie_does_not_say(self):
-        with mock.patch.object(mealie.requests, "get", side_effect=AssertionError("geen verzoek")):
-            self.assertEqual(mealie.week_start(), {"day": 1, "source": "default", "setting": "", "mealie": None})
+        with routes() as api:
+            anything = api.route()
+            self.assertEqual(run(mealie.week_start()), {"day": 1, "source": "default", "setting": "", "mealie": None})
+        self.assertFalse(anything.called)
         self.link()
-        with mock.patch.object(mealie.requests, "get", side_effect=requests.Timeout("traag")):
-            self.assertEqual(mealie.week_start()["source"], "default")
+        with routes() as api:
+            api.get(PREFERENCES).mock(side_effect=httpx.ReadTimeout("traag"))
+            self.assertEqual(run(mealie.week_start())["source"], "default")
 
     def test_a_broken_stored_value_counts_as_following_mealie(self):
         self.link()
         for value in ("7", "ma", " ", "1.0"):
             auth.set_setting(mealie.SETTING_WEEK_START, value)
             mealie._week_start_cache.clear()
-            with mock.patch.object(mealie.requests, "get", return_value=preferences(6)):
-                self.assertEqual(mealie.week_start()["source"], "mealie", repr(value))
+            with routes() as api:
+                api.get(PREFERENCES).mock(return_value=preferences(6))
+                self.assertEqual(run(mealie.week_start())["source"], "mealie", repr(value))
 
 
 class StatusTest(WeekStartTestCase):
@@ -148,34 +163,32 @@ class StatusTest(WeekStartTestCase):
         data = self.client.get("/api/mealie/status").get_json()
         self.assertEqual(data["weekStart"], {"day": 1, "source": "default", "setting": "", "mealie": None})
         self.link()
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(6)):
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(6))
             data = self.client.get("/api/mealie/status").get_json()
         self.assertEqual(data["weekStart"]["day"], 6)
         self.assertNotIn(TOKEN, json.dumps(data))
 
     def test_checking_the_link_picks_up_a_change_in_mealie_at_once(self):
         self.link()
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(1)):
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(1))
             self.assertEqual(self.client.get("/api/mealie/status").get_json()["weekStart"]["day"], 1)
-
-        def answer(url, **kwargs):
-            if url.endswith("/api/users/self"):
-                return response(body={"username": "helmer"})
-            if url.endswith("/api/app/about"):
-                return response(body={"version": "v3.30.0"})
-            return preferences(6)
-
-        with mock.patch.object(mealie.requests, "get", return_value=preferences(6)):
+        with routes() as api:
+            api.get(PREFERENCES).mock(return_value=preferences(6))
             self.assertEqual(self.client.get("/api/mealie/status").get_json()["weekStart"]["day"], 1, "nog onthouden")
-        with mock.patch.object(mealie.requests, "get", side_effect=answer):
+        with routes() as api:
+            api.get(f"{URL}/api/users/self").mock(return_value=response(body={"username": "helmer"}))
+            api.get(f"{URL}/api/app/about").mock(return_value=response(body={"version": "v3.30.0"}))
+            api.get(PREFERENCES).mock(return_value=preferences(6))
             self.assertEqual(self.client.get("/api/mealie/status?verify=1").get_json()["weekStart"]["day"], 6)
 
 
 class WeekMenuToolTest(WeekStartTestCase):
     def test_the_week_menu_starts_on_the_first_day_of_the_week(self):
         for first, isoweekday in ((6, 6), (0, 7), (1, 1), (3, 3)):
-            with mock.patch.object(mealie, "week_start", return_value={"day": first}), \
-                    mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
+            with mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, return_value={"day": first}), \
+                    mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan:
                 data = run(mcp.tool_week_menu({}))
             start, end = (datetime.date.fromisoformat(day) for day in plan.call_args.args)
             self.assertEqual(start.isoweekday(), isoweekday, first)
@@ -185,10 +198,10 @@ class WeekMenuToolTest(WeekStartTestCase):
             self.assertEqual(data["from"], start.isoformat())
 
     def test_an_explicit_start_date_does_not_ask_for_the_week_start(self):
-        with mock.patch.object(mealie, "week_start", side_effect=AssertionError("niet nodig")), \
-                mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
+        with mock.patch.object(mealie, "week_start", new_callable=mock.AsyncMock, side_effect=AssertionError("niet nodig")), \
+                mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan:
             run(mcp.tool_week_menu({"start_date": "2026-11-07", "days": 7}))
-        plan.assert_called_once_with("2026-11-07", "2026-11-13")
+        plan.assert_awaited_once_with("2026-11-07", "2026-11-13")
 
     def test_week_start_counts_like_mealie(self):
         wednesday = datetime.date(2026, 11, 4)

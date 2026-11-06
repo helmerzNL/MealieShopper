@@ -284,9 +284,9 @@ class RoutesTest(TempDataDirTest):
         with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}):
             detail = self.client.get("/api/jumbo/recipes/700001").get_json()
             self.assertEqual((detail["name"], len(detail["ingredients"]), len(detail["steps"])), ("Romige pasta met tomaat", 4, 3))
-            with mock.patch.object(mealie, "ensure_configured"), \
-                    mock.patch.object(mealie, "import_via_jsonld", return_value="romige-pasta") as imported, \
-                    mock.patch.object(mealie, "recipe_page_url", return_value="http://mealie/g/home/r/romige-pasta"):
+            with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                    mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="romige-pasta") as imported, \
+                    mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/g/home/r/romige-pasta"):
                 done = self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((done.status_code, done.get_json()["slug"]), (200, "romige-pasta"))
         url, data = imported.call_args.args
@@ -318,33 +318,33 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(self.client.get("/api/jumbo/recipes/niet%20geldig").status_code, 400)
         with mock.patch.object(jumbo, "_persisted_query", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")):
             self.assertEqual(self.client.get("/api/jumbo/recipes?q=pasta").status_code, 424)
-        with mock.patch.object(mealie, "ensure_configured", side_effect=RuntimeError("Mealie is niet gekoppeld.")):
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")):
             refused = self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((refused.status_code, refused.get_json()["error"]), (400, "Mealie is niet gekoppeld."))
-        with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}), mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(mealie, "import_via_jsonld", side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
+        with mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}), mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
             failed = self.client.post("/api/jumbo/recipes/700001/import")
         self.assertEqual((failed.status_code, failed.get_json()["error"]), (424, "Importeren in Mealie mislukt"))
 
 
 class UrlImportTest(TempDataDirTest):
     def test_a_jumbo_recipe_link_goes_through_the_api_when_jumbo_is_linked(self):
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}), \
-                mock.patch.object(mealie, "import_via_jsonld", return_value="slug") as imported, mock.patch.object(mealie, "import_via_url") as page:
-            slug = mealie.import_from_url("https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001")
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(jumbo, "_persisted_query", return_value={"recipe": RECIPE}), \
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="slug") as imported, mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock) as page:
+            slug = run(mealie.import_from_url("https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001"))
         self.assertEqual(slug, "slug")
         page.assert_not_called()
         self.assertEqual(imported.call_args.args[1]["recipeIngredient"][0], "2 Uien")
 
     def test_without_a_link_or_when_the_api_fails_the_page_import_is_tried(self):
         url = "https://www.jumbo.com/recepten/romige-pasta-met-tomaat-700001"
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(jumbo, "_persisted_query", side_effect=RuntimeError("stuk")), \
-                mock.patch.object(mealie, "import_via_url", return_value="viapagina"):
-            self.assertEqual(mealie.import_from_url(url), "viapagina")
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(jumbo, "_persisted_query", side_effect=RuntimeError("stuk")), \
+                mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock, return_value="viapagina"):
+            self.assertEqual(run(mealie.import_from_url(url)), "viapagina")
         auth.delete_secret(jumbo.REFRESH_SECRET)
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(jumbo, "_persisted_query") as query, \
-                mock.patch.object(mealie, "import_via_url", return_value="viapagina"):
-            self.assertEqual(mealie.import_from_url(url), "viapagina")
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(jumbo, "_persisted_query") as query, \
+                mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock, return_value="viapagina"):
+            self.assertEqual(run(mealie.import_from_url(url)), "viapagina")
         query.assert_not_called()
 
 

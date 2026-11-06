@@ -718,8 +718,8 @@ class ToolsTest(McpTestCase):
              "servings": {"scale": 2.0, "base": 2, "planned": 4}},
             {"id": 4, "date": "2026-10-19", "entryType": "dinner", "title": "Restjes", "text": "Van  zondag", "recipe": None, "recipeDetail": None},
         ]
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"):
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=entries) as plan, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = self.data("get_week_menu", {"start_date": "2026-10-19", "days": 3})
         plan.assert_called_once_with("2026-10-19", "2026-10-21")
         self.assertEqual([m["date"] for m in data["meals"]], ["2026-10-19", "2026-10-20"])
@@ -734,8 +734,8 @@ class ToolsTest(McpTestCase):
     def test_search_mealie_recipes(self):
         found = {"recipes": [{"id": "pasta", "slug": "pasta", "recipeId": "r1", "name": "Pasta", "image": "/api/mealie/recipes/r1/image?v=1",
                               "minutes": 20, "portions": 4, "rating": None, "tags": ["Snel"]}], "total": 1, "page": 1, "more": False}
-        with mock.patch.object(mealie, "search_recipes", return_value=found) as search, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"):
+        with mock.patch.object(mealie, "search_recipes", new_callable=mock.AsyncMock, return_value=found) as search, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = self.data("search_mealie_recipes", {"query": "pasta", "limit": 5})
         search.assert_called_once_with("pasta", 1, 5)
         self.assertEqual(data["recipes"], [{"slug": "pasta", "name": "Pasta", "minutes": 20, "portions": 4, "tags": ["Snel"], "url": "https://mealie.example/g/home/r/pasta"}])
@@ -743,8 +743,8 @@ class ToolsTest(McpTestCase):
 
     def test_plan_meal(self):
         created = {"id": 12, "date": "2026-11-03", "entryType": "dinner", "recipe": {"name": "Pasta", "slug": "pasta"}}
-        with mock.patch.object(mealie, "create_meal_plan_entry", return_value=created) as create, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"):
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock, return_value=created) as create, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = self.data("plan_meal", {"date": "2026-11-03", "recipe_slug": "pasta"})
             note = self.data("plan_meal", {"date": "2026-11-04", "meal": "lunch", "title": "Uit eten", "note": "Bij oma"})
         self.assertEqual(data, {"id": 12, "date": "2026-11-03", "meal": "dinner", "recipe": "Pasta", "url": "https://mealie.example/g/home/r/pasta"})
@@ -753,21 +753,21 @@ class ToolsTest(McpTestCase):
         self.assertEqual(note["id"], 12)
 
     def test_plan_meal_validates_before_writing(self):
-        with mock.patch.object(mealie, "create_meal_plan_entry") as create:
+        with mock.patch.object(mealie, "create_meal_plan_entry", new_callable=mock.AsyncMock) as create:
             for args in ({"date": "2026-11-03"}, {"recipe_slug": "pasta"}, {"date": "morgen", "recipe_slug": "pasta"}):
                 self.assertTrue(self.call(self.token, "plan_meal", args)["isError"], args)
         create.assert_not_called()
 
     def test_remove_planned_meal(self):
-        with mock.patch.object(mealie, "delete_meal_plan_entry", return_value={"id": 7, "deleted": True}) as delete:
+        with mock.patch.object(mealie, "delete_meal_plan_entry", new_callable=mock.AsyncMock, return_value={"id": 7, "deleted": True}) as delete:
             self.assertEqual(self.data("remove_planned_meal", {"id": 7}), {"id": 7, "deleted": True})
         delete.assert_called_once_with(7)
-        with mock.patch.object(mealie, "delete_meal_plan_entry") as delete:
+        with mock.patch.object(mealie, "delete_meal_plan_entry", new_callable=mock.AsyncMock) as delete:
             self.assertTrue(self.call(self.token, "remove_planned_meal", {})["isError"])
         delete.assert_not_called()
 
     def test_week_menu_defaults_to_this_week_and_validates(self):
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", return_value=[]) as plan:
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, return_value=[]) as plan:
             self.data("get_week_menu")
         start, end = plan.call_args.args
         self.assertEqual((__import__("datetime").date.fromisoformat(end) - __import__("datetime").date.fromisoformat(start)).days, 6)
@@ -846,32 +846,32 @@ class ToolsTest(McpTestCase):
         self.assertEqual((data["products"][0]["price"], data["products"][0]["url"]), (1.25, "https://www.ah.nl/producten/product/wi42"))
 
     def test_import_recipe(self):
-        with mock.patch.object(mealie, "import_from_url", return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"):
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="pasta-pesto") as imp, mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"):
             data = self.data("import_recipe_to_mealie", {"url": "https://www.ah.nl/allerhande/recept/R-R1/pesto"})
         imp.assert_called_once()
         self.assertEqual(data, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
 
     def test_import_refuses_addresses_on_your_own_network(self):
-        with mock.patch.object(mealie, "import_from_url") as imp:
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock) as imp:
             for url in ("http://localhost:9000/x", "http://127.0.0.1/x", "http://192.168.1.10/recipe", "http://10.0.0.5/", "http://169.254.169.254/latest/meta-data",
                         "http://[::1]/x", "http://nas/recept", "http://mealie.local/x", "http://box.lan/x", "http://service.internal/x", "https://LOCALHOST./x"):
                 result = self.call(self.token, "import_recipe_to_mealie", {"url": url})
                 self.assertTrue(result["isError"], url)
                 self.assertIn("eigen netwerk", self.text(result), url)
         imp.assert_not_called()
-        with mock.patch.object(mealie, "import_from_url", return_value="x"), mock.patch.object(mealie, "mealie_url", return_value="https://m.example"):
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock, return_value="x"), mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m.example"):
             for url in ("https://www.ah.nl/allerhande/recept/R-R1/x", "http://93.184.216.34/recipe", "https://recepten.example.org/pasta"):
                 self.assertFalse(self.call(self.token, "import_recipe_to_mealie", {"url": url})["isError"], url)
 
     def test_import_refuses_other_schemes(self):
-        with mock.patch.object(mealie, "import_from_url") as imp:
+        with mock.patch.object(mealie, "import_from_url", new_callable=mock.AsyncMock) as imp:
             for url in ("file:///etc/passwd", "javascript:alert(1)", "ftp://x.example/recipe", "gewoon tekst", "http://"):
                 self.assertTrue(self.call(self.token, "import_recipe_to_mealie", {"url": url})["isError"], url)
         imp.assert_not_called()
 
     def test_service_errors_come_back_as_tool_errors(self):
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", side_effect=RuntimeError("Mealie onbereikbaar")):
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie onbereikbaar")):
             result = self.call(self.token, "get_week_menu")
         self.assertEqual((result["isError"], self.text(result)), (True, "Mealie onbereikbaar"))
 

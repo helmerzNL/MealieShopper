@@ -121,8 +121,8 @@ class LifecycleTest(OnboardingTestCase):
 
     def test_existing_install_with_login_off_and_mealie_linked_is_left_alone(self):
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), \
-                mock.patch.object(mealie, "mealie_url", return_value="https://m"), \
-                mock.patch.object(mealie, "mealie_token", return_value="t"):
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"), \
+                mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"):
             status = self.status()
         self.assertFalse(status["needed"])
         self.assertEqual(status["authMode"], "off")
@@ -142,8 +142,8 @@ class LifecycleTest(OnboardingTestCase):
         self.assertTrue(status["authenticated"])
 
     def test_mealie_in_the_environment_does_not_skip_security_on_a_new_install(self):
-        with mock.patch.object(mealie, "mealie_url", return_value="https://m"), \
-                mock.patch.object(mealie, "mealie_token", return_value="t"):
+        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m"), \
+                mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"):
             self.assertTrue(self.status()["needed"])
 
     def test_it_stays_needed_after_the_first_login_method_until_completed(self):

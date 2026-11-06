@@ -322,11 +322,11 @@ class RoutesTest(TempDataDirTest):
         self.assertIn("503", reply.get_json()["error"])
 
     def test_import_sends_a_schema_org_recipe_to_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
                 served(side_effect=detail_requests()), \
-                mock.patch.object(mealie, "import_via_jsonld", return_value="bulgurbowl") as send:
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="bulgurbowl") as send:
             body = self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import").get_json()
         self.assertEqual(body, {"slug": "bulgurbowl", "mealieUrl": "https://mealie.example/g/home/r/bulgurbowl"})
         url, data = send.call_args.args
@@ -334,35 +334,35 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(data["recipeIngredient"], ["150g bulgur", "1 kleine bloemkool", "peper en zout"])
 
     def test_import_without_mealie_says_so_and_asks_marley_spoon_nothing(self):
-        with mock.patch.object(mealie, "ensure_configured", side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
                 served(side_effect=AssertionError("niet ophalen")):
             reply = self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
     def test_an_invalid_key_is_refused_before_any_request(self):
-        with mock.patch.object(mealie, "ensure_configured"), served(side_effect=AssertionError("geen verzoek")):
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), served(side_effect=AssertionError("geen verzoek")):
             reply = self.client.post("/api/marleyspoon/recipes/zonder-id/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Geen geldig recept"}))
 
     def test_a_refusal_is_retried_smaller_never_by_page_and_the_answer_of_mealie_stays_out(self):
         refused = mealie.MealieImportError("Mealie import mislukt (400): geheim", 400)
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"), \
                 served(side_effect=detail_requests() * 2), \
-                mock.patch.object(mealie, "import_via_jsonld", side_effect=[refused, "slim"]) as send, \
-                mock.patch.object(mealie, "import_via_url") as by_page:
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=[refused, "slim"]) as send, \
+                mock.patch.object(mealie, "import_via_url", new_callable=mock.AsyncMock) as by_page:
             self.assertEqual(self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import").get_json()["slug"], "slim")
             self.assertIn("image", send.call_args_list[0].args[1])
             self.assertNotIn("image", send.call_args_list[1].args[1])
-            with mock.patch.object(mealie, "import_via_jsonld", side_effect=refused):
+            with mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=refused):
                 reply = self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
         by_page.assert_not_called()
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Importeren in Mealie mislukt (Mealie antwoordde met status 400)"}))
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
     def test_a_successful_and_a_failed_import_are_in_the_audit_log_without_the_token(self):
-        with mock.patch.object(mealie, "ensure_configured"), mock.patch.object(mealie, "recipe_page_url", return_value="u"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="u"), \
                 served(side_effect=detail_requests() * 2), \
-                mock.patch.object(mealie, "import_via_jsonld", side_effect=["pasta", KeyError("x")]):
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=["pasta", KeyError("x")]):
             self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
             self.client.post(f"/api/marleyspoon/recipes/{SLUG}/import")
         rows = audit.list_entries(service="marleyspoon", query="Mealie import")["entries"]

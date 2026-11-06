@@ -1208,17 +1208,17 @@ def merge_duplicates(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 _MEALIE_RECIPE_PATH = re.compile(r"/(?:recipe|g/[^/]+/r)/([^/?#]+)/?$")
 
 
-def _mealie_recipe_url(stored: str) -> str:
+async def _mealie_recipe_url(stored: str) -> str:
     """Het huidige adres van een Mealie-recept, ook als de index nog het oude adres bewaart (zonder opnieuw inlezen).
 
     Mealie wil /g/<groep>/r/<recept>; tot v2.65.0 bewaarden we /recipe/<recept>. Het adres wordt daarom bij het tonen opnieuw
     opgebouwd uit het recept in het bewaarde adres. Is Mealie niet gekoppeld of niet te bereiken, dan blijft het bewaarde adres staan.
     """
     match = _MEALIE_RECIPE_PATH.search(stored or "")
-    if not match or not mealie.mealie_url():
+    if not match or not await mealie.mealie_url():
         return stored
     try:
-        return mealie.recipe_page_url(match.group(1))
+        return await mealie.recipe_page_url(match.group(1))
     except Exception:  # noqa: BLE001 - een link die niet lukt mag de voorstellen niet blokkeren
         return stored
 
@@ -1410,7 +1410,7 @@ async def suggest(store: Any, limit: int = 30, course: Any = None, cap: int = 10
                 "id": row["recipe_id"],
                 "title": row["title"],
                 "image": row["image"] or "",
-                "url": (_mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
+                "url": (await _mealie_recipe_url(row["url"]) if row["source"] == "mealie" else row["url"]) or "",
                 "course": row["course"] or offer_courses.OTHER,
                 "ingredientCount": len(heads),
                 "matchedCount": len(found),
@@ -1517,11 +1517,11 @@ async def _each(one: Callable[[_Item], Awaitable[dict[str, Any] | None]], items:
 
 
 async def _collect_mealie() -> list[dict[str, Any]]:
-    summaries = mealie.list_recipes(MEALIE_RECIPE_LIMIT)  # `mealie` is tot zijn eigen taak synchroon
+    summaries = await mealie.list_recipes(MEALIE_RECIPE_LIMIT)
 
     async def one(summary: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = mealie.get_recipe(summary["slug"])
+            recipe = await mealie.get_recipe(summary["slug"])
         except Exception:  # noqa: BLE001 - een recept dat niet lukt slaan we over
             return None
         lines = [line for line in (_mealie_ingredient(i) for i in recipe.get("recipeIngredient") or []) if line]
@@ -1531,7 +1531,7 @@ async def _collect_mealie() -> list[dict[str, Any]]:
             "id": str(recipe.get("id") or summary["slug"]),
             "title": str(recipe.get("name") or summary["slug"]),
             "image": mealie_images.image_path(recipe) or "",
-            "url": mealie.recipe_page_url(summary["slug"]),
+            "url": await mealie.recipe_page_url(summary["slug"]),
             "ingredients": lines,
             "course": offer_courses.course_of(recipe.get("recipeCategory"), recipe.get("tags")),
         }

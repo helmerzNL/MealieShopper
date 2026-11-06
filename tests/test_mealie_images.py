@@ -48,8 +48,9 @@ class MealieImagesTestCase(unittest.TestCase):
             ("ensure_configured", None),
             ("mealie_url", "https://mealie.example"),
             ("mealie_token", "secret-token"),
+            ("group_slug", None),
         ):
-            patcher = mock.patch.object(mealie, name, **({"return_value": value} if name != "ensure_configured" else {}))
+            patcher = mock.patch.object(mealie, name, new_callable=mock.AsyncMock, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
         self.client = SyncClient(create_app())
@@ -80,18 +81,18 @@ class MealPlanImageTest(MealieImagesTestCase):
             "soep": {"id": RECIPE_ID, "image": "v2", "name": "Soep", "recipeIngredient": []},
             "pasta": {"id": OTHER_ID, "image": None, "name": "Pasta", "recipeIngredient": []},
         }
-        with mock.patch.object(mealie, "get_meal_plan", return_value=entries), \
-                mock.patch.object(mealie, "get_recipe", side_effect=lambda slug: details[slug]):
-            result = mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25")
+        with mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries), \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=lambda slug: details[slug]):
+            result = run(mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25"))
         self.assertEqual(result[0]["imageUrl"], f"/api/mealie/recipes/{RECIPE_ID}/image?v=v2")
         self.assertIsNone(result[1]["imageUrl"])
         self.assertIsNone(result[2]["imageUrl"])
 
     def test_summary_image_is_used_when_the_detail_fails(self):
         entries = [{"date": "2026-10-19", "recipe": {"id": RECIPE_ID, "slug": "soep", "image": "v1"}}]
-        with mock.patch.object(mealie, "get_meal_plan", return_value=entries), \
-                mock.patch.object(mealie, "get_recipe", side_effect=RuntimeError("boem")):
-            result = mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25")
+        with mock.patch.object(mealie, "get_meal_plan", new_callable=mock.AsyncMock, return_value=entries), \
+                mock.patch.object(mealie, "get_recipe", new_callable=mock.AsyncMock, side_effect=RuntimeError("boem")):
+            result = run(mealie.get_meal_plan_with_recipes("2026-10-19", "2026-10-25"))
         self.assertEqual(result[0]["imageUrl"], f"/api/mealie/recipes/{RECIPE_ID}/image?v=v1")
 
 

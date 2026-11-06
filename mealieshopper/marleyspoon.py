@@ -401,7 +401,7 @@ def jsonld(recipe: dict[str, Any], minimal: bool = False) -> dict[str, Any]:
     return data
 
 
-def import_into_mealie(recipe: dict[str, Any], attempts_log: list[dict[str, Any]] | None = None) -> str:
+async def import_into_mealie(recipe: dict[str, Any], attempts_log: list[dict[str, Any]] | None = None) -> str:
     """Zet het recept in Mealie en geeft het slug: volledig, en bij een weigering nog eens zonder foto en voedingswaarden.
     Mealie de pagina zelf laten lezen helpt hier niet: die heeft geen receptgegevens."""
     url = source_url(recipe["key"])
@@ -409,14 +409,14 @@ def import_into_mealie(recipe: dict[str, Any], attempts_log: list[dict[str, Any]
         ("volledig", lambda: mealie.import_via_jsonld(url, jsonld(recipe))),
         ("zonder foto en voedingswaarden", lambda: mealie.import_via_jsonld(url, jsonld(recipe, minimal=True))),
     )
-    return mealkit_import.import_into_mealie("Marley Spoon", recipe["key"], attempts, MarleySpoonError, attempts_log)
+    return await mealkit_import.import_into_mealie("Marley Spoon", recipe["key"], attempts, MarleySpoonError, attempts_log)
 
 
 async def run_import(key: Any) -> dict[str, str]:
     """Haal het recept op en zet het in Mealie: `{"slug", "mealieUrl"}`; zie `mealkit_import.run_import`."""
 
     async def work(k: str, attempts: list[dict[str, Any]]) -> str:
-        return import_into_mealie(await get_recipe(k), attempts)  # Mealie volgt in Taak 19: tot dan synchroon
+        return await import_into_mealie(await get_recipe(k), attempts)
 
     return await mealkit_import.run_import("marleyspoon", "Marley Spoon", key, lambda k: bool(_KEY.match(k)), source_url, work, MarleySpoonError)
 

@@ -21,6 +21,7 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -249,7 +250,7 @@ async def start(
     global _cancel
     store = _valid_store(store)
     try:
-        mealie.ensure_configured()
+        await mealie.ensure_configured()
     except RuntimeError as exc:
         raise ValueError(str(exc)) from exc
     group_id = str(group or "").strip()
@@ -327,9 +328,9 @@ class _Organizers:
         self.tags: list[dict[str, str]] | None = None
         self.categories: list[dict[str, str]] = []
 
-    def _one(self, make: Any, name: str) -> list[dict[str, str]]:
+    async def _one(self, make: Callable[[str], Awaitable[dict[str, str]]], name: str) -> list[dict[str, str]]:
         try:
-            return [make(name)]
+            return [await make(name)]
         except mealie.OrganizerError as exc:
             log.warning("Bulkimport: %s maken mislukt: %s", name, exc)
             _warn("organizers_denied" if exc.forbidden else "organizers_failed")
@@ -338,14 +339,14 @@ class _Organizers:
             _warn("organizers_failed")
         return []
 
-    def apply(self, slug: str, current: dict[str, Any] | None = None) -> None:
+    async def apply(self, slug: str, current: dict[str, Any] | None = None) -> None:
         if self.tags is None:
-            self.tags = self._one(mealie.ensure_tag, self.store_name)
-            self.categories = self._one(mealie.ensure_category, self.category) if self.category else []
+            self.tags = await self._one(mealie.ensure_tag, self.store_name)
+            self.categories = await self._one(mealie.ensure_category, self.category) if self.category else []
         if not self.tags and not self.categories:
             return
         try:
-            mealie.add_organizers(slug, self.tags, self.categories, current)
+            await mealie.add_organizers(slug, self.tags, self.categories, current)
         except Exception as exc:  # noqa: BLE001 - het recept staat in Mealie; alleen de tag ontbreekt
             log.warning("Bulkimport: tag en categorie bij %s zetten mislukt: %s", slug, exc)
             _warn("tagging_failed")
@@ -479,15 +480,15 @@ async def _import_all(plan: dict[str, Any]) -> None:
             return
         _set_item(index, status="busy")
         try:
-            found = mealie.find_recipe_summary_by_source(item["_source"], strict=True)
+            found = await mealie.find_recipe_summary_by_source(item["_source"], strict=True)
         except mealie.MealieLookupError as exc:
             log.warning("Bulkimport: zoeken in Mealie mislukt: %s", exc)
             _skip_rest(index, "stopped")
             raise _Stop("mealie_lookup") from exc
         if found:
             slug = str(found["slug"])
-            organizers.apply(slug, found)
-            _set_item(index, status="existing", slug=slug, mealieUrl=mealie.recipe_page_url(slug))
+            await organizers.apply(slug, found)
+            _set_item(index, status="existing", slug=slug, mealieUrl=await mealie.recipe_page_url(slug))
             continue
         if fetched >= MAX_IMPORTS:
             _set_item(index, status="skipped", error="limit")
@@ -501,7 +502,7 @@ async def _import_all(plan: dict[str, Any]) -> None:
         try:
             source, recipe, title = _fetch(store, item)
             stage = "mealie_failed"
-            slug = mealie.import_via_jsonld(source, recipe, catalog=catalog)
+            slug = await mealie.import_via_jsonld(source, recipe, catalog=catalog)
         except (ah.RecipeUnavailable, jumbo_recipes.RecipeUnavailable, crisp.RecipeUnavailable) as exc:
             log.info("Bulkimport: %s-recept %s niet te importeren: %s", store, item["id"], exc)
             _set_item(index, status="failed", error="no_content")
@@ -522,8 +523,8 @@ async def _import_all(plan: dict[str, Any]) -> None:
                 raise _Stop("too_many_failures") from exc
             continue
         failures = 0
-        organizers.apply(slug)
-        _set_item(index, status="imported", slug=slug, mealieUrl=mealie.recipe_page_url(slug), title=_title(title) or item["title"])
+        await organizers.apply(slug)
+        _set_item(index, status="imported", slug=slug, mealieUrl=await mealie.recipe_page_url(slug), title=_title(title) or item["title"])
     _finish("done")
 
 

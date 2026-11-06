@@ -188,62 +188,65 @@ def create_app() -> Quart:
             return jsonify({"error": tr("start en end parameters zijn verplicht", "The start and end parameters are required")}), 400
 
         try:
-            return jsonify(mealie.get_meal_plan_with_recipes(start, end))
+            return jsonify(await mealie.get_meal_plan_with_recipes(start, end))
         except Exception as exc:
             app.logger.exception("Mealplan error")
             return jsonify({"error": str(exc) or tr("Fout bij ophalen weekmenu", "Could not load the week menu")}), 424
 
     # Het weekmenu plannen: elke wijziging gaat meteen naar Mealie (zie mealie.py). Iedereen die is ingelogd mag dit, net als
     # recepten importeren; daarom staan deze paden niet in auth.ADMIN_PREFIXES.
-    def mealie_action(action, error_text: str, status: int = 200):
+    async def mealie_action(action: Callable[[], Awaitable[Any]], error_text: str, status: int = 200) -> tuple[Response, int]:
         try:
-            return jsonify(action()), status
+            return jsonify(await action()), status
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001 - Mealie is een externe dienst; toon zijn fout
             app.logger.exception("Mealie error")
             return jsonify({"error": str(exc) or error_text}), 424
 
-    def reused_recipe(source_url: str) -> Any:
+    async def reused_recipe(source_url: str) -> Any:
         """Bij `?reuse=1` (Inplannen): staat het recept al in Mealie (zelfde bron), dan dat recept in plaats van een nieuwe import."""
         if (request.args.get("reuse") or "").strip().lower() not in {"1", "true", "yes"}:
             return None
-        slug = mealie.find_recipe_by_source(source_url)
-        return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug), "reused": True}) if slug else None
+        slug = await mealie.find_recipe_by_source(source_url)
+        return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug), "reused": True}) if slug else None
 
     @app.get("/api/mealplan/options")
     async def mealplan_options():
-        return mealie_action(lambda: {"entryTypes": mealie.entry_types()}, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
+        async def options() -> dict[str, list[str]]:
+            return {"entryTypes": await mealie.entry_types()}
+
+        return await mealie_action(options, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
 
     @app.post("/api/mealplan")
     async def mealplan_create():
         body = await request.get_json(silent=True) or {}
-        return mealie_action(lambda: mealie.create_meal_plan_entry(body), tr("Plannen mislukt", "Planning failed"), 201)
+        return await mealie_action(lambda: mealie.create_meal_plan_entry(body), tr("Plannen mislukt", "Planning failed"), 201)
 
     @app.post("/api/mealplan/random")
     async def mealplan_random():
         body = await request.get_json(silent=True) or {}
-        return mealie_action(lambda: mealie.random_meal_plan_entry(body), tr("Verrassen mislukt", "Surprise failed"), 201)
+        return await mealie_action(lambda: mealie.random_meal_plan_entry(body), tr("Verrassen mislukt", "Surprise failed"), 201)
 
     @app.patch("/api/mealplan/<int:entry_id>")
     async def mealplan_update(entry_id: int):
         body = await request.get_json(silent=True) or {}
-        return mealie_action(lambda: mealie.update_meal_plan_entry(entry_id, body), tr("Wijzigen mislukt", "Changing failed"))
+        return await mealie_action(lambda: mealie.update_meal_plan_entry(entry_id, body), tr("Wijzigen mislukt", "Changing failed"))
 
     @app.delete("/api/mealplan/<int:entry_id>")
     async def mealplan_delete(entry_id: int):
-        return mealie_action(lambda: mealie.delete_meal_plan_entry(entry_id), tr("Verwijderen mislukt", "Removing failed"))
+        return await mealie_action(lambda: mealie.delete_meal_plan_entry(entry_id), tr("Verwijderen mislukt", "Removing failed"))
 
     @app.get("/api/mealie/recipes")
     async def mealie_recipes_search():
-        return mealie_action(
+        return await mealie_action(
             lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
             tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
         )
 
     @app.get("/api/mealie/recipes/<slug>")
     async def mealie_recipe_detail(slug: str):
-        return mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
+        return await mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
 
     # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
     # recept mag importeren; een hele groep of lijst alleen de beheerder (dat pad staat in auth.ADMIN_PATHS).
@@ -330,16 +333,16 @@ def create_app() -> Quart:
     @app.post("/api/ah/recipes/<int:recipe_id>/import")
     async def ah_recipe_import(recipe_id: int):
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         url = ah.recipe_url(recipe_id)
-        found = reused_recipe(url)
+        found = await reused_recipe(url)
         if found:
             return found
         try:
-            slug = mealie.import_from_url(url)
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            slug = await mealie.import_from_url(url)
+            return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception:  # noqa: BLE001 - de melding van Mealie of AH kan hun antwoord bevatten: alleen in het logboek
             app.logger.exception("AH recipe import error")
             return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
@@ -837,19 +840,19 @@ def create_app() -> Quart:
     @app.get("/api/mealie/status")
     async def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(mealie.status(verify=verify))
+        return jsonify(await mealie.status(verify=verify))
 
     @app.post("/api/mealie/auth")
     async def mealie_auth():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(mealie.link(body.get("url"), body.get("token")))
+            return jsonify(await mealie.link(body.get("url"), body.get("token")))
         except (ValueError, RuntimeError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.post("/api/mealie/auth/logout")
     async def mealie_auth_logout():
-        return jsonify(mealie.clear())
+        return jsonify(await mealie.clear())
 
     @app.post("/api/mealie/import")
     async def import_recipe():
@@ -859,8 +862,8 @@ def create_app() -> Quart:
             return jsonify({"error": tr("URL ontbreekt", "URL is missing")}), 400
 
         try:
-            slug = mealie.import_from_url(url)
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            slug = await mealie.import_from_url(url)
+            return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:
             app.logger.exception("Mealie import error")
             return jsonify({"error": str(exc) or tr("Import mislukt", "Import failed")}), 424
@@ -1271,16 +1274,16 @@ def create_app() -> Quart:
     async def picnic_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe (Picnic-recepten hebben geen webpagina).
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
-        found = reused_recipe(picnic_recipes.source_url(recipe_id))
+        found = await reused_recipe(picnic_recipes.source_url(recipe_id))
         if found:
             return found
         try:
             recipe = picnic_recipes.get_recipe(recipe_id)
-            slug = mealie.import_via_jsonld(picnic_recipes.source_url(recipe_id), picnic_recipes.jsonld(recipe))
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            slug = await mealie.import_via_jsonld(picnic_recipes.source_url(recipe_id), picnic_recipes.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
             app.logger.exception("Picnic recipe import error")
             if isinstance(exc, (ValueError, picnic.PicnicAuthError)):
@@ -1445,17 +1448,17 @@ def create_app() -> Quart:
     async def crisp_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe (Crisp-recepten hebben geen webpagina).
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
             source = crisp.source_url(recipe_id)
         except (RuntimeError, ValueError) as exc:  # Mealie niet gekoppeld of een ongeldig id: de tekst is van onszelf
             return jsonify({"error": str(exc)}), 400
-        found = reused_recipe(source)
+        found = await reused_recipe(source)
         if found:
             return found
         try:
             recipe = crisp.get_recipe(recipe_id)
-            slug = mealie.import_via_jsonld(source, crisp.jsonld(recipe))
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            slug = await mealie.import_via_jsonld(source, crisp.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
             app.logger.exception("Crisp recipe import error")
             if isinstance(exc, (ValueError, crisp.CrispAuthError)):
@@ -1516,11 +1519,11 @@ def create_app() -> Quart:
     @app.post("/api/hellofresh/recipes/<recipe_key>/import")
     async def hellofresh_recipe_import(recipe_key: str):
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         if hellofresh.recipe_key(hellofresh.source_url(recipe_key)):
-            found = reused_recipe(hellofresh.source_url(recipe_key))
+            found = await reused_recipe(hellofresh.source_url(recipe_key))
             if found:
                 return found
         try:
@@ -1562,11 +1565,11 @@ def create_app() -> Quart:
     @app.post("/api/marleyspoon/recipes/<recipe_key>/import")
     async def marleyspoon_recipe_import(recipe_key: str):
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         if marleyspoon.recipe_key(recipe_key):
-            found = reused_recipe(marleyspoon.source_url(recipe_key))
+            found = await reused_recipe(marleyspoon.source_url(recipe_key))
             if found:
                 return found
         try:
@@ -1785,16 +1788,16 @@ def create_app() -> Quart:
     async def jumbo_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe met de link naar jumbo.com als bron.
         try:
-            mealie.ensure_configured()
+            await mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         try:
             recipe = jumbo_recipes.get_recipe(recipe_id)
-            found = reused_recipe(jumbo_recipes.source_url(recipe))
+            found = await reused_recipe(jumbo_recipes.source_url(recipe))
             if found:
                 return found
-            slug = mealie.import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))
-            return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug)})
+            slug = await mealie.import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))
+            return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
             app.logger.exception("Jumbo recipe import error")
             if isinstance(exc, (ValueError, jumbo.JumboAuthError)):

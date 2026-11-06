@@ -320,7 +320,7 @@ class RoundTripTest(BackupCase):
         self.assertNotEqual((self.data_dir() / "secret.key").read_text(), old_secret)
         for key, value in SECRETS.items():
             self.assertEqual(auth.get_secret(key), value, key)
-        self.assertEqual(mealie.mealie_token(), SECRETS[mealie.SECRET_TOKEN])
+        self.assertEqual(await mealie.mealie_token(), SECRETS[mealie.SECRET_TOKEN])
         self.assertNotIn(SECRETS[mealie.SECRET_TOKEN], self.settings()[mealie.SECRET_TOKEN])  # opgeslagen met de sleutel van deze server
 
     def data_dir(self) -> Path:

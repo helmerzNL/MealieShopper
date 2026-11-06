@@ -487,20 +487,20 @@ class CrispRoutesTest(TempDataDirTest):
         detail = crisp.recipe_details(recipe())
         with mock.patch.object(crisp, "get_recipe", return_value=detail):
             self.assertEqual(self.client.get("/api/crisp/recipes/55").get_json()["name"], "Curry met pompoen")
-        with mock.patch.object(mealie, "ensure_configured"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(crisp, "get_recipe", return_value=detail), \
-                mock.patch.object(mealie, "import_via_jsonld", return_value="curry") as imported, \
-                mock.patch.object(mealie, "recipe_page_url", return_value="http://mealie/curry"):
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="curry") as imported, \
+                mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/curry"):
             body = self.client.post("/api/crisp/recipes/55/import").get_json()
         self.assertEqual(body, {"slug": "curry", "mealieUrl": "http://mealie/curry"})
         self.assertEqual(imported.call_args.args[0], "https://crisp.nl/#recipe-55")
-        with mock.patch.object(mealie, "ensure_configured"):
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock):
             self.assertEqual(self.client.post("/api/crisp/recipes/abc/import").status_code, 400)
 
     def test_planning_reuses_a_recipe_that_is_already_in_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(mealie, "find_recipe_by_source", return_value="curry") as find, \
-                mock.patch.object(mealie, "recipe_page_url", return_value="http://mealie/curry"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(mealie, "find_recipe_by_source", new_callable=mock.AsyncMock, return_value="curry") as find, \
+                mock.patch.object(mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value="http://mealie/curry"), \
                 mock.patch.object(crisp, "get_recipe", side_effect=AssertionError("niet ophalen")):
             body = self.client.post("/api/crisp/recipes/55/import?reuse=1").get_json()
         self.assertTrue(body["reused"])

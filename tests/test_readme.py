@@ -182,8 +182,8 @@ class ResetLoginTest(unittest.TestCase):
             env = {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp, "MEALIESHOPPER_AUTH_SECRET": "test-secret"}
             with mock.patch.dict(os.environ, env), \
                     mock.patch.object(auth_password, "SCRYPT_N", 2**4), \
-                    mock.patch.object(mealie, "mealie_url", return_value=""), \
-                    mock.patch.object(mealie, "mealie_token", return_value=""), \
+                    mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""), \
+                    mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value=""), \
                     mock.patch.object(ah, "configured_refresh_token", return_value=""):
                 app = create_app()
                 client = SyncClient(app)

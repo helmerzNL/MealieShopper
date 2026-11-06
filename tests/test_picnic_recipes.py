@@ -310,11 +310,11 @@ class RoutesTest(TempDataDirTest):
 
     def test_import_sends_a_schema_org_recipe_to_mealie(self):
         picnic.save_auth_key("key")
-        with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
                 mock.patch.object(picnic_recipes, "get_recipe", return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", return_value="pasta-pesto") as send:
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="pasta-pesto") as send:
             body = self.client.post("/api/picnic/recipes/r1/import").get_json()
         self.assertEqual(body, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
         url, data = send.call_args.args
@@ -322,15 +322,15 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual(data["name"], "Pasta pesto")
 
     def test_import_without_mealie_says_so_and_asks_picnic_nothing(self):
-        with mock.patch.object(mealie, "ensure_configured", side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
                 mock.patch.object(picnic_recipes, "get_recipe", side_effect=AssertionError("niet ophalen")):
             reply = self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
     def test_a_failed_import_does_not_leak_the_answer_of_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured"), \
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(picnic_recipes, "get_recipe", return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
             reply = self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual(reply.status_code, 424)
         self.assertNotIn("geheim", reply.get_data(as_text=True))

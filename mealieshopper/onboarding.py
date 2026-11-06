@@ -74,11 +74,11 @@ def environment() -> dict[str, Any]:
     }
 
 
-def _integrations_configured() -> bool:
-    # ah, crisp, jumbo, mealie en picnic blijven synchroon tot hun eigen taak.
+async def _integrations_configured() -> bool:
+    # ah, crisp, jumbo en picnic blijven synchroon tot hun eigen taak.
     try:
         return (
-            bool(mealie.mealie_url() and mealie.mealie_token())
+            bool(await mealie.mealie_url() and await mealie.mealie_token())
             or bool(ah.configured_refresh_token())
             or bool(jumbo.configured_refresh_token())
             or bool(picnic.configured_auth_key())
@@ -91,7 +91,7 @@ def _integrations_configured() -> bool:
 async def is_fresh() -> bool:
     if await auth.acredentials_exist() or await auth.aauth_mode():
         return False
-    if not auth.auth_enabled() and _integrations_configured():
+    if not auth.auth_enabled() and await _integrations_configured():
         return False  # bestaande installatie met inloggen uit en al gekoppeld
     return True
 

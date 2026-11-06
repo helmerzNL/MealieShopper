@@ -35,7 +35,7 @@ class ExternalErrorStatusTest(unittest.TestCase):
             self.assert_424(self.client.get("/api/ah/search?q=soep"), "AH zoeken mislukt (500)")
 
     def test_mealplan(self):
-        with mock.patch.object(mealie, "get_meal_plan_with_recipes", side_effect=RuntimeError("Mealie onbereikbaar")):
+        with mock.patch.object(mealie, "get_meal_plan_with_recipes", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie onbereikbaar")):
             self.assert_424(
                 self.client.get("/api/mealplan?start=2026-10-19&end=2026-10-25"), "Mealie onbereikbaar"
             )

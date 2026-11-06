@@ -9,11 +9,13 @@ from typing import Any
 from pathlib import Path
 from unittest import mock
 
+import httpx
+
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient  # noqa: E402
+from support import LiveClient, routes, run, sent_json, sent_params  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -76,12 +78,12 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
         self.fetched = []
         patches = [
             mock.patch.object(recipe_bulk, "PAUSE_SECONDS", 0),
-            mock.patch.object(mealie, "group_slug", return_value="thuis"),
-            mock.patch.object(mealie, "find_recipe_summary_by_source", side_effect=self.mealie.find),
-            mock.patch.object(mealie, "import_via_jsonld", side_effect=self.mealie.import_),
-            mock.patch.object(mealie, "ensure_tag", side_effect=lambda name: {"id": f"t-{name}", "name": name, "slug": name.lower()}),
-            mock.patch.object(mealie, "ensure_category", side_effect=lambda name: {"id": f"c-{name}", "name": name, "slug": name.lower()}),
-            mock.patch.object(mealie, "add_organizers", side_effect=self.mealie.organize),
+            mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"),
+            mock.patch.object(mealie, "find_recipe_summary_by_source", new_callable=mock.AsyncMock, side_effect=self.mealie.find),
+            mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=self.mealie.import_),
+            mock.patch.object(mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=lambda name: {"id": f"t-{name}", "name": name, "slug": name.lower()}),
+            mock.patch.object(mealie, "ensure_category", new_callable=mock.AsyncMock, side_effect=lambda name: {"id": f"c-{name}", "name": name, "slug": name.lower()}),
+            mock.patch.object(mealie, "add_organizers", new_callable=mock.AsyncMock, side_effect=self.mealie.organize),
             mock.patch.object(ah, "get_recipe_jsonld", side_effect=self.ah_recipe),
             mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("de bulkimport leest de lokale kopie")),
         ]
@@ -227,21 +229,21 @@ class StopTest(BulkCase):
 
     async def test_without_a_lookup_in_mealie_nothing_is_imported(self):
         self.seed_ah(count=2)
-        with mock.patch.object(mealie, "find_recipe_summary_by_source", side_effect=mealie.MealieLookupError("400")):
+        with mock.patch.object(mealie, "find_recipe_summary_by_source", new_callable=mock.AsyncMock, side_effect=mealie.MealieLookupError("400")):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "mealie_lookup"))
         self.assertEqual((self.fetched, self.mealie.imported), ([], []))
 
     async def test_mealie_refusing_the_token_stops(self):
         self.seed_ah(count=3)
-        with mock.patch.object(mealie, "import_via_jsonld", side_effect=mealie.MealieImportError("geweigerd", 401)):
+        with mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=mealie.MealieImportError("geweigerd", 401)):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "mealie_denied"))
         self.assertEqual(self.fetched, [100])
 
     async def test_a_tag_mealie_refuses_is_a_warning(self):
         self.seed_ah(count=2)
-        with mock.patch.object(mealie, "ensure_tag", side_effect=mealie.OrganizerError("tags aanmaken mislukt (403)", 403)):
+        with mock.patch.object(mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=mealie.OrganizerError("tags aanmaken mislukt (403)", 403)):
             job = await recipe_bulk.start("ah", ["100", "101"], background=False)
         self.assertEqual((job["state"], job["imported"], job["warnings"]), ("done", 2, ["organizers_denied"]))
         self.assertEqual(self.mealie.organized, [])
@@ -539,86 +541,93 @@ class RoutesTest(BulkCase):
 
 class MealieHelpersTest(unittest.TestCase):
     def setUp(self):
-        patches = [mock.patch.object(mealie, "mealie_url", return_value="http://m"), mock.patch.object(mealie, "mealie_token", return_value="t")]
+        patches = [mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://m"),
+                   mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t")]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
 
     @staticmethod
     def reply(status=200, body=None):
-        response = mock.Mock(ok=status < 400, status_code=status, text=json.dumps(body))
-        response.json.return_value = body
-        return response
+        return httpx.Response(status, json=body)
 
     def test_a_tag_is_found_by_its_name_without_creating_it(self):
         found = {"items": [{"id": "1", "name": "Albert Heijn bonus", "slug": "x"}, {"id": "2", "name": "albert heijn", "slug": "albert-heijn"}]}
-        with mock.patch.object(mealie.requests, "get", return_value=self.reply(body=found)) as get, \
-                mock.patch.object(mealie.requests, "post", side_effect=AssertionError("niet aanmaken")):
-            self.assertEqual(mealie.ensure_tag("Albert  Heijn"), {"id": "2", "name": "albert heijn", "slug": "albert-heijn"})
-        self.assertEqual(get.call_args.args[0], "http://m/api/organizers/tags")
-        self.assertEqual(get.call_args.kwargs["params"]["search"], "Albert Heijn")
+        with routes() as api:
+            get = api.get("http://m/api/organizers/tags").mock(return_value=self.reply(body=found))
+            post = api.post()
+            self.assertEqual(run(mealie.ensure_tag("Albert  Heijn")), {"id": "2", "name": "albert heijn", "slug": "albert-heijn"})
+        self.assertFalse(post.called, "niet aanmaken")
+        self.assertEqual(sent_params(get.calls.last)["search"], "Albert Heijn")
+        self.assertEqual(get.calls.last.request.headers["Authorization"], "Bearer t")
 
     def test_a_missing_category_is_created(self):
-        def get(url, **kwargs):
-            return self.reply(404, {"detail": "weg"}) if "/slug/" in url else self.reply(body={"items": []})
-
-        with mock.patch.object(mealie.requests, "get", side_effect=get), \
-                mock.patch.object(mealie.requests, "post", return_value=self.reply(201, {"id": "c1", "name": "Kerst", "slug": "kerst"})) as post:
-            self.assertEqual(mealie.ensure_category("Kerst")["id"], "c1")
-        self.assertEqual((post.call_args.args[0], post.call_args.kwargs["json"]), ("http://m/api/organizers/categories", {"name": "Kerst"}))
+        with routes() as api:
+            api.get("http://m/api/organizers/categories/slug/kerst").mock(return_value=self.reply(404, {"detail": "weg"}))
+            api.get("http://m/api/organizers/categories").mock(return_value=self.reply(body={"items": []}))
+            post = api.post("http://m/api/organizers/categories").mock(return_value=self.reply(201, {"id": "c1", "name": "Kerst", "slug": "kerst"}))
+            self.assertEqual(run(mealie.ensure_category("Kerst"))["id"], "c1")
+        self.assertEqual(sent_json(post.calls.last), {"name": "Kerst"})
 
     def test_no_right_to_organize(self):
-        with mock.patch.object(mealie.requests, "get", return_value=self.reply(body={"items": []})), \
-                mock.patch.object(mealie.requests, "post", return_value=self.reply(403, {"detail": "nee"})):
+        with routes() as api:
+            api.get(url__startswith="http://m/api/organizers/tags").mock(return_value=self.reply(body={"items": []}))
+            api.post("http://m/api/organizers/tags").mock(return_value=self.reply(403, {"detail": "nee"}))
             with self.assertRaises(mealie.OrganizerError) as caught:
-                mealie.ensure_tag("Jumbo")
+                run(mealie.ensure_tag("Jumbo"))
         self.assertTrue(caught.exception.forbidden)
 
     def test_organizers_are_added_without_duplicates(self):
         current = {"slug": "pasta", "tags": [{"id": "t0", "name": "Snel", "slug": "snel"}, {"id": "t9", "name": "albert heijn", "slug": "ah"}],
                    "recipeCategory": []}
-        with mock.patch.object(mealie.requests, "get", side_effect=AssertionError("het recept uit de lijst is genoeg")), \
-                mock.patch.object(mealie.requests, "patch", return_value=self.reply(body={})) as patch:
-            changed = mealie.add_organizers("pasta", [TAG], [{"id": "c1", "name": "Kerst", "slug": "kerst"}], current)
+        with routes() as api:
+            get = api.get()
+            patch = api.patch("http://m/api/recipes/pasta").mock(return_value=self.reply(body={}))
+            changed = run(mealie.add_organizers("pasta", [TAG], [{"id": "c1", "name": "Kerst", "slug": "kerst"}], current))
         self.assertTrue(changed)
-        self.assertEqual(patch.call_args.args[0], "http://m/api/recipes/pasta")
-        self.assertEqual(patch.call_args.kwargs["json"], {"recipeCategory": [{"id": "c1", "name": "Kerst", "slug": "kerst"}]}, "de tag stond er al (op naam)")
-        with mock.patch.object(mealie.requests, "get", return_value=self.reply(body={"tags": [TAG], "recipeCategory": []})) as get, \
-                mock.patch.object(mealie.requests, "patch") as patch:
-            self.assertFalse(mealie.add_organizers("pasta", [TAG], []))
-        get.assert_called_once()
-        patch.assert_not_called()
+        self.assertFalse(get.called, "het recept uit de lijst is genoeg")
+        self.assertEqual(sent_json(patch.calls.last), {"recipeCategory": [{"id": "c1", "name": "Kerst", "slug": "kerst"}]}, "de tag stond er al (op naam)")
+        with routes() as api:
+            get = api.get("http://m/api/recipes/pasta").mock(return_value=self.reply(body={"tags": [TAG], "recipeCategory": []}))
+            patch = api.patch()
+            self.assertFalse(run(mealie.add_organizers("pasta", [TAG], [])))
+        self.assertEqual(get.call_count, 1)
+        self.assertFalse(patch.called)
 
     def test_the_strict_lookup_stops_a_bulk_import(self):
-        with mock.patch.object(mealie.requests, "get", return_value=self.reply(body={"items": [{"slug": "pasta", "tags": []}]})):
-            self.assertEqual(mealie.find_recipe_summary_by_source(ah_url(1), strict=True), {"slug": "pasta", "tags": []})
-            self.assertEqual(mealie.find_recipe_by_source(ah_url(1)), "pasta")
-        with mock.patch.object(mealie.requests, "get", return_value=self.reply(400, {"detail": "invalid query"})):
-            self.assertIsNone(mealie.find_recipe_summary_by_source(ah_url(1)))
+        with routes() as api:
+            api.get("http://m/api/recipes").mock(return_value=self.reply(body={"items": [{"slug": "pasta", "tags": []}]}))
+            self.assertEqual(run(mealie.find_recipe_summary_by_source(ah_url(1), strict=True)), {"slug": "pasta", "tags": []})
+            self.assertEqual(run(mealie.find_recipe_by_source(ah_url(1))), "pasta")
+        with routes() as api:
+            api.get("http://m/api/recipes").mock(return_value=self.reply(400, {"detail": "invalid query"}))
+            self.assertIsNone(run(mealie.find_recipe_summary_by_source(ah_url(1))))
             with self.assertRaises(mealie.MealieLookupError):
-                mealie.find_recipe_summary_by_source(ah_url(1), strict=True)
-        with mock.patch.object(mealie.requests, "get", side_effect=mealie.requests.ConnectionError("weg")), self.assertRaises(mealie.MealieLookupError):
-            mealie.find_recipe_summary_by_source(ah_url(1), strict=True)
+                run(mealie.find_recipe_summary_by_source(ah_url(1), strict=True))
+        with routes() as api, self.assertRaises(mealie.MealieLookupError):
+            api.get("http://m/api/recipes").mock(side_effect=httpx.ConnectError("weg"))
+            run(mealie.find_recipe_summary_by_source(ah_url(1), strict=True))
 
     def test_units_and_foods_once_for_a_series_of_imports(self):
         line = {"note": "500 g melk", "originalText": "500 g melk"}
         catalogs = {"units": [{"id": "u-g", "name": "gram", "abbreviation": "g", "aliases": []}], "foods": [{"id": "f-melk", "name": "melk", "aliases": []}]}
         calls = []
 
-        def get(url, **kwargs):
-            kind = url.rsplit("/", 1)[1]
+        def get(request):
+            kind = request.url.path.rsplit("/", 1)[1]
             if kind in catalogs:
                 calls.append(kind)
                 return self.reply(body={"items": catalogs[kind], "total_pages": 1})
             return self.reply(body={"recipeIngredient": [line]})
 
         catalog = mealie.Catalog()
-        with mock.patch.object(mealie, "auth_headers", return_value={}), mock.patch.object(mealie.requests, "get", side_effect=get), \
-                mock.patch.object(mealie.requests, "patch", return_value=self.reply(body={})):
-            mealie.parse_imported_ingredients("een", catalog)
-            mealie.parse_imported_ingredients("twee", catalog)
+        with mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api:
+            api.get(url__startswith="http://m/api/").mock(side_effect=get)
+            api.patch(url__startswith="http://m/api/recipes/").mock(return_value=self.reply(body={}))
+            run(mealie.parse_imported_ingredients("een", catalog))
+            run(mealie.parse_imported_ingredients("twee", catalog))
             self.assertEqual(calls, ["units", "foods"])
-            mealie.parse_imported_ingredients("drie")
+            run(mealie.parse_imported_ingredients("drie"))
         self.assertEqual(calls, ["units", "foods", "units", "foods"], "zonder catalogus zoals altijd")
 
 

@@ -93,13 +93,12 @@ async def _store(recipe_id: str, size: str, version: str, content_type: str, dat
 
 
 async def _fetch(recipe_id: str, size: str) -> tuple[str, bytes]:
-    # `mealie` is tot zijn eigen taak synchroon: de instellingen komen nog uit een gewone aanroep.
-    mealie.ensure_configured()
+    await mealie.ensure_configured()
     # Geen doorverwijzingen volgen (zoals voorheen met requests): het token gaat niet mee naar een ander adres.
     client: httpx.AsyncClient = http_client.client("mealie-images", timeout=TIMEOUT, follow_redirects=False)
     response: httpx.Response = await client.get(
-        f"{mealie.mealie_url()}/api/media/recipes/{recipe_id}/images/{size}.webp",
-        headers={"Authorization": f"Bearer {mealie.mealie_token()}", "Accept": "image/*"},
+        f"{await mealie.mealie_url()}/api/media/recipes/{recipe_id}/images/{size}.webp",
+        headers={"Authorization": f"Bearer {await mealie.mealie_token()}", "Accept": "image/*"},
     )
     if response.status_code == 404:
         raise ImageNotFound(recipe_id)
