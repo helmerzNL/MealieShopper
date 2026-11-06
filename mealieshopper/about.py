@@ -42,6 +42,7 @@ COMPONENTS: list[tuple[str, str, str, str | None, str | None, str | None, str]] 
     ("pyasn1modules", "server", "pyasn1-modules", "pyasn1_modules", None, "BSD-2-Clause", "https://github.com/pyasn1/pyasn1-modules"),
     ("pyopenssl", "server", "pyOpenSSL", "pyOpenSSL", None, "Apache-2.0", "https://pyopenssl.org"),
     ("requests", "server", "Requests", "requests", None, "Apache-2.0", "https://requests.readthedocs.io"),
+    ("httpx", "server", "HTTPX", "httpx", None, "BSD-3-Clause", "https://www.python-httpx.org"),
     ("pillow", "server", "Pillow", "Pillow", None, "MIT-CMU", "https://pillow.readthedocs.io"),
     ("sqlite", "server", "SQLite", None, "sqlite", "Public domain", "https://sqlite.org"),
     ("mdi", "interface", "Material Design Icons", None, "7.4.47", "Apache-2.0", "https://pictogrammers.com/library/mdi/"),

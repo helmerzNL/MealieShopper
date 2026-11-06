@@ -6,6 +6,7 @@ duurde en welk MCP-verzoek van welke assistent erachter zat.
 * Uitgaand verkeer wordt op één plek vastgelegd, in `requests.Session.send`. Dat dekt elke aanroep van
   `requests.get/post/request` in de hele app, ook nieuwe, zonder dat die iets hoeven te weten. De dienst
   volgt uit de host (ah.nl, picnicinternational.com, jumbo.com); ander verkeer (Mealie, GitHub) blijft erbuiten.
+  Voor httpx doen de hooks uit `httpx_hooks()` hetzelfde: `http_client` hangt ze aan elke client.
 * MCP-verzoeken (initialize, tools/list, tools/call) en de OAuth-stappen waarmee een assistent koppelt komen
   uit `mcp_http.py`. Een verzoek aan de winkels dat tijdens een MCP-tool loopt, krijgt dezelfde `corr`
   (correlatie-id) als het MCP-verzoek, zodat je bij een tool ziet welke winkelverzoeken eruit volgden.
@@ -17,6 +18,7 @@ Alleen de beheerder kan de log lezen of wissen.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import csv
 import io
@@ -27,11 +29,13 @@ import secrets
 import threading
 import time
 from contextlib import closing, contextmanager
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from os import environ
-from typing import Any, Callable, Iterator
+from typing import Any, Awaitable, Callable, Iterator, Mapping, TypeAlias
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import httpx
 import requests
 from quart import Quart, Response, has_request_context, jsonify, request
 
@@ -188,8 +192,8 @@ def summarize_body(raw: bytes | str | None, content_type: str = "") -> tuple[str
     if not bodies_enabled():
         return "", size
     kind = (content_type or "").lower()
-    if kind and not any(marker in kind for marker in _TEXT_TYPES):
-        return f"[{kind.split(';')[0].strip()}, {size} bytes]", size
+    if not _is_text(kind):
+        return _binary_label(kind, size), size
     if size > MAX_PARSE_BYTES:
         return _limit(redact_text(data[: body_chars() * 2].decode("utf-8", "replace"))), size
     text = data.decode("utf-8", "replace")
@@ -201,6 +205,17 @@ def summarize_body(raw: bytes | str | None, content_type: str = "") -> tuple[str
     except ValueError:
         return _limit(redact_text(text)), size
     return _limit(json.dumps(_redact_value(parsed), ensure_ascii=False, separators=(",", ":"))), size
+
+
+def _is_text(content_type: str) -> bool:
+    """Of `summarize_body` de body als tekst toont. Zonder type gaan we uit van tekst."""
+    kind: str = (content_type or "").lower()
+    return not kind or any(marker in kind for marker in _TEXT_TYPES)
+
+
+def _binary_label(content_type: str, size: int | None) -> str:
+    kind: str = (content_type or "").lower().split(";")[0].strip()
+    return f"[{kind}, {size} bytes]" if size is not None else f"[{kind}]"
 
 
 def service_for(url: str) -> str:
@@ -330,56 +345,84 @@ def _action_for(method: str, url: str, request_json: Any) -> str:
     return f"{method} {path}"
 
 
-def _log_outbound(prepared: requests.PreparedRequest, response: requests.Response | None, error: Exception | None, started: float, stream: bool) -> None:
-    service = service_for(prepared.url or "")
+@dataclass(frozen=True)
+class _Outbound:
+    """Een uitgaand verzoek en zijn antwoord, los van requests of httpx."""
+
+    method: str
+    url: str
+    request_body: bytes | str | None
+    request_type: str
+    status: int | None  # None: geen antwoord
+    content_type: str = ""
+    response_body: bytes | None = None  # None: niet gelezen, alleen `response_length` is bekend
+    response_length: int | None = None  # uit Content-Length
+    streamed: bool = False
+    redirects: int = 0
+    final_url: str = ""
+
+
+def _content_length(headers: Mapping[str, str]) -> int | None:
+    try:
+        return int(headers.get("Content-Length") or 0) or None
+    except ValueError:
+        return None
+
+
+def _response_summary(outbound: _Outbound, quiet: bool) -> tuple[str, int | None]:
+    if outbound.streamed:
+        return "[stream]", outbound.response_length
+    if outbound.response_body is None:
+        label: str = _binary_label(outbound.content_type, outbound.response_length) if bodies_enabled() and outbound.content_type else ""
+        return ("" if quiet else label), outbound.response_length
+    text: str
+    size: int
+    text, size = summarize_body(outbound.response_body, outbound.content_type)
+    return ("" if quiet else text), size
+
+
+def _record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
+    service: str = service_for(outbound.url)
     if not service:
         return
-    quiet = _quiet.get()
-    method = (prepared.method or "").upper()
-    content_type = (response.headers.get("Content-Type", "") if response is not None else "")
-    if quiet and method == "GET" and response is not None and not any(kind in content_type for kind in ("html", "json")):
+    quiet: bool = _quiet.get()
+    method: str = outbound.method.upper()
+    content_type: str = outbound.content_type
+    if quiet and method == "GET" and outbound.status is not None and not any(kind in content_type for kind in ("html", "json")):
         return  # losse stijlen, scripts en plaatjes van de loginpagina
-    request_body, req_bytes = ("", 0)
+    request_body: str = ""
+    req_bytes: int = 0
     request_json: Any = None
-    body = prepared.body if isinstance(prepared.body, (bytes, str)) else None
-    if body:
-        request_type = prepared.headers.get("Content-Type", "")
-        if "json" in request_type:
+    if outbound.request_body:
+        if "json" in outbound.request_type:
             try:
-                request_json = json.loads(body)
+                request_json = json.loads(outbound.request_body)
             except ValueError:
                 request_json = None
-        request_body, req_bytes = summarize_body(body, request_type)
+        request_body, req_bytes = summarize_body(outbound.request_body, outbound.request_type)
         if quiet:
             request_body = ""
-    response_body, resp_bytes = "", None
-    if response is not None:
-        if stream:
-            resp_bytes = int(response.headers.get("Content-Length") or 0) or None
-            response_body = "[stream]"
-        else:
-            response_body, resp_bytes = summarize_body(response.content, content_type)
-            if quiet:
-                response_body = ""
-    status = response.status_code if response is not None else None
-    ok = error is None and response is not None and response.status_code < 400
+    response_body: str
+    resp_bytes: int | None
+    response_body, resp_bytes = _response_summary(outbound, quiet) if outbound.status is not None else ("", None)
+    ok: bool = error is None and outbound.status is not None and outbound.status < 400
     detail: dict[str, Any] = {}
     if content_type:
         detail["contentType"] = content_type.split(";")[0].strip()
-    if response is not None and response.history:
-        detail["redirects"] = len(response.history)
-        detail["finalUrl"] = redact_url(response.url)
+    if outbound.redirects:
+        detail["redirects"] = outbound.redirects
+        detail["finalUrl"] = redact_url(outbound.final_url)
     if quiet:
         detail["loginProxy"] = True
     record(
         kind="outbound",
         service=service,
-        action=_action_for(method, prepared.url or "", request_json),
+        action=_action_for(method, outbound.url, request_json),
         method=method,
-        url=redact_url(prepared.url or ""),
-        status=status,
+        url=redact_url(outbound.url),
+        status=outbound.status,
         ok=ok,
-        duration_ms=round((time.perf_counter() - started) * 1000),
+        duration_ms=duration_ms,
         actor=current_actor(),
         corr=_corr.get(),
         request_body=request_body,
@@ -389,6 +432,125 @@ def _log_outbound(prepared: requests.PreparedRequest, response: requests.Respons
         error=f"{type(error).__name__}: {error}" if error else "",
         detail=detail or None,
     )
+
+
+def _safe_record_outbound(outbound: _Outbound, error: Exception | None, duration_ms: int) -> None:
+    try:
+        _record_outbound(outbound, error, duration_ms)
+    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
+        log.warning("Kon een uitgaand verzoek niet loggen", exc_info=True)
+
+
+def _log_outbound(prepared: requests.PreparedRequest, response: requests.Response | None, error: Exception | None, started: float, stream: bool) -> None:
+    duration_ms: int = round((time.perf_counter() - started) * 1000)
+    body: bytes | str | None = prepared.body if isinstance(prepared.body, (bytes, str)) else None
+    outbound: _Outbound = _Outbound(
+        method=prepared.method or "",
+        url=prepared.url or "",
+        request_body=body,
+        request_type=prepared.headers.get("Content-Type", "") if body else "",
+        status=response.status_code if response is not None else None,
+    )
+    if response is not None:
+        outbound = replace(
+            outbound,
+            content_type=response.headers.get("Content-Type", ""),
+            response_body=None if stream else response.content,
+            response_length=_content_length(response.headers) if stream else None,
+            streamed=stream,
+            redirects=len(response.history),
+            final_url=response.url if response.history else "",
+        )
+    _record_outbound(outbound, error, duration_ms)
+
+
+# --- uitgaand verkeer via httpx --------------------------------------------------------------------
+#
+# httpx kent geen `send` om heen te leggen zoals requests: `http_client` hangt deze hooks aan elke client.
+# De request-hook loopt voor elk verzoek, ook voor elke doorverwijzing die httpx volgt. httpx geeft het
+# volgende verzoek een kopie van de `extensions` mee, dus wat de hook daar bij het eerste verzoek neerzet,
+# ziet hij bij elke volgende stap terug. Zo leggen we, net als `_depth` bij requests, alleen het eerste
+# verzoek vast, met het eindresultaat en het aantal doorverwijzingen.
+#
+# Een fout (time-out, geen verbinding) bereikt de response-hook niet: httpx gooit hem voordat er een
+# antwoord is. Zo'n verzoek komt dus niet in het auditlog, alleen in wat de aanroeper zelf logt. Dat is
+# een bewuste keuze: anders moest elke aanroep door een omhulsel in plaats van door de hooks.
+
+HttpxHook: TypeAlias = Callable[..., Awaitable[None]]
+
+_HTTPX_STARTED: str = "audit_started"
+_HTTPX_ORIGIN: str = "audit_origin"
+_HTTPX_REDIRECTS: str = "audit_redirects"
+
+
+@dataclass(frozen=True)
+class _HttpxOrigin:
+    """Het eerste verzoek van een aanroep: dat komt in de log, ook als httpx doorverwijzingen volgt."""
+
+    method: str
+    url: str
+    body: bytes | None
+    content_type: str
+
+
+async def _httpx_request(request: httpx.Request) -> None:
+    extensions: dict[str, Any] = request.extensions
+    if _HTTPX_STARTED in extensions:
+        extensions[_HTTPX_REDIRECTS] = extensions.get(_HTTPX_REDIRECTS, 0) + 1
+        return
+    url: str = str(request.url)
+    if not enabled() or not service_for(url):
+        return
+    try:
+        body: bytes | None = request.content
+    except httpx.RequestNotRead:
+        body = None  # een gestreamde upload: die lezen we niet
+    extensions[_HTTPX_STARTED] = time.perf_counter()
+    extensions[_HTTPX_ORIGIN] = _HttpxOrigin(request.method, url, body or None, request.headers.get("Content-Type", "") if body else "")
+
+
+async def _httpx_response(response: httpx.Response) -> None:
+    extensions: dict[str, Any] = response.request.extensions
+    origin: Any = extensions.get(_HTTPX_ORIGIN)
+    if not isinstance(origin, _HttpxOrigin):
+        return
+    content_type: str = response.headers.get("Content-Type", "")
+    # De hook loopt voordat httpx de body leest. We lezen hem alleen als hij in de log komt: een plaatje of
+    # een download blijft zo ongelezen, ook als de aanroeper streamt. Een gestreamde tekst wordt hier wel
+    # in het geheugen gelezen, de aanroeper leest daarna gewoon uit die kopie.
+    read: bool = bodies_enabled() and not _quiet.get() and _is_text(content_type)
+    if read:
+        await response.aread()
+    outbound: _Outbound = _Outbound(
+        method=origin.method,
+        url=origin.url,
+        request_body=origin.body,
+        request_type=origin.content_type,
+        status=response.status_code,
+        content_type=content_type,
+        response_body=response.content if read else None,
+        response_length=None if read else _content_length(response.headers),
+        redirects=extensions.get(_HTTPX_REDIRECTS, 0),
+        final_url=str(response.url),
+    )
+    duration_ms: int = round((time.perf_counter() - extensions[_HTTPX_STARTED]) * 1000)
+    if response.has_redirect_location:
+        # Of httpx deze doorverwijzing volgt, staat pas vast na de hooks: volgt hij niet, dan zet hij zonder
+        # tussenliggende `await` `response.next_request`. In de volgende ronde van de loop is dat dus bekend.
+        # Volgt hij wel, dan logt de hook bij het laatste antwoord.
+        asyncio.get_running_loop().call_soon(_record_unfollowed_redirect, response, outbound, duration_ms)
+        return
+    _safe_record_outbound(outbound, None, duration_ms)
+
+
+def _record_unfollowed_redirect(response: httpx.Response, outbound: _Outbound, duration_ms: int) -> None:
+    if response.next_request is not None:
+        _safe_record_outbound(outbound, None, duration_ms)
+
+
+def httpx_hooks() -> dict[str, list[HttpxHook]]:
+    """De `event_hooks` voor een `httpx.AsyncClient`: zelfde regels in de log als bij requests."""
+    return {"request": [_httpx_request], "response": [_httpx_response]}
 
 
 def install() -> None:
