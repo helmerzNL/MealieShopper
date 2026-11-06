@@ -3,9 +3,12 @@ back-up van een 3.x-versie terugzet (`test_restore_of_a_3_x_backup_file_succeeds
 
 Het script draait op de code van 3.13.1, niet op die van deze checkout. Zo maak je het bestand opnieuw:
 
-    git worktree add /tmp/wt-3131 135bd86
-    .venv/bin/python tests/fixtures/make_backup_3131.py /tmp/wt-3131 tests/fixtures/backup-3.13.1.json
-    git worktree remove /tmp/wt-3131
+    git worktree add <scratch>/wt-3131 135bd86
+    .venv/bin/python tests/fixtures/make_backup_3131.py <scratch>/wt-3131 tests/fixtures/backup-3.13.1.json
+    git worktree remove <scratch>/wt-3131
+
+`<scratch>` is een tijdelijke map buiten de checkout (het bestand in de repository is zo gemaakt, in de scratchmap
+van de sessie).
 
 Commit 135bd86 is de release 3.13.1 (Flask en requests, die de venv nog heeft). Het script maakt een lege datamap,
 zet er een AH-lijstje met twee artikelen, twee aanbiedingen van AH (met hun geschiedenis) en de eerste dag van de week
@@ -44,22 +47,24 @@ LIST: dict[str, Any] = {
 
 def main(source: Path, target: Path) -> None:
     data: tempfile.TemporaryDirectory[str] = tempfile.TemporaryDirectory()
-    os.environ["MEALIESHOPPER_DATA_DIR"] = data.name
-    os.environ["MEALIESHOPPER_TESTING"] = "1"
-    sys.path.insert(0, str(source))
-    from mealieshopper import about, ah_lists, auth, backup, mealie, offers  # noqa: PLC0415 - pas na het zetten van de datamap
+    try:
+        os.environ["MEALIESHOPPER_DATA_DIR"] = data.name
+        os.environ["MEALIESHOPPER_TESTING"] = "1"
+        sys.path.insert(0, str(source))
+        from mealieshopper import about, ah_lists, auth, backup, mealie, offers  # noqa: PLC0415 - pas na het zetten van de datamap
 
-    version: str = about.read_version()
-    if version != "3.13.1" or not Path(backup.__file__).resolve().is_relative_to(source):
-        raise SystemExit(f"verwacht de code van 3.13.1 uit {source}, gevonden: {version} in {backup.__file__}")
-    auth.init_db()
-    ah_lists.save_snapshot(LIST)
-    offers.FETCHERS["ah"] = lambda: [dict(offer) for offer in OFFERS]
-    offers.sync("ah")
-    auth.set_setting(mealie.SETTING_WEEK_START, "1")
-    summary: dict[str, Any] = backup.write_backup(target.resolve(), links=False)
-    print(summary)
-    data.cleanup()
+        version: str = about.read_version()
+        if version != "3.13.1" or not Path(backup.__file__).resolve().is_relative_to(source):
+            raise SystemExit(f"verwacht de code van 3.13.1 uit {source}, gevonden: {version} in {backup.__file__}")
+        auth.init_db()
+        ah_lists.save_snapshot(LIST)
+        offers.FETCHERS["ah"] = lambda: [dict(offer) for offer in OFFERS]
+        offers.sync("ah")
+        auth.set_setting(mealie.SETTING_WEEK_START, "1")
+        summary: dict[str, Any] = backup.write_backup(target.resolve(), links=False)
+        print(summary)
+    finally:
+        data.cleanup()
 
 
 if __name__ == "__main__":

@@ -168,8 +168,10 @@ JOB_GIVE_UP_STALE_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED} WHERE status 
 JOB_INTERRUPT_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED}, updated_at = ? WHERE id = ? AND status = 'running'"
 JOB_LATEST_SQL = "SELECT * FROM backup_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
 JOB_DISMISS_SQL = "UPDATE backup_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'"
+# Ook de foutvelden leeg: een klus die bij het afsluiten al onderbroken heette, kan in zijn thread toch nog klaar komen.
 JOB_DONE_SQL = (
-    "UPDATE backup_jobs SET status = 'done', phase = 'replacing', summary = ?, replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?"
+    "UPDATE backup_jobs SET status = 'done', phase = 'replacing', error_key = NULL, error_params = NULL, summary = ?,"
+    " replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?"
 )
 
 TOKEN_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -250,6 +252,7 @@ def _quote(name: str) -> str:
 
 def _thread_connect() -> sqlite3.Connection:
     """Een eigen synchrone verbinding voor het werk in een thread (`asyncio.to_thread`), niet voor de event loop."""
+    # Gelijk aan auth.connect, maar zonder die aan te roepen: de synchrone auth.connect verdwijnt (Taak 22), dit werk blijft sync.
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     conn: sqlite3.Connection = sqlite3.connect(auth.db_path())
     conn.row_factory = sqlite3.Row
@@ -877,33 +880,24 @@ async def start_job(token: str, passphrase: str) -> dict[str, Any]:
 
 
 async def arun_job(job_id: str, staged: Path, passphrase: str) -> None:
-    """De klus zelf, als achtergrondtask. Elke fase loopt als geheel in een thread, de stand wordt ertussen bijgewerkt.
+    """De klus zelf, als achtergrondtask (zie `_run_phases`).
 
     Een geweigerd bestand of een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van
-    de app wordt de task geannuleerd: de klus heet dan onderbroken, net als na een herstart.
+    de app wordt de task geannuleerd, ook als dat midden in het vastleggen van een fout gebeurt: de klus heet dan
+    onderbroken, net als na een herstart.
     """
-    started: float = time.monotonic()
     try:
-        plan: Plan = await asyncio.to_thread(read_plan, staged)
-        if plan.needs_passphrase:
-            plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
-        prepared: dict[str, list[tuple[int, dict[str, Any]]]] = await asyncio.to_thread(
-            check_rows, plan, lambda step, steps: _job_update(job_id, step=step, steps=steps)
-        )
-        checking: float = time.monotonic() - started
-        # Het terugzetten zelf is één transactie en dus niet te tellen: de voortgang blijft "bezig" zonder getal.
-        await _ajob_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
-        replacing_started: float = time.monotonic()
-
-        def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
-            now: str = _now()
-            conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - replacing_started, 2), now, now, job_id))
-
-        await asyncio.to_thread(replace_everything, plan, prepared, done)
-        log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
-    except BackupError as exc:
-        log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
-        await _fail_job(job_id, exc)
+        try:
+            await _run_phases(job_id, staged, passphrase)
+        except BackupError as exc:
+            log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
+            await _fail_job(job_id, exc)
+        except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
+            log.exception("Terugzetten mislukt")
+            try:
+                await _fail_job(job_id, None)
+            except sqlite3.Error:
+                log.exception("Kon de mislukte klus niet vastleggen")
     except asyncio.CancelledError:
         log.warning("Terugzetten onderbroken: de app sluit af")
         try:
@@ -911,14 +905,30 @@ async def arun_job(job_id: str, staged: Path, passphrase: str) -> None:
         except sqlite3.Error:
             log.exception("Kon de onderbroken klus niet vastleggen")
         raise
-    except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
-        log.exception("Terugzetten mislukt")
-        try:
-            await _fail_job(job_id, None)
-        except sqlite3.Error:
-            log.exception("Kon de mislukte klus niet vastleggen")
     finally:
         staged.unlink(missing_ok=True)
+
+
+async def _run_phases(job_id: str, staged: Path, passphrase: str) -> None:
+    """Elke fase loopt als geheel in een thread, de stand van de klus wordt ertussen bijgewerkt."""
+    started: float = time.monotonic()
+    plan: Plan = await asyncio.to_thread(read_plan, staged)
+    if plan.needs_passphrase:
+        plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
+    prepared: dict[str, list[tuple[int, dict[str, Any]]]] = await asyncio.to_thread(
+        check_rows, plan, lambda step, steps: _job_update(job_id, step=step, steps=steps)
+    )
+    checking: float = time.monotonic() - started
+    # Het terugzetten zelf is één transactie en dus niet te tellen: de voortgang blijft "bezig" zonder getal.
+    await _ajob_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
+    replacing_started: float = time.monotonic()
+
+    def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
+        now: str = _now()
+        conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - replacing_started, 2), now, now, job_id))
+
+    await asyncio.to_thread(replace_everything, plan, prepared, done)
+    log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
 
 
 # --- routes -----------------------------------------------------------------------------------------------------

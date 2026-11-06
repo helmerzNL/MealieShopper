@@ -25,7 +25,7 @@ from mealieshopper.app import create_app  # noqa: E402
 from support import SyncResponse  # noqa: E402
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
-    from quart.typing import TestAppProtocol, TestClientProtocol
+    from quart.typing import TestAppProtocol, TestClientProtocol, TestHTTPConnectionProtocol
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_3131 = ROOT / "tests" / "fixtures" / "backup-3.13.1.json"
@@ -83,6 +83,10 @@ class LiveClient:
 
     def set_cookie(self, key: str, value: str) -> None:
         self._client.set_cookie("localhost", key, value)
+
+    def stream(self, path: str, headers: dict[str, str], method: str = "POST") -> "TestHTTPConnectionProtocol":
+        """Een verzoek waarvan de test het lichaam zelf in stukken stuurt (zonder Content-Length, zoals chunked)."""
+        return self._client.request(path, method=method, headers=headers)
 
 
 async def chunks(data: bytes, size: int) -> AsyncIterator[bytes]:
@@ -266,7 +270,7 @@ class ClassificationTest(BackupCase):
         async with oauth._connect():  # oauth maakt zijn tabellen bij de eerste verbinding
             pass
 
-    async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self):
+    async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         backup.ensure_schemas()
         for module in (audit, mealie_images, image_cache):
@@ -279,11 +283,11 @@ class ClassificationTest(BackupCase):
         self.assertEqual(set(backup.DATA_TABLES) & backup.EXCLUDED_TABLES, set())
         self.assertEqual((set(backup.DATA_TABLES) | backup.EXCLUDED_TABLES) - tables - {"backup_jobs"}, set(), "een ingedeelde tabel bestaat niet")
 
-    def test_nothing_that_unlocks_the_app_is_in_the_list(self):
+    def test_nothing_that_unlocks_the_app_is_in_the_list(self) -> None:
         for table in ("users", "passkey_credentials", "password_credentials", "mfa_totp", "mfa_recovery_codes", "invites", "oauth_tokens", "oauth_codes", "login_attempts"):
             self.assertNotIn(table, backup.DATA_TABLES)
 
-    def test_every_stored_link_is_known(self):
+    def test_every_stored_link_is_known(self) -> None:
         source = (ROOT / "mealieshopper" / "ah.py").read_text(encoding="utf-8")
         self.assertIn('"AH_REFRESH_TOKEN"', source)
         self.assertEqual(set(backup.SECRET_KEYS), set(SECRETS))
@@ -293,7 +297,7 @@ class ClassificationTest(BackupCase):
 
 
 class RoundTripTest(BackupCase):
-    async def test_everything_comes_back_with_its_links(self):
+    async def test_everything_comes_back_with_its_links(self) -> None:
         self.seed()
         for key, value in SECRETS.items():
             auth.set_secret(key, value)
@@ -330,7 +334,7 @@ class RoundTripTest(BackupCase):
         self.assertEqual(auth.get_setting("WEEK_START"), "6", "de eerste dag van de week gaat mee terug")
         self.assertEqual((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"]["status"], "done")  # nog niet weggeklikt
 
-    async def test_the_links_work_on_another_server_with_another_secret_key(self):
+    async def test_the_links_work_on_another_server_with_another_secret_key(self) -> None:
         for key, value in SECRETS.items():
             auth.set_secret(key, value)
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -351,7 +355,7 @@ class RoundTripTest(BackupCase):
     def data_dir(self) -> Path:
         return auth.data_dir()
 
-    async def test_a_backup_without_links_leaves_the_links_as_they_are(self):
+    async def test_a_backup_without_links_leaves_the_links_as_they_are(self) -> None:
         self.seed()
         _, data = await self.make(links=False)
         for key, value in SECRETS.items():
@@ -362,7 +366,7 @@ class RoundTripTest(BackupCase):
         self.assertTrue(job["summary"]["linksKept"])
         self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), SECRETS[mealie.SECRET_TOKEN])
 
-    async def test_a_backup_with_links_replaces_the_links_that_are_there(self):
+    async def test_a_backup_with_links_replaces_the_links_that_are_there(self) -> None:
         auth.set_secret("PICNIC_AUTH_KEY", "PICNIC-KEY-abcdefgh")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)  # alleen Picnic zit erin
         auth.set_secret("JUMBO_REFRESH_TOKEN", "JUMBO-REFRESH-zyxwvuts")
@@ -370,7 +374,7 @@ class RoundTripTest(BackupCase):
         self.assertEqual(auth.get_secret("PICNIC_AUTH_KEY"), "PICNIC-KEY-abcdefgh")
         self.assertEqual(auth.get_secret("JUMBO_REFRESH_TOKEN"), "")
 
-    async def test_numbers_carry_on_after_a_restore(self):
+    async def test_numbers_carry_on_after_a_restore(self) -> None:
         self.seed()
         _, data = await self.make()
         await self.restore(data)
@@ -379,7 +383,7 @@ class RoundTripTest(BackupCase):
             conn.execute("INSERT INTO offer_history (store, product_id, title, first_seen, last_seen) VALUES ('ah', 'x', 'y', 'a', 'b')")
             self.assertGreater(conn.execute("SELECT MAX(id) FROM offer_history").fetchone()[0], top)
 
-    async def test_a_section_that_is_missing_comes_back_empty(self):
+    async def test_a_section_that_is_missing_comes_back_empty(self) -> None:
         # Een bestand van vóór een tabel bestond, heeft die sectie niet: de tabel is na het terugzetten leeg.
         self.seed()
         _, data = await self.make()
@@ -389,7 +393,7 @@ class RoundTripTest(BackupCase):
         self.assertEqual(after["offer_history"], [])
         self.assertTrue(after["offers"] and after["ah_orders"])
 
-    async def test_a_restore_replaces_what_is_there(self):
+    async def test_a_restore_replaces_what_is_there(self) -> None:
         self.seed()
         _, data = await self.make()
         self.junk()
@@ -398,7 +402,7 @@ class RoundTripTest(BackupCase):
             self.assertIsNone(conn.execute("SELECT 1 FROM ah_lists WHERE id = 'junk'").fetchone())
             self.assertIsNone(conn.execute("SELECT 1 FROM offers_meta WHERE store = 'junk'").fetchone())
 
-    async def test_the_login_of_the_app_is_not_touched(self):
+    async def test_the_login_of_the_app_is_not_touched(self) -> None:
         self.seed()
         _, data = await self.make()
         with closing(self.connect()) as conn:
@@ -412,7 +416,7 @@ class RoundTripTest(BackupCase):
 
 
 class FileContentTest(BackupCase):
-    async def test_the_file_holds_nothing_that_unlocks_the_app(self):
+    async def test_the_file_holds_nothing_that_unlocks_the_app(self) -> None:
         self.seed()
         for key, value in SECRETS.items():
             auth.set_secret(key, value)
@@ -435,7 +439,7 @@ class FileContentTest(BackupCase):
             ):
                 self.assertNotIn(needle, text, needle)
 
-    async def test_the_links_are_encrypted_and_the_password_is_not_in_the_file(self):
+    async def test_the_links_are_encrypted_and_the_password_is_not_in_the_file(self) -> None:
         for key, value in SECRETS.items():
             auth.set_secret(key, value)
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -455,7 +459,7 @@ class FileContentTest(BackupCase):
         self.assertEqual(sorted(document["secrets"]["links"]), ["ah", "ai_anthropic", "ai_openai", "crisp", "jumbo", "mealie", "picnic"])
         self.assertEqual(sealed["kdf"], "scrypt")
 
-    async def test_a_backup_without_links_has_none(self):
+    async def test_a_backup_without_links_has_none(self) -> None:
         for key, value in SECRETS.items():
             auth.set_secret(key, value)
         _, data = await self.make(links=False)
@@ -465,7 +469,7 @@ class FileContentTest(BackupCase):
         for value in SECRETS.values():
             self.assertNotIn(value, data.decode("utf-8"))
 
-    async def test_the_header_names_the_format_and_versions(self):
+    async def test_the_header_names_the_format_and_versions(self) -> None:
         _, data = await self.make()
         document = json.loads(data)
         self.assertEqual((document["format"], document["format_version"]), ("mealieshopper-backup", 1))
@@ -473,18 +477,18 @@ class FileContentTest(BackupCase):
         self.assertTrue(document["created_at"])
         self.assertEqual(list(document["tables"]), list(backup.DATA_TABLES))
 
-    async def test_links_need_a_password_of_some_length(self):
+    async def test_links_need_a_password_of_some_length(self) -> None:
         for passphrase in ("", "kort"):
             response = await self.admin.post("/api/backup", json={"links": True, "passphrase": passphrase})
             self.assertEqual(response.status_code, 400)
             self.assertEqual(response.get_json()["code"], "passphrase_short")
         self.assertEqual(list(self.data.glob(".backup-*")), [])  # ook een geweigerde aanvraag laat niets achter
 
-    async def test_the_temporary_file_is_removed_after_the_download(self):
+    async def test_the_temporary_file_is_removed_after_the_download(self) -> None:
         await self.make(links=False)
         self.assertEqual(list(self.data.glob(".backup-*")), [])
 
-    async def test_a_link_that_cannot_be_read_is_left_out(self):
+    async def test_a_link_that_cannot_be_read_is_left_out(self) -> None:
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         with closing(self.connect()) as conn, conn:
             conn.execute("UPDATE app_settings SET value = 'gAAAAB-een-andere-sleutel' WHERE key = ?", (mealie.SECRET_TOKEN,))
@@ -493,7 +497,7 @@ class FileContentTest(BackupCase):
 
 
 class OlderBackupTest(BackupCase):
-    async def test_a_backup_from_before_prefer_organic_still_restores(self):
+    async def test_a_backup_from_before_prefer_organic_still_restores(self) -> None:
         # #218 gaf user_profiles de kolom prefer_organic; een back-up van daarvoor heeft hem niet en zet de schakelaar uit.
         self.seed()
         with closing(self.connect()) as conn, conn:
@@ -508,7 +512,7 @@ class OlderBackupTest(BackupCase):
         self.assertEqual(job["status"], "done", job)
         self.assertFalse(profile.get("owner")["preferOrganic"])
 
-    async def test_a_backup_from_before_the_appearance_settings_still_restores(self):
+    async def test_a_backup_from_before_the_appearance_settings_still_restores(self) -> None:
         # De weergave gaf user_profiles de kolommen theme, dark_background en accent; een oudere back-up zet de standaard terug.
         self.seed()
         profile.set_appearance("owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0)
@@ -528,7 +532,7 @@ class OlderBackupTest(BackupCase):
             {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
         )
 
-    async def test_restore_of_a_3_x_backup_file_succeeds(self):
+    async def test_restore_of_a_3_x_backup_file_succeeds(self) -> None:
         # tests/fixtures/backup-3.13.1.json is gemaakt met de code van release 3.13.1 (commit 135bd86) op een lege
         # installatie: een AH-lijstje met twee artikelen, twee aanbiedingen van AH met hun geschiedenis en de eerste dag
         # van de week. Hoe je het opnieuw maakt staat in tests/fixtures/make_backup_3131.py.
@@ -559,7 +563,7 @@ class RefusalTest(BackupCase):
         self.before = self.snapshot()
         _, self.data_bytes = await self.make()
 
-    async def refused(self, data: bytes, code: str, status=400):
+    async def refused(self, data: bytes, code: str, status: int = 400) -> dict[str, Any]:
         response = await self.stage(data)
         self.assertEqual(response.status_code, status, response.get_json())
         self.assertEqual(response.get_json()["code"], code)
@@ -567,35 +571,35 @@ class RefusalTest(BackupCase):
         self.assertEqual(self.snapshot(), self.before)
         return response.get_json()
 
-    async def test_files_that_are_not_a_backup(self):
+    async def test_files_that_are_not_a_backup(self) -> None:
         for data in (b"", b"gewoon tekst", b"{kapot", b"[1, 2]", b'{"format": "iets-anders"}', b"PK\x03\x04" + b"0" * 100, b'{"format": "mealieshopper-backup", "format_version": NaN}'):
             await self.refused(data, "not_a_backup")
 
-    async def test_a_newer_version_names_the_version_that_wrote_it(self):
+    async def test_a_newer_version_names_the_version_that_wrote_it(self) -> None:
         newer = self.tweak(self.data_bytes, lambda doc: doc.update(format_version=2, app_version="9.9.9"))
         body = await self.refused(newer, "newer_version")
         self.assertIn("9.9.9", body["error"])
         self.assertIn("bij", body["error"])  # "Werk MealieShopper eerst bij"
 
-    async def test_parts_that_do_not_belong_are_refused(self):
+    async def test_parts_that_do_not_belong_are_refused(self) -> None:
         for table in ("passkey_credentials", "users", "oauth_tokens", "audit_log", "sqlite_master", "niet_bestaand"):
             data = self.tweak(self.data_bytes, lambda doc, t=table: doc["tables"].update({t: [{"id": "x"}]}))
             self.assertEqual((await self.refused(data, "bad_table"))["error"].count(table), 1)
 
-    async def test_a_file_cannot_switch_off_the_login_or_plant_a_setting(self):
+    async def test_a_file_cannot_switch_off_the_login_or_plant_a_setting(self) -> None:
         for key in ("AUTH_MODE", "SESSION_EPOCH", "ONBOARDING_DONE", "PUBLIC_BASE_URL", "iets"):
             data = self.tweak(self.data_bytes, lambda doc, k=key: doc["settings"].update({k: "none"}))
             await self.refused(data, "bad_setting")
         self.assertTrue(auth.auth_required())
 
-    async def test_a_row_that_does_not_fit_names_the_table_and_the_line(self):
+    async def test_a_row_that_does_not_fit_names_the_table_and_the_line(self) -> None:
         def spoil(doc):
             doc["tables"]["jumbo_orders"][1]["state"] = {"niet": "toegestaan"}
 
         body = await self.refused(self.tweak(self.data_bytes, spoil), "bad_row")
         self.assertIn("jumbo_orders", body["error"])
 
-    async def test_duplicates_and_missing_required_values_are_found(self):
+    async def test_duplicates_and_missing_required_values_are_found(self) -> None:
         def duplicate(doc):
             doc["tables"]["ah_orders"].append(dict(doc["tables"]["ah_orders"][0]))
 
@@ -607,13 +611,13 @@ class RefusalTest(BackupCase):
         body = await self.refused(self.tweak(self.data_bytes, missing), "bad_row")
         self.assertRegex(body["error"], r"offers, regel 1")
 
-    async def test_an_unknown_column_is_refused(self):
+    async def test_an_unknown_column_is_refused(self) -> None:
         def extra(doc):
             doc["tables"]["ah_lists"][0]["geheim"] = "x"
 
         self.assertIn("geheim", (await self.refused(self.tweak(self.data_bytes, extra), "bad_row"))["error"])
 
-    async def test_an_avatar_is_read_again_and_not_taken_on_the_files_word(self):
+    async def test_an_avatar_is_read_again_and_not_taken_on_the_files_word(self) -> None:
         def spoil(doc):
             doc["tables"]["user_profiles"][0]["avatar"] = {"base64": "PHN2Zz48L3N2Zz4="}  # <svg></svg>, maar het bestand zegt image/png
 
@@ -624,7 +628,7 @@ class RefusalTest(BackupCase):
 
         await self.refused(self.tweak(self.data_bytes, broken), "bad_row")
 
-    async def test_a_product_image_is_read_again_and_not_taken_on_the_files_word(self):
+    async def test_a_product_image_is_read_again_and_not_taken_on_the_files_word(self) -> None:
         def spoil(doc):
             doc["tables"]["product_images"][0]["data"] = {"base64": "PHN2Zz48L3N2Zz4="}  # <svg></svg>
 
@@ -637,7 +641,7 @@ class RefusalTest(BackupCase):
 
         self.assertIn("1024", (await self.refused(self.tweak(self.data_bytes, too_wide), "bad_row"))["error"])
 
-    async def test_what_follows_from_a_product_image_is_worked_out_again(self):
+    async def test_what_follows_from_a_product_image_is_worked_out_again(self) -> None:
         def lie(doc):
             row = doc["tables"]["product_images"][0]
             row.update(content_type="image/webp", width=999, height=999, digest="niet-waar")
@@ -649,11 +653,11 @@ class RefusalTest(BackupCase):
         self.assertEqual((row["content_type"], row["width"], row["height"], row["digest"]),
                          (expected["content_type"], expected["width"], expected["height"], expected["digest"]))
 
-    async def test_a_file_over_the_limit_is_refused_and_not_kept(self):
+    async def test_a_file_over_the_limit_is_refused_and_not_kept(self) -> None:
         with mock.patch.object(backup, "MAX_STAGE_BYTES", 1000):
             await self.refused(self.data_bytes, "too_large", 413)
 
-    async def test_one_bad_line_stops_the_whole_restore(self):
+    async def test_one_bad_line_stops_the_whole_restore(self) -> None:
         def spoil(doc):
             doc["tables"]["picnic_orders"][0]["order_id"] = None
 
@@ -664,7 +668,7 @@ class RefusalTest(BackupCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.snapshot(), junk_state)
 
-    async def test_a_tampered_encrypted_block_is_refused(self):
+    async def test_a_tampered_encrypted_block_is_refused(self) -> None:
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         auth.delete_secret(mealie.SECRET_TOKEN)
@@ -684,7 +688,7 @@ class RefusalTest(BackupCase):
         self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "")
         self.assertEqual(self.staged_files(), [])
 
-    async def test_secrets_in_the_block_must_be_known_links(self):
+    async def test_secrets_in_the_block_must_be_known_links(self) -> None:
         sealed = backup.seal({"AUTH_MODE": "none"}, PASSPHRASE)
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -697,7 +701,7 @@ class RefusalTest(BackupCase):
 
 
 class StageTest(BackupCase):
-    async def test_the_stage_answers_with_a_summary_and_changes_nothing(self):
+    async def test_the_stage_answers_with_a_summary_and_changes_nothing(self) -> None:
         self.seed()
         before, settings = self.snapshot(), self.settings()
         _, data = await self.make(links=False)
@@ -718,25 +722,25 @@ class StageTest(BackupCase):
         self.assertEqual(self.settings(), settings)
         self.assertEqual(len(self.staged_files()), 1)
 
-    async def test_changing_your_mind_removes_the_file(self):
+    async def test_changing_your_mind_removes_the_file(self) -> None:
         token = (await self.stage((await self.make())[1])).get_json()["token"]
         self.assertEqual((await self.admin.delete(f"/api/backup/stage/{token}")).status_code, 200)
         self.assertEqual(self.staged_files(), [])
         self.assertEqual((await self.start(token)).status_code, 404)
 
-    async def test_a_token_must_look_like_a_token(self):
+    async def test_a_token_must_look_like_a_token(self) -> None:
         for token in ("../x", "..%2Fsecret", "x" * 32, "A" * 32, "0" * 31, ""):
             self.assertEqual((await self.start(token)).status_code, 404, token)
         self.assertEqual((await self.admin.delete("/api/backup/stage/..")).status_code, 404)
 
-    async def test_a_token_works_once(self):
+    async def test_a_token_works_once(self) -> None:
         token = (await self.stage((await self.make())[1])).get_json()["token"]
         self.assertEqual((await self.start(token)).status_code, 202)
         await self.wait()
         self.assertEqual((await self.start(token)).status_code, 404)
         self.assertEqual(self.staged_files(), [])
 
-    async def test_staged_files_that_were_never_used_are_cleared_the_next_time(self):
+    async def test_staged_files_that_were_never_used_are_cleared_the_next_time(self) -> None:
         old = self.data / (".restore-" + "a" * 32)
         old.write_bytes(b"oud")
         os.utime(old, (time.time() - 2 * 3600, time.time() - 2 * 3600))
@@ -746,31 +750,31 @@ class StageTest(BackupCase):
         self.assertFalse(old.exists())
         self.assertTrue(young.exists())
 
-    async def test_a_factory_reset_takes_a_staged_file_along(self):
+    async def test_a_factory_reset_takes_a_staged_file_along(self) -> None:
         await self.stage((await self.make())[1])
         removed = factory_reset.wipe_data()
         self.assertEqual(self.staged_files(), [])
         self.assertTrue(any(name.startswith(".restore-") for name in removed))
 
-    async def test_the_staged_file_is_not_readable_by_others(self):
+    async def test_the_staged_file_is_not_readable_by_others(self) -> None:
         await self.stage((await self.make())[1])
         path = next(self.data.glob(".restore-*"))
         self.assertEqual(path.stat().st_mode & 0o077, 0)
 
 
 class PassphraseTest(BackupCase):
-    async def prepare(self):
+    async def prepare(self) -> bytes:
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
         auth.delete_secret(mealie.SECRET_TOKEN)
         return data
 
-    async def test_the_summary_says_a_password_is_needed(self):
+    async def test_the_summary_says_a_password_is_needed(self) -> None:
         body = (await self.stage(await self.prepare())).get_json()
         self.assertTrue(body["needsPassphrase"])
         self.assertEqual(body["links"], ["mealie"])
 
-    async def test_a_missing_or_wrong_password_changes_nothing_and_keeps_the_file(self):
+    async def test_a_missing_or_wrong_password_changes_nothing_and_keeps_the_file(self) -> None:
         token = (await self.stage(await self.prepare())).get_json()["token"]
         for passphrase, code, status in (("", "needs_passphrase", 400), ("verkeerd wachtwoord", "wrong_passphrase", 403)):
             response = await self.start(token, passphrase)
@@ -782,7 +786,7 @@ class PassphraseTest(BackupCase):
         self.assertEqual((await self.wait())["status"], "done")
         self.assertEqual(auth.get_secret(mealie.SECRET_TOKEN), "MEALIE-TOKEN-12345678")
 
-    async def test_the_password_is_never_stored(self):
+    async def test_the_password_is_never_stored(self) -> None:
         data = await self.prepare()
         await self.restore(data, PASSPHRASE)
         for path in self.data.iterdir():
@@ -796,12 +800,12 @@ class AccessTest(BackupCase):
         ("post", "/api/backup/jobs"), ("get", "/api/backup/jobs/latest"), ("delete", "/api/backup/jobs/abc"),
     )
 
-    async def test_every_route_needs_a_session(self):
+    async def test_every_route_needs_a_session(self) -> None:
         stranger = self.new_client()
         for method, path in self.ROUTES:
             self.assertEqual((await getattr(stranger, method)(path)).status_code, 401, path)
 
-    async def test_only_the_administrator_may_use_them(self):
+    async def test_only_the_administrator_may_use_them(self) -> None:
         token = (await self.admin.post("/api/users/invites", json={"username": "anna"})).get_json()["token"]
         anna = self.new_client()
         await anna.post("/api/invites/password", json={"token": token, "password": ANNA})
@@ -812,7 +816,7 @@ class AccessTest(BackupCase):
 
 
 class JobTest(BackupCase):
-    async def test_a_job_reports_steps_and_timings(self):
+    async def test_a_job_reports_steps_and_timings(self) -> None:
         self.seed()
         _, data = await self.make()
         job = await self.restore(data)
@@ -825,7 +829,7 @@ class JobTest(BackupCase):
             row = conn.execute("SELECT * FROM backup_jobs").fetchone()
         self.assertEqual(row["status"], "done")
 
-    async def test_progress_counts_the_tables_while_checking(self):
+    async def test_progress_counts_the_tables_while_checking(self) -> None:
         self.seed()
         _, data = await self.make()
         plan = backup.prepare(backup.read_file(self._write(data)))
@@ -839,7 +843,7 @@ class JobTest(BackupCase):
         path.write_bytes(data)
         return path
 
-    async def test_a_failure_halfway_changes_nothing_and_says_so(self):
+    async def test_a_failure_halfway_changes_nothing_and_says_so(self) -> None:
         self.seed()
         auth.set_secret(mealie.SECRET_TOKEN, "MEALIE-TOKEN-12345678")
         _, data = await self.make(links=True, passphrase=PASSPHRASE)
@@ -857,7 +861,7 @@ class JobTest(BackupCase):
         self.assertEqual(self.settings(), settings)
         self.assertEqual(self.staged_files(), [])
 
-    async def test_done_is_part_of_the_swap_so_the_two_cannot_disagree(self):
+    async def test_done_is_part_of_the_swap_so_the_two_cannot_disagree(self) -> None:
         self.seed()
         _, data = await self.make()
         plan = backup.prepare(backup.read_file(self._write(data)))
@@ -872,7 +876,7 @@ class JobTest(BackupCase):
             backup.replace_everything(plan, prepared, refuse)
         self.assertEqual(self.snapshot(), before)  # de gegevens zijn pas vervangen als de klus ook als klaar is gemarkeerd
 
-    async def test_a_refused_file_in_the_job_fails_with_its_reason(self):
+    async def test_a_refused_file_in_the_job_fails_with_its_reason(self) -> None:
         _, data = await self.make()
         staged = (await self.stage(data)).get_json()["token"]
         path = self.data / (".restore-" + staged)
@@ -881,7 +885,7 @@ class JobTest(BackupCase):
         self.assertEqual(started.status_code, 400)
         self.assertEqual(started.get_json()["code"], "not_a_backup")
 
-    async def test_only_one_job_runs_at_a_time(self):
+    async def test_only_one_job_runs_at_a_time(self) -> None:
         now = backup._now()
         with closing(self.connect()) as conn, conn:
             conn.execute("INSERT INTO backup_jobs (id, status, phase, started_at, updated_at) VALUES ('lopend', 'running', 'checking', ?, ?)", (now, now))
@@ -891,7 +895,7 @@ class JobTest(BackupCase):
         self.assertEqual(self.staged_files(), [".restore-" + staged])  # het bestand blijft voor een nieuwe poging
         self.assertEqual((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"]["status"], "running")
 
-    async def test_a_job_that_lost_its_task_is_reported_as_interrupted(self):
+    async def test_a_job_that_lost_its_task_is_reported_as_interrupted(self) -> None:
         old = backup._now()
         with closing(self.connect()) as conn, conn:
             conn.execute(
@@ -905,7 +909,7 @@ class JobTest(BackupCase):
         # en daarna kan er weer een starten
         self.assertEqual((await self.restore((await self.make())[1]))["status"], "done")
 
-    async def test_a_finished_job_is_shown_until_it_is_dismissed(self):
+    async def test_a_finished_job_is_shown_until_it_is_dismissed(self) -> None:
         job = await self.restore((await self.make())[1])
         again = (await self.admin.get("/api/backup/jobs/latest")).get_json()["job"]
         self.assertEqual(again["id"], job["id"])
@@ -913,14 +917,14 @@ class JobTest(BackupCase):
         self.assertIsNone((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"])
         self.assertEqual((await self.admin.delete("/api/backup/jobs/onbekend")).status_code, 404)
 
-    async def test_a_running_job_cannot_be_dismissed(self):
+    async def test_a_running_job_cannot_be_dismissed(self) -> None:
         now = backup._now()
         with closing(self.connect()) as conn, conn:
             conn.execute("INSERT INTO backup_jobs (id, status, phase, started_at, updated_at) VALUES ('lopend', 'running', 'checking', ?, ?)", (now, now))
         self.assertEqual((await self.admin.delete("/api/backup/jobs/lopend")).status_code, 404)
         self.assertEqual((await self.admin.get("/api/backup/jobs/latest")).get_json()["job"]["status"], "running")
 
-    async def test_the_messages_follow_the_language_of_the_reader(self):
+    async def test_the_messages_follow_the_language_of_the_reader(self) -> None:
         _, data = await self.make()
         self.admin.set_cookie("ms_lang", "en")
         response = await self.admin.post("/api/backup/stage", data=b"kapot")
@@ -929,7 +933,7 @@ class JobTest(BackupCase):
         response = await self.admin.post("/api/backup/stage", data=b"kapot")
         self.assertIn("geen MealieShopper-back-up", response.get_json()["error"])
 
-    async def test_the_job_table_is_not_part_of_the_backup_and_survives_a_restore(self):
+    async def test_the_job_table_is_not_part_of_the_backup_and_survives_a_restore(self) -> None:
         self.assertNotIn("backup_jobs", backup.DATA_TABLES)
         job = await self.restore((await self.make())[1])
         with closing(self.connect()) as conn:
@@ -937,7 +941,7 @@ class JobTest(BackupCase):
 
 
 class TaskTest(BackupCase):
-    async def test_restore_job_runs_as_a_task_and_reports_progress(self):
+    async def test_restore_job_runs_as_a_task_and_reports_progress(self) -> None:
         self.seed()
         _, data = await self.make()
         token: str = (await self.stage(data)).get_json()["token"]
@@ -962,7 +966,7 @@ class TaskTest(BackupCase):
         self.assertNotIn(name, tasks.running())
         self.assertEqual(self.staged_files(), [])
 
-    async def test_a_cancelled_restore_marks_the_job_failed(self):
+    async def test_a_cancelled_restore_marks_the_job_failed(self) -> None:
         self.seed()
         _, data = await self.make()
         self.junk()
@@ -988,9 +992,66 @@ class TaskTest(BackupCase):
         # en daarna kan er weer een starten (de poort staat nog open)
         self.assertEqual((await self.restore(data))["status"], "done")
 
+    async def test_an_interrupted_job_whose_swap_still_commits_ends_done_without_an_error(self) -> None:
+        # Het afsluiten annuleert de task terwijl de thread van het vervangen nog op zijn schrijfslot wacht. De thread
+        # maakt het daarna af: de klus heet dan klaar, zonder de melding "onderbroken, niets gewijzigd".
+        self.seed()
+        _, data = await self.make()
+        self.junk()
+        token: str = (await self.stage(data)).get_json()["token"]
+        entered, release = threading.Event(), threading.Event()
+        original: Callable[..., dict[str, Any]] = backup.replace_everything
+
+        def gated(plan: backup.Plan, prepared: dict[str, Any], on_commit: Callable[..., None]) -> dict[str, Any]:
+            entered.set()
+            release.wait(10)
+            return original(plan, prepared, on_commit)
+
+        patch = mock.patch.object(backup, "replace_everything", gated)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(release.set)
+        job_id: str = (await self.start(token)).get_json()["id"]
+        self.assertTrue(await asyncio.to_thread(entered.wait, 10), "het vervangen is niet begonnen")
+        await tasks.cancel_all()
+        job: dict[str, Any] = await self.current()
+        self.assertEqual(job["status"], "failed")
+        self.assertIn("onderbroken", job["error"])
+        release.set()
+        deadline: float = time.monotonic() + 10
+        while job["status"] != "done" and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            job = await self.current()
+        self.assertEqual((job["id"], job["status"], job["error"]), (job_id, "done", None))
+        with closing(self.connect()) as conn:
+            row = conn.execute("SELECT error_key, error_params FROM backup_jobs WHERE id = ?", (job_id,)).fetchone()
+            self.assertIsNone(conn.execute("SELECT 1 FROM ah_lists WHERE id = 'junk'").fetchone(), "de gegevens zijn vervangen")
+        self.assertEqual((row["error_key"], row["error_params"]), (None, None))
+
+    async def test_a_cancel_while_a_refusal_is_recorded_still_marks_the_job_interrupted(self) -> None:
+        _, data = await self.make()
+        token: str = (await self.stage(data)).get_json()["token"]
+        recording = asyncio.Event()
+
+        async def stuck(job_id: str, error: backup.BackupError | None) -> None:
+            recording.set()
+            await asyncio.Event().wait()
+
+        refusal = backup.BackupError("bad_row", table="offers", line=1, error="kapot")
+        with mock.patch.object(backup, "check_rows", side_effect=refusal), mock.patch.object(backup, "_fail_job", stuck):
+            job_id: str = (await self.start(token)).get_json()["id"]
+            await asyncio.wait_for(recording.wait(), 10)
+            task: asyncio.Task[Any] = tasks.running()[f"backup-restore-{job_id}"]
+            await tasks.cancel_all()
+        self.assertTrue(task.cancelled())
+        job: dict[str, Any] = await self.current()
+        self.assertEqual((job["id"], job["status"]), (job_id, "failed"))
+        self.assertIn("onderbroken", job["error"])
+        self.assertEqual(self.staged_files(), [])
+
 
 class StreamTest(BackupCase):
-    async def test_stage_rejects_an_oversized_upload_before_reading(self):
+    async def test_stage_rejects_an_oversized_upload_before_reading(self) -> None:
         consumed: list[bytes] = []
 
         async def body() -> AsyncIterator[bytes]:
@@ -1009,7 +1070,7 @@ class StreamTest(BackupCase):
         self.assertEqual((response.status_code, response.get_json()["code"]), (413, "too_large"))
         self.assertEqual(self.staged_files(), [])
 
-    async def test_stage_streams_without_buffering(self):
+    async def test_stage_streams_without_buffering(self) -> None:
         self.seed()
         _, data = await self.make()
         size: int = 64 * 1024  # groter dan de buffer van een bestand: elk stuk gaat meteen naar schijf
@@ -1033,7 +1094,38 @@ class StreamTest(BackupCase):
         self.assertEqual(path.read_bytes(), upload)
         self.assertEqual(summary["counts"]["offers"], 2)
 
-    async def test_a_stalled_upload_gives_up_after_the_body_timeout(self):
+    async def test_a_chunked_upload_through_the_route_is_written_while_it_arrives(self) -> None:
+        self.seed()
+        _, data = await self.make()
+        upload: bytes = data + b" " * (256 * 1024)
+        first: bytes = upload[:128 * 1024]  # groter dan de buffer van een bestand: dit stuk staat meteen op schijf
+        async with self.admin.stream("/api/backup/stage", {"Content-Type": "application/octet-stream"}) as connection:
+            await connection.send(first)
+            deadline: float = time.monotonic() + 5
+            arrived: list[Path] = []
+            while time.monotonic() < deadline:
+                arrived = [path for path in self.data.glob(".restore-*") if path.stat().st_size == len(first)]
+                if arrived:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(len(arrived), 1, "het eerste stuk staat op schijf voor de rest binnen is")
+            await connection.send(upload[len(first):])
+            await connection.send_complete()
+        response = await connection.as_response()
+        self.assertEqual(response.status_code, 200, await response.get_data())
+        summary: dict[str, Any] = await response.get_json()
+        self.assertEqual((self.data / (".restore-" + summary["token"])).read_bytes(), upload)
+        self.assertEqual(summary["counts"]["offers"], 2)
+
+    async def test_a_stalled_upload_through_the_route_answers_408(self) -> None:
+        self.app.config["BODY_TIMEOUT"] = 0.2
+        async with self.admin.stream("/api/backup/stage", {"Content-Type": "application/octet-stream"}) as connection:
+            await connection.send(b'{"format": "mealieshopper-backup"')  # en daarna niets meer
+        response = await connection.as_response()
+        self.assertEqual(response.status_code, 408)
+        self.assertEqual(self.staged_files(), [])
+
+    async def test_a_stalled_upload_gives_up_after_the_body_timeout(self) -> None:
         async def stalled() -> AsyncIterator[bytes]:
             yield b'{"format"'
             await asyncio.Event().wait()
@@ -1044,7 +1136,7 @@ class StreamTest(BackupCase):
 
 
 class BodyLimitTest(BackupCase):
-    async def test_restore_upload_up_to_the_backup_limit_is_accepted(self):
+    async def test_restore_upload_up_to_the_backup_limit_is_accepted(self) -> None:
         # Quart weigert standaard alles boven 16 MiB met 413. Een bestand van precies de back-upgrens moet erdoor: het is geen
         # geldige back-up, dus de validator mag 400 geven, maar de aanvraag mag niet al bij de lichaamsgrens stranden.
         body = bytes(backup.MAX_STAGE_BYTES)
@@ -1057,21 +1149,21 @@ class PageTest(unittest.TestCase):
     HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     JS = (ROOT / "static" / "backup.js").read_text(encoding="utf-8")
 
-    def test_the_card_has_a_live_progress_block_and_loads_after_app_js(self):
+    def test_the_card_has_a_live_progress_block_and_loads_after_app_js(self) -> None:
         self.assertRegex(self.HTML, r'<div class="backup-progress" id="backup-progress" role="status" hidden>')
         self.assertIn("<progress", self.HTML)
         self.assertLess(self.HTML.index("filename='app.js'"), self.HTML.index("filename='backup.js'"))
         for element in ("backup-make", "backup-file", "backup-restore", "backup-discard", "backup-confirm", "backup-links"):
             self.assertIn(f'id="{element}"', self.HTML)
 
-    def test_the_screen_follows_the_contract(self):
+    def test_the_screen_follows_the_contract(self) -> None:
         # Alleen een balk vullen die zijn totaal kent, de klus op de server volgen en niet herladen als wegklikken mislukt.
         for needle in ("/api/backup/stage", "/api/backup/jobs/latest", "XMLHttpRequest", "upload.onprogress", "Content-Length", "dismissed", "BACKUP_POLL_MS"):
             self.assertIn(needle, self.JS)
         self.assertNotIn("setInterval", self.JS)
         self.assertNotIn("file.text()", self.JS)  # het bestand wordt op de server gecontroleerd, niet in de browser
 
-    def test_the_system_tab_opens_the_card(self):
+    def test_the_system_tab_opens_the_card(self) -> None:
         self.assertIn('"settings-system" && typeof loadBackup === "function"', (ROOT / "static" / "app.js").read_text(encoding="utf-8"))
 
 
