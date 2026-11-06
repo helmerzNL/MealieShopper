@@ -170,6 +170,36 @@ class AccessTokenTest(TempDataDirTest):
         self.assertEqual(used, ["old", "rotated-1"])
         self.assertEqual(run(jumbo.configured_refresh_token()), "rotated-2")
 
+    def test_a_cancelled_caller_does_not_lose_the_rotated_refresh_token(self):
+        # Auth0 vervangt het refresh-token bij het vernieuwen. Wordt het verzoek dat vernieuwt geannuleerd (de browser ging
+        # weg), dan loopt de vernieuwing door en bewaart het nieuwe token. Wie daarna komt, vernieuwt niet nog eens.
+        self.link("old")
+        used: list[str] = []
+
+        async def scenario() -> str:
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def refresh(request: httpx.Request) -> httpx.Response:
+                used.append(json.loads(request.content)["refresh_token"])
+                entered.set()
+                await release.wait()
+                return reply({**TOKENS, "access_token": "acc-1", "refresh_token": "rotated-1"})
+
+            with served(side_effect=refresh):
+                first = asyncio.create_task(jumbo.get_access_token())
+                await entered.wait()
+                first.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await first
+                second = asyncio.create_task(jumbo.get_access_token())
+                await asyncio.sleep(0)  # de tweede wacht nu op het slot
+                release.set()
+                return await second
+
+        self.assertEqual(run(scenario()), "acc-1")
+        self.assertEqual(used, ["old"], "geen tweede vernieuwing met het oude token")
+        self.assertEqual(run(jumbo.configured_refresh_token()), "rotated-1")
+
     def test_status_verify_reports_a_dead_link_without_leaking_tokens(self):
         self.link("secret-token")
         bad = reply({"error": "invalid_grant"}, status=400)

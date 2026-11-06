@@ -155,3 +155,79 @@ async def test_map_bounded_cancels_the_rest_and_raises_the_first_error_itself() 
     assert set(range(1, 6)) <= set(cancelled)
     assert len(started) <= 7
     assert finished == []
+
+
+async def test_map_bounded_keeps_the_context_of_the_error() -> None:
+    # De fout komt naar boven met haar eigen `__context__` (hier de KeyError waarin ze ontstond), niet met de ExceptionGroup.
+    async def work(item: int) -> int:
+        try:
+            raise KeyError("oorzaak")
+        except KeyError:
+            raise RuntimeError(f"gevolg {item}")
+
+    with pytest.raises(RuntimeError, match="gevolg") as caught:
+        await tasks.map_bounded(2, work, [1])
+    assert isinstance(caught.value.__context__, KeyError)
+    assert caught.value.__suppress_context__ is False
+
+
+async def test_map_bounded_passes_an_outer_cancel_on_and_cancels_the_children() -> None:
+    started: asyncio.Event = asyncio.Event()
+    cancelled: list[int] = []
+
+    async def work(item: int) -> int:
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            cancelled.append(item)
+            raise
+        return item
+
+    outer: asyncio.Task = asyncio.create_task(tasks.map_bounded(3, work, range(3)))
+    await started.wait()
+    await _yield(2)
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+    assert sorted(cancelled) == [0, 1, 2]
+
+
+async def test_map_bounded_an_outer_cancel_wins_over_an_error_while_cleaning_up() -> None:
+    # Gooit een kind bij het annuleren een fout, dan blijft het een annulering: wie map_bounded annuleerde, krijgt die terug.
+    started: asyncio.Event = asyncio.Event()
+
+    async def work(item: int) -> int:
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise RuntimeError("opruimen mislukt") from None
+        return item
+
+    outer: asyncio.Task = asyncio.create_task(tasks.map_bounded(2, work, range(2)))
+    await started.wait()
+    await _yield(2)
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+
+
+async def test_shielded_work_finishes_although_its_caller_is_cancelled() -> None:
+    release: asyncio.Event = asyncio.Event()
+    done: list[str] = []
+
+    async def store() -> str:
+        await release.wait()
+        done.append("bewaard")
+        return "klaar"
+
+    caller: asyncio.Task = asyncio.create_task(tasks.shielded(store()))
+    await _yield(2)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    release.set()
+    await tasks.cancel_all()  # wacht ook op afgeschermd werk dat nog loopt
+    assert done == ["bewaard"]
+

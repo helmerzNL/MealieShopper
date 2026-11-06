@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 import httpx
 
-from . import auth, deals, http_client
+from . import auth, deals, http_client, tasks
 from .i18n import tr
 from .packs import MAX_CART_QUANTITY as MAX_QUANTITY, assess_packs, normalize_quantity
 
@@ -139,6 +139,13 @@ async def _authed(method: str, path: str, *, body: Any = None, text: bool = Fals
     token = await configured_auth_key()
     if not token:
         raise _not_linked()
+    # Het verzoek en het bewaren van een nieuwe auth-key lopen als eigen task (`tasks.shielded`): Picnic kan de oude key
+    # bij dit antwoord laten vervallen, dus een geannuleerd verzoek mag niet stoppen voordat de nieuwe bewaard is.
+    return await tasks.shielded(_authed_call(method, path, token, body, text))
+
+
+async def _authed_call(method: str, path: str, token: str, body: Any, text: bool) -> Any:
+    """Een verzoek met de auth-key `token`, en de nieuwe key bewaren als Picnic er een teruggaf."""
     try:
         data, new_token = await _call(method, path, token=token, body=body, text=text)
     except PicnicAuthError as exc:

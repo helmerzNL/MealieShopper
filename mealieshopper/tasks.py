@@ -12,6 +12,9 @@ from . import http_client
 log: logging.Logger = logging.getLogger(__name__)
 
 _tasks: dict[str, asyncio.Task[Any]] = {}
+# Afgeschermd werk (`shielded`) dat nog loopt. De set houdt een sterke verwijzing vast: een task waar niemand meer naar
+# verwijst, kan anders halverwege worden opgeruimd.
+_shielded: set[asyncio.Task[Any]] = set()
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -54,9 +57,11 @@ async def map_bounded(limit: int, fn: Callable[[T], Awaitable[R]], items: Iterab
     """`await fn(item)` voor elk item, hooguit `limit` tegelijk, met de uitkomsten in de volgorde van `items`.
 
     De vervanger van `map` op een threadpool met `limit` werkers. Elke aanroep krijgt een kopie van de context
-    (verzoek, taal, auditlog). Een aanroep maakt zijn coroutine pas als hij aan de beurt is. Gooit er een, dan annuleert de
-    `TaskGroup` de rest en komt die eerste fout zelf naar boven, niet als `ExceptionGroup`: een aanroeper die op het type
-    vangt (zoals `JumboAuthError`) blijft zo werken.
+    (verzoek, taal, auditlog). Een aanroep maakt zijn coroutine pas als hij aan de beurt is. Gooit er een, dan annuleren
+    we de rest, wachten tot die gestopt is en gooien die eerste fout zelf, met haar eigen `__context__` (geen
+    `ExceptionGroup` zoals bij `asyncio.TaskGroup`): een aanroeper die op het type vangt (zoals `JumboAuthError`) blijft
+    zo werken. Wordt map_bounded zelf geannuleerd, dan annuleren we alle items en komt de annulering terug, ook als een
+    item bij het opruimen een fout gooit.
     """
     slots: asyncio.Semaphore = asyncio.Semaphore(limit)
 
@@ -64,13 +69,51 @@ async def map_bounded(limit: int, fn: Callable[[T], Awaitable[R]], items: Iterab
         async with slots:
             return await fn(item)
 
+    started: list[asyncio.Task[R]] = [asyncio.create_task(one(item)) for item in items]
+    if not started:
+        return []
     try:
-        async with asyncio.TaskGroup() as group:
-            started: list[asyncio.Task[R]] = [group.create_task(one(item)) for item in items]
-    except BaseExceptionGroup as failed:
-        first: BaseException = failed.exceptions[0]
-        raise first from first.__cause__
+        await asyncio.wait(started, return_when=asyncio.FIRST_EXCEPTION)
+    except asyncio.CancelledError:
+        await _stop(started)
+        raise
+    failed: list[asyncio.Task[R]] = [task for task in started if task.done() and not task.cancelled() and task.exception()]
+    if failed:
+        await _stop(started)
+        for other in failed[1:]:
+            log.debug("Nog een fout in map_bounded", exc_info=other.exception())
+        error: BaseException | None = failed[0].exception()
+        assert error is not None
+        raise error
     return [task.result() for task in started]
+
+
+async def _stop(started: list[asyncio.Task[Any]]) -> None:
+    """Annuleert de items die nog lopen en wacht tot ze allemaal gestopt zijn (hun fouten zijn dan opgehaald)."""
+    for task in started:
+        task.cancel()
+    await asyncio.gather(*started, return_exceptions=True)
+
+
+def _shielded_done(task: asyncio.Task[Any]) -> None:
+    """Vergeet afgeschermd werk dat klaar is. Een fout is dan opgehaald: wie wachtte, kreeg hem al via `asyncio.shield`."""
+    _shielded.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        log.debug("Afgeschermd werk mislukt", exc_info=task.exception())
+
+
+async def shielded(coro: Coroutine[Any, Any, T]) -> T:
+    """Draait `coro` als eigen task en wacht erop, zonder dat een annulering van de aanroeper die task afbreekt.
+
+    Voor werk dat niet halverwege mag stoppen, zoals een token vernieuwen en het nieuwe refresh-token bewaren: de winkel
+    heeft het oude dan misschien al vervangen. Quart annuleert een verzoek als de browser weggaat, `cancel_all` bij het
+    afsluiten, `map_bounded` de andere items bij een fout. De aanroeper krijgt dan zelf een `CancelledError`, de task loopt
+    door. `cancel_all` wacht er ook op.
+    """
+    task: asyncio.Task[T] = asyncio.create_task(coro)
+    _shielded.add(task)
+    task.add_done_callback(_shielded_done)
+    return await asyncio.shield(task)
 
 
 def running() -> dict[str, asyncio.Task[Any]]:
@@ -79,12 +122,14 @@ def running() -> dict[str, asyncio.Task[Any]]:
 
 
 async def cancel_all(timeout: float = 10.0) -> None:
-    """Annuleert alle geregistreerde tasks en wacht er hoogstens `timeout` seconden op."""
+    """Annuleert alle geregistreerde tasks en wacht er hoogstens `timeout` seconden op, samen met het afgeschermde werk
+    (`shielded`) dat nog loopt. Dat laatste annuleren we niet: het mag niet halverwege stoppen."""
     pending: list[asyncio.Task[Any]] = list(_tasks.values())
     for task in pending:
         task.cancel()
-    if pending:
-        await asyncio.wait(pending, timeout=timeout)
+    waiting: list[asyncio.Task[Any]] = pending + list(_shielded)
+    if waiting:
+        await asyncio.wait(waiting, timeout=timeout)
 
 
 async def _cancel_all_hook() -> None:

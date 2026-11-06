@@ -417,10 +417,17 @@ async def get_token() -> str:
 
 
 async def get_user_token() -> str:
-    global user_token_cache
-
     if cached := _valid(user_token_cache):
         return cached
+    # Vernieuwen en het nieuwe refresh-token bewaren lopen als eigen task (`tasks.shielded`), met het slot erin: een
+    # geannuleerd verzoek breekt ze niet af, en wie op het slot wacht, komt pas na het bewaren aan de beurt.
+    return await tasks.shielded(_refresh_user_token())
+
+
+async def _refresh_user_token() -> str:
+    """Het gebruikerstoken vernieuwen met het refresh-token en het vervangen refresh-token bewaren, achter het slot."""
+    global user_token_cache
+
     async with _token_lock("user"):
         if cached := _valid(user_token_cache):
             return cached  # een ander verzoek vernieuwde het net

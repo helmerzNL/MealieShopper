@@ -271,6 +271,14 @@ async def get_access_token(force: bool = False) -> str:
     seen: str = _access_cache["token"]
     if not force and _cached_access_token():
         return _access_cache["token"]
+    # Vernieuwen en het nieuwe refresh-token bewaren lopen als eigen task (`tasks.shielded`), met het slot erin: een
+    # geannuleerd verzoek breekt ze niet af, en wie op het slot wacht, komt pas na het bewaren aan de beurt.
+    return await tasks.shielded(_refresh_access_token(force, seen))
+
+
+async def _refresh_access_token(force: bool, seen: str) -> str:
+    """Het toegangstoken vernieuwen en het vervangen refresh-token bewaren, achter het slot. `seen` is het token van voor
+    het wachten: is het intussen vervangen, dan is dat het nieuwe token waar `force` om vroeg."""
     async with _refresh_lock():
         current: str = _cached_access_token()
         if current and (not force or current != seen):

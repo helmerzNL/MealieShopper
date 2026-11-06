@@ -1276,7 +1276,7 @@ class ConcurrencyTest(TempDataDirTest):
                 state[1] = max(state[1], state[0])
                 if state[0] == 6:
                     everyone.set()
-                await asyncio.wait_for(everyone.wait(), 5)
+                await asyncio.wait_for(everyone.wait(), 1)
                 state[0] -= 1
                 return response(search_page(tile("s1", "Melk", "1 l")))
 
@@ -1288,6 +1288,40 @@ class ConcurrencyTest(TempDataDirTest):
         found = run(scenario())
         self.assertEqual([[p["id"] for p in products] for products in found], [["s1"]] * 6)
         self.assertEqual(state[1], 6)
+
+    def test_a_cancelled_caller_does_not_lose_the_new_auth_key(self):
+        # Picnic geeft bij een antwoord soms een nieuwe auth-key en de oude vervalt dan. Wordt het verzoek geannuleerd (de
+        # browser ging weg), dan loopt het door tot de nieuwe key bewaard is, en het volgende verzoek stuurt die mee.
+        run(picnic.save_auth_key("old"))
+        sent: list[str] = []
+
+        async def scenario() -> None:
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def answer(request):
+                sent.append(request.headers[picnic.AUTH_HEADER])
+                if len(sent) == 1:
+                    entered.set()
+                    await release.wait()
+                    return response({"id": "u"}, token="new")
+                return response({"id": "u"})
+
+            with served(side_effect=answer):
+                first = asyncio.create_task(picnic._authed("GET", "/user"))
+                await entered.wait()
+                first.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await first
+                release.set()
+                for _ in range(20):  # de vernieuwing loopt nog even door na het annuleren
+                    if await picnic.configured_auth_key() == "new":
+                        break
+                    await asyncio.sleep(0)
+                await picnic._authed("GET", "/user")
+
+        run(scenario())
+        self.assertEqual(sent, ["old", "new"])
+        self.assertEqual(run(picnic.configured_auth_key()), "new")
 
     def test_offer_pages_wait_between_two_pages_and_not_before_the_first(self):
         events: list[str] = []

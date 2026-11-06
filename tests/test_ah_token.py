@@ -162,6 +162,35 @@ class UserTokenTest(unittest.TestCase):
         self.assertEqual(self.used, ["old"])
         save.assert_awaited_once_with("rotated-1")
 
+    def test_a_cancelled_caller_does_not_lose_the_rotated_refresh_token(self):
+        # Quart annuleert een verzoek als de browser weggaat. AH heeft het oude refresh-token dan misschien al vervangen: de
+        # vernieuwing loopt daarom door, bewaart het nieuwe token, en wie daarna komt vernieuwt niet nog eens met het oude.
+        async def scenario() -> str:
+            entered, release = asyncio.Event(), asyncio.Event()
+
+            async def refresh(request):
+                self.used.append(json.loads(request.content)["refreshToken"])
+                entered.set()
+                await release.wait()
+                return Reply(data={"access_token": "user-1", "refresh_token": "rotated-1", "expires_in": 3600})
+
+            self.route.side_effect = refresh
+            first = asyncio.create_task(ah.get_user_token())
+            await entered.wait()
+            first.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await first
+            second = asyncio.create_task(ah.get_user_token())
+            await asyncio.sleep(0)  # de tweede wacht nu op het slot
+            release.set()
+            return await second
+
+        with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
+                mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+            self.assertEqual(run(scenario()), "user-1")
+        self.assertEqual(self.used, ["old"], "geen tweede vernieuwing met het oude token")
+        save.assert_awaited_once_with("rotated-1")
+
     def test_an_expired_user_token_is_refreshed_again(self):
         with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
                 mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock):

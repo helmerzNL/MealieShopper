@@ -788,7 +788,7 @@ class ConcurrencyTest(TempDataDirTest):
                 state[1] = max(state[1], state[0])
                 if state[0] == 6:
                     everyone.set()
-                await asyncio.wait_for(everyone.wait(), 5)
+                await asyncio.wait_for(everyone.wait(), 1)
                 state[0] -= 1
                 return response({"data": [product()]})
 
