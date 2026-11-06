@@ -66,6 +66,7 @@
         root.setAttribute("data-theme", theme);
         if (look && typeof look === "object") {
           if (look.navbarStyle === "ios" || look.navbarStyle === "android") nav = look.navbarStyle;
+          if (look.cookingMode === false) root.classList.add("no-cook-mode"); // Instellingen, Weergave, Voorkeuren
           if (Number.isInteger(look.navbarGlass)) { // dezelfde som als applyNavGlass in static/theme.js
             var glass = Math.min(100, Math.max(0, look.navbarGlass));
             root.style.setProperty("--nav-alpha", (1 - glass * 0.0085).toFixed(3));
@@ -1757,54 +1758,69 @@
         </div>
 
         <div id="settings-appearance" class="subpanel">
-        <div class="box">
-          <h2 data-i18n="appearance.theme.title">Thema</h2>
-          <p class="muted" data-i18n="appearance.theme.help">Licht, donker, of wat je apparaat gebruikt. De knop met de maan of de zon bovenaan wisselt ook tussen licht en donker.</p>
-          <fieldset class="appearance-options" id="appearance-theme">
-            <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-        </div>
-        <div class="box">
-          <h2 data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</h2>
-          <p class="muted" data-i18n="appearance.dark_bg.help">Groen past bij het basilicum van MealieShopper; donkergrijs is neutraal en rustig bij elke accentkleur. Je ziet het verschil als het donkere thema aan staat.</p>
-          <fieldset class="appearance-options" id="appearance-dark-bg">
-            <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-        </div>
-        <div class="box">
-          <h2 data-i18n="appearance.accent.title">Accentkleur</h2>
-          <p class="muted" data-i18n="appearance.accent.help">De kleur van knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur, zodat een fout altijd rood blijft. Een kleur die te licht of te donker is voor leesbare tekst, maakt MealieShopper een tint donkerder of lichter.</p>
-          <fieldset class="appearance-swatches" id="appearance-accent">
-            <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
-            <span class="appearance-swatches__list" id="appearance-accent-list"></span>
-          </fieldset>
-          <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
-          <div id="appearance-message"></div>
-        </div>
-        <div class="box" id="appearance-nav-box">
-          <h2 data-i18n="appearance.nav.title">Navigatiebalk</h2>
-          <p class="muted" data-i18n="appearance.nav.hint">De balk onderaan in de geïnstalleerde app op een telefoon. Op een groter scherm, en in de browser, staat het menu bovenaan of links.</p>
-          <fieldset class="appearance-options" id="appearance-nav">
-            <legend class="visually-hidden" data-i18n="appearance.nav.style">Stijl van de navigatiebalk</legend>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="auto"><span data-i18n="appearance.nav.auto">Automatisch</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="ios"><span class="appearance-navsample appearance-navsample--ios" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.ios">iOS-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-            <label class="appearance-option"><input type="radio" name="appearance-nav" value="android"><span class="appearance-navsample appearance-navsample--android" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.android">Android-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
-          </fieldset>
-          <p class="appearance-current" id="appearance-nav-current" aria-live="polite"></p>
-          <div class="appearance-glass" id="appearance-glass-row">
-            <label class="appearance-glass__label" for="appearance-glass" data-i18n="appearance.glass.title">Glaseffect</label>
-            <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.</p>
-            <div class="appearance-glass__control">
-              <input type="range" id="appearance-glass" min="0" max="100" step="1" value="60" aria-describedby="appearance-glass-hint">
-              <output id="appearance-glass-value" for="appearance-glass">60%</output>
+        <div class="box fold fold--compact" id="appearance-prefs-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="appearance-prefs-toggle" aria-expanded="false" aria-controls="appearance-prefs-body"><span data-i18n="appearance.prefs.title">Voorkeuren</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="appearance-prefs-body" hidden>
+            <div class="appearance-setting">
+              <div class="appearance-setting__text">
+                <h3 id="appearance-cooking-label" data-i18n="appearance.cooking.title">Kookmodus</h3>
+                <p class="muted" id="appearance-cooking-help" data-i18n="appearance.cooking.help">Bij een recept: Start met koken, de voortgang, Scherm aan laten en het afvinken van ingrediënten. Uit: alleen het recept.</p>
+              </div>
+              <input type="checkbox" role="switch" class="switch" id="appearance-cooking" checked aria-labelledby="appearance-cooking-label" aria-describedby="appearance-cooking-help">
             </div>
+            <div id="appearance-prefs-message"></div>
           </div>
-          <div id="appearance-nav-message"></div>
+        </div>
+        <div class="box fold fold--compact" id="appearance-theme-box">
+          <h2 class="fold__title"><button type="button" class="fold__toggle" id="appearance-theme-toggle" aria-expanded="false" aria-controls="appearance-theme-body"><span data-i18n="appearance.theme.title">Thema</span><svg class="fold__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg></button></h2>
+          <div class="fold__body" id="appearance-theme-body" hidden>
+            <section class="appearance-section" aria-labelledby="appearance-accent-title">
+              <h3 id="appearance-accent-title" data-i18n="appearance.accent.title">Accentkleur</h3>
+              <p class="muted" data-i18n="appearance.accent.help">Voor knoppen, links, de actieve tab en de focusring. Meldingen houden hun eigen kleur; een kleur die te licht of te donker is voor tekst, wordt een tint aangepast.</p>
+              <fieldset class="appearance-swatches" id="appearance-accent">
+                <legend class="visually-hidden" data-i18n="appearance.accent.title">Accentkleur</legend>
+                <span class="appearance-swatches__list" id="appearance-accent-list"></span>
+              </fieldset>
+              <p class="appearance-current" id="appearance-accent-current" aria-live="polite"></p>
+              <div id="appearance-message"></div>
+            </section>
+            <section class="appearance-section fold__section" aria-labelledby="appearance-themebg-title">
+              <h3 id="appearance-themebg-title" data-i18n="appearance.theme_bg.title">Thema & achtergrond</h3>
+              <p class="muted" data-i18n="appearance.theme.help">Licht, donker of zoals je apparaat; de maan of de zon bovenaan wisselt ook.</p>
+              <fieldset class="appearance-options" id="appearance-theme">
+                <legend class="visually-hidden" data-i18n="appearance.theme.title">Thema</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="system"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M23,11H18A1,1 0 0,0 17,12V21A1,1 0 0,0 18,22H23A1,1 0 0,0 24,21V12A1,1 0 0,0 23,11M23,20H18V13H23V20M20,2H2C0.89,2 0,2.89 0,4V16A2,2 0 0,0 2,18H9V20H7V22H15V20H13V18H15V16H2V4H20V9H22V4C22,2.89 21.1,2 20,2Z"/></svg><span data-i18n="appearance.theme.system">Apparaat volgen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="light"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.55 19.09L4.96 20.5L6.76 18.71L5.34 17.29M12 6C8.69 6 6 8.69 6 12S8.69 18 12 18 18 15.31 18 12C18 8.68 15.31 6 12 6M20 13H23V11H20M17.24 18.71L19.04 20.5L20.45 19.09L18.66 17.29M20.45 5L19.04 3.6L17.24 5.39L18.66 6.81M13 1H11V4H13M6.76 5.39L4.96 3.6L3.55 5L5.34 6.81L6.76 5.39M1 13H4V11H1M13 20H11V23H13"/></svg><span data-i18n="appearance.theme.light">Licht</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-theme" value="dark"><svg class="mdi" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12A10 10 0 0 0 15 21.54A10 10 0 0 1 15 2.46A10 10 0 0 0 2 12Z"/></svg><span data-i18n="appearance.theme.dark">Donker</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+              <p class="appearance-sublabel" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</p>
+              <fieldset class="appearance-options" id="appearance-dark-bg">
+                <legend class="visually-hidden" data-i18n="appearance.dark_bg.title">Achtergrond in het donkere thema</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="green"><span class="appearance-sample appearance-sample--green" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.green">Groen</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-dark-bg" value="grey"><span class="appearance-sample appearance-sample--grey" aria-hidden="true"><i></i><i></i></span><span data-i18n="appearance.dark_bg.grey">Donkergrijs</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+            </section>
+            <section class="appearance-section fold__section" id="appearance-nav-box" aria-labelledby="appearance-nav-title">
+              <h3 id="appearance-nav-title" data-i18n="appearance.nav.title">Navigatiebalk</h3>
+              <p class="muted" data-i18n="appearance.nav.hint">De balk onderaan in de geïnstalleerde app op een telefoon.</p>
+              <fieldset class="appearance-options" id="appearance-nav">
+                <legend class="visually-hidden" data-i18n="appearance.nav.style">Stijl van de navigatiebalk</legend>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="auto"><span data-i18n="appearance.nav.auto">Automatisch</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="ios"><span class="appearance-navsample appearance-navsample--ios" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.ios">iOS-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+                <label class="appearance-option"><input type="radio" name="appearance-nav" value="android"><span class="appearance-navsample appearance-navsample--android" aria-hidden="true"><i></i></span><span data-i18n="appearance.nav.android">Android-achtig</span><svg class="mdi appearance-option__check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg></label>
+              </fieldset>
+              <p class="appearance-current" id="appearance-nav-current" aria-live="polite"></p>
+              <div class="appearance-glass" id="appearance-glass-row">
+                <label class="appearance-glass__label" for="appearance-glass" data-i18n="appearance.glass.title">Glaseffect</label>
+                <p class="muted" id="appearance-glass-hint" data-i18n="appearance.glass.hint">0 is ondoorzichtig, hoger is doorzichtiger en meer vervaging. Hoe doorzichtiger, hoe meer een foto onder de balk de labels kan verstoren.</p>
+                <div class="appearance-glass__control">
+                  <input type="range" id="appearance-glass" min="0" max="100" step="1" value="60" aria-describedby="appearance-glass-hint">
+                  <output id="appearance-glass-value" for="appearance-glass">60%</output>
+                </div>
+              </div>
+              <div id="appearance-nav-message"></div>
+            </section>
+          </div>
         </div>
         </div>
 

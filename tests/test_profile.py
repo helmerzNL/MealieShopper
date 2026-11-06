@@ -110,6 +110,17 @@ class ProfileTest(unittest.TestCase):
         status = self.client.get("/api/auth/status").get_json()
         self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
 
+    def test_cooking_mode_is_on_by_default_and_can_be_switched_off(self):
+        self.assertTrue(self.client.get("/api/auth/status").get_json()["cookingMode"], "standaard aan")
+        reply = self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertEqual((reply.status_code, reply.get_json()["cookingMode"]), (200, False))
+        self.client.put("/api/profile/preferences", json={"accent": "#0b62c4"})
+        self.assertFalse(self.client.get("/api/auth/status").get_json()["cookingMode"], "een andere voorkeur laat hem staan")
+        for bad in ({"cookingMode": 0}, {"cookingMode": "nee"}, {"cookingMode": None}):
+            self.assertEqual(self.client.put("/api/profile/preferences", json=bad).status_code, 400, bad)
+        self.assertFalse(self.client.get("/api/auth/status").get_json()["cookingMode"], "een weigering verandert niets")
+        self.assertTrue(self.client.put("/api/profile/preferences", json={"cookingMode": True}).get_json()["cookingMode"])
+
     def test_a_bad_stored_value_counts_as_no_choice(self):
         profile.set_display_name("owner", "x")
         with closing(auth.connect()) as conn, conn:  # zoals een handmatig gewijzigde back-up

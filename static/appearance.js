@@ -1,4 +1,5 @@
-// Instellingen, Weergave: het thema, de achtergrond van het donkere thema, de accentkleur en de navigatiebalk, per gebruiker.
+// Instellingen, Weergave, per gebruiker, in twee inklapbare blokken (zoals onder Koppelen): Voorkeuren (de kookmodus) en
+// Thema (de accentkleur, het thema met de achtergrond van het donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -24,6 +25,7 @@ function appearanceFromProfile() {
     accent: auth.accent,
     navbarStyle: auth.navbarStyle,
     navbarGlass: auth.navbarGlass,
+    cookingMode: auth.cookingMode,
   });
   renderAppearance();
 }
@@ -46,6 +48,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       accent: data.accent,
       navbarStyle: data.navbarStyle,
       navbarGlass: data.navbarGlass,
+      cookingMode: data.cookingMode,
     };
   } catch (error) {
     if (previous) {
@@ -143,7 +146,54 @@ function renderAppearance() {
   });
   renderAppearanceAccent(look);
   renderAppearanceNav(look);
+  const cooking = $("#appearance-cooking");
+  if (cooking) cooking.checked = look.cookingMode !== false;
 }
+
+// ---- De blokken klappen in en uit. De keuze blijft in deze browser (ms-fold-appearance-<naam>); zonder keuze staan ze
+// dicht, zodat de pagina kort blijft en je meteen ziet wat er is.
+const APPEARANCE_FOLDS = ["prefs", "theme"];
+
+function appearanceFoldStored(name) {
+  try {
+    const value = localStorage.getItem(`ms-fold-appearance-${name}`);
+    return value === "1" ? true : value === "0" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyAppearanceFold(name, open) {
+  const toggle = $(`#appearance-${name}-toggle`);
+  const body = $(`#appearance-${name}-body`);
+  if (!toggle || !body) return;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.title = t(open ? "sec.collapse" : "sec.expand");
+  body.hidden = !open;
+}
+
+function applyAppearanceFolds() {
+  APPEARANCE_FOLDS.forEach((name) => applyAppearanceFold(name, appearanceFoldStored(name) ?? false));
+}
+
+APPEARANCE_FOLDS.forEach((name) => {
+  $(`#appearance-${name}-toggle`).addEventListener("click", () => {
+    const open = $(`#appearance-${name}-toggle`).getAttribute("aria-expanded") !== "true";
+    try {
+      localStorage.setItem(`ms-fold-appearance-${name}`, open ? "1" : "0");
+    } catch {
+      // Geen opslag: het blok blijft zo tot je de pagina herlaadt.
+    }
+    applyAppearanceFold(name, open);
+  });
+});
+
+// De kookmodus: uit verbergt bij een recept Start met koken, de voortgang, Scherm aan laten en de vinkjes (recipe_view.js).
+$("#appearance-cooking").addEventListener("change", (event) => {
+  const previous = { cookingMode: THEME.appearance().cookingMode };
+  THEME.apply({ cookingMode: event.target.checked });
+  appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-prefs-message" });
+});
 
 $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange
@@ -204,5 +254,9 @@ window.addEventListener("ms:appearancepaint", () => {
   if (!appearancePicking) renderAppearance();
 });
 
-window.addEventListener("ms:languagechange", renderAppearance);
+window.addEventListener("ms:languagechange", () => {
+  renderAppearance();
+  applyAppearanceFolds();
+});
+applyAppearanceFolds();
 renderAppearance();

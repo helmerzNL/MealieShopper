@@ -420,21 +420,25 @@ class OlderBackupTest(BackupCase):
     def test_a_backup_from_before_the_appearance_settings_still_restores(self):
         # De weergave gaf user_profiles de kolommen theme, dark_background en accent; een oudere back-up zet de standaard terug.
         self.seed()
-        profile.set_appearance("owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0)
+        profile.set_appearance(
+            "owner", theme="dark", dark_background="grey", accent="#0a84ff", navbar_style="android", navbar_glass=0, cooking_mode=False
+        )
         _, data = self.make()
         row = json.loads(data)["tables"]["user_profiles"][0]
-        self.assertEqual((row["accent"], row["navbar_style"], row["navbar_glass"]), ("#0a84ff", "android", 0), "de weergave zit in de back-up")
+        self.assertEqual(
+            (row["accent"], row["navbar_style"], row["navbar_glass"], row["cooking_mode"]), ("#0a84ff", "android", 0, 0), "de weergave zit in de back-up"
+        )
 
         def older(doc):
             for row in doc["tables"]["user_profiles"]:
-                for column in ("theme", "dark_background", "accent", "navbar_style", "navbar_glass"):
+                for column in ("theme", "dark_background", "accent", "navbar_style", "navbar_glass", "cooking_mode"):
                     del row[column]
 
         job = self.restore(self.tweak(data, older))
         self.assertEqual(job["status"], "done", job)
         self.assertEqual(
-            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
-            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
+            {key: profile.get("owner")[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass", "cookingMode")},
+            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60, "cookingMode": True},
         )
 
 

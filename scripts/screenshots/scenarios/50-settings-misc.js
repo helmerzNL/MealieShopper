@@ -268,14 +268,16 @@ const miscScenarios = [
     run: plan.run,
   },
   {
-    // Instellingen, Weergave: het donkere thema met de donkergrijze achtergrond en blauw als accentkleur.
+    // Instellingen, Weergave: Voorkeuren en Thema open, het donkere thema met de donkergrijze achtergrond en blauw als accentkleur.
     name: "appearance",
     theme: "dark",
     run: async (page) => {
       await openSettings("settings-appearance")(page);
+      await page.click("#appearance-prefs-toggle");
+      await page.click("#appearance-theme-toggle");
       await page.evaluate(() => {
         THEME.apply({ darkBackground: "grey", accent: "#0b62c4" });
-        const box = document.getElementById("appearance-dark-bg").closest(".box");
+        const box = document.getElementById("appearance-prefs-box");
         window.scrollTo({ top: box.getBoundingClientRect().top + window.scrollY - 84 });
       });
     },
@@ -285,6 +287,7 @@ const miscScenarios = [
     name: "navbar",
     run: async (page) => {
       await openSettings("settings-appearance")(page);
+      await page.click("#appearance-theme-toggle");
       await page.evaluate(() => {
         THEME.apply({ navbarStyle: "android" });
         const box = document.getElementById("appearance-nav-box");
