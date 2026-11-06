@@ -113,10 +113,15 @@ function priceArchiveRenderSummary(summary) {
   const linked = Number(tidied.exact || 0) + Number(tidied.linkedByArchive || 0);
   const skipped = Number(tidied.unlinked || 0) + Number(tidied.groups || 0) + Number(tidied.uncertain || 0);
   const pricesLeftOut = Number(tidied.unknownPack || 0);
+  const pricesLinked = Number(tidied.pricesExact || 0);
+  const pricesSkipped = Number(tidied.pricesUnlinked || 0);
   const tidiedLine = $("#price-archive-tidied");
   const parts = [];
   if (linked + skipped) parts.push(t("price_archive.tidied", { linked: I18N.formatNumber(linked), skipped: I18N.formatNumber(skipped) }));
   if (pricesLeftOut) parts.push(tn("price_archive.tidied_prices", pricesLeftOut));
+  if (pricesLinked + pricesSkipped) {
+    parts.push(t("price_archive.tidied_archive_prices", { linked: I18N.formatNumber(pricesLinked), skipped: I18N.formatNumber(pricesSkipped) }));
+  }
   tidiedLine.textContent = parts.join(" ");
   tidiedLine.hidden = !parts.length;
   const corrections = outcome.corrections || {};

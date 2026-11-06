@@ -638,6 +638,10 @@ class LinkedOnlyTest(ArchiveCase):
                 "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
                 "VALUES ('ah', '8001', 'AH Biologisch Halfvolle melk', '1000 ml', 1.39, 'https://www.ah.nl/producten/product/wi8001', '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
             )
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('picnic', 's1002', 'Prijs 2', '1000 ml', 1.49, NULL, '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
 
     def test_only_lines_that_belong_to_your_products_come_in(self):
         self.add_own_products()
@@ -655,9 +659,36 @@ class LinkedOnlyTest(ArchiveCase):
         offers = self.rows("offer_history")
         self.assertEqual(sorted(row["product_id"] for row in offers if row["url"] and row["url"].startswith("https://www.supermarktaanbiedingen")), ["4183", "8001"])
         self.assertEqual([row for row in offers if row["product_id"].startswith("folder:")], [])
-        # De prijzen (Picnic en Crisp) zijn geen folderregels en komen gewoon binnen.
-        self.assertEqual(len(self.rows("price_observations")), 4)
-        self.assertEqual(job["summary"]["offers"], 2)
+        # Van de prijzen (Picnic en Crisp) hoort er één exact bij een product van jou: die staat bij dat product. De rest niet.
+        self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (1, 3))
+        prices_in = self.rows("price_observations")
+        self.assertEqual([(row["store"], row["product_id"], row["title"], row["brand"], row["source"]) for row in prices_in],
+                         [("picnic", "s1002", "Prijs 2", None, "public_observed_unknown")])
+        self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (2, 1))
+
+    def test_an_archive_price_needs_the_same_name_and_pack(self):
+        self.add_own_products()
+        files = gist_files(**{"picnic/reports/observations.jsonl": jsonl([
+            price(2, unit_size="500 ml"),  # dezelfde naam, een andere verpakking
+            price(9, unit_size="1 l", title="Archief: Prijs 2 met kers"),  # dezelfde verpakking, een andere naam
+        ])})
+        summary, _ = self.run_import(gist_zip(tar_gz(files)))
+        self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (0, 3))
+        self.assertEqual(self.rows("price_observations"), [])
+
+    def test_a_multipack_with_the_same_text_is_the_same_pack(self):
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('picnic', 's1003', 'Affligem blond', '6 x 300 ml', 7.49, NULL, '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
+        files = gist_files(**{"picnic/reports/observations.jsonl": jsonl([
+            price(1, title="Archief: Affligem blond", unit_size="6 x 300 ml"),
+            price(2, title="Archief: Affligem blond", unit_size="4 x 300 ml"),
+        ])})
+        summary, _ = self.run_import(gist_zip(tar_gz(files)))
+        self.assertEqual((summary["tidied"]["pricesExact"], summary["tidied"]["pricesUnlinked"]), (1, 2))
+        self.assertEqual([(row["product_id"], row["unit_size"]) for row in self.rows("price_observations")], [("s1003", "6 x 300 ml")])
 
     def test_an_uncertain_link_from_the_archive_is_left_out(self):
         files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([

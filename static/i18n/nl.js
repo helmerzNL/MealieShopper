@@ -1499,6 +1499,7 @@ I18N.add("nl", {
   "price_archive.total.one": "Samen {count} nieuwe regel.",
   "price_archive.total.other": "Samen {count} nieuwe regels.",
   "price_archive.tidied": "Opgeschoond: {linked} folderregels horen zeker bij één product; {skipped} folderregels overgeslagen (combi-aanbiedingen, onzekere koppelingen en regels die bij geen product van jou horen).",
+  "price_archive.tidied_archive_prices": "Prijzen uit het archief: {linked} horen bij een product van jou; {skipped} overgeslagen (ze horen bij geen product van jou).",
   "price_archive.tidied_prices.one": "Bij {count} folderregel zonder bekende verpakking is de prijs weggelaten.",
   "price_archive.tidied_prices.other": "Bij {count} folderregels zonder bekende verpakking is de prijs weggelaten.",
   "price_archive.nothing_new": "Alles uit dit archief staat er al. Er valt niets te importeren.",

@@ -838,8 +838,8 @@ def _same(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
 def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, ...]], None] | None = None, tidy: Tidy | None = None) -> int:
     """Leest en controleert het hele archief tegen elk `plan`; `write` krijgt elke geldige regel. Geeft het aantal regels.
 
-    Met `tidy` gaat elke gecontroleerde aanbieding door het opschonen (price_archive_tidy.py): koppelen aan je eigen producten,
-    en een folderregel die nergens bij hoort eruit.
+    Met `tidy` gaat elke gecontroleerde aanbieding en prijs door het opschonen (price_archive_tidy.py): koppelen aan je eigen
+    producten, en een folderregel of archiefprijs die nergens bij hoort eruit.
     """
     bounds = Today()
     count = 0
@@ -861,6 +861,11 @@ def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, 
                     write("o", row)
             elif kind == "price":
                 row = normalise_price(data, bounds)
+                if tidy is not None:
+                    data = tidy.price(data)
+                    if data is None:
+                        continue
+                    row = normalise_price(data, bounds)
                 for plan in plans:
                     plan.price(row)
                 if write:

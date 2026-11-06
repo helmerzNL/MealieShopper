@@ -13,8 +13,11 @@ aanbieding met een product-id `folder:…`, dus nog bij geen echt product):
    "naar keuze") nooit.
 3. **Alleen de actie als tekst** ("2 voor: 5.00, 2 schalen"), zonder "Folder |", "bron: …" en "koppeling onzeker".
 
-Met `keep_unlinked` (voor een eigen archief) blijven ongekoppelde regels als eigen product staan, net als onzekere
-koppelingen; een ongekoppelde regel zonder gewicht, inhoud of aantal krijgt dan geen prijs.
+Een prijs uit een archief zonder product (`folder:…`, de Picnic- en Crisp-prijzen) komt er net zo alleen in als hij exact bij
+een product van jou hoort (`Tidy.price`).
+
+Met `keep_unlinked` (voor een eigen archief) blijven ongekoppelde regels en prijzen als eigen product staan, net als onzekere
+koppelingen; een ongekoppelde folderregel zonder gewicht, inhoud of aantal krijgt dan geen prijs.
 
 De koppeling en het lezen van verpakkingen komen uit `import_archive.py` van wolph, in het pakket met zijn folderarchief
 (`fold`, `size`, `match_product` en `catalogue_from`).
@@ -75,10 +78,12 @@ def size(text: str) -> tuple[str, Decimal] | None:
 
 
 def source_title(row: dict[str, Any]) -> str:
-    """De naam uit de folder: `source_title` als het archief die meegeeft, anders de titel zonder "Folder: "."""
-    title = row.get("source_title") or row.get("title") or ""
-    title = str(title)
-    return title[len("Folder: "):] if title.startswith("Folder: ") else title
+    """De naam uit de bron: `source_title` als het archief die meegeeft, anders de titel zonder "Folder: " of "Archief: "."""
+    title = str(row.get("source_title") or row.get("title") or "")
+    for prefix in ("Folder: ", "Archief: "):
+        if title.startswith(prefix):
+            return title[len(prefix):]
+    return title
 
 
 def _texts(row: dict[str, Any]) -> str:
@@ -180,13 +185,23 @@ class Linker:
 
     @staticmethod
     def _exact(row: dict[str, Any], title: str, products: list[dict[str, str]]) -> str | None:
-        """`match_product`: dezelfde naam en dezelfde verpakking, bij precies één product, en nooit bij een combi."""
-        if is_group(row):
+        """`match_product`: dezelfde naam en dezelfde verpakking, bij precies één product, en nooit bij een combi.
+
+        Dezelfde verpakking: dezelfde hoeveelheid (`size`), of letterlijk dezelfde tekst, zoals bij een multipack ("6 x 300 ml"),
+        waar `size` geen hoeveelheid uit haalt.
+        """
+        if is_group(row) or row.get("price") is None:
             return None
-        pack = size(row.get("unit_size") or "")
-        if not pack or row.get("price") is None:
+        unit = row.get("unit_size") or ""
+        pack = size(unit)
+        if not pack and not fold(unit):
             return None
-        matches = {p["product_id"] for p in products if fold(p["title"]) == fold(title) and size(p["unit_size"] or "") == pack}
+
+        def same_pack(product: dict[str, str]) -> bool:
+            other = product["unit_size"] or ""
+            return size(other) == pack if pack else fold(other) == fold(unit)
+
+        matches = {p["product_id"] for p in products if fold(p["title"]) == fold(title) and same_pack(p)}
         return next(iter(matches)) if len(matches) == 1 else None
 
 
@@ -203,7 +218,9 @@ class Tidy:
         self.linker = Linker(conn)
         self.keep_unlinked = keep_unlinked
         # exact: de app koppelde de regel aan een product van jou; linkedByArchive: het archief koppelde hem al aan een product.
-        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "groups": 0, "unknownPack": 0}
+        # pricesExact en pricesUnlinked: hetzelfde voor prijzen uit een archief (Picnic, Crisp).
+        self.stats = {"exact": 0, "linkedByArchive": 0, "unlinked": 0, "uncertain": 0, "groups": 0, "unknownPack": 0,
+                      "pricesExact": 0, "pricesUnlinked": 0}
 
     def offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
         """De regel zoals hij geïmporteerd wordt, of None als hij er niet in hoort.
@@ -231,3 +248,20 @@ class Tidy:
             self.stats["unknownPack"] += 1
         row["promo_label"] = short_label(row.get("promo_label"))
         return row
+
+    def price(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Een prijs uit een archief zonder product (`folder:…`, zoals de Picnic- en Crisp-prijzen), of None.
+
+        Net als een folderregel: alleen als hij exact (dezelfde naam en verpakking) bij een product van jou hoort, en dan bij dat
+        product. Met `keep_unlinked` blijft een prijs die nergens bij hoort als eigen product staan ("Archief: …"). De bron blijft
+        zoals hij is, zodat **Vervangen** hem herkent. Een prijs met een echt product-id blijft ongemoeid.
+        """
+        if not is_archive_product(row) or row.get("store") not in STORES or not _plain(row):
+            return row
+        if self.linker.link(row):
+            self.stats["pricesExact"] += 1
+            return row
+        if self.keep_unlinked:
+            return row
+        self.stats["pricesUnlinked"] += 1
+        return None
