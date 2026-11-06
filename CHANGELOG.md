@@ -15,6 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Teksten.** De tab, de handleiding (NL en EN) en de MCP-tool spreken van favoriete recepten, zoals de app. `docs/onderzoek-crisp.md` beschrijft `/saved`, `/recipe/favorites` en het experiment.
 - **Ontwikkeling**: `test_crisp` test beide bronnen, het samenvoegen, één bron die mislukt en een verlopen koppeling; de verkenner heeft nu 12 checks.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#257](https://github.com/helmerzNL/MealieShopper/pull/257).
 
 ## v3.13.0
 
