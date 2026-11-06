@@ -39,9 +39,15 @@ _clients: weakref.WeakKeyDictionary[
 
 
 def _headers(headers: dict[str, str] | None) -> httpx.Headers:
-    """`DEFAULT_USER_AGENT`, met `headers` eroverheen (een eigen `User-Agent` wint)."""
+    """`DEFAULT_USER_AGENT`, met `headers` eroverheen (een eigen `User-Agent` wint).
+
+    Een lege `User-Agent` of die van httpx zelf (`python-httpx/...`) geeft een ValueError: elke bron heeft een eigen of de
+    standaard, nooit die van de bibliotheek."""
     wanted: httpx.Headers = httpx.Headers({"User-Agent": DEFAULT_USER_AGENT})
     wanted.update(headers or {})
+    agent: str = wanted.get("User-Agent", "").strip()
+    if not agent or agent.lower().startswith("python-httpx"):
+        raise ValueError(f"http_client: een client zonder eigen User-Agent ({agent!r})")
     return wanted
 
 
