@@ -6533,6 +6533,23 @@ html.is-standalone body {
   outline: none;
 }
 
+/* Onbekende actiestatus: paarse ruiten, los van aankopen en gewone prijzen. */
+.ohc-observed path {
+  fill: #8b5fc7;
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.ohc-observed:hover path,
+.ohc-observed:focus path {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.ohc-observed:focus {
+  outline: none;
+}
+
 .ohc-legend {
   display: flex;
   flex-wrap: wrap;
@@ -6571,6 +6588,14 @@ html.is-standalone body {
   height: 9px;
   border: 2px solid var(--text);
   border-radius: 50%;
+}
+
+.ohc-key--observed {
+  width: 9px;
+  height: 9px;
+  margin: 0 2px;
+  background: #8b5fc7;
+  transform: rotate(45deg);
 }
 
 .ohc-note {
@@ -6949,6 +6974,15 @@ html.is-standalone body {
 .backup-confirm ul {
   margin: 8px 0;
   padding-left: 20px;
+}
+
+/* Prijsarchief: per winkel een regel met de periode en daaronder wat erbij komt. */
+.price-archive-stores li + li {
+  margin-top: 8px;
+}
+
+.price-archive-stores li {
+  overflow-wrap: anywhere;
 }
 
 .backup-progress {

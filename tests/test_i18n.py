@@ -37,6 +37,7 @@ SOURCES = {
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
     "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
     "backup.js": (STATIC / "backup.js").read_text(encoding="utf-8"),
+    "price_archive.js": (STATIC / "price_archive.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
     "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
     "ai_review.js": (STATIC / "ai_review.js").read_text(encoding="utf-8"),
