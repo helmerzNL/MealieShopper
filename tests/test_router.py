@@ -37,7 +37,7 @@ class PageRoutesTest(unittest.TestCase):
             self.assertEqual(reply.get_data(as_text=True), home, path)
 
     def test_page_addresses_are_as_public_as_the_home_page_and_the_api_is_not(self):
-        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
+        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=None):
             for path in ["/", *PAGES]:
                 self.assertEqual(self.client.get(path).status_code, 200, f"{path}: het inlogscherm staat op de pagina zelf")
             self.assertEqual(self.client.get("/api/prices/history").status_code, 401)
@@ -46,7 +46,7 @@ class PageRoutesTest(unittest.TestCase):
         self.assertFalse(auth.is_page_path("/api/cart"))
 
     def test_unknown_addresses_stay_unknown(self):
-        with mock.patch.object(auth, "auth_required", return_value=False):
+        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=False):
             self.assertEqual(self.client.get("/nope").status_code, 404)
             self.assertEqual(self.client.get("/static/router.js").status_code, 200)
 

@@ -1122,7 +1122,7 @@ class LinkingStatusTest(AhOrdersTestCase):
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED_REASON, "429@2026-11-05T14:02:00+00:00")
         with mock.patch.object(ah_orders, "_linking_round"):
-            with mock.patch.object(auth, "is_owner", return_value=False):
+            with mock.patch.object(auth, "ais_owner", new_callable=mock.AsyncMock, return_value=False):
                 refused = self.client.post("/api/ah/linking/run", json={"force": True})
             self.assertEqual(refused.status_code, 403)
             self.assertIn("error", refused.get_json())
@@ -1214,7 +1214,7 @@ class LinkingStatusTest(AhOrdersTestCase):
     def test_force_with_images_clears_the_pause_for_the_administrator(self):
         auth.set_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED, "2026-11-06T02:02:00+00:00")
         with mock.patch.object(ah_orders, "backfill_receipt_images", return_value={"products": 0}):
-            with mock.patch.object(auth, "is_owner", return_value=False):
+            with mock.patch.object(auth, "ais_owner", new_callable=mock.AsyncMock, return_value=False):
                 self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 403)
             self.assertEqual(auth.get_setting(ah_orders.SETTING_RECEIPT_PRODUCTS_PAUSED), "2026-11-06T02:02:00+00:00")
             self.assertEqual(self.client.post("/api/ah/linking/run", json={"force": True, "images": True}).status_code, 202)

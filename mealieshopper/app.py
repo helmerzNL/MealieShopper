@@ -1,6 +1,7 @@
+import asyncio
 import hashlib
 import mimetypes
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Awaitable, Callable
 from datetime import date
 from os import environ
 from pathlib import Path
@@ -8,11 +9,11 @@ from typing import Any
 from urllib.parse import quote_plus
 import sqlite3
 
-import requests
+import httpx
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
-from . import auth, deals, tasks
+from . import auth, deals, http_client, tasks
 from .forwarded import ForwardedHeaders
 from .i18n import tr
 
@@ -57,11 +58,11 @@ def create_app() -> Quart:
     async def _startup() -> None:
         """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
         try:
-            auth.init_db()  # idempotent; het lazy pad (ensure_db) blijft bestaan
+            await auth.ainit_db()  # idempotent, het lazy pad (ensure_db, aensure_db) blijft bestaan
         except (sqlite3.Error, OSError):
             app.logger.warning("Kon de database niet aanmaken", exc_info=True)
         try:
-            removed = auth.purge_obsolete_secrets()
+            removed = await auth.apurge_obsolete_secrets()
             if removed:
                 app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)
         except (sqlite3.Error, OSError):
@@ -106,7 +107,7 @@ def create_app() -> Quart:
 
     @app.before_request
     async def require_passkey_auth():
-        blocked = auth.require_auth_for_request()
+        blocked = await auth.arequire_auth_for_request()
         if blocked:
             payload, status = blocked
             return jsonify(payload), status
@@ -212,9 +213,9 @@ def create_app() -> Quart:
 
     # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
     # recept mag importeren; een hele groep of lijst alleen de beheerder (dat pad staat in auth.ADMIN_PATHS).
-    def bulk_action(action, status: int = 200):
+    async def bulk_action(action: Callable[[], Awaitable[Any]], status: int = 200) -> tuple[Response, int]:
         try:
-            return jsonify(action()), status
+            return jsonify(await action()), status
         except recipe_bulk.Busy as exc:
             return jsonify({"error": str(exc), "job": recipe_bulk.progress()}), 409
         except PermissionError as exc:
@@ -225,17 +226,19 @@ def create_app() -> Quart:
             app.logger.exception("Bulk import error")
             return jsonify({"error": tr("De import starten is mislukt", "Starting the import failed")}), 424
 
-    def bulk_user() -> dict[str, Any] | None:
-        return auth.current_user() if auth.auth_required() else None
+    async def bulk_user() -> dict[str, Any] | None:
+        return await auth.acurrent_user() if await auth.aauth_required() else None
 
-    async def bulk_start(whole: bool):
+    async def bulk_start(whole: bool) -> tuple[Response, int]:
         body = await request.get_json(silent=True) or {}
-        return bulk_action(
-            lambda: recipe_bulk.start(
-                body.get("store"), body.get("ids"), body.get("group"), whole=whole, titles=body.get("titles"), user=bulk_user()
-            ),
-            202,
-        )
+
+        async def start() -> Any:
+            # Binnen bulk_action: een fout bij het opzoeken van de gebruiker geeft dezelfde 424 als een fout bij het starten.
+            return recipe_bulk.start(
+                body.get("store"), body.get("ids"), body.get("group"), whole=whole, titles=body.get("titles"), user=await bulk_user()
+            )
+
+        return await bulk_action(start, 202)
 
     @app.get("/api/mealie/bulk-import")
     async def bulk_import_status():
@@ -251,7 +254,10 @@ def create_app() -> Quart:
 
     @app.post("/api/mealie/bulk-import/cancel")
     async def bulk_import_cancel():
-        return bulk_action(lambda: recipe_bulk.cancel(bulk_user(), auth.is_owner()))
+        async def cancel() -> Any:
+            return recipe_bulk.cancel(await bulk_user(), await auth.ais_owner())
+
+        return await bulk_action(cancel)
 
     @app.get("/api/ah/search")
     async def ah_search():
@@ -497,7 +503,7 @@ def create_app() -> Quart:
         receipt_id = (receipt_id or "").strip() or None
         if images and receipt_id:
             return jsonify({"error": tr("Ongeldige aanvraag: foto's aanvullen gaat over alle bonnen, niet over één bon.", "Invalid request: filling in photos covers all receipts, not one receipt.")}), 400
-        if force and not auth.is_owner():
+        if force and not await auth.ais_owner():
             return jsonify({"error": tr("Alleen de beheerder kan de pauze van AH opheffen.", "Only the administrator can lift the AH pause.")}), 403
         if receipt_id and not ah_orders.receipt_exists(receipt_id):
             return jsonify({"error": tr("Kassabon niet gevonden.", "Receipt not found.")}), 404
@@ -848,7 +854,7 @@ def create_app() -> Quart:
         # *Liever biologisch* (#218): bij het weekmenu eerst een biologisch product van dezelfde soort, als de winkel het heeft.
         organic = compare and body.get("organic") is True
 
-        def resolve(item: dict[str, Any]) -> dict[str, Any]:
+        async def resolve(item: dict[str, Any]) -> dict[str, Any]:
             query = str(item.get("query") or "")
             result = {
                 "query": query,
@@ -888,8 +894,16 @@ def create_app() -> Quart:
             result["candidates"] = prices.check_list_candidates(candidates, compare, query, regular)
             return result
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            resolved = list(executor.map(audit.propagate(resolve), items))
+        # Hooguit zes regels tegelijk, zoals de zes threads van voorheen. `gather` houdt de volgorde van `items` aan en
+        # geeft elke regel een kopie van de context (verzoek, taal, auditlog) mee, dus `audit.propagate` is niet meer nodig.
+        # Zolang de winkelmodules synchroon zijn (tot Taak 21), lopen de zoekopdrachten nog na elkaar.
+        slots: asyncio.Semaphore = asyncio.Semaphore(6)
+
+        async def bounded(item: dict[str, Any]) -> dict[str, Any]:
+            async with slots:
+                return await resolve(item)
+
+        resolved: list[dict[str, Any]] = await asyncio.gather(*(bounded(item) for item in items))
         return jsonify({"items": resolved})
 
     @app.post("/api/ah/cart/preview")
@@ -1825,9 +1839,9 @@ def create_app() -> Quart:
         defaults={"proxy_path": ""},
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     )
-    async def ah_auth_proxy(proxy_path: str):
+    async def ah_auth_proxy(proxy_path: str) -> Response | tuple[str, int]:
         target_url = f"{ah.AH_LOGIN_BASE}/{proxy_path}".rstrip("/")
-        headers = {
+        headers: dict[str, str] = {
             key: value
             for key, value in request.headers.items()
             if key.lower()
@@ -1836,6 +1850,7 @@ def create_app() -> Quart:
                 "accept-encoding",
                 "content-length",
                 "content-encoding",
+                "remote-addr",  # zet Quart er zelf bij (het adres van de bezoeker), de browser stuurde hem niet
             }
         }
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
@@ -1852,18 +1867,22 @@ def create_app() -> Quart:
         if headers.get("Origin", "").rstrip("/") == public_origin:
             headers["Origin"] = ah.AH_LOGIN_BASE
 
+        data: bytes = await request.get_data()
+        if not data and request.method not in {"GET", "HEAD"}:
+            headers["Content-Length"] = "0"  # zoals requests: httpx zet hem bij een leeg lichaam alleen voor POST, PUT en PATCH
         try:
             with audit.login_proxy():
-                upstream = requests.request(
+                # Geen doorverwijzingen volgen: de browser volgt ze zelf via de herschreven Location. Daardoor leunt deze
+                # stroom ook niet op een cookie binnen een gevolgde keten (http_client wist de cookies na elk antwoord).
+                upstream: httpx.Response = await http_client.client("ah-login-proxy", follow_redirects=False).request(
                     request.method,
                     target_url,
                     params=request.args,
-                    data=await request.get_data(),
+                    content=data,
                     headers=headers,
-                    allow_redirects=False,
                     timeout=30,
                 )
-        except requests.RequestException as exc:
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:  # InvalidURL (een stuurteken in het pad) valt niet onder HTTPError
             app.logger.exception("AH login proxy error")
             return f"AH login proxy error: {exc}", 502
 
@@ -1892,11 +1911,9 @@ def create_app() -> Quart:
                 proxy_base,
             )
 
-        raw_headers = getattr(upstream.raw, "headers", None)
-        cookies = raw_headers.getlist("Set-Cookie") if raw_headers else []
-        if not cookies and upstream.headers.get("Set-Cookie"):
-            cookies = [upstream.headers["Set-Cookie"]]
-        for cookie in cookies:
+        # Elke Set-Cookie apart: `items()` hierboven voegt dubbele headers samen, en cookies kun je niet samenvoegen.
+        # http_client leegt alleen de cookiejar van de client, de headers van het antwoord blijven heel.
+        for cookie in upstream.headers.get_list("Set-Cookie"):
             response.headers.add("Set-Cookie", ah.sanitize_login_cookie(cookie))
 
         return response

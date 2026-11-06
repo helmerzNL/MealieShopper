@@ -1216,7 +1216,7 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
 
 
 async def arequire_auth_for_request() -> tuple[dict[str, Any], int] | None:
-    """Async tweeling van `require_auth_for_request`. De before_request-hook blijft tot Taak 22 de synchrone versie."""
+    """Async tweeling van `require_auth_for_request`, de before_request-hook van app.py (sinds Taak 8)."""
     if not await aauth_required():
         return None
     path = request.path

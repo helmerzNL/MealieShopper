@@ -465,7 +465,7 @@ class RoutesTest(FetchCase):
         self.assertNotIn("--threads", dockerfile)
 
     def test_the_route_needs_a_login_like_the_rest_of_the_api(self):
-        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
+        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=None):
             self.assertEqual(self.client.get(f"/api/images/{image_cache.token_for(AH)}").status_code, 401)
         self.get.assert_not_called()
 

@@ -1,11 +1,14 @@
 import os
 import tempfile
+import threading
 import unittest
+from typing import NoReturn
 from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah  # noqa: E402
+from mealieshopper.i18n import tr  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient, run  # noqa: E402
 
@@ -490,7 +493,25 @@ class CartPreviewRouteTest(unittest.TestCase):
             [{"query": q, "quantity": 1} for q in queries],
             lambda query, limit: [search_result(int(query[1:]) + 1, query, "per stuk")],
         )
-        self.assertEqual([i["query"] for i in response.get_json()["items"]], queries)
+        rows = response.get_json()["items"]
+        self.assertEqual([i["query"] for i in rows], queries)
+        self.assertEqual([[c["productId"] for c in row["candidates"]] for row in rows], [[str(n + 1)] for n in range(12)])
+
+    def test_searches_run_inside_the_request(self) -> None:
+        # Geen threadpool meer: elke zoekopdracht draait in de event loop van het verzoek en ziet dus ook de taal van de
+        # gebruiker. Hoeveel er tegelijk lopen (hooguit zes) toetst Taak 21, als de winkelmodules async zijn.
+        threads: set[int] = set()
+
+        def search(query: str, limit: int) -> NoReturn:
+            threads.add(threading.get_ident())
+            raise RuntimeError(tr("Zoeken mislukt", "Search failed"))
+
+        with mock.patch.object(ah, "search_products", side_effect=search):
+            response = self.client.post(
+                "/api/ah/cart/preview", json={"items": [{"query": f"p{n}"} for n in range(8)]}, headers={"Cookie": "ms_lang=en"}
+            )
+        self.assertEqual([row["error"] for row in response.get_json()["items"]], ["Search failed"] * 8)
+        self.assertEqual(threads, {threading.get_ident()})
 
 
 if __name__ == "__main__":

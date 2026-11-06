@@ -399,13 +399,13 @@ class AccessTest(MealPlanTestCase):
         for path in ("/api/mealplan", "/api/mealplan/7", "/api/mealplan/random", "/api/mealplan/options", "/api/mealie/recipes", "/api/mealie/recipes/pasta"):
             self.assertFalse(auth.admin_only(path), path)
         regular = {"id": "anna-id", "username": "anna"}  # niet auth.OWNER_ID: een gewone gebruiker
-        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=regular), \
+        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=regular), \
                 mock.patch.object(mealie.requests, "post", return_value=response(201, {"id": 12})):
             answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 201)
 
     def test_not_logged_in_is_refused(self):
-        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None), \
+        with mock.patch.object(auth, "aauth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "acurrent_user", new_callable=mock.AsyncMock, return_value=None), \
                 mock.patch.object(mealie.requests, "post") as post:
             answer = self.client.post("/api/mealplan", json={"date": "2026-11-05", "title": "Restjes"})
         self.assertEqual(answer.status_code, 401)

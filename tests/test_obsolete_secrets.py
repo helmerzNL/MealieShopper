@@ -49,7 +49,7 @@ class PurgeObsoleteSecretsTest(unittest.TestCase):
         self.assertEqual(auth.get_secret("AH_REFRESH_TOKEN"), "bewaren")
 
     def test_app_start_survives_unreachable_database(self):
-        with mock.patch.object(auth, "purge_obsolete_secrets", side_effect=OSError("read-only")):
+        with mock.patch.object(auth, "apurge_obsolete_secrets", new_callable=mock.AsyncMock, side_effect=OSError("read-only")):
             asyncio.run(start_app(create_app()))  # mag niet crashen
 
 
