@@ -3,9 +3,15 @@ import tempfile
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah  # noqa: E402
+from support import routes, run, sent_json, sent_params, served  # noqa: E402
+
+GRAPHQL = f"{ah.AH_API_BASE}/graphql"
+LISTS_REST = f"{ah.AH_API_BASE}/mobile-services/lists/v3/lists"
 
 
 class ExtractOAuthCodeTest(unittest.TestCase):
@@ -37,13 +43,13 @@ class ExchangeErrorTest(unittest.TestCase):
 class RotatedRefreshTokenTest(unittest.TestCase):
     def test_new_token_is_saved(self):
         with mock.patch.object(ah, "save_refresh_token") as save:
-            ah._store_rotated_refresh_token("old", "new")
+            run(ah._store_rotated_refresh_token("old", "new"))
         save.assert_called_once_with("new")
 
     def test_same_or_missing_token_is_ignored(self):
         with mock.patch.object(ah, "save_refresh_token") as save:
-            ah._store_rotated_refresh_token("old", "old")
-            ah._store_rotated_refresh_token("old", None)
+            run(ah._store_rotated_refresh_token("old", "old"))
+            run(ah._store_rotated_refresh_token("old", None))
         save.assert_not_called()
 
     def test_get_user_token_persists_rotation(self):
@@ -52,15 +58,14 @@ class RotatedRefreshTokenTest(unittest.TestCase):
         with mock.patch.object(ah, "configured_refresh_token", return_value="old"), \
                 mock.patch.object(ah, "_request_json", return_value=response), \
                 mock.patch.object(ah, "save_refresh_token") as save:
-            self.assertEqual(ah.get_user_token(), "acc")
+            self.assertEqual(run(ah.get_user_token()), "acc")
         save.assert_called_once_with("rotated")
         ah.user_token_cache = None
 
     def test_verify_token_returns_rotated_token(self):
-        fake = mock.Mock(ok=True)
-        fake.json.return_value = {"refresh_token": "rotated"}
-        with mock.patch.object(ah.requests, "post", return_value=fake):
-            result = ah.verify_token("old")
+        with served(httpx.Response(200, json={"refresh_token": "rotated"})) as route:
+            result = run(ah.verify_token("old"))
+        self.assertEqual(route.calls.last.request.method, "POST")
         self.assertEqual(result, {"ok": True, "type": "refresh", "refreshToken": "rotated"})
 
 
@@ -71,64 +76,59 @@ class FavoriteListsTest(unittest.TestCase):
         self.assertEqual(ah.product_web_url(None), "")
 
     def test_lists_come_from_graphql_with_empty_ids(self):
-        graphql = mock.Mock(ok=True)
-        graphql.json.return_value = {
+        graphql = httpx.Response(200, json={
             "data": {"favoriteListV2": [
                 {"id": "L1", "description": "Favorieten", "totalSize": 3, "updatedAt": "2026-10-01"},
             ]}
-        }
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "post", return_value=graphql) as post, \
-                mock.patch.object(ah.requests, "get") as get:
-            lists = ah.get_favorite_lists()
+        })
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), routes() as router:
+            post = router.post(GRAPHQL).mock(return_value=graphql)
+            get = router.get(LISTS_REST).mock(return_value=httpx.Response(200, json=[]))
+            lists = run(ah.get_favorite_lists())
         self.assertEqual(
             lists,
             [{"id": "L1", "name": "Favorieten", "itemCount": 3, "updatedAt": "2026-10-01"}],
         )
-        self.assertEqual(post.call_args.kwargs["json"]["variables"], {"ids": []})
-        get.assert_not_called()
+        self.assertEqual(sent_json(post.calls.last)["variables"], {"ids": []})
+        self.assertFalse(get.called)
 
     def test_lists_fall_back_to_rest_when_graphql_fails(self):
-        graphql = mock.Mock(ok=False, status_code=400, text="boom")
-        rest = mock.Mock(ok=True, status_code=200)
-        rest.json.return_value = [{"id": "L1", "description": "Favorieten", "itemCount": 3}]
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "post", return_value=graphql), \
-                mock.patch.object(ah.requests, "get", return_value=rest):
-            lists = ah.get_favorite_lists()
+        graphql = httpx.Response(400, text="boom")
+        rest = httpx.Response(200, json=[{"id": "L1", "description": "Favorieten", "itemCount": 3}])
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), routes() as router:
+            router.post(GRAPHQL).mock(return_value=graphql)
+            router.get(LISTS_REST).mock(return_value=rest)
+            lists = run(ah.get_favorite_lists())
         self.assertEqual(lists, [{"id": "L1", "name": "Favorieten", "itemCount": 3}])
 
     def test_lists_report_both_errors_when_everything_fails(self):
-        graphql = mock.Mock(ok=True)
-        graphql.json.return_value = {"errors": [{"message": "Cannot query field"}]}
-        gone = mock.Mock(ok=False, status_code=404, text='{"error":"not_found"}')
-        with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "post", return_value=graphql), \
-                mock.patch.object(ah.requests, "get", return_value=gone):
+        graphql = httpx.Response(200, json={"errors": [{"message": "Cannot query field"}]})
+        gone = httpx.Response(404, text='{"error":"not_found"}')
+        with mock.patch.object(ah, "get_user_token", return_value="tok"), routes() as router:
+            router.post(GRAPHQL).mock(return_value=graphql)
+            router.get(LISTS_REST).mock(return_value=gone)
             with self.assertRaises(RuntimeError) as ctx:
-                ah.get_favorite_lists()
+                run(ah.get_favorite_lists())
         self.assertIn("Cannot query field", str(ctx.exception))
         self.assertIn("404", str(ctx.exception))
 
     def test_rest_fallback_retries_with_product_id_zero(self):
-        bad = mock.Mock(ok=False, status_code=400, text="bad productId")
-        good = mock.Mock(ok=True, status_code=200)
-        good.json.return_value = []
-        with mock.patch.object(ah.requests, "get", side_effect=[bad, good]) as get:
-            ah._get_favorite_lists_rest("tok", 1)
-        self.assertEqual([c.kwargs["params"]["productId"] for c in get.call_args_list], [1, 0])
+        bad = httpx.Response(400, text="bad productId")
+        good = httpx.Response(200, json=[])
+        with served(side_effect=[bad, good]) as get:
+            run(ah._get_favorite_lists_rest("tok", 1))
+        self.assertEqual([(c.request.method, sent_params(c)["productId"]) for c in get.calls], [("GET", "1"), ("GET", "0")])
 
     def test_rest_fallback_does_not_retry_on_auth_error(self):
-        denied = mock.Mock(ok=False, status_code=401, text="nope")
-        with mock.patch.object(ah.requests, "get", return_value=denied) as get:
+        denied = httpx.Response(401, text="nope")
+        with served(denied) as get:
             with self.assertRaises(RuntimeError) as ctx:
-                ah._get_favorite_lists_rest("tok", 1)
+                run(ah._get_favorite_lists_rest("tok", 1))
         self.assertEqual(get.call_count, 1)
         self.assertIn("401", str(ctx.exception))
 
     def test_items_always_carry_a_product_url(self):
-        graphql = mock.Mock(ok=True)
-        graphql.json.return_value = {
+        graphql = httpx.Response(200, json={
             "data": {"favoriteListV2": [{
                 "id": "L1", "description": "Favorieten", "totalSize": 2,
                 "items": [
@@ -136,12 +136,12 @@ class FavoriteListsTest(unittest.TestCase):
                     {"id": "i2", "productId": 11, "quantity": 1},
                 ],
             }]}
-        }
+        })
         products = [{"id": 10, "url": ah.product_web_url(10), "title": "Melk"}]
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "post", return_value=graphql), \
+                served(graphql), \
                 mock.patch.object(ah, "get_products_by_ids", return_value=products):
-            result = ah.get_favorite_list_items("l1")
+            result = run(ah.get_favorite_list_items("l1"))
         self.assertEqual(result["items"][0]["url"], "https://www.ah.nl/producten/product/wi10")
         self.assertEqual(result["items"][1]["url"], "https://www.ah.nl/producten/product/wi11")
         self.assertIsNone(result["items"][1]["product"])

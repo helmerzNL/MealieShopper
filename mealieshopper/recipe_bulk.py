@@ -180,8 +180,8 @@ async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]
     }
 
 
-def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
-    if not jumbo.configured_refresh_token():
+async def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
+    if not await jumbo.configured_refresh_token():
         raise ValueError(tr(
             "Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Jumbo.",
             "Jumbo is not linked. The admin links it under Settings > Link > Jumbo.",
@@ -199,8 +199,8 @@ def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict
     return {"items": items, "group": {"id": group_id, "name": ""} if group_id else None, "category": None, "groupSize": len(items)}
 
 
-def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
-    if not crisp.configured_client_id():
+async def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
+    if not await crisp.configured_client_id():
         raise ValueError(tr(
             "Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Crisp.",
             "Crisp is not linked. The admin links it under Settings > Link > Crisp.",
@@ -266,9 +266,9 @@ async def start(
     if store == "ah":
         plan = await _ah_plan(chosen, group_id, whole)
     elif store == "jumbo":
-        plan = _jumbo_plan(chosen, titles, group_id, whole)
+        plan = await _jumbo_plan(chosen, titles, group_id, whole)
     else:
-        plan = _crisp_plan(chosen, titles, group_id, whole)
+        plan = await _crisp_plan(chosen, titles, group_id, whole)
     plan.update(store=store, whole=bool(whole))
     if _job.get("state") == "running":
         raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
@@ -412,10 +412,10 @@ async def _collect_jumbo(info: dict[str, Any]) -> None:
             return
 
 
-def _collect_crisp() -> None:
+async def _collect_crisp() -> None:
     """Al je bewaarde Crisp-recepten, tot `MAX_ITEMS`. Crisp geeft de hele lijst in één antwoord."""
     try:
-        recipes = crisp.get_saved_recipes()["recipes"]
+        recipes = (await crisp.get_saved_recipes())["recipes"]
     except Exception as exc:  # noqa: BLE001
         log.warning("Bulkimport: bewaarde recepten van Crisp ophalen mislukt: %s", exc)
         raise _Stop(_store_refusal("crisp", exc) or "crisp_saved_failed") from exc
@@ -428,10 +428,10 @@ async def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any],
     """Haal het recept bij de winkel op: (bron, schema.org-recept, titel)."""
     if store == "ah":
         number = int(item["id"])
-        ld = ah.get_recipe_jsonld(number)
+        ld = await ah.get_recipe_jsonld(number)
         return ah.recipe_url(number), ld, str(ld.get("name") or "")
     if store == "crisp":
-        recipe = crisp.get_recipe(item["id"])
+        recipe = await crisp.get_recipe(item["id"])
         return crisp.source_url(item["id"]), crisp.jsonld(recipe), str(recipe.get("name") or "")
     recipe = await jumbo_recipes.get_recipe(item["id"])
     return jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe), str(recipe.get("name") or "")
@@ -466,7 +466,7 @@ async def _import_all(plan: dict[str, Any]) -> None:
                 _finish("cancelled")
                 return
     if store == "crisp" and plan["whole"]:
-        _collect_crisp()
+        await _collect_crisp()
     _set(phase="importing")
     organizers = _Organizers(STORES[store], category)
     catalog = mealie.Catalog()

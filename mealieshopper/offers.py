@@ -29,7 +29,7 @@ from . import about, ah, ah_lists, deals, offer_categories, offer_courses, offer
 from .i18n import tr
 
 # Winkels waarvan we aanbiedingen kunnen ophalen, met de functie die dat doet.
-FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "ah": ah.get_bonus_products,
     "picnic": picnic.get_offers,
     "jumbo": jumbo.get_offers,
@@ -38,26 +38,26 @@ FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
 STORES = ("ah", "picnic", "jumbo", "crisp")
 # Winkels met persoonlijke aanbiedingen (AH: de Bonus Box), met de functie die ze ophaalt. Die vraagt een koppeling, en een fout laat de
 # gewone aanbiedingen staan: dan blijven de persoonlijke van de vorige keer staan en meldt `load` de fout.
-PERSONAL_FETCHERS: dict[str, Callable[[], list[dict[str, Any]]]] = {
+PERSONAL_FETCHERS: dict[str, Callable[[], Awaitable[list[dict[str, Any]]]]] = {
     "ah": ah.get_bonus_box,
 }
 
 
-def linked(store: str) -> bool:
+async def linked(store: str) -> bool:
     """Of we bij deze winkel kunnen vragen: AH Bonus werkt zonder inlog, Picnic, Jumbo en Crisp vragen een koppeling."""
     if store == "picnic":
-        return bool(picnic.configured_auth_key())
+        return bool(await picnic.configured_auth_key())
     if store == "jumbo":
-        return bool(jumbo.configured_refresh_token())
+        return bool(await jumbo.configured_refresh_token())
     if store == "crisp":
-        return bool(crisp.configured_client_id())
+        return bool(await crisp.configured_client_id())
     return True
 
 
-def personal_linked(store: str) -> bool:
+async def personal_linked(store: str) -> bool:
     """Of we de persoonlijke aanbiedingen van deze winkel kunnen ophalen: bij AH (de Bonus Box) vraagt dat je AH-koppeling."""
     if store == "ah":
-        return bool(ah.configured_refresh_token())
+        return bool(await ah.configured_refresh_token())
     return False
 
 MEALIE_RECIPE_LIMIT = 300
@@ -414,7 +414,7 @@ async def signature(store: Any, week: Any = None) -> str:
     async with _aconnect() as conn:
         meta = await _fetchone(conn, "SELECT synced_at FROM offers_meta WHERE store = ?", (store,))
     # Een nieuwe of verbroken koppeling verandert wat er over de persoonlijke aanbiedingen (de Bonus Box) bij de lijst staat.
-    personal = "personal" if personal_linked(store) else ""
+    personal = "personal" if await personal_linked(store) else ""
     return "|".join((store, meta["synced_at"] if meta else "", date.today().isoformat(), monday, personal, about.read_version()))
 
 
@@ -536,31 +536,31 @@ async def load(store: Any, week: Any = None) -> dict[str, Any]:
         **selection,
         "syncedAt": meta["synced_at"] if meta else None,
         "supported": store in FETCHERS,
-        "personal": _personal_summary(store, offers, meta["personal_error"] if meta else None),
+        "personal": await _personal_summary(store, offers, meta["personal_error"] if meta else None),
     }
 
 
-def _personal_summary(store: str, offers: list[dict[str, Any]], error: str | None) -> dict[str, Any]:
+async def _personal_summary(store: str, offers: list[dict[str, Any]], error: str | None) -> dict[str, Any]:
     """Wat er over de persoonlijke aanbiedingen (AH: de Bonus Box) bij de lijst staat: of de winkel ze heeft, of de koppeling er is,
     hoeveel er in de lijst staan en hoeveel daarvan geactiveerd zijn, en de fout van de laatste keer ophalen (de vorige bleven dan staan)."""
     personal = [offer for offer in offers if offer.get("personal")]
     return {
         "supported": store in PERSONAL_FETCHERS,
-        "linked": personal_linked(store),
+        "linked": await personal_linked(store),
         "count": len(personal),
         "activated": sum(1 for offer in personal if offer.get("activated")),
         "error": error or None,
     }
 
 
-def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+async def _fetch_personal(store: str) -> tuple[list[dict[str, Any]] | None, str | None]:
     """De persoonlijke aanbiedingen van een winkel (AH: de Bonus Box): (aanbiedingen, fout). Zonder koppeling ([], None); mislukt het
     ophalen, dan (None, fout), en houdt `sync` de persoonlijke aanbiedingen van de vorige keer."""
     fetch = PERSONAL_FETCHERS.get(store)
-    if not fetch or not personal_linked(store):
+    if not fetch or not await personal_linked(store):
         return [], None
     try:
-        return fetch(), None
+        return await fetch(), None
     except LookupError:
         return [], None
     except Exception as exc:  # noqa: BLE001 - onofficiële route; de gewone aanbiedingen gaan voor
@@ -591,8 +591,8 @@ async def sync(store: Any) -> dict[str, Any]:
     fetch = FETCHERS.get(store)
     if not fetch:
         raise ValueError(tr("Aanbiedingen van deze winkel zijn nog niet beschikbaar", "Offers from this store are not available yet"))
-    offers = fetch()  # de winkelmodules zijn tot hun eigen taak synchroon
-    personal, personal_error = _fetch_personal(store)
+    offers = await fetch()
+    personal, personal_error = await _fetch_personal(store)
     if personal is None:
         personal = await _previous_personal(store)
     now = _now()
@@ -838,7 +838,7 @@ async def sync_all() -> dict[str, Any]:
     """
     results: dict[str, Any] = {}
     for store in STORES:
-        if not linked(store):
+        if not await linked(store):
             results[store] = {"skipped": tr("niet gekoppeld", "not linked")}
             continue
         try:
@@ -860,10 +860,10 @@ async def overview() -> dict[str, Any]:
     for store in STORES:
         meta = metas.get(store)
         total, personal = counts.get(store, (0, 0))
-        result[store] = {"linked": linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
+        result[store] = {"linked": await linked(store), "syncedAt": meta["synced_at"] if meta else None, "total": total}
         if store in PERSONAL_FETCHERS:
             # De persoonlijke aanbiedingen (AH: de Bonus Box) tellen mee in `total`.
-            result[store]["personal"] = {"linked": personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
+            result[store]["personal"] = {"linked": await personal_linked(store), "count": personal or 0, "error": (meta["personal_error"] if meta else None) or None}
     return result
 
 
@@ -1540,7 +1540,7 @@ async def _collect_mealie() -> list[dict[str, Any]]:
 
 
 async def _collect_jumbo() -> list[dict[str, Any]]:
-    if not jumbo.configured_refresh_token():
+    if not await jumbo.configured_refresh_token():
         raise LookupError(tr("niet gekoppeld", "not linked"))
     cards = (await jumbo_recipes.get_favorites(1)).get("recipes") or []
 
@@ -1560,7 +1560,7 @@ async def _collect_jumbo() -> list[dict[str, Any]]:
 
 
 async def _collect_picnic() -> list[dict[str, Any]]:
-    if not picnic.configured_auth_key():
+    if not await picnic.configured_auth_key():
         raise LookupError(tr("niet gekoppeld", "not linked"))
     cards: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1588,13 +1588,13 @@ async def _collect_picnic() -> list[dict[str, Any]]:
 
 async def _collect_crisp() -> list[dict[str, Any]]:
     """Je bewaarde Crisp-recepten (Winkels > Crisp > Recepten), per recept live opgehaald, zoals bij Picnic."""
-    if not crisp.configured_client_id():
+    if not await crisp.configured_client_id():
         raise LookupError(tr("niet gekoppeld", "not linked"))
-    cards = crisp.get_saved_recipes()["recipes"]
+    cards = (await crisp.get_saved_recipes())["recipes"]
 
     async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = crisp.get_recipe(card["id"])
+            recipe = await crisp.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
@@ -1634,7 +1634,7 @@ async def _collect_ah() -> list[dict[str, Any]]:
             else:
                 fetched += 1
                 try:
-                    jsonld = ah.get_recipe_jsonld(int(recipe_id))
+                    jsonld = await ah.get_recipe_jsonld(int(recipe_id))
                     lines = jsonld.get("recipeIngredient") or lines or []
                     course = offer_courses.course_of(jsonld.get("recipeCategory"))
                 except Exception:  # noqa: BLE001

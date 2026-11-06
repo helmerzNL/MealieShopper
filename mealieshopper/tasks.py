@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from collections.abc import Coroutine
-from typing import Any
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from typing import Any, TypeVar
 
 from quart import Quart
 
@@ -12,6 +12,9 @@ from . import http_client
 log: logging.Logger = logging.getLogger(__name__)
 
 _tasks: dict[str, asyncio.Task[Any]] = {}
+
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 def _unique_name(name: str) -> str:
@@ -45,6 +48,29 @@ def spawn(name: str, coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
 
     task.add_done_callback(_done)
     return task
+
+
+async def map_bounded(limit: int, fn: Callable[[T], Awaitable[R]], items: Iterable[T]) -> list[R]:
+    """`await fn(item)` voor elk item, hooguit `limit` tegelijk, met de uitkomsten in de volgorde van `items`.
+
+    De vervanger van `map` op een threadpool met `limit` werkers. Elke aanroep krijgt een kopie van de context
+    (verzoek, taal, auditlog). Een aanroep maakt zijn coroutine pas als hij aan de beurt is. Gooit er een, dan annuleert de
+    `TaskGroup` de rest en komt die eerste fout zelf naar boven, niet als `ExceptionGroup`: een aanroeper die op het type
+    vangt (zoals `JumboAuthError`) blijft zo werken.
+    """
+    slots: asyncio.Semaphore = asyncio.Semaphore(limit)
+
+    async def one(item: T) -> R:
+        async with slots:
+            return await fn(item)
+
+    try:
+        async with asyncio.TaskGroup() as group:
+            started: list[asyncio.Task[R]] = [group.create_task(one(item)) for item in items]
+    except BaseExceptionGroup as failed:
+        first: BaseException = failed.exceptions[0]
+        raise first from first.__cause__
+    return [task.result() for task in started]
 
 
 def running() -> dict[str, asyncio.Task[Any]]:

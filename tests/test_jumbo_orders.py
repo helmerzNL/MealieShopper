@@ -92,7 +92,7 @@ class TempDataDirTest(unittest.TestCase):
 class OrderListTest(TempDataDirTest):
     def test_the_request_is_the_stored_query_with_the_variables_of_the_website(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1)])) as query:
-            jumbo.get_orders()
+            run(jumbo.get_orders())
         operation, variables = query.call_args.args
         self.assertEqual(operation, "OnlineOrdersAndStoreReceipts")
         self.assertEqual(jumbo.PERSISTED_QUERIES[operation], "89b3f60a39a37eeed32055fd531a32925e504c566d190e0ca06b8efecd0bccdf")
@@ -106,7 +106,7 @@ class OrderListTest(TempDataDirTest):
         pages = [page([listed(i) for i in range(1, 11)], page_number=0, total_pages=2, receipts=3),
                  page([listed(11, total="9.99")], page_number=1, total_pages=2, receipts=3)]
         with mock.patch.object(jumbo, "_persisted_query", side_effect=pages) as query:
-            result = jumbo.get_orders()
+            result = run(jumbo.get_orders())
         self.assertEqual(query.call_count, 2)
         self.assertEqual(query.call_args.args[1]["ordersInput"]["offset"], 10)
         self.assertEqual((len(result["orders"]), result["storeReceipts"]), (11, 3))
@@ -119,11 +119,11 @@ class OrderListTest(TempDataDirTest):
     def test_an_answer_without_orders_is_an_error(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value={"onlineOrders": None}):
             with self.assertRaises(RuntimeError):
-                jumbo.get_orders()
+                run(jumbo.get_orders())
 
     def test_cancelled_orders_are_marked(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=page([listed(1, status="CANCELLED"), listed(2)])):
-            orders = jumbo.get_orders()["orders"]
+            orders = run(jumbo.get_orders())["orders"]
         self.assertEqual([o["cancelled"] for o in orders], [True, False])
 
 
@@ -165,10 +165,10 @@ class OrderDetailTest(TempDataDirTest):
             return {"order": order(5, [line(1)])}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            result = jumbo.get_order("5")
+            result = run(jumbo.get_order("5"))
             self.assertEqual(result["id"], "5")
             tried = len(attempts)
-            jumbo.get_order("5")
+            run(jumbo.get_order("5"))
         self.assertEqual(attempts[-1][1], {"orderId": 5})  # Long: als getal
         self.assertTrue(all(operation == "GetOrder" for operation in ["GetOrder"]))
         self.assertEqual(len(attempts), tried + 1)  # de tweede keer meteen de werkende variant
@@ -181,7 +181,7 @@ class OrderDetailTest(TempDataDirTest):
             return {"order": order(5, [])}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            jumbo.get_order("5")
+            run(jumbo.get_order("5"))
         self.assertEqual(len(seen), 1)
         self.assertIn("query GetOrder($orderId: Float!)", seen[0][0])
         self.assertIn("order(orderId: $orderId)", seen[0][0])
@@ -197,20 +197,20 @@ class OrderDetailTest(TempDataDirTest):
             return {"order": order(5, [])}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            jumbo.get_order("5")
+            run(jumbo.get_order("5"))
         self.assertEqual(seen[-1], {"orderId": "5"})
 
     def test_every_variant_failing_raises_the_last_error(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboSchemaError("nee")) as graphql:
             with self.assertRaises(RuntimeError):
-                jumbo.get_order("5")
+                run(jumbo.get_order("5"))
         self.assertEqual(graphql.call_count, len(jumbo.ORDER_DETAIL_ARGUMENTS))
 
     def test_the_refusal_names_what_jumbo_said_without_numbers_or_ids(self):
         refused = RuntimeError(f"400: invalid type for variable orderId 7000000001 customer {CUSTOMER}")
         with mock.patch.object(jumbo, "_graphql", side_effect=[refused] * 5 + [RuntimeError("GraphQL: Persisted query required")] * 5):
             with self.assertRaises(jumbo.JumboOrderDetailError) as caught:
-                jumbo.get_order("7000000001")
+                run(jumbo.get_order("7000000001"))
         message = str(caught.exception)
         self.assertIn("10 varianten geweigerd", message)
         self.assertIn("400: invalid type for variable orderId <nr> customer <id>", message)
@@ -221,12 +221,12 @@ class OrderDetailTest(TempDataDirTest):
     def test_a_broken_link_stops_at_once_and_bad_ids_are_refused(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboAuthError("koppeling")) as graphql:
             with self.assertRaises(jumbo.JumboAuthError):
-                jumbo.get_order("5")
+                run(jumbo.get_order("5"))
         self.assertEqual(graphql.call_count, 1)
         with mock.patch.object(jumbo, "_graphql") as graphql:
             for bad in ("", "5; drop", "abc", "-1"):
                 with self.assertRaises(ValueError):
-                    jumbo.get_order(bad)
+                    run(jumbo.get_order(bad))
         graphql.assert_not_called()
 
 

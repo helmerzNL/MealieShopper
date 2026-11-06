@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, in_db, run  # noqa: E402
+from support import SyncClient, in_db, returned, run  # noqa: E402
 
 TODAY = "2026-10-20"
 
@@ -24,7 +24,7 @@ class PricesCase(unittest.TestCase):
         auth.init_db()
 
     def sync_offer(self, when, *items, store="ah"):
-        with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
+        with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: returned(list(items))}):
             run(offers.sync(store))
 
     def ah_order(self, order_id, kind, day, *items):
@@ -106,13 +106,13 @@ class RecordTest(PricesCase):
     def test_a_failure_never_breaks_the_search(self):
         with mock.patch.object(prices, "_aconnect", side_effect=OSError("schijf vol")), self.assertLogs(prices.log, "WARNING"):
             self.assertEqual(run(prices.record("ah", [{"id": "1", "title": "X", "price": 1}])), 0)
-        search = mock.Mock(return_value=[{"id": "1", "title": "X", "price": 1}])
+        search = mock.AsyncMock(return_value=[{"id": "1", "title": "X", "price": 1}])
         with mock.patch.object(prices, "_aconnect", side_effect=OSError("schijf vol")), self.assertLogs(prices.log, "WARNING"):
             self.assertEqual(run(prices.recorded("ah", search)("x", 5)), search.return_value)
         search.assert_called_once_with("x", 5)
 
     def test_the_wrapper_records_what_the_store_found(self):
-        search = mock.Mock(return_value=[{"webshopId": "9", "title": "Melk", "price": {"now": 1.09}, "images": [{"url": "https://img/9"}]}])
+        search = mock.AsyncMock(return_value=[{"webshopId": "9", "title": "Melk", "price": {"now": 1.09}, "images": [{"url": "https://img/9"}]}])
         self.assertEqual(run(prices.recorded("ah", search)("melk")), search.return_value)
         row = self.rows()[0]
         self.assertEqual((row["product_id"], row["price"], row["image"], row["source"]), ("9", 1.09, "https://img/9", "search"))

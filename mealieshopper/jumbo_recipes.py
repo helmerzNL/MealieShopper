@@ -118,9 +118,9 @@ async def get_lists() -> list[dict[str, Any]]:
     """Je receptenlijsten (*Mijn recepten*): `[{id, name, kind, count}]`, Favorieten eerst. Zonder de recepten zelf.
 
     Het overzicht van de site (`getRecipeLists`) toont per lijst alleen titel en plaatje van een paar recepten; de
-    recepten van een lijst komen uit een andere aanvraag. `jumbo` blijft synchroon tot Taak 21.
+    recepten van een lijst komen uit een andere aanvraag.
     """
-    data = jumbo._persisted_query(
+    data = await jumbo._persisted_query(
         "getRecipeLists",
         {"includeHasRecipe": False, "itemsInput": {"size": 1}, "listsSize": MAX_RECIPE_LISTS, "listsPage": 1},
     )
@@ -165,7 +165,7 @@ async def get_favorites(page: Any = 1) -> dict[str, Any]:
     `{recipes, total, page, hasNext}`; `page` begint bij 1, zoals bij de website.
     """
     number = _page_number(page)
-    return _list_page(jumbo._persisted_query("FavoriteRecipes", {"size": RECIPE_PAGE, "page": number}), number)
+    return _list_page(await jumbo._persisted_query("FavoriteRecipes", {"size": RECIPE_PAGE, "page": number}), number)
 
 
 async def get_list_recipes(list_id: Any, page: Any = 1) -> dict[str, Any]:
@@ -174,7 +174,7 @@ async def get_list_recipes(list_id: Any, page: Any = 1) -> dict[str, Any]:
     if not _LIST_ID.match(list_id):
         raise ValueError(tr("Onbekend lijstje", "Unknown list"))
     number = _page_number(page)
-    data = jumbo._persisted_query("getRecipeListById", {"listId": list_id, "itemsInput": {"page": number, "size": RECIPE_PAGE}})
+    data = await jumbo._persisted_query("getRecipeListById", {"listId": list_id, "itemsInput": {"page": number, "size": RECIPE_PAGE}})
     return _list_page(data, number)
 
 
@@ -219,7 +219,7 @@ async def search(query: Any, offset: Any = 0) -> dict[str, Any]:
         start = max(0, int(offset or 0))
     except (TypeError, ValueError):
         start = 0
-    data = jumbo._persisted_query(
+    data = await jumbo._persisted_query(
         "getRecipesListers",
         {"input": {"searchTerms": query, "friendlyUrl": f"?searchTerms={query}", "offSet": start, "limit": RECIPE_PAGE}},
     )
@@ -234,7 +234,7 @@ async def search(query: Any, offset: Any = 0) -> dict[str, Any]:
 async def get_by_ids(ids: list[str]) -> list[dict[str, Any]]:
     """Recepten op id (zoals de pagina's met een categorie die vragen)."""
     wanted = [_valid_id(recipe_id) for recipe_id in ids][:RECIPE_PAGE]
-    data = jumbo._persisted_query("getRecipesByIds", {"ids": wanted, "limit": len(wanted), "offset": 0})
+    data = await jumbo._persisted_query("getRecipesByIds", {"ids": wanted, "limit": len(wanted), "offset": 0})
     return summaries(data)
 
 
@@ -305,7 +305,7 @@ def parse_recipe(raw: Any, recipe_id: str) -> dict[str, Any]:
 
 async def get_recipe(recipe_id: Any) -> dict[str, Any]:
     recipe_id = _valid_id(recipe_id)
-    data = jumbo._persisted_query("getRecipe", {"id": recipe_id})
+    data = await jumbo._persisted_query("getRecipe", {"id": recipe_id})
     return parse_recipe(data.get("recipe"), recipe_id)
 
 

@@ -110,7 +110,7 @@ class AiTestCase(unittest.TestCase):
             {"id": "r1", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": ["400 g kipfilet", "4 tomaten"]},
             {"id": "r2", "title": "Kipsalade", "image": "", "url": "", "ingredients": ["kipfilet", "tomaten"]},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(recipes)),)):
             run(offers.sync_recipes())

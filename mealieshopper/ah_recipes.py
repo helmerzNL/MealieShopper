@@ -116,7 +116,7 @@ async def _fetch_all() -> list[dict[str, Any]]:
     seen: set[str] = set()
     total = None
     for page in range(MAX_PAGES):
-        data = ah.get_saved_recipes(page, PAGE_SIZE)  # `ah` blijft synchroon tot Taak 21
+        data = await ah.get_saved_recipes(page, PAGE_SIZE)
         batch = data.get("recipes") or []
         total = int(data.get("total") or 0)
         fresh = 0
@@ -135,7 +135,7 @@ async def _fetch_all() -> list[dict[str, Any]]:
 async def _fetch_groups() -> list[dict[str, Any]]:
     """De receptgroepen bij AH; mislukt dat, dan geen groepen (de recepten zelf gaan voor)."""
     try:
-        groups = ah.get_saved_recipe_groups()
+        groups = await ah.get_saved_recipe_groups()
     except Exception:  # noqa: BLE001 - AH is onofficieel; zonder groepen werkt de lijst nog steeds
         return []
     return [group for group in groups or [] if isinstance(group, dict) and group.get("id") is not None]

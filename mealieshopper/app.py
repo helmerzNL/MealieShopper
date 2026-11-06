@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import inspect
 import mimetypes
@@ -22,6 +21,7 @@ from .i18n import tr
 # Python kent .webmanifest niet overal; browsers verwachten application/manifest+json.
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
+CART_PREVIEW_WORKERS: int = 6  # zoveel regels van een controlelijst zoeken we tegelijk bij de winkel
 
 AH_PROXY_DROPPED_HEADERS: frozenset[str] = frozenset(
     {
@@ -304,7 +304,7 @@ def create_app() -> Quart:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
 
         try:
-            return jsonify(ah.search_recipes(query, page))
+            return jsonify(await ah.search_recipes(query, page))
         except Exception as exc:
             app.logger.exception("AH search error")
             return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
@@ -325,7 +325,7 @@ def create_app() -> Quart:
     @app.get("/api/ah/recipes/<int:recipe_id>")
     async def ah_recipe_detail(recipe_id: int):
         try:
-            return jsonify(ah.recipe_detail(recipe_id))
+            return jsonify(await ah.recipe_detail(recipe_id))
         except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
             app.logger.exception("AH recipe error")
             return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424
@@ -373,7 +373,7 @@ def create_app() -> Quart:
     async def ah_auth_status():
         try:
             verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-            return jsonify(ah.auth_status(verify=verify))
+            return jsonify(await ah.auth_status(verify=verify))
         except Exception as exc:
             app.logger.exception("AH auth status error")
             return jsonify({"connected": False, "error": str(exc)}), 424
@@ -381,7 +381,7 @@ def create_app() -> Quart:
     @app.get("/api/ah/favorite-lists")
     async def ah_favorite_lists():
         try:
-            return jsonify({"lists": ah.get_favorite_lists()})
+            return jsonify({"lists": await ah.get_favorite_lists()})
         except Exception as exc:
             app.logger.exception("AH favorite lists error")
             return jsonify({"error": str(exc) or tr("AH lijstjes ophalen mislukt", "Could not fetch AH lists")}), 424
@@ -389,7 +389,7 @@ def create_app() -> Quart:
     @app.get("/api/ah/favorite-lists/<list_id>/items")
     async def ah_favorite_list_items(list_id: str):
         try:
-            return jsonify(ah.get_favorite_list_items(list_id))
+            return jsonify(await ah.get_favorite_list_items(list_id))
         except Exception as exc:
             app.logger.exception("AH favorite list items error")
             return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
@@ -411,7 +411,7 @@ def create_app() -> Quart:
         if snapshot:
             return jsonify(snapshot)
         try:
-            return jsonify({**ah.get_favorite_list_items(list_id), "source": "ah"})
+            return jsonify({**await ah.get_favorite_list_items(list_id), "source": "ah"})
         except Exception as exc:
             app.logger.exception("AH list detail error")
             return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
@@ -448,11 +448,11 @@ def create_app() -> Quart:
         snapshot = await ah_lists.get_snapshot(list_id)
         try:
             if not snapshot:
-                snapshot = ah.get_favorite_list_items(list_id)
+                snapshot = await ah.get_favorite_list_items(list_id)
             items = ah_lists.cart_items_from(snapshot)
             if not items:
                 return jsonify({"error": tr("Dit lijstje heeft geen producten.", "This list has no products.")}), 400
-            ah.add_to_shopping_list(items)
+            await ah.add_to_shopping_list(items)
         except Exception as exc:  # noqa: BLE001 - AH is onofficieel; geef de fout door
             app.logger.exception("AH list to cart error")
             return jsonify({"error": str(exc) or tr("Toevoegen aan het mandje mislukt", "Adding to the basket failed")}), 424
@@ -943,16 +943,10 @@ def create_app() -> Quart:
             result["candidates"] = prices.check_list_candidates(candidates, compare, query, regular)
             return result
 
-        # Hooguit zes regels tegelijk, zoals de zes threads van voorheen. `gather` houdt de volgorde van `items` aan en
-        # geeft elke regel een kopie van de context (verzoek, taal, auditlog) mee, dus `audit.propagate` is niet meer nodig.
-        # Zolang de winkelmodules synchroon zijn (tot Taak 21), lopen de zoekopdrachten nog na elkaar.
-        slots: asyncio.Semaphore = asyncio.Semaphore(6)
-
-        async def bounded(item: dict[str, Any]) -> dict[str, Any]:
-            async with slots:
-                return await resolve(item)
-
-        resolved: list[dict[str, Any]] = await asyncio.gather(*(bounded(item) for item in items))
+        # Hooguit zes regels tegelijk, zoals de zes threads van voorheen, in de volgorde van `items` en elk met een kopie van
+        # de context (verzoek, taal, auditlog). Een fout buiten de `try` van `resolve` annuleert de andere regels: het
+        # antwoord is dan toch een 500, dan hoeven hun zoekopdrachten niet meer door te lopen.
+        resolved: list[dict[str, Any]] = await tasks.map_bounded(CART_PREVIEW_WORKERS, resolve, items)
         return jsonify({"items": resolved})
 
     @app.post("/api/ah/cart/preview")
@@ -986,7 +980,7 @@ def create_app() -> Quart:
                     )
                     diagnostics.append({"query": query, "status": "gevonden"})
                     continue
-                product = ah.search_product(query)
+                product = await ah.search_product(query)
                 if product:
                     matched.append(
                         {
@@ -1021,7 +1015,7 @@ def create_app() -> Quart:
             )
 
         try:
-            ah.add_to_shopping_list(
+            await ah.add_to_shopping_list(
                 [{"productId": item["productId"], "quantity": item["quantity"]} for item in matched]
             )
         except Exception as exc:
@@ -1082,7 +1076,7 @@ def create_app() -> Quart:
                     # Door de gebruiker bevestigd (of aangepast) in de controlelijst.
                     matched.append({"productId": item["productId"], "quantity": item.get("quantity"), "query": query})
                     continue
-                product = store.search_product(query)
+                product = await store.search_product(query)
             except Exception as exc:  # noqa: BLE001
                 if isinstance(exc, auth_error):
                     return error(exc)
@@ -1097,7 +1091,7 @@ def create_app() -> Quart:
         if not matched:
             return jsonify({"error": tr("Geen producten gevonden voor de opgegeven ingredienten", "No products found for the given ingredients"), "skippedItems": skipped}), 404
         try:
-            result = store.add_to_cart(matched)
+            result = await store.add_to_cart(matched)
         except Exception as exc:  # noqa: BLE001
             return error(exc)
         failed_ids = {entry["productId"] for entry in result["failed"]}
@@ -1122,13 +1116,13 @@ def create_app() -> Quart:
     @app.get("/api/picnic/auth/status")
     async def picnic_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(picnic.status(verify=verify))
+        return jsonify(await picnic.status(verify=verify))
 
     @app.post("/api/picnic/auth")
     async def picnic_auth():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(picnic.login(body.get("email"), body.get("password") or ""))
+            return jsonify(await picnic.login(body.get("email"), body.get("password") or ""))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1136,7 +1130,7 @@ def create_app() -> Quart:
     async def picnic_auth_2fa_request():
         body = await request.get_json(silent=True) or {}
         try:
-            picnic.request_2fa_code(body.get("channel") or "SMS")
+            await picnic.request_2fa_code(body.get("channel") or "SMS")
             return jsonify({"requested": True})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
@@ -1145,13 +1139,13 @@ def create_app() -> Quart:
     async def picnic_auth_2fa_verify():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(picnic.verify_2fa(body.get("code")))
+            return jsonify(await picnic.verify_2fa(body.get("code")))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/auth/logout")
     async def picnic_auth_logout():
-        return jsonify(picnic.unlink())
+        return jsonify(await picnic.unlink())
 
     @app.get("/api/picnic/search")
     async def picnic_search():
@@ -1170,7 +1164,7 @@ def create_app() -> Quart:
     @app.get("/api/picnic/cart")
     async def picnic_cart_get():
         try:
-            return jsonify(picnic.get_cart())
+            return jsonify(await picnic.get_cart())
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1182,7 +1176,7 @@ def create_app() -> Quart:
     async def picnic_deliveries():
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
-            return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
+            return jsonify({"deliveries": await picnic.get_deliveries(current_only=current)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1210,7 +1204,7 @@ def create_app() -> Quart:
     async def picnic_delivery(delivery_id: str):
         # Alleen lezen: één levering met haar producten.
         try:
-            return jsonify(picnic.get_delivery(delivery_id))
+            return jsonify(await picnic.get_delivery(delivery_id))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001
@@ -1221,7 +1215,7 @@ def create_app() -> Quart:
         # Een exact aantal; 0 haalt het product uit het mandje. Plaatst nooit een bestelling.
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(picnic.set_quantity(product_id, body.get("quantity")))
+            return jsonify(await picnic.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1232,7 +1226,7 @@ def create_app() -> Quart:
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
-            return jsonify(picnic.clear_cart())
+            return jsonify(await picnic.clear_cart())
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1243,7 +1237,7 @@ def create_app() -> Quart:
         # met `refresh=1` vergeet de server eerst wat hij wist.
         budget = request.args.get("budget", type=int)
         try:
-            return jsonify(picnic.get_favorites(
+            return jsonify(await picnic.get_favorites(
                 budget=max(1, min(budget, 30)) if budget else None,
                 refresh=request.args.get("refresh") == "1",
             ))
@@ -1296,7 +1290,7 @@ def create_app() -> Quart:
         # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.
         try:
             limit = max(1, min(30, int(request.args.get("limit") or 8)))
-            return jsonify({"slots": picnic.get_delivery_slots(limit)})
+            return jsonify({"slots": await picnic.get_delivery_slots(limit)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1315,13 +1309,13 @@ def create_app() -> Quart:
     @app.get("/api/crisp/auth/status")
     async def crisp_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(crisp.status(verify=verify))
+        return jsonify(await crisp.status(verify=verify))
 
     @app.post("/api/crisp/auth")
     async def crisp_auth():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(crisp.start_login(body.get("email"), body.get("country") or "nl"))
+            return jsonify(await crisp.start_login(body.get("email"), body.get("country") or "nl"))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1329,13 +1323,13 @@ def create_app() -> Quart:
     async def crisp_auth_verify():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(crisp.verify_login(body.get("code")))
+            return jsonify(await crisp.verify_login(body.get("code")))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/auth/logout")
     async def crisp_auth_logout():
-        return jsonify(crisp.unlink())
+        return jsonify(await crisp.unlink())
 
     @app.get("/api/crisp/search")
     async def crisp_search():
@@ -1354,7 +1348,7 @@ def create_app() -> Quart:
     @app.get("/api/crisp/cart")
     async def crisp_cart_get():
         try:
-            return jsonify(crisp.get_cart())
+            return jsonify(await crisp.get_cart())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1367,7 +1361,7 @@ def create_app() -> Quart:
         # Het aantal van één product in het echte Crisp-mandje; 0 haalt het weg. Nooit een bestelling.
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(crisp.set_quantity(product_id, body.get("quantity")))
+            return jsonify(await crisp.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1378,7 +1372,7 @@ def create_app() -> Quart:
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
-            return jsonify(crisp.clear_cart())
+            return jsonify(await crisp.clear_cart())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1390,7 +1384,7 @@ def create_app() -> Quart:
     @app.get("/api/crisp/orders/open")
     async def crisp_orders_open():
         try:
-            return jsonify({"orders": crisp.get_open_orders()})
+            return jsonify({"orders": await crisp.get_open_orders()})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1409,7 +1403,7 @@ def create_app() -> Quart:
         if local and local["itemsSynced"]:
             return jsonify(local)
         try:
-            return jsonify(crisp.get_order(order_id))
+            return jsonify(await crisp.get_order(order_id))
         except Exception as exc:  # noqa: BLE001
             if local:
                 return jsonify(local)
@@ -1418,7 +1412,7 @@ def create_app() -> Quart:
     @app.get("/api/crisp/favorites")
     async def crisp_favorites():
         try:
-            return jsonify(crisp.get_favorites())
+            return jsonify(await crisp.get_favorites())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1430,17 +1424,17 @@ def create_app() -> Quart:
         source = (request.args.get("source") or "saved").strip().lower()
         try:
             if query is not None:
-                return jsonify(crisp.search_recipes(query))
+                return jsonify(await crisp.search_recipes(query))
             if source != "saved":
                 raise ValueError(tr("Onbekende bron voor recepten (kies saved)", "Unknown recipe source (choose saved)"))
-            return jsonify({"source": "saved", **crisp.get_saved_recipes()})
+            return jsonify({"source": "saved", **await crisp.get_saved_recipes()})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.get("/api/crisp/recipes/<recipe_id>")
     async def crisp_recipe_detail(recipe_id: str):
         try:
-            return jsonify(crisp.get_recipe(recipe_id))
+            return jsonify(await crisp.get_recipe(recipe_id))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1456,7 +1450,7 @@ def create_app() -> Quart:
         if found:
             return found
         try:
-            recipe = crisp.get_recipe(recipe_id)
+            recipe = await crisp.get_recipe(recipe_id)
             slug = await mealie.import_via_jsonld(source, crisp.jsonld(recipe))
             return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
@@ -1469,7 +1463,7 @@ def create_app() -> Quart:
     @app.post("/api/crisp/explore")
     async def crisp_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
-        return jsonify(crisp.explore())
+        return jsonify(await crisp.explore())
 
     # --- Jumbo --------------------------------------------------------------------------
     # Koppelen werkt zoals bij AH (de beheerder plakt een regel uit de browserconsole); de producten
@@ -1581,23 +1575,23 @@ def create_app() -> Quart:
     @app.get("/api/jumbo/auth/status")
     async def jumbo_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
-        return jsonify(jumbo.status(verify=verify))
+        return jsonify(await jumbo.status(verify=verify))
 
     @app.get("/api/jumbo/auth/start")
     async def jumbo_auth_start():
-        return redirect(jumbo.start_login(), code=302)
+        return redirect(await jumbo.start_login(), code=302)
 
     @app.post("/api/jumbo/auth")
     async def jumbo_auth():
         body = await request.get_json(silent=True) or {}
         try:
-            return jsonify(jumbo.link_account(body.get("code") or body.get("token") or ""))
+            return jsonify(await jumbo.link_account(body.get("code") or body.get("token") or ""))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/auth/logout")
     async def jumbo_auth_logout():
-        return jsonify(jumbo.unlink())
+        return jsonify(await jumbo.unlink())
 
     @app.get("/api/jumbo/search")
     async def jumbo_search():
@@ -1616,7 +1610,7 @@ def create_app() -> Quart:
     @app.get("/api/jumbo/cart")
     async def jumbo_cart_get():
         try:
-            return jsonify(jumbo.get_cart())
+            return jsonify(await jumbo.get_cart())
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1685,14 +1679,14 @@ def create_app() -> Quart:
                 if item.get("productId"):
                     matched.append({"productId": item["productId"], "quantity": item["quantity"], "term": item.get("term")})
                     continue
-                found = jumbo.search_product(item.get("term") or "")
+                found = await jumbo.search_product(item.get("term") or "")
                 if found:
                     matched.append({"productId": found["id"], "quantity": item["quantity"], "term": item.get("term")})
                 else:
                     skipped.append(item.get("term") or "")
             if not matched:
                 return jsonify({"error": tr("Dit lijstje heeft geen producten.", "This list has no products.")}), 400
-            result = jumbo.add_to_cart(matched)
+            result = await jumbo.add_to_cart(matched)
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
         failed = {entry["productId"] for entry in result["failed"]}
@@ -1713,7 +1707,7 @@ def create_app() -> Quart:
             if isinstance(item, dict)
         ]
         try:
-            result = jumbo.add_to_shopping_list(lines)
+            result = await jumbo.add_to_shopping_list(lines)
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
         return jsonify({"added": len(result["added"]), "skipped": len(result["skipped"]), "skippedItems": result["skipped"]})
@@ -1817,7 +1811,7 @@ def create_app() -> Quart:
         if not raw:
             return jsonify({"error": tr("Geen code of token opgegeven", "No code or token given")}), 400
 
-        result = ah.link_account(raw)
+        result = await ah.link_account(raw)
         if result.get("connected"):
             return jsonify(result)
         return jsonify({"error": result.get("error") or tr("Onbekende fout", "Unknown error")}), 400
@@ -1829,10 +1823,10 @@ def create_app() -> Quart:
         if not token:
             return jsonify({"error": tr("Geen token opgegeven", "No token given")}), 400
 
-        result = ah.verify_token(token)
+        result = await ah.verify_token(token)
         if result.get("ok"):
             if result.get("type") == "refresh":
-                ah.save_refresh_token(result.get("refreshToken") or token)
+                await ah.save_refresh_token(result.get("refreshToken") or token)
             return jsonify({"connected": True, "type": result.get("type")})
         return jsonify({"error": result["error"]}), 400
 
@@ -1853,7 +1847,7 @@ def create_app() -> Quart:
 
         callback_url = await ah_callback_url()
         try:
-            ah.exchange_and_store_oauth_code(code, callback_url)
+            await ah.exchange_and_store_oauth_code(code, callback_url)
             return redirect("/?ah_connected=1")
         except Exception as exc:
             return redirect(
@@ -1872,7 +1866,7 @@ def create_app() -> Quart:
             return redirect("/?ah_error=Geen+code+ontvangen")
 
         try:
-            ah.exchange_and_store_oauth_code(code)
+            await ah.exchange_and_store_oauth_code(code)
             return redirect("/?ah_connected=1")
         except Exception as exc:
             return redirect(

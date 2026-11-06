@@ -1,8 +1,8 @@
 """De Picnic-verkenner als async functies: `offer_probes` en `explore` wachten op elke probe en sturen zelf niets via httpx.
 
 De vorm van het rapport per route staat in tests/test_picnic.py en tests/test_offers_stores.py. Hier staat wat de omzetting
-raakt: de probes lopen via `ah_explore._probe` (nu async), `picnic` blijft tot Taak 21 synchroon, en een fout van Picnic
-komt alleen als statuscode en foutcode in het rapport.
+raakt: de probes lopen via `ah_explore._probe` en wachten op de async `picnic`, en een fout van Picnic komt alleen als
+statuscode en foutcode in het rapport.
 """
 
 from __future__ import annotations
@@ -14,8 +14,7 @@ from unittest import mock
 
 import httpx
 import pytest
-import requests
-from support import served
+from support import run, served
 
 from mealieshopper import auth, picnic, picnic_explore
 
@@ -23,7 +22,7 @@ from mealieshopper import auth, picnic, picnic_explore
 @pytest.fixture
 def linked(data_dir: Path) -> None:
     auth.init_db()
-    picnic.save_auth_key("key")
+    run(picnic.save_auth_key("key"))
 
 
 def answers(asked: list[str]) -> Any:
@@ -60,7 +59,7 @@ async def test_offer_probes_wait_for_each_page(linked: None) -> None:
         mock.patch.object(picnic, "_authed", side_effect=answers(asked)),
     ):
         probes: list[dict[str, Any]] = await picnic_explore.offer_probes()
-    assert route.call_count == 0, "alles loopt via picnic, dat tot Taak 21 synchroon is"
+    assert route.call_count == 0, "alles loopt via de nagebootste picnic._authed"
     assert (
         probes[0]["name"] == "aanbiedingen: welke pagina's zoeken we (pagina, streng)"
     )
@@ -108,14 +107,12 @@ async def test_explore_reports_errors_as_codes_only_and_counts_what_worked(
 
 
 async def test_explore_names_a_network_error_by_its_type(linked: None) -> None:
-    with mock.patch.object(
-        picnic, "_authed", side_effect=requests.ConnectionError("geheim adres")
-    ):
+    with served(side_effect=httpx.ConnectError("geheim adres")):
         report: dict[str, Any] = await picnic_explore.explore()
     search: dict[str, Any] = next(
         probe
         for probe in report["probes"]
         if probe["name"] == "zoeken: GET pages/search-page-results"
     )
-    assert search["error"] == "netwerkfout: ConnectionError"
+    assert search["error"] == "netwerkfout: ConnectError"
     assert "geheim adres" not in json.dumps(report)

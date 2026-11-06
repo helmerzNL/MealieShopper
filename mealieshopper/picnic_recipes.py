@@ -118,7 +118,7 @@ def summaries(page: Any) -> list[dict[str, Any]]:
 
 
 async def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
-    """Recepten van Picnic: `saved` (Koken > Bewaard), `cookbook` of `ordered` (Opnieuw bestellen). `picnic` blijft synchroon tot Taak 21."""
+    """Recepten van Picnic: `saved` (Koken > Bewaard), `cookbook` of `ordered` (Opnieuw bestellen)."""
     source = str(source or "saved").strip().lower()
     if source not in SOURCES:
         raise ValueError(
@@ -127,7 +127,7 @@ async def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
                 "Unknown recipe source (choose saved, cookbook or ordered)",
             )
         )
-    page = picnic._authed("GET", f"/pages/{SOURCES[source]}", text=True)
+    page = await picnic._authed("GET", f"/pages/{SOURCES[source]}", text=True)
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf de receptenpagina in een onbekend formaat", "Picnic returned the recipes page in an unknown format"))
     return summaries(page)
@@ -242,7 +242,7 @@ async def get_recipe(recipe_id: Any) -> dict[str, Any]:
     recipe_id = str(recipe_id or "").strip()
     if not recipe_id or len(recipe_id) > MAX_ID_LENGTH or not _RECIPE_ID.match(recipe_id):
         raise ValueError(tr("Geen geldig recept", "Not a valid recipe"))
-    page = picnic._authed("GET", f"/pages/{DETAILS_PAGE}?selling_group_id={quote(recipe_id, safe='')}", text=True)
+    page = await picnic._authed("GET", f"/pages/{DETAILS_PAGE}?selling_group_id={quote(recipe_id, safe='')}", text=True)
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf het recept in een onbekend formaat", "Picnic returned the recipe in an unknown format"))
     return details(page, recipe_id)

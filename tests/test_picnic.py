@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -5,36 +6,48 @@ import unittest
 from hashlib import md5
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, run, sent_json, sent_url, served  # noqa: E402
 
 
 def response(data=None, *, status=200, token=None):
-    """Een nagebootst `requests`-antwoord."""
-    reply = mock.Mock()
-    reply.status_code = status
-    reply.ok = status < 400
-    reply.content = b"" if data is None else json.dumps(data).encode()
-    reply.text = "" if data is None else json.dumps(data)
-    reply.json.return_value = data
-    reply.headers = {picnic.AUTH_HEADER: token} if token else {}
-    return reply
+    """Een antwoord van Picnic, voor `served`: zonder `data` een leeg lichaam, met `token` een nieuwe auth-key in de headers."""
+    return httpx.Response(
+        status,
+        content=b"" if data is None else json.dumps(data).encode(),
+        headers={picnic.AUTH_HEADER: token} if token else {},
+    )
 
 
 def blocked_page():
     """Wat de poort voor Picnic teruggeeft als hij een netwerk weert: een kale 403-pagina, geen JSON."""
-    reply = mock.Mock()
-    reply.status_code = 403
-    reply.ok = False
     body = "<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n"
-    reply.content = body.encode()
-    reply.text = body
-    reply.json.side_effect = ValueError("geen JSON")
-    reply.headers = {"content-type": "text/html"}
-    return reply
+    return httpx.Response(403, content=body.encode(), headers={"content-type": "text/html"})
+
+
+def spying(asked, real):
+    """Een async side effect die elk product-id onthoudt en dan de echte `real` laat antwoorden."""
+
+    async def spy(product_id):
+        asked.append(product_id)
+        return await real(product_id)
+
+    return spy
+
+
+def requested(fake):
+    """`fake(method, url)` als side effect van `served`: respx geeft het verzoek zelf mee."""
+    return lambda request: fake(request.method, str(request.url))
+
+
+def path_of(call):
+    """Het pad van een opgevangen verzoek achter de API-versie, met de query (zoals de tests van requests het lazen)."""
+    return str(call.request.url).rsplit("/api/15", 1)[1]
 
 
 def tile(unit_id, name, unit_quantity, cents=199, **extra):
@@ -130,130 +143,130 @@ class CandidateTest(unittest.TestCase):
 
 class LoginTest(TempDataDirTest):
     def test_password_is_sent_as_md5_and_never_stored(self):
-        with mock.patch.object(picnic.requests, "request", return_value=response({}, token="key1")) as call:
-            result = picnic.login("jan@example.com", "geheim")
-        body = call.call_args.kwargs["json"]
+        with served(return_value=response({}, token="key1")) as call:
+            result = run(picnic.login("jan@example.com", "geheim"))
+        body = sent_json(call.calls.last)
         self.assertEqual(body, {"key": "jan@example.com", "secret": md5(b"geheim").hexdigest(), "client_id": 30100})
         self.assertEqual(result, {"connected": True, "twoFactorRequired": False})
-        self.assertEqual(picnic.configured_auth_key(), "key1")
+        self.assertEqual(run(picnic.configured_auth_key()), "key1")
 
     def test_two_factor_flow(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
-        with mock.patch.object(picnic.requests, "request", return_value=login):
-            result = picnic.login("jan@example.com", "geheim")
+        with served(return_value=login):
+            result = run(picnic.login("jan@example.com", "geheim"))
         self.assertEqual(result, {"connected": False, "twoFactorRequired": True})
-        self.assertEqual(picnic.configured_auth_key(), "")
-        self.assertTrue(picnic.status()["twoFactorPending"])
+        self.assertEqual(run(picnic.configured_auth_key()), "")
+        self.assertTrue(run(picnic.status())["twoFactorPending"])
 
-        with mock.patch.object(picnic.requests, "request", return_value=response(None, status=204)) as call:
-            picnic.request_2fa_code("sms")
-        self.assertEqual(call.call_args.kwargs["json"], {"channel": "SMS"})
-        self.assertEqual(call.call_args.kwargs["headers"][picnic.AUTH_HEADER], "pending")
+        with served(return_value=response(None, status=204)) as call:
+            run(picnic.request_2fa_code("sms"))
+        self.assertEqual(sent_json(call.calls.last), {"channel": "SMS"})
+        self.assertEqual(call.calls.last.request.headers[picnic.AUTH_HEADER], "pending")
 
-        with mock.patch.object(picnic.requests, "request", return_value=response(None, status=204, token="final")) as call:
-            self.assertEqual(picnic.verify_2fa(" 123456 "), {"connected": True})
-        self.assertEqual(call.call_args.kwargs["json"], {"otp": "123456"})
-        self.assertEqual(picnic.configured_auth_key(), "final")
-        self.assertFalse(picnic.status()["twoFactorPending"])
+        with served(return_value=response(None, status=204, token="final")) as call:
+            self.assertEqual(run(picnic.verify_2fa(" 123456 ")), {"connected": True})
+        self.assertEqual(sent_json(call.calls.last), {"otp": "123456"})
+        self.assertEqual(run(picnic.configured_auth_key()), "final")
+        self.assertFalse(run(picnic.status())["twoFactorPending"])
 
     def test_verify_keeps_the_pending_key_when_picnic_sends_no_new_one(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
-        with mock.patch.object(picnic.requests, "request", return_value=login):
-            picnic.login("jan@example.com", "geheim")
-        with mock.patch.object(picnic.requests, "request", return_value=response(None, status=204)):
-            picnic.verify_2fa("123456")
-        self.assertEqual(picnic.configured_auth_key(), "pending")
+        with served(return_value=login):
+            run(picnic.login("jan@example.com", "geheim"))
+        with served(return_value=response(None, status=204)):
+            run(picnic.verify_2fa("123456"))
+        self.assertEqual(run(picnic.configured_auth_key()), "pending")
 
     def test_wrong_code_is_reported(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
-        with mock.patch.object(picnic.requests, "request", return_value=login):
-            picnic.login("jan@example.com", "geheim")
+        with served(return_value=login):
+            run(picnic.login("jan@example.com", "geheim"))
         bad = response({"error": {"code": "TWO_FA_INVALID", "message": "Invalid code"}})
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             with self.assertRaises(picnic.Picnic2FAError):
-                picnic.verify_2fa("000000")
-        self.assertEqual(picnic.configured_auth_key(), "")
+                run(picnic.verify_2fa("000000"))
+        self.assertEqual(run(picnic.configured_auth_key()), "")
 
     def test_verify_without_a_login_in_progress_fails(self):
         with self.assertRaises(RuntimeError):
-            picnic.verify_2fa("123456")
+            run(picnic.verify_2fa("123456"))
 
     def test_a_stale_pending_login_expires(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
-        with mock.patch.object(picnic.requests, "request", return_value=login):
-            picnic.login("jan@example.com", "geheim")
+        with served(return_value=login):
+            run(picnic.login("jan@example.com", "geheim"))
         later = mock.patch.object(picnic.time, "time", return_value=picnic.time.time() + picnic.PENDING_TTL_SECONDS + 5)
         with later, self.assertRaises(RuntimeError):
-            picnic.verify_2fa("123456")
+            run(picnic.verify_2fa("123456"))
 
     def test_refused_credentials_are_explained(self):
         bad = response({"error": {"code": "AUTH_INVALID_CRED", "message": "nope"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic.login("jan@example.com", "fout")
-        self.assertEqual(picnic.configured_auth_key(), "")
+                run(picnic.login("jan@example.com", "fout"))
+        self.assertEqual(run(picnic.configured_auth_key()), "")
 
     def test_a_blocked_network_is_explained_and_is_not_a_credentials_error(self):
-        with mock.patch.object(picnic.requests, "request", return_value=blocked_page()):
+        with served(return_value=blocked_page()):
             with self.assertRaises(picnic.PicnicBlockedError) as caught:
-                picnic.login("jan@example.com", "goed")
+                run(picnic.login("jan@example.com", "goed"))
         self.assertNotIsInstance(caught.exception, picnic.PicnicAuthError)
         self.assertIn("403", str(caught.exception))
         self.assertNotIn("<html>", str(caught.exception))
-        self.assertEqual(picnic.configured_auth_key(), "")
+        self.assertEqual(run(picnic.configured_auth_key()), "")
 
     def test_a_json_403_from_the_api_itself_stays_a_plain_error(self):
         api_forbidden = response({"error": {"code": "FORBIDDEN", "message": "x"}}, status=403)
-        with mock.patch.object(picnic.requests, "request", return_value=api_forbidden):
+        with served(return_value=api_forbidden):
             with self.assertRaises(RuntimeError) as caught:
-                picnic.login("jan@example.com", "goed")
+                run(picnic.login("jan@example.com", "goed"))
         self.assertNotIsInstance(caught.exception, picnic.PicnicBlockedError)
 
     def test_missing_fields_are_rejected(self):
         for args in (("", "x"), ("a@b.nl", "")):
             with self.assertRaises(ValueError):
-                picnic.login(*args)
+                run(picnic.login(*args))
 
     def test_unknown_2fa_channel_is_rejected(self):
         with self.assertRaises(ValueError):
-            picnic.request_2fa_code("pigeon")
+            run(picnic.request_2fa_code("pigeon"))
 
     def test_unlink_forgets_everything(self):
-        picnic.save_auth_key("key")
-        self.assertEqual(picnic.unlink(), {"connected": False})
-        self.assertEqual(picnic.configured_auth_key(), "")
+        run(picnic.save_auth_key("key"))
+        self.assertEqual(run(picnic.unlink()), {"connected": False})
+        self.assertEqual(run(picnic.configured_auth_key()), "")
 
 
 class AuthenticatedCallTest(TempDataDirTest):
     def test_unlinked_account_is_refused_without_a_request(self):
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             with self.assertRaises(RuntimeError):
-                picnic.get_cart()
+                run(picnic.get_cart())
 
     def test_rotated_key_is_saved(self):
-        picnic.save_auth_key("old")
-        with mock.patch.object(picnic.requests, "request", return_value=response({"items": []}, token="new")):
-            picnic.get_cart()
-        self.assertEqual(picnic.configured_auth_key(), "new")
+        run(picnic.save_auth_key("old"))
+        with served(return_value=response({"items": []}, token="new")):
+            run(picnic.get_cart())
+        self.assertEqual(run(picnic.configured_auth_key()), "new")
 
     def test_expired_key_asks_to_link_again(self):
-        picnic.save_auth_key("old")
+        run(picnic.save_auth_key("old"))
         bad = response({"error": {"code": "AUTH_ERROR", "message": "expired"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic.get_cart()
+                run(picnic.get_cart())
 
     def test_http_errors_carry_status_and_body(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response({"x": 1}, status=500)):
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response({"x": 1}, status=500)):
             with self.assertRaisesRegex(RuntimeError, "^500:"):
-                picnic.get_cart()
+                run(picnic.get_cart())
 
     def test_status_verify_reports_a_dead_link(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         bad = response({"error": {"code": "AUTH_ERROR"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
-            result = picnic.status(verify=True)
+        with served(return_value=bad):
+            result = run(picnic.status(verify=True))
         self.assertEqual((result["connected"], result["verified"]), (True, False))
         self.assertNotIn("key", json.dumps(result))
 
@@ -300,7 +313,7 @@ def cart_with(**quantities):
 
 
 def paths_and_bodies(call):
-    return [(c.args[1].rsplit("/api/15", 1)[1], c.kwargs.get("json")) for c in call.call_args_list]
+    return [(path_of(c), sent_json(c) if c.request.content else None) for c in call.calls]
 
 
 class RealCartShapeTest(unittest.TestCase):
@@ -358,89 +371,89 @@ class RealCartShapeTest(unittest.TestCase):
 class CartEditingTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
 
     def test_raising_a_quantity_adds_the_difference(self):
         replies = [response(cart_with(s1=2)), response(cart_with(s1=5))]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            cart = picnic.set_quantity("s1", 5)
+        with served(side_effect=replies) as call:
+            cart = run(picnic.set_quantity("s1", 5))
         self.assertEqual(paths_and_bodies(call), [("/cart", None), ("/cart/add_product", {"product_id": "s1", "count": 3})])
         self.assertEqual(cart["items"][0]["quantity"], 5)
 
     def test_lowering_a_quantity_removes_the_difference(self):
         replies = [response(cart_with(s1=4)), response(cart_with(s1=1))]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            picnic.set_quantity("s1", 1)
+        with served(side_effect=replies) as call:
+            run(picnic.set_quantity("s1", 1))
         self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
 
     def test_zero_removes_the_whole_line(self):
         replies = [response(cart_with(s1=3)), response(cart_with())]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            cart = picnic.set_quantity("s1", 0)
+        with served(side_effect=replies) as call:
+            cart = run(picnic.set_quantity("s1", 0))
         self.assertEqual(paths_and_bodies(call)[1], ("/cart/remove_product", {"product_id": "s1", "count": 3}))
         self.assertEqual(cart["items"], [])
 
     def test_more_than_picnic_allows_is_refused_before_anything_is_added(self):
         cart = cart_with(s1=2)
         cart["items"][0]["items"][0]["max_count"] = 5
-        with mock.patch.object(picnic.requests, "request", return_value=response(cart)) as call:
+        with served(return_value=response(cart)) as call:
             with self.assertRaisesRegex(ValueError, "maximaal 5"):
-                picnic.set_quantity("s1", 6)
-            self.assertEqual(picnic.set_quantity("s1", 5)["items"][0]["id"], "s1")
+                run(picnic.set_quantity("s1", 6))
+            self.assertEqual(run(picnic.set_quantity("s1", 5))["items"][0]["id"], "s1")
         self.assertNotIn("/cart/add_product", [p for p, _ in paths_and_bodies(call)][:1])
 
     def test_an_unchanged_quantity_changes_nothing(self):
-        with mock.patch.object(picnic.requests, "request", return_value=response(cart_with(s1=2))) as call:
-            picnic.set_quantity("s1", 2)
+        with served(return_value=response(cart_with(s1=2))) as call:
+            run(picnic.set_quantity("s1", 2))
         self.assertEqual(call.call_count, 1)  # alleen het mandje lezen
 
     def test_a_product_that_is_not_in_the_cart_counts_as_zero(self):
         replies = [response(cart_with(s2=1)), response(cart_with(s2=1, s1=2))]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            picnic.set_quantity("s1", 2)
+        with served(side_effect=replies) as call:
+            run(picnic.set_quantity("s1", 2))
         self.assertEqual(paths_and_bodies(call)[1], ("/cart/add_product", {"product_id": "s1", "count": 2}))
 
     def test_bad_input_is_rejected_before_any_request(self):
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             for product, quantity in (("", 1), ("s1", -1), ("s1", 100), ("s1", "veel"), ("s1", None),
                                       ("s1", 1.5), ("s1", True)):
                 with self.assertRaises(ValueError, msg=repr((product, quantity))):
-                    picnic.set_quantity(product, quantity)
+                    run(picnic.set_quantity(product, quantity))
 
     def test_clear_uses_picnics_route_and_counts_what_was_removed(self):
         replies = [response(cart_with(s1=2, s2=1)), response(cart_with())]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            result = picnic.clear_cart()
+        with served(side_effect=replies) as call:
+            result = run(picnic.clear_cart())
         self.assertEqual([p for p, _ in paths_and_bodies(call)], ["/cart", "/cart/clear"])
         self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
 
     def test_clear_falls_back_to_removing_each_product(self):
         replies = [response(cart_with(s1=2, s2=1)), response({"x": 1}, status=404),
                    response(cart_with(s2=1)), response(cart_with())]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies) as call:
-            result = picnic.clear_cart()
+        with served(side_effect=replies) as call:
+            result = run(picnic.clear_cart())
         self.assertEqual(paths_and_bodies(call)[2:], [
             ("/cart/remove_product", {"product_id": "s1", "count": 2}),
             ("/cart/remove_product", {"product_id": "s2", "count": 1})])
         self.assertEqual((result["removed"], result["cart"]["items"]), (3, []))
 
     def test_clearing_an_empty_cart_is_a_no_op(self):
-        with mock.patch.object(picnic.requests, "request", return_value=response(cart_with())) as call:
-            self.assertEqual(picnic.clear_cart()["removed"], 0)
+        with served(return_value=response(cart_with())) as call:
+            self.assertEqual(run(picnic.clear_cart())["removed"], 0)
         self.assertEqual(call.call_count, 1)
 
     def test_a_dead_link_is_not_hidden_by_the_fallback(self):
         bad = response({"error": {"code": "AUTH_ERROR"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), bad]):
+        with served(side_effect=[response(cart_with(s1=1)), bad]):
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic.clear_cart()
+                run(picnic.clear_cart())
 
     def test_nothing_here_places_an_order(self):
         # Alleen de mandje-routes; geen checkout of bestelroute.
-        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), response(cart_with())]) as call:
-            picnic.set_quantity("s1", 0)
-        with mock.patch.object(picnic.requests, "request", side_effect=[response(cart_with(s1=1)), response(cart_with())]) as other:
-            picnic.clear_cart()
+        with served(side_effect=[response(cart_with(s1=1)), response(cart_with())]) as call:
+            run(picnic.set_quantity("s1", 0))
+        with served(side_effect=[response(cart_with(s1=1)), response(cart_with())]) as other:
+            run(picnic.clear_cart())
         for path, _ in paths_and_bodies(call) + paths_and_bodies(other):
             self.assertTrue(path.startswith("/cart"), path)
             self.assertNotIn("checkout", path)
@@ -476,58 +489,58 @@ class DeliverySlotsTest(TempDataDirTest):
             self.assertEqual(picnic.slots_from_cart(cart), [])
 
     def test_only_available_slots_are_listed_by_default(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(self.CART)) as call:
-            slots = picnic.get_delivery_slots(limit=1)
-        self.assertEqual(call.call_args.args[:2], ("GET", picnic.base_url() + "/cart"))
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(self.CART)) as call:
+            slots = run(picnic.get_delivery_slots(limit=1))
+        self.assertEqual((call.calls.last.request.method, sent_url(call.calls.last)), ("GET", picnic.base_url() + "/cart"))
         self.assertEqual([s["id"] for s in slots], ["s2"])
-        with mock.patch.object(picnic.requests, "request", return_value=response(self.CART)):
-            self.assertEqual(len(picnic.get_delivery_slots(limit=10, available_only=False)), 3)
+        with served(return_value=response(self.CART)):
+            self.assertEqual(len(run(picnic.get_delivery_slots(limit=10, available_only=False))), 3)
 
     def test_add_to_cart_clamps_quantities_and_never_orders(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(self.CART)) as call:
-            result = picnic.add_to_cart([{"productId": "s1", "quantity": 500}, {"productId": "s2", "quantity": 0}])
-        paths = {c.args[1].rsplit("/api/15", 1)[1] for c in call.call_args_list}
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(self.CART)) as call:
+            result = run(picnic.add_to_cart([{"productId": "s1", "quantity": 500}, {"productId": "s2", "quantity": 0}]))
+        paths = {path_of(c) for c in call.calls}
         self.assertEqual(paths, {"/cart/add_product"})
-        self.assertEqual([c.kwargs["json"] for c in call.call_args_list],
+        self.assertEqual([sent_json(c) for c in call.calls],
                          [{"product_id": "s1", "count": 99}, {"product_id": "s2", "count": 1}])
         self.assertEqual(len(result["added"]), 2)
         self.assertEqual(result["failed"], [])
 
     def test_one_failing_product_does_not_stop_the_rest(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         replies = [response({"x": 1}, status=500), response(self.CART)]
-        with mock.patch.object(picnic.requests, "request", side_effect=replies):
-            result = picnic.add_to_cart([{"productId": "s1", "quantity": 1}, {"productId": "s2", "quantity": 1}])
+        with served(side_effect=replies):
+            result = run(picnic.add_to_cart([{"productId": "s1", "quantity": 1}, {"productId": "s2", "quantity": 1}]))
         self.assertEqual([a["productId"] for a in result["added"]], ["s2"])
         self.assertEqual([f["productId"] for f in result["failed"]], ["s1"])
 
     def test_a_dead_link_aborts_the_whole_add(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         bad = response({"error": {"code": "AUTH_ERROR"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic.add_to_cart([{"productId": "s1", "quantity": 1}])
+                run(picnic.add_to_cart([{"productId": "s1", "quantity": 1}]))
 
     def test_deliveries(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         data = [{"delivery_id": "d1", "status": "CURRENT", "slot": {"window_start": "a", "window_end": "b"},
                  "eta2": {"start": "c", "end": "d"}, "orders": [{"checkout_total_price": 2500}]}]
-        with mock.patch.object(picnic.requests, "request", return_value=response(data)) as call:
-            deliveries = picnic.get_deliveries(current_only=True)
-        self.assertEqual(call.call_args.kwargs["json"], ["CURRENT"])
+        with served(return_value=response(data)) as call:
+            deliveries = run(picnic.get_deliveries(current_only=True))
+        self.assertEqual(sent_json(call.calls.last), ["CURRENT"])
         self.assertEqual(deliveries[0]["id"], "d1")
         self.assertEqual(deliveries[0]["total"], 25.0)
         self.assertNotIn("address", json.dumps(deliveries))
 
     def test_deliveries_come_newest_first(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         data = [{"delivery_id": "old", "status": "COMPLETED", "slot": {"window_start": "2026-09-01T10:00:00+02:00"}, "orders": []},
                 {"delivery_id": "new", "status": "CURRENT", "slot": {"window_start": "2026-10-25T10:00:00+02:00"}, "orders": []},
                 {"delivery_id": "gone", "status": "COMPLETED", "delivery_time": {"start": "2026-08-01T10:00:00+02:00", "end": "x"}, "orders": []}]
-        with mock.patch.object(picnic.requests, "request", return_value=response(data)):
-            deliveries = picnic.get_deliveries()
+        with served(return_value=response(data)):
+            deliveries = run(picnic.get_deliveries())
         self.assertEqual([d["id"] for d in deliveries], ["new", "old", "gone"])
         self.assertEqual(deliveries[2]["deliveredStart"], "2026-08-01T10:00:00+02:00")
 
@@ -541,29 +554,29 @@ class DeliverySlotsTest(TempDataDirTest):
                            {"id": "o2", "checkout_total_price": 500, "items": [line("s3", "Kaas", 1, 599)]}]}
 
     def test_a_delivery_lists_its_products(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(self.delivery_detail())) as call:
-            found = picnic.get_delivery("d1")
-        self.assertTrue(call.call_args.args[1].endswith("/deliveries/d1"))
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(self.delivery_detail())) as call:
+            found = run(picnic.get_delivery("d1"))
+        self.assertTrue(str(call.calls.last.request.url).endswith("/deliveries/d1"))
         self.assertEqual([(i["id"], i["title"], i["quantity"], i["price"]) for i in found["items"]],
                          [("s1", "Melk", 2, 2.58), ("s2", "Eieren", 1, 2.49), ("s3", "Kaas", 1, 5.99)])
         self.assertEqual((found["itemCount"], found["total"], found["status"]), (4, 15.0, "COMPLETED"))
         self.assertNotIn("available", found["items"][0])
 
     def test_a_delivery_with_odd_content_does_not_crash(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         for odd in ({}, {"orders": None}, {"orders": ["x", {"items": "y"}]}):
-            with mock.patch.object(picnic.requests, "request", return_value=response(odd)):
-                self.assertEqual(picnic.get_delivery("d1")["items"], [])
-        with mock.patch.object(picnic.requests, "request", return_value=response([1])):
+            with served(return_value=response(odd)):
+                self.assertEqual(run(picnic.get_delivery("d1"))["items"], [])
+        with served(return_value=response([1])):
             with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
-                picnic.get_delivery("d1")
+                run(picnic.get_delivery("d1"))
 
     def test_a_delivery_id_must_look_like_an_id(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         for bad in ("", "../cart", "a/b", "x" * 81, None):
             with self.assertRaises(ValueError):
-                picnic.get_delivery(bad)
+                run(picnic.get_delivery(bad))
 
 
 class ExploreTest(TempDataDirTest):
@@ -579,7 +592,7 @@ class ExploreTest(TempDataDirTest):
                 raise RuntimeError("404: niet gevonden")
             return replies.get(path, {})
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=fake):
             report = run(picnic_explore.explore())
         names = [probe["name"] for probe in report["probes"]]
@@ -602,7 +615,7 @@ class ExploreTest(TempDataDirTest):
                 return detail
             return {}
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=fake):
             report = run(picnic_explore.explore())
         self.assertIn(("GET", "/deliveries/d-geheim-1"), asked)
@@ -699,23 +712,23 @@ class FavoritesTest(TempDataDirTest):
 
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
 
     def serve(self, pages):
         def fake(method, path, **kwargs):
             if path == "/bootstrap":
                 return response(self.TABS)
             return response(pages[path.split("/pages/", 1)[1]]) if "/pages/" in path else response({})
-        return mock.patch.object(picnic.requests, "request", side_effect=lambda m, url, **kw: fake(m, url.rsplit("/api/15", 1)[1]))
+        return served(side_effect=lambda request: fake(request.method, str(request.url).rsplit("/api/15", 1)[1]))
 
     def test_the_tabs_are_read_from_bootstrap(self):
-        with mock.patch.object(picnic.requests, "request", return_value=response(self.TABS)):
-            tabs = picnic.bootstrap_tabs()
+        with served(return_value=response(self.TABS)):
+            tabs = run(picnic.bootstrap_tabs())
         self.assertEqual([t["id"] for t in tabs], ["store", "favs", "cart", "cook"])
         self.assertEqual((tabs[1]["reference"], tabs[1]["label"], tabs[2]["reference"]), ("favorites-root", "Favorieten", None))
         for odd in (None, {}, {"tabs": None}, {"tabs": ["x", None]}, []):
-            with mock.patch.object(picnic.requests, "request", return_value=response(odd)):
-                self.assertEqual(picnic.bootstrap_tabs(), [])
+            with served(return_value=response(odd)):
+                self.assertEqual(run(picnic.bootstrap_tabs()), [])
 
     def test_the_favorites_tab_is_found_by_its_words(self):
         find = picnic.favorites_reference
@@ -729,14 +742,14 @@ class FavoritesTest(TempDataDirTest):
     def test_products_come_from_the_page_of_the_tab(self):
         pages = {"favorites-root": self_page(pml_tile(tile("s1", "Halfvolle melk", "1 l", 129), True), pml_tile(tile("s2", "Eieren", "10 stuks", 249), False))}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual([(p["id"], p["title"], p["price"]) for p in found["products"]], [("s1", "Halfvolle melk", 1.29)])
         self.assertEqual((found["total"], found["filtered"]), (2, True))
 
     def test_a_page_without_markers_gives_no_favorites_instead_of_every_product(self):
         pages = {"favorites-root": search_page(tile("s1", "Halfvolle melk", "1 l", 129), tile("s2", "Eieren", "10 stuks", 249))}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual((found["products"], found["total"], found["filtered"]), ([], 2, False))
 
     @staticmethod
@@ -757,8 +770,8 @@ class FavoritesTest(TempDataDirTest):
                  "product-details-page-root?id=s3": self.heart_page("s3", True)}
         asked = []
         real = picnic.product_favorite_flag
-        with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
-            found = picnic.get_favorites()
+        with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=spying(asked, real)):
+            found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s1"], 3, True))
         self.assertEqual(asked, ["s1", "s2"])  # s3 staat onder een andere kop en wordt niet opgevraagd
 
@@ -771,35 +784,35 @@ class FavoritesTest(TempDataDirTest):
     def test_products_are_checked_lazily_in_steps_and_remembered(self):
         asked = []
         real = picnic.product_favorite_flag
-        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
-            first = picnic.get_favorites(budget=2)
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=spying(asked, real)):
+            first = run(picnic.get_favorites(budget=2))
             self.assertEqual(([p["id"] for p in first["products"]], first["pending"], first["filtered"]), (["s2"], 3, True))
-            second = picnic.get_favorites(budget=2)
+            second = run(picnic.get_favorites(budget=2))
             self.assertEqual(([p["id"] for p in second["products"]], second["pending"]), (["s2", "s4"], 1))
-            last = picnic.get_favorites(budget=2)
+            last = run(picnic.get_favorites(budget=2))
             self.assertEqual(([p["id"] for p in last["products"]], last["pending"]), (["s2", "s4"], 0))
             self.assertEqual(asked, ["s1", "s2", "s3", "s4", "s5"])  # elk product precies één keer opgevraagd
-            again = picnic.get_favorites()
+            again = run(picnic.get_favorites())
             self.assertEqual(([p["id"] for p in again["products"]], again["pending"]), (["s2", "s4"], 0))
             self.assertEqual(len(asked), 5)
 
     def test_refresh_forgets_what_was_known(self):
         asked = []
         real = picnic.product_favorite_flag
-        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
-            picnic.get_favorites()
-            picnic.get_favorites()
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=spying(asked, real)):
+            run(picnic.get_favorites())
+            run(picnic.get_favorites())
             self.assertEqual(len(asked), 5)
-            picnic.get_favorites(refresh=True)
+            run(picnic.get_favorites(refresh=True))
             self.assertEqual(len(asked), 10)
 
     def test_remembered_flags_expire(self):
         asked = []
         real = picnic.product_favorite_flag
-        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=lambda i: asked.append(i) or real(i)):
-            picnic.get_favorites()
+        with self.serve(self.lazy_pages()), mock.patch.object(picnic, "product_favorite_flag", side_effect=spying(asked, real)):
+            run(picnic.get_favorites())
             with mock.patch.object(picnic.time, "monotonic", return_value=picnic.time.monotonic() + picnic.FLAG_CACHE_SECONDS + 1):
-                picnic.get_favorites()
+                run(picnic.get_favorites())
         self.assertEqual(len(asked), 10)
 
     def test_a_product_that_does_not_load_is_not_asked_again_right_away(self):
@@ -810,8 +823,8 @@ class FavoritesTest(TempDataDirTest):
             asked.append(product_id)
             raise RuntimeError("404")
         with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=broken):
-            first = picnic.get_favorites(budget=1)
-            second = picnic.get_favorites(budget=1)
+            first = run(picnic.get_favorites(budget=1))
+            second = run(picnic.get_favorites(budget=1))
         self.assertEqual((first["products"], first["pending"], first["filtered"]), ([], 0, False))
         self.assertEqual((second["filtered"], len(asked)), (False, 1))
 
@@ -820,41 +833,41 @@ class FavoritesTest(TempDataDirTest):
                  "product-details-page-root?id=s1": self.heart_page("s1", False),
                  "product-details-page-root?id=s2": self.heart_page("s2", True)}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["filtered"]), (["s2"], True))
 
     def test_checked_and_no_favorite_is_an_empty_list_that_is_not_unknown(self):
         pages = {"favorites-root": self_page(self.heading("Favorieten"), pml_tile(tile("s1", "Prei", "1 st"))),
                  "product-details-page-root?id=s1": self.heart_page("s1", False)}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual((found["products"], found["filtered"]), ([], True))
 
     def test_the_default_in_the_heart_code_is_used_when_there_is_no_initial_value(self):
         page = {"a": {"expression": 'const isFavorite = likedSellables["s1"] === undefined ? true : likedSellables["s1"];'}}
         with mock.patch.object(picnic, "_authed", return_value=page):
-            self.assertIs(picnic.product_favorite_flag("s1"), True)
+            self.assertIs(run(picnic.product_favorite_flag("s1")), True)
         with mock.patch.object(picnic, "_authed", return_value={"body": {}}):
-            self.assertIsNone(picnic.product_favorite_flag("s1"))
+            self.assertIsNone(run(picnic.product_favorite_flag("s1")))
 
     def test_an_expired_link_while_checking_products_is_reported(self):
         pages = {"favorites-root": self_page(self.heading("Favorieten"), pml_tile(tile("s1", "Prei", "1 st")))}
         with self.serve(pages), mock.patch.object(picnic, "product_favorite_flag", side_effect=picnic.PicnicAuthError("verlopen")):
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic.get_favorites()
+                run(picnic.get_favorites())
 
     def test_the_purchases_page_is_tried_when_the_tab_page_has_no_products(self):
         pages = {"favorites-root": {"body": {"children": []}},
                  "purchases-page-root": self_page(pml_tile(tile("s3", "Kaas", "400 g"), True), pml_tile(tile("s4", "Ham", "100 g"), False))}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s3"], 2, True))
 
     def test_only_the_saved_products_of_the_page_are_returned(self):
         pages = {"favorites-root": self_page(pml_tile(tile("s1", "Melk", "1 l"), True), pml_tile(tile("s2", "Kaas", "400 g"), False),
                                             pml_tile(tile("s3", "Eieren", "10 st"), False))}
         with self.serve(pages):
-            found = picnic.get_favorites()
+            found = run(picnic.get_favorites())
         self.assertEqual(([p["id"] for p in found["products"]], found["total"], found["filtered"]), (["s1"], 3, True))
 
     def test_the_pages_it_links_to_are_followed_when_the_tab_has_no_products(self):
@@ -862,7 +875,7 @@ class FavoritesTest(TempDataDirTest):
         pages = {"favorites-root": {"body": {"children": [link]}},
                  "favorites-deep-dive-page-content": {"child": {"children": [pml_tile(tile("s9", "Kaas", "400 g", 599), True)]}}}
         with self.serve(pages):
-            self.assertEqual([p["id"] for p in picnic.get_favorites()["products"]], ["s9"])
+            self.assertEqual([p["id"] for p in run(picnic.get_favorites())["products"]], ["s9"])
 
     def test_following_links_stops_after_a_few_pages_and_never_loops(self):
         page = {"body": {"links": [f"picnic://store/page;id=sub-{n}" for n in range(10)] + ["picnic://store/page;id=favorites-root"]}}
@@ -872,28 +885,26 @@ class FavoritesTest(TempDataDirTest):
             path = url.rsplit("/api/15", 1)[1]
             asked.append(path)
             return response(self.TABS if path == "/bootstrap" else page if path == "/pages/favorites-root" else {})
-        with mock.patch.object(picnic.requests, "request", side_effect=fake):
-            self.assertEqual(picnic.get_favorites()["products"], [])
+        with served(side_effect=requested(fake)):
+            self.assertEqual(run(picnic.get_favorites())["products"], [])
         self.assertEqual([p for p in asked if p.startswith("/pages/sub-")], [f"/pages/sub-{n}" for n in range(picnic.MAX_LINKED_PAGES)])
         self.assertEqual(asked.count("/pages/favorites-root"), 1)
 
     def test_no_favorites_tab_is_reported(self):
-        with mock.patch.object(picnic.requests, "request", return_value=response(bootstrap(page_tab("store", "store-root", "Winkel")))):
+        with served(return_value=response(bootstrap(page_tab("store", "store-root", "Winkel")))):
             with self.assertRaisesRegex(RuntimeError, "geen Favorieten-tab"):
-                picnic.get_favorites()
+                run(picnic.get_favorites())
 
     def test_a_page_that_is_not_json_is_reported_and_nothing_is_written(self):
-        reply = response(None)
-        reply.content, reply.text = b"RSC", "RSC"
-        reply.json.side_effect = ValueError("geen json")
+        reply = httpx.Response(200, content=b"RSC")
         calls = []
 
         def fake(method, url, **kwargs):
             calls.append(method)
             return response(self.TABS) if url.endswith("/bootstrap") else reply
-        with mock.patch.object(picnic.requests, "request", side_effect=fake):
+        with served(side_effect=requested(fake)):
             with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
-                picnic.get_favorites()
+                run(picnic.get_favorites())
         self.assertEqual(set(calls), {"GET"})
 
     def test_favorites_route(self):
@@ -996,7 +1007,7 @@ class FavoritesTest(TempDataDirTest):
             if path == "/bootstrap":
                 return response(self.TABS)
             return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
-        with mock.patch.object(picnic.requests, "request", side_effect=fake):
+        with served(side_effect=requested(fake)):
             report = run(picnic_explore.explore(extended=True))
         names = {p["name"]: p for p in report["probes"]}
         tabs = next(p for n, p in names.items() if n.startswith("tabbalk"))
@@ -1080,7 +1091,7 @@ class RecipeExploreTest(TempDataDirTest):
                 raise RuntimeError("404: {\"error\": \"geheim\"}")
             return {}
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=fake):
             report = run(picnic_explore.explore(extended=True))
         names = {probe["name"]: probe for probe in report["probes"]}
@@ -1197,14 +1208,14 @@ class PicnicRoutesTest(TempDataDirTest):
 
     def test_user_errors_show_our_own_explanation(self):
         bad = response({"error": {"code": "AUTH_INVALID_CRED", "message": "geheim detail van Picnic"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "fout"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("e-mailadres en wachtwoord", reply.get_json()["error"])
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
     def test_a_blocked_network_shows_our_explanation_instead_of_a_generic_error(self):
-        with mock.patch.object(picnic.requests, "request", return_value=blocked_page()):
+        with served(return_value=blocked_page()):
             reply = self.client.post("/api/picnic/auth", json={"email": "jan@example.com", "password": "goed"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("netwerk", reply.get_json()["error"])
@@ -1212,10 +1223,10 @@ class PicnicRoutesTest(TempDataDirTest):
 
     def test_wrong_code_shows_our_text_not_picnics(self):
         login = response({"second_factor_authentication_required": True}, token="pending")
-        with mock.patch.object(picnic.requests, "request", return_value=login):
-            picnic.login("jan@example.com", "geheim")
+        with served(return_value=login):
+            run(picnic.login("jan@example.com", "geheim"))
         bad = response({"error": {"code": "TWO_FA_INVALID", "message": "geheim detail van Picnic"}})
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
+        with served(return_value=bad):
             reply = self.client.post("/api/picnic/auth/2fa/verify", json={"code": "000000"})
         self.assertEqual(reply.status_code, 400)
         self.assertIn("code", reply.get_json()["error"])
@@ -1227,13 +1238,13 @@ class PicnicRoutesTest(TempDataDirTest):
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_status_check_does_not_echo_picnic_responses(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response({"x": "geheim"}, status=500)):
-            result = picnic.status(verify=True)
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response({"x": "geheim"}, status=500)):
+            result = run(picnic.status(verify=True))
         self.assertEqual(result["error"], "RuntimeError")
         bad = response({"error": {"code": "AUTH_ERROR", "message": "geheim"}}, status=401)
-        with mock.patch.object(picnic.requests, "request", return_value=bad):
-            result = picnic.status(verify=True)
+        with served(return_value=bad):
+            result = run(picnic.status(verify=True))
         self.assertIn("Koppel opnieuw", result["error"])
         self.assertNotIn("geheim", json.dumps(result))
 
@@ -1248,6 +1259,55 @@ class PicnicRoutesTest(TempDataDirTest):
         with mock.patch.object(picnic, "verify_2fa", return_value={"connected": True}) as verify:
             self.client.post("/api/picnic/auth/2fa/verify", json={"code": "123456"})
         verify.assert_called_once_with("123456")
+
+
+class ConcurrencyTest(TempDataDirTest):
+    def test_six_searches_at_once_are_all_open_at_the_same_time(self):
+        # Geen verzoek houdt de event loop vast: zes zoekopdrachten tegelijk staan alle zes open bij Picnic voordat er een
+        # antwoord komt. Liepen ze na elkaar, dan wachtte de eerste vergeefs op de rest.
+        run(picnic.save_auth_key("key"))
+        state: list[int] = [0, 0]  # nu open, hoogste aantal tegelijk
+
+        async def scenario() -> list[list[dict]]:
+            everyone = asyncio.Event()
+
+            async def answer(request):
+                state[0] += 1
+                state[1] = max(state[1], state[0])
+                if state[0] == 6:
+                    everyone.set()
+                await asyncio.wait_for(everyone.wait(), 5)
+                state[0] -= 1
+                return response(search_page(tile("s1", "Melk", "1 l")))
+
+            with served(side_effect=answer) as route:
+                found = list(await asyncio.gather(*(picnic.search_products(f"melk {n}") for n in range(6))))
+            self.assertEqual(route.call_count, 6)
+            return found
+
+        found = run(scenario())
+        self.assertEqual([[p["id"] for p in products] for products in found], [["s1"]] * 6)
+        self.assertEqual(state[1], 6)
+
+    def test_offer_pages_wait_between_two_pages_and_not_before_the_first(self):
+        events: list[str] = []
+        pages = {
+            "deals-a": {"body": {"x": "nl.picnic-supermarkt://store/page;id=deals-b"}},
+            "deals-b": {"body": {"x": "nl.picnic-supermarkt://store/page;id=deals-c"}},
+            "deals-c": {"body": {}},
+        }
+
+        async def page(reference):
+            events.append(reference)
+            return pages[reference]
+
+        async def wait(seconds):
+            events.append(f"pauze {seconds}")
+
+        with mock.patch.object(picnic, "_page", side_effect=page), mock.patch.object(picnic, "_wait", side_effect=wait):
+            run(picnic._walk_offer_pages("deals-a", False, []))
+        self.assertEqual(events, ["deals-a", f"pauze {picnic.OFFER_PAGE_DELAY}", "deals-b", f"pauze {picnic.OFFER_PAGE_DELAY}", "deals-c"])
+        self.assertEqual(picnic.OFFER_PAGE_DELAY, 0.15)
 
 
 if __name__ == "__main__":

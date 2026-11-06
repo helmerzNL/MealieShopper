@@ -19,7 +19,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, http_client, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, in_db, run  # noqa: E402
+from support import SyncClient, in_db, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = "2026-10-20"
@@ -62,7 +62,7 @@ class Case(unittest.TestCase):
         return self.served[url]
 
     def sync(self, when, *items, store="ah"):
-        with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
+        with mock.patch.object(offers, "_now", return_value=when), mock.patch.dict(offers.FETCHERS, {store: lambda: returned(list(items))}):
             run(offers.sync(store))
 
     def bought(self, order_id, day, *items):

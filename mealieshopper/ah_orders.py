@@ -264,7 +264,7 @@ async def get_basket() -> dict[str, Any]:
 
 async def sync_basket() -> dict[str, Any]:
     """Bewaar het AH-mandje: de boodschappenlijst waar het weekmenu in schrijft (niet de actieve bestelling)."""
-    await save_basket(ah.get_shopping_list())
+    await save_basket(await ah.get_shopping_list())
     return await get_basket()
 
 
@@ -301,9 +301,9 @@ async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], kind: 
         )
 
 
-def _details_or_none(order_id: int) -> dict[str, Any] | None:
+async def _details_or_none(order_id: int) -> dict[str, Any] | None:
     try:
-        return ah.get_order_details(order_id)
+        return await ah.get_order_details(order_id)
     except Exception:  # noqa: BLE001 - de kop van de bestelling bewaren we toch; de producten volgen bij de volgende sync
         return None
 
@@ -313,7 +313,7 @@ async def _forget_order(conn: aiosqlite.Connection, order_id: int) -> None:
     await conn.execute("DELETE FROM ah_orders WHERE order_id = ?", (order_id,))
 
 
-def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
+async def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
     """Alle afgeronde bestellingen, nieuwste eerst, bladerend met `offset` (AH geeft er per keer 10 en telt de offset in rijen).
 
     Het bladeren stopt als een pagina niets nieuws geeft (einde, of AH negeert de offset) en zodra alles op een pagina al is
@@ -324,7 +324,7 @@ def _closed_orders(complete: set[int]) -> list[dict[str, Any]]:
     offset = 0
     for _ in range(MAX_CLOSED_PAGES):
         try:
-            page = ah.get_closed_fulfillments(offset)
+            page = await ah.get_closed_fulfillments(offset)
         except Exception:  # noqa: BLE001 - wat al binnen is, blijft; de rest volgt bij de volgende synchronisatie
             break
         new = [order for order in page if order["id"] not in seen]
@@ -344,24 +344,24 @@ async def sync_orders() -> dict[str, Any]:
     Afgeronde bestellingen komen er pagina voor pagina (nieuwste eerst) uit; een volgende synchronisatie stopt zodra ze
     bij bestellingen komt die al bewaard zijn. Geannuleerde bestellingen bewaren we niet (ze komen ook bij "open" voorbij).
     """
-    listed_open = ah.get_open_fulfillments()
+    listed_open = await ah.get_open_fulfillments()
     async with _aconnect() as conn:
         previously_open = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'open'")]
         complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 1")}
         incomplete = [row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0")]
-    closed_orders = _closed_orders(complete)
+    closed_orders = await _closed_orders(complete)
     cancelled = {order["id"] for order in listed_open + closed_orders if order.get("deliveryStatus") == "CANCELLED"}
     open_orders = [order for order in listed_open if order["id"] not in cancelled]
     open_ids = {order["id"] for order in open_orders}
     delivered = [order for order in closed_orders if order["id"] not in cancelled and order["id"] not in open_ids]
 
-    fetched = {order["id"]: _details_or_none(order["id"]) for order in open_orders}
+    fetched = {order["id"]: await _details_or_none(order["id"]) for order in open_orders}
     # Wat open was en het nu niet meer is, is afgeleverd (of geannuleerd): een laatste keer ophalen.
     gone = [order_id for order_id in previously_open if order_id not in open_ids and order_id not in cancelled]
     listed_ids = {order["id"] for order in delivered}
     todo = [order for order in delivered if order["id"] not in complete]
     wanted = [order["id"] for order in todo] + [order_id for order_id in gone + incomplete if order_id not in listed_ids]
-    details = {order_id: _details_or_none(order_id) for order_id in list(dict.fromkeys(wanted))[:ORDER_DETAILS_PER_SYNC]}
+    details = {order_id: await _details_or_none(order_id) for order_id in list(dict.fromkeys(wanted))[:ORDER_DETAILS_PER_SYNC]}
 
     archived = 0
     async with _aconnect() as conn:
@@ -394,7 +394,7 @@ async def sync_orders() -> dict[str, Any]:
 
 async def add_order_by_id(order_id: int) -> dict[str, Any]:
     """Haal één bestelling op uit AH (elke bestelling-id) en bewaar hem als afgeleverd."""
-    details = ah.get_order_details(order_id)
+    details = await ah.get_order_details(order_id)
     async with _aconnect() as conn:
         await _save_order(conn, {**details, "id": order_id}, "delivered", details["items"])
         await conn.commit()
@@ -488,7 +488,7 @@ async def sync_receipts() -> dict[str, Any]:
     """Vul de kassabonnen aan: nieuwe bonnen ophalen, daarna van een aantal bonnen de regels."""
     listed: list[dict[str, Any]] = []
     for page in range(MAX_RECEIPT_PAGES):
-        batch = ah.get_receipts(page * RECEIPT_PAGE, RECEIPT_PAGE)
+        batch = await ah.get_receipts(page * RECEIPT_PAGE, RECEIPT_PAGE)
         listed.extend(batch)
         if len(batch) < RECEIPT_PAGE:
             break
@@ -506,7 +506,7 @@ async def sync_receipts() -> dict[str, Any]:
     failed = 0
     for receipt_id in pending:
         try:
-            detail = ah.get_receipt(receipt_id)
+            detail = await ah.get_receipt(receipt_id)
         except Exception:  # noqa: BLE001 - deze bon proberen we bij de volgende synchronisatie opnieuw
             failed += 1
             continue
@@ -618,10 +618,10 @@ async def _wait(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-async def _polite(call: Callable[[], T]) -> T:
+async def _polite(call: Callable[[], Awaitable[T]]) -> T:
     """Een verzoek aan AH binnen het tempo en het uurbudget van het koppelen (de zoekopdrachten en het ophalen van foto's samen).
 
-    `call` is nog synchroon (`ah` volgt in Taak 20): het verzoek zelf houdt tot dan de event loop vast, de pauze niet."""
+    `call` geeft de coroutine van het verzoek. Het slot blijft vast tot het antwoord er is, zodat er een verzoek tegelijk loopt."""
     async with _lock("pace"):
         if len(_prune_pace(time.monotonic())) >= RECEIPT_PRODUCTS_PER_HOUR:
             raise _HourlyBudgetSpent()
@@ -630,7 +630,7 @@ async def _polite(call: Callable[[], T]) -> T:
             await _wait(wait)
         _PACE["last"] = time.monotonic()
         _PACE["recent"].append(_PACE["last"])
-        return call()
+        return await call()
 
 
 async def _polite_search(query: str) -> list[tuple[int, int, str, str]]:

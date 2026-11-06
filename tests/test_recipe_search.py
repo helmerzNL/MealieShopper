@@ -3,21 +3,22 @@ import tempfile
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, routes, run, sent_json, sent_url, served  # noqa: E402
 
 
 def graphql_response(result, total=None, has_next=True):
-    response = mock.Mock(ok=True, status_code=200)
-    response.json.return_value = {
+    response = httpx.Response(200, json={
         "data": {"recipeSearch": {
             "page": {"total": len(result) if total is None else total, "hasNextPage": has_next},
             "result": result,
         }}
-    }
+    })
     return response
 
 
@@ -35,15 +36,15 @@ def item(recipe_id=1302917, **extra):
 
 class SearchTestCase(unittest.TestCase):
     def search(self, response, *args, **kwargs):
-        with mock.patch.object(ah, "get_token", return_value="anon"), \
-                mock.patch.object(ah.requests, "post", return_value=response) as post, \
-                mock.patch.object(ah.requests, "get", side_effect=AssertionError("de oude REST-route is weg")):
-            result = ah.search_recipes(*args, **kwargs)
+        with mock.patch.object(ah, "get_token", return_value="anon"), routes() as router:
+            post = router.post().mock(return_value=response)
+            router.get().mock(side_effect=AssertionError("de oude REST-route is weg"))
+            result = run(ah.search_recipes(*args, **kwargs))
         return result, post
 
     @staticmethod
     def sent(post):
-        return post.call_args.kwargs["json"]["variables"]["query"]
+        return sent_json(post.calls.last)["variables"]["query"]
 
 
 class PickImageTest(unittest.TestCase):
@@ -95,15 +96,15 @@ class SearchRecipesTest(SearchTestCase):
     def test_search_text_travels_as_a_variable(self):
         text = 'pasta "met" \\ kip\n{ evil }'
         _, post = self.search(graphql_response([item()]), text)
-        payload = post.call_args.kwargs["json"]
+        payload = sent_json(post.calls.last)
         self.assertEqual(self.sent(post)["searchText"], text)
         self.assertNotIn("evil", payload["query"])
         self.assertIn("$query: RecipeSearchParams!", payload["query"])
 
     def test_uses_the_graphql_endpoint_with_the_anonymous_token(self):
         _, post = self.search(graphql_response([item()]), "pasta")
-        self.assertEqual(post.call_args.args[0], "https://api.ah.nl/graphql")
-        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer anon")
+        self.assertEqual(sent_url(post.calls.last), "https://api.ah.nl/graphql")
+        self.assertEqual(post.calls.last.request.headers["Authorization"], "Bearer anon")
 
 
 class PagingTest(SearchTestCase):
@@ -135,31 +136,29 @@ class PagingTest(SearchTestCase):
         self.assertTrue(result["hasNextPage"])
 
     def test_beyond_the_window_is_a_clear_error_without_a_request(self):
-        with mock.patch.object(ah.requests, "post", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             with self.assertRaises(RuntimeError) as ctx:
-                ah.search_recipes("x", 167, 12)
+                run(ah.search_recipes("x", 167, 12))
         self.assertIn("2.000", str(ctx.exception))
         self.assertIn("Verfijn", str(ctx.exception))
 
 
 class SearchErrorsTest(SearchTestCase):
     def test_graphql_errors_name_the_problem(self):
-        response = mock.Mock(ok=True, status_code=200)
-        response.json.return_value = {"errors": [{"message": "unknown field input value at `$query.x`"}]}
+        response = httpx.Response(200, json={"errors": [{"message": "unknown field input value at `$query.x`"}]})
         with self.assertRaises(RuntimeError) as ctx:
             self.search(response, "pasta")
         self.assertIn("AH zoeken mislukt", str(ctx.exception))
         self.assertIn("unknown field", str(ctx.exception))
 
     def test_http_errors_include_the_status(self):
-        response = mock.Mock(ok=False, status_code=503, text="<HTML>Error</HTML>")
+        response = httpx.Response(503, text="<HTML>Error</HTML>")
         with self.assertRaises(RuntimeError) as ctx:
             self.search(response, "pasta")
         self.assertIn("503", str(ctx.exception))
 
     def test_empty_data_is_no_hits_not_a_crash(self):
-        response = mock.Mock(ok=True, status_code=200)
-        response.json.return_value = {"data": {"recipeSearch": None}}
+        response = httpx.Response(200, json={"data": {"recipeSearch": None}})
         result, _ = self.search(response, "pasta")
         self.assertEqual(result, {"recipes": [], "total": 0, "hasNextPage": False})
 

@@ -75,14 +75,13 @@ def environment() -> dict[str, Any]:
 
 
 async def _integrations_configured() -> bool:
-    # ah, crisp, jumbo en picnic blijven synchroon tot hun eigen taak.
     try:
         return (
             bool(await mealie.mealie_url() and await mealie.mealie_token())
-            or bool(ah.configured_refresh_token())
-            or bool(jumbo.configured_refresh_token())
-            or bool(picnic.configured_auth_key())
-            or bool(crisp.configured_client_id())
+            or bool(await ah.configured_refresh_token())
+            or bool(await jumbo.configured_refresh_token())
+            or bool(await picnic.configured_auth_key())
+            or bool(await crisp.configured_client_id())
         )
     except Exception:  # noqa: BLE001 - een onleesbare database telt niet als "al ingesteld"
         return False

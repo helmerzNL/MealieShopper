@@ -406,7 +406,7 @@ async def offer_probes() -> list[dict[str, Any]]:
     """Waar staan de aanbiedingen? Kijk naar de pagina's waar `get_offers` zoekt: de startpagina en wat daar over aanbiedingen gaat."""
     probes: list[dict[str, Any]] = []
     try:
-        references = picnic.offer_references()
+        references = await picnic.offer_references()
     except Exception as exc:  # noqa: BLE001 - zonder tabbalk geen paginalijst; de rest van het rapport blijft
         return [{"name": "aanbiedingen: welke pagina's zoeken we", "ok": False, "error": str(exc)[:200]}]
     probes.append({"name": "aanbiedingen: welke pagina's zoeken we (pagina, streng)", "ok": True,
@@ -443,8 +443,8 @@ async def explore(extended: bool = False) -> dict[str, Any]:
         tile = next((n for n in picnic._walk(page.get("body")) if n.get("type") == "SELLING_UNIT_TILE"), None)
         probes.append({"name": "een zoektegel (ruwe vorm)", "ok": tile is not None, "shape": shape(tile)})
 
-    def raw_units(term: str) -> list[dict[str, Any]]:
-        found = picnic._authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
+    async def raw_units(term: str) -> list[dict[str, Any]]:
+        found = await picnic._authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
         return [node["sellingUnit"] for node in picnic._walk(found.get("body") if isinstance(found, dict) else None)
                 if node.get("type") == "SELLING_UNIT_TILE" and isinstance(node.get("sellingUnit"), dict)]
 
@@ -599,7 +599,7 @@ async def explore(extended: bool = False) -> dict[str, Any]:
             flags: dict[str, Any] = {}
             for index, product in enumerate(sample):
                 try:
-                    flags[f"product {index + 1}"] = like_constants(picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
+                    flags[f"product {index + 1}"] = like_constants(await picnic._authed("GET", f"/pages/product-details-page-root?id={product['id']}"))
                 except Exception as exc:  # noqa: BLE001 - een product dat niet laadt slaan we over
                     flags[f"product {index + 1}"] = f"fout: {type(exc).__name__}"
             probes.append({"name": "favorieten: waar/onwaar in de hartjescode van de productpagina's (per product)", "ok": True, "info": flags})
@@ -633,7 +633,7 @@ async def explore(extended: bool = False) -> dict[str, Any]:
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
-        "linked": bool(picnic.configured_auth_key()),
+        "linked": bool(await picnic.configured_auth_key()),
         "probes": probes,
         "ok": sum(1 for probe in probes if probe["ok"]),
     }

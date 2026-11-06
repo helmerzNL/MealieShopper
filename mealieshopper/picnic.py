@@ -13,6 +13,7 @@ nooit een bestelling geplaatst: de gebruiker rondt dat zelf af in de app.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -21,9 +22,9 @@ from os import environ
 from typing import Any
 from urllib.parse import quote
 
-import requests
+import httpx
 
-from . import auth, deals
+from . import auth, deals, http_client
 from .i18n import tr
 from .packs import MAX_CART_QUANTITY as MAX_QUANTITY, assess_packs, normalize_quantity
 
@@ -76,7 +77,7 @@ def _not_linked() -> RuntimeError:
     )
 
 
-def _call(
+async def _call(
     method: str, path: str, *, token: str | None = None, body: Any = None, text: bool = False
 ) -> tuple[Any, str | None]:
     """Eén verzoek aan Picnic. Geeft (antwoord, nieuwe auth-key uit de headers) terug.
@@ -86,7 +87,7 @@ def _call(
     headers = dict(HEADERS)
     if token:
         headers[AUTH_HEADER] = token
-    response = requests.request(
+    response: httpx.Response = await http_client.client("picnic").request(
         method, base_url() + path, headers=headers, json=body, timeout=30
     )
     new_token = response.headers.get(AUTH_HEADER)
@@ -113,7 +114,7 @@ def _call(
                 "while after many attempts. Try again later or from a home network.",
             )
         )
-    if not response.ok:
+    if response.status_code >= 400:
         raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
     return data, new_token
 
@@ -121,25 +122,25 @@ def _call(
 # --- koppeling ---------------------------------------------------------------------------
 
 
-def configured_auth_key() -> str:
+async def configured_auth_key() -> str:
     # Picnic vernieuwt de key bij gebruik en we bewaren de nieuwste. Een omgevingsvariabele als
     # startwaarde is er niet: de key komt uit een login met sms-code en is dus niet vooraf te maken.
-    return auth.get_secret(AUTH_KEY_SECRET)
+    return await auth.aget_secret(AUTH_KEY_SECRET)
 
 
-def save_auth_key(key: str) -> None:
+async def save_auth_key(key: str) -> None:
     value = str(key or "").strip()
     if not value:
         raise RuntimeError(tr("Picnic gaf geen sessie terug", "Picnic returned no session"))
-    auth.set_secret(AUTH_KEY_SECRET, value)
+    await auth.aset_secret(AUTH_KEY_SECRET, value)
 
 
-def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> Any:
-    token = configured_auth_key()
+async def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> Any:
+    token = await configured_auth_key()
     if not token:
         raise _not_linked()
     try:
-        data, new_token = _call(method, path, token=token, body=body, text=text)
+        data, new_token = await _call(method, path, token=token, body=body, text=text)
     except PicnicAuthError as exc:
         raise PicnicAuthError(
             tr(
@@ -148,16 +149,16 @@ def _authed(method: str, path: str, *, body: Any = None, text: bool = False) -> 
             )
         ) from exc
     if new_token and new_token != token:
-        save_auth_key(new_token)
+        await save_auth_key(new_token)
     return data
 
 
-def _save_pending(token: str) -> None:
-    auth.set_secret(PENDING_SECRET, json.dumps({"token": token, "at": time.time()}))
+async def _save_pending(token: str) -> None:
+    await auth.aset_secret(PENDING_SECRET, json.dumps({"token": token, "at": time.time()}))
 
 
-def _pending_token() -> str:
-    raw = auth.get_secret(PENDING_SECRET)
+async def _pending_token() -> str:
+    raw = await auth.aget_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -173,7 +174,7 @@ def _pending_token() -> str:
     return token
 
 
-def login(email: str, password: str) -> dict[str, Any]:
+async def login(email: str, password: str) -> dict[str, Any]:
     """Log in. Vraagt Picnic om een tweestapscode, dan is `twoFactorRequired` waar."""
     email = str(email or "").strip()
     if not email or not password:
@@ -182,7 +183,7 @@ def login(email: str, password: str) -> dict[str, Any]:
         )
     secret = md5(password.encode("utf-8")).hexdigest()
     try:
-        data, token = _call(
+        data, token = await _call(
             "POST",
             "/user/login",
             body={"key": email, "secret": secret, "client_id": CLIENT_ID},
@@ -194,34 +195,34 @@ def login(email: str, password: str) -> dict[str, Any]:
     if isinstance(data, dict) and data.get("second_factor_authentication_required") is True:
         if not token:
             raise RuntimeError(tr("Picnic gaf geen sessie terug", "Picnic returned no session"))
-        _save_pending(token)
+        await _save_pending(token)
         return {"connected": False, "twoFactorRequired": True}
-    save_auth_key(token or "")
-    auth.delete_secret(PENDING_SECRET)
+    await save_auth_key(token or "")
+    await auth.adelete_secret(PENDING_SECRET)
     return {"connected": True, "twoFactorRequired": False}
 
 
-def request_2fa_code(channel: str = "SMS") -> None:
+async def request_2fa_code(channel: str = "SMS") -> None:
     channel = str(channel or "SMS").strip().upper()
     if channel not in TWO_FACTOR_CHANNELS:
         raise ValueError(tr("Onbekend kanaal voor de code", "Unknown channel for the code"))
-    _two_factor("/user/2fa/generate", {"channel": channel})
+    await _two_factor("/user/2fa/generate", {"channel": channel})
 
 
-def verify_2fa(code: str) -> dict[str, Any]:
+async def verify_2fa(code: str) -> dict[str, Any]:
     code = str(code or "").strip()
     if not code:
         raise ValueError(tr("Geen code opgegeven", "No code provided"))
-    token = _pending_token()
-    new_token = _two_factor("/user/2fa/verify", {"otp": code}, token=token)
-    save_auth_key(new_token or token)
-    auth.delete_secret(PENDING_SECRET)
+    token = await _pending_token()
+    new_token = await _two_factor("/user/2fa/verify", {"otp": code}, token=token)
+    await save_auth_key(new_token or token)
+    await auth.adelete_secret(PENDING_SECRET)
     return {"connected": True}
 
 
-def _two_factor(path: str, body: dict[str, Any], *, token: str | None = None) -> str | None:
-    token = token or _pending_token()
-    data, new_token = _call("POST", path, token=token, body=body)
+async def _two_factor(path: str, body: dict[str, Any], *, token: str | None = None) -> str | None:
+    token = token or await _pending_token()
+    data, new_token = await _call("POST", path, token=token, body=body)
     error = data.get("error") if isinstance(data, dict) else None
     if isinstance(error, dict) and error.get("code"):
         raise Picnic2FAError(
@@ -233,26 +234,26 @@ def _two_factor(path: str, body: dict[str, Any], *, token: str | None = None) ->
     return new_token
 
 
-def unlink() -> dict[str, Any]:
-    auth.delete_secret(AUTH_KEY_SECRET)
-    auth.delete_secret(PENDING_SECRET)
+async def unlink() -> dict[str, Any]:
+    await auth.adelete_secret(AUTH_KEY_SECRET)
+    await auth.adelete_secret(PENDING_SECRET)
     return {"connected": False}
 
 
-def status(verify: bool = False) -> dict[str, Any]:
+async def status(verify: bool = False) -> dict[str, Any]:
     """Is er een koppeling, en klopt die nog? Geeft geen persoonsgegevens terug."""
     result: dict[str, Any] = {
-        "connected": bool(configured_auth_key()),
+        "connected": bool(await configured_auth_key()),
         "twoFactorPending": False,
     }
     try:
-        _pending_token()
+        await _pending_token()
         result["twoFactorPending"] = True
     except RuntimeError:
         pass
     if verify and result["connected"]:
         try:
-            _authed("GET", "/user")
+            await _authed("GET", "/user")
             result["verified"] = True
         except Exception as exc:  # noqa: BLE001 - de reden tonen we aan de beheerder
             result["verified"] = False
@@ -419,9 +420,9 @@ MAX_LINKED_PAGES = 4
 FAVORITE_FALLBACKS = ("purchases-page-root",)
 
 
-def bootstrap_tabs() -> list[dict[str, Any]]:
+async def bootstrap_tabs() -> list[dict[str, Any]]:
     """De tabs van de Picnic-app: id, soort, titel, label en de pagina waar de tab naartoe gaat."""
-    data = _authed("GET", "/bootstrap")
+    data = await _authed("GET", "/bootstrap")
     tabs = []
     for tab in data.get("tabs") or [] if isinstance(data, dict) else []:
         if not isinstance(tab, dict):
@@ -472,9 +473,9 @@ def clear_favorites_cache() -> None:
     _candidates_cache.clear()
 
 
-def product_favorite_flag(product_id: Any) -> bool | None:
+async def product_favorite_flag(product_id: Any) -> bool | None:
     """Is dit product een favoriet? Gelezen uit de hartjescode van zijn productpagina; None als die niets zegt."""
-    page = _authed("GET", f"/pages/product-details-page-root?id={quote(_product_id(product_id), safe='')}")
+    page = await _authed("GET", f"/pages/product-details-page-root?id={quote(_product_id(product_id), safe='')}")
     initial: list[str] = []
     default: list[str] = []
     for node in _walk(page):
@@ -517,13 +518,13 @@ def _cached_flag(product_id: str) -> Any:
     return flag
 
 
-def _checked_flag(product_id: str) -> bool | None:
+async def _checked_flag(product_id: str) -> bool | None:
     """De vlag van een product uit de bewaarde antwoorden, of vers opgehaald. Een product dat niet laadt geeft None."""
     flag = _cached_flag(product_id)
     if flag is not _UNSET:
         return flag
     try:
-        flag = product_favorite_flag(product_id)
+        flag = await product_favorite_flag(product_id)
     except PicnicAuthError:
         raise
     except Exception:  # noqa: BLE001 - één product dat niet laadt mag de lijst niet breken
@@ -532,8 +533,8 @@ def _checked_flag(product_id: str) -> bool | None:
     return flag
 
 
-def _page(reference: str) -> Any:
-    return _authed("GET", f"/pages/{reference}", text=True)
+async def _page(reference: str) -> Any:
+    return await _authed("GET", f"/pages/{reference}", text=True)
 
 
 def saved_markers(page: Any) -> tuple[set[str], dict[str, bool]]:
@@ -580,13 +581,13 @@ def only_favorites(products: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return products, False
 
 
-def _page_products(reference: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+async def _page_products(reference: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """De pagina en zijn producten, elk met de markering `favorite` (zie `mark_favorites`).
 
     Staan er op de pagina zelf geen producten, dan volgen we de pagina's waar hij naar verwijst (de inhoud van
     een tab zit bij Picnic vaak op een aparte pagina, zoals bij de bewaarde recepten).
     """
-    page = _page(reference)
+    page = await _page(reference)
     if not isinstance(page, dict):
         raise RuntimeError(tr("Picnic gaf de favorieten in een onbekend formaat", "Picnic returned the favorites in an unknown format"))
     products = mark_favorites(products_from_page(page), page)
@@ -597,18 +598,18 @@ def _page_products(reference: str) -> tuple[dict[str, Any], list[dict[str, Any]]
         if linked == reference or not _PAGE_REFERENCE.match(linked):
             continue
         followed.append(linked)
-        sub_page = _page(linked)
+        sub_page = await _page(linked)
         if isinstance(sub_page, dict):
             page, products = sub_page, mark_favorites(products_from_page(sub_page), sub_page)
     return page, products
 
 
-def _favorite_candidates() -> dict[str, Any]:
+async def _favorite_candidates() -> dict[str, Any]:
     """Wat de Favorieten-tab toont: ofwel de favorieten zelf (de pagina markeert ze), ofwel de producten die we nog moeten controleren."""
     cached = _candidates_cache.get("value")
     if cached and time.monotonic() - _candidates_cache["at"] < CANDIDATES_CACHE_SECONDS:
         return cached
-    reference = favorites_reference(bootstrap_tabs())
+    reference = favorites_reference(await bootstrap_tabs())
     if not reference:
         raise RuntimeError(
             tr(
@@ -619,7 +620,7 @@ def _favorite_candidates() -> dict[str, Any]:
     result: dict[str, Any] = {"saved": None, "candidates": [], "total": 0}
     for candidate in dict.fromkeys([reference, *FAVORITE_FALLBACKS]):
         try:
-            page, products = _page_products(candidate)
+            page, products = await _page_products(candidate)
         except Exception:  # noqa: BLE001 - alleen de pagina van de tab zelf moet er zijn
             if candidate == reference:
                 raise
@@ -636,7 +637,7 @@ def _favorite_candidates() -> dict[str, Any]:
     return result
 
 
-def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str, Any]:
+async def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str, Any]:
     """De favoriete producten van de gebruiker, uit de Favorieten-tab van de app.
 
     Die tab laat ook andere producten zien (bij een account zonder boodschappen is het een lijst met voorgestelde
@@ -652,7 +653,7 @@ def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str,
     """
     if refresh:
         clear_favorites_cache()
-    found = _favorite_candidates()
+    found = await _favorite_candidates()
     if found["saved"] is not None:
         return {"products": found["saved"], "total": found["total"], "filtered": True, "pending": 0}
     started = time.monotonic()
@@ -665,7 +666,7 @@ def get_favorites(budget: int | None = None, refresh: bool = False) -> dict[str,
         if not asked_before and ((budget is not None and fresh >= budget) or time.monotonic() - started > FAVORITE_CHECK_SECONDS):
             pending += 1
             continue
-        flag = _checked_flag(product["id"])
+        flag = await _checked_flag(product["id"])
         fresh += 0 if asked_before else 1
         if flag is None:
             continue
@@ -790,11 +791,11 @@ def lazy_pages(page: Any) -> list[str]:
     return [ref for ref in dict.fromkeys(found) if _PAGE_REFERENCE.match(ref)]
 
 
-def offer_references() -> list[tuple[str, bool]]:
+async def offer_references() -> list[tuple[str, bool]]:
     """De pagina's waar aanbiedingen kunnen staan, als (pagina, streng). Bij een strenge pagina (de startpagina) tellen
     alleen producten met een korting-teken en volgen we alleen verwijzingen die over aanbiedingen gaan."""
     try:
-        tabs = bootstrap_tabs()
+        tabs = await bootstrap_tabs()
     except PicnicAuthError:
         raise
     except Exception:  # noqa: BLE001 - zonder tabbalk vallen we terug op de paginanamen
@@ -819,7 +820,13 @@ def offer_references() -> list[tuple[str, bool]]:
     return result
 
 
-def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[str, dict[str, Any]]:
+async def _wait(seconds: float) -> None:
+    """De pauze tussen twee pagina's met aanbiedingen. Een eigen functie, zodat een test de pauze kan vervangen zonder
+    `asyncio.sleep` voor het hele proces te vervangen."""
+    await asyncio.sleep(seconds)
+
+
+async def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[str, dict[str, Any]]:
     """Lees een pagina en de actiepagina's waar hij naar verwijst; geef de gevonden aanbiedingen per product-id.
 
     Op de eerste pagina tellen bij een strenge pagina alleen producten met een kortingteken. Een actiepagina (waar een kaart naartoe
@@ -833,10 +840,10 @@ def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[s
         if current in visited:
             continue
         if visited and OFFER_PAGE_DELAY:
-            time.sleep(OFFER_PAGE_DELAY)
+            await _wait(OFFER_PAGE_DELAY)
         visited.add(current)
         try:
-            page = _page(current)
+            page = await _page(current)
         except PicnicAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 - een pagina die niet bestaat probeert de volgende
@@ -865,13 +872,13 @@ def _walk_offer_pages(reference: str, strict: bool, errors: list[str]) -> dict[s
     return found
 
 
-def get_offers() -> list[dict[str, Any]]:
+async def get_offers() -> list[dict[str, Any]]:
     """De aanbiedingen van Picnic. Vraagt een gekoppeld Picnic-account."""
-    if not configured_auth_key():
+    if not await configured_auth_key():
         raise _not_linked()
     errors: list[str] = []
-    for reference, strict in offer_references():
-        found = _walk_offer_pages(reference, strict, errors)
+    for reference, strict in await offer_references():
+        found = await _walk_offer_pages(reference, strict, errors)
         offers = list(found.values())
         promos = [offer for offer in offers if offer["promo"]]
         chosen = promos if strict else (promos or offers)
@@ -885,16 +892,16 @@ def get_offers() -> list[dict[str, Any]]:
     )
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+async def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     term = str(query or "").strip()
     if not term:
         return []
-    page = _authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
+    page = await _authed("GET", f"/pages/search-page-results?search_term={quote(term)}")
     return products_from_search_page(page)[: max(1, limit)]
 
 
-def search_product(query: str) -> dict[str, Any] | None:
-    found = search_products(query, 1)
+async def search_product(query: str) -> dict[str, Any] | None:
+    found = await search_products(query, 1)
     return found[0] if found else None
 
 
@@ -994,8 +1001,8 @@ def cart_summary(cart: Any) -> dict[str, Any]:
     }
 
 
-def get_cart() -> dict[str, Any]:
-    return cart_summary(_authed("GET", "/cart"))
+async def get_cart() -> dict[str, Any]:
+    return cart_summary(await _authed("GET", "/cart"))
 
 
 def slots_from_cart(cart: Any) -> list[dict[str, Any]]:
@@ -1022,15 +1029,15 @@ def slots_from_cart(cart: Any) -> list[dict[str, Any]]:
     return slots
 
 
-def get_delivery_slots(limit: int = 12, available_only: bool = True) -> list[dict[str, Any]]:
+async def get_delivery_slots(limit: int = 12, available_only: bool = True) -> list[dict[str, Any]]:
     """De eerstvolgende bezorgmomenten. Alleen lezen: een moment kiezen doe je in de Picnic-app."""
-    slots = slots_from_cart(_authed("GET", "/cart"))
+    slots = slots_from_cart(await _authed("GET", "/cart"))
     if available_only:
         slots = [slot for slot in slots if slot["available"]]
     return slots[: max(1, limit)]
 
 
-def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
+async def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet producten in het Picnic-winkelmandje. Plaatst nooit een bestelling.
 
     Elk product is één verzoek. Mislukt er een, dan staan de eerdere al in het mandje; dat
@@ -1045,7 +1052,7 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         count = normalize_quantity(item.get("quantity"))
         try:
-            cart = _authed("POST", "/cart/add_product", body={"product_id": product_id, "count": count})
+            cart = await _authed("POST", "/cart/add_product", body={"product_id": product_id, "count": count})
             added.append({"productId": product_id, "quantity": count})
         except PicnicAuthError:
             raise  # de koppeling zelf is stuk: elke volgende aanroep faalt ook
@@ -1065,7 +1072,7 @@ def _quantity_in(cart: dict[str, Any], product_id: str) -> int:
     return next((item["quantity"] for item in cart["items"] if item["id"] == product_id), 0)
 
 
-def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
+async def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
     """Zet een product op een exact aantal (0 haalt het helemaal weg).
 
     Picnic kent alleen toevoegen en verwijderen, dus we kijken eerst hoeveel er nu in het mandje zit
@@ -1082,7 +1089,7 @@ def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
         raise ValueError(
             tr(f"Het aantal moet tussen 0 en {MAX_QUANTITY} liggen", f"The quantity must be between 0 and {MAX_QUANTITY}")
         )
-    cart = get_cart()
+    cart = await get_cart()
     limit = next((item["maxCount"] for item in cart["items"] if item["id"] == product_id), None)
     if limit and target > limit:
         raise ValueError(
@@ -1093,33 +1100,33 @@ def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
         )
     current = _quantity_in(cart, product_id)
     if target > current:
-        return _authed_summary("/cart/add_product", product_id, target - current)
+        return await _authed_summary("/cart/add_product", product_id, target - current)
     if target < current:
-        return _authed_summary("/cart/remove_product", product_id, current - target)
+        return await _authed_summary("/cart/remove_product", product_id, current - target)
     return cart
 
 
-def _authed_summary(path: str, product_id: str, count: int) -> dict[str, Any]:
-    return cart_summary(_authed("POST", path, body={"product_id": product_id, "count": count}))
+async def _authed_summary(path: str, product_id: str, count: int) -> dict[str, Any]:
+    return cart_summary(await _authed("POST", path, body={"product_id": product_id, "count": count}))
 
 
-def clear_cart() -> dict[str, Any]:
+async def clear_cart() -> dict[str, Any]:
     """Maak het Picnic-mandje leeg. Plaatst nooit een bestelling.
 
     Eerst Picnics eigen route; weigert die, dan halen we elk product met zijn eigen aantal weg.
     """
-    before = get_cart()
+    before = await get_cart()
     if not before["items"]:
         return {"removed": 0, "cart": before}
     try:
-        cart = cart_summary(_authed("POST", "/cart/clear"))
+        cart = cart_summary(await _authed("POST", "/cart/clear"))
     except PicnicAuthError:
         raise
     except Exception:  # noqa: BLE001 - de route kan bij Picnic anders heten; val terug op per product
         cart = before
         for item in before["items"]:
             if item["id"]:
-                cart = _authed_summary("/cart/remove_product", str(item["id"]), item["quantity"])
+                cart = await _authed_summary("/cart/remove_product", str(item["id"]), item["quantity"])
     return {"removed": sum(item["quantity"] for item in before["items"]), "cart": cart}
 
 
@@ -1151,9 +1158,9 @@ def _delivery_summary(delivery: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_deliveries(current_only: bool = False) -> list[dict[str, Any]]:
+async def get_deliveries(current_only: bool = False) -> list[dict[str, Any]]:
     """Leveringen van het account, de nieuwste eerst; alleen de lopende als `current_only` waar is."""
-    data = _authed("POST", "/deliveries/summary", body=["CURRENT"] if current_only else [])
+    data = await _authed("POST", "/deliveries/summary", body=["CURRENT"] if current_only else [])
     deliveries = [_delivery_summary(d) for d in data or [] if isinstance(d, dict)]
     return sorted(deliveries, key=lambda d: str(d.get("windowStart") or d.get("deliveredStart") or ""), reverse=True)
 
@@ -1161,12 +1168,12 @@ def get_deliveries(current_only: bool = False) -> list[dict[str, Any]]:
 _DELIVERY_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
-def get_delivery(delivery_id: Any) -> dict[str, Any]:
+async def get_delivery(delivery_id: Any) -> dict[str, Any]:
     """Eén levering met de producten die erin zaten: naam, inhoud, aantal en prijs per product."""
     clean = str(delivery_id or "").strip()
     if not _DELIVERY_ID.match(clean):
         raise ValueError(tr("Ongeldige bestelling", "Invalid order"))
-    data = _authed("GET", f"/deliveries/{clean}")
+    data = await _authed("GET", f"/deliveries/{clean}")
     if not isinstance(data, dict):
         raise RuntimeError(tr("Picnic gaf de bestelling in een onbekend formaat", "Picnic returned the order in an unknown format"))
     items: list[dict[str, Any]] = []

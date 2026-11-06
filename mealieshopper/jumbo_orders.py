@@ -154,7 +154,7 @@ async def sync_orders() -> dict[str, Any]:
     de rest. Lukt het ophalen van de producten niet (Jumbo wijst de query af), dan blijft de lijst staan en melden we
     `detailError`.
     """
-    listed = jumbo.get_orders()
+    listed = await jumbo.get_orders()
     orders = [order for order in listed["orders"] if not order["cancelled"]]
     async with _aconnect() as conn:
         complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM jumbo_orders WHERE items_synced = 1")}
@@ -168,7 +168,7 @@ async def sync_orders() -> dict[str, Any]:
     failures = 0
     for order in wanted:
         try:
-            details[order["id"]] = jumbo.get_order(order["id"])
+            details[order["id"]] = await jumbo.get_order(order["id"])
         except jumbo.JumboAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 - de kop bewaren we toch; de producten volgen bij de volgende synchronisatie

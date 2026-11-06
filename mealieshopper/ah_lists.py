@@ -356,7 +356,7 @@ def cart_items_from(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def sync_list(list_id: str) -> dict[str, Any]:
-    live = ah.get_favorite_list_items(list_id)  # `ah` blijft synchroon tot Taak 21
+    live = await ah.get_favorite_list_items(list_id)
     return await save_snapshot(live)
 
 
@@ -365,7 +365,7 @@ async def merged_lists() -> dict[str, Any]:
     local = {item["id"]: item for item in await list_snapshots()}
     ah_error = None
     try:
-        live = ah.get_favorite_lists()  # `ah` blijft synchroon tot Taak 21
+        live = await ah.get_favorite_lists()
     except Exception as exc:  # noqa: BLE001 - AH is onofficieel; toon de fout, val terug op lokaal
         live = []
         ah_error = str(exc) or "AH lijstjes ophalen mislukt"

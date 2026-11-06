@@ -266,12 +266,11 @@ async def record(store: str, products: Iterable[Any], source: str = "search", no
         return 0
 
 
-def recorded(store: str, search: Callable[..., list[dict[str, Any]]]) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
-    """`search(query, limit)` van een winkel als coroutine, die daarna de normale prijs van de gevonden producten bewaart.
-    `search` zelf is nog synchroon: de winkelmodules volgen in Taak 20 en 21."""
+def recorded(store: str, search: Callable[..., Awaitable[list[dict[str, Any]]]]) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
+    """`search(query, limit)` van een winkel, die daarna de normale prijs van de gevonden producten bewaart."""
 
     async def wrapper(query: Any, limit: int = 5) -> list[dict[str, Any]]:
-        products = search(query, limit)
+        products: list[dict[str, Any]] = await search(query, limit)
         await record(store, products)
         return products
 
@@ -1419,7 +1418,7 @@ async def fill_regular_prices_nightly() -> dict[str, int] | None:
     return {"lines": lines} if lines else None
 
 
-def _search_function(store: str) -> Callable[..., list[dict[str, Any]]]:
+def _search_function(store: str) -> Callable[..., Awaitable[list[dict[str, Any]]]]:
     from . import crisp, jumbo, picnic  # pylint: disable=import-outside-toplevel - alleen nodig bij het vergelijken
 
     return {"ah": ah.search_products, "jumbo": jumbo.search_products, "picnic": picnic.search_products, "crisp": crisp.search_products}[store]

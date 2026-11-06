@@ -139,7 +139,7 @@ async def tool_search_recipes(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    data = ah.search_recipes(query, max(0, int(args.get("page") or 0)))
+    data = await ah.search_recipes(query, max(0, int(args.get("page") or 0)))
     return {
         "total": data["total"],
         "hasNextPage": data["hasNextPage"],
@@ -225,7 +225,7 @@ async def tool_get_list(args: dict[str, Any]) -> Any:
     list_id = _text(args.get("list_id"), 100)
     if not list_id:
         raise ToolError("Geef het id van een lijstje op (zie list_ah_lists)")
-    data = await ah_lists.get_snapshot(list_id) or {**ah.get_favorite_list_items(list_id), "source": "ah"}
+    data = await ah_lists.get_snapshot(list_id) or {**await ah.get_favorite_list_items(list_id), "source": "ah"}
     items = data.get("items") or []
     return {
         "name": data.get("name"),
@@ -265,8 +265,8 @@ async def tool_search_products(args: dict[str, Any]) -> Any:
     }
 
 
-def _picnic_linked() -> None:
-    if not picnic.configured_auth_key():
+async def _picnic_linked() -> None:
+    if not await picnic.configured_auth_key():
         raise ToolError("Picnic is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Picnic.")
 
 
@@ -274,7 +274,7 @@ async def tool_search_picnic_products(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    _picnic_linked()
+    await _picnic_linked()
     limit = max(1, min(10, int(args.get("limit") or 5)))
     return {
         "products": [
@@ -285,12 +285,12 @@ async def tool_search_picnic_products(args: dict[str, Any]) -> Any:
 
 
 async def tool_picnic_basket(args: dict[str, Any]) -> Any:
-    _picnic_linked()
-    return picnic.get_cart()
+    await _picnic_linked()
+    return await picnic.get_cart()
 
 
-def _jumbo_linked() -> None:
-    if not jumbo.configured_refresh_token():
+async def _jumbo_linked() -> None:
+    if not await jumbo.configured_refresh_token():
         raise ToolError("Jumbo is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Jumbo.")
 
 
@@ -298,7 +298,7 @@ async def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    _jumbo_linked()
+    await _jumbo_linked()
     limit = max(1, min(10, int(args.get("limit") or 5)))
     return {
         "products": [
@@ -327,7 +327,7 @@ async def _resolve_jumbo_list(wanted: Any) -> str:
 
 async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
     """Alle Jumbo-lijstjes: het boodschappenlijstje, je eigen lijstjes en Favorieten. Alleen lezen."""
-    _jumbo_linked()
+    await _jumbo_linked()
     overview = await jumbo_lists.merged_lists()
     return {
         "lists": [
@@ -341,7 +341,7 @@ async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
 
 async def tool_jumbo_list(args: dict[str, Any]) -> Any:
     """Een Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
-    _jumbo_linked()
+    await _jumbo_linked()
     list_id = await _resolve_jumbo_list(args.get("list"))
     snapshot = await jumbo_lists.get_snapshot(list_id)
     source = "lokale kopie"
@@ -369,7 +369,7 @@ async def tool_jumbo_list(args: dict[str, Any]) -> Any:
 
 async def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     """Zoek in de recepten van Jumbo. Alleen lezen."""
-    _jumbo_linked()
+    await _jumbo_linked()
     query = _text(args.get("query"), 100)
     if not query:
         raise ToolError("Geef een zoekterm op")
@@ -386,13 +386,13 @@ async def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
 
 async def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
     """Je receptenlijsten bij Jumbo: Favorieten en eigen lijstjes, met aantallen. Alleen lezen."""
-    _jumbo_linked()
+    await _jumbo_linked()
     return {"lists": await jumbo_recipes.get_lists()}
 
 
 async def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
     """De recepten van een Jumbo-receptenlijst (standaard Favorieten), per pagina. Alleen lezen."""
-    _jumbo_linked()
+    await _jumbo_linked()
     try:
         info = await jumbo_recipes.resolve_list(_text(args.get("list"), 120))
         found = await jumbo_recipes.get_recipes_of(info, args.get("page"))
@@ -412,7 +412,7 @@ async def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
 
 async def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
     """Een Jumbo-recept met ingrediënten en bereiding. Alleen lezen; er wordt niets geïmporteerd."""
-    _jumbo_linked()
+    await _jumbo_linked()
     try:
         recipe = await jumbo_recipes.get_recipe(_text(args.get("recipe_id"), 30))
     except ValueError as exc:
@@ -424,19 +424,19 @@ async def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
 
 
 async def tool_jumbo_basket(args: dict[str, Any]) -> Any:
-    _jumbo_linked()
-    return jumbo.get_cart()
+    await _jumbo_linked()
+    return await jumbo.get_cart()
 
 
 async def tool_picnic_deliveries(args: dict[str, Any]) -> Any:
-    _picnic_linked()
-    return {"deliveries": picnic.get_deliveries(current_only=bool(args.get("current_only")))}
+    await _picnic_linked()
+    return {"deliveries": await picnic.get_deliveries(current_only=bool(args.get("current_only")))}
 
 
 async def tool_picnic_delivery(args: dict[str, Any]) -> Any:
-    _picnic_linked()
+    await _picnic_linked()
     try:
-        found = picnic.get_delivery(args.get("id"))
+        found = await picnic.get_delivery(args.get("id"))
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     items = [{"title": i["title"], "size": i.get("unitSize"), "quantity": i["quantity"], "price": i.get("price")} for i in found["items"]]
@@ -459,15 +459,15 @@ async def tool_get_picnic_order(args: dict[str, Any]) -> Any:
 
 
 async def tool_picnic_slots(args: dict[str, Any]) -> Any:
-    _picnic_linked()
+    await _picnic_linked()
     limit = max(1, min(30, int(args.get("limit") or 10)))
-    return {"slots": picnic.get_delivery_slots(limit)}
+    return {"slots": await picnic.get_delivery_slots(limit)}
 
 
 async def tool_picnic_favorites(args: dict[str, Any]) -> Any:
-    _picnic_linked()
+    await _picnic_linked()
     limit = max(1, min(100, int(args.get("limit") or 50)))
-    found = picnic.get_favorites()
+    found = await picnic.get_favorites()
     products = found["products"]
     brief = [{"title": p["title"], "size": p.get("unitSize"), "price": p.get("price"), "promotion": p.get("isBonus")} for p in products[:limit]]
     # Markeert Picnic niet welke producten favoriet zijn, dan geven we er geen terug en zeggen we dat (onlyFavorites false).
@@ -475,7 +475,7 @@ async def tool_picnic_favorites(args: dict[str, Any]) -> Any:
 
 
 async def tool_picnic_recipes(args: dict[str, Any]) -> Any:
-    _picnic_linked()
+    await _picnic_linked()
     source = str(args.get("source") or "saved").strip().lower()
     if source not in picnic_recipes.SOURCES:
         raise ToolError("Kies als bron saved (bewaard), cookbook (het kookboek) of ordered (opnieuw bestellen)")
@@ -486,15 +486,15 @@ async def tool_picnic_recipes(args: dict[str, Any]) -> Any:
     return {"source": source, "total": len(recipes), "recipes": brief}
 
 
-def _crisp_linked() -> None:
-    if not crisp.configured_client_id():
+async def _crisp_linked() -> None:
+    if not await crisp.configured_client_id():
         raise ToolError("Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen, Koppelen, Crisp.")
 
 
 async def tool_crisp_recipes(args: dict[str, Any]) -> Any:
-    _crisp_linked()
+    await _crisp_linked()
     limit = max(1, min(100, int(args.get("limit") or 30)))
-    found = crisp.get_saved_recipes()
+    found = await crisp.get_saved_recipes()
     recipes = found["recipes"]
     # Alleen wat een assistent nodig heeft; de afbeeldingsadressen laten we weg.
     brief = [{"id": r["id"], "name": r["name"], "minutes": r["minutes"], "portions": r["portions"], "tags": r["tags"]} for r in recipes[:limit]]

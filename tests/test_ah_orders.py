@@ -14,7 +14,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache, product_links, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient, SyncClient, SyncResponse, in_db, run  # noqa: E402
+from support import LiveClient, SyncClient, SyncResponse, in_db, returned, run  # noqa: E402
 
 T = TypeVar("T")
 
@@ -78,7 +78,7 @@ class AhOrdersTestCase(unittest.TestCase):
 class ParsingTest(unittest.TestCase):
     def test_active_order(self):
         with mock.patch.object(ah, "_get_json", return_value=ACTIVE) as get:
-            order = ah.get_active_order()
+            order = run(ah.get_active_order())
         get.assert_called_once_with("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"})
         self.assertEqual((order["id"], order["state"], order["total"], order["discount"]), (4242, "OPEN", 25.5, 4.5))
         self.assertEqual((order["deliveryDate"], order["slotStart"], order["slotEnd"]), ("2026-10-23", "18:00", "20:00"))
@@ -89,23 +89,23 @@ class ParsingTest(unittest.TestCase):
     def test_no_active_order_means_an_empty_basket(self):
         body = '404: {"status": 404, "message": "Order does not exist: Order should not be null"}'
         with mock.patch.object(ah, "_get_json", side_effect=RuntimeError(body)):
-            order = ah.get_active_order()
+            order = run(ah.get_active_order())
         self.assertEqual((order["id"], order["items"]), (None, []))
         with mock.patch.object(ah, "_get_json", side_effect=RuntimeError("500: kapot")), self.assertRaises(RuntimeError):
-            ah.get_active_order()
+            run(ah.get_active_order())
         with mock.patch.object(ah, "_get_json", side_effect=RuntimeError("404: Not Found")), self.assertRaises(RuntimeError):
-            ah.get_active_order()
+            run(ah.get_active_order())
 
     def test_missing_fields_become_empty_not_errors(self):
         with mock.patch.object(ah, "_get_json", return_value={}):
-            order = ah.get_active_order()
+            order = run(ah.get_active_order())
         self.assertEqual((order["id"], order["items"], order["total"]), (None, [], None))
         with mock.patch.object(ah, "_get_json", return_value={"orderedProducts": [{"quantity": "x", "product": None}, "kapot"]}):
-            self.assertEqual(len(ah.get_active_order()["items"]), 1)
+            self.assertEqual(len(run(ah.get_active_order())["items"]), 1)
 
     def test_order_details_are_flattened_with_their_category(self):
         with mock.patch.object(ah, "_get_json", return_value=DETAILS) as get:
-            order = ah.get_order_details(4242)
+            order = run(ah.get_order_details(4242))
         get.assert_called_once_with("/mobile-services/order/v1/4242/details-grouped-by-taxonomy")
         self.assertEqual([(i["title"], i["taxonomy"], i["unitSize"], i["bonus"]) for i in order["items"]], [("Halfvolle melk", "Zuivel", "1 l", True), ("Pindakaas", "Broodbeleg", "350 g", False)])
         self.assertEqual(order["items"][0]["price"], 1.29)
@@ -115,15 +115,15 @@ class ParsingTest(unittest.TestCase):
 
     def test_open_fulfillments(self):
         with mock.patch.object(ah, "get_user_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=FULFILLMENTS) as gql:
-            orders = ah.get_open_fulfillments()
+            orders = run(ah.get_open_fulfillments())
         self.assertIn("orderFulfillments(status: OPEN)", gql.call_args.args[1])
         self.assertNotIn("address", gql.call_args.args[1])  # we vragen het adres niet eens op
         self.assertEqual([(o["id"], o["state"], o["total"], o["deliveryDate"], o["modifiable"]) for o in orders], [(4242, "SCHEDULED", 25.5, "2026-10-23", True)])
 
     def test_receipts(self):
         with mock.patch.object(ah, "get_user_token", return_value="t"), mock.patch.object(ah, "_graphql", side_effect=[RECEIPTS, RECEIPT]):
-            listed = ah.get_receipts(0, 100)
-            detail = ah.get_receipt("R2")
+            listed = run(ah.get_receipts(0, 100))
+            detail = run(ah.get_receipt("R2"))
         self.assertEqual([(r["id"], r["total"]) for r in listed], [("R2", 12.34), ("R1", 5.0)])
         self.assertEqual((detail["items"][0]["name"], detail["items"][0]["amount"]), ("AH Halfvolle melk", 2.58))
         self.assertEqual((detail["discounts"][0]["amount"], detail["payments"][0]["method"]), (-0.5, "PIN"))
@@ -152,7 +152,7 @@ class BasketCacheTest(AhOrdersTestCase):
 
     def test_the_basket_is_the_shopping_list_without_ticked_off_lines(self):
         with mock.patch.object(ah, "_get_json", return_value=SHOPPING) as get:
-            basket = ah.get_shopping_list()
+            basket = run(ah.get_shopping_list())
         get.assert_called_once_with("/mobile-services/shoppinglist/v2/items")
         self.assertEqual([(i["productId"], i["title"], i["quantity"]) for i in basket["items"]], [(111, "Halfvolle melk", 2), (None, "Bloemen voor mama", 1)])
         melk = basket["items"][0]
@@ -161,7 +161,7 @@ class BasketCacheTest(AhOrdersTestCase):
     def test_the_shopping_list_is_read_leniently(self):
         for body in ([{"description": "Melk", "quantity": 3}], {"products": [{"product": {"title": "Melk", "webshopId": 5}, "quantity": 3}]}, {"items": [None, "kapot", {"quantity": 1}]}, {}, None):
             with mock.patch.object(ah, "_get_json", return_value=body):
-                items = ah.get_shopping_list()["items"]
+                items = run(ah.get_shopping_list())["items"]
             self.assertEqual([(i["title"], i["quantity"]) for i in items], [("Melk", 3)] if body and ("products" in str(body) or "description" in str(body)) else [], body)
 
     def test_sync_stores_a_snapshot_and_reading_never_asks_ah(self):
@@ -1058,8 +1058,8 @@ class LinkingStatusTest(AhOrdersTestCase):
 
     def test_the_budget_counts_the_requests_of_the_last_hour(self):
         self.assertEqual(run(ah_orders.linking_status())["budget"], {"used": 0, "limit": ah_orders.RECEIPT_PRODUCTS_PER_HOUR, "resetAt": None})
-        run(ah_orders._polite(lambda: None))
-        run(ah_orders._polite(lambda: None))
+        run(ah_orders._polite(lambda: returned(None)))
+        run(ah_orders._polite(lambda: returned(None)))
         budget = run(ah_orders.linking_status())["budget"]
         self.assertEqual(budget["used"], 2)
         self.assertGreater(budget["resetAt"], "2026-11-05T15:59:00+00:00")
@@ -1070,8 +1070,8 @@ class LinkingStatusTest(AhOrdersTestCase):
         self.sleep.side_effect = lambda seconds: held.append(ah_orders._lock("pace").locked())
 
         async def scenario() -> int:
-            await ah_orders._polite(lambda: None)
-            await ah_orders._polite(lambda: None)
+            await ah_orders._polite(lambda: returned(None))
+            await ah_orders._polite(lambda: returned(None))
             async with ah_orders._lock("pace"):  # een ronde die op zijn beurt wacht of een verzoek doet
                 return (await asyncio.wait_for(ah_orders.linking_status(), 5))["budget"]["used"]
 
@@ -1088,13 +1088,23 @@ class LinkingStatusTest(AhOrdersTestCase):
         self.sleep.side_effect = pause
 
         async def request(name: str) -> None:
-            await ah_orders._polite(lambda: events.append(name))
+            async def send() -> None:
+                # Het verzoek zelf geeft de loop vrij, zoals een echt verzoek aan AH: het slot blijft toch vast tot het klaar is.
+                events.append(name)
+                await asyncio.sleep(0)
+                events.append(f"{name} klaar")
+
+            await ah_orders._polite(send)
 
         async def scenario() -> None:
             await asyncio.gather(request("eerste"), request("tweede"), request("derde"))
 
         run(scenario())
-        self.assertEqual(events, ["eerste", "pauze", "tweede", "pauze", "derde"], "de derde wacht tot de tweede klaar is")
+        self.assertEqual(
+            events,
+            ["eerste", "eerste klaar", "pauze", "tweede", "tweede klaar", "pauze", "derde", "derde klaar"],
+            "de derde wacht tot de tweede klaar is",
+        )
         self.assertTrue(all(0 < c.args[0] <= ah_orders.RECEIPT_PRODUCTS_PAUSE_SECONDS for c in self.sleep.call_args_list))
 
     def test_a_403_records_the_reason_next_to_the_pause(self):
@@ -1348,7 +1358,7 @@ class SearchHqIdsTest(unittest.TestCase):
             "geen product",
         ]}
         with mock.patch.object(ah, "_search_json", return_value=raw) as search:
-            self.assertEqual(ah.search_hq_ids("BLOEMKOOL"), [(20960, 4183, "AH Bloemkool", "https://static.ah.nl/bloemkool")])
+            self.assertEqual(run(ah.search_hq_ids("BLOEMKOOL")), [(20960, 4183, "AH Bloemkool", "https://static.ah.nl/bloemkool")])
         search.assert_called_once_with("BLOEMKOOL", ah.HQ_SEARCH_WINDOW)
 
 

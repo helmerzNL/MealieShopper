@@ -14,6 +14,7 @@ Net als bij Picnic schrijft `add_to_cart` direct in het echte winkelmandje en pl
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import datetime
 import hashlib
@@ -21,13 +22,13 @@ import json
 import re
 import secrets
 import time
-from concurrent.futures import ThreadPoolExecutor
+import weakref
 from typing import Any
 from urllib.parse import urlencode
 
-import requests
+import httpx
 
-from . import auth, deals
+from . import auth, deals, http_client, tasks
 from .ah import extract_oauth_code
 from .i18n import tr
 from .packs import assess_packs, normalize_quantity
@@ -62,6 +63,28 @@ class JumboAuthError(RuntimeError):
 
 
 _access_cache: dict[str, Any] = {"token": "", "expires_at": 0.0}
+
+# Het slot rond het vernieuwen van het toegangstoken, per event loop: een `asyncio.Lock` hoort bij de loop waarin hij
+# voor het eerst wacht. In de app is er een loop per proces, de tests draaien elk een eigen loop. Zonder slot vernieuwen
+# twee gelijktijdige verzoeken allebei, met hetzelfde refresh-token, terwijl Auth0 dat token bij elke vernieuwing kan
+# vervangen.
+_refresh_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
+
+
+def _refresh_lock() -> asyncio.Lock:
+    """Het slot van de lopende event loop voor het vernieuwen van `_access_cache`."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    lock: asyncio.Lock | None = _refresh_locks.get(loop)
+    if lock is None:
+        lock = _refresh_locks[loop] = asyncio.Lock()
+    return lock
+
+
+def _cached_access_token() -> str:
+    """Het bewaarde toegangstoken als het nog geldig is, anders een lege tekst."""
+    if _access_cache["token"] and time.time() < _access_cache["expires_at"]:
+        return _access_cache["token"]
+    return ""
 
 
 def _not_linked() -> RuntimeError:
@@ -105,7 +128,7 @@ def _b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
-def start_login() -> str:
+async def start_login() -> str:
     """Maak de inlog-URL en bewaar de PKCE-gegevens kort, zodat de code later ingeruild kan worden."""
     verifier = secrets.token_urlsafe(48)
     state = secrets.token_urlsafe(16)
@@ -123,12 +146,12 @@ def start_login() -> str:
         "platform": "mobile",
         "prompt": "login",
     }
-    auth.set_secret(PENDING_SECRET, json.dumps({"verifier": verifier, "state": state, "at": time.time()}))
+    await auth.aset_secret(PENDING_SECRET, json.dumps({"verifier": verifier, "state": state, "at": time.time()}))
     return f"{AUTH_BASE}/authorize?{urlencode(params)}"
 
 
-def _pending() -> dict[str, Any]:
-    raw = auth.get_secret(PENDING_SECRET)
+async def _pending() -> dict[str, Any]:
+    raw = await auth.aget_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -143,8 +166,14 @@ def _pending() -> dict[str, Any]:
     return pending
 
 
-def _auth_post(payload: dict[str, str]) -> dict[str, Any]:
-    response = requests.post(
+def _client() -> httpx.AsyncClient:
+    """De client voor Auth0 en GraphQL van Jumbo. Elk verzoek geeft zelf zijn User-Agent mee (`AUTH_USER_AGENT` of
+    `WEB_USER_AGENT`), zoals voorheen. Doorverwijzingen volgen, zoals requests deed."""
+    return http_client.client("jumbo")
+
+
+async def _auth_post(payload: dict[str, str]) -> dict[str, Any]:
+    response: httpx.Response = await _client().post(
         f"{AUTH_BASE}/oauth/token",
         json=payload,
         headers={"Content-Type": "application/json", "User-Agent": AUTH_USER_AGENT},
@@ -152,7 +181,7 @@ def _auth_post(payload: dict[str, str]) -> dict[str, Any]:
     )
     if response.status_code == 403:
         raise _blocked("403")
-    if not response.ok:
+    if response.status_code >= 400:
         detail = response.text[:300]
         if response.status_code in {400, 401} and ("invalid_grant" in detail or "expired" in detail.lower()):
             raise JumboAuthError(
@@ -170,30 +199,30 @@ def _auth_post(payload: dict[str, str]) -> dict[str, Any]:
     return data
 
 
-def _remember_tokens(data: dict[str, Any], used_refresh: str = "") -> None:
+async def _remember_tokens(data: dict[str, Any], used_refresh: str = "") -> None:
     _access_cache["token"] = data["access_token"]
     _access_cache["expires_at"] = time.time() + int(data.get("expires_in") or 86400) - TOKEN_MARGIN_SECONDS
     new = str(data.get("refresh_token") or "").strip()
     if new and new != used_refresh:
-        auth.set_secret(REFRESH_SECRET, new)  # Auth0 kan het refresh-token bij elke vernieuwing vervangen
+        await auth.aset_secret(REFRESH_SECRET, new)  # Auth0 kan het refresh-token bij elke vernieuwing vervangen
 
 
-def link_account(value: str) -> dict[str, Any]:
+async def link_account(value: str) -> dict[str, Any]:
     """Koppel vanuit de geplakte `jumbo://callbacks/login?code=...`-regel (of een los refresh-token)."""
     text = str(value or "").strip()
     if not text:
         raise ValueError(tr("Geen code of token opgegeven", "No code or token provided"))
 
     if _REFRESH_TOKEN_RE.match(text) and "code=" not in text:
-        data = _auth_post(
+        data = await _auth_post(
             {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": text,
              "audience": AUDIENCE, "scope": SCOPE}
         )
-        auth.set_secret(REFRESH_SECRET, text)
-        _remember_tokens(data, used_refresh=text)
+        await auth.aset_secret(REFRESH_SECRET, text)
+        await _remember_tokens(data, used_refresh=text)
         return {"connected": True, "type": "refresh"}
 
-    pending = _pending()
+    pending = await _pending()
     pasted_state = _STATE_RE.search(text)
     if pasted_state and pasted_state.group(1) != pending.get("state"):
         raise JumboAuthError(
@@ -202,7 +231,7 @@ def link_account(value: str) -> dict[str, Any]:
                 "This code belongs to a different login attempt. Choose 'Log in to Jumbo' again and paste the new line.",
             )
         )
-    data = _auth_post(
+    data = await _auth_post(
         {
             "grant_type": "authorization_code",
             "client_id": CLIENT_ID,
@@ -217,48 +246,58 @@ def link_account(value: str) -> dict[str, Any]:
         raise RuntimeError(
             tr("Jumbo gaf geen refresh-token terug", "Jumbo returned no refresh token")
         )
-    _remember_tokens(data)
-    auth.delete_secret(PENDING_SECRET)
+    await _remember_tokens(data)
+    await auth.adelete_secret(PENDING_SECRET)
     return {"connected": True, "type": "code"}
 
 
-def configured_refresh_token() -> str:
-    return auth.get_secret(REFRESH_SECRET)
+async def configured_refresh_token() -> str:
+    return await auth.aget_secret(REFRESH_SECRET)
 
 
-def unlink() -> dict[str, Any]:
-    auth.delete_secret(REFRESH_SECRET)
-    auth.delete_secret(PENDING_SECRET)
+async def unlink() -> dict[str, Any]:
+    await auth.adelete_secret(REFRESH_SECRET)
+    await auth.adelete_secret(PENDING_SECRET)
     _access_cache.update(token="", expires_at=0.0)
     return {"connected": False}
 
 
-def get_access_token(force: bool = False) -> str:
-    if not force and _access_cache["token"] and time.time() < _access_cache["expires_at"]:
+async def get_access_token(force: bool = False) -> str:
+    """Het toegangstoken, uit het geheugen of vernieuwd met het refresh-token.
+
+    Wie op het slot wacht terwijl een ander vernieuwt, krijgt daarna het token van die ander, ook met `force`: dat is
+    al het nieuwe token waar `force` om vroeg. Zo vernieuwen gelijktijdige verzoeken een keer.
+    """
+    seen: str = _access_cache["token"]
+    if not force and _cached_access_token():
         return _access_cache["token"]
-    refresh = configured_refresh_token()
-    if not refresh:
-        raise _not_linked()
-    # `audience` en `scope` zijn nodig: zonder krijgt het token geen klant-id en weigert Jumbo het.
-    data = _auth_post(
-        {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": refresh,
-         "audience": AUDIENCE, "scope": SCOPE}
-    )
-    _remember_tokens(data, used_refresh=refresh)
-    return _access_cache["token"]
+    async with _refresh_lock():
+        current: str = _cached_access_token()
+        if current and (not force or current != seen):
+            return current
+        refresh: str = await configured_refresh_token()
+        if not refresh:
+            raise _not_linked()
+        # `audience` en `scope` zijn nodig: zonder krijgt het token geen klant-id en weigert Jumbo het.
+        data: dict[str, Any] = await _auth_post(
+            {"grant_type": "refresh_token", "client_id": CLIENT_ID, "refresh_token": refresh,
+             "audience": AUDIENCE, "scope": SCOPE}
+        )
+        await _remember_tokens(data, used_refresh=refresh)
+        return _access_cache["token"]
 
 
-def status(verify: bool = False) -> dict[str, Any]:
+async def status(verify: bool = False) -> dict[str, Any]:
     """Is er een koppeling, en klopt die nog? Geeft geen persoonsgegevens terug."""
-    result: dict[str, Any] = {"connected": bool(configured_refresh_token())}
+    result: dict[str, Any] = {"connected": bool(await configured_refresh_token())}
     try:
-        _pending()
+        await _pending()
         result["loginPending"] = True
     except RuntimeError:
         result["loginPending"] = False
     if verify and result["connected"]:
         try:
-            get_access_token(force=True)
+            await get_access_token(force=True)
             result["verified"] = True
         except Exception as exc:  # noqa: BLE001 - de reden tonen we aan de beheerder
             result["verified"] = False
@@ -299,7 +338,7 @@ class JumboPersistedQueryError(JumboSchemaError):
     """Jumbo kent de hash van een opgeslagen query niet (meer): de website is waarschijnlijk vernieuwd."""
 
 
-def _graphql(
+async def _graphql(
     query: str | None,
     variables: dict[str, Any] | None,
     operation: str,
@@ -313,7 +352,7 @@ def _graphql(
     if extensions:
         payload["extensions"] = extensions
     for attempt in (0, 1):
-        headers = _headers(get_access_token(force=attempt == 1), client)
+        headers = _headers(await get_access_token(force=attempt == 1), client)
         if method == "GET":
             # Zoals de website een opgeslagen query vraagt: alles in de querystring.
             params = {"operationName": operation}
@@ -322,14 +361,14 @@ def _graphql(
                     params[key] = json.dumps(payload[key], separators=(",", ":"))
             if "query" in payload:
                 params["query"] = payload["query"]
-            response = requests.get(GRAPHQL_URL, params=params, headers=headers, timeout=30)
+            response: httpx.Response = await _client().get(GRAPHQL_URL, params=params, headers=headers, timeout=30)
         else:
-            response = requests.post(GRAPHQL_URL, json=payload, headers=headers, timeout=30)
+            response = await _client().post(GRAPHQL_URL, json=payload, headers=headers, timeout=30)
         if response.status_code in (403, 429):
             raise _blocked(str(response.status_code))
         if response.status_code == 401 and attempt == 0:
             continue  # het token kan net verlopen zijn: één keer vernieuwen
-        if not response.ok:
+        if response.status_code >= 400:
             raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
         try:
             body = response.json()
@@ -476,7 +515,7 @@ def products_from_search(data: Any) -> list[dict[str, Any]]:
     return [p for p in products if p]
 
 
-def _search_data(term: str) -> dict[str, Any]:
+async def _search_data(term: str) -> dict[str, Any]:
     """Het ruwe antwoord van een zoekopdracht, met de terugvalstappen van de zoekquery."""
     global _search_variant, _promo_dates
     variables = {"input": {"searchType": "KEYWORD", "searchTerms": term}}
@@ -484,7 +523,7 @@ def _search_data(term: str) -> dict[str, Any]:
     for step in range(_search_variant, len(SEARCH_EXTRA_FIELDS)):
         while True:
             try:
-                data = _graphql(_search_query(SEARCH_EXTRA_FIELDS[step], _promo_dates), variables, "SearchProductsByKeyword")
+                data = await _graphql(_search_query(SEARCH_EXTRA_FIELDS[step], _promo_dates), variables, "SearchProductsByKeyword")
             except JumboSchemaError as exc:
                 if _promo_dates and _DATE_FIELD_ERROR.search(str(exc)):
                     _promo_dates = False  # Jumbo kent de looptijd niet (meer): zoek verder zonder
@@ -496,11 +535,11 @@ def _search_data(term: str) -> dict[str, Any]:
     raise RuntimeError(str(last_error))
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+async def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     term = str(query or "").strip()
     if not term:
         return []
-    products = [p for p in products_from_search(_search_data(term)) if p["available"]]
+    products = [p for p in products_from_search(await _search_data(term)) if p["available"]]
     return products[: max(1, limit)]
 
 
@@ -515,6 +554,7 @@ OFFER_TERMS = (
     "chocolade", "koek", "koffie", "thee", "frisdrank", "sap", "water", "bier", "wijn", "olie", "kruiden", "bonen",
     "schoonmaak", "wasmiddel", "tandpasta", "shampoo", "luiers", "kattenvoer", "hondenvoer",
 )
+OFFER_WORKERS = 6  # zoveel zoekopdrachten tegelijk
 
 
 def _offer(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -557,13 +597,13 @@ def offers_in_search(data: Any) -> list[dict[str, Any]]:
     return [offer for offer in offers if offer]
 
 
-def get_offers() -> list[dict[str, Any]]:
+async def get_offers() -> list[dict[str, Any]]:
     """De aanbiedingen die Jumbo bij de gangbare zoektermen laat zien. Vraagt een gekoppeld Jumbo-account."""
     errors: list[Exception] = []
 
-    def search(term: str) -> list[dict[str, Any]]:
+    async def search(term: str) -> list[dict[str, Any]]:
         try:
-            return offers_in_search(_search_data(term))
+            return offers_in_search(await _search_data(term))
         except JumboAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 - een term die mislukt mag de andere niet blokkeren
@@ -571,17 +611,18 @@ def get_offers() -> list[dict[str, Any]]:
             return []
 
     found: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for offers in pool.map(search, OFFER_TERMS):
-            for offer in offers:
-                found.setdefault(offer["id"], offer)
+    # Hooguit zes termen tegelijk, zoals de zes threads van voorheen, in de volgorde van `OFFER_TERMS`. Een
+    # `JumboAuthError` annuleert de andere termen: die zouden allemaal op dezelfde verlopen koppeling stuiten.
+    for offers in await tasks.map_bounded(OFFER_WORKERS, search, OFFER_TERMS):
+        for offer in offers:
+            found.setdefault(offer["id"], offer)
     if not found and errors:
         raise RuntimeError(str(errors[0])[:300])
     return list(found.values())
 
 
-def search_product(query: str) -> dict[str, Any] | None:
-    found = search_products(query, 1)
+async def search_product(query: str) -> dict[str, Any] | None:
+    found = await search_products(query, 1)
     return found[0] if found else None
 
 
@@ -669,8 +710,8 @@ def _added_basket(data: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def get_cart() -> dict[str, Any]:
-    data = _graphql(ACTIVE_BASKET_QUERY, None, "ActiveBasket")
+async def get_cart() -> dict[str, Any]:
+    data = await _graphql(ACTIVE_BASKET_QUERY, None, "ActiveBasket")
     value = data.get("activeBasket") or {}
     if value.get("__typename") == "BasketError":
         reason = str(value.get("reason") or "").upper()
@@ -682,14 +723,14 @@ def get_cart() -> dict[str, Any]:
     return basket_summary(basket, amount)
 
 
-def _add_lines(lines: list[dict[str, Any]]) -> Any:
-    data = _graphql(
+async def _add_lines(lines: list[dict[str, Any]]) -> Any:
+    data = await _graphql(
         ADD_LINES_MUTATION, {"input": {"lines": lines, "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
     return _added_basket(data)
 
 
-def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
+async def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet producten in het Jumbo-winkelmandje. Plaatst nooit een bestelling.
 
     Eerst alles in één verzoek. Weigert Jumbo dat, dan proberen we elk product apart, zodat één
@@ -706,7 +747,7 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
     if not lines:
         return {"added": added, "failed": failed, "cart": None}
     try:
-        basket = _add_lines(lines)
+        basket = await _add_lines(lines)
         added = [{"productId": line["sku"], "quantity": line["quantity"]} for line in lines]
     except JumboAuthError:
         raise
@@ -716,7 +757,7 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             for line in lines:
                 try:
-                    basket = _add_lines([line])
+                    basket = await _add_lines([line])
                     added.append({"productId": line["sku"], "quantity": line["quantity"]})
                 except JumboAuthError:
                     raise
@@ -753,12 +794,12 @@ MAX_LIST_PRODUCTS = 30  # zoveel producten per synchronisatie ophalen voor titel
 _working_variant: dict[str, int] = {}
 
 
-def _graphql_variants(operation: str, queries: tuple[str, ...], variables: dict[str, Any] | None, client: str) -> dict[str, Any]:
+async def _graphql_variants(operation: str, queries: tuple[str, ...], variables: dict[str, Any] | None, client: str) -> dict[str, Any]:
     """Probeer de varianten van een query na elkaar; onthoud welke werkte (Jumbo's schema is niet gedocumenteerd)."""
     last: Exception | None = None
     for step in range(_working_variant.get(operation, 0), len(queries)):
         try:
-            data = _graphql(queries[step], variables, operation, client)
+            data = await _graphql(queries[step], variables, operation, client)
         except JumboSchemaError as exc:
             last = exc
             continue
@@ -790,26 +831,26 @@ def _list_item(raw: Any) -> dict[str, Any] | None:
     }
 
 
-def get_shopping_list() -> dict[str, Any]:
+async def get_shopping_list() -> dict[str, Any]:
     """Het Jumbo-lijstje: `{active, items:[{id, term, sku, completed}]}`."""
-    data = _graphql_variants("GetShoppingList", GET_LIST_QUERIES, None, LOYALTY_CLIENT)
+    data = await _graphql_variants("GetShoppingList", GET_LIST_QUERIES, None, LOYALTY_CLIENT)
     value = _expect(data, "shoppingList", "ShoppingList", "het lijstje")
     items = [item for item in (_list_item(raw) for raw in value.get("items") or []) if item]
     return {"active": value.get("isActive") is not False, "items": items}
 
 
-def _ensure_list_active() -> None:
+async def _ensure_list_active() -> None:
     """Een lijstje dat in de app uit staat, zetten we aan voordat we er iets op zetten (zoals jumbo-mcp)."""
-    data = _graphql_variants("toggleShoppingList", TOGGLE_LIST_QUERIES, {"input": {"active": True}}, LOYALTY_CLIENT)
+    data = await _graphql_variants("toggleShoppingList", TOGGLE_LIST_QUERIES, {"input": {"active": True}}, LOYALTY_CLIENT)
     _expect(data, "toggleShoppingList", "ShoppingListState", "het aanzetten van het lijstje")
 
 
-def add_to_shopping_list(items: list[dict[str, Any]]) -> dict[str, Any]:
+async def add_to_shopping_list(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet regels op het Jumbo-lijstje. `items`: `[{term, sku?}]`; wat er al op staat slaan we over.
 
     Plaatst nooit een bestelling en haalt niets van het lijstje.
     """
-    current = get_shopping_list()
+    current = await get_shopping_list()
     on_list = {item["term"].casefold() for item in current["items"] if not item["completed"]}
     lines: list[dict[str, Any]] = []
     skipped: list[str] = []
@@ -827,8 +868,8 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> dict[str, Any]:
         lines.append(line)
     if lines:
         if not current["active"]:
-            _ensure_list_active()
-        data = _graphql_variants("EditShoppingListItems", EDIT_LIST_QUERIES, {"input": {"items": lines}}, LOYALTY_CLIENT)
+            await _ensure_list_active()
+        data = await _graphql_variants("EditShoppingListItems", EDIT_LIST_QUERIES, {"input": {"items": lines}}, LOYALTY_CLIENT)
         _expect(data, "editShoppingListItems", "EditShoppingListItemsResult", "het toevoegen aan het lijstje")
     return {"added": [line["term"] for line in lines], "skipped": skipped}
 
@@ -836,7 +877,7 @@ def add_to_shopping_list(items: list[dict[str, Any]]) -> dict[str, Any]:
 PRODUCT_EXTRA_FIELDS = ("link subtitle image", "link subtitle", "link", "")
 
 
-def get_product(sku: str) -> dict[str, Any] | None:
+async def get_product(sku: str) -> dict[str, Any] | None:
     """Titel, prijs en link van een product op SKU, in dezelfde vorm als `search_products`."""
     last: Exception | None = None
     for extra in PRODUCT_EXTRA_FIELDS:
@@ -845,7 +886,7 @@ def get_product(sku: str) -> dict[str, Any] | None:
             f"    price {{ price promoPrice }}\n    {extra}\n  }}\n}}"
         )
         try:
-            data = _graphql(query, {"sku": str(sku)}, "ProductDetail")
+            data = await _graphql(query, {"sku": str(sku)}, "ProductDetail")
         except JumboSchemaError as exc:
             last = exc
             continue
@@ -883,7 +924,7 @@ _persisted_route: dict[str, tuple[str, str]] = {}
 _LIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
-def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any]:
+async def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any]:
     extensions = {"persistedQuery": {"version": 1, "sha256Hash": PERSISTED_QUERIES[operation]}}
     known = _persisted_route.get(operation)
     ladder = [(method, client) for client in LIST_CLIENTS for method in LIST_TRANSPORTS]
@@ -892,7 +933,7 @@ def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any
     not_found = False
     for method, client in attempts:
         try:
-            data = _graphql(None, variables, operation, client, extensions, method)
+            data = await _graphql(None, variables, operation, client, extensions, method)
         except JumboAuthError:
             raise  # de koppeling zelf is stuk: een andere clientnaam helpt niet
         except JumboBlocked as exc:
@@ -914,9 +955,9 @@ def _persisted_query(operation: str, variables: dict[str, Any]) -> dict[str, Any
     raise RuntimeError(str(last))
 
 
-def get_product_lists() -> list[dict[str, Any]]:
+async def get_product_lists() -> list[dict[str, Any]]:
     """Je eigen lijstjes en Favorieten: `[{id, name, kind, itemCount, description}]`."""
-    data = _persisted_query(
+    data = await _persisted_query(
         "GetCustomerProductLists",
         {"listItemPagination": {"offset": 0, "limit": 4}, "listPagination": {"offset": 0, "limit": LIST_PAGE_SIZE}},
     )
@@ -972,7 +1013,7 @@ def _product_list_item(raw: Any) -> dict[str, Any] | None:
     }
 
 
-def get_product_list(list_id: str) -> dict[str, Any]:
+async def get_product_list(list_id: str) -> dict[str, Any]:
     """Alle producten van één lijstje (in pagina's van 25), in dezelfde vorm als een AH-lijstje."""
     list_id = str(list_id or "").strip()
     if not _LIST_ID_RE.match(list_id):
@@ -982,7 +1023,7 @@ def get_product_list(list_id: str) -> dict[str, Any]:
     name = ""
     offset = 0
     for _ in range(MAX_LIST_PAGES):
-        data = _persisted_query(
+        data = await _persisted_query(
             "GetProductList",
             {
                 "includeThumbnail": False,
@@ -1061,7 +1102,7 @@ def _order_header(raw: Any) -> dict[str, Any] | None:
     }
 
 
-def get_orders() -> dict[str, Any]:
+async def get_orders() -> dict[str, Any]:
     """Alle afgeronde bestellingen (nieuwste eerst, per 10) en het aantal winkelbonnen dat Jumbo kent.
 
     `{orders: [{id, state, shoppingType, total, deliveryDate, cancelled}], storeReceipts: int}`.
@@ -1069,7 +1110,7 @@ def get_orders() -> dict[str, Any]:
     orders: list[dict[str, Any]] = []
     receipts = 0
     for page in range(MAX_ORDER_PAGES):
-        data = _persisted_query(
+        data = await _persisted_query(
             "OnlineOrdersAndStoreReceipts",
             {
                 "ordersInput": {
@@ -1160,7 +1201,7 @@ def _scrub(text: str, limit: int = 160) -> str:
     return re.sub(r"\d{6,}", "<nr>", text)[:limit]
 
 
-def get_order(order_id: str) -> dict[str, Any]:
+async def get_order(order_id: str) -> dict[str, Any]:
     """De producten van één bestelling (gewone query; de werkende variant onthouden we)."""
     order_id = str(order_id or "").strip()
     if not _ORDER_ID_RE.match(order_id):
@@ -1172,7 +1213,7 @@ def get_order(order_id: str) -> dict[str, Any]:
         query = f"query GetOrder($orderId: {kind}) {{\n  order({name}: $orderId) {{{_ORDER_DETAIL_FIELDS}  }}\n}}"
         value: Any = int(order_id) if kind in ("Float!", "Long!", "Int!") else order_id
         try:
-            data = _graphql(query, {"orderId": value}, "GetOrder", "JUMBO_WEB-orders")
+            data = await _graphql(query, {"orderId": value}, "GetOrder", "JUMBO_WEB-orders")
         except JumboAuthError:
             raise
         except RuntimeError as exc:  # onbekend veld of type: de volgende variant proberen

@@ -129,7 +129,7 @@ class AiMatchCase(unittest.IsolatedAsyncioTestCase):
     ]
 
     async def seed(self, recipes=None, fetched=None):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched or self.FETCHED}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched or self.FETCHED)}):
             await offers.sync("ah")
         with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned(recipes or self.RECIPES)),)):
             await offers.sync_recipes()
@@ -260,7 +260,7 @@ class SearchTest(AiMatchCase):
         result, provider = await self.run_search()
         self.assertEqual((result["searched"], provider.calls), (0, []), "niets te doen: geen aanroep")
         # Een nieuw aanbod: alles opnieuw.
-        with mock.patch.object(offers, "_now", return_value="2031-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.FETCHED}):
+        with mock.patch.object(offers, "_now", return_value="2031-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.FETCHED)}):
             await offers.sync("ah")
         self.assertEqual((await ai_match.plan("ah"))["todo"], 2)
         await self.run_search()
@@ -282,7 +282,7 @@ class SearchTest(AiMatchCase):
         found = await self.matched("r1")
         self.assertNotIn("400 g kipfilet", found, "de vlag verbergt ook een koppeling van de AI")
         self.assertEqual(found["4 tomaten"]["offer"]["id"], "3")
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [self.FETCHED[0], self.FETCHED[1]]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned([self.FETCHED[0], self.FETCHED[1]])}):
             await offers.sync("ah")
         self.assertIsNone(await self.matched("r1"), "zonder tomaten blijft er niets over")
 

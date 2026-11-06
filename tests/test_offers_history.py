@@ -8,7 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, offer_categories, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, returned, run  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -25,7 +25,7 @@ class TempDataDirTest(unittest.TestCase):
         self.addCleanup(now.stop)
 
     def sync(self, *items, store="ah"):
-        with mock.patch.dict(offers.FETCHERS, {store: lambda: list(items)}):
+        with mock.patch.dict(offers.FETCHERS, {store: lambda: returned(list(items))}):
             return run(offers.sync(store))
 
 

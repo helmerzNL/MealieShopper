@@ -1,14 +1,18 @@
+import asyncio
+import json
 import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, returned, run, served  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -65,7 +69,7 @@ class JumboOffersTest(TempDataDirTest):
             return {"searchProducts": {"products": [jumbo_product("1", "Kipfilet", 499, 349), jumbo_product(f"x-{term}", term, 200, 100)]}}
 
         with mock.patch.object(jumbo, "_search_data", side_effect=search):
-            found = jumbo.get_offers()
+            found = run(jumbo.get_offers())
         self.assertEqual(len(found), len(jumbo.OFFER_TERMS) + 1)
         self.assertEqual([o["id"] for o in found].count("1"), 1)
 
@@ -76,20 +80,70 @@ class JumboOffersTest(TempDataDirTest):
             return {"searchProducts": {"products": [jumbo_product(term, term, 200, 100)]}}
 
         with mock.patch.object(jumbo, "_search_data", side_effect=search):
-            self.assertEqual(len(jumbo.get_offers()), len(jumbo.OFFER_TERMS) - 1)
+            self.assertEqual(len(run(jumbo.get_offers())), len(jumbo.OFFER_TERMS) - 1)
         with mock.patch.object(jumbo, "_search_data", side_effect=RuntimeError("alles stuk")):
             with self.assertRaisesRegex(RuntimeError, "alles stuk"):
-                jumbo.get_offers()
+                run(jumbo.get_offers())
 
     def test_a_refused_link_is_reported_as_such(self):
         with mock.patch.object(jumbo, "_search_data", side_effect=jumbo.JumboAuthError("verlopen")):
             with self.assertRaises(jumbo.JumboAuthError):
-                jumbo.get_offers()
+                run(jumbo.get_offers())
+
+    def test_at_most_six_terms_are_searched_at_once_over_the_network(self):
+        # Elk zoekverzoek geeft de loop een paar keer vrij, zoals een echt antwoord van Jumbo. Zonder grens zouden alle
+        # termen tegelijk lopen, met de grens precies zes.
+        jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
+        state: list[int] = [0, 0]  # nu bezig, hoogste aantal tegelijk
+
+        async def answer(request: httpx.Request) -> httpx.Response:
+            term = json.loads(request.content)["variables"]["input"]["searchTerms"]
+            state[0] += 1
+            state[1] = max(state[1], state[0])
+            for _ in range(3):
+                await asyncio.sleep(0)
+            state[0] -= 1
+            return httpx.Response(200, json={"data": {"searchProducts": {"products": [jumbo_product(f"x-{term}", term, 200, 100)]}}})
+
+        with served(side_effect=answer) as route:
+            found = run(jumbo.get_offers())
+        self.assertEqual(route.call_count, len(jumbo.OFFER_TERMS))
+        self.assertEqual([o["id"] for o in found], [f"x-{term}" for term in jumbo.OFFER_TERMS], "in de volgorde van de termen")
+        self.assertEqual(state[1], jumbo.OFFER_WORKERS)
+        self.assertEqual(jumbo.OFFER_WORKERS, 6)
+
+    def test_a_refused_link_stops_the_other_terms(self):
+        # Een verlopen koppeling geldt voor elke term: de andere zoekopdrachten worden geannuleerd in plaats van door te lopen.
+        cancelled: list[str] = []
+        finished: list[str] = []
+
+        async def search(term: str) -> dict:
+            try:
+                for _ in range(2 if term == jumbo.OFFER_TERMS[0] else 20):
+                    await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                cancelled.append(term)
+                raise
+            if term == jumbo.OFFER_TERMS[0]:
+                raise jumbo.JumboAuthError("verlopen")
+            finished.append(term)
+            return {"searchProducts": {"products": []}}
+
+        async def scenario() -> list[str]:
+            with self.assertRaises(jumbo.JumboAuthError):
+                await jumbo.get_offers()
+            return list(cancelled)  # wat al geannuleerd was toen de fout bovenkwam, niet pas bij het sluiten van de loop
+
+        with mock.patch.object(jumbo, "_search_data", side_effect=search):
+            stopped = run(scenario())
+        self.assertEqual(finished, [])
+        self.assertTrue(set(jumbo.OFFER_TERMS[1:6]) <= set(stopped))
+        self.assertLess(len(stopped), len(jumbo.OFFER_TERMS), "de termen die nog niet aan de beurt waren zijn nooit begonnen")
 
     def test_search_still_filters_unavailable_products(self):
         data = {"searchProducts": {"products": [jumbo_product("1", "A", 100), jumbo_product("2", "B", 100, availability={"isAvailable": False})]}}
         with mock.patch.object(jumbo, "_search_data", return_value=data):
-            self.assertEqual([p["id"] for p in jumbo.search_products("a")], ["1"])
+            self.assertEqual([p["id"] for p in run(jumbo.search_products("a"))], ["1"])
 
 
 def tile(unit_id, name, cents=199, regular=None, promo_text=None, **extra):
@@ -108,7 +162,7 @@ def page(*tiles, links=()):
 class PicnicOffersTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -134,20 +188,20 @@ class PicnicOffersTest(TempDataDirTest):
         tabs = [{"id": "deals", "title": "Aanbiedingen", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "deals-root"}}]
         pages = {"deals-root": page(tile("s1", "Kipfilet", 349, 499), tile("s2", "Melk", 129))}
         with self.serve(pages, tabs):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([(o["id"], o["price"], o["priceBefore"]) for o in found], [("s1", 3.49, 4.99)])
         self.assertNotIn("promo", found[0])
 
     def test_linked_pages_are_followed_and_fallback_names_are_tried(self):
         pages = {"deals-page-root": page(links=["week-deals"]), "week-deals": page(tile("s1", "Kaas", 299, 399))}
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([o["id"] for o in found], ["s1"])
 
     def test_a_page_without_promotion_markers_keeps_all_its_products(self):
         pages = {"deals-page-root": page(tile("s1", "Kaas", 299), tile("s2", "Melk", 129))}
         with self.serve(pages):
-            self.assertEqual([o["id"] for o in picnic.get_offers()], ["s1", "s2"])
+            self.assertEqual([o["id"] for o in run(picnic.get_offers())], ["s1", "s2"])
 
     HOME_TABS = [
         {"id": "home-tab", "title": "Ontdek", "label": "Ontdek", "tab_type": "PAGE", "target": {"type": "PICNIC_PAGE_REFERENCE", "reference": "home_page_root"}},
@@ -157,17 +211,17 @@ class PicnicOffersTest(TempDataDirTest):
     def test_without_an_offers_tab_the_discover_page_is_used_and_only_discounts_count(self):
         pages = {"home_page_root": page(tile("s1", "Kipfilet", 349, 499, "2e halve prijs"), tile("s2", "Melk", 129))}
         with self.serve(pages, self.HOME_TABS):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual([o["id"] for o in found], ["s1"], "de gewone producten van de startpagina zijn geen aanbiedingen")
 
     def test_references_put_offer_pages_first_and_mark_the_home_page_strict(self):
         with self.serve({}, self.HOME_TABS):
-            references = picnic.offer_references()
+            references = run(picnic.offer_references())
         self.assertEqual(references[-1], ("home_page_root", True))
         self.assertEqual([ref for ref, strict in references if strict], ["home_page_root"])
         self.assertEqual([ref for ref, _ in references[:3]], list(picnic.OFFER_FALLBACKS))
         with self.serve({}, []):
-            self.assertEqual(picnic.offer_references()[-1], (picnic.HOME_FALLBACK, True))
+            self.assertEqual(run(picnic.offer_references())[-1], (picnic.HOME_FALLBACK, True))
 
     def test_the_strict_page_only_follows_links_about_offers_including_lazy_pages(self):
         home = page(tile("s1", "Melk", 129), links=["aanbiedingen-page", "fruit-page"])
@@ -179,14 +233,14 @@ class PicnicOffersTest(TempDataDirTest):
             "fruit-page": page(tile("s4", "Appel", 99, 199)),
         }
         with self.serve(pages, self.HOME_TABS):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual(sorted(o["id"] for o in found), ["s2", "s3"], "fruit-page gaat niet over aanbiedingen")
 
     def test_a_home_page_without_any_discount_is_an_error_not_a_list_of_products(self):
         pages = {"home_page_root": page(tile("s1", "Melk", 129), tile("s2", "Kaas", 299))}
         with self.serve(pages, self.HOME_TABS):
             with self.assertRaisesRegex(RuntimeError, "verkenner|explorer"):
-                picnic.get_offers()
+                run(picnic.get_offers())
 
     def test_discount_markers_cover_ranges_and_other_promo_decorators(self):
         ranged = picnic.offers_from_page(page(tile("s1", "Koffie", 599, price_ranges=[{"x": 1}])))
@@ -199,10 +253,10 @@ class PicnicOffersTest(TempDataDirTest):
     def test_no_page_at_all_is_a_clear_error_and_an_unlinked_account_too(self):
         with self.serve({}):
             with self.assertRaisesRegex(RuntimeError, "geen aanbiedingen|no offers"):
-                picnic.get_offers()
+                run(picnic.get_offers())
         auth.set_secret(picnic.AUTH_KEY_SECRET, "")
         with self.assertRaises(RuntimeError):
-            picnic.get_offers()
+            run(picnic.get_offers())
 
 
 def text_tile(unit_id, name, cents, *texts):
@@ -223,7 +277,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
 
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         patcher = mock.patch.object(picnic, "OFFER_PAGE_DELAY", 0)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -280,7 +334,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
             "promo-group-deep-dive?promo_group_id=g2-7": {"body": {"children": [text_tile("s5", "Pringles", 199, "Pringles")]}},
         }
         with self.serve(pages):
-            found = {o["id"]: o for o in picnic.get_offers()}
+            found = {o["id"]: o for o in run(picnic.get_offers())}
         self.assertEqual(sorted(found), ["s1", "s3", "s4", "s5"], "s2 is een gewoon product op de startpagina")
         self.assertEqual(found["s1"]["promoLabel"], "1+1 gratis")
         self.assertEqual(found["s3"]["promoLabel"], "20% korting", "de tekst van de tegel gaat voor")
@@ -295,7 +349,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         home = {"body": {"children": [promo_card("Een", "promo-group-deep-dive,promo_group_id=g1-4"), promo_card("Twee", "promo-group-deep-dive,promo_group_id=g2-7")]}}
         pages = {"home_page_root": home, "promo-group-deep-dive?promo_group_id=g2-7": group, "promo-group-content": {"body": {"children": [text_tile("s9", "Peer", 99, "Peer")]}}}
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertEqual(sorted(o["id"] for o in found), ["s3", "s9"])
 
     def test_the_number_of_pages_is_capped(self):
@@ -303,7 +357,7 @@ class PicnicHomePageOffersTest(TempDataDirTest):
         pages = {"home_page_root": {"body": {"children": cards}}}
         pages.update({f"promo-group-deep-dive?promo_group_id=g{i}-1": {"body": {"children": [text_tile(f"s{i}", "x", 100, "x")]}} for i in range(80)})
         with self.serve(pages):
-            found = picnic.get_offers()
+            found = run(picnic.get_offers())
         self.assertLessEqual(len([p for p in self.asked if "/pages/" in p and "home_page_root" in p or "promo-group" in p]), picnic.MAX_OFFER_PAGES)
         self.assertGreater(len(found), 10)
 
@@ -325,7 +379,7 @@ class PicnicExplorerTest(TempDataDirTest):
                 raise RuntimeError('404: {"error": {"code": "NOT_FOUND"}}')
             return pages[reference]
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=authed):
             probes = run(picnic_explore.offer_probes())
         names = [p["name"] for p in probes]
@@ -383,7 +437,7 @@ class PicnicExplorerDetailTest(TempDataDirTest):
             asked.append(path)
             return {"tabs": []} if path == "/bootstrap" else {}
 
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(picnic, "_authed", side_effect=authed):
             run(picnic_explore.explore())
             short = len(asked)
@@ -406,10 +460,10 @@ class PicnicExplorerDetailTest(TempDataDirTest):
 class SyncAllTest(TempDataDirTest):
     def fetchers(self, **overrides):
         base = {
-            "ah": lambda: [{"id": "1", "title": "Kip", "price": 3.0, "priceBefore": 4.0}],
-            "picnic": lambda: [{"id": "p1", "title": "Melk"}],
-            "jumbo": lambda: [{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}],
-            "crisp": lambda: [{"id": "c1", "title": "Eieren"}],
+            "ah": lambda: returned([{"id": "1", "title": "Kip", "price": 3.0, "priceBefore": 4.0}]),
+            "picnic": lambda: returned([{"id": "p1", "title": "Melk"}]),
+            "jumbo": lambda: returned([{"id": "j1", "title": "Kaas"}, {"id": "j2", "title": "Brood"}]),
+            "crisp": lambda: returned([{"id": "c1", "title": "Eieren"}]),
         }
         base.update(overrides)
         return mock.patch.dict(offers.FETCHERS, base)
@@ -436,15 +490,15 @@ class SyncAllTest(TempDataDirTest):
         self.assertEqual(run(offers.load("jumbo"))["total"], 2, "de vorige kopie blijft staan")
 
     def test_linked_follows_the_store_connections(self):
-        self.assertTrue(offers.linked("ah"))
-        self.assertFalse(offers.linked("picnic"))
-        self.assertFalse(offers.linked("jumbo"))
-        picnic.save_auth_key("key")
+        self.assertTrue(run(offers.linked("ah")))
+        self.assertFalse(run(offers.linked("picnic")))
+        self.assertFalse(run(offers.linked("jumbo")))
+        run(picnic.save_auth_key("key"))
         auth.set_secret(jumbo.REFRESH_SECRET, "ref")
-        self.assertTrue(offers.linked("picnic") and offers.linked("jumbo"))
-        self.assertFalse(offers.linked("crisp"))
+        self.assertTrue(run(offers.linked("picnic")) and run(offers.linked("jumbo")))
+        self.assertFalse(run(offers.linked("crisp")))
         auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
-        self.assertTrue(offers.linked("crisp"))
+        self.assertTrue(run(offers.linked("crisp")))
 
     def test_overview_lists_every_store(self):
         with self.fetchers(), mock.patch.object(offers, "linked", return_value=True):

@@ -17,7 +17,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, backup, image_cache, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, in_db, run  # noqa: E402
+from support import SyncClient, in_db, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-10-20T08:00:00+00:00"
@@ -264,7 +264,7 @@ class ApiTest(LinksCase):
                       "brand": "AH", "unitSize": "200 g"}]
         picnic_result = [{"id": "s1", "title": "Hüttenkäse", "price": 1.49, "image": "https://picnic.app/h.png", "unitSize": "200 gram"},
                          {"id": "", "title": "zonder id"}]
-        with mock.patch.object(prices, "_search_function", side_effect=lambda store: (lambda q, limit: ah_result if store == "ah" else picnic_result)):
+        with mock.patch.object(prices, "_search_function", side_effect=lambda store: (lambda q, limit: returned(ah_result if store == "ah" else picnic_result))):
             ah = self.client.get("/api/product-links/search?store=ah&q=cottage").get_json()
             picnic = self.client.get("/api/product-links/search?store=picnic&q=huttenkase").get_json()
         self.assertEqual(ah["products"], [{"productId": "4711", "title": "AH Cottage cheese", "brand": "AH", "unitSize": "200 g",

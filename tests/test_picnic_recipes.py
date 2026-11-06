@@ -4,11 +4,13 @@ import tempfile
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mealie, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, run, served  # noqa: E402
 
 
 def rich(markdown, kind=None):
@@ -61,13 +63,8 @@ def detail_page(recipe_id="r1"):
 
 
 def response(data):
-    reply = mock.Mock()
-    reply.status_code, reply.ok = 200, True
-    reply.content = json.dumps(data).encode()
-    reply.text = json.dumps(data)
-    reply.json.return_value = data
-    reply.headers = {}
-    return reply
+    """Een antwoord van Picnic, voor `served`."""
+    return httpx.Response(200, content=json.dumps(data).encode())
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -142,26 +139,24 @@ class SummariesTest(unittest.TestCase):
 class SourcesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
 
     def test_each_source_has_its_page(self):
         for source, page_id in (("saved", "saved-deep-dive-page-content"), ("cookbook", "cookbook-page-content"),
                                 ("ordered", "meals-purchase-page-root"), (None, "saved-deep-dive-page-content")):
-            with mock.patch.object(picnic.requests, "request", return_value=response(list_page(tile("r1", ["Pasta"])))) as call:
+            with served(return_value=response(list_page(tile("r1", ["Pasta"])))) as call:
                 self.assertEqual(run(picnic_recipes.get_recipes(source))[0]["id"], "r1")
-            self.assertTrue(call.call_args.args[1].endswith(f"/pages/{page_id}"), source)
-            self.assertEqual(call.call_args.args[0], "GET")
+            self.assertTrue(str(call.calls.last.request.url).endswith(f"/pages/{page_id}"), source)
+            self.assertEqual(call.calls.last.request.method, "GET")
 
     def test_unknown_sources_are_refused_before_any_request(self):
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             with self.assertRaises(ValueError):
                 run(picnic_recipes.get_recipes("favorieten"))
 
     def test_a_page_that_is_not_json_is_reported(self):
-        reply = response(None)
-        reply.content, reply.text = b"RSC", "RSC"
-        reply.json.side_effect = ValueError("geen json")
-        with mock.patch.object(picnic.requests, "request", return_value=reply):
+        reply = httpx.Response(200, content=b"RSC")
+        with served(return_value=reply):
             with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
                 run(picnic_recipes.get_recipes("saved"))
 
@@ -242,11 +237,11 @@ class DetailsTest(TempDataDirTest):
                 picnic_recipes.details(page, "r1")
 
     def test_the_right_page_is_requested_and_ids_are_checked(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(detail_page())) as call:
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(detail_page())) as call:
             self.assertEqual(run(picnic_recipes.get_recipe(" r1 "))["id"], "r1")
-        self.assertTrue(call.call_args.args[1].endswith("/pages/selling-group-details-page?selling_group_id=r1"))
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        self.assertTrue(str(call.calls.last.request.url).endswith("/pages/selling-group-details-page?selling_group_id=r1"))
+        with served(side_effect=AssertionError("geen verzoek")):
             for bad in ("", None, "a/b", "a b", "r1&x=1", "x" * 101, "../cart"):
                 with self.assertRaises(ValueError, msg=repr(bad)):
                     run(picnic_recipes.get_recipe(bad))
@@ -309,7 +304,7 @@ class RoutesTest(TempDataDirTest):
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_import_sends_a_schema_org_recipe_to_mealie(self):
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
         with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
                 mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
                 mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
@@ -336,11 +331,11 @@ class RoutesTest(TempDataDirTest):
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
     def test_nothing_here_writes_to_picnic(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(detail_page())) as call:
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(detail_page())) as call:
             run(picnic_recipes.get_recipe("r1"))
             run(picnic_recipes.get_recipes("saved"))
-        self.assertEqual({c.args[0] for c in call.call_args_list}, {"GET"})
+        self.assertEqual({c.request.method for c in call.calls}, {"GET"})
 
 
 if __name__ == "__main__":

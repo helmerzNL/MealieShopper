@@ -17,7 +17,6 @@ from datetime import date
 from typing import Any, Callable
 
 import httpx
-import requests
 
 from . import ah, deals
 
@@ -103,16 +102,15 @@ def promo_report(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-# Een netwerkfout van een winkelclient. `ah` en `picnic` praten tot Taak 21 nog via requests, daarna via httpx:
-# Taak 21 haalt `requests` hier weg.
-NETWORK_ERRORS: tuple[type[Exception], ...] = (requests.RequestException, httpx.HTTPError)
+# Een netwerkfout van een winkelclient: alle winkelclients praten via httpx.
+NETWORK_ERRORS: tuple[type[Exception], ...] = (httpx.HTTPError,)
 
 
 async def resolved(value: Any) -> Any:
     """`value`, of de uitkomst ervan als het een awaitable is.
 
-    De verkenners roepen winkelclients aan die nog synchroon zijn (`ah`, `jumbo` en `picnic`, tot Taak 21) naast functies die al
-    async zijn (`jumbo_recipes`, `_reach`). Zo werkt een probe met beide, en straks zonder wijziging met alleen async.
+    De winkelclients zijn async, maar een probe mag ook een gewone functie zijn die meteen een waarde geeft (een samenvatting van
+    iets dat al is opgehaald). Zo werkt een probe met beide.
     """
     return await value if inspect.isawaitable(value) else value
 
@@ -139,17 +137,17 @@ async def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], 
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
 
 
-def _raw_get(path: str, params: dict[str, Any] | None = None) -> Any:
-    return ah._get_json(path, params)
+async def _raw_get(path: str, params: dict[str, Any] | None = None) -> Any:
+    return await ah._get_json(path, params)
 
 
-def _raw_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
-    return ah._graphql(ah.get_user_token(), query, variables or {}, "AH")
+async def _raw_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
+    return await ah._graphql(await ah.get_user_token(), query, variables or {}, "AH")
 
 
-def _anonymous_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
+async def _anonymous_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
     """Zoals `_raw_graphql`, met het anonieme token: voor wat ook zonder AH-koppeling werkt, zoals de bonus."""
-    return ah._graphql(ah.get_token(), query, variables or {}, "AH")
+    return await ah._graphql(await ah.get_token(), query, variables or {}, "AH")
 
 
 async def explore() -> dict[str, Any]:
@@ -159,13 +157,13 @@ async def explore() -> dict[str, Any]:
     report, _ = await _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
     probes.append(report)
 
+    async def search(term: str) -> list[dict[str, Any]]:
+        found: Any = await _raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"})
+        return (found or {}).get("products") or []
+
     report, _ = await _probe(
         "aanbiedingen: GET product/search/v2 (de velden van producten in de bonus)",
-        lambda: promo_probe(
-            PROMO_TERMS,
-            lambda term: (_raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"}) or {}).get("products") or [],
-            lambda item: bool(item.get("isBonus")),
-        ),
+        lambda: promo_probe(PROMO_TERMS, search, lambda item: bool(item.get("isBonus"))),
         lambda data: data,
     )
     probes.append(report)
@@ -228,11 +226,11 @@ async def explore() -> dict[str, Any]:
                        lambda: _anonymous_graphql(ah.BONUS_PROMOTIONS_QUERY), bonus_periods)
     probes.append(report)
 
-    def bonus_page() -> Any:
-        return ah._request_json(
+    async def bonus_page() -> Any:
+        return await ah._request_json(
             "GET",
             f"{ah.AH_API_BASE}{ah.BONUS_SECTION_PATH}",
-            headers=ah._auth_headers(ah.get_token(), include_content_type=False),
+            headers=ah._auth_headers(await ah.get_token(), include_content_type=False),
             params={"date": date.today().isoformat(), "application": "AH", "promotionType": "NATIONAL"},
         )
 
@@ -272,7 +270,7 @@ async def explore() -> dict[str, Any]:
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
-        "linked": bool(ah.configured_refresh_token()),
+        "linked": bool(await ah.configured_refresh_token()),
         "probes": probes,
         "ok": sum(1 for probe in probes if probe["ok"]),
     }

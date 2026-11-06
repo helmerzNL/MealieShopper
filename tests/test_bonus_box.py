@@ -21,7 +21,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, returned, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,12 +75,12 @@ def fake_graphql(box=BOX, periods=PERIODS, calls=None):
 
 class BonusBoxFetchTest(unittest.TestCase):
     def linked(self, token="u"):
-        return mock.patch.multiple(ah, configured_refresh_token=mock.Mock(return_value="refresh"), get_user_token=mock.Mock(return_value=token))
+        return mock.patch.multiple(ah, configured_refresh_token=mock.AsyncMock(return_value="refresh"), get_user_token=mock.AsyncMock(return_value=token))
 
     def test_the_box_comes_from_graphql_per_bonus_week_with_its_activation(self):
         calls = []
         with self.linked(), mock.patch.object(ah, "_graphql", side_effect=fake_graphql(calls=calls)):
-            found = {item["id"]: item for item in ah.get_bonus_box(date(2026, 11, 1))}
+            found = {item["id"]: item for item in run(ah.get_bonus_box(date(2026, 11, 1)))}
         self.assertEqual(sorted(found), ["101", "102", "bonusbox-b3"], "de gewone bonus hoort niet in de Bonus Box")
         yoghurt = found["101"]
         self.assertEqual((yoghurt["title"], yoghurt["price"], yoghurt["priceBefore"], yoghurt["promoLabel"]), ("AH Griekse yoghurt", 1.5, 2.0, "25% korting"))
@@ -97,18 +97,18 @@ class BonusBoxFetchTest(unittest.TestCase):
     def test_weeks_that_are_over_are_skipped_and_without_weeks_this_week_is_asked(self):
         calls = []
         with self.linked(), mock.patch.object(ah, "_graphql", side_effect=fake_graphql(calls=calls)):
-            ah.get_bonus_box(date(2026, 11, 3))
+            run(ah.get_bonus_box(date(2026, 11, 3)))
         self.assertEqual([v["periodStart"] for _, q, v in calls if "APP_BONUS_BOX" in q], ["2026-11-02"])
         calls.clear()
         with self.linked(), mock.patch.object(ah, "_graphql", side_effect=fake_graphql(periods={}, calls=calls)):
-            ah.get_bonus_box(date(2026, 11, 4))
+            run(ah.get_bonus_box(date(2026, 11, 4)))
         self.assertEqual([v for _, q, v in calls if "APP_BONUS_BOX" in q], [{"periodStart": "2026-11-02", "periodEnd": "2026-11-08", "weekNumber": 45}])
 
     def test_without_an_ah_link_there_is_no_box_and_nothing_is_asked(self):
         with mock.patch.object(ah, "configured_refresh_token", return_value=""), mock.patch.object(ah, "_graphql") as graphql, \
                 mock.patch.object(ah, "get_user_token") as token:
             with self.assertRaises(LookupError):
-                ah.get_bonus_box()
+                run(ah.get_bonus_box())
         graphql.assert_not_called()
         token.assert_not_called()
 
@@ -127,7 +127,7 @@ class BonusBoxFetchTest(unittest.TestCase):
 
         with self.linked(), mock.patch.object(ah, "_graphql", side_effect=fake_graphql(box=RuntimeError("Unknown argument filterSet"))), \
                 mock.patch.object(ah, "_request_json", side_effect=rest):
-            found = {item["id"]: item for item in ah.get_bonus_box(date(2026, 11, 3))}
+            found = {item["id"]: item for item in run(ah.get_bonus_box(date(2026, 11, 3)))}
         self.assertEqual(requests_made, [(f"{ah.AH_API_BASE}/mobile-services/bonuspage/v1/personal", {"bonusStartDate": "2026-11-02"}, "Bearer u")])
         self.assertEqual((found["111"]["promoLabel"], found["111"]["activated"]), ("25% KORTING", True))
         self.assertEqual((found["111"]["validFrom"], found["111"]["validUntil"]), ("2026-11-02", "2026-11-08"), "zonder eigen looptijd die van de week")
@@ -137,7 +137,7 @@ class BonusBoxFetchTest(unittest.TestCase):
         with self.linked(), mock.patch.object(ah, "_graphql", side_effect=fake_graphql(box=RuntimeError("graphql stuk"))), \
                 mock.patch.object(ah, "_request_json", side_effect=RuntimeError("404: niet gevonden")):
             with self.assertRaisesRegex(RuntimeError, "graphql stuk.*404"):
-                ah.get_bonus_box(date(2026, 11, 3))
+                run(ah.get_bonus_box(date(2026, 11, 3)))
 
     def test_a_refused_token_is_retried_once_with_a_fresh_one(self):
         tokens = iter(["oud", "nieuw"])
@@ -151,7 +151,7 @@ class BonusBoxFetchTest(unittest.TestCase):
 
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"), mock.patch.object(ah, "get_user_token", side_effect=lambda: next(tokens)), \
                 mock.patch.object(ah, "_graphql", side_effect=graphql):
-            found = ah.get_bonus_box(date(2026, 11, 3))
+            found = run(ah.get_bonus_box(date(2026, 11, 3)))
         self.assertEqual(len(found), 3)
         self.assertEqual(used[0], "oud")
         self.assertTrue(all(token == "nieuw" for token in used[1:]))
@@ -174,8 +174,8 @@ class BonusBoxOffersTest(TempDataDirTest):
         ]
 
     def sync(self, box=None, linked=True, national=None):
-        fetch_box = box if callable(box) else (lambda: self.box if box is None else box)
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.national if national is None else national}), \
+        fetch_box = box if callable(box) else (lambda: returned(self.box if box is None else box))
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.national if national is None else national)}), \
                 mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": fetch_box}), \
                 mock.patch.object(ah, "configured_refresh_token", return_value="r" if linked else ""):
             return run(offers.sync("ah"))
@@ -215,7 +215,7 @@ class BonusBoxOffersTest(TempDataDirTest):
         self.assertIsNone(data["personal"]["error"], "de volgende keer dat het lukt is de fout weg")
 
     def test_without_a_link_there_is_no_box_and_the_list_says_so(self):
-        called = mock.Mock(return_value=self.box)
+        called = mock.AsyncMock(return_value=self.box)
         data = self.sync(box=called, linked=False)
         called.assert_not_called()
         self.assertFalse(any(o["personal"] for o in data["offers"]))
@@ -227,13 +227,13 @@ class BonusBoxOffersTest(TempDataDirTest):
             return run(offers.signature("ah"))
 
     def test_other_stores_have_no_box(self):
-        with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: self.national}):
+        with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: returned(self.national)}):
             data = run(offers.sync("jumbo"))
         self.assertEqual(data["personal"]["supported"], False)
         self.assertFalse(any(o["personal"] for o in data["offers"]))
 
     def test_sync_all_and_the_overview_count_the_box(self):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.national}), mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": lambda: self.box}), \
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.national)}), mock.patch.dict(offers.PERSONAL_FETCHERS, {"ah": lambda: returned(self.box)}), \
                 mock.patch.object(ah, "configured_refresh_token", return_value="r"), mock.patch.object(offers, "linked", side_effect=lambda store: store == "ah"):
             result = run(offers.sync_all())
             overview = run(offers.overview())

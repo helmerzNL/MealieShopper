@@ -3,6 +3,7 @@ import os
 import tempfile
 from contextlib import closing
 from datetime import date, timedelta
+from collections.abc import Awaitable
 from typing import Any, Callable
 import unittest
 from unittest import mock
@@ -13,7 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_recipes, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, returned, routes, run  # noqa: E402
+from support import SyncClient, returned, routes, run, served  # noqa: E402
 
 BONUS_PAGE = {
     "bonusGroupOrProducts": [
@@ -105,19 +106,42 @@ class BonusParsingTest(unittest.TestCase):
         def fake_request(method, url, **kwargs):
             raise RuntimeError("404: niet gevonden")
 
-        response = mock.Mock(ok=True)
-        response.json.return_value = search
+        response = httpx.Response(200, json=search)
         with mock.patch.object(ah, "get_token", return_value="t"), \
                 mock.patch.object(ah, "get_bonus_promotions", side_effect=RuntimeError("AH bonus ophalen mislukt (500)")), \
                 mock.patch.object(ah, "_request_json", side_effect=fake_request), \
-                mock.patch.object(ah.requests, "get", return_value=response), \
+                served(return_value=response), \
                 mock.patch.object(ah, "BONUS_FALLBACK_TERMS", ("pasta",)):
-            products = ah.get_bonus_products()
+            products = run(ah.get_bonus_products())
         self.assertEqual([p["id"] for p in products], ["5"])
+
+    def test_the_search_fallback_asks_at_most_six_terms_at_once(self):
+        # Elk zoekverzoek geeft de loop een paar keer vrij, zoals een echt antwoord van AH: zonder grens liepen alle termen
+        # tegelijk, met de grens precies zes. De producten komen in de volgorde van de termen.
+        state: list[int] = [0, 0]  # nu bezig, hoogste aantal tegelijk
+
+        async def search(request: httpx.Request) -> httpx.Response:
+            term = request.url.params["query"]
+            state[0] += 1
+            state[1] = max(state[1], state[0])
+            for _ in range(3):
+                await asyncio.sleep(0)
+            state[0] -= 1
+            return httpx.Response(200, json={"products": [{"webshopId": term, "title": term, "currentPrice": 1.0, "isBonus": True}]})
+
+        with mock.patch.object(ah, "get_token", return_value="t"), \
+                mock.patch.object(ah, "get_bonus_promotions", side_effect=RuntimeError("AH bonus ophalen mislukt (500)")), \
+                mock.patch.object(ah, "_request_json", side_effect=RuntimeError("404: niet gevonden")), \
+                served(side_effect=search) as route:
+            products = run(ah.get_bonus_products())
+        self.assertEqual(route.call_count, len(ah.BONUS_FALLBACK_TERMS))
+        self.assertEqual([p["id"] for p in products], list(ah.BONUS_FALLBACK_TERMS))
+        self.assertEqual(state[1], ah.BONUS_SEARCH_WORKERS)
+        self.assertEqual(ah.BONUS_SEARCH_WORKERS, 6)
 
     def test_the_bonus_comes_per_bonus_period_from_graphql(self):
         with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS) as graphql:
-            products = ah.get_bonus_promotions(today=date(2026, 11, 1))
+            products = run(ah.get_bonus_promotions(today=date(2026, 11, 1)))
         self.assertIn("bonusPeriods", graphql.call_args.args[1])
         by_key = {(p["id"], p["validFrom"]): p for p in products}
         self.assertEqual(sorted(by_key), [("171425", "2026-11-02"), ("4004", "2026-10-26"), ("4004", "2026-11-02"), ("4164", "2026-11-02"), ("5", "2026-11-02")],
@@ -137,7 +161,7 @@ class BonusParsingTest(unittest.TestCase):
         with mock.patch.object(ah, "get_token", return_value="t"), mock.patch.object(ah, "_graphql", return_value=BONUS_PROMOTIONS), \
                 mock.patch.object(ah, "_request_json") as bonus_page, mock.patch.object(ah, "date") as fake_date:
             fake_date.today.return_value = date(2026, 11, 1)
-            products = ah.get_bonus_products()
+            products = run(ah.get_bonus_products())
         self.assertEqual(len(products), 5)
         bonus_page.assert_not_called()
 
@@ -145,15 +169,15 @@ class BonusParsingTest(unittest.TestCase):
 class OffersStoreTest(TempDataDirTest):
     def test_sync_replaces_the_copy_and_load_reads_it(self):
         first = ah.bonus_products_in(BONUS_PAGE)
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: first}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(first)}):
             data = run(offers.sync("ah"))
         self.assertEqual(data["total"], 3)
         self.assertTrue(data["syncedAt"] and data["supported"])
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: first[:1]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(first[:1])}):
             self.assertEqual(run(offers.sync("ah"))["total"], 1)
 
     def test_load_adds_the_conditions_of_each_offer(self):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):
             run(offers.sync("ah"))
         by_title = {o["title"]: o for o in run(offers.load("ah"))["offers"]}
         kip = by_title["Kipfilet"]
@@ -167,7 +191,7 @@ class OffersStoreTest(TempDataDirTest):
     def test_expired_offers_are_not_shown_but_counted(self):
         old = {"id": "21", "title": "Oude aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2000-01-01"}
         current = {"id": "22", "title": "Lopende aanbieding", "price": 1.0, "priceBefore": 2.0, "promoLabel": "50% korting", "validUntil": "2999-01-01"}
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [old, current]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned([old, current])}):
             run(offers.sync("ah"))
         data = run(offers.load("ah"))
         self.assertEqual([o["id"] for o in data["offers"]], ["22"])
@@ -181,12 +205,12 @@ class OffersStoreTest(TempDataDirTest):
             {"id": "32", "title": "Rijst", **week},
             {"id": "33", "title": "Volume voordeel", "validFrom": "2026-10-26", "validUntil": None, "price": 1.0, "priceBefore": 1.1},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: items}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(items)}):
             run(offers.sync("ah"))
         data = run(offers.load("ah"))
         self.assertEqual(data["period"], {"from": "2026-10-26", "until": "2999-01-01"})
         self.assertEqual(data["offers"][0]["validFrom"], "2026-10-26")
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [items[2]]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned([items[2]])}):
             run(offers.sync("ah"))
         self.assertIsNone(run(offers.load("ah"))["period"])
 
@@ -199,7 +223,7 @@ class OffersStoreTest(TempDataDirTest):
         self.assertEqual(offers.saving_of({"price": 3.0, "priceBefore": 2.0, "unitPrice": None}), 0.0, "nooit negatief")
 
     def test_failed_sync_keeps_the_previous_copy(self):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):
             run(offers.sync("ah"))
 
         def boom():
@@ -236,7 +260,7 @@ class OffersWeekTest(TempDataDirTest):
             {"id": "vandaag", "title": "Pakketkorting", "validFrom": today.isoformat(), "validUntil": today.isoformat(), **deal},
             {"id": "zonder", "title": "Picnic-achtige aanbieding", **deal},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: self.items}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(self.items)}):
             run(offers.sync("ah"))
 
     def test_this_week_leaves_out_next_weeks_bonus_and_counts_it(self):
@@ -287,7 +311,7 @@ class OffersWeekTest(TempDataDirTest):
             {"id": "4004", "title": "AH Rundergehakt", "price": 4.0, "priceBefore": None, "promoLabel": "2 voor 5.00",
              "validFrom": self.next_monday.isoformat(), "validUntil": (self.next_monday + timedelta(days=6)).isoformat()},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: twice + twice[:1]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(twice + twice[:1])}):
             run(offers.sync("ah"))
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["25% korting"])
         self.assertEqual(run(offers.load("ah", self.monday.isoformat()))["later"], 1)
@@ -302,7 +326,7 @@ class OffersWeekTest(TempDataDirTest):
                         "validFrom": (self.monday - timedelta(days=14)).isoformat(), "validUntil": (self.monday + timedelta(days=40)).isoformat()}
         weekly = {**long_running, "promoLabel": "2e halve prijs", "validFrom": self.next_monday.isoformat(),
                   "validUntil": (self.next_monday + timedelta(days=6)).isoformat()}
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [long_running, weekly]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned([long_running, weekly])}):
             run(offers.sync("ah"))
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.next_monday.isoformat()))["offers"]], ["2e halve prijs"])
         self.assertEqual([o["promoLabel"] for o in run(offers.load("ah", self.monday.isoformat()))["offers"]], ["Feestfavoriet"])
@@ -408,7 +432,7 @@ class SuggestionsTest(TempDataDirTest):
             return run(offers.sync_recipes())
 
     def test_recipes_are_ranked_by_share_of_ingredients_on_offer(self):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):
             run(offers.sync("ah"))
         self.index({
             "mealie": [
@@ -435,7 +459,7 @@ class SuggestionsTest(TempDataDirTest):
             ("7", "Verstegen Kruidenmix gehakt slagersrecept 3-pack"),
         ]
         fetched = [{"id": i, "title": t, "price": 2.0, "priceBefore": 3.0, "promoLabel": "Bonus"} for i, t in titles]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.index({"mealie": [{
             "id": "r1", "title": "Romige tagliatelle met zalm", "image": "", "url": "",
@@ -453,7 +477,7 @@ class SuggestionsTest(TempDataDirTest):
             {"id": "2", "title": "Jumbo Kipfilet", "price": 3.5, "priceBefore": 4.0, "promoLabel": "Bonus"},
             {"id": "3", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.index({"mealie": [
             {"id": "r1", "title": "Kip met tomaat", "image": "", "url": "", "ingredients": ["400 g kipfilet", "4 tomaten"]},
@@ -476,7 +500,7 @@ class SuggestionsTest(TempDataDirTest):
         self.reported_setup()
         run(offers.report_mismatch("ah", "400 g kipfilet", "1"))
         self.assertEqual(self.matched_ids("r2")["kipfilet"], "2", "ook in een ander recept met kipfilet")
-        with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: [{"id": "1", "title": "Jumbo Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]}):
+        with mock.patch.dict(offers.FETCHERS, {"jumbo": lambda: returned([{"id": "1", "title": "Jumbo Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}])}):
             run(offers.sync("jumbo"))
         recipe = next(r for r in run(offers.suggest("jumbo"))["recipes"] if r["id"] == "r1")
         self.assertEqual({m["offer"]["id"] for m in recipe["matched"]}, {"1"}, "product 1 bij Jumbo is een ander product dan product 1 bij AH")
@@ -486,7 +510,7 @@ class SuggestionsTest(TempDataDirTest):
         run(offers.report_mismatch("ah", "400 g kipfilet", "1"))
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
                    {"id": "3", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"}]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.assertNotIn("400 g kipfilet", self.matched_ids("r1"), "na een nieuwe synchronisatie blijft de melding gelden")
         run(offers.undo_mismatch("ah", "400 g kipfilet", "1"))
@@ -527,7 +551,7 @@ class SuggestionsTest(TempDataDirTest):
             {"id": "2", "title": "AH Tomaten rond", "price": 1.0, "priceBefore": 2.0, "promoLabel": "Bonus"},
             {"id": "3", "title": "AH Eieren 10 stuks", "price": 2.0, "priceBefore": 3.0, "promoLabel": "Bonus"},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.index({
             "mealie": [
@@ -617,7 +641,7 @@ class SuggestionsTest(TempDataDirTest):
             {"id": "1", "title": "AH Kipfilet Mediterraan gekruid", "price": 4.0, "priceBefore": 5.0, "promoLabel": "Bonus"},
             {"id": "2", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
         ]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.index({"mealie": [{"id": "r1", "title": "Kip", "image": "", "url": "", "ingredients": ["400 g kipfilet"]}]})
         self.assertEqual(run(offers.suggest("ah"))["recipes"][0]["matched"][0]["offer"]["id"], "2")
@@ -757,14 +781,17 @@ class CollectorPoolTest(TempDataDirTest):
     def cards(self) -> list[dict[str, Any]]:
         return [{"id": str(n), "slug": str(n), "tags": []} for n in range(12)]
 
-    def counting(self, make: Callable[[str], dict[str, Any]]) -> tuple[Callable[[str], dict[str, Any]], list[int]]:
-        """Een callee die telt hoeveel er tegelijk lopen, en die voor recept 4 faalt."""
+    def counting(self, make: Callable[[str], dict[str, Any]]) -> tuple[Callable[[str], Awaitable[dict[str, Any]]], list[int]]:
+        """Een async callee die telt hoeveel er tegelijk lopen, de loop een paar keer vrijgeeft (zoals een echte aanvraag bij
+        de winkel) en voor recept 4 faalt."""
         state: list[int] = [0, 0]  # nu, hoogste
 
-        def fetch(recipe_id: str) -> dict[str, Any]:
+        async def fetch(recipe_id: str) -> dict[str, Any]:
             state[0] += 1
             state[1] = max(state[1], state[0])
             try:
+                for _ in range(3):
+                    await asyncio.sleep(0)
                 if recipe_id == "4":
                     raise RuntimeError("recept 4 lukt niet")
                 return make(recipe_id)
@@ -775,7 +802,7 @@ class CollectorPoolTest(TempDataDirTest):
 
     def assert_pool(self, found: list[dict[str, Any]], state: list[int]) -> None:
         self.assertEqual([item["id"] for item in found], [str(n) for n in range(12) if n != 4], "de volgorde van de kaarten, zonder het mislukte recept")
-        self.assertLessEqual(state[1], offers.WORKERS)
+        self.assertEqual(state[1], offers.WORKERS)
 
     def test_the_mealie_pool(self) -> None:
         # Mealie is async: de pool laat echt WORKERS recepten tegelijk ophalen, niet meer en niet minder.
@@ -826,8 +853,8 @@ class CollectorPoolTest(TempDataDirTest):
     def test_the_crisp_pool(self) -> None:
         fetch, state = self.counting(lambda recipe_id: {"id": recipe_id, "name": f"R{recipe_id}", "ingredients": [{"name": "kip"}], "url": "u"})
         with mock.patch.object(offers.crisp, "configured_client_id", return_value="x"), \
-                mock.patch.object(offers.crisp, "get_saved_recipes", return_value={"recipes": self.cards(), "total": 12}), \
-                mock.patch.object(offers.crisp, "get_recipe", side_effect=fetch):
+                mock.patch.object(offers.crisp, "get_saved_recipes", new_callable=mock.AsyncMock, return_value={"recipes": self.cards(), "total": 12}), \
+                mock.patch.object(offers.crisp, "get_recipe", new_callable=mock.AsyncMock, side_effect=fetch):
             self.assert_pool(run(offers._collect_crisp()), state)
 
 
@@ -1132,7 +1159,7 @@ class RealRecipesTest(TempDataDirTest):
 
     def test_grillworst_is_not_suggested_and_the_sushi_bowl_has_no_shampoo(self):
         fetched = [real_offer(title, index) for index, title in enumerate(REAL_TITLES, 1)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         collectors = (("mealie", lambda: returned([
             {"id": "g", "title": "Grillworst", "image": "", "url": "", "ingredients": GRILLWORST},
@@ -1154,7 +1181,7 @@ class RealRecipesTest(TempDataDirTest):
         titles = ["AH Terra Groenteburger broccoli paprika 4-pack", "AH Pie runderstoof ui 3-pack", "AH Gerookte zalmsnippers 2-pack",
                   "AH Mascarpone roomkaas chili dip 4-pack"]
         fetched = [real_offer(title, index) for index, title in enumerate(titles, 1)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         collectors = (("mealie", lambda: returned([{"id": "p", "title": "Pasta met zalm en broccoli", "image": "", "url": "", "ingredients": [
             "500 g broccoli", "2 middelgrote uien", "200 g gerookte zalmsnippers", "150 g koelverse roomkaas met bieslook", "300 g fusilli"]}])),)
@@ -1164,7 +1191,7 @@ class RealRecipesTest(TempDataDirTest):
 
     def test_mealie_links_in_an_old_index_are_rebuilt_with_the_group(self):
         fetched = [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         lines = ["400 g kipfilet", "4 tomaten"]
         collectors = (
@@ -1186,7 +1213,7 @@ class RealRecipesTest(TempDataDirTest):
         self.assertEqual(urls["a"], "https://mealie.example/recipe/witlof-met-ham")
 
     def test_a_mealie_that_cannot_be_reached_does_not_block_the_suggestions(self):
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2)]}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned([real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2)])}):
             run(offers.sync("ah"))
         collectors = (("mealie", lambda: returned([{"id": "a", "title": "A", "image": "", "url": "https://mealie.example/recipe/x",
                                            "ingredients": ["400 g kipfilet", "4 tomaten"]}])),)
@@ -1199,7 +1226,7 @@ class RealRecipesTest(TempDataDirTest):
 
     def duplicate_setup(self, recipes):
         fetched = [real_offer("AH Kipfilet", 1), real_offer("AH Tomaten rond", 2), real_offer("AH Rijst basmati", 3)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         collectors = tuple((name, (lambda items=items: returned(items))) for name, items in recipes.items())
         with mock.patch.object(offers, "COLLECTORS", collectors):
@@ -1249,7 +1276,7 @@ class RealRecipesTest(TempDataDirTest):
 
     def test_the_same_ingredient_twice_counts_once(self):
         fetched = [real_offer("AH Paprika rood", 1), real_offer("AH Tomaten rond", 2)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         collectors = (("mealie", lambda: returned([
             {"id": "p", "title": "Paprikaschotel", "image": "", "url": "", "ingredients": ["1 paprika", "2 paprika", "4 tomaten"]}])),)
@@ -1277,7 +1304,7 @@ class EnglishRecipesTest(TempDataDirTest):
 
     def suggestions(self, recipes):
         fetched = [real_offer(title, index) for index, title in enumerate(DUTCH_OFFERS, 1)]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         collectors = (("mealie", lambda: returned([
             {"id": key, "title": key, "image": "", "url": "", "ingredients": lines} for key, lines in recipes.items()])),)
@@ -1331,7 +1358,7 @@ class OffersRoutesTest(TempDataDirTest):
 
     def test_routes_load_sync_and_suggest(self):
         self.assertEqual(self.client.get("/api/offers?store=ah").get_json()["syncedAt"], None)
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: ah.bonus_products_in(BONUS_PAGE)}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(ah.bonus_products_in(BONUS_PAGE))}):
             synced = self.client.post("/api/offers/sync", json={"store": "ah"})
         self.assertEqual((synced.status_code, synced.get_json()["total"]), (200, 3))
         with mock.patch.object(offers, "COLLECTORS", (("mealie", lambda: returned([
@@ -1346,7 +1373,7 @@ class OffersRoutesTest(TempDataDirTest):
 
     def test_reporting_a_match_over_the_api(self):
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             self.client.post("/api/offers/sync", json={"store": "ah"})
         body = {"store": "ah", "ingredient": "400 g kipfilet", "offerId": "1"}
         response = self.client.post("/api/offers/rejections", json=body)
@@ -1357,7 +1384,7 @@ class OffersRoutesTest(TempDataDirTest):
 
     def test_the_offers_are_cached_by_the_browser_and_only_resent_when_they_changed(self):
         fetched = [{"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"}]
-        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             self.client.post("/api/offers/sync", json={"store": "ah"})
         first = self.client.get("/api/offers?store=ah")
         etag = first.headers["ETag"]
@@ -1369,7 +1396,7 @@ class OffersRoutesTest(TempDataDirTest):
         self.assertEqual(self.client.get("/api/offers?store=ah", headers={"If-None-Match": '"iets-anders"'}).status_code, 200)
         self.assertNotEqual(self.client.get("/api/offers?store=jumbo").headers["ETag"], etag, "elke winkel heeft een eigen ETag")
         # Een nieuwe synchronisatie, een nieuwe dag en een nieuwe versie geven een andere ETag.
-        with mock.patch.object(offers, "_now", return_value="2030-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: fetched}):
+        with mock.patch.object(offers, "_now", return_value="2030-01-01T05:00:00+00:00"), mock.patch.dict(offers.FETCHERS, {"ah": lambda: returned(fetched)}):
             run(offers.sync("ah"))
         self.assertNotEqual(self.client.get("/api/offers?store=ah").headers["ETag"], etag)
         with mock.patch.object(offers, "date") as fake_date:

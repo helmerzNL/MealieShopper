@@ -1,4 +1,4 @@
-"""De AH-verkenner: probes die synchroon of async zijn, netwerkfouten van requests en httpx, en geen eigen verzoeken.
+"""De AH-verkenner: probes die synchroon of async zijn, netwerkfouten van httpx, en geen eigen verzoeken.
 
 De vorm van het rapport (welke routes, welke velden) staat in tests/test_ah_orders.py en tests/test_deals.py. Hier
 staat wat de omzetting naar async raakt: een probe wacht op een coroutine, een netwerkfout heet naar haar type, en de
@@ -13,7 +13,6 @@ from unittest import mock
 
 import httpx
 import pytest
-import requests
 from support import served
 
 from mealieshopper import ah, ah_explore
@@ -53,11 +52,11 @@ async def test_a_probe_with_a_summary_summarises_the_awaited_result() -> None:
 @pytest.mark.parametrize(
     "error",
     [
-        requests.ConnectionError("geheim adres"),
         httpx.ConnectError("geheim adres"),
         httpx.ReadTimeout("geheim adres"),
+        httpx.RemoteProtocolError("geheim adres"),
     ],
-    ids=["requests", "httpx-verbinding", "httpx-timeout"],
+    ids=["httpx-verbinding", "httpx-timeout", "httpx-opgehangen"],
 )
 async def test_a_network_error_is_named_by_its_type_without_the_message(
     error: Exception,
@@ -117,7 +116,7 @@ async def test_explore_sends_nothing_itself_and_reports_every_route() -> None:
     ):
         report = await ah_explore.explore()
     assert route.call_count == 0, (
-        "de verkenner praat alleen via ah, die tot Taak 21 synchroon is"
+        "de verkenner praat alleen via ah, en die is hier nagebootst"
     )
     assert report["linked"] is True
     assert report["ok"] == sum(1 for probe in report["probes"] if probe["ok"])

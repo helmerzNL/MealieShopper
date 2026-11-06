@@ -44,12 +44,12 @@ PROMOTION_FIELD_CANDIDATES = (
 _FIELD_IN_ERROR = re.compile(r'[Ff]ield "(\w+)"')
 
 
-def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
+async def _search_with_promotion_fields(term: str, fields: list[str]) -> list[dict[str, Any]]:
     # De looptijd (`start` en `end`) is bevestigd en gaat altijd mee; de kandidaten zijn de rest.
     query = jumbo._search_query("", dates=False).replace(
         "promotions { tags { text } }", "promotions { tags { text } " + jumbo.PROMOTION_DATES + " " + " ".join(fields) + " }"
     )
-    data = jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
+    data = await jumbo._graphql(query, {"input": {"searchType": "KEYWORD", "searchTerms": term}}, "SearchProductsByKeyword")
     return [p for p in ((data.get("searchProducts") or {}).get("products") or []) if isinstance(p, dict)]
 
 
@@ -58,7 +58,7 @@ async def _promotion_probe() -> dict[str, Any]:
     fields = list(PROMOTION_FIELD_CANDIDATES)
     for _ in range(len(fields) + 1):
         try:
-            _search_with_promotion_fields(PROMO_TERMS[0], fields)
+            await _search_with_promotion_fields(PROMO_TERMS[0], fields)
             break
         except jumbo.JumboSchemaError as exc:
             rejected = {name for name in _FIELD_IN_ERROR.findall(str(exc)) if name in fields}
@@ -91,12 +91,12 @@ async def _reach(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
     }
 
 
-def _empty_add_probe() -> dict[str, Any]:
+async def _empty_add_probe() -> dict[str, Any]:
     """Het mandje-vullen-pad met een lege lijst: er wordt niets toegevoegd, we zien alleen of het pad klopt.
 
     `typename` is `Basket` bij succes of de naam van Jumbo's foutvariant (een typenaam, geen persoonsgegeven).
     """
-    data = jumbo._graphql(
+    data = await jumbo._graphql(
         jumbo.ADD_LINES_MUTATION, {"input": {"lines": [], "type": "ECOMMERCE"}}, "BasketPageAddBasketItems"
     )
     return {"typename": (data.get("addBasketLines") or {}).get("__typename")}
@@ -108,17 +108,17 @@ def _route(operation: str) -> str:
     return f"{method} met {client}"
 
 
-def _empty_list_edit_probe() -> dict[str, Any]:
+async def _empty_list_edit_probe() -> dict[str, Any]:
     """Schrijfpad van het lijstje met een lege lijst: er wordt niets toegevoegd, we zien alleen de typenaam."""
-    data = jumbo._graphql_variants(
+    data = await jumbo._graphql_variants(
         "EditShoppingListItems", jumbo.EDIT_LIST_QUERIES, {"input": {"items": []}}, jumbo.LOYALTY_CLIENT
     )
     return {"typename": (data.get("editShoppingListItems") or {}).get("__typename")}
 
 
-def _possible_result_types() -> list[str]:
+async def _possible_result_types() -> list[str]:
     """Welke antwoorden kan `addBasketLines` geven? Introspectie staat bij Jumbo meestal uit; de fout zegt dat dan."""
-    data = jumbo._graphql(
+    data = await jumbo._graphql(
         'query AddBasketLinesResultTypes { __type(name: "AddBasketLinesResult") { possibleTypes { name } } }',
         None,
         "AddBasketLinesResultTypes",
@@ -138,7 +138,7 @@ async def explore() -> dict[str, Any]:
         report, _ = await _probe(name, lambda m=method, u=url, k=kwargs: _reach(m, u, **k), lambda data: data)
         probes.append(report)
 
-    linked = bool(jumbo.configured_refresh_token())
+    linked = bool(await jumbo.configured_refresh_token())
     report, _ = await _probe(
         "toegangstoken vernieuwen (auth.jumbo.com/oauth/token)",
         lambda: jumbo.get_access_token(force=True),

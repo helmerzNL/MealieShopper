@@ -140,7 +140,7 @@ async def sync_orders() -> dict[str, Any]:
     Nieuwste eerst: een eerste synchronisatie vult dus eerst de recente bestellingen met producten aan en elke volgende
     de rest. Lukt het ophalen van de producten niet, dan blijft het overzicht staan en melden we `detailError`.
     """
-    listed = [d for d in picnic.get_deliveries() if d.get("id")]
+    listed = [d for d in await picnic.get_deliveries() if d.get("id")]
     gone = {str(d["id"]) for d in listed if str(d.get("status") or "").upper() in {"CANCELLED", "CANCELED"}}
     orders = [{**d, "id": str(d["id"])} for d in listed if is_delivered(d.get("status"))]
     async with _aconnect() as conn:
@@ -154,7 +154,7 @@ async def sync_orders() -> dict[str, Any]:
     failures = 0
     for order in wanted:
         try:
-            details[order["id"]] = picnic.get_delivery(order["id"])
+            details[order["id"]] = await picnic.get_delivery(order["id"])
         except picnic.PicnicAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 - de kop bewaren we toch; de producten volgen bij de volgende synchronisatie

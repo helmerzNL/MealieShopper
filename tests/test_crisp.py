@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -5,22 +6,18 @@ import time
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, crisp, crisp_orders, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run, sent_json, sent_timeout, served  # noqa: E402
 
 
 def response(data=None, *, status=200):
-    """Een nagebootst `requests`-antwoord."""
-    reply = mock.Mock()
-    reply.status_code = status
-    reply.ok = status < 400
-    reply.content = b"" if data is None else json.dumps(data).encode()
-    reply.text = "" if data is None else json.dumps(data)
-    reply.json.return_value = data
-    return reply
+    """Een antwoord van Crisp, voor `served`: zonder `data` een leeg lichaam."""
+    return httpx.Response(status, content=b"" if data is None else json.dumps(data).encode())
 
 
 def product(product_id=101, title="Volle melk", price="1.89", **extra):
@@ -109,125 +106,126 @@ class ClientIdTest(unittest.TestCase):
 
 class CallTest(unittest.TestCase):
     def test_headers_follow_the_app_and_name_mealieshopper(self):
-        with mock.patch.object(crisp.requests, "request", return_value=response({"ok": True})) as request:
-            self.assertEqual(crisp._call("POST", "/search", "CLIENT", {"query": "melk"}), {"ok": True})
-        method, url = request.call_args.args
-        headers = request.call_args.kwargs["headers"]
-        self.assertEqual((method, url), ("POST", "https://crispapp.nl/v1/search"))
+        with served(response({"ok": True})) as route:
+            self.assertEqual(run(crisp._call("POST", "/search", "CLIENT", {"query": "melk"})), {"ok": True})
+        sent = route.calls.last.request
+        headers = sent.headers
+        self.assertEqual((sent.method, str(sent.url)), ("POST", "https://crispapp.nl/v1/search"))
         self.assertEqual(headers["Authorization"], "bearer CLIENT")
         self.assertEqual(headers["X-Crisp-Agent"], crisp.AGENT)
         self.assertEqual(headers["Origin"], "https://crispapp.nl")
         self.assertTrue(headers["User-Agent"].startswith("MealieShopper/"))
         self.assertEqual(headers["Content-Type"], "application/json")
-        self.assertEqual(request.call_args.kwargs["json"], {"query": "melk"})
+        self.assertEqual(sent_json(route.calls.last), {"query": "melk"})
+        self.assertEqual(sent_timeout(route.calls.last), crisp.TIMEOUT)
 
     def test_refused_session_is_an_auth_error_without_the_text_of_crisp(self):
         for status in (401, 403):
-            with mock.patch.object(crisp.requests, "request", return_value=response({"error": "geheim"}, status=status)):
+            with served(response({"error": "geheim"}, status=status)):
                 with self.assertRaises(crisp.CrispAuthError) as raised:
-                    crisp._call("GET", "/user", "CLIENT")
+                    run(crisp._call("GET", "/user", "CLIENT"))
             self.assertNotIn("geheim", str(raised.exception))
 
     def test_other_errors_carry_the_status(self):
-        with mock.patch.object(crisp.requests, "request", return_value=response({"x": 1}, status=500)):
+        with served(response({"x": 1}, status=500)):
             with self.assertRaisesRegex(RuntimeError, "^500"):
-                crisp._call("GET", "/basket/main", "CLIENT")
+                run(crisp._call("GET", "/basket/main", "CLIENT"))
 
 
 class LoginTest(TempDataDirTest):
     def test_requesting_a_code_keeps_a_pending_login(self):
         with mock.patch.object(crisp, "_call", return_value={"sent": True}) as call:
-            result = crisp.start_login(" iemand@example.com ", "BE")
+            result = run(crisp.start_login(" iemand@example.com ", "BE"))
         self.assertEqual(result, {"connected": False, "codeRequired": True})
         method, path, client_id, body = call.call_args.args
         self.assertEqual((method, path, body), ("POST", "/user/login", {"email": "iemand@example.com", "country": "be"}))
         self.assertRegex(client_id, r"^[A-Za-z0-9]{20}$")
-        self.assertEqual(crisp.configured_client_id(), "")
-        self.assertTrue(crisp.status()["codePending"])
+        self.assertEqual(run(crisp.configured_client_id()), "")
+        self.assertTrue(run(crisp.status())["codePending"])
 
     def test_the_code_links_the_client_id_of_the_request(self):
         with mock.patch.object(crisp, "_call", return_value={"sent": True}) as call:
-            crisp.start_login("iemand@example.com", "nl")
+            run(crisp.start_login("iemand@example.com", "nl"))
         client_id = call.call_args.args[2]
         with mock.patch.object(crisp, "_call", return_value={"id": 42}) as call:
-            self.assertEqual(crisp.verify_login(" 123456 "), {"connected": True})
+            self.assertEqual(run(crisp.verify_login(" 123456 ")), {"connected": True})
         self.assertEqual(call.call_args.args, ("POST", "/user/login", client_id, {"email": "iemand@example.com", "code": "123456", "country": "nl"}))
-        self.assertEqual(crisp.configured_client_id(), client_id)
-        self.assertEqual(crisp.country(), "nl")
-        self.assertEqual(crisp.status(), {"connected": True, "codePending": False, "country": "nl"})
+        self.assertEqual(run(crisp.configured_client_id()), client_id)
+        self.assertEqual(run(crisp.country()), "nl")
+        self.assertEqual(run(crisp.status()), {"connected": True, "codePending": False, "country": "nl"})
 
     def test_an_already_logged_in_client_is_linked_at_once(self):
         with mock.patch.object(crisp, "_call", return_value={"id": 42}):
-            self.assertEqual(crisp.start_login("iemand@example.com"), {"connected": True, "codeRequired": False})
-        self.assertTrue(crisp.configured_client_id())
+            self.assertEqual(run(crisp.start_login("iemand@example.com")), {"connected": True, "codeRequired": False})
+        self.assertTrue(run(crisp.configured_client_id()))
 
     def test_unknown_email_gets_our_own_text(self):
         with mock.patch.object(crisp, "_call", return_value={"error": "webLogin"}):
             with self.assertRaisesRegex(crisp.CrispLoginError, "account"):
-                crisp.start_login("nieuw@example.com")
+                run(crisp.start_login("nieuw@example.com"))
         with mock.patch.object(crisp, "_call", return_value={"error": "ruwe tekst van crisp"}):
             with self.assertRaises(crisp.CrispLoginError) as raised:
-                crisp.start_login("iemand@example.com")
+                run(crisp.start_login("iemand@example.com"))
         self.assertNotIn("ruwe tekst", str(raised.exception))
-        self.assertFalse(crisp.status()["codePending"])
+        self.assertFalse(run(crisp.status())["codePending"])
 
     def test_wrong_code_and_missing_login(self):
         with self.assertRaises(crisp.CrispLoginError):
-            crisp.verify_login("123456")  # er loopt geen login
+            run(crisp.verify_login("123456"))  # er loopt geen login
         with mock.patch.object(crisp, "_call", return_value={"sent": True}):
-            crisp.start_login("iemand@example.com")
+            run(crisp.start_login("iemand@example.com"))
         with mock.patch.object(crisp, "_call", return_value={"error": "invalidCode"}):
             with self.assertRaises(crisp.CrispLoginError):
-                crisp.verify_login("000000")
-        self.assertEqual(crisp.configured_client_id(), "")
+                run(crisp.verify_login("000000"))
+        self.assertEqual(run(crisp.configured_client_id()), "")
         with self.assertRaises(ValueError):
-            crisp.verify_login(" ")
+            run(crisp.verify_login(" "))
 
     def test_a_pending_login_expires(self):
         with mock.patch.object(crisp, "_call", return_value={"sent": True}):
-            crisp.start_login("iemand@example.com")
+            run(crisp.start_login("iemand@example.com"))
         with mock.patch.object(crisp.time, "time", return_value=time.time() + crisp.PENDING_TTL_SECONDS + 5):
-            self.assertFalse(crisp.status()["codePending"])
+            self.assertFalse(run(crisp.status())["codePending"])
             with self.assertRaises(crisp.CrispLoginError):
-                crisp.verify_login("123456")
+                run(crisp.verify_login("123456"))
 
     def test_input_is_checked_before_calling_crisp(self):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
             with self.assertRaises(ValueError):
-                crisp.start_login("geen-adres")
+                run(crisp.start_login("geen-adres"))
             with self.assertRaises(ValueError):
-                crisp.start_login("iemand@example.com", "de")
+                run(crisp.start_login("iemand@example.com", "de"))
 
     def test_unlink_logs_out_and_forgets_even_when_crisp_fails(self):
         self.link()
         with mock.patch.object(crisp, "_call", side_effect=RuntimeError("offline")) as call:
-            self.assertEqual(crisp.unlink(), {"connected": False})
+            self.assertEqual(run(crisp.unlink()), {"connected": False})
         self.assertEqual(call.call_args.args[3], {"logout": True})
-        self.assertEqual(crisp.configured_client_id(), "")
+        self.assertEqual(run(crisp.configured_client_id()), "")
         self.assertEqual(auth.get_secret(crisp.COUNTRY_SECRET), "")
 
     def test_verify_checks_that_crisp_still_knows_the_user(self):
         self.link("be")
         with mock.patch.object(crisp, "_call", return_value={"id": 42, "email": "iemand@example.com"}):
-            result = crisp.status(verify=True)
+            result = run(crisp.status(verify=True))
         self.assertEqual((result["verified"], result["country"]), (True, "be"))
         self.assertNotIn("email", json.dumps(result))
         with mock.patch.object(crisp, "_call", return_value={"country": "nl"}):
-            result = crisp.status(verify=True)
+            result = run(crisp.status(verify=True))
         self.assertFalse(result["verified"])
         self.assertIn("Koppel opnieuw", result["error"])
         with mock.patch.object(crisp, "_call", side_effect=RuntimeError("500: interne tekst")):
-            self.assertEqual(crisp.status(verify=True)["error"], "RuntimeError")
+            self.assertEqual(run(crisp.status(verify=True))["error"], "RuntimeError")
 
     def test_calls_without_a_link_say_how_to_link(self):
         with self.assertRaisesRegex(RuntimeError, "Instellingen"):
-            crisp.get_cart()
+            run(crisp.get_cart())
 
     def test_a_refused_session_asks_to_link_again(self):
         self.link()
         with mock.patch.object(crisp, "_call", side_effect=crisp.CrispAuthError("x")):
             with self.assertRaisesRegex(crisp.CrispAuthError, "Koppel opnieuw"):
-                crisp.get_cart()
+                run(crisp.get_cart())
 
 
 class ProductTest(unittest.TestCase):
@@ -287,15 +285,15 @@ class SearchTest(TempDataDirTest):
             {"itemType": "recipe", "id": 9, "title": "Melkrijst"},
         ], "cursor": "abc"}
         with mock.patch.object(crisp, "_call", return_value=answer) as call:
-            found = crisp.search_products(" melk ", 5)
+            found = run(crisp.search_products(" melk ", 5))
         self.assertEqual(call.call_args.args[1:], ("/search", "CLIENTabc1234567890x", {"query": "melk", "cursor": False, "limit": 10}))
         self.assertEqual([p["id"] for p in found], ["1", "3"])
         with mock.patch.object(crisp, "_call", return_value=answer):
-            self.assertEqual(crisp.search_product("melk")["id"], "1")
+            self.assertEqual(run(crisp.search_product("melk"))["id"], "1")
 
     def test_empty_query_does_not_call_crisp(self):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
-            self.assertEqual(crisp.search_products("  "), [])
+            self.assertEqual(run(crisp.search_products("  ")), [])
 
 
 class CartTest(TempDataDirTest):
@@ -324,10 +322,10 @@ class CartTest(TempDataDirTest):
             return before if method == "GET" else after
 
         with mock.patch.object(crisp, "_call", side_effect=fake):
-            result = crisp.add_to_cart([
+            result = run(crisp.add_to_cart([
                 {"productId": "101", "quantity": 2}, {"productId": "93", "quantity": 2},
                 {"productId": "101", "quantity": 1}, {"productId": "../x", "quantity": 1},
-            ])
+            ]))
         self.assertEqual(calls[0][:2], ("GET", "/basket/main"))
         self.assertEqual(calls[1], ("PUT", "/basket/main", {"products": {
             "101": {"count": 4, "from": crisp.FROM}, "93": {"count": 2, "from": crisp.FROM}}}))
@@ -337,12 +335,12 @@ class CartTest(TempDataDirTest):
     def test_a_product_that_did_not_grow_is_reported(self):
         basket = {"products": {}}
         with mock.patch.object(crisp, "_call", return_value=basket):
-            result = crisp.add_to_cart([{"productId": "5", "quantity": 1}])
+            result = run(crisp.add_to_cart([{"productId": "5", "quantity": 1}]))
         self.assertEqual((result["added"], [f["productId"] for f in result["failed"]]), ([], ["5"]))
 
     def test_nothing_to_add_does_not_call_crisp(self):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
-            self.assertEqual(crisp.add_to_cart([{"productId": ""}]), {"added": [], "failed": [], "cart": None})
+            self.assertEqual(run(crisp.add_to_cart([{"productId": ""}])), {"added": [], "failed": [], "cart": None})
 
 
 class RecipeTest(TempDataDirTest):
@@ -357,7 +355,7 @@ class RecipeTest(TempDataDirTest):
             {**product(3), "itemType": "product"},
         ]}
         with mock.patch.object(crisp, "_call", return_value=answer) as call:
-            result = crisp.search_recipes("curry")
+            result = run(crisp.search_recipes("curry"))
         self.assertEqual(call.call_args.args[1], "/search/recipe")
         self.assertEqual(call.call_args.args[3]["query"], "curry")
         self.assertEqual(result["total"], 1)
@@ -366,11 +364,11 @@ class RecipeTest(TempDataDirTest):
             "portions": 2, "tags": ["met zilvervliesrijst"],
         })
         with self.assertRaises(ValueError):
-            crisp.search_recipes(" ")
+            run(crisp.search_recipes(" "))
 
     def test_recipe_detail_with_ingredients_and_plain_steps(self):
         with mock.patch.object(crisp, "_call", return_value=recipe()) as call:
-            detail = crisp.get_recipe("55")
+            detail = run(crisp.get_recipe("55"))
         self.assertEqual(call.call_args.args[1], "/recipe/55")
         self.assertEqual([i["line"] for i in detail["ingredients"]], ["150 g zilvervliesrijst", "400 g flespompoen", "olie om te bakken"])
         self.assertEqual([i["addSelf"] for i in detail["ingredients"]], [False, False, True])
@@ -382,7 +380,7 @@ class RecipeTest(TempDataDirTest):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
             for bad in ("", "abc", "1/2", "../user"):
                 with self.assertRaises(ValueError):
-                    crisp.get_recipe(bad)
+                    run(crisp.get_recipe(bad))
                 with self.assertRaises(ValueError):
                     crisp.source_url(bad)
 
@@ -400,7 +398,7 @@ class RecipeTest(TempDataDirTest):
 class ExploreTest(TempDataDirTest):
     def test_without_a_link_nothing_is_called(self):
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
-            self.assertEqual(crisp.explore()["linked"], False)
+            self.assertEqual(run(crisp.explore())["linked"], False)
 
     def test_report_has_field_names_but_no_ids_or_values(self):
         self.link()
@@ -420,7 +418,7 @@ class ExploreTest(TempDataDirTest):
             "/promo/current": promo_page(),
         }
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
-            report = crisp.explore()
+            report = run(crisp.explore())
         self.assertEqual((report["working"], len(report["checks"])), (12, 12))
         dumped = json.dumps(report)
         for secret in ("98765", "31337", "31338", "31339", "4242", "55501", "55502", "Geheim", "iemand@example.com", "1.89", "Dorpsstraat", "NL00BANK", "volgende"):
@@ -441,7 +439,7 @@ class ExploreTest(TempDataDirTest):
     def test_failures_show_our_text_or_the_status_only(self):
         self.link()
         with mock.patch.object(crisp, "_call", side_effect=RuntimeError("500: interne tekst van crisp")):
-            report = crisp.explore()
+            report = run(crisp.explore())
         self.assertEqual(report["working"], 0)
         self.assertEqual({entry["error"] for entry in report["checks"]}, {"HTTP 500"})
 
@@ -521,24 +519,24 @@ class BasketEditingTest(TempDataDirTest):
     def test_set_quantity_sends_the_new_count(self):
         basket = {"products": {"101": {**product(101), "count": 3}}}
         with mock.patch.object(crisp, "_call", return_value=basket) as call:
-            cart = crisp.set_quantity("101", 3)
+            cart = run(crisp.set_quantity("101", 3))
         self.assertEqual(call.call_args.args[:2], ("PUT", "/basket/main"))
         self.assertEqual(call.call_args.args[3], {"products": {"101": {"count": 3, "from": crisp.FROM}}})
         self.assertEqual(cart["items"][0]["quantity"], 3)
 
     def test_zero_removes_and_bad_input_never_reaches_crisp(self):
         with mock.patch.object(crisp, "_call", return_value={"products": {}}) as call:
-            self.assertEqual(crisp.set_quantity("101", "0")["items"], [])
+            self.assertEqual(run(crisp.set_quantity("101", "0"))["items"], [])
         self.assertEqual(call.call_args.args[3]["products"]["101"]["count"], 0)
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
             for product_id, quantity in (("101", -1), ("101", 100), ("101", 1.5), ("101", "x"), ("101", None), ("101", True), ("../x", 1)):
                 with self.assertRaises(ValueError):
-                    crisp.set_quantity(product_id, quantity)
+                    run(crisp.set_quantity(product_id, quantity))
 
     def test_a_refused_change_is_our_own_message(self):
         with mock.patch.object(crisp, "_call", return_value={"_error": {"content": "Ruwe tekst van Crisp", "type": "error"}}):
             with self.assertRaises(crisp.CrispBasketError) as raised:
-                crisp.set_quantity("101", 2)
+                run(crisp.set_quantity("101", 2))
         self.assertNotIn("Ruwe tekst", str(raised.exception))
 
     def test_clear_sets_every_product_to_zero_in_one_request(self):
@@ -550,11 +548,11 @@ class BasketEditingTest(TempDataDirTest):
             return current if method == "GET" else {"products": {}}
 
         with mock.patch.object(crisp, "_call", side_effect=fake):
-            result = crisp.clear_cart()
+            result = run(crisp.clear_cart())
         self.assertEqual(calls[1], ("PUT", {"products": {"101": {"count": 0, "from": crisp.FROM}, "93": {"count": 0, "from": crisp.FROM}}}))
         self.assertEqual((result["removed"], result["cart"]["items"]), (2, []))
         with mock.patch.object(crisp, "_call", return_value={"products": {}}) as call:
-            self.assertEqual(crisp.clear_cart()["removed"], 0)
+            self.assertEqual(run(crisp.clear_cart())["removed"], 0)
         self.assertEqual(call.call_count, 1, "een leeg mandje: geen PUT")
 
     def test_add_to_cart_reports_a_refused_change_as_failed(self):
@@ -562,7 +560,7 @@ class BasketEditingTest(TempDataDirTest):
             return {"products": {}} if method == "GET" else {"_error": {"content": "nee"}}
 
         with mock.patch.object(crisp, "_call", side_effect=fake):
-            result = crisp.add_to_cart([{"productId": "5", "quantity": 1}, {"productId": "6", "quantity": 2}])
+            result = run(crisp.add_to_cart([{"productId": "5", "quantity": 1}, {"productId": "6", "quantity": 2}]))
         self.assertEqual(result["added"], [])
         self.assertEqual([entry["productId"] for entry in result["failed"]], ["5", "6"])
 
@@ -588,17 +586,17 @@ class OrdersAndFavoritesTest(TempDataDirTest):
     def test_history_page_and_cursor(self):
         page = {"data": [{"type": "order", "item": order_item(1)}, {"type": "subscriptionOrder", "item": {"id": 2}}], "cursor": "a/b"}
         with mock.patch.object(crisp, "_call", return_value=page) as call:
-            orders, cursor = crisp.order_history_page("x y")
+            orders, cursor = run(crisp.order_history_page("x y"))
         self.assertEqual(call.call_args.args[1], "/order/history?cursor=x%20y")
         self.assertEqual([order["id"] for order in orders], ["1"])
         self.assertEqual((orders[0]["status"], orders[0]["deliveryDate"], cursor), ("done", "2026-10-20", "a/b"))
         with mock.patch.object(crisp, "_call", return_value={"data": []}) as call:
-            self.assertEqual(crisp.order_history_page(None), ([], None))
+            self.assertEqual(run(crisp.order_history_page(None)), ([], None))
         self.assertEqual(call.call_args.args[1], "/order/history")
 
     def test_order_detail_keeps_no_personal_data(self):
         with mock.patch.object(crisp, "_call", return_value={"data": order_detail(55501)}) as call:
-            order = crisp.get_order("55501")
+            order = run(crisp.get_order("55501"))
         self.assertEqual(call.call_args.args[1], "/order/55501")
         self.assertEqual((order["total"], order["itemCount"]), (12.34, 3))
         self.assertEqual(order["items"][1]["listPrice"], 2.5)
@@ -606,12 +604,12 @@ class OrdersAndFavoritesTest(TempDataDirTest):
         for secret in ("Dorpsstraat", "1234AB", "NL00BANK", "ideal", "factuur", "volg"):
             self.assertNotIn(secret, dumped)
         with self.assertRaises(ValueError):
-            crisp.get_order("../user")
+            run(crisp.get_order("../user"))
 
     def test_open_orders_come_from_the_count(self):
         answers = {"/order/count": {"openOrderIds": [9, "x"]}, "/order/9": {"data": order_detail(9, status="ready")}}
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
-            orders = crisp.get_open_orders()
+            orders = run(crisp.get_open_orders())
         self.assertEqual([(order["id"], order["status"], order["itemCount"]) for order in orders], [("9", "ready", 3)])
         self.assertNotIn("items", orders[0])
 
@@ -621,7 +619,7 @@ class OrdersAndFavoritesTest(TempDataDirTest):
             {"type": "product", "item": product(1, "Kaas")}, {"type": "product", "item": {"id": 3}},
         ]}
         with mock.patch.object(crisp, "_call", return_value=saved) as call:
-            result = crisp.get_favorites()
+            result = run(crisp.get_favorites())
         self.assertEqual(call.call_args.args[1], "/saved/list")
         self.assertEqual(([p["id"] for p in result["products"]], result["total"]), (["1"], 1))
 
@@ -646,7 +644,7 @@ class OrdersAndFavoritesTest(TempDataDirTest):
         ]}
         saved = {"items": [{"type": "product", "item": product(1, "Kaas")}]}
         with mock.patch.object(crisp, "_call", side_effect=self.answers(favorites, saved)) as call:
-            result = crisp.get_saved_recipes()
+            result = run(crisp.get_saved_recipes())
         self.assertEqual(sorted(c.args[1] for c in call.call_args_list), ["/recipe/favorites", "/saved/list"])
         self.assertEqual(([r["id"] for r in result["recipes"]], result["total"]), (["2", "5"], 2))
         first = result["recipes"][0]
@@ -666,31 +664,31 @@ class OrdersAndFavoritesTest(TempDataDirTest):
             {"type": "recipe", "item": {**recipe(8, title="Nieuw soort recept"), "type": "seasonal", "itemType": "recipe"}},
         ]}
         with mock.patch.object(crisp, "_call", side_effect=self.answers(favorites, saved)):
-            result = crisp.get_saved_recipes()
+            result = run(crisp.get_saved_recipes())
         self.assertEqual([r["id"] for r in result["recipes"]], ["2", "7", "8"], "een onbekende soort valt niet stil weg")
 
     def test_one_source_failing_leaves_the_other(self):
         saved = {"items": [{"type": "recipe", "item": recipe(7, title="Pasta pesto")}]}
         with mock.patch.object(crisp, "_call", side_effect=self.answers(RuntimeError("404: niet gevonden"), saved)):
-            self.assertEqual([r["id"] for r in crisp.get_saved_recipes()["recipes"]], ["7"])
+            self.assertEqual([r["id"] for r in run(crisp.get_saved_recipes())["recipes"]], ["7"])
         with mock.patch.object(crisp, "_call", side_effect=self.answers({"items": [recipe(2)]}, RuntimeError("500: storing"))):
-            self.assertEqual([r["id"] for r in crisp.get_saved_recipes()["recipes"]], ["2"])
+            self.assertEqual([r["id"] for r in run(crisp.get_saved_recipes())["recipes"]], ["2"])
         with mock.patch.object(crisp, "_call", side_effect=self.answers(RuntimeError("500: eerste"), RuntimeError("500: tweede"))), \
                 self.assertRaisesRegex(RuntimeError, "eerste"):
-            crisp.get_saved_recipes()
+            run(crisp.get_saved_recipes())
         # Een verlopen koppeling: meteen stoppen, de tweede bron helpt dan niet.
         with mock.patch.object(crisp, "_call", side_effect=crisp.CrispAuthError("geweigerd")) as call, \
                 self.assertRaises(crisp.CrispAuthError):
-            crisp.get_saved_recipes()
+            run(crisp.get_saved_recipes())
         self.assertEqual(call.call_count, 1)
 
     def test_saved_recipes_without_a_list(self):
         with mock.patch.object(crisp, "_call", return_value={}):
-            self.assertEqual(crisp.get_saved_recipes(), {"recipes": [], "total": 0})
+            self.assertEqual(run(crisp.get_saved_recipes()), {"recipes": [], "total": 0})
         with mock.patch.object(crisp, "_call", side_effect=AssertionError("niet bellen")):
-            crisp.unlink()
+            run(crisp.unlink())
             with self.assertRaises(RuntimeError):
-                crisp.get_saved_recipes()
+                run(crisp.get_saved_recipes())
 
 
 class OffersTest(TempDataDirTest):
@@ -700,7 +698,7 @@ class OffersTest(TempDataDirTest):
 
     def test_offers_from_all_kinds_of_blocks(self):
         with mock.patch.object(crisp, "_call", return_value=promo_page()) as call:
-            offers = crisp.get_offers()
+            offers = run(crisp.get_offers())
         self.assertEqual(call.call_args.args[1], "/promo/current")
         by_id = {offer["id"]: offer for offer in offers}
         self.assertEqual(sorted(by_id), ["1", "2", "3"], "ontdubbeld op id")
@@ -713,7 +711,7 @@ class OffersTest(TempDataDirTest):
     def test_an_empty_page_is_an_error_not_an_empty_week(self):
         with mock.patch.object(crisp, "_call", return_value={"promo": {"blocks": []}}):
             with self.assertRaises(RuntimeError):
-                crisp.get_offers()
+                run(crisp.get_offers())
 
 
 class CrispNewRoutesTest(TempDataDirTest):
@@ -773,6 +771,35 @@ class CrispNewRoutesTest(TempDataDirTest):
         with mock.patch.object(crisp, "get_favorites", side_effect=RuntimeError("500: ruwe tekst")):
             reply = self.client.get("/api/crisp/favorites")
         self.assertEqual((reply.status_code, reply.get_json()["error"]), (424, "Crisp fout"))
+
+
+class ConcurrencyTest(TempDataDirTest):
+    def test_six_searches_at_once_are_all_open_at_the_same_time(self):
+        # Geen verzoek houdt de event loop vast: zes zoekopdrachten tegelijk staan alle zes open bij Crisp voordat er een
+        # antwoord komt. Liepen ze na elkaar, dan wachtte de eerste vergeefs op de rest.
+        self.link()
+        state: list[int] = [0, 0]  # nu open, hoogste aantal tegelijk
+
+        async def scenario() -> list[list[dict]]:
+            everyone = asyncio.Event()
+
+            async def answer(request):
+                state[0] += 1
+                state[1] = max(state[1], state[0])
+                if state[0] == 6:
+                    everyone.set()
+                await asyncio.wait_for(everyone.wait(), 5)
+                state[0] -= 1
+                return response({"data": [product()]})
+
+            with served(side_effect=answer) as route:
+                found = list(await asyncio.gather(*(crisp.search_products(f"melk {n}") for n in range(6))))
+            self.assertEqual(route.call_count, 6)
+            return found
+
+        found = run(scenario())
+        self.assertEqual([[p["id"] for p in products] for products in found], [["101"]] * 6)
+        self.assertEqual(state[1], 6)
 
 
 if __name__ == "__main__":

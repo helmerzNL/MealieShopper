@@ -3,8 +3,9 @@
 import asyncio
 import logging
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from pathlib import Path
+from typing import Any
 
 import pytest
 from quart import Quart
@@ -84,3 +85,73 @@ async def test_startup_does_not_start_the_offers_thread(app: Quart) -> None:
     async with app.test_app():
         names: list[str] = [thread.name for thread in threading.enumerate()]
     assert "offers-schedule" not in names
+
+
+async def _yield(times: int) -> None:
+    """Geeft de event loop `times` keer vrij, zodat andere aanroepen kunnen beginnen."""
+    for _ in range(times):
+        await asyncio.sleep(0)
+
+
+async def test_map_bounded_runs_at_most_limit_at_once_and_keeps_the_order() -> None:
+    state: list[int] = [0, 0]  # nu bezig, hoogste aantal tegelijk
+
+    async def double(item: int) -> int:
+        state[0] += 1
+        state[1] = max(state[1], state[0])
+        await _yield(20 - item)  # een later item is eerder klaar
+        state[0] -= 1
+        return item * 2
+
+    assert await tasks.map_bounded(6, double, range(20)) == [item * 2 for item in range(20)]
+    assert state[1] == 6
+
+
+async def test_map_bounded_makes_each_coroutine_only_when_its_turn_comes() -> None:
+    # Zoals `pool.map`: `fn(item)` wordt pas aangeroepen als er een plek vrij is. Zo blijft er bij een fout of een annulering
+    # geen coroutine achter die nooit is afgewacht.
+    running: list[int] = []
+    seen_when_made: list[int] = []
+
+    async def work(item: int) -> int:
+        running.append(item)
+        await _yield(2)
+        running.remove(item)
+        return item
+
+    def make(item: int) -> Coroutine[Any, Any, int]:
+        seen_when_made.append(len(running))
+        return work(item)
+
+    assert await tasks.map_bounded(2, make, range(5)) == list(range(5))
+    assert max(seen_when_made) < 2
+
+
+async def test_map_bounded_cancels_the_rest_and_raises_the_first_error_itself() -> None:
+    started: list[int] = []
+    cancelled: list[int] = []
+    finished: list[int] = []
+
+    class Refused(RuntimeError):
+        pass
+
+    async def work(item: int) -> int:
+        started.append(item)
+        try:
+            await _yield(3 if item == 0 else 50)
+        except asyncio.CancelledError:
+            cancelled.append(item)
+            raise
+        if item == 0:
+            raise Refused("koppeling verlopen")
+        finished.append(item)
+        return item
+
+    with pytest.raises(Refused, match="koppeling verlopen"):
+        await tasks.map_bounded(6, work, range(10))
+    # Wie liep of net de vrije plek van item 0 kreeg, is geannuleerd voordat de fout bovenkwam. Niemand maakte zijn werk af
+    # en de rest is nooit begonnen.
+    assert sorted(cancelled) == sorted(set(started) - {0})
+    assert set(range(1, 6)) <= set(cancelled)
+    assert len(started) <= 7
+    assert finished == []

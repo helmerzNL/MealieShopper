@@ -16,7 +16,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run, served  # noqa: E402
+from support import SyncClient, run, sent_json, sent_params, served  # noqa: E402
 
 OWN = "5e8f398d5c1add2c185b229d"
 OWN2 = "5eeb8bd189e849bb83470697"
@@ -73,7 +73,7 @@ class TempDataDirTest(unittest.TestCase):
 class OverviewTest(TempDataDirTest):
     def test_own_lists_come_before_favourites_and_followed_lists_are_ignored(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=OVERVIEW) as query:
-            lists = jumbo.get_product_lists()
+            lists = run(jumbo.get_product_lists())
         self.assertEqual(query.call_args.args[0], "GetCustomerProductLists")
         self.assertEqual(query.call_args.args[1], {"listItemPagination": {"offset": 0, "limit": 4}, "listPagination": {"offset": 0, "limit": 25}})
         self.assertEqual([(i["name"], i["kind"], i["itemCount"]) for i in lists],
@@ -83,26 +83,28 @@ class OverviewTest(TempDataDirTest):
     def test_odd_entries_are_skipped(self):
         data = {"customerLists": {"items": [None, {"id": "x"}, {"title": "zonder id"}, summary(OWN, "Goed", 1)]}, "favouriteLists": None}
         with mock.patch.object(jumbo, "_persisted_query", return_value=data):
-            self.assertEqual([i["name"] for i in jumbo.get_product_lists()], ["Goed"])
+            self.assertEqual([i["name"] for i in run(jumbo.get_product_lists())], ["Goed"])
         with mock.patch.object(jumbo, "_persisted_query", return_value={}):
-            self.assertEqual(jumbo.get_product_lists(), [])
+            self.assertEqual(run(jumbo.get_product_lists()), [])
 
 
 class PersistedQueryTest(TempDataDirTest):
     def test_the_request_has_a_hash_and_no_query_text(self):
-        with mock.patch.object(jumbo.requests, "post", return_value=mock.Mock(status_code=200, ok=True, json=lambda: {"data": {"x": 1}})) as post:
-            jumbo._graphql(None, {"a": 1}, "GetCustomerProductLists", "JUMBO_WEB-lists",
-                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}})
-        sent = post.call_args.kwargs["json"]
+        with served(return_value=httpx.Response(200, json={"data": {"x": 1}})) as post:
+            run(jumbo._graphql(None, {"a": 1}, "GetCustomerProductLists", "JUMBO_WEB-lists",
+                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}))
+        self.assertEqual(post.calls.last.request.method, "POST")
+        sent = sent_json(post.calls.last)
         self.assertNotIn("query", sent)
         self.assertEqual(sent["extensions"]["persistedQuery"]["sha256Hash"], "abc")
-        self.assertEqual(post.call_args.kwargs["headers"]["apollographql-client-name"], "JUMBO_WEB-lists")
+        self.assertEqual(post.calls.last.request.headers["apollographql-client-name"], "JUMBO_WEB-lists")
 
     def test_get_puts_everything_in_the_query_string_like_the_website(self):
-        with mock.patch.object(jumbo.requests, "get", return_value=mock.Mock(status_code=200, ok=True, json=lambda: {"data": {}})) as get:
-            jumbo._graphql(None, {"a": 1}, "GetProductList", "JUMBO_WEB-lists",
-                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}, method="GET")
-        params = get.call_args.kwargs["params"]
+        with served(return_value=httpx.Response(200, json={"data": {}})) as get:
+            run(jumbo._graphql(None, {"a": 1}, "GetProductList", "JUMBO_WEB-lists",
+                           {"persistedQuery": {"version": 1, "sha256Hash": "abc"}}, method="GET"))
+        self.assertEqual(get.calls.last.request.method, "GET")
+        params = sent_params(get.calls.last)
         self.assertEqual(params["operationName"], "GetProductList")
         self.assertEqual(json.loads(params["variables"]), {"a": 1})
         self.assertEqual(json.loads(params["extensions"])["persistedQuery"]["sha256Hash"], "abc")
@@ -110,9 +112,9 @@ class PersistedQueryTest(TempDataDirTest):
 
     def test_an_unknown_hash_is_named(self):
         body = {"errors": [{"message": "PersistedQueryNotFound", "extensions": {"code": "PERSISTED_QUERY_NOT_FOUND"}}]}
-        with mock.patch.object(jumbo.requests, "post", return_value=mock.Mock(status_code=200, ok=True, json=lambda: body)):
+        with served(return_value=httpx.Response(200, json=body)):
             with self.assertRaises(jumbo.JumboPersistedQueryError):
-                jumbo._graphql(None, {}, "GetProductList", "JUMBO_WEB", {"persistedQuery": {}})
+                run(jumbo._graphql(None, {}, "GetProductList", "JUMBO_WEB", {"persistedQuery": {}}))
 
     def test_the_ladder_tries_transport_and_client_and_remembers_what_worked(self):
         calls = []
@@ -124,10 +126,10 @@ class PersistedQueryTest(TempDataDirTest):
             return {"customerLists": {"items": []}}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            jumbo._persisted_query("GetCustomerProductLists", {})
+            run(jumbo._persisted_query("GetCustomerProductLists", {}))
             first = list(calls)
             calls.clear()
-            jumbo._persisted_query("GetCustomerProductLists", {})
+            run(jumbo._persisted_query("GetCustomerProductLists", {}))
         self.assertEqual(first[:3], [("POST", "JUMBO_WEB-lists"), ("GET", "JUMBO_WEB-lists"), ("POST", "JUMBO_WEB-loyalty")])
         self.assertEqual(first[-1], ("GET", "JUMBO_WEB-loyalty"))
         self.assertEqual(calls, [("GET", "JUMBO_WEB-loyalty")])
@@ -142,20 +144,20 @@ class PersistedQueryTest(TempDataDirTest):
             return {"ok": True}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            self.assertEqual(jumbo._persisted_query("GetProductList", {}), {"ok": True})
+            self.assertEqual(run(jumbo._persisted_query("GetProductList", {})), {"ok": True})
         self.assertNotEqual(jumbo._persisted_route["GetProductList"], ("POST", "JUMBO_WEB-lists"))
 
     def test_when_every_route_says_unknown_hash_that_is_what_is_reported(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboPersistedQueryError("PersistedQueryNotFound")) as graphql:
             with self.assertRaisesRegex(jumbo.JumboPersistedQueryError, "PersistedQueryNotFound"):
-                jumbo._persisted_query("GetProductList", {})
+                run(jumbo._persisted_query("GetProductList", {}))
         self.assertEqual(graphql.call_count, len(jumbo.LIST_CLIENTS) * len(jumbo.LIST_TRANSPORTS))
         self.assertNotIn("GetProductList", jumbo._persisted_route)
 
     def test_a_dead_link_stops_the_ladder_at_once(self):
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo.JumboAuthError("weg")) as graphql:
             with self.assertRaises(jumbo.JumboAuthError):
-                jumbo._persisted_query("GetProductList", {})
+                run(jumbo._persisted_query("GetProductList", {}))
         self.assertEqual(graphql.call_count, 1)
 
 
@@ -163,7 +165,7 @@ class ProductListTest(TempDataDirTest):
     def test_all_pages_are_fetched_and_items_are_normalized(self):
         pages = [list_page([product_item(n) for n in range(25)], 30), list_page([product_item(n) for n in range(25, 30)], 30)]
         with mock.patch.object(jumbo, "_persisted_query", side_effect=pages) as query:
-            result = jumbo.get_product_list(OWN)
+            result = run(jumbo.get_product_list(OWN))
         self.assertEqual([c.args[1]["listItemsPagination"] for c in query.call_args_list],
                          [{"offset": 0, "limit": 25}, {"offset": 25, "limit": 25}])
         first = query.call_args_list[0].args[1]
@@ -174,7 +176,7 @@ class ProductListTest(TempDataDirTest):
     def test_item_fields(self):
         data = list_page([product_item(1, price=449, promo=399, amount=3, promotions=[{"tags": []}])], 1)
         with mock.patch.object(jumbo, "_persisted_query", return_value=data):
-            item = jumbo.get_product_list(OWN)["items"][0]
+            item = run(jumbo.get_product_list(OWN))["items"][0]
         self.assertEqual((item["id"], item["sku"], item["quantity"]), ("item1", "000001ZK", 3))
         product = item["product"]
         self.assertEqual((product["price"], product["isBonus"], product["brand"], product["unitSize"]), (3.99, True, "Jumbo", "750 g"))
@@ -184,27 +186,27 @@ class ProductListTest(TempDataDirTest):
     def test_empty_images_and_odd_quantities_are_tolerated(self):
         items = [product_item(1, image=""), product_item(2, amount=None), product_item(3, amount=500), product_item(4, amount=0), {"sku": "x"}, None]
         with mock.patch.object(jumbo, "_persisted_query", return_value=list_page(items, 6)):
-            result = jumbo.get_product_list(OWN)["items"]
+            result = run(jumbo.get_product_list(OWN))["items"]
         self.assertEqual([i["product"]["image"] for i in result][:1], [None])
         self.assertEqual([i["quantity"] for i in result], [1, 1, 99, 1])
 
     def test_an_unavailable_product_is_still_listed_but_marked(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=list_page([product_item(1, available=False)], 1)):
-            self.assertFalse(jumbo.get_product_list(OWN)["items"][0]["product"]["available"])
+            self.assertFalse(run(jumbo.get_product_list(OWN))["items"][0]["product"]["available"])
 
     def test_pages_stop_when_jumbo_runs_out_of_items(self):
         with mock.patch.object(jumbo, "_persisted_query", side_effect=[list_page([product_item(1)], 50), list_page([], 50)]) as query:
-            self.assertEqual(len(jumbo.get_product_list(OWN)["items"]), 1)
+            self.assertEqual(len(run(jumbo.get_product_list(OWN))["items"]), 1)
         self.assertEqual(query.call_count, 2)
 
     def test_a_missing_list_is_an_error_and_bad_ids_never_reach_jumbo(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value={"productListV2": None}):
             with self.assertRaises(RuntimeError):
-                jumbo.get_product_list(OWN)
+                run(jumbo.get_product_list(OWN))
         with mock.patch.object(jumbo, "_persisted_query", side_effect=AssertionError("niet vragen")):
             for bad in ("", "a b", "x" * 80, '1"}', None):
                 with self.assertRaises(ValueError):
-                    jumbo.get_product_list(bad)
+                    run(jumbo.get_product_list(bad))
 
 
 class LocalCopyTest(TempDataDirTest):

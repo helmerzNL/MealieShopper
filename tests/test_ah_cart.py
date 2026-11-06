@@ -1,16 +1,20 @@
+import asyncio
 import os
 import tempfile
 import threading
 import unittest
-from typing import NoReturn
+from typing import Any, NoReturn
 from unittest import mock
+
+import httpx
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah  # noqa: E402
 from mealieshopper.i18n import tr  # noqa: E402
+from mealieshopper import app as app_module  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, run, sent_json, sent_params, served  # noqa: E402
 
 
 class NormalizeQuantityTest(unittest.TestCase):
@@ -117,77 +121,88 @@ class AssessPacksTest(unittest.TestCase):
 
 class AddToShoppingListTest(unittest.TestCase):
     def test_quantities_are_clamped_in_the_payload(self):
-        ok = mock.Mock(ok=True)
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "patch", return_value=ok) as patch:
-            ah.add_to_shopping_list([
+                served(httpx.Response(200)) as patch:
+            run(ah.add_to_shopping_list([
                 {"productId": 1, "quantity": 500, "query": "aardappelen"},
                 {"productId": 2, "quantity": 0, "query": "melk"},
                 {"productId": 3, "quantity": "4", "query": "eieren"},
-            ])
-        quantities = [item["quantity"] for item in patch.call_args.kwargs["json"]["items"]]
+            ]))
+        self.assertEqual(patch.calls.last.request.method, "PATCH")
+        quantities = [item["quantity"] for item in sent_json(patch.calls.last)["items"]]
         self.assertEqual(quantities, [99, 1, 4])
 
     def test_the_same_product_is_sent_once_with_the_quantities_added_up(self):
-        ok = mock.Mock(ok=True)
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "patch", return_value=ok) as patch:
-            ah.add_to_shopping_list([
+                served(httpx.Response(200)) as patch:
+            run(ah.add_to_shopping_list([
                 {"productId": 7, "quantity": 1, "query": "melk"},
                 {"productId": 8, "quantity": 2, "query": "eieren"},
                 {"productId": "7", "quantity": 2, "title": "AH Halfvolle melk"},
                 {"productId": 8, "quantity": 99, "query": "eieren"},
-            ])
-        items = patch.call_args.kwargs["json"]["items"]
+            ]))
+        items = sent_json(patch.calls.last)["items"]
         self.assertEqual([item["productId"] for item in items], [7, 8])
         self.assertEqual([item["quantity"] for item in items], [3, 99])
         self.assertEqual(items[0]["description"], "melk")
 
 
     def test_an_open_order_gets_a_readable_message(self):
-        refused = mock.Mock(ok=False, status_code=412, text='{"status":412,"message":"Server in order mode"}')
+        refused = httpx.Response(412, text='{"status":412,"message":"Server in order mode"}')
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "patch", return_value=refused):
+                served(refused):
             with self.assertRaises(RuntimeError) as caught:
-                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+                run(ah.add_to_shopping_list([{"productId": 1, "quantity": 1}]))
         self.assertIn("bestelling open", str(caught.exception))
         self.assertIn("ander apparaat", str(caught.exception))
         self.assertIn("412", str(caught.exception))
 
     def test_other_errors_keep_the_raw_answer(self):
-        refused = mock.Mock(ok=False, status_code=500, text="kapot")
+        refused = httpx.Response(500, text="kapot")
         with mock.patch.object(ah, "get_user_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "patch", return_value=refused):
+                served(refused):
             with self.assertRaisesRegex(RuntimeError, r"\(500\): kapot"):
-                ah.add_to_shopping_list([{"productId": 1, "quantity": 1}])
+                run(ah.add_to_shopping_list([{"productId": 1, "quantity": 1}]))
 
 
 class SearchRetryTest(unittest.TestCase):
-    def search(self, side_effect):
+    def search(self, side_effect: Any) -> tuple[Any, Any, list[float]]:
+        """Zoek met `side_effect` als antwoorden van AH. Geeft (uitkomst of fout, de route, de pauzes van `_wait`)."""
         with mock.patch.object(ah, "get_token", return_value="tok"), \
-                mock.patch.object(ah.time, "sleep"), \
-                mock.patch.object(ah.requests, "get", side_effect=side_effect) as get:
+                mock.patch.object(ah, "_wait", new_callable=mock.AsyncMock) as wait, \
+                served(side_effect=side_effect) as get:
             try:
-                return ah.search_products("melk", 1), get
+                result: Any = run(ah.search_products("melk", 1))
             except Exception as exc:  # noqa: BLE001
-                return exc, get
+                result = exc
+        return result, get, [call.args[0] for call in wait.await_args_list]
 
     def test_a_dropped_connection_is_tried_again(self):
-        answer = mock.Mock(ok=True)
-        answer.json.return_value = {"products": []}
-        result, get = self.search([ah.requests.ConnectionError("reset"), answer])
+        answer = httpx.Response(200, json={"products": []})
+        result, get, waits = self.search([httpx.ConnectError("reset"), answer])
         self.assertEqual(result, [])
         self.assertEqual(get.call_count, 2)
+        self.assertEqual(waits, [0.5])
 
-    def test_it_gives_up_after_three_attempts(self):
-        result, get = self.search(ah.requests.ConnectionError("reset"))
-        self.assertIsInstance(result, ah.requests.ConnectionError)
+    def test_it_gives_up_after_three_attempts_with_growing_pauses(self):
+        result, get, waits = self.search(httpx.ConnectError("reset"))
+        self.assertIsInstance(result, httpx.ConnectError)
         self.assertEqual(get.call_count, 3)
+        self.assertEqual(waits, [0.5, 1.0])  # 0,5 seconden keer de poging, zoals voorheen met time.sleep
+
+    def test_every_kind_of_dropped_connection_and_timeout_is_tried_again(self):
+        # Wat requests `ConnectionError` en `Timeout` noemde: geen verbinding, een server die ophangt, een time-out.
+        for failure in (httpx.RemoteProtocolError("Server disconnected"), httpx.ReadError("reset"),
+                        httpx.ReadTimeout("traag"), httpx.ConnectTimeout("traag")):
+            answer = httpx.Response(200, json={"products": []})
+            result, get, waits = self.search([failure, answer])
+            self.assertEqual((result, get.call_count, waits), ([], 2, [0.5]), type(failure).__name__)
 
     def test_an_error_answer_is_not_retried(self):
-        result, get = self.search([mock.Mock(ok=False, status_code=500)])
+        result, get, waits = self.search([httpx.Response(500)])
         self.assertIsInstance(result, RuntimeError)
         self.assertEqual(get.call_count, 1)
+        self.assertEqual(waits, [])
 
 
 def ah_product(webshop_id, title, brand="AH", bundle=False):
@@ -208,12 +223,10 @@ class SearchRankTest(unittest.TestCase):
     ]
 
     def search(self, query, products, limit=5):
-        answer = mock.Mock(ok=True)
-        answer.json.return_value = {"products": products}
-        with mock.patch.object(ah, "get_token", return_value="tok"), \
-                mock.patch.object(ah.requests, "get", return_value=answer) as get:
-            found = ah.search_products(query, limit)
-        return found, get.call_args.kwargs["params"]
+        answer = httpx.Response(200, json={"products": products})
+        with mock.patch.object(ah, "get_token", return_value="tok"), served(answer) as get:
+            found = run(ah.search_products(query, limit))
+        return found, {key: int(value) if value.isdigit() else value for key, value in sent_params(get.calls.last).items()}
 
     def titles(self, query, products):
         return [item["title"] for item in ah.rank_search_results(query, products)]
@@ -499,7 +512,7 @@ class CartPreviewRouteTest(unittest.TestCase):
 
     def test_searches_run_inside_the_request(self) -> None:
         # Geen threadpool meer: elke zoekopdracht draait in de event loop van het verzoek en ziet dus ook de taal van de
-        # gebruiker. Hoeveel er tegelijk lopen (hooguit zes) toetst Taak 21, als de winkelmodules async zijn.
+        # gebruiker. Hoeveel er tegelijk lopen, toetst de test hieronder.
         threads: set[int] = set()
 
         def search(query: str, limit: int) -> NoReturn:
@@ -512,6 +525,27 @@ class CartPreviewRouteTest(unittest.TestCase):
             )
         self.assertEqual([row["error"] for row in response.get_json()["items"]], ["Search failed"] * 8)
         self.assertEqual(threads, {threading.get_ident()})
+
+    def test_at_most_six_rows_search_at_once_and_the_order_is_kept(self) -> None:
+        # Twaalf regels, en elke zoekopdracht geeft de loop een paar keer vrij: zonder grens lopen ze alle twaalf tegelijk,
+        # met de grens precies zes. Een latere regel is eerder klaar, en toch blijft de volgorde van de regels staan.
+        queries: list[str] = [f"p{n}" for n in range(12)]
+        state: list[int] = [0, 0]  # nu bezig, hoogste aantal tegelijk
+
+        async def search(query: str, limit: int) -> list[dict[str, Any]]:
+            state[0] += 1
+            state[1] = max(state[1], state[0])
+            for _ in range(12 - int(query[1:])):
+                await asyncio.sleep(0)
+            state[0] -= 1
+            return [search_result(int(query[1:]) + 1, query, "per stuk")]
+
+        response = self.preview([{"query": q, "quantity": 1} for q in queries], search)
+        rows = response.get_json()["items"]
+        self.assertEqual([row["query"] for row in rows], queries)
+        self.assertEqual([[c["productId"] for c in row["candidates"]] for row in rows], [[str(n + 1)] for n in range(12)])
+        self.assertEqual(state[1], app_module.CART_PREVIEW_WORKERS)
+        self.assertEqual(app_module.CART_PREVIEW_WORKERS, 6)
 
 
 if __name__ == "__main__":

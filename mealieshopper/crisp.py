@@ -21,9 +21,9 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-import requests
+import httpx
 
-from . import about, auth, deals
+from . import about, auth, deals, http_client
 from .i18n import tr
 from .packs import MAX_CART_QUANTITY, assess_packs, normalize_quantity
 
@@ -91,7 +91,7 @@ def generate_client_id() -> str:
     return "".join(secrets.choice(CLIENT_ID_CHARS) for _ in range(CLIENT_ID_LENGTH))
 
 
-def _call(method: str, path: str, client_id: str, body: Any = None) -> Any:
+async def _call(method: str, path: str, client_id: str, body: Any = None) -> Any:
     """Eén verzoek aan Crisp met het apparaat-id als sleutel. Geeft het JSON-antwoord terug."""
     headers = {
         "Origin": ORIGIN,
@@ -102,11 +102,13 @@ def _call(method: str, path: str, client_id: str, body: Any = None) -> Any:
     }
     if body is not None:
         headers["Content-Type"] = "application/json"
-    response = requests.request(method, API + path, headers=headers, json=body, timeout=TIMEOUT)
+    response: httpx.Response = await http_client.client("crisp").request(
+        method, API + path, headers=headers, json=body, timeout=TIMEOUT
+    )
     if response.status_code in (401, 403):
         # Bewust niet de tekst van Crisp zelf: de aanroeper kiest een eigen, begrijpelijke melding.
         raise CrispAuthError(tr("Crisp weigerde de sessie", "Crisp refused the session"))
-    if not response.ok:
+    if response.status_code >= 400:
         raise RuntimeError(f"{response.status_code}: {response.text[:500]}")
     try:
         return response.json() if response.content else None
@@ -117,21 +119,21 @@ def _call(method: str, path: str, client_id: str, body: Any = None) -> Any:
 # --- koppeling ---------------------------------------------------------------------------
 
 
-def configured_client_id() -> str:
-    return auth.get_secret(CLIENT_SECRET)
+async def configured_client_id() -> str:
+    return await auth.aget_secret(CLIENT_SECRET)
 
 
-def country() -> str:
-    value = (auth.get_secret(COUNTRY_SECRET) or "").strip().lower()
+async def country() -> str:
+    value = (await auth.aget_secret(COUNTRY_SECRET) or "").strip().lower()
     return value if value in COUNTRIES else "nl"
 
 
-def _authed(method: str, path: str, body: Any = None) -> Any:
-    client_id = configured_client_id()
+async def _authed(method: str, path: str, body: Any = None) -> Any:
+    client_id = await configured_client_id()
     if not client_id:
         raise _not_linked()
     try:
-        return _call(method, path, client_id, body)
+        return await _call(method, path, client_id, body)
     except CrispAuthError as exc:
         raise CrispAuthError(
             tr(
@@ -141,14 +143,14 @@ def _authed(method: str, path: str, body: Any = None) -> Any:
         ) from exc
 
 
-def _save_link(client_id: str, chosen_country: str) -> None:
-    auth.set_secret(CLIENT_SECRET, client_id)
-    auth.set_secret(COUNTRY_SECRET, chosen_country)
-    auth.delete_secret(PENDING_SECRET)
+async def _save_link(client_id: str, chosen_country: str) -> None:
+    await auth.aset_secret(CLIENT_SECRET, client_id)
+    await auth.aset_secret(COUNTRY_SECRET, chosen_country)
+    await auth.adelete_secret(PENDING_SECRET)
 
 
-def _pending() -> dict[str, str]:
-    raw = auth.get_secret(PENDING_SECRET)
+async def _pending() -> dict[str, str]:
+    raw = await auth.aget_secret(PENDING_SECRET)
     try:
         pending = json.loads(raw) if raw else {}
     except ValueError:
@@ -158,7 +160,7 @@ def _pending() -> dict[str, str]:
     return {key: str(pending.get(key) or "") for key in ("clientId", "email", "country")}
 
 
-def start_login(email: Any, chosen_country: Any = "nl") -> dict[str, Any]:
+async def start_login(email: Any, chosen_country: Any = "nl") -> dict[str, Any]:
     """Vraag Crisp om een code per mail. Is dit apparaat-id al ingelogd, dan is de koppeling meteen klaar."""
     email = str(email or "").strip()
     chosen_country = str(chosen_country or "nl").strip().lower()
@@ -167,10 +169,10 @@ def start_login(email: Any, chosen_country: Any = "nl") -> dict[str, Any]:
     if chosen_country not in COUNTRIES:
         raise ValueError(tr("Kies Nederland of België", "Choose the Netherlands or Belgium"))
     client_id = generate_client_id()
-    data = _call("POST", "/user/login", client_id, {"email": email, "country": chosen_country})
+    data = await _call("POST", "/user/login", client_id, {"email": email, "country": chosen_country})
     data = data if isinstance(data, dict) else {}
     if data.get("id"):
-        _save_link(client_id, chosen_country)
+        await _save_link(client_id, chosen_country)
         return {"connected": True, "codeRequired": False}
     if data.get("error"):
         if data.get("error") == "webLogin":
@@ -182,51 +184,51 @@ def start_login(email: Any, chosen_country: Any = "nl") -> dict[str, Any]:
                 )
             )
         raise CrispLoginError(tr("Crisp weigerde de login: controleer het e-mailadres en het land", "Crisp refused the login: check the email address and the country"))
-    auth.set_secret(PENDING_SECRET, json.dumps({"clientId": client_id, "email": email, "country": chosen_country, "at": time.time()}))
+    await auth.aset_secret(PENDING_SECRET, json.dumps({"clientId": client_id, "email": email, "country": chosen_country, "at": time.time()}))
     return {"connected": False, "codeRequired": True}
 
 
-def verify_login(code: Any) -> dict[str, Any]:
+async def verify_login(code: Any) -> dict[str, Any]:
     """Bevestig de login met de code uit de mail; daarna hoort het apparaat-id bij het account."""
     code = str(code or "").strip()
     if not code:
         raise ValueError(tr("Geen code opgegeven", "No code provided"))
-    pending = _pending()
-    data = _call("POST", "/user/login", pending["clientId"], {"email": pending["email"], "code": code, "country": pending["country"]})
+    pending = await _pending()
+    data = await _call("POST", "/user/login", pending["clientId"], {"email": pending["email"], "code": code, "country": pending["country"]})
     data = data if isinstance(data, dict) else {}
     if data.get("id"):
-        _save_link(pending["clientId"], pending["country"])
+        await _save_link(pending["clientId"], pending["country"])
         return {"connected": True}
     if data.get("error"):
         raise CrispLoginError(tr("Crisp weigerde de code: controleer hem of vraag een nieuwe aan", "Crisp refused the code: check it or request a new one"))
     raise RuntimeError(tr("Crisp gaf geen account terug", "Crisp returned no account"))
 
 
-def unlink() -> dict[str, Any]:
+async def unlink() -> dict[str, Any]:
     """Ontkoppel. We melden het apparaat bij Crisp af zoals de app (als dat lukt) en wissen het id."""
-    client_id = configured_client_id()
+    client_id = await configured_client_id()
     if client_id:
         try:
-            _call("POST", "/user/login", client_id, {"logout": True})
+            await _call("POST", "/user/login", client_id, {"logout": True})
         except Exception:  # noqa: BLE001 - ontkoppelen moet ook lukken als Crisp niet bereikbaar is
             pass
     for key in (CLIENT_SECRET, COUNTRY_SECRET, PENDING_SECRET):
-        auth.delete_secret(key)
+        await auth.adelete_secret(key)
     return {"connected": False}
 
 
-def status(verify: bool = False) -> dict[str, Any]:
+async def status(verify: bool = False) -> dict[str, Any]:
     """Is er een koppeling, en klopt die nog? Geeft geen persoonsgegevens terug."""
-    connected = bool(configured_client_id())
-    result: dict[str, Any] = {"connected": connected, "codePending": False, "country": country() if connected else None}
+    connected = bool(await configured_client_id())
+    result: dict[str, Any] = {"connected": connected, "codePending": False, "country": await country() if connected else None}
     try:
-        _pending()
+        await _pending()
         result["codePending"] = True
     except CrispLoginError:
         pass
     if verify and connected:
         try:
-            user = _authed("GET", "/user")
+            user = await _authed("GET", "/user")
             if not (isinstance(user, dict) and user.get("id")):
                 raise CrispAuthError(tr("Crisp ziet dit apparaat niet meer als ingelogd. Koppel opnieuw.", "Crisp no longer sees this device as logged in. Link again."))
             result["verified"] = True
@@ -324,11 +326,11 @@ def _items(data: Any) -> list[dict[str, Any]]:
     return [item for item in items or [] if isinstance(item, dict)]
 
 
-def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
+async def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     term = str(query or "").strip()
     if not term:
         return []
-    data = _authed("POST", "/search", {"query": term, "cursor": False, "limit": max(SEARCH_LIMIT, limit)})
+    data = await _authed("POST", "/search", {"query": term, "cursor": False, "limit": max(SEARCH_LIMIT, limit)})
     products = [
         product_summary(item)
         for item in _items(data)
@@ -337,8 +339,8 @@ def search_products(query: str, limit: int = 5) -> list[dict[str, Any]]:
     return [product for product in products if product["available"]][: max(1, limit)]
 
 
-def search_product(query: str) -> dict[str, Any] | None:
-    found = search_products(query, 1)
+async def search_product(query: str) -> dict[str, Any] | None:
+    found = await search_products(query, 1)
     return found[0] if found else None
 
 
@@ -433,13 +435,13 @@ def _counts(basket: Any) -> dict[str, int]:
     return {product_id: _count(line) for product_id, line in _basket_products(basket)}
 
 
-def get_cart() -> dict[str, Any]:
-    return cart_summary(_authed("GET", "/basket/main"))
+async def get_cart() -> dict[str, Any]:
+    return cart_summary(await _authed("GET", "/basket/main"))
 
 
-def _put_basket(products: dict[str, Any]) -> Any:
+async def _put_basket(products: dict[str, Any]) -> Any:
     """Eén wijziging in het mandje. Weigert Crisp die (`_error`), dan bewaart Crisp niets en melden we dat."""
-    basket = _authed("PUT", "/basket/main", {"products": products})
+    basket = await _authed("PUT", "/basket/main", {"products": products})
     if isinstance(basket, dict) and basket.get("_error"):
         # De tekst van Crisp (bedoeld voor de app) geven we niet door; de reden staat ook niet vast.
         raise CrispBasketError(
@@ -451,7 +453,7 @@ def _put_basket(products: dict[str, Any]) -> Any:
     return basket
 
 
-def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
+async def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet producten in het Crisp-winkelmandje. Plaatst nooit een bestelling.
 
     Eén verzoek voor alles, met het nieuwe aantal per product (wat er al lag plus wat erbij komt), zoals de app een
@@ -465,11 +467,11 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
             wanted[product_id] = wanted.get(product_id, 0) + normalize_quantity(item.get("quantity"))
     if not wanted:
         return {"added": [], "failed": [], "cart": None}
-    current = _authed("GET", "/basket/main")
+    current = await _authed("GET", "/basket/main")
     before = _counts(current)
     changes = {product_id: {"count": before.get(product_id, 0) + count, "from": FROM} for product_id, count in wanted.items()}
     try:
-        basket = _put_basket(changes)
+        basket = await _put_basket(changes)
     except CrispBasketError as exc:
         # Crisp nam de hele wijziging niet aan: niets is toegevoegd.
         failed = [{"productId": product_id, "error": str(exc)} for product_id in wanted]
@@ -486,7 +488,7 @@ def add_to_cart(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"added": added, "failed": failed, "cart": cart_summary(basket)}
 
 
-def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
+async def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
     """Zet een product op een exact aantal; 0 haalt het weg. Zoals de app: het nieuwe aantal in één `PUT`."""
     product_id = str(product_id or "").strip()
     if not _ID.match(product_id):
@@ -499,20 +501,20 @@ def set_quantity(product_id: Any, quantity: Any) -> dict[str, Any]:
         raise ValueError(tr("Geen geldig aantal", "Not a valid number")) from exc
     if number != int(number) or not 0 <= number <= MAX_CART_QUANTITY:
         raise ValueError(tr(f"Kies een aantal van 0 tot {MAX_CART_QUANTITY}", f"Choose a number from 0 to {MAX_CART_QUANTITY}"))
-    return cart_summary(_put_basket({product_id: {"count": int(number), "from": FROM}}))
+    return cart_summary(await _put_basket({product_id: {"count": int(number), "from": FROM}}))
 
 
-def clear_cart() -> dict[str, Any]:
+async def clear_cart() -> dict[str, Any]:
     """Haal alle losse producten uit het mandje, in één `PUT` met aantal 0 per product.
 
     De app leegt het mandje met `products: "clear"`, maar alleen samen met recepten en maaltijdboxen; aantal 0 is de
     vorm die de app per product gebruikt. Recepten die je in de Crisp-app in het mandje zette, blijven staan.
     """
-    current = _authed("GET", "/basket/main")
+    current = await _authed("GET", "/basket/main")
     ids = [product_id for product_id, line in _basket_products(current) if _count(line) and _ID.match(product_id)]
     if not ids:
         return {"removed": 0, "cart": cart_summary(current)}
-    basket = _put_basket({product_id: {"count": 0, "from": FROM} for product_id in ids})
+    basket = await _put_basket({product_id: {"count": 0, "from": FROM} for product_id in ids})
     return {"removed": len(ids), "cart": cart_summary(basket)}
 
 
@@ -543,10 +545,10 @@ def _order_items(order: dict[str, Any]) -> list[dict[str, Any]]:
     return cart_summary({"products": order.get("products")})["items"]
 
 
-def order_history_page(cursor: Any = None) -> tuple[list[dict[str, Any]], str | None]:
+async def order_history_page(cursor: Any = None) -> tuple[list[dict[str, Any]], str | None]:
     """Eén pagina van je bestelgeschiedenis (nieuwste eerst) en de cursor voor de volgende; zonder cursor is dit de laatste."""
     path = "/order/history" + (f"?cursor={quote(str(cursor), safe='')}" if cursor else "")
-    data = _authed("GET", path)
+    data = await _authed("GET", path)
     orders = []
     for entry in data.get("data") or [] if isinstance(data, dict) else []:
         # Abonnementsbestellingen (maaltijdboxen) hebben een andere vorm; die tonen we niet.
@@ -564,9 +566,9 @@ def _order_id(value: Any) -> str:
     return order_id
 
 
-def get_order(order_id: Any) -> dict[str, Any]:
+async def get_order(order_id: Any) -> dict[str, Any]:
     """Eén bestelling met de producten, live bij Crisp."""
-    data = _authed("GET", f"/order/{_order_id(order_id)}")
+    data = await _authed("GET", f"/order/{_order_id(order_id)}")
     order = data.get("data") if isinstance(data, dict) and isinstance(data.get("data"), dict) else data
     if not isinstance(order, dict) or not order.get("id"):
         raise RuntimeError(tr("Crisp gaf de bestelling in een onbekend formaat", "Crisp returned the order in an unknown format"))
@@ -574,29 +576,29 @@ def get_order(order_id: Any) -> dict[str, Any]:
     return {**_order_header(order), "items": items, "itemCount": sum(item["quantity"] for item in items), "itemsSynced": True}
 
 
-def get_open_orders() -> list[dict[str, Any]]:
+async def get_open_orders() -> list[dict[str, Any]]:
     """De bestellingen die nog bezorgd worden (`/order/count` geeft hun id's), met het aantal producten."""
-    data = _authed("GET", "/order/count")
+    data = await _authed("GET", "/order/count")
     ids = [str(value) for value in (data.get("openOrderIds") or [] if isinstance(data, dict) else []) if _ID.match(str(value))]
     orders = []
     for order_id in ids[:MAX_OPEN_ORDERS]:
-        order = get_order(order_id)
+        order = await get_order(order_id)
         orders.append({key: value for key, value in order.items() if key != "items"})
     return sorted(orders, key=lambda order: str(order.get("windowStart") or order.get("deliveryDate") or ""))
 
 
-def _saved_entries() -> list[dict[str, Any]]:
+async def _saved_entries() -> list[dict[str, Any]]:
     """De lijst "Door jou bewaard" (`GET /saved/list`): producten en recepten door elkaar, als `{type, item}`."""
-    data = _authed("GET", "/saved/list")
+    data = await _authed("GET", "/saved/list")
     entries = data.get("items") if isinstance(data, dict) else None
     return [entry for entry in entries or [] if isinstance(entry, dict)]
 
 
-def get_favorites() -> dict[str, Any]:
+async def get_favorites() -> dict[str, Any]:
     """Je bewaarde producten ("Door jou bewaard" in de app). De recepten uit die lijst staan bij `get_saved_recipes`."""
     products = []
     seen: set[str] = set()
-    for entry in _saved_entries():
+    for entry in await _saved_entries():
         item = entry.get("item") if entry.get("type") == "product" else None
         if isinstance(item, dict) and item.get("id") and item.get("title"):
             product = product_summary(item)
@@ -631,13 +633,13 @@ def _offer(product: dict[str, Any], label: str = "") -> dict[str, Any] | None:
     }
 
 
-def get_offers() -> list[dict[str, Any]]:
+async def get_offers() -> list[dict[str, Any]]:
     """De aanbiedingen van deze week, zoals het tabblad Promo van de app ze toont (`/promo/current`).
 
     De pagina bestaat uit blokken: losse producten en groepen producten (met prijs en actie), en acties met hun producten
     (zonder prijs; de titel van de actie is dan het label).
     """
-    data = _authed("GET", "/promo/current")
+    data = await _authed("GET", "/promo/current")
     section = data.get("promo") if isinstance(data, dict) and isinstance(data.get("promo"), dict) else {}
     found: dict[str, dict[str, Any]] = {}
 
@@ -724,29 +726,29 @@ def _recipe_cards(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cards
 
 
-def search_recipes(query: Any) -> dict[str, Any]:
+async def search_recipes(query: Any) -> dict[str, Any]:
     """Zoek in de recepten van Crisp, zoals het receptenzoeken in de app. Bundels (meerdere recepten) laten we weg."""
     term = str(query or "").strip()
     if not term:
         raise ValueError(tr("Zoekterm ontbreekt", "Search term missing"))
-    data = _authed("POST", "/search/recipe", {"query": term, "cursor": False, "limit": RECIPE_SEARCH_LIMIT})
+    data = await _authed("POST", "/search/recipe", {"query": term, "cursor": False, "limit": RECIPE_SEARCH_LIMIT})
     recipes = _recipe_cards(_items(data))
     return {"recipes": recipes, "total": len(recipes)}
 
 
-def _favorite_recipe_items() -> list[dict[str, Any]]:
+async def _favorite_recipe_items() -> list[dict[str, Any]]:
     """De groep Favorieten van de receptenpagina in de app (`GET /recipe/favorites`): `{id, items: [...], total, ...}`."""
-    data = _authed("GET", "/recipe/favorites")
+    data = await _authed("GET", "/recipe/favorites")
     items = data.get("items") if isinstance(data, dict) else None
     return [item for item in items or [] if isinstance(item, dict)]
 
 
-def _saved_recipe_items() -> list[dict[str, Any]]:
+async def _saved_recipe_items() -> list[dict[str, Any]]:
     """De recepten in "Door jou bewaard" (`GET /saved/list`); dezelfde lijst als `get_favorites`, die de producten neemt."""
-    return [entry["item"] for entry in _saved_entries() if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)]
+    return [entry["item"] for entry in await _saved_entries() if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)]
 
 
-def get_saved_recipes() -> dict[str, Any]:
+async def get_saved_recipes() -> dict[str, Any]:
     """Je favoriete recepten, zoals de app ze toont, zonder dubbelen en net als bij het zoeken alleen gewone recepten.
 
     Het hartje bij een recept zet het in `recipeIds` van `/saved`. Waar de app dat terugtoont, hangt af van een experiment
@@ -759,7 +761,7 @@ def get_saved_recipes() -> dict[str, Any]:
     reached = 0
     for fetch in (_favorite_recipe_items, _saved_recipe_items):
         try:
-            items.extend(fetch())
+            items.extend(await fetch())
         except CrispAuthError:
             raise  # de koppeling zelf is stuk: de andere bron helpt niet
         except Exception as exc:  # noqa: BLE001 - de andere bron kan wel lukken
@@ -822,8 +824,8 @@ def recipe_details(recipe: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def get_recipe(recipe_id: Any) -> dict[str, Any]:
-    recipe = _authed("GET", f"/recipe/{_recipe_id(recipe_id)}")
+async def get_recipe(recipe_id: Any) -> dict[str, Any]:
+    recipe = await _authed("GET", f"/recipe/{_recipe_id(recipe_id)}")
     if not isinstance(recipe, dict) or not recipe.get("title"):
         raise RuntimeError(tr("Crisp gaf het recept in een onbekend formaat", "Crisp returned the recipe in an unknown format"))
     return recipe_details(recipe)
@@ -873,22 +875,22 @@ def _failure(exc: Exception) -> str:
     return f"HTTP {status_code.group(1)}" if status_code else type(exc).__name__
 
 
-def explore() -> dict[str, Any]:
+async def explore() -> dict[str, Any]:
     """Roep de routes aan die MealieShopper gebruikt en meld welke werken en welke velden erin zitten.
 
     Alleen lezen: er wordt niets in het mandje gezet. Het rapport bevat alleen veldnamen en aantallen, geen namen,
     adressen, prijzen of id's, en is daarom veilig te delen.
     """
-    report: dict[str, Any] = {"linked": bool(configured_client_id()), "agent": AGENT, "checks": []}
+    report: dict[str, Any] = {"linked": bool(await configured_client_id()), "agent": AGENT, "checks": []}
     if not report["linked"]:
         return report
 
-    def check(name: str, route: str, path: str, body: Any = None, inspect: Any = None) -> Any:
+    async def check(name: str, route: str, path: str, body: Any = None, inspect: Any = None) -> Any:
         # `route` is de route zonder id's, zodat het rapport geen product- of recept-id bevat.
         method = route.split(" ", 1)[0]
         entry: dict[str, Any] = {"name": name, "route": route}
         try:
-            data = _authed(method, path, body)
+            data = await _authed(method, path, body)
             entry["ok"] = True
             entry["fields"] = _keys(data)
             if inspect:
@@ -903,17 +905,17 @@ def explore() -> dict[str, Any]:
     def first(items: list[dict[str, Any]], kind: str) -> dict[str, Any]:
         return next((item for item in items if item.get("itemType", kind) == kind), {})
 
-    check("user", "GET /user", "/user", inspect=lambda data: {"loggedIn": bool(isinstance(data, dict) and data.get("id"))})
-    found = check("search", "POST /search", "/search", {"query": "melk", "cursor": False, "limit": SEARCH_LIMIT},
+    await check("user", "GET /user", "/user", inspect=lambda data: {"loggedIn": bool(isinstance(data, dict) and data.get("id"))})
+    found = await check("search", "POST /search", "/search", {"query": "melk", "cursor": False, "limit": SEARCH_LIMIT},
                   inspect=lambda data: {"count": len(_items(data)), "itemFields": _keys(first(_items(data), "product"))})
     product = first(_items(found), "product")
     if product.get("id"):
-        check("product", "GET /product/:id", f"/product/{product['id']}")
-    check("basket", "GET /basket/main", "/basket/main", inspect=lambda data: {
+        await check("product", "GET /product/:id", f"/product/{product['id']}")
+    await check("basket", "GET /basket/main", "/basket/main", inspect=lambda data: {
         "productCount": len(_basket_products(data)),
         "productFields": _keys(next((line for _, line in _basket_products(data)), {})),
     })
-    recipes = check("recipeSearch", "POST /search/recipe", "/search/recipe", {"query": "pasta", "cursor": False, "limit": SEARCH_LIMIT},
+    recipes = await check("recipeSearch", "POST /search/recipe", "/search/recipe", {"query": "pasta", "cursor": False, "limit": SEARCH_LIMIT},
                     inspect=lambda data: {"count": len(_items(data)), "itemFields": _keys(first(_items(data), "recipe"))})
     recipe = first(_items(recipes), "recipe")
     if recipe.get("id"):
@@ -927,7 +929,7 @@ def explore() -> dict[str, Any]:
                 "ingredientFields": _keys(ingredient),
                 "instructionFields": _keys(steps[0]) if isinstance(steps, list) and steps else [],
             }
-        check("recipe", "GET /recipe/:id", f"/recipe/{recipe['id']}", inspect=recipe_shape)
+        await check("recipe", "GET /recipe/:id", f"/recipe/{recipe['id']}", inspect=recipe_shape)
 
     # Bestellingen, favorieten en aanbiedingen: alleen soorten, aantallen en veldnamen.
     def history_shape(data: Any) -> dict[str, Any]:
@@ -942,7 +944,7 @@ def explore() -> dict[str, Any]:
             "hasCursor": bool(isinstance(data, dict) and data.get("cursor")),
         }
 
-    history = check("orderHistory", "GET /order/history", "/order/history", inspect=history_shape)
+    history = await check("orderHistory", "GET /order/history", "/order/history", inspect=history_shape)
     order = next((entry.get("item") for entry in ((history or {}).get("data") or []) if isinstance(entry, dict) and entry.get("type") == "order"), None)
     if isinstance(order, dict) and order.get("id"):
         def order_shape(data: Any) -> dict[str, Any]:
@@ -950,8 +952,8 @@ def explore() -> dict[str, Any]:
             products = inner.get("products") if isinstance(inner, dict) else None
             line = products[0] if isinstance(products, list) and products and isinstance(products[0], dict) else {}
             return {"orderFields": _keys(inner), "productFields": _keys(line)}
-        check("order", "GET /order/:id", f"/order/{order['id']}", inspect=order_shape)
-    check("openOrders", "GET /order/count", "/order/count", inspect=lambda data: {
+        await check("order", "GET /order/:id", f"/order/{order['id']}", inspect=order_shape)
+    await check("openOrders", "GET /order/count", "/order/count", inspect=lambda data: {
         "openCount": len(data.get("openOrderIds") or []) if isinstance(data, dict) else 0,
     })
 
@@ -970,7 +972,7 @@ def explore() -> dict[str, Any]:
             "hasCursor": bool(isinstance(data, dict) and data.get("cursor")),
         }
 
-    check("favorites", "GET /saved/list", "/saved/list", inspect=saved_shape)
+    await check("favorites", "GET /saved/list", "/saved/list", inspect=saved_shape)
 
     def favorite_recipes_shape(data: Any) -> dict[str, Any]:
         items = [item for item in (data.get("items") or [] if isinstance(data, dict) else []) if isinstance(item, dict)]
@@ -983,7 +985,7 @@ def explore() -> dict[str, Any]:
         }
 
     # De favoriete recepten (het hartje): zonder het experiment yourShop-saved staan ze alleen hier, niet in /saved/list.
-    check("recipeFavorites", "GET /recipe/favorites", "/recipe/favorites", inspect=favorite_recipes_shape)
+    await check("recipeFavorites", "GET /recipe/favorites", "/recipe/favorites", inspect=favorite_recipes_shape)
 
     def promo_shape(data: Any) -> dict[str, Any]:
         section = data.get("promo") if isinstance(data, dict) and isinstance(data.get("promo"), dict) else {}
@@ -1002,6 +1004,6 @@ def explore() -> dict[str, Any]:
             "productPromotionFields": _keys(product_block.get("promotion")),
         }
 
-    check("offers", "GET /promo/current", "/promo/current", inspect=promo_shape)
+    await check("offers", "GET /promo/current", "/promo/current", inspect=promo_shape)
     report["working"] = sum(1 for entry in report["checks"] if entry.get("ok"))
     return report

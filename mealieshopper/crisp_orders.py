@@ -131,12 +131,12 @@ async def _save_order(conn: aiosqlite.Connection, header: dict[str, Any], items:
         )
 
 
-def _history(complete: set[str]) -> list[dict[str, Any]]:
+async def _history(complete: set[str]) -> list[dict[str, Any]]:
     """De geschiedenis, pagina voor pagina, tot een pagina waarvan we alle bezorgde bestellingen al met producten hebben."""
     orders: list[dict[str, Any]] = []
     cursor: str | None = None
     for _ in range(MAX_PAGES):
-        page, cursor = crisp.order_history_page(cursor)
+        page, cursor = await crisp.order_history_page(cursor)
         orders += page
         stored = [order for order in page if is_stored(order.get("status"))]
         if not cursor or (stored and all(order["id"] in complete for order in stored)):
@@ -153,7 +153,7 @@ async def sync_orders() -> dict[str, Any]:
     async with _aconnect() as conn:
         complete = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM crisp_orders WHERE items_synced = 1")}
         known = {row["order_id"] for row in await conn.execute_fetchall("SELECT order_id FROM crisp_orders")}
-    listed = [order for order in _history(complete) if order.get("id")]
+    listed = [order for order in await _history(complete) if order.get("id")]
     gone = {order["id"] for order in listed if str(order.get("status") or "") in crisp.CANCELLED_STATUSES}
     orders = list({order["id"]: order for order in listed if is_stored(order.get("status"))}.values())
     new = sum(1 for order in orders if order["id"] not in known)
@@ -164,7 +164,7 @@ async def sync_orders() -> dict[str, Any]:
     failures = 0
     for order in wanted:
         try:
-            details[order["id"]] = crisp.get_order(order["id"])
+            details[order["id"]] = await crisp.get_order(order["id"])
         except crisp.CrispAuthError:
             raise
         except Exception as exc:  # noqa: BLE001 - de kop bewaren we toch; de producten volgen bij de volgende synchronisatie

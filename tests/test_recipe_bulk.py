@@ -16,7 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import LiveClient, routes, run, sent_json, sent_params  # noqa: E402
+from support import LiveClient, routes, run, sent_json, sent_params, served  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -632,27 +632,26 @@ class MealieHelpersTest(unittest.TestCase):
 
 class StoreRefusalTest(unittest.TestCase):
     def test_ah_graphql_gives_the_status(self):
-        response = mock.Mock(ok=False, status_code=429, text="te veel verzoeken")
-        response.json.return_value = {}
-        with mock.patch.object(ah.requests, "post", return_value=response), self.assertRaises(ah.AhHttpError) as caught:
-            ah._graphql("token", "query", {}, "AH recept ophalen")
+        response = httpx.Response(429, text="te veel verzoeken")
+        with served(response), self.assertRaises(ah.AhHttpError) as caught:
+            run(ah._graphql("token", "query", {}, "AH recept ophalen"))
         self.assertEqual(caught.exception.status, 429)
 
     def test_ah_does_not_try_other_variants_when_refused(self):
         with mock.patch.object(ah, "_graphql", side_effect=ah.AhHttpError("geweigerd", 403)) as graphql, self.assertRaises(ah.AhHttpError):
-            ah._graphql_variants("token", ("a", "b", "c"), {}, "AH")
+            run(ah._graphql_variants("token", ("a", "b", "c"), {}, "AH"))
         self.assertEqual(graphql.call_count, 1)
         with mock.patch.object(ah, "_graphql", side_effect=[ah.AhHttpError("fout veld", 400), {"recipe": {"id": 1}}]) as graphql:
-            self.assertEqual(ah._graphql_variants("token", ("a", "b"), {}, "AH"), {"recipe": {"id": 1}})
+            self.assertEqual(run(ah._graphql_variants("token", ("a", "b"), {}, "AH")), {"recipe": {"id": 1}})
         self.assertEqual(graphql.call_count, 2)
 
     def test_jumbo_stops_the_ladder_when_refused(self):
         jumbo._persisted_route.clear()
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo._blocked("429")) as graphql, self.assertRaises(jumbo.JumboBlocked):
-            jumbo._persisted_query("getRecipe", {"id": "1"})
+            run(jumbo._persisted_query("getRecipe", {"id": "1"}))
         self.assertEqual(graphql.call_count, 1)
         with mock.patch.object(jumbo, "_graphql", side_effect=jumbo._blocked("geen JSON terug / no JSON back")) as graphql, self.assertRaises(RuntimeError):
-            jumbo._persisted_query("getRecipe", {"id": "1"})
+            run(jumbo._persisted_query("getRecipe", {"id": "1"}))
         self.assertGreater(graphql.call_count, 1, "geen JSON kan aan de clientnaam liggen: dan wel de andere proberen")
 
 

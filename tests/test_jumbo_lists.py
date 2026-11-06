@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import tempfile
@@ -36,7 +37,7 @@ class ShoppingListApiTest(TempDataDirTest):
     def test_the_list_is_read_with_the_loyalty_client(self):
         data = list_data(raw("1", "melk"), raw("2", "brood", "131278BAK"), raw("3", "kaas", completed=True), {"id": "x"})
         with mock.patch.object(jumbo, "_graphql", return_value=data) as graphql:
-            result = jumbo.get_shopping_list()
+            result = run(jumbo.get_shopping_list())
         self.assertEqual(graphql.call_args.args[2], "GetShoppingList")
         self.assertEqual(graphql.call_args.args[3], jumbo.LOYALTY_CLIENT)
         self.assertEqual([(i["term"], i["sku"], i["completed"]) for i in result["items"]],
@@ -45,7 +46,7 @@ class ShoppingListApiTest(TempDataDirTest):
 
     def test_an_inactive_list_is_reported(self):
         with mock.patch.object(jumbo, "_graphql", return_value=list_data(active=False)):
-            self.assertFalse(jumbo.get_shopping_list()["active"])
+            self.assertFalse(run(jumbo.get_shopping_list())["active"])
 
     def test_the_query_falls_back_when_the_error_type_is_unknown(self):
         calls = []
@@ -57,31 +58,31 @@ class ShoppingListApiTest(TempDataDirTest):
             return list_data(raw("1", "melk"))
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            self.assertEqual(len(jumbo.get_shopping_list()["items"]), 1)
-            self.assertEqual(len(jumbo.get_shopping_list()["items"]), 1)
+            self.assertEqual(len(run(jumbo.get_shopping_list())["items"]), 1)
+            self.assertEqual(len(run(jumbo.get_shopping_list())["items"]), 1)
         self.assertEqual(len(calls), 3)  # eerst de mislukte variant, daarna direct de werkende
         self.assertNotIn("ShoppingListError", calls[-1])
 
     def test_an_unexpected_answer_names_the_type(self):
         with mock.patch.object(jumbo, "_graphql", return_value=list_data(typename="NieuweFout")):
             with self.assertRaisesRegex(RuntimeError, "NieuweFout"):
-                jumbo.get_shopping_list()
+                run(jumbo.get_shopping_list())
         with mock.patch.object(jumbo, "_graphql", return_value={}):
             with self.assertRaises(RuntimeError):
-                jumbo.get_shopping_list()
+                run(jumbo.get_shopping_list())
 
     def test_adding_sends_term_and_sku_and_skips_what_is_already_there(self):
         answers = [list_data(raw("1", "Melk")), {"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}]
         with mock.patch.object(jumbo, "_graphql", side_effect=answers) as graphql:
-            result = jumbo.add_to_shopping_list([
-                {"term": "melk"}, {"term": "  Halfvolle   melk 1 l ", "sku": "SKU1"}, {"term": ""}, {"term": "Halfvolle melk 1 l"}])
+            result = run(jumbo.add_to_shopping_list([
+                {"term": "melk"}, {"term": "  Halfvolle   melk 1 l ", "sku": "SKU1"}, {"term": ""}, {"term": "Halfvolle melk 1 l"}]))
         sent = graphql.call_args.args[1]["input"]["items"]
         self.assertEqual(sent, [{"term": "Halfvolle melk 1 l", "completed": False, "sku": "SKU1"}])
         self.assertEqual(result, {"added": ["Halfvolle melk 1 l"], "skipped": ["melk", "Halfvolle melk 1 l"]})
 
     def test_nothing_new_means_no_write(self):
         with mock.patch.object(jumbo, "_graphql", return_value=list_data(raw("1", "melk"))) as graphql:
-            result = jumbo.add_to_shopping_list([{"term": "melk"}])
+            result = run(jumbo.add_to_shopping_list([{"term": "melk"}]))
         self.assertEqual(graphql.call_count, 1)
         self.assertEqual(result["added"], [])
 
@@ -89,7 +90,7 @@ class ShoppingListApiTest(TempDataDirTest):
         answers = [list_data(active=False), {"toggleShoppingList": {"__typename": "ShoppingListState"}},
                    {"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}]
         with mock.patch.object(jumbo, "_graphql", side_effect=answers) as graphql:
-            jumbo.add_to_shopping_list([{"term": "melk"}])
+            run(jumbo.add_to_shopping_list([{"term": "melk"}]))
         self.assertEqual([c.args[2] for c in graphql.call_args_list], ["GetShoppingList", "toggleShoppingList", "EditShoppingListItems"])
         self.assertEqual(graphql.call_args_list[1].args[1], {"input": {"active": True}})
 
@@ -97,7 +98,7 @@ class ShoppingListApiTest(TempDataDirTest):
         answers = [list_data(), {"editShoppingListItems": {"__typename": "ShoppingListError"}}]
         with mock.patch.object(jumbo, "_graphql", side_effect=answers):
             with self.assertRaisesRegex(RuntimeError, "ShoppingListError"):
-                jumbo.add_to_shopping_list([{"term": "melk"}])
+                run(jumbo.add_to_shopping_list([{"term": "melk"}]))
 
     def test_product_details_fall_back_to_fewer_fields(self):
         def fake(query, variables, operation, client=jumbo.BASKET_CLIENT):
@@ -106,12 +107,12 @@ class ShoppingListApiTest(TempDataDirTest):
             return {"product": {"sku": "S1", "title": "Melk", "link": "/p/S1", "price": {"price": 129, "promoPrice": None}}}
 
         with mock.patch.object(jumbo, "_graphql", side_effect=fake):
-            product = jumbo.get_product("S1")
+            product = run(jumbo.get_product("S1"))
         self.assertEqual((product["id"], product["price"], product["url"]), ("S1", 1.29, "https://www.jumbo.com/p/S1"))
 
     def test_an_unknown_product_is_none(self):
         with mock.patch.object(jumbo, "_graphql", return_value={"product": None}):
-            self.assertIsNone(jumbo.get_product("S1"))
+            self.assertIsNone(run(jumbo.get_product("S1")))
 
 
 class LocalCopyTest(TempDataDirTest):
@@ -181,12 +182,14 @@ class LocalCopyTest(TempDataDirTest):
         peak: int = 0
         asked: list[str] = []
 
-        def product(sku: str) -> dict[str, str]:
+        async def product(sku: str) -> dict[str, str]:
             nonlocal running, peak
             running += 1
             peak = max(peak, running)
             asked.append(sku)
             try:
+                for _ in range(3):
+                    await asyncio.sleep(0)  # zoals een echte aanvraag: de andere regels kunnen intussen beginnen
                 if sku == "S5":
                     raise RuntimeError("stuk")
                 return {"id": sku, "title": f"Product {sku}"}
@@ -201,9 +204,8 @@ class LocalCopyTest(TempDataDirTest):
                                       ("regel 3", None), ("regel 4", "Product S4"), ("regel 5", None)])
         self.assertEqual(titles[-2:], [(f"regel {count - 2}", None), (f"regel {count - 1}", None)], "voorbij de grens geen productgegevens")
         self.assertEqual(len(asked), jumbo.MAX_LIST_PRODUCTS - 1, "geen aanvraag voor een regel zonder SKU of voorbij de grens")
-        # `jumbo.get_product` is synchroon tot Taak 21: dan lopen de aanvragen na elkaar. Taak 21 maakt hiervan `assertEqual`
-        # met een callee die echt wacht, zodat de semafoor van zes zichtbaar wordt.
-        self.assertLessEqual(peak, jumbo_lists.DETAIL_WORKERS)
+        self.assertEqual(peak, jumbo_lists.DETAIL_WORKERS)
+        self.assertEqual(jumbo_lists.DETAIL_WORKERS, 6)
 
     def test_merged_lists_when_jumbo_is_up_down_or_never_synced(self):
         with mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": [{"term": "a", "completed": False}, {"term": "b", "completed": True}]}), \
@@ -325,7 +327,7 @@ class McpAndExploreTest(TempDataDirTest):
 
     def test_the_empty_list_write_probe_adds_nothing(self):
         with mock.patch.object(jumbo, "_graphql", return_value={"editShoppingListItems": {"__typename": "EditShoppingListItemsResult"}}) as graphql:
-            result = jumbo_explore._empty_list_edit_probe()
+            result = run(jumbo_explore._empty_list_edit_probe())
         self.assertEqual(graphql.call_args.args[1], {"input": {"items": []}})
         self.assertEqual(result, {"typename": "EditShoppingListItemsResult"})
 

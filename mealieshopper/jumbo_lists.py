@@ -12,7 +12,6 @@ Een synchronisatie bewaart de door de gebruiker aangepaste aantallen, net als bi
 """
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,7 +20,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import auth, jumbo
+from . import auth, jumbo, tasks
 from .ah_lists import _fold
 from .packs import MAX_CART_QUANTITY
 
@@ -154,28 +153,21 @@ async def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
     """Haal een lijstje bij Jumbo op: het boodschappenlijstje (met titel en prijs voor regels met een SKU) of een eigen lijstje."""
     list_id = normalize_id(list_id)
     if list_id != LIST_ID:
-        return jumbo.get_product_list(list_id)  # `jumbo` blijft synchroon tot Taak 21
-    live = jumbo.get_shopping_list()
+        return await jumbo.get_product_list(list_id)
+    live = await jumbo.get_shopping_list()
     items = [item for item in live["items"] if not item["completed"]]
 
     async def detail(item: dict[str, Any]) -> dict[str, Any] | None:
         if not item["sku"]:
             return None
         try:
-            return jumbo.get_product(item["sku"])
+            return await jumbo.get_product(item["sku"])
         except Exception:  # noqa: BLE001 - zonder productgegevens tonen we gewoon de tekst van de regel
             return None
 
-    # Hooguit `DETAIL_WORKERS` tegelijk, in de volgorde van de regels. `gather` geeft elke regel een kopie van de context
-    # (verzoek, auditlog) mee, dus `audit.propagate` is niet meer nodig. Zolang `jumbo` synchroon is (tot Taak 21), lopen
-    # de aanvragen nog na elkaar.
-    slots: asyncio.Semaphore = asyncio.Semaphore(DETAIL_WORKERS)
-
-    async def bounded(item: dict[str, Any]) -> dict[str, Any] | None:
-        async with slots:
-            return await detail(item)
-
-    fetched: list[dict[str, Any] | None] = await asyncio.gather(*(bounded(item) for item in items[: jumbo.MAX_LIST_PRODUCTS]))
+    # Hooguit `DETAIL_WORKERS` tegelijk, in de volgorde van de regels, elk met een kopie van de context (verzoek, auditlog).
+    # Een fout buiten de `try` van `detail` annuleert de andere aanvragen in plaats van ze na het foutantwoord door te laten lopen.
+    fetched: list[dict[str, Any] | None] = await tasks.map_bounded(DETAIL_WORKERS, detail, items[: jumbo.MAX_LIST_PRODUCTS])
     details: list[dict[str, Any] | None] = fetched + [None] * max(0, len(items) - jumbo.MAX_LIST_PRODUCTS)
     return {
         "id": LIST_ID,
@@ -369,11 +361,11 @@ async def merged_lists() -> dict[str, Any]:
     shopping_count: int | None = None
     live_lists: list[dict[str, Any]] = []
     try:
-        shopping_count = len([item for item in jumbo.get_shopping_list()["items"] if not item["completed"]])
+        shopping_count = len([item for item in (await jumbo.get_shopping_list())["items"] if not item["completed"]])
     except Exception:  # noqa: BLE001 - Jumbo is onofficieel; toon dat het niet lukt en val terug op lokaal
         store_error = "Jumbo fout"
     try:
-        live_lists = jumbo.get_product_lists()
+        live_lists = await jumbo.get_product_lists()
     except Exception:  # noqa: BLE001
         store_error = "Jumbo fout"
 

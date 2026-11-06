@@ -9,7 +9,7 @@ import httpx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, mealie, picnic_recipes  # noqa: E402
-from support import routes, run, sent_json  # noqa: E402
+from support import routes, run, sent_json, served  # noqa: E402
 
 CREATE_HTML = "http://mealie/api/recipes/create/html-or-json"
 CREATE_URL = "http://mealie/api/recipes/create/url"
@@ -29,14 +29,12 @@ RECIPE = {
 
 
 def graphql_ok(recipe):
-    response = mock.Mock(ok=True)
-    response.json.return_value = {"data": {"recipe": recipe}}
+    response = httpx.Response(200, json={"data": {"recipe": recipe}})
     return response
 
 
 def graphql_error(message):
-    response = mock.Mock(ok=True)
-    response.json.return_value = {"errors": [{"message": message}]}
+    response = httpx.Response(200, json={"errors": [{"message": message}]})
     return response
 
 
@@ -57,8 +55,8 @@ class AllerhandeRecipeIdTest(unittest.TestCase):
 class RecipeJsonLdTest(unittest.TestCase):
     def build(self, responses):
         with mock.patch.object(ah, "get_token", return_value="anon"), \
-                mock.patch.object(ah.requests, "post", side_effect=responses) as post:
-            return ah.get_recipe_jsonld(1234), post
+                served(side_effect=responses) as post:
+            return run(ah.get_recipe_jsonld(1234)), post
 
     def test_schema_org_recipe(self):
         ld, post = self.build([graphql_ok(RECIPE)])
@@ -74,7 +72,7 @@ class RecipeJsonLdTest(unittest.TestCase):
         self.assertEqual(ld["recipeYield"], "4 personen")
         self.assertEqual(ld["cookTime"], "PT20M")
         self.assertEqual(ld["totalTime"], "PT25M")
-        self.assertEqual(post.call_args.kwargs["json"]["variables"], {"id": 1234})
+        self.assertEqual(sent_json(post.calls.last)["variables"], {"id": 1234})
         json.dumps(ld)  # serialiseerbaar voor Mealie
 
     def test_falls_back_to_simpler_query_and_string_steps(self):

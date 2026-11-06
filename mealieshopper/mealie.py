@@ -342,17 +342,16 @@ async def import_from_url(url: str) -> str:
     errors: list[str] = []
 
     # Allerhande-recepten komen via de AH-API: de websitepagina van AH blokkeert servers (403).
-    # `ah` en `jumbo` blijven synchroon tot hun eigen taak (Taak 21).
     recipe_id = ah.allerhande_recipe_id(url)
     if recipe_id:
         try:
-            return await import_via_jsonld(url, ah.get_recipe_jsonld(recipe_id))
+            return await import_via_jsonld(url, await ah.get_recipe_jsonld(recipe_id))
         except Exception as exc:  # noqa: BLE001 - val terug op de pagina-import
             errors.append(f"AH-API: {exc}")
 
     # Jumbo-recepten ook via de API: jumbo.com weert servers, en zo komen ingrediënten en bereiding zeker mee.
     jumbo_id = jumbo_recipes.recipe_id_from_url(url)
-    if jumbo_id and jumbo.configured_refresh_token():
+    if jumbo_id and await jumbo.configured_refresh_token():
         try:
             recipe = await jumbo_recipes.get_recipe(jumbo_id)
             return await import_via_jsonld(jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe))

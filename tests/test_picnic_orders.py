@@ -12,7 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mcp, picnic, picnic_orders  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, run  # noqa: E402
+from support import SyncClient, run, served  # noqa: E402
 
 
 def summary(delivery_id, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
@@ -117,7 +117,7 @@ class PicnicOrdersTest(unittest.TestCase):
         self.details = {"d1": detail("d1", "Melk")}
         self.sync()
         with mock.patch.object(picnic, "_authed", side_effect=AssertionError("geen verbinding")), \
-                mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verbinding")):
+                served(side_effect=AssertionError("geen verbinding")):
             self.assertEqual(len(run(picnic_orders.list_orders())["orders"]), 1)
             self.assertEqual(run(picnic_orders.get_order("d1"))["items"][0]["title"], "Melk")
             self.assertEqual(run(picnic_orders.search_purchases("melk"))["total"], 1)
