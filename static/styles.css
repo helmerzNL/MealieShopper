@@ -1837,6 +1837,27 @@ a.product-card__main:hover strong {
   text-decoration-thickness: 2px;
 }
 
+/* Kookmodus uit (Instellingen, Weergave, Voorkeuren; html.no-cook-mode, zie static/theme.js): geen balk met Start met koken,
+   voortgang en Scherm aan laten, en de ingrediënten als gewone lijst zonder vinkjes (recipe_view.js zet ze ook op disabled). */
+html.no-cook-mode .cook__bar,
+html.no-cook-mode .cook-ingredient input,
+html.no-cook-mode .cook [data-cook-ticked] {
+  display: none;
+}
+
+html.no-cook-mode .cook__columns {
+  margin-top: 0;
+}
+
+html.no-cook-mode .cook-ingredient label {
+  cursor: default;
+}
+
+html.no-cook-mode .cook-ingredient input:checked + .cook-ingredient__text {
+  color: inherit;
+  text-decoration: none;
+}
+
 .cook-steps {
   display: grid;
   gap: 12px;
@@ -8155,7 +8176,7 @@ html.is-standalone body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
 }
@@ -8258,7 +8279,7 @@ html.is-standalone body {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
 }
@@ -8444,9 +8465,7 @@ html.is-standalone body {
 }
 
 .appearance-glass {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  margin-top: 14px;
 }
 
 .appearance-glass__label {
@@ -8482,4 +8501,116 @@ html.is-standalone body {
 /* De regel bij een AI-sleutel kan een lang adres zonder spaties bevatten (OPENAI_BASE_URL): op een smal scherm afbreken waar het moet. */
 .ai-review__status {
   overflow-wrap: anywhere;
+}
+
+/* Instellingen, Weergave: twee inklapbare blokken (Voorkeuren en Thema), zoals onder Koppelen, maar strakker. Dicht is een blok
+   alleen zijn kop: minder ruimte eromheen, de knop blijft 44 px hoog. Open lopen de onderdelen door, gescheiden door een lijn
+   (.fold__section). */
+.box.fold--compact {
+  margin-bottom: 12px;
+  padding: 8px 20px;
+}
+
+.box.fold--compact:has(> .fold__title > .fold__toggle[aria-expanded="true"]) {
+  padding-bottom: 20px;
+}
+
+.fold--compact .fold__title {
+  font-size: 18px;
+}
+
+.fold--compact .fold__body {
+  margin-top: 4px;
+}
+
+.fold--compact .fold__section {
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.appearance-section h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+
+.appearance-section > .muted,
+.appearance-setting .muted {
+  margin: 0;
+  font-size: 14px;
+}
+
+.appearance-sublabel {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Een instelling met een schakelaar rechts: de naam en uitleg links. */
+.appearance-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.appearance-setting__text {
+  min-width: 0;
+}
+
+.appearance-setting h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+
+/* Een schakelaar: een echt selectievakje (role="switch", toetsenbord en schermlezer werken zoals altijd), getekend als een
+   schuifje. Aan is gevuld in de accentkleur met het bolletje rechts; uit is een rand met het bolletje links. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  margin: 6px 0;
+  border: 2px solid var(--placeholder); /* 3 : 1 of meer: de rand van een bediening moet je zien */
+  border-radius: 999px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-50%);
+  transition: transform 150ms var(--ease), background-color 150ms var(--ease);
+}
+
+.switch:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.switch:checked::before {
+  background: var(--on-primary);
+  transform: translate(20px, -50%);
+}
+
+.switch:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switch::before {
+    transition: none;
+  }
 }

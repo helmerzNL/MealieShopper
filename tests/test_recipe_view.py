@@ -324,6 +324,19 @@ cookWakeUpdate().then(() => out([log, cookWake.lock]));
 """)
         self.assertEqual(found, [["release"], None])
 
+    def test_without_cooking_mode_the_ingredients_cannot_be_ticked(self):
+        # Kookmodus uit (Instellingen, Weergave): de regels zijn gewone tekst, de balk verbergt styles.css.
+        html = self.run_js(
+            "globalThis.THEME = { appearance: () => ({ cookingMode: false }) };"
+            f"out(renderCookView({json.dumps(recipe())}));"
+        )
+        ticks = re.findall(r'<input type="checkbox" data-cook-tick="\d+"[^>]*>', html)
+        self.assertEqual(len(ticks), 3)
+        self.assertTrue(all(" disabled" in tick for tick in ticks), ticks)
+        self.assertFalse(self.run_js("globalThis.THEME = { appearance: () => ({ cookingMode: false }) }; out(cookEnabled());"))
+        self.assertTrue(self.run_js("out(cookEnabled());"), "zonder theme.js: aan")
+        on = self.run_js("globalThis.THEME = { appearance: () => ({ cookingMode: true }) };" f"out(renderCookView({json.dumps(recipe())}));")
+        self.assertNotIn(" disabled", on)
 
 class RecipeViewPageTest(unittest.TestCase):
     def test_the_script_loads_after_app_and_before_the_screens_that_use_it(self):

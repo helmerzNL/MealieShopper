@@ -2,6 +2,20 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.15.0
+
+### Nieuw in 3.15.0
+
+*English summary: Settings, Appearance is shorter and grouped into two blocks that fold open and shut like the blocks under Link, and that are lower while closed: Preferences and Theme. Preferences holds a new Cooking mode switch, on by default and stored with your account. Turned off, a recipe no longer shows the bar with Start cooking, the progress and Keep screen on, nor the ticks and the counter next to the ingredients, and the screen does not stay on; the numbered steps stay. Theme holds the accent colour, the theme with the background of the dark theme, and the navigation bar, separated by a line. Reload the page once after updating.*
+
+- **Weergave in twee blokken.** Instellingen, Weergave heeft nu twee inklapbare blokken zoals onder Koppelen: **Voorkeuren** en **Thema**. Dicht is een blok alleen zijn kop, lager dan de blokken van Koppelen (8 px boven en onder de knop in plaats van 24 px); open lopen de onderdelen door. Zolang je ze niet opent, staan ze dicht; deze browser onthoudt welke je open had (`ms-fold-appearance-prefs` en `-theme`). De uitleg bij elk onderdeel is korter.
+- **Thema**, met een lijn tussen de onderdelen: *Accentkleur*, *Thema & achtergrond* (licht, donker of het apparaat, met daaronder de achtergrond van het donkere thema) en *Navigatiebalk* (met het glaseffect bij de iOS-achtige balk).
+- **Voorkeuren: de kookmodus aan of uit.** Een schakelaar, standaard aan. Uit staat bij een recept geen balk meer met **Start met koken**, de voortgang, **Opnieuw beginnen** en **Scherm aan laten**, en staan er geen vinkjes en geen teller bij de ingrediënten: een tik op een ingrediënt doet dan niets, en het scherm blijft niet aan. De genummerde stappen blijven staan. Dit geldt overal waar een recept opent (Recepten zoeken, Winkels, Maaltijdboxen, het venster van een maaltijd). De keuze staat bij je profiel (nieuwe kolom `cooking_mode` in `user_profiles`, ook in de back-up); `PUT /api/profile/preferences` neemt `cookingMode` (waar of onwaar, iets anders geeft 400). Het script in de kop van de pagina zet hem voor de eerste weergave (klasse `no-cook-mode` op `<html>`), dus de balk flitst niet.
+- **Een echte schakelaar.** Nieuw onderdeel `.switch`: een selectievakje met `role="switch"`, getekend als schuifje in de accentkleur, met een rand die 3 : 1 haalt en een zichtbare focusring.
+- **Handleiding** (NL en EN): de nieuwe indeling van Weergave en waar je de kookmodus uitzet; de huisstijl beschrijft de compacte blokken en de schakelaar. Nieuwe screenshots `appearance.png` en `navbar.png`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#260](https://github.com/helmerzNL/MealieShopper/pull/260).
+
 ## v3.14.0
 
 ### Nieuw in 3.14.0

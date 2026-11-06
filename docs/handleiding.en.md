@@ -328,6 +328,7 @@ Wherever you open a recipe (under Find recipes, under Stores, under Meal kits an
 - **Your progress is kept** on this device, also when you reload the page, until 12 hours after your last tick. A recipe from Mealie has the same progress in the week menu and under Find recipes. If the recipe has changed in Mealie in the meantime (a different number of ingredients or steps), you start again.
 - **Start cooking** opens **cooking mode**: the whole screen, one step at a time in large type. **Next** marks the step as done and moves on; on the last step the button is called **Finish** and closes cooking mode. **Previous** goes back without changing anything, and **Step done** marks a step as done or open again. With a keyboard you use the arrow keys (or Page Up and Page Down); on a phone or tablet you swipe across the step to the left (next) or right (previous). **Ingredients** shows the ingredients with their ticks: next to the step on a large screen, as a panel at the bottom on a phone. The cross or Esc closes cooking mode; on a phone Esc closes the panel first.
 - **Keep screen on.** With this switch on, your screen does not switch off while a recipe is in view or cooking mode is open (the browser's Screen Wake Lock). It is off by default; once you switch it on, this device remembers that for the next recipes. Go back to the list or to another screen, or close the window, and the screen may switch off again. The switch is only there when your browser can do it: over HTTPS or on `localhost` (not over plain `http://` on your home network), in Chrome, Edge, Safari from iOS 16.4 and Firefox from version 126. A phone in battery saver mode may refuse it; the screen then switches off as usual.
+- **Rather without?** Turn cooking mode off under **Settings, Appearance, Preferences** (see [Appearance](#appearance)): the bar with Start cooking and the ticks next to the ingredients go away.
 
 ### Bulk import into Mealie
 
@@ -381,12 +382,17 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Appearance
 
-Under **Settings, Appearance** (in the avatar menu, for everyone) you set the colours of the app. The choice belongs to your account: on another device or in another browser you see the same colours after logging in, and every member of the household picks their own.
+Under **Settings, Appearance** (in the avatar menu, for everyone) you set how the app looks and works. The choice belongs to your account: on another device or in another browser you see the same after logging in, and every member of the household picks their own. There are two blocks you open with a tap on their heading, like the blocks under Link; until you open them they are closed, and this browser remembers which ones you had open.
 
+**Preferences**
+
+- **Cooking mode:** a switch, on by default. On, a recipe has the bar with **Start cooking**, the progress and **Keep screen on**, and you tick off ingredients. Off, a recipe is just a recipe: no bar, no ticks next to the ingredients and no counter, and the screen does not stay on. The numbered steps stay.
+
+**Theme**, with a line between the parts:
+
+- **Accent colour:** the colour of buttons, links, the active tab, the focus ring and the glow at the top. Pick one of ten colours (*Basil* is the default) or your own with **Custom colour**. If a colour is too light or too dark for readable text, MealieShopper makes it a shade darker or lighter; for a custom colour the line under the circles says which shades you get. Notices (done, warning, error), the discount badges and the category colours keep their own colour, and the logo stays green.
 - **Theme:** *Follow device*, *Light* or *Dark*. The moon or sun button also saves your choice with your account. If you never chose anything, each browser keeps what it had.
 - **Background of the dark theme:** *Green*, the basil of the house style, or *Dark grey*, neutral with any accent colour. You see the difference while the dark theme is on.
-- **Accent colour:** the colour of buttons, links, the active tab, the focus ring and the glow at the top. Pick one of ten colours (*Basil* is the default) or your own with **Custom colour**. If a colour is too light or too dark for readable text, MealieShopper makes it a shade darker or lighter; for a custom colour the line under the circles says which shades you get. Notices (done, warning, error), the discount badges and the category colours keep their own colour, and the logo stays green.
-
 - **Navigation bar:** how the bar at the bottom of the installed app on a phone looks. *Automatic* (the default) gives an Android device the Android bar and every other device the iOS-like one; the line under the choices says which one that is now. *iOS-like* is a floating glass bar with rounded corners, *Android-like* a full-width bar with a pill behind the active icon. For the iOS-like bar, **Glass effect** sets how see-through it is: 0 is solid, 100 the most see-through and blurred (the default is 60, as in 3dprint_pricing). Up to about 30 the labels read well over any photo; the higher, the more a very light or dark photo under the bar can get in the way. With *Reduce transparency* on in your device settings the bar is always solid. In both styles the active tab has a filled icon and the others an outlined one (where there is one). If you choose Automatic, it applies again on every device, also when you log in on another one. On a larger screen, and in the browser, the menu is at the top or on the left; there this choice changes nothing. To see the bar in your phone's browser, open `?tabbar=1` after the address.
 
 A change shows at once and is saved at once.

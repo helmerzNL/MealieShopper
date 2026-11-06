@@ -9,6 +9,8 @@
 // dus dezelfde voortgang. "Start met koken" opent de kookmodus (#cook-mode in index.html): één stap tegelijk, groot.
 // "Scherm aan laten" vraagt een Screen Wake Lock zolang er een recept in beeld is; de keuze staat onder ms-cook-wake en is
 // standaard uit. Laadt direct na app.js (gebruikt $, t, escapeHtml en mdiIcon).
+// De kookmodus is uit te zetten (Instellingen, Weergave, Voorkeuren; THEME in theme.js): dan verbergt styles.css de balk met
+// Start met koken en de vinkjes bij de ingrediënten (html.no-cook-mode), doen die vinkjes niets en blijft het scherm niet aan.
 
 // Material Design Icons (zie static/icons/LICENSE-mdi.txt)
 const MDI_CHEF_HAT = "M12.5,1.5C10.73,1.5 9.17,2.67 8.67,4.37C8.14,4.13 7.58,4 7,4A4,4 0 0,0 3,8C3,9.82 4.24,11.41 6,11.87V19H19V11.87C20.76,11.41 22,9.82 22,8A4,4 0 0,0 18,4C17.42,4 16.86,4.13 16.33,4.37C15.83,2.67 14.27,1.5 12.5,1.5M12,10.5H13V17.5H12V10.5M9,12.5H10V17.5H9V12.5M15,12.5H16V17.5H15V12.5M6,20V21A1,1 0 0,0 7,22H18A1,1 0 0,0 19,21V20H6Z";
@@ -34,6 +36,11 @@ const cookProgressCache = new Map(); // sleutel -> voortgang, ook als localStora
 const cookWake = { lock: null, busy: false, again: false, wanted: null };
 const cookMode = { view: 0, key: "", index: 0, opener: null, swipe: null };
 let cookViewSeq = 0;
+
+// Staat de kookmodus aan? Zonder theme.js (de tests in Node) wel.
+function cookEnabled() {
+  return typeof THEME === "undefined" || THEME.appearance().cookingMode !== false;
+}
 
 function cookText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -280,7 +287,8 @@ function cookIngredientHtml(item, index, checked) {
   const text = item.amount
     ? `<span class="cook-ingredient__amount">${escapeHtml(item.amount)}</span>${escapeHtml(item.text.slice(item.amount.length))}`
     : escapeHtml(item.text);
-  return `<li class="cook-ingredient"><label><input type="checkbox" data-cook-tick="${index}"${checked ? " checked" : ""}><span class="cook-ingredient__text">${text}</span></label></li>`;
+  const off = cookEnabled() ? "" : " disabled"; // kookmodus uit: de regel is gewone tekst, een tik vinkt niets af
+  return `<li class="cook-ingredient"><label><input type="checkbox" data-cook-tick="${index}"${checked ? " checked" : ""}${off}><span class="cook-ingredient__text">${text}</span></label></li>`;
 }
 
 // De ingrediënten, per sectie een eigen lijst met een kopje. Ook in het paneel van de kookmodus.
@@ -351,8 +359,10 @@ function renderCookView(recipe, options = {}) {
 // ---- Bijwerken: alleen de toestand op de bestaande elementen, zonder de weergave opnieuw op te bouwen
 function cookApply(root, recipe, progress) {
   const current = cookCurrentStep(recipe, progress);
+  const enabled = cookEnabled();
   root.querySelectorAll("[data-cook-tick]").forEach((input) => {
     input.checked = progress.ingredients.has(Number(input.dataset.cookTick));
+    input.disabled = !enabled;
   });
   root.querySelectorAll("[data-cook-step]").forEach((item) => {
     const index = Number(item.dataset.cookStep);
@@ -423,7 +433,7 @@ function cookShowing() {
 }
 
 function cookWakeShould() {
-  return cookWakeSupported() && cookWakeWanted() && document.visibilityState === "visible" && cookShowing();
+  return cookEnabled() && cookWakeSupported() && cookWakeWanted() && document.visibilityState === "visible" && cookShowing();
 }
 
 // Vraagt de lock aan of geeft hem vrij, naar cookWakeShould. Een aanroep terwijl een vorige nog loopt, zorgt voor een
@@ -594,6 +604,12 @@ window.addEventListener("popstate", () => {
   setTimeout(cookWakeUpdate);
 });
 window.addEventListener("ms:languagechange", cookSyncAll);
+// De kookmodus aan of uit (Instellingen, Weergave): de vinkjes en het scherm-aan volgen meteen. Uit sluit een open kookmodus.
+window.addEventListener("ms:appearancepaint", () => {
+  if (!cookEnabled() && $("#cook-mode")?.open) $("#cook-mode").close();
+  cookSyncAll();
+  cookWakeUpdate();
+});
 
 $("#cook-mode-prev").addEventListener("click", () => cookModeAct("prev"));
 $("#cook-mode-next").addEventListener("click", () => cookModeAct("next"));
