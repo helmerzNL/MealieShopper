@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.15.1
+
+### Gewijzigd in 3.15.1
+
+*English summary: the blocks under Settings, Link now have the same compact format as the blocks under Appearance: a lower heading while closed, 18 px titles and 16 px subheadings. The Offers block folds open and shut as well (open by default), and AI review of matches is closed until you open it, also without a key. Reload the page once after updating.*
+
+- **Koppelen in het formaat van Weergave.** De inklapbare blokken onder Instellingen, Koppelen (**AI-beoordeling van koppelingen**, **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** en **Crisp**) gebruiken nu ook `.fold--compact`: dicht alleen hun kop, met 8 px boven en onder de knop in plaats van 24 px, een kop van 18 px en minder ruimte tussen de blokken. Open zijn de tussenkoppen (zoals *Koppeling afronden* en *Jumbo-routes verkennen*) 16 px, net als *Accentkleur* onder Weergave; ze waren groter dan de kop van het blok zelf.
+- **Aanbiedingen inklapbaar.** Het blok **Aanbiedingen** (synchroniseren, de stand per winkel en de planning) klapt nu ook open en dicht. Het staat standaard open.
+- **AI-beoordeling standaard dicht.** Het blok staat dicht tot je het opent, ook als er nog geen sleutel is (eerst stond het dan open). Een melding na opslaan of testen blijft zichtbaar onder de kop.
+- Wat je zelf open- of dichtklapt onder Koppelen blijft zo tot je de pagina herlaadt, zoals eerst.
+- **Handleiding** (NL en EN) en de huisstijl: de blokken onder Koppelen en hun standaardstand. Nieuwe screenshots `settings-stores.png`, `settings-picnic.png`, `settings-jumbo.png` en `settings-crisp.png`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.15.0
 
 ### Nieuw in 3.15.0

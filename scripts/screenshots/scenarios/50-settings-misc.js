@@ -23,7 +23,7 @@ const OFFERS_STATUS = {
   },
 };
 
-// Een AI-sleutel van Claude is ingesteld, dus het blok AI-beoordeling staat ingeklapt.
+// Een AI-sleutel van Claude is ingesteld; het blok AI-beoordeling staat standaard ingeklapt, het blok Aanbiedingen open.
 const AI_REVIEW = {
   active: "anthropic",
   chosen: "",
@@ -56,8 +56,8 @@ const settingsScenarios = [
     routes: LINK_ROUTES,
     run: async (page) => {
       await openSettings("settings-link")(page);
-      // De vier meldingen en daaronder de ingeklapte blokken, zonder de kop van de pagina.
-      await page.evaluate(() => window.scrollTo({ top: document.getElementById("mealie-status").getBoundingClientRect().top + window.scrollY - 84 }));
+      // Het blok Aanbiedingen (open) en daaronder de ingeklapte, compacte blokken, zonder de kop van de pagina.
+      await page.evaluate(() => window.scrollTo({ top: document.getElementById("offers-sync-box").getBoundingClientRect().top + window.scrollY - 84 }));
     },
   },
   {
