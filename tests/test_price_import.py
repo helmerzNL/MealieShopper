@@ -5,14 +5,14 @@ import re
 import sqlite3
 import tempfile
 import unittest
-from contextlib import closing
+from contextlib import ExitStack, closing
 from datetime import date
 from pathlib import Path
 from unittest import mock
 
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
-from mealieshopper import ah_orders, auth, i18n, jumbo_orders, price_import, prices  # noqa: E402
+from mealieshopper import ah_orders, auth, i18n, jumbo_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient, in_db, run  # noqa: E402
 
@@ -37,7 +37,7 @@ class ImportCase(unittest.TestCase):
         auth.init_db()
 
     def run_import(self, *orders, dry_run=False, store="ah"):
-        return price_import.run(json.dumps({"store": store, "orders": list(orders)}), store, dry_run=dry_run, now=NOW)
+        return run(price_import.run(json.dumps({"store": store, "orders": list(orders)}), store, dry_run=dry_run, now=NOW))
 
     def ah_order(self, order_id, day, *items):
         in_db(ah_orders._aconnect, lambda conn: ah_orders._save_order(conn, {"id": order_id, "deliveryDate": day}, "delivered", list(items)))
@@ -185,7 +185,7 @@ class RunTest(ImportCase):
     def test_a_dry_run_shows_what_would_happen_and_stores_nothing(self):
         report = self.run_import(mail_order(), dry_run=True)
         self.assertEqual((report["new"], report["duplicates"], report["lines"], report["imported"]), (1, 0, 2, 0))
-        self.assertEqual(price_import.summary("ah")["orders"], 0)
+        self.assertEqual(run(price_import.summary("ah"))["orders"], 0)
 
     def test_the_same_order_is_imported_once(self):
         first = self.run_import(mail_order(), mail_order())
@@ -195,7 +195,7 @@ class RunTest(ImportCase):
         self.assertEqual([(o["new"], o["reason"]) for o in again["orders"]], [(False, "is al ingelezen"), (True, None)])
         same_day_no_number = self.run_import(mail_order(number=None, day="2025-04-01", total=10.0))
         self.assertEqual(same_day_no_number["new"], 0, "zonder nummer: zelfde dag en totaal is dezelfde bestelling")
-        summary = price_import.summary("ah")
+        summary = run(price_import.summary("ah"))
         self.assertEqual((summary["orders"], summary["lines"], summary["first"], summary["last"]), (2, 4, "2025-03-14", "2025-04-01"))
 
     def test_an_order_the_app_already_has_from_the_account_is_skipped(self):
@@ -229,8 +229,8 @@ class RunTest(ImportCase):
     def test_remove_takes_away_the_imported_purchases_of_one_store(self):
         self.run_import(mail_order())
         self.run_import(mail_order(items=[{"name": "Jumbo Kipfilet", "quantity": 1, "price": 5.0}]), store="jumbo")
-        self.assertEqual(price_import.remove("ah"), {"store": "ah", "removed": 1})
-        self.assertEqual((price_import.summary("ah")["orders"], price_import.summary("jumbo")["orders"]), (0, 1))
+        self.assertEqual(run(price_import.remove("ah")), {"store": "ah", "removed": 1})
+        self.assertEqual((run(price_import.summary("ah"))["orders"], run(price_import.summary("jumbo"))["orders"]), (0, 1))
 
 
 class HistoryTest(ImportCase):
@@ -279,24 +279,24 @@ class OrdersTest(ImportCase):
 
     def test_imported_orders_are_listed_newest_first_like_an_order(self):
         self.run_import(mail_order(), mail_order(number=None, day="2025-04-01", total=None))
-        orders = price_import.list_orders("ah")["orders"]
+        orders = run(price_import.list_orders("ah"))["orders"]
         self.assertEqual([(o["ref"], o["number"], o["date"], o["total"], o["itemCount"], o["imported"]) for o in orders], [
             ("dag:2025-04-01", None, "2025-04-01", 42.38, 2, True),  # zonder totaal in de mail: wat je voor de producten betaalde
             ("225301", "225301", "2025-03-14", 141.53, 2, True),
         ])
         self.assertEqual((orders[1]["units"], orders[1]["importedAt"]), (18, NOW))
-        self.assertEqual(price_import.list_orders("jumbo")["orders"], [])
+        self.assertEqual(run(price_import.list_orders("jumbo"))["orders"], [])
 
     def test_the_imported_list_route_carries_the_first_four_names(self):
         items = [{"name": f"Product {n}", "quantity": 1, "price": 1.0, "total": 1.0, "discount": 0} for n in range(1, 7)]
         self.run_import(mail_order(items=items))
         listed = SyncClient(create_app()).get("/api/imported-orders/ah").get_json()["orders"][0]
         self.assertEqual(listed["productNames"], ["Product 1", "Product 2", "Product 3", "Product 4"])
-        self.assertNotIn("productNames", price_import.list_orders("ah")["orders"][0])
+        self.assertNotIn("productNames", run(price_import.list_orders("ah"))["orders"][0])
 
     def test_an_imported_order_opens_with_its_products(self):
         self.run_import(mail_order())
-        order = price_import.get_order("ah", "225301")
+        order = run(price_import.get_order("ah", "225301"))
         self.assertEqual(order["deliveryDate"], "2025-03-14")
         # Nog geen product van AH bekend, en dus ook geen eigen koppeling (#238).
         unlinked = {"productId": None, "image": None, "brand": None, "unitSize": None, "productTitle": None, "link": None}
@@ -306,41 +306,41 @@ class OrdersTest(ImportCase):
             {"title": "AH Greenfields Beefburger naturel 2 stuks", "quantity": 16, "paid": 2.5, "price": 4.99, "amount": 40.0, "bonus": True,
              **unlinked},
         ])
-        self.assertIsNone(price_import.get_order("ah", "999"))
-        self.assertIsNone(price_import.get_order("jumbo", "225301"))
+        self.assertIsNone(run(price_import.get_order("ah", "999")))
+        self.assertIsNone(run(price_import.get_order("jumbo", "225301")))
 
     def test_an_imported_order_that_later_comes_from_the_account_is_not_listed_twice(self):
         self.run_import(mail_order(number="225301", day="2026-09-01"), mail_order(number="777", day="2026-09-08"))
         self.ah_order(225301, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 2, "price": 1.19, "amount": 2.38})
         self.ah_order(888, "2026-09-08", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.19, "amount": 1.19})
-        self.assertEqual(price_import.list_orders("ah")["orders"], [])
-        self.assertIsNone(price_import.get_order("ah", "225301"))
+        self.assertEqual(run(price_import.list_orders("ah"))["orders"], [])
+        self.assertIsNone(run(price_import.get_order("ah", "225301")))
 
     def test_an_imported_order_is_listed_while_the_account_order_has_no_products(self):
         # #222: op nummer (12 jan) en op datum (5 jan) staat er een accountbestelling zonder producten; de ingelezen versie staat erbij.
         self.jumbo_order("6005201234", "2022-01-12")
         self.jumbo_order("6005209999", "2022-01-05")
         self.run_import(jumbo_mail_order(), jumbo_mail_order(number="777", day="2022-01-05"), store="jumbo")
-        self.assertEqual([o["ref"] for o in price_import.list_orders("jumbo")["orders"]], ["6005201234", "777"])
-        self.assertEqual(len(price_import.get_order("jumbo", "6005201234")["items"]), 2)
+        self.assertEqual([o["ref"] for o in run(price_import.list_orders("jumbo"))["orders"]], ["6005201234", "777"])
+        self.assertEqual(len(run(price_import.get_order("jumbo", "6005201234"))["items"]), 2)
         self.assertEqual([(o["id"], o.get("imported", False)) for o in run(jumbo_orders.search_purchases("kipfilet"))["occurrences"]],
                          [("6005201234", True), ("777", True)])
         # Haalt de app de producten later alsnog op, dan valt de ingelezen versie weg: niets dubbel.
         self.jumbo_order("6005201234", "2022-01-12", items=[KIPFILET])
-        self.assertEqual([o["ref"] for o in price_import.list_orders("jumbo")["orders"]], ["777"])
-        self.assertIsNone(price_import.get_order("jumbo", "6005201234"))
+        self.assertEqual([o["ref"] for o in run(price_import.list_orders("jumbo"))["orders"]], ["777"])
+        self.assertIsNone(run(price_import.get_order("jumbo", "6005201234")))
         self.assertEqual([(o["id"], o.get("imported", False)) for o in run(jumbo_orders.search_purchases("kipfilet"))["occurrences"]],
                          [("6005201234", False), ("777", True)])
 
     def test_an_imported_order_carries_the_status_and_the_delivery_time_from_the_mail(self):
         self.run_import({**mail_order(), "status": "delivered", "deliveryWindow": {"start": "18:00", "end": "20:00"}},
                         {**mail_order(number="777", day="2025-04-01"), "deliveryWindow": {"start": "17:20"}})
-        listed = {o["ref"]: o for o in price_import.list_orders("ah")["orders"]}
+        listed = {o["ref"]: o for o in run(price_import.list_orders("ah"))["orders"]}
         self.assertEqual((listed["225301"]["status"], listed["225301"]["slotStart"], listed["225301"]["slotEnd"]),
                          ("delivered", "2025-03-14T18:00", "2025-03-14T20:00"))
         # Zonder status in de mail is een ingelezen bestelling toch afgeleverd: ze telt als gekocht (3.6.2).
         self.assertEqual((listed["777"]["status"], listed["777"]["slotStart"], listed["777"]["slotEnd"]), ("delivered", "2025-04-01T17:20", None))
-        opened = price_import.get_order("ah", "225301")
+        opened = run(price_import.get_order("ah", "225301"))
         self.assertEqual((opened["status"], opened["slotStart"], opened["slotEnd"]), ("delivered", "2025-03-14T18:00", "2025-03-14T20:00"))
 
     def test_an_import_from_before_the_status_still_works(self):
@@ -350,17 +350,17 @@ class OrdersTest(ImportCase):
                             day TEXT NOT NULL, title TEXT NOT NULL, quantity REAL NOT NULL, paid REAL, regular REAL, order_total REAL,
                             imported_at TEXT NOT NULL, PRIMARY KEY (store, order_ref, position))""")
             conn.execute("INSERT INTO imported_purchases VALUES ('ah', '225301', 0, '2025-03-14', 'AH Bananen tros', 2, 1.19, 1.19, 2.38, ?)", (NOW,))
-        order = price_import.list_orders("ah")["orders"][0]
+        order = run(price_import.list_orders("ah"))["orders"][0]
         self.assertEqual((order["ref"], order["status"], order["slotStart"], order["slotEnd"]), ("225301", "delivered", None, None),
                          "een import van vóór 3.5.0 staat als afgeleverd, zonder tijdvak")
         with closing(auth.connect()) as conn:
             self.assertTrue({"status", "slot_start", "slot_end"} <= {row["name"] for row in conn.execute("PRAGMA table_info(imported_purchases)")})
         self.run_import({**mail_order(number="777", day="2025-04-01"), "status": "delivered"})
-        self.assertEqual(price_import.get_order("ah", "777")["status"], "delivered")
+        self.assertEqual(run(price_import.get_order("ah", "777"))["status"], "delivered")
 
     def test_an_imported_order_detail_carries_the_category_the_discount_from_the_mail_and_the_saving(self):
         self.run_import(mail_order())
-        order = price_import.get_order("ah", "225301")
+        order = run(price_import.get_order("ah", "225301"))
         bananas, burgers = order["items"]
         self.assertEqual((bananas["category"], bananas["regularPrice"], bananas["discount"], bananas["paidEach"]), ("groente_fruit", 1.19, None, 1.19))
         # 16 x 4.99 met 39.92 korting (2.50 per stuk): de helft. De gewone prijs is die uit de mail.
@@ -376,7 +376,7 @@ class OrdersTest(ImportCase):
                                           "quantity": 1, "price": 1.29, "amount": 1.29, "image": "https://static.ah.nl/bananen.jpg"})
         self.run_import(mail_order(items=[{"name": "AH Bananen tros", "quantity": 2, "price": 1.19, "total": 2.38},
                                           {"name": "Iets uit de mail", "quantity": 4, "price": 2.0, "total": 8.0, "discount": 2.0}]))
-        items = price_import.get_order("ah", "225301")["items"]
+        items = run(price_import.get_order("ah", "225301"))["items"]
         self.assertEqual([(i["title"], i["productId"], i["image"], i["brand"], i["unitSize"]) for i in items], [
             ("AH Bananen tros", "4183", "https://static.ah.nl/bananen.jpg", "AH", "per tros"),
             ("Iets uit de mail", None, None, None, None),
@@ -386,7 +386,7 @@ class OrdersTest(ImportCase):
         listed = SyncClient(create_app()).get("/api/imported-orders/ah").get_json()["orders"][0]
         self.assertEqual((listed["images"], listed["savings"], listed["bonusCount"]), (["https://static.ah.nl/bananen.jpg"], 2.0, 1))
         self.assertEqual((listed["statusKind"], listed["statusText"], listed["status"]), ("imported", None, "delivered"))
-        self.assertNotIn("images", price_import.list_orders("ah")["orders"][0], "alleen de lijstroute rekent de samenvatting uit")
+        self.assertNotIn("images", run(price_import.list_orders("ah"))["orders"][0], "alleen de lijstroute rekent de samenvatting uit")
 
     def test_every_store_links_the_lines_to_its_own_products(self):
         # Jumbo uit een bestelling in je account; Picnic en Crisp uit de bewaarde prijzen (zoeken in de app).
@@ -400,7 +400,7 @@ class OrdersTest(ImportCase):
             with self.subTest(store=store):
                 self.run_import(mail_order(number=f"{store}-1", day="2022-01-12", items=[{"name": name, "quantity": 1, "price": 5.0}]),
                                 store=store)
-                item = price_import.get_order(store, f"{store}-1")["items"][0]
+                item = run(price_import.get_order(store, f"{store}-1"))["items"][0]
                 self.assertEqual((item["productId"], item["image"]), expected)
 
     def test_a_product_without_a_store_photo_shows_its_saved_image(self):
@@ -409,15 +409,15 @@ class OrdersTest(ImportCase):
             conn.execute("""INSERT INTO product_images (store, product_id, title, source_url, digest, content_type, width, height, data, saved_at)
                             VALUES ('ah', '4183', 'AH Bananen tros', 'https://x', 'abcdef0123456789abcd', 'image/png', 1, 1, x'00', ?)""", (NOW,))
         self.run_import(mail_order(items=[{"name": "AH Bananen tros", "quantity": 1, "price": 1.29}]))
-        image = price_import.get_order("ah", "225301")["items"][0]["image"]
+        image = run(price_import.get_order("ah", "225301"))["items"][0]["image"]
         self.assertTrue(image.startswith("/api/prices/images/") and image.endswith("?v=abcdef0123456789"), image)
 
     def test_one_imported_order_can_be_removed_on_its_own(self):
         self.run_import(mail_order(), mail_order(number="777", day="2025-05-01"))
-        self.assertEqual(price_import.remove("ah", "225301"), {"store": "ah", "removed": 1, "ref": "225301"})
-        self.assertEqual([o["ref"] for o in price_import.list_orders("ah")["orders"]], ["777"])
-        self.assertEqual(price_import.remove("ah", "bestaat-niet")["removed"], 0)
-        self.assertEqual(price_import.summary("ah")["orders"], 1)
+        self.assertEqual(run(price_import.remove("ah", "225301")), {"store": "ah", "removed": 1, "ref": "225301"})
+        self.assertEqual([o["ref"] for o in run(price_import.list_orders("ah"))["orders"]], ["777"])
+        self.assertEqual(run(price_import.remove("ah", "bestaat-niet"))["removed"], 0)
+        self.assertEqual(run(price_import.summary("ah"))["orders"], 1)
         self.assertEqual(run(prices.history("ah", "beefburger", 50, today=TODAY))["products"][0]["timesBought"], 1, "ook weg uit de Prijsgeschiedenis")
 
     def test_the_purchase_search_finds_imported_lines(self):
@@ -437,6 +437,58 @@ class OrdersTest(ImportCase):
         self.ah_order(225301, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 2, "price": 1.19, "amount": 2.38})
         self.assertEqual([o["id"] for o in run(ah_orders.search_purchases("bananen"))["occurrences"]], ["225301"])
         self.assertFalse(run(ah_orders.search_purchases("bananen"))["occurrences"][0].get("imported"))
+
+
+class EventLoopReadTest(ImportCase):
+    """Het leespad van de prijzen, de ingelezen bestellingen en de detail- en zoekfuncties van AH en Jumbo lezen alleen nog via
+    aiosqlite: een synchrone verbinding (`_connect`) of synchrone lezer (`product_links.load`, `price_import.account_orders`) in de
+    event loop faalt hier. Alleen `prices.bought_ids` blijft synchroon, voor `product_images`."""
+
+    def setUp(self):
+        super().setUp()
+        self.run_import(mail_order())
+        self.run_import(jumbo_mail_order(), store="jumbo")
+        self.ah_order(101, "2026-09-01", {"productId": 4183, "title": "AH Bananen tros", "quantity": 1, "price": 1.29, "amount": 1.29})
+        self.jumbo_order("J1", "2026-09-02", items=[KIPFILET])
+        with closing(ah_orders._connect()) as conn, conn:
+            conn.execute("INSERT INTO ah_receipts (receipt_id, date_time, total, details_synced, first_seen) VALUES ('R1', '2026-09-10T10:00:00', 1.29, 1, 'x')")
+            conn.execute(
+                "INSERT INTO ah_receipt_items (receipt_id, position, product_id, name, quantity, price, amount) VALUES ('R1', 0, 555, 'BANANEN', 1, 1.29, 1.29)"
+            )
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        refused = AssertionError("synchrone sqlite3 in de event loop")
+        for module, name in ((ah_orders, "_connect"), (jumbo_orders, "_connect"), (prices, "_connect"), (price_import, "_connect"),
+                             (product_links, "_connect"), (product_links, "load"), (product_links, "ensure"), (price_import, "account_orders")):
+            stack.enter_context(mock.patch.object(module, name, side_effect=refused))
+
+    def test_the_ah_order_detail_and_receipt_enrich_on_the_async_connection(self):
+        self.assertEqual(run(ah_orders.get_order(101))["items"][0]["timesBefore"], 0)
+        self.assertEqual(run(ah_orders.get_receipt("R1"))["items"][0]["name"], "BANANEN")
+
+    def test_the_purchase_searches_read_the_imported_lines_on_the_async_connection(self):
+        self.assertEqual([o["id"] for o in run(ah_orders.search_purchases("bananen"))["occurrences"]], ["R1", "101", "225301"])
+        self.assertEqual([o["id"] for o in run(jumbo_orders.search_purchases("kipfilet"))["occurrences"]], ["J1", "6005201234"])
+
+    def test_the_jumbo_order_detail_enriches_on_the_async_connection(self):
+        self.assertEqual(run(jumbo_orders.get_order("J1"))["items"][0]["productId"], "123KIP")
+
+    def test_an_imported_order_and_its_linked_names_read_on_the_async_connection(self):
+        self.assertEqual(run(price_import.get_order("ah", "225301"))["items"][0]["productId"], "4183")
+        self.assertEqual([o["ref"] for o in run(price_import.list_orders("ah", summary=True))["orders"]], ["225301"])
+        self.assertEqual(run(prices.link_names("ah", ["AH Bananen tros"]))["AH Bananen tros"]["productId"], "4183")
+
+    def test_the_price_history_and_its_lookup_read_the_receipt_lines_on_the_async_connection(self):
+        lookup = mock.AsyncMock()
+        products = run(prices.history("ah", "bananen", 50, today=TODAY, bought=True, lookup=lookup))["products"]
+        lookup.assert_awaited_once_with(["BANANEN"])
+        self.assertEqual(sorted(p["productId"] for p in products), ["4183", "555"])
+
+    def test_the_offer_verdicts_read_the_receipt_lines_on_the_async_connection(self):
+        offer = {"id": "4183", "title": "AH Bananen tros", "price": 0.99, "priceBefore": 1.29}
+        with self.assertNoLogs("mealieshopper.prices", "ERROR"):
+            run(prices.annotate("ah", [offer], today=TODAY))
+        self.assertIsNotNone(offer["priceLabel"])
 
 
 class RouteTest(ImportCase):
@@ -464,7 +516,7 @@ class RouteTest(ImportCase):
         self.assertEqual((summary["orders"], "date" in summary["prompt"]), (0, True))
         body = {"store": "ah", "data": json.dumps({"orders": [mail_order()]}), "dryRun": True}
         self.assertEqual(client.post("/api/prices/import", json=body).get_json()["new"], 1)
-        self.assertEqual(price_import.summary("ah")["orders"], 0)
+        self.assertEqual(run(price_import.summary("ah"))["orders"], 0)
         body["dryRun"] = False
         self.assertEqual(client.post("/api/prices/import", json=body).get_json()["imported"], 2)
         self.assertEqual(client.post("/api/prices/import", json=body).get_json()["duplicates"], 1)

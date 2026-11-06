@@ -165,9 +165,8 @@ def _now() -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`, `product_images` (tot Taak 16) en het lezen rond
-    `_receipt_rows`, dat de verbinding doorgeeft aan `product_links.load` en `price_import.account_orders` (tot Taak 15). De rest
-    gebruikt `_aconnect`."""
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas` en voor `product_images` en `bought_ids` (tot Taak 16).
+    De rest gebruikt `_aconnect`."""
     conn = offers._connect()  # maakt ook `offer_history` aan (en de rest van de aanbiedingen)
     conn.executescript(SCHEMA)
     return product_links.ensure(conn)  # je eigen koppelingen (#238), die voor de automatische gaan
@@ -178,14 +177,12 @@ async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
     """Async tweeling van `_connect`, voor de paden in de event loop. Sluit zonder commit, zoals `auth.aconnect`.
 
     Het schema van de aanbiedingen en zijn migraties horen bij `offers`, dat tot Taak 16 synchroon is: dat deel zet
-    `offers._connect()` nog klaar. Daarna dit schema en wat `product_links.ensure` doet (de tabel en de SQL-functie `ms_fold`)."""
+    `offers._connect()` nog klaar. Daarna dit schema en `product_links.aensure` (de tabel en de SQL-functie `ms_fold`)."""
     with closing(offers._connect()):
         pass
     async with auth.aconnect() as conn:
         await conn.executescript(SCHEMA)
-        await conn.executescript(product_links.SCHEMA)
-        await conn.create_function("ms_fold", 1, product_links.fold, deterministic=True)
-        yield conn
+        yield await product_links.aensure(conn)
 
 
 async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
@@ -286,13 +283,16 @@ def recorded(store: str, search: Callable[..., list[dict[str, Any]]]) -> Callabl
 # --- lezen ---------------------------------------------------------------------------------------------------------
 
 
+_TABLES_SQL = "SELECT name FROM sqlite_master WHERE type = 'table'"
+
+
 def _tables(conn: sqlite3.Connection) -> set[str]:
-    return {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    return {row["name"] for row in conn.execute(_TABLES_SQL)}
 
 
 async def _atables(conn: aiosqlite.Connection) -> set[str]:
-    """Async tweeling van `_tables`."""
-    return {row["name"] for row in await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    """Async tweeling van `_tables` (die blijft voor `bought_ids`, tot Taak 16)."""
+    return {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
 
 
 def _purchase_sources(tables: set[str], store: str) -> list[str]:
@@ -311,17 +311,34 @@ def _without_house_brand(store: str, name: str) -> str | None:
     return name[3:] if store == "ah" and name.startswith("ah ") else (name if store == "ah" else None)
 
 
-def _name_index(conn, store: str) -> dict[str, str]:
-    """Naam (gevouwen: kleine letters, zonder accenten) -> product-id, uit de aanbiedingen, de bewaarde prijzen en de bestellingen."""
-    index: dict[str, str] = {}
-    sources = [
+def _name_sources(tables: set[str], store: str) -> list[tuple[str, tuple[Any, ...]]]:
+    """De queries van `_name_index`, in volgorde: de aanbiedingen, de bewaarde prijzen en de bestellingen."""
+    return [
         ("SELECT product_id, title FROM offer_history WHERE store = ? GROUP BY product_id, title", (store,)),
         ("SELECT product_id, title FROM price_observations WHERE store = ? GROUP BY product_id, title", (store,)),
-    ] + [(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", ()) for sql in _purchase_sources(_tables(conn), store)]
-    for sql, args in sources:
-        for row in conn.execute(sql, args):
-            if row["product_id"] and row["title"]:
-                index.setdefault(_fold_name(row["title"]), str(row["product_id"]))
+    ] + [(f"SELECT product_id, title FROM ({sql}) GROUP BY product_id, title", ()) for sql in _purchase_sources(tables, store)]
+
+
+def _add_names(index: dict[str, str], rows: Iterable[Any]) -> None:
+    for row in rows:
+        if row["product_id"] and row["title"]:
+            index.setdefault(_fold_name(row["title"]), str(row["product_id"]))
+
+
+def _name_index(conn: sqlite3.Connection, store: str) -> dict[str, str]:
+    """Naam (gevouwen: kleine letters, zonder accenten) -> product-id, uit de aanbiedingen, de bewaarde prijzen en de bestellingen.
+    Synchroon voor `bought_ids` (tot Taak 16), de rest gebruikt `_aname_index`."""
+    index: dict[str, str] = {}
+    for sql, args in _name_sources(_tables(conn), store):
+        _add_names(index, conn.execute(sql, args))
+    return index
+
+
+async def _aname_index(conn: aiosqlite.Connection, store: str) -> dict[str, str]:
+    """Async tweeling van `_name_index`."""
+    index: dict[str, str] = {}
+    for sql, args in _name_sources(await _atables(conn), store):
+        _add_names(index, await conn.execute_fetchall(sql, args))
     return index
 
 
@@ -357,13 +374,26 @@ def _bare_index(index: dict[str, str], store: str) -> dict[str, str]:
     return {name: next(iter(ids)) for name, ids in found.items() if len(ids) == 1}
 
 
-def _receipt_products(conn) -> dict[str, tuple[str, str]]:
+_RECEIPT_PRODUCTS_SQL = "SELECT receipt_product_id, product_id, title FROM ah_receipt_products WHERE product_id IS NOT NULL"
+
+
+def _receipt_product_map(rows: Iterable[Any]) -> dict[str, tuple[str, str]]:
+    return {str(row["receipt_product_id"]): (str(row["product_id"]), row["title"] or "") for row in rows}
+
+
+def _receipt_products(conn: sqlite3.Connection) -> dict[str, tuple[str, str]]:
     """Artikelnummer op de bon -> (id van de webwinkel, naam in de webwinkel), voor zover AH ze koppelde (zie
-    `ah_orders.resolve_receipt_products`)."""
+    `ah_orders.resolve_receipt_products`). Synchroon voor `bought_ids` (tot Taak 16), de rest gebruikt `_areceipt_products`."""
     if "ah_receipt_products" not in _tables(conn):
         return {}
-    rows = conn.execute("SELECT receipt_product_id, product_id, title FROM ah_receipt_products WHERE product_id IS NOT NULL")
-    return {str(row["receipt_product_id"]): (str(row["product_id"]), row["title"] or "") for row in rows}
+    return _receipt_product_map(conn.execute(_RECEIPT_PRODUCTS_SQL))
+
+
+async def _areceipt_products(conn: aiosqlite.Connection) -> dict[str, tuple[str, str]]:
+    """Async tweeling van `_receipt_products`."""
+    if "ah_receipt_products" not in await _atables(conn):
+        return {}
+    return _receipt_product_map(await conn.execute_fetchall(_RECEIPT_PRODUCTS_SQL))
 
 
 # Aankopen uit bevestigingsmails (zie price_import.py), in dezelfde vorm als de regels van een kassabon: zonder id van de webwinkel.
@@ -374,13 +404,25 @@ FROM imported_purchases WHERE store = ? AND day <= ?
 """
 
 
-def _imported_rows(conn, store: str, today: str) -> list[Any]:
+def _not_in_account(rows: Iterable[Any], numbers: set[str], days: set[str]) -> list[Any]:
+    """De ingelezen aankopen zonder die van een bestelling uit je account (`price_import.account_orders`)."""
+    return [row for row in rows if row["ref"] not in numbers and row["day"] not in days]
+
+
+def _imported_rows(conn: sqlite3.Connection, store: str, today: str) -> list[Any]:
     """De ingelezen aankopen van een winkel, zonder de bestellingen die de app inmiddels ook uit je account heeft (zelfde
-    bestelnummer, of een bestelling op dezelfde dag): die tellen anders dubbel."""
+    bestelnummer, of een bestelling op dezelfde dag): die tellen anders dubbel. Synchroon voor `bought_ids` (tot Taak 16), de
+    rest gebruikt `_aimported_rows`."""
     if "imported_purchases" not in _tables(conn):
         return []
-    numbers, days = price_import.account_orders(conn, store)
-    return [row for row in conn.execute(_IMPORTED_SQL, (store, today)) if row["ref"] not in numbers and row["day"] not in days]
+    return _not_in_account(conn.execute(_IMPORTED_SQL, (store, today)), *price_import.account_orders(conn, store))
+
+
+async def _aimported_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[Any]:
+    """Async tweeling van `_imported_rows`."""
+    if "imported_purchases" not in await _atables(conn):
+        return []
+    return _not_in_account(await conn.execute_fetchall(_IMPORTED_SQL, (store, today)), *await price_import.aaccount_orders(conn, store))
 
 
 def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
@@ -392,7 +434,11 @@ def _own_link_row(row: Any, link: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
+_DATED_RECEIPTS_SQL = f"SELECT * FROM ({_RECEIPTS_SQL}) WHERE day <= ?"
+_RECEIPT_TABLES = frozenset({"ah_receipt_items", "ah_receipts"})
+
+
+def _receipt_rows(conn: sqlite3.Connection, store: str, today: str) -> list[dict[str, Any]]:
     """De regels van de kassabonnen (alleen AH) en de ingelezen aankopen (`_imported_rows`), elk met het product waar ze bij
     horen in `product_id`.
 
@@ -404,20 +450,39 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     prijzen of de bestellingen, dan is het dat product. Anders telt de naam:
     "AH RUNDERGEHAKT" hoort bij "AH Rundergehakt". Past de naam ook nergens, dan is het id van de bon het product, of, zonder id, de
     naam zelf (`bon:ah rundergehakt`), zodat de aankoop altijd te vinden is.
+
+    Synchroon voor `bought_ids` (tot Taak 16), de rest gebruikt `_areceipt_rows`. Het koppelen zelf is `_link_receipt_rows`.
     """
     rows = list(_imported_rows(conn, store, today))
-    if store == "ah" and {"ah_receipt_items", "ah_receipts"} <= _tables(conn):
-        rows += conn.execute(f"SELECT * FROM ({_RECEIPTS_SQL}) WHERE day <= ?", (today,)).fetchall()
+    if store == "ah" and _RECEIPT_TABLES <= _tables(conn):
+        rows += conn.execute(_DATED_RECEIPTS_SQL, (today,)).fetchall()
     if not rows:
         return []
-    index = _name_index(conn, store)
+    return _link_receipt_rows(store, rows, _name_index(conn, store), _receipt_products(conn), product_links.load(conn, store))
+
+
+async def _areceipt_rows(conn: aiosqlite.Connection, store: str, today: str) -> list[dict[str, Any]]:
+    """Async tweeling van `_receipt_rows`: dezelfde queries, hetzelfde koppelen (`_link_receipt_rows`)."""
+    rows = list(await _aimported_rows(conn, store, today))
+    if store == "ah" and _RECEIPT_TABLES <= await _atables(conn):
+        rows += await conn.execute_fetchall(_DATED_RECEIPTS_SQL, (today,))
+    if not rows:
+        return []
+    return _link_receipt_rows(
+        store, rows, await _aname_index(conn, store), await _areceipt_products(conn), await product_links.aload(conn, store)
+    )
+
+
+def _link_receipt_rows(
+    store: str, rows: list[Any], index: dict[str, str], linked: dict[str, tuple[str, str]], mine: product_links.Links
+) -> list[dict[str, Any]]:
+    """Het koppelen van `_receipt_rows`, zonder database: de regels, de namen (`_name_index`), de koppelingen van AH
+    (`_receipt_products`) en je eigen koppelingen (`product_links.load`)."""
     bare = _bare_index(index, store)
     titles: dict[str, list[str]] = {}
     for title, product_id in index.items():
         titles.setdefault(product_id, []).append(title)
-    linked = _receipt_products(conn)
-    mine = product_links.load(conn, store)
-    found = []
+    found: list[dict[str, Any]] = []
     for row in rows:
         own, name = row["receipt_product_id"], _fold_name(row["title"])
         link = mine.find(own if row["source"] == "receipt" else None, name)
@@ -442,30 +507,30 @@ def _receipt_rows(conn, store: str, today: str) -> list[dict[str, Any]]:
     return found
 
 
-def _product_details(conn, store: str, ids: list[str]) -> dict[str, dict[str, Any]]:
+async def _product_details(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, dict[str, Any]]:
     """Wat de app van deze producten weet: `title`, `brand`, `unitSize` en `image`, per veld de nieuwste waarde uit je bestellingen,
     dan de bewaarde prijzen, dan de aanbiedingen. Zonder foto van de winkel de nieuwste bewaarde afbeelding (`product_images`)."""
     found: dict[str, dict[str, Any]] = {product_id: {} for product_id in ids}
     if not ids:
         return found
-    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(_tables(conn), store)] + [
+    sources = [(f"SELECT product_id, title, brand, unit_size, image, day FROM ({sql})", ()) for sql in _purchase_sources(await _atables(conn), store)] + [
         ("SELECT product_id, title, brand, unit_size, image, day FROM price_observations WHERE store = ?", (store,)),
         ("SELECT product_id, title, brand, unit_size, image, last_seen AS day FROM offer_history WHERE store = ?", (store,)),
     ]
     fields = (("title", "title"), ("brand", "brand"), ("unitSize", "unit_size"), ("image", "image"))
     for sql, args in sources:
-        for row in conn.execute(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) ORDER BY day DESC", (*args, *ids)):
+        for row in await conn.execute_fetchall(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) ORDER BY day DESC", (*args, *ids)):
             details = found[str(row["product_id"])]
             for key, column in fields:
                 if not details.get(key) and row[column]:
                     details[key] = row[column]
     missing = [product_id for product_id, details in found.items() if not details.get("image")]
-    for product_id, images in (_saved_images(conn, store, missing) if missing else {}).items():
+    for product_id, images in (await _saved_images(conn, store, missing) if missing else {}).items():
         found[product_id]["image"] = images[0]["url"]
     return found
 
 
-def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
+async def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
     """Per naam uit een bevestigingsmail (`imported_purchases.title`) het product van de winkel waar hij bij hoort, met wat de app
     ervan weet: {"productId", "title", "brand", "unitSize", "image"}. Dezelfde koppeling op naam als de Prijsgeschiedenis
     (`_receipt_rows`), dus de link naar de prijsgeschiedenis komt bij hetzelfde product uit. Een naam die nergens bij past, ontbreekt.
@@ -476,16 +541,16 @@ def link_names(store: str, names: Iterable[str]) -> dict[str, dict[str, Any]]:
     names = {name for name in names if name}
     if not names:
         return {}
-    with closing(_connect()) as conn:
-        mine = product_links.load(conn, store)
+    async with _aconnect() as conn:
+        mine = await product_links.aload(conn, store)
         own = {name: link for name in names if (link := mine.names.get(_fold_name(name)))}
-        index = _name_index(conn, store)
+        index = await _aname_index(conn, store)
         bare = _bare_index(index, store)
         matched = {name: link["productId"] for name, link in own.items()}
         matched.update({
             name: product_id for name in names if name not in own and (product_id := _match_name(index, bare, store, _fold_name(name)))
         })
-        details = _product_details(conn, store, sorted(set(matched.values())))
+        details = await _product_details(conn, store, sorted(set(matched.values())))
     found: dict[str, dict[str, Any]] = {}
     for name, product_id in matched.items():
         known = {key: value for key, value in details.get(product_id, {}).items() if value}
@@ -524,30 +589,47 @@ async def link_candidates(store: Any, query: Any, limit: int = LINK_SEARCH_LIMIT
     return {"store": key, "query": term, "products": products}
 
 
-def _bought(conn, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
-    """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`)."""
-    found: set[str] = set()
-    for sql in _purchase_sources(_tables(conn), store):
-        found.update(
-            str(row["product_id"])
-            for row in conn.execute(f"SELECT DISTINCT product_id FROM ({sql}) WHERE day <= ? AND paid > 0", (today,))
-            if row["product_id"]
-        )
+_BOUGHT_SQL = "SELECT DISTINCT product_id FROM ({sql}) WHERE day <= ? AND paid > 0"
+
+
+def _add_bought(found: set[str], rows: Iterable[Any]) -> None:
+    found.update(str(row["product_id"]) for row in rows if row["product_id"])
+
+
+def _bought_receipts(found: set[str], receipts: list[dict[str, Any]]) -> set[str]:
     found.update(str(row["product_id"]) for row in receipts if row["product_id"] and _number(row["paid"]) is not None)
     return found
 
 
+def _bought(conn: sqlite3.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
+    """De producten die je minstens één keer kocht: met een betaalde prijs in een bestelling of op een kassabon (zoals `timesBought`).
+    Synchroon voor `bought_ids` (tot Taak 16), `history` gebruikt `_abought`."""
+    found: set[str] = set()
+    for sql in _purchase_sources(_tables(conn), store):
+        _add_bought(found, conn.execute(_BOUGHT_SQL.format(sql=sql), (today,)))
+    return _bought_receipts(found, receipts)
+
+
+async def _abought(conn: aiosqlite.Connection, store: str, today: str, receipts: list[dict[str, Any]]) -> set[str]:
+    """Async tweeling van `_bought`."""
+    found: set[str] = set()
+    for sql in _purchase_sources(await _atables(conn), store):
+        _add_bought(found, await conn.execute_fetchall(_BOUGHT_SQL.format(sql=sql), (today,)))
+    return _bought_receipts(found, receipts)
+
+
 def bought_ids(store: str, today: str | None = None) -> set[str]:
-    """De product-id's van een winkel die je minstens één keer kocht (uit je bestellingen en kassabonnen)."""
+    """De product-id's van een winkel die je minstens één keer kocht (uit je bestellingen en kassabonnen). Synchroon voor
+    `product_images` (tot Taak 16), op `_connect` en de synchrone tweelingen (`_receipt_rows`, `_bought`)."""
     today = today or _now()[:10]
     with closing(_connect()) as conn:
         return _bought(conn, store, today, _receipt_rows(conn, store, today))
 
 
-def _saved_images(conn, store: str, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+async def _saved_images(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, list[dict[str, Any]]]:
     """De bewaarde afbeeldingen van deze producten (zonder de afbeelding zelf), de nieuwste eerst."""
     found: dict[str, list[dict[str, Any]]] = {}
-    rows = conn.execute(
+    rows = await conn.execute_fetchall(
         f"""SELECT id, product_id, title, digest, width, height, saved_at FROM product_images
             WHERE store = ? AND product_id IN ({_in(ids)}) ORDER BY saved_at DESC, id DESC""",
         (store, *ids),
@@ -565,12 +647,12 @@ def image_url(image_id: Any, digest: Any) -> str:
     return f"/api/prices/images/{int(image_id)}?v={str(digest or '')[:16]}"
 
 
-def _unsynced(conn, store: str) -> dict[str, int]:
-    tables = _tables(conn)
+async def _unsynced(conn: aiosqlite.Connection, store: str) -> dict[str, int]:
+    tables = await _atables(conn)
     counts = {"orders": 0, "receipts": 0}
     for kind, table, sql in _UNSYNCED.get(store, ()):
         if table in tables:
-            counts[kind] += conn.execute(sql).fetchone()[0]
+            counts[kind] += (await _fetchone(conn, sql))[0]
     return counts
 
 
@@ -618,7 +700,7 @@ def _size_of(unit_size: Any, title: Any) -> tuple[float, str] | None:
     return packs.parse_pack_size(match.group(0)) if match else None
 
 
-def _candidates(conn, store: str, query: _Query, today: str, receipts: list[dict[str, Any]]) -> dict[str, str]:
+async def _candidates(conn: aiosqlite.Connection, store: str, query: _Query, today: str, receipts: list[dict[str, Any]]) -> dict[str, str]:
     """Product-id -> de laatste dag dat we iets van het product weten, voor elk product dat bij de zoekterm past.
 
     Alle namen en verpakkingen van een product tellen samen (uit de aanbiedingen, de bewaarde prijzen, de bestellingen en de bonnen).
@@ -638,10 +720,10 @@ def _candidates(conn, store: str, query: _Query, today: str, receipts: list[dict
                 entry["sizes"].add(size)
 
     columns = "product_id, title, brand, unit_size"
-    add(conn.execute(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
-    add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
-    for sql in _purchase_sources(_tables(conn), store):
-        add(conn.execute(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
+    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(last_seen) AS last FROM offer_history WHERE store = ? GROUP BY {columns}", (store,)))
+    add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM price_observations WHERE store = ? GROUP BY {columns}", (store,)))
+    for sql in _purchase_sources(await _atables(conn), store):
+        add(await conn.execute_fetchall(f"SELECT {columns}, MAX(day) AS last FROM ({sql}) WHERE day <= ? GROUP BY {columns}", (today,)))
     add({**row, "last": row["day"]} for row in receipts)
     for row in receipts:  # de naam op de bon van een gekoppelde regel blijft vindbaar ("RB PICOLIENT")
         if row.get("receipt_name") and row["product_id"] in found:
@@ -653,17 +735,17 @@ def _in(ids: list[str]) -> str:
     return ",".join("?" * len(ids))
 
 
-def _observations(conn, store: str, ids: list[str]) -> dict[str, list[Any]]:
+async def _observations(conn: aiosqlite.Connection, store: str, ids: list[str]) -> dict[str, list[Any]]:
     found: dict[str, list[Any]] = {}
-    for row in conn.execute(f"SELECT * FROM price_observations WHERE store = ? AND product_id IN ({_in(ids)}) ORDER BY day", (store, *ids)):
+    for row in await conn.execute_fetchall(f"SELECT * FROM price_observations WHERE store = ? AND product_id IN ({_in(ids)}) ORDER BY day", (store, *ids)):
         found.setdefault(row["product_id"], []).append(row)
     return found
 
 
-def _purchases(conn, store: str, ids: list[str], today: str, receipts: list[dict[str, Any]]) -> dict[str, list[Any]]:
+async def _purchases(conn: aiosqlite.Connection, store: str, ids: list[str], today: str, receipts: list[dict[str, Any]]) -> dict[str, list[Any]]:
     found: dict[str, list[Any]] = {}
-    for sql in _purchase_sources(_tables(conn), store):
-        for row in conn.execute(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) AND day <= ? ORDER BY day, ref", (*ids, today)):
+    for sql in _purchase_sources(await _atables(conn), store):
+        for row in await conn.execute_fetchall(f"SELECT * FROM ({sql}) WHERE product_id IN ({_in(ids)}) AND day <= ? ORDER BY day, ref", (*ids, today)):
             found.setdefault(row["product_id"], []).append(row)
     wanted = set(ids)
     for row in receipts:
@@ -757,8 +839,8 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
 
 async def _lookup_receipt_names(lookup: Callable[[list[str]], Awaitable[Any]], wanted: "_Query", today: str) -> None:
     """Laat de namen op de bon die bij de zoekterm passen en nog bij geen product horen meteen opzoeken (zie `history`)."""
-    with closing(_connect()) as conn:  # `_receipt_rows` leest op sqlite3, zie `_connect`
-        rows = _receipt_rows(conn, "ah", today)
+    async with _aconnect() as conn:
+        rows = await _areceipt_rows(conn, "ah", today)
     names = sorted({row["title"] for row in rows if row.get("lookup") and wanted.wants({_fold_name(row["title"])}, set())})
     if names:
         try:
@@ -791,15 +873,13 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
     only = str(product) if product not in (None, "") else None
     if lookup and wanted.words and "ah" in stores and only is None:
         await _lookup_receipt_names(lookup, wanted, today)
-    # Het lezen zelf blijft op een sqlite3-verbinding: het leunt op `_receipt_rows` (zie `_connect`) en op dezelfde helpers als
-    # `bought_ids` en `link_names`, die `product_images` en `price_import` nog synchroon aanroepen.
-    with closing(_connect()) as conn:
-        receipts = {name: _receipt_rows(conn, name, today) for name in stores}
-        unsynced = {name: _unsynced(conn, name) for name in stores}
+    async with _aconnect() as conn:
+        receipts = {name: await _areceipt_rows(conn, name, today) for name in stores}
+        unsynced = {name: await _unsynced(conn, name) for name in stores}
         candidates: dict[tuple[str, str], str] = {}
         for name in stores:
-            keep = _bought(conn, name, today, receipts[name]) if bought else None
-            for product_id, day in _candidates(conn, name, wanted, today, receipts[name]).items():
+            keep = await _abought(conn, name, today, receipts[name]) if bought else None
+            for product_id, day in (await _candidates(conn, name, wanted, today, receipts[name])).items():
                 if only is not None and product_id != only:
                     continue
                 if keep is None or product_id in keep:
@@ -810,7 +890,7 @@ async def history(store: Any = None, query: Any = "", limit: Any = 50, today: st
         for name in stores:
             ids = [product_id for store_name, product_id in chosen if store_name == name]
             found[name] = (
-                (_observations(conn, name, ids), _purchases(conn, name, ids, today, receipts[name]), _saved_images(conn, name, ids))
+                (await _observations(conn, name, ids), await _purchases(conn, name, ids, today, receipts[name]), await _saved_images(conn, name, ids))
                 if ids else ({}, {}, {})
             )
     offered = {name: offers.history_of(name, [pid for s, pid in chosen if s == name]) for name in stores}
@@ -1171,8 +1251,7 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
         ):
             episodes.setdefault(row["product_id"], []).append(row)
         try:
-            with closing(_connect()) as sync_conn:  # `_receipt_rows` leest op sqlite3, zie `_connect`
-                receipts = _receipt_rows(sync_conn, store, today)
+            receipts = await _areceipt_rows(conn, store, today)
             points = await _history_points(conn, store, today, receipts)
         except Exception:  # noqa: BLE001 - de ladder is een extraatje: zonder blijven het oordeel en de badge staan
             log.exception("Prijslabels: de geschiedenis van %s kon niet worden gelezen", store)

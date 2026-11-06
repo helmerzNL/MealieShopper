@@ -23,7 +23,7 @@ import time
 import weakref
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
@@ -125,8 +125,7 @@ REGULAR_COLUMNS: tuple[tuple[str, str], ...] = (("regular_price", "REAL"), ("reg
 
 
 def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas` en voor de aanroepen die nog een sqlite3-verbinding
-    vragen: `purchase_lines.enrich` en `price_import.search_lines` (die laatste tot Taak 15). De rest gebruikt `_aconnect`."""
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
@@ -140,16 +139,14 @@ def _connect() -> sqlite3.Connection:
 @asynccontextmanager
 async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
     """Async tweeling van `_connect`: hetzelfde schema en dezelfde migraties, plus de tabel en de SQL-functie `ms_fold` van
-    `product_links` (wat `product_links.ensure` op een sqlite3-verbinding doet). Sluit zonder commit, zoals `auth.aconnect`."""
+    `product_links` (`product_links.aensure`). Sluit zonder commit, zoals `auth.aconnect`."""
     await auth.aensure_db()
     async with auth.aconnect() as conn:
         await conn.executescript(SCHEMA)
         await _aensure_columns(conn, "ah_receipt_products", (("image", "TEXT"),))
         for table in ("ah_order_items", "ah_receipt_items"):
             await _aensure_columns(conn, table, REGULAR_COLUMNS)
-        await conn.executescript(product_links.SCHEMA)
-        await conn.create_function("ms_fold", 1, product_links.fold, deterministic=True)
-        yield conn
+        yield await product_links.aensure(conn)
 
 
 async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
@@ -479,11 +476,8 @@ async def get_order(order_id: int) -> dict[str, Any] | None:
     await purchase_lines.fill_regular("ah", order_ids=[int(order_id)])
     async with _aconnect() as conn:
         rows = await conn.execute_fetchall("SELECT * FROM ah_order_items WHERE order_id = ? ORDER BY position", (int(order_id),))
-    items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
-    # `purchase_lines.enrich` blijft op een sqlite3-verbinding: `price_import` (Taak 15) roept hem ook aan, en hij zet
-    # `product_links.ensure` op de verbinding.
-    with closing(_connect()) as conn:
-        totals = purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = await purchase_lines.enrich(conn, "ah", "order", _order_day(row), items)
     kind, text = purchase_lines.status_kind("order", row)
     return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
@@ -1231,16 +1225,16 @@ def _json_list(value: Any) -> list[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
-def _enrich_receipt(conn: sqlite3.Connection, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
+async def _enrich_receipt(conn: aiosqlite.Connection, row: Any, lines: list[dict[str, Any]]) -> dict[str, Any]:
     """Zet bij elke bonregel het bonusbedrag (`bonus`, van de bonusregels onderaan de bon) en de velden van `purchase_lines.enrich`.
-    Geeft `saved`, `savedPercent`, `statusKind` en `statusText` van de bon. Op een sqlite3-verbinding, zoals `purchase_lines.enrich`."""
+    Geeft `saved`, `savedPercent`, `statusKind` en `statusText` van de bon."""
     discounts = _json_list(row["discounts"])
     bonus = purchase_lines.match_receipt_bonus(lines, discounts)
     for index, line in enumerate(lines):
         line["bonus"] = bonus.get(index, 0.0)
     # Een bonusregel die bij geen regel past, telt alleen in het totaal.
     unmatched = purchase_lines.unmatched_bonus(lines, discounts)
-    totals = purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines, unmatched_bonus=unmatched)
+    totals = await purchase_lines.enrich(conn, "ah", "receipt", str(row["date_time"] or "")[:10], lines, unmatched_bonus=unmatched)
     kind, text = purchase_lines.status_kind("receipt", row)
     return {**totals, "statusKind": kind, "statusText": text}
 
@@ -1283,8 +1277,7 @@ async def get_receipt(
     async with _aconnect() as conn:
         lines = await _receipt_lines(conn, receipt_id)
         linking_todo = await receipt_linking_todo(conn, receipt_id, _now())
-    with closing(_connect()) as conn:  # `purchase_lines.enrich` blijft op sqlite3, zie `get_order`
-        enriched = _enrich_receipt(conn, row, lines)
+        enriched = await _enrich_receipt(conn, row, lines)
     return {
         **_receipt_json(row, len(lines)),
         "items": lines,
@@ -1351,9 +1344,8 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
             conn,
             "SELECT (SELECT COUNT(*) FROM ah_receipts WHERE details_synced = 0) + (SELECT COUNT(*) FROM ah_orders WHERE items_synced = 0)",
         ))[0]
-    # Oude bestellingen uit je bevestigingsmails: `price_import.search_lines` leest tot Taak 15 van een sqlite3-verbinding.
-    with closing(_connect()) as conn:
-        occurrences += price_import.search_lines(conn, "ah", words, ah_lists._fold)
+        # Oude bestellingen uit je bevestigingsmails.
+        occurrences += await price_import.search_lines(conn, "ah", words, ah_lists._fold)
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:

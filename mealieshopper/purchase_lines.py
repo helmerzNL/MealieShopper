@@ -12,6 +12,8 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import aiosqlite
+
 from . import product_links
 from .offer_categories import purchase_category
 
@@ -103,18 +105,18 @@ def unmatched_bonus(lines: list[dict[str, Any]], discounts: list[dict[str, Any]]
     return _assign_bonus(lines, discounts)[1]
 
 
-def _tables(conn) -> set[str]:
+async def _tables(conn: aiosqlite.Connection) -> set[str]:
     return {
         row[0]
-        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        for row in await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
 
 
-def _count(conn, sql: str, ids: list[str], before_day: str) -> dict[str, int]:
+async def _count(conn: aiosqlite.Connection, sql: str, ids: list[str], before_day: str) -> dict[str, int]:
     marks: str = ", ".join("?" * len(ids))
     return {
         str(row[0]): int(row[1])
-        for row in conn.execute(sql.format(marks=marks), (*ids, before_day))
+        for row in await conn.execute_fetchall(sql.format(marks=marks), (*ids, before_day))
     }
 
 
@@ -124,8 +126,8 @@ _ORDER_DAY: str = (
 )
 
 
-def times_before(
-    conn, store: str, product_ids: Iterable[Any], before_day: str
+async def times_before(
+    conn: aiosqlite.Connection | None, store: str, product_ids: Iterable[Any], before_day: str
 ) -> dict[str, int]:
     """Hoe vaak je elk product eerder kocht: het aantal bestellingen (`<store>_order_items`) van vóór `before_day` met dat product,
     plus bij AH het aantal kassabonnen van vóór die dag met een regel die bij dat product hoort (je eigen koppeling, #238, of de
@@ -143,11 +145,11 @@ def times_before(
     if conn is None or not ids or store not in ("ah", "jumbo"):
         return {}
     if store == "ah":
-        product_links.ensure(conn)  # de tabel en `ms_fold` voor de bonregels, ook op een verbinding van `price_import`
-    tables: set[str] = _tables(conn)
+        await product_links.aensure(conn)  # de tabel en `ms_fold` voor de bonregels, ook op een verbinding van `price_import`
+    tables: set[str] = await _tables(conn)
     counts: dict[str, int] = {}
     if {f"{store}_orders", f"{store}_order_items"} <= tables:
-        counts = _count(
+        counts = await _count(
             conn,
             f"""
             SELECT CAST(i.product_id AS TEXT), COUNT(DISTINCT i.order_id) FROM {store}_order_items i
@@ -162,7 +164,7 @@ def times_before(
         <= tables
     ):
         product: str = product_links.RECEIPT_LINE_PRODUCT_SQL
-        receipts: dict[str, int] = _count(
+        receipts: dict[str, int] = await _count(
             conn,
             f"""
             SELECT CAST({product} AS TEXT), COUNT(DISTINCT l.receipt_id) FROM ah_receipt_items l
@@ -256,7 +258,9 @@ def _enrich_line(store: str, kind: str, item: dict[str, Any], counts: dict[str, 
     return paid * quantity, saved
 
 
-def enrich(conn, store: str, kind: str, day: str, items: list[dict[str, Any]], *, unmatched_bonus: float = 0.0) -> dict[str, Any]:
+async def enrich(
+    conn: aiosqlite.Connection | None, store: str, kind: str, day: str, items: list[dict[str, Any]], *, unmatched_bonus: float = 0.0
+) -> dict[str, Any]:
     """Zet op elke regel `category`, `regularPrice`, `discount`, `discountSource`, `timesBefore` en `paidEach`. Past de dicts aan.
 
     `kind` is `order`, `receipt` of `imported`. `regularPrice` op de regel is bij binnenkomst de kolom `regular_price` (de gewone
@@ -270,7 +274,7 @@ def enrich(conn, store: str, kind: str, day: str, items: list[dict[str, Any]], *
     """
     if kind not in KINDS:
         raise ValueError(f"onbekende soort aankoop: {kind}")
-    counts: dict[str, int] = times_before(conn, store, [_product_id(kind, item) for item in items], day)
+    counts: dict[str, int] = await times_before(conn, store, [_product_id(kind, item) for item in items], day)
     paid_total: float = 0.0
     saved: float = max(unmatched_bonus, 0.0)
     for item in items:

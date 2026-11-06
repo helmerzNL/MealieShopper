@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -61,8 +61,7 @@ ITEM_COLUMNS = ("product_id", "title", "brand", "unit_size", "quantity", "amount
 
 
 def _connect() -> sqlite3.Connection:
-    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas` en voor de aanroepen die nog een sqlite3-verbinding
-    vragen (`purchase_lines.enrich`, `price_import.search_lines`). De rest gebruikt `_aconnect`."""
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
     conn = auth.connect()
     conn.executescript(SCHEMA)
     # De gewone prijs per regel, zoals bij AH (zie `ah_orders.REGULAR_COLUMNS`). Een oudere database krijgt de kolommen erbij.
@@ -261,10 +260,8 @@ async def get_order(order_id: Any) -> dict[str, Any] | None:
     await purchase_lines.fill_regular("jumbo", order_ids=[str(order_id)])
     async with _aconnect() as conn:
         rows = await conn.execute_fetchall("SELECT * FROM jumbo_order_items WHERE order_id = ? ORDER BY position", (str(order_id),))
-    items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
-    # `purchase_lines.enrich` blijft op een sqlite3-verbinding: `price_import` (Taak 15) roept hem ook aan.
-    with closing(_connect()) as conn:
-        totals = purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
+        items = [{**_item_json(item), "regularPrice": item["regular_price"]} for item in rows]
+        totals = await purchase_lines.enrich(conn, "jumbo", "order", ah_orders._order_day(row), items)
     kind, text = purchase_lines.status_kind("order", row)
     return {**_order_json(row, len(items)), "items": items, **totals, "statusKind": kind, "statusText": text}
 
@@ -289,9 +286,8 @@ async def search_purchases(query: Any, limit: int = 50) -> dict[str, Any]:
                     "open": False,
                 })
         unsearched = (await _fetchone(conn, "SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0"))[0]
-    # Oude bestellingen uit je bevestigingsmails: `price_import.search_lines` leest tot Taak 15 van een sqlite3-verbinding.
-    with closing(_connect()) as conn:
-        occurrences += price_import.search_lines(conn, "jumbo", words, _fold)
+        # Oude bestellingen uit je bevestigingsmails.
+        occurrences += await price_import.search_lines(conn, "jumbo", words, _fold)
     occurrences.sort(key=lambda entry: entry["date"], reverse=True)
     grouped: dict[str, dict[str, Any]] = {}
     for entry in occurrences:

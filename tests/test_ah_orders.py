@@ -1040,7 +1040,7 @@ class LinkingStatusTest(AhOrdersTestCase):
 
     def test_a_line_you_linked_yourself_is_linked_for_the_count_and_the_round(self):
         # 556 koppelde je zelf (#238): geen regel zonder product meer, en geen zoekopdracht bij AH. 555 staat nog open.
-        product_links.save("ah", "TOMATEN", {"productId": "4711", "title": "AH Tomaten"}, article=556, now=self.NOW)
+        run(product_links.save("ah", "TOMATEN", {"productId": "4711", "title": "AH Tomaten"}, article=556, now=self.NOW))
         todo, groups = in_db(
             ah_orders._aconnect,
             lambda conn: ah_orders.receipt_linking_todo(conn, "R1", self.NOW),

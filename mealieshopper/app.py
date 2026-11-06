@@ -667,36 +667,36 @@ def create_app() -> Quart:
 
     # Oude aankopen inlezen uit bevestigingsmails (zie price_import.py). Alleen de beheerder: /api/prices/import staat in
     # auth.ADMIN_PREFIXES, want het schrijft (en wist) gegevens van het hele huishouden.
-    def import_action(action):
+    async def import_action(action: Callable[[], Awaitable[Any]]) -> Any:
         try:
-            return jsonify(action())
+            return jsonify(await action())
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/prices/import")
     async def prices_import_summary():
-        return import_action(lambda: price_import.summary(request.args.get("store") or "ah"))
+        return await import_action(lambda: price_import.summary(request.args.get("store") or "ah"))
 
     @app.post("/api/prices/import")
     async def prices_import_run():
         body = await request.get_json(silent=True) or {}
-        return import_action(lambda: price_import.run(body.get("data"), body.get("store") or "ah", dry_run=bool(body.get("dryRun"))))
+        return await import_action(lambda: price_import.run(body.get("data"), body.get("store") or "ah", dry_run=bool(body.get("dryRun"))))
 
     @app.delete("/api/prices/import")
     async def prices_import_remove():
         # Met ?ref= alleen die ene ingelezen bestelling (de prullenbak bij Bestellingen), zonder alle van de winkel.
-        return import_action(lambda: price_import.remove(request.args.get("store") or "ah", request.args.get("ref")))
+        return await import_action(lambda: price_import.remove(request.args.get("store") or "ah", request.args.get("ref")))
 
     # De ingelezen bestellingen bij Bestellingen, naast die uit je account. Lezen mag iedereen, net als de bestellingen zelf;
     # importeren en verwijderen gaan via /api/prices/import en zijn van de beheerder.
     @app.get("/api/imported-orders/<store>")
     async def imported_orders_list(store: str):
-        return import_action(lambda: price_import.list_orders(store, summary=True))
+        return await import_action(lambda: price_import.list_orders(store, summary=True))
 
     @app.get("/api/imported-orders/<store>/<path:ref>")
     async def imported_order_detail(store: str, ref: str):
         try:
-            order = price_import.get_order(store, ref)
+            order = await price_import.get_order(store, ref)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         if not order:
@@ -708,7 +708,7 @@ def create_app() -> Quart:
     # ontkoppelen: het is een keuze die je weer terugdraait, net als een ander product in de controlelijst.
     @app.get("/api/product-links")
     async def product_links_list():
-        return import_action(lambda: product_links.list_links(request.args.get("store") or None))
+        return await import_action(lambda: product_links.list_links(request.args.get("store") or None))
 
     @app.get("/api/product-links/search")
     async def product_links_search():
@@ -724,13 +724,18 @@ def create_app() -> Quart:
     @app.put("/api/product-links")
     async def product_links_save():
         body = await request.get_json(silent=True) or {}
-        return import_action(
-            lambda: {"link": product_links.save(body.get("store"), body.get("name"), body.get("product"), body.get("article"))}
-        )
+
+        async def save() -> dict[str, Any]:
+            return {"link": await product_links.save(body.get("store"), body.get("name"), body.get("product"), body.get("article"))}
+
+        return await import_action(save)
 
     @app.delete("/api/product-links/<store>/<kind>/<path:key>")
     async def product_links_remove(store: str, kind: str, key: str):
-        return import_action(lambda: {"removed": product_links.remove(store, kind, key)})
+        async def remove() -> dict[str, Any]:
+            return {"removed": await product_links.remove(store, kind, key)}
+
+        return await import_action(remove)
 
     @app.get("/api/prices/compare")
     async def prices_compare():

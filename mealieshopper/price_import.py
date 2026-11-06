@@ -24,9 +24,12 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from contextlib import closing
+from collections.abc import AsyncIterator, Callable, Iterable
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from typing import Any
+
+import aiosqlite
 
 from . import auth, offers, purchase_lines
 from .i18n import tr
@@ -135,24 +138,54 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _connect():
+_COLUMNS_SQL: str = "PRAGMA table_info(imported_purchases)"
+_ADD_COLUMN_SQL: str = "ALTER TABLE imported_purchases ADD COLUMN {name} {kind}"
+
+
+def _missing_columns(rows: Iterable[Any]) -> list[tuple[str, str]]:
+    """De kolommen van `_ADDED_COLUMNS` die niet in `PRAGMA table_info` (`rows`) staan."""
+    present: set[str] = {row["name"] for row in rows}
+    return [(name, kind) for name, kind in _ADDED_COLUMNS if name not in present]
+
+
+def _added_elsewhere(exc: sqlite3.OperationalError) -> bool:
+    """Een andere verbinding voegde de kolom net toe: twee die hem tegelijk zien ontbreken mogen niet struikelen over elkaars
+    ALTER TABLE."""
+    return "duplicate column" in str(exc)
+
+
+def _connect() -> sqlite3.Connection:
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
     auth.ensure_db()
     conn = auth.connect()
     conn.executescript(SCHEMA)
-    present = {row["name"] for row in conn.execute("PRAGMA table_info(imported_purchases)")}
-    for name, kind in _ADDED_COLUMNS:
-        if name not in present:
-            _add_column(conn, name, kind)
+    for name, kind in _missing_columns(conn.execute(_COLUMNS_SQL)):
+        _add_column(conn, name, kind)
     return conn
 
 
-def _add_column(conn, name: str, kind: str) -> None:
-    """De migratie; twee threads die hem tegelijk zien ontbreken mogen niet struikelen over elkaars ALTER TABLE."""
+def _add_column(conn: sqlite3.Connection, name: str, kind: str) -> None:
+    """De migratie (zie `_added_elsewhere`)."""
     try:
-        conn.execute(f"ALTER TABLE imported_purchases ADD COLUMN {name} {kind}")
+        conn.execute(_ADD_COLUMN_SQL.format(name=name, kind=kind))
     except sqlite3.OperationalError as exc:
-        if "duplicate column" not in str(exc):
+        if not _added_elsewhere(exc):
             raise
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_connect`: hetzelfde schema en dezelfde migratie. Sluit zonder commit, zoals `auth.aconnect`."""
+    await auth.aensure_db()
+    async with auth.aconnect() as conn:
+        await conn.executescript(SCHEMA)
+        for name, kind in _missing_columns(await conn.execute_fetchall(_COLUMNS_SQL)):
+            try:
+                await conn.execute(_ADD_COLUMN_SQL.format(name=name, kind=kind))
+            except sqlite3.OperationalError as exc:
+                if not _added_elsewhere(exc):
+                    raise
+        yield conn
 
 
 def _store(value: Any) -> str:
@@ -321,36 +354,65 @@ def parse(data: Any, store: Any, today: date | None = None) -> tuple[str, list[d
     return key, orders, problems
 
 
-def _tables(conn) -> set[str]:
-    return {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+_TABLES_SQL: str = "SELECT name FROM sqlite_master WHERE type = 'table'"
 
 
-def account_orders(conn, store: str) -> tuple[set[str], set[str]]:
-    """(bestelnummers, dagen) van de bestellingen die de app met producten uit je account van de winkel heeft.
+def _tables(conn: sqlite3.Connection) -> set[str]:
+    return {row["name"] for row in conn.execute(_TABLES_SQL)}
 
-    Een bestelling waarvan de app de producten (nog) niet kon ophalen, telt niet mee (#222): Jumbo weigert de details van oude
-    bestellingen, die dan alleen als kop in `jumbo_orders` staan. Zo'n bestelling is er voor de prijzen nog niet, dus de ingelezen
-    versie uit je mails mag erbij. Komen de producten later toch binnen, dan telt de bestelling weer mee en valt de ingelezen versie
-    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt."""
+
+async def _atables(conn: aiosqlite.Connection) -> set[str]:
+    """Async tweeling van `_tables` (die blijft voor `account_orders`)."""
+    return {row["name"] for row in await conn.execute_fetchall(_TABLES_SQL)}
+
+
+def _account_orders_sql(store: str) -> tuple[set[str], str]:
+    """(de tabellen die er moeten zijn, de SQL) voor `account_orders`: per bestelling met producten het nummer en de dag."""
     table, items = f"{store}_orders", f"{store}_order_items"
-    if not {table, items} <= _tables(conn):
-        return set(), set()
-    numbers, days = set(), set()
-    for row in conn.execute(
-        f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
+    return {table, items}, f"""SELECT CAST(o.order_id AS TEXT) AS id, substr(COALESCE(o.delivery_date, ''), 1, 10) AS day FROM {table} o
             WHERE EXISTS (SELECT 1 FROM {items} i WHERE i.order_id = o.order_id)"""
-    ):
+
+
+def _account_sets(rows: Iterable[Any]) -> tuple[set[str], set[str]]:
+    numbers: set[str] = set()
+    days: set[str] = set()
+    for row in rows:
         numbers.add(str(row["id"]))
         if row["day"]:
             days.add(row["day"])
     return numbers, days
 
 
-def _duplicate(conn, store: str, order: dict[str, Any], seen: set[str], numbers: set[str], days: set[str]) -> str | None:
+def account_orders(conn: sqlite3.Connection, store: str) -> tuple[set[str], set[str]]:
+    """(bestelnummers, dagen) van de bestellingen die de app met producten uit je account van de winkel heeft.
+
+    Een bestelling waarvan de app de producten (nog) niet kon ophalen, telt niet mee (#222): Jumbo weigert de details van oude
+    bestellingen, die dan alleen als kop in `jumbo_orders` staan. Zo'n bestelling is er voor de prijzen nog niet, dus de ingelezen
+    versie uit je mails mag erbij. Komen de producten later toch binnen, dan telt de bestelling weer mee en valt de ingelezen versie
+    weg (bij Bestellingen, in de prijzen en in het zoeken), zodat niets dubbel telt.
+
+    Synchroon voor `prices.bought_ids` (`product_images`, tot Taak 16), de rest gebruikt `aaccount_orders`."""
+    needed, sql = _account_orders_sql(store)
+    if not needed <= _tables(conn):
+        return set(), set()
+    return _account_sets(conn.execute(sql))
+
+
+async def aaccount_orders(conn: aiosqlite.Connection, store: str) -> tuple[set[str], set[str]]:
+    """Async tweeling van `account_orders`."""
+    needed, sql = _account_orders_sql(store)
+    if not needed <= await _atables(conn):
+        return set(), set()
+    return _account_sets(await conn.execute_fetchall(sql))
+
+
+async def _duplicate(
+    conn: aiosqlite.Connection, store: str, order: dict[str, Any], seen: set[str], numbers: set[str], days: set[str]
+) -> str | None:
     """Waarom een bestelling er al is, of None als ze nieuw is."""
     if order["ref"] in seen:
         return tr("staat twee keer in deze JSON", "is twice in this JSON")
-    if conn.execute("SELECT 1 FROM imported_purchases WHERE store = ? AND order_ref = ? LIMIT 1", (store, order["ref"])).fetchone():
+    if await conn.execute_fetchall("SELECT 1 FROM imported_purchases WHERE store = ? AND order_ref = ? LIMIT 1", (store, order["ref"])):
         return tr("is al ingelezen", "was already imported")
     if order["number"] and order["number"] in numbers:
         return tr("staat al in je bestellingen", "is already in your orders")
@@ -359,17 +421,17 @@ def _duplicate(conn, store: str, order: dict[str, Any], seen: set[str], numbers:
     return None
 
 
-def run(data: Any, store: Any, dry_run: bool = False, now: str | None = None) -> dict[str, Any]:
+async def run(data: Any, store: Any, dry_run: bool = False, now: str | None = None) -> dict[str, Any]:
     """Lees de bestellingen in (of, met `dry_run`, laat alleen zien wat er zou gebeuren). Geeft per bestelling of ze nieuw is."""
     now = now or _now()
     key, orders, problems = parse(data, store, date.fromisoformat(now[:10]))
     if not orders:
         raise ValueError(problems[0] if problems else tr("Er staan geen bestellingen in.", "There are no orders in it."))
     report, fresh, seen = [], [], set()
-    with closing(_connect()) as conn:
-        numbers, days = account_orders(conn, key)
+    async with _aconnect() as conn:
+        numbers, days = await aaccount_orders(conn, key)
         for order in orders:
-            reason = _duplicate(conn, key, order, seen, numbers, days)
+            reason = await _duplicate(conn, key, order, seen, numbers, days)
             seen.add(order["ref"])
             report.append({"ref": order["ref"], "date": order["date"], "total": order["total"], "items": len(order["items"]),
                            "status": order["status"], "slotStart": order["slotStart"], "slotEnd": order["slotEnd"],
@@ -377,15 +439,15 @@ def run(data: Any, store: Any, dry_run: bool = False, now: str | None = None) ->
             if reason is None:
                 fresh.append(order)
         if not dry_run and fresh:
-            with conn:
-                conn.executemany(
-                    """INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total,
-                                                       imported_at, status, slot_start, slot_end)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    [(key, order["ref"], position, order["date"], item["title"], item["quantity"], item["paid"], item["regular"],
-                      order["total"], now, order["status"], order["slotStart"], order["slotEnd"])
-                     for order in fresh for position, item in enumerate(order["items"])],
-                )
+            await conn.executemany(
+                """INSERT INTO imported_purchases (store, order_ref, position, day, title, quantity, paid, regular, order_total,
+                                                   imported_at, status, slot_start, slot_end)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(key, order["ref"], position, order["date"], item["title"], item["quantity"], item["paid"], item["regular"],
+                  order["total"], now, order["status"], order["slotStart"], order["slotEnd"])
+                 for order in fresh for position, item in enumerate(order["items"])],
+            )
+            await conn.commit()
     return {
         "store": key, "dryRun": bool(dry_run), "orders": report, "new": len(fresh), "duplicates": len(report) - len(fresh),
         "lines": sum(len(order["items"]) for order in fresh), "problems": problems[:MAX_PROBLEMS], "problemCount": len(problems),
@@ -393,25 +455,28 @@ def run(data: Any, store: Any, dry_run: bool = False, now: str | None = None) ->
     }
 
 
-def summary(store: Any) -> dict[str, Any]:
+async def summary(store: Any) -> dict[str, Any]:
     """Wat er van een winkel is ingelezen: aantal bestellingen en regels, eerste en laatste dag, en de prompt."""
     key = _store(store)
-    with closing(_connect()) as conn:
-        row = conn.execute(
+    async with _aconnect() as conn:
+        async with conn.execute(
             "SELECT COUNT(DISTINCT order_ref) AS orders, COUNT(*) AS lines, MIN(day) AS first, MAX(day) AS last FROM imported_purchases WHERE store = ?",
             (key,),
-        ).fetchone()
+        ) as cursor:
+            row: aiosqlite.Row = await cursor.fetchone()
     return {"store": key, "orders": row["orders"], "lines": row["lines"], "first": row["first"], "last": row["last"], "prompt": prompt(key)}
 
 
-def remove(store: Any, ref: Any = None) -> dict[str, Any]:
+async def remove(store: Any, ref: Any = None) -> dict[str, Any]:
     """Haal de ingelezen aankopen van een winkel weg: alle, of met `ref` alleen die ene bestelling."""
     key = _store(store)
     only = str(ref) if ref not in (None, "") else None
     where, args = ("store = ? AND order_ref = ?", (key, only)) if only is not None else ("store = ?", (key,))
-    with closing(_connect()) as conn, conn:
-        removed = conn.execute(f"SELECT COUNT(DISTINCT order_ref) FROM imported_purchases WHERE {where}", args).fetchone()[0]
-        conn.execute(f"DELETE FROM imported_purchases WHERE {where}", args)
+    async with _aconnect() as conn:
+        async with conn.execute(f"SELECT COUNT(DISTINCT order_ref) FROM imported_purchases WHERE {where}", args) as cursor:
+            removed: int = (await cursor.fetchone())[0]
+        await conn.execute(f"DELETE FROM imported_purchases WHERE {where}", args)
+        await conn.commit()
     return {"store": key, "removed": removed, **({"ref": only} if only is not None else {})}
 
 
@@ -432,21 +497,21 @@ def split_lines(value: Any) -> list[str]:
     return [part for part in str(value or "").split("\n") if part]
 
 
-def _order_rows(conn, store: str, ref: str | None = None, summary: bool = False) -> list[Any]:
+async def _order_rows(conn: aiosqlite.Connection, store: str, ref: str | None = None, summary: bool = False) -> list[Any]:
     """Per ingelezen bestelling één rij. Een bestelling met hetzelfde nummer of op dezelfde dag als een bestelling uit je account
     staat daar al (net als in `prices._imported_rows`) en komt er dus niet nog een keer bij. Met `summary` ook de eerste namen."""
-    numbers, days = account_orders(conn, store)
+    numbers, days = await aaccount_orders(conn, store)
     where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
     names = f"""(SELECT GROUP_CONCAT(title, char(10)) FROM (SELECT title FROM imported_purchases n
                     WHERE n.store = p.store AND n.order_ref = p.order_ref AND title != '' ORDER BY position LIMIT {SUMMARY_NAMES})) AS summary_names,"""
-    rows = conn.execute(
+    rows = await conn.execute_fetchall(
         f"""SELECT order_ref, MIN(day) AS day, MAX(order_total) AS order_total, MIN(imported_at) AS imported_at, COUNT(*) AS lines,
                    {names if summary else ""}
                    MAX(status) AS status, MAX(slot_start) AS slot_start, MAX(slot_end) AS slot_end,
                    SUM(quantity) AS units, SUM(COALESCE(paid, 0) * quantity) AS paid_total
             FROM imported_purchases p WHERE {where} GROUP BY order_ref ORDER BY day DESC, order_ref DESC""",
         args,
-    ).fetchall()
+    )
     return [row for row in rows if row["order_ref"] not in numbers and row["day"] not in days]
 
 
@@ -474,11 +539,11 @@ def _order_json(store: str, row: Any, summary: bool = False) -> dict[str, Any]:
     }
 
 
-def _lines(conn, store: str, ref: str | None = None) -> list[Any]:
+async def _lines(conn: aiosqlite.Connection, store: str, ref: str | None = None) -> list[Any]:
     where, args = ("store = ? AND order_ref = ?", (store, ref)) if ref is not None else ("store = ?", (store,))
-    return conn.execute(
+    return list(await conn.execute_fetchall(
         f"SELECT order_ref, title, quantity, paid, regular FROM imported_purchases WHERE {where} ORDER BY order_ref, position", args
-    ).fetchall()
+    ))
 
 
 def _summary(lines: list[Any], linked: dict[str, dict[str, Any]]) -> dict[str, Any]:
@@ -495,27 +560,27 @@ def _summary(lines: list[Any], linked: dict[str, dict[str, Any]]) -> dict[str, A
     return {"images": images, "savings": round(savings, 2), "bonusCount": len(bonus), "statusKind": status_kind, "statusText": status_text}
 
 
-def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
+async def list_orders(store: Any, summary: bool = False) -> dict[str, Any]:
     """De ingelezen bestellingen van een winkel, de nieuwste eerst, zoals ze bij de afgelopen bestellingen staan. Met `summary`
     (de lijstroute) per bestelling ook `productNames` (de eerste vier namen), `images`, `savings` en `bonusCount`, voor de tabel,
     de kaarten en het overzicht."""
     from . import prices  # prices leest ook price_import; pas hier ophalen houdt de import rond
 
     key = _store(store)
-    with closing(_connect()) as conn:
-        rows = _order_rows(conn, key, summary=summary)
+    async with _aconnect() as conn:
+        rows = await _order_rows(conn, key, summary=summary)
         if not summary or not rows:
             return {"store": key, "orders": [_order_json(key, row, summary) for row in rows]}
         per_order: dict[str, list[Any]] = {}
-        for line in _lines(conn, key):
+        for line in await _lines(conn, key):
             per_order.setdefault(line["order_ref"], []).append(line)
-    linked = prices.link_names(key, {line["title"] for lines in per_order.values() for line in lines})
+    linked = await prices.link_names(key, {line["title"] for lines in per_order.values() for line in lines})
     return {"store": key, "orders": [
         {**_order_json(key, row, summary), **_summary(per_order.get(row["order_ref"], []), linked)} for row in rows
     ]}
 
 
-def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
+async def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
     """Eén ingelezen bestelling met de producten uit de mail, of None als die er niet (meer) is. Elke regel heeft, als de naam bij
     een product van de winkel hoort, ook `productId`, `image`, `brand` en `unitSize` van dat product (zie `prices.link_names`), en
     `link` als je die naam zelf koppelde (#238), en de velden van `purchase_lines.enrich`: de korting is die tegen de prijs uit de mail
@@ -525,12 +590,12 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
 
     key = _store(store)
     ref = str(ref or "")
-    with closing(_connect()) as conn:
-        rows = _order_rows(conn, key, ref)
+    async with _aconnect() as conn:
+        rows = await _order_rows(conn, key, ref)
         if not rows:
             return None
-        lines = _lines(conn, key, ref)
-    linked = prices.link_names(key, {line["title"] for line in lines})
+        lines = await _lines(conn, key, ref)
+    linked = await prices.link_names(key, {line["title"] for line in lines})
     items = []
     for line in lines:
         product = linked.get(line["title"], {})
@@ -544,20 +609,20 @@ def get_order(store: Any, ref: Any) -> dict[str, Any] | None:
             # kiezen* en *Ontkoppelen* tonen.
             "productTitle": product.get("title"), "link": product.get("link"),
         })
-    with closing(_connect()) as conn:
-        totals = purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)
+    async with _aconnect() as conn:
+        totals = await purchase_lines.enrich(conn, key, "imported", rows[0]["day"], items)
     kind, text = purchase_lines.status_kind("imported", rows[0])
     return {**_order_json(key, rows[0]), "items": items, **totals, "statusKind": kind, "statusText": text}
 
 
-def search_lines(conn, store: str, words: list[str], fold) -> list[dict[str, Any]]:
+async def search_lines(conn: aiosqlite.Connection, store: str, words: list[str], fold: Callable[[Any], str]) -> list[dict[str, Any]]:
     """De regels van de ingelezen bestellingen waar alle woorden in staan, in de vorm van `<winkel>_orders.search_purchases`
     (`fold` is de vouwfunctie van die zoekopdracht). Een bestelling die de app ook uit je account kent, telt niet mee."""
-    if "imported_purchases" not in _tables(conn):
+    if "imported_purchases" not in await _atables(conn):
         return []
-    numbers, days = account_orders(conn, store)
-    found = []
-    for row in conn.execute("SELECT order_ref, day, title, quantity, paid FROM imported_purchases WHERE store = ?", (store,)):
+    numbers, days = await aaccount_orders(conn, store)
+    found: list[dict[str, Any]] = []
+    for row in await conn.execute_fetchall("SELECT order_ref, day, title, quantity, paid FROM imported_purchases WHERE store = ?", (store,)):
         if row["order_ref"] in numbers or row["day"] in days or not all(word in fold(row["title"]) for word in words):
             continue
         found.append({

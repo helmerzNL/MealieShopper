@@ -46,10 +46,12 @@ class PricesCase(unittest.TestCase):
 
 
 def history_points(store: str = "ah") -> dict[str, list[tuple[str, float]]]:
-    """`prices._history_points` zoals `_annotate` hem aanroept: met de bonregels van `_receipt_rows` (op sqlite3) erbij."""
-    with closing(prices._connect()) as conn:
-        receipts = prices._receipt_rows(conn, store, TODAY)
-    return in_db(prices._aconnect, lambda conn: prices._history_points(conn, store, TODAY, receipts))[0]
+    """`prices._history_points` zoals `_annotate` hem aanroept: met de bonregels van `_areceipt_rows` erbij, op dezelfde verbinding."""
+
+    async def points(conn):
+        return await prices._history_points(conn, store, TODAY, await prices._areceipt_rows(conn, store, TODAY))
+
+    return in_db(prices._aconnect, points)[0]
 
 
 def offer(product_id, title, price=1.0, before=1.5, label="25% korting", **extra):
@@ -679,8 +681,8 @@ class RegularPricesTest(PricesCase):
         self.ah_receipt("R1", "2026-09-21T10:00:00", (555, "PENNE", 1, 0.89, 0.89), (777, "FUSILLI", 1, 0.99, 0.99))
         with closing(ah_orders._connect()) as conn, conn:
             conn.execute("INSERT INTO ah_receipt_products (receipt_product_id, product_id, title, checked_at) VALUES (555, 2, 'AH Spaghetti', 'x')")
-        product_links.save("ah", "PENNE", {"productId": "1", "title": "AH Penne"}, article=555, now=self.NOW)
-        product_links.save("ah", "FUSILLI", {"productId": "1", "title": "AH Penne"}, now=self.NOW)  # op naam, de regel heeft geen koppeling
+        run(product_links.save("ah", "PENNE", {"productId": "1", "title": "AH Penne"}, article=555, now=self.NOW))
+        run(product_links.save("ah", "FUSILLI", {"productId": "1", "title": "AH Penne"}, now=self.NOW))  # op naam, de regel heeft geen koppeling
         self.assertEqual(run(prices.fill_regular_prices("ah", now=self.NOW)), 2)
         rows = {r["name"]: r["regular_price"] for r in self.rows("SELECT name, regular_price FROM ah_receipt_items")}
         self.assertEqual(rows, {"PENNE": 1.19, "FUSILLI": 1.19})
