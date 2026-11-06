@@ -28,7 +28,7 @@ function priceArchiveHideProgress() {
 
 function priceArchiveSetBusy(busy) {
   priceArchiveState.busy = busy;
-  ["#price-archive-file", "#price-archive-import", "#price-archive-discard"].forEach((selector) => {
+  ["#price-archive-file", "#price-archive-import", "#price-archive-discard", "#price-archive-replace"].forEach((selector) => {
     $(selector).disabled = busy;
   });
 }
@@ -105,14 +105,26 @@ function priceArchiveStoreLine(store, stats) {
   return `<li><strong>${escapeHtml(name)}</strong>${period ? ` <span class="muted">${escapeHtml(period)}</span>` : ""}<br>${escapeHtml(parts.join(", "))}</li>`;
 }
 
+// Met het vinkje Vervangen gaan de oude archiefregels er eerst uit; de server rekende beide uitkomsten al uit.
 function priceArchiveRenderSummary(summary) {
+  const existing = summary.archived || {};
+  const archived = Number(existing.offers || 0) + Number(existing.prices || 0);
+  const replace = Boolean(archived && $("#price-archive-replace").checked);
+  $("#price-archive-replace-field").hidden = !archived;
+  $("#price-archive-replace-note").hidden = !archived;
+  $("#price-archive-replace-note").textContent = archived
+    ? t("price_archive.replace_note", { offers: I18N.formatNumber(existing.offers || 0), prices: I18N.formatNumber(existing.prices || 0) })
+    : "";
+  const outcome = replace && summary.replace ? summary.replace : summary;
+  $("#price-archive-keeps").hidden = replace;
+  $("#price-archive-keeps-replace").hidden = !replace;
   const meta = [
     summary.source ? t("price_archive.source", { source: summary.source }) : "",
     summary.license ? t("price_archive.license", { license: summary.license }) : "",
   ].filter(Boolean);
   $("#price-archive-source").textContent = meta.join(" · ");
-  $("#price-archive-summary").innerHTML = (summary.stores || []).map((stats) => priceArchiveStoreLine(stats.store, stats)).join("");
-  const corrections = summary.corrections || {};
+  $("#price-archive-summary").innerHTML = (outcome.stores || []).map((stats) => priceArchiveStoreLine(stats.store, stats)).join("");
+  const corrections = outcome.corrections || {};
   const counted = ["apply", "already", "missing", "conflict"].reduce((total, key) => total + Number(corrections[key] || 0), 0);
   const line = $("#price-archive-corrections");
   line.textContent = counted
@@ -124,8 +136,8 @@ function priceArchiveRenderSummary(summary) {
       })
     : "";
   line.hidden = !counted;
-  const nothing = !summary.new;
-  $("#price-archive-total").textContent = nothing ? t("price_archive.nothing_new") : tn("price_archive.total", summary.new);
+  const nothing = !outcome.new && !replace;
+  $("#price-archive-total").textContent = nothing ? t("price_archive.nothing_new") : tn("price_archive.total", outcome.new);
   $("#price-archive-import").hidden = nothing;
   $("#price-archive-confirm").hidden = false;
 }
@@ -135,6 +147,7 @@ async function priceArchiveDiscard({ quiet = false } = {}) {
   priceArchiveState.token = "";
   priceArchiveState.summary = null;
   $("#price-archive-confirm").hidden = true;
+  $("#price-archive-replace").checked = false;
   if (!quiet) $("#price-archive-file").value = "";
   if (!token) return;
   try {
@@ -152,7 +165,7 @@ async function priceArchiveImport() {
     await jsonFetch("/api/price-archive/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: priceArchiveState.token }),
+      body: JSON.stringify({ token: priceArchiveState.token, replace: $("#price-archive-replace").checked && !$("#price-archive-replace-field").hidden }),
     });
   } catch (error) {
     priceArchiveMessage(error.message);
@@ -224,6 +237,8 @@ async function priceArchiveFinish(job) {
   ];
   const applied = summary.corrections?.apply || 0;
   if (applied) notes.push(tn("price_archive.done_corrections", applied));
+  const removed = Number(summary.removed?.offers || 0) + Number(summary.removed?.prices || 0);
+  if (summary.replaced && removed) notes.push(tn("price_archive.done_removed", removed));
   priceArchiveMessage(notes.join(" "), "success");
 }
 
@@ -235,3 +250,6 @@ function loadPriceArchive() {
 $("#price-archive-file").addEventListener("change", priceArchiveChoose);
 $("#price-archive-import").addEventListener("click", priceArchiveImport);
 $("#price-archive-discard").addEventListener("click", () => priceArchiveDiscard());
+$("#price-archive-replace").addEventListener("change", () => {
+  if (priceArchiveState.summary) priceArchiveRenderSummary(priceArchiveState.summary);
+});
