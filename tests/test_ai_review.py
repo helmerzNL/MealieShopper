@@ -450,6 +450,8 @@ class MarkupTest(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent
         html = (root / "templates" / "index.html").read_text(encoding="utf-8")
         script = (root / "static" / "ai_review.js").read_text(encoding="utf-8")
+        styles = (root / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertRegex(styles, r"\.ai-review__status \{\n  overflow-wrap: anywhere;")
         offers_js = (root / "static" / "offers.js").read_text(encoding="utf-8")
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
         # De README noemt de sleutels; de uitleg over de AI staat in de handleiding.
@@ -457,6 +459,7 @@ class MarkupTest(unittest.TestCase):
         readme_en = (root / "README.en.md").read_text(encoding="utf-8") + (root / "docs" / "handleiding.en.md").read_text(encoding="utf-8")
         for name in ("anthropic", "openai"):
             self.assertRegex(html, rf'<input class="input" id="ai-key-{name}" type="password"[^>]*autocomplete="off"')
+            self.assertIn(f'<p class="muted ai-review__status" id="ai-status-{name}"></p>', html, "een lang adres breekt af op een smal scherm")
         self.assertIn('id="ai-login-box"', html)
         self.assertLess(html.index('id="offers-sync-box"'), html.index('id="ai-login-box"'), "onder Instellingen > Koppelen, na de aanbiedingen")
         self.assertIn('id="offers-ai-bar" data-admin-only', html)

@@ -7926,3 +7926,8 @@ html.is-standalone body {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* De regel bij een AI-sleutel kan een lang adres zonder spaties bevatten (OPENAI_BASE_URL): op een smal scherm afbreken waar het moet. */
+.ai-review__status {
+  overflow-wrap: anywhere;
+}
