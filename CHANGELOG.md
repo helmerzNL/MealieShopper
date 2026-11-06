@@ -2,6 +2,26 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.20.0
+
+### Nieuw en gewijzigd in 3.20.0
+
+*English summary: under Settings the menu Appearance is now called Preferences, and its block Preferences (cooking mode) is now called Appearance. A new block Supermarket has the preferred supermarket: Albert Heijn (the default), Jumbo, Picnic or Crisp. Offers and Stores open with it, per user, as soon as that store is linked; until then they open with Albert Heijn. A store you pick yourself on one of those pages stays while the app is open, and a new preferred supermarket applies to both pages again at once.*
+
+- **Nieuw: de voorkeurssupermarkt** (Instellingen, Voorkeuren, blok **Supermarkt**). Kies *Albert Heijn* (de standaard), *Jumbo*, *Picnic* of *Crisp*; **Aanbiedingen** en **Winkels** openen daarmee. Het hoort bij je account, dus elke huisgenoot kiest zelf en op een ander apparaat zie je hetzelfde.
+  - Is de gekozen winkel (nog) niet gekoppeld, dan staat dat onder de keuze en openen beide pagina's met Albert Heijn tot je hem koppelt.
+  - Kies je op Aanbiedingen of Winkels zelf een andere winkel in het uitklapmenu, dan blijft die staan zolang de app open is. Een nieuwe voorkeurssupermarkt geldt meteen weer voor beide pagina's.
+  - Aanbiedingen wacht bij het openen even op de koppeling van je voorkeurssupermarkt, in plaats van eerst de aanbiedingen van Albert Heijn te laden en dan te wisselen. Winkels wisselt alleen terwijl je hem open hebt, zodat er op de achtergrond niets bij een winkel wordt opgehaald.
+  - Het weekmenu en het Mandje onthouden zoals voorheen hun eigen laatste keuze.
+- **Gewijzigd: het menu Weergave heet nu Voorkeuren**, en het blok *Voorkeuren* daarin (de kookmodus) heet nu **Weergave**. De blokken zijn nu *Supermarkt*, *Weergave* en *Thema*. Het adres is `/settings/preferences`; `/settings/appearance` opent de pagina nog.
+- **Adressen van Aanbiedingen.** `/offers` zonder winkel is nu je voorkeurssupermarkt (eerst was dat altijd Albert Heijn). Kies je een andere winkel, dan staat die in het adres, ook Albert Heijn (`/offers?store=ah`) als je voorkeur een andere winkel is. Een link naar de prijsgeschiedenis vanuit een AH-bestelling of -kassabon opent dus altijd Albert Heijn.
+- **Verwijderd:** de onthouden winkel van Aanbiedingen in de browser (`ms-offers-store`). Die werd nooit gebruikt, omdat de pagina altijd al bij Albert Heijn begon; de voorkeurssupermarkt neemt die rol over.
+- **API:** `PUT /api/profile/preferences` neemt `preferredStore` (`ah`, `jumbo`, `picnic` of `crisp`; iets anders geeft `400`), en `GET /api/auth/status` en `GET /api/profile` geven hem terug. Nieuwe kolom `preferred_store` in `user_profiles` (standaard `ah`); hij gaat mee in de back-up, en een oudere back-up zet Albert Heijn terug.
+- **Handleiding** (NL en EN): het onderdeel *Weergave* heet nu *Voorkeuren*, met het blok Supermarkt; bij Aanbiedingen en Winkels staat waarmee ze openen. De README's noemen de voorkeurssupermarkt.
+- **Ontwikkeling**: nieuw `test_preferred_store` (14 tests: de standaard en terugvallen op AH, adressen met en zonder winkel, volgen tot je zelf kiest, een dichte pagina, een adres dat op een koppeling wacht, Winkels alleen als hij open is, een nieuwe voorkeur na een eigen keuze, de namen en het bewaren). `test_profile` test de nieuwe voorkeur (standaard, keuzes, weigeren, per gebruiker, een oude database), `test_backup` neemt hem mee, en `test_appearance`, `test_router` en `test_offers` volgen de nieuwe namen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-12`; 3.18.2 en 3.19.0 gebruikten al `20261106-10` en `20261106-11`). Ververs de pagina één keer.
+- Pull request [#269](https://github.com/helmerzNL/MealieShopper/pull/269).
+
 ## v3.19.0
 
 ### Nieuw in 3.19.0

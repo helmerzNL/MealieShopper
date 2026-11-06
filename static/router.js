@@ -23,7 +23,8 @@ const ROUTE_SUBTABS = {
   recipes: { "": "planner", search: "search" },
   offers: { "": "offers-items", recipes: "offers-suggestions", history: "offers-history" },
   profile: { "": "profile-general", security: "profile-security", ai: "profile-ai" },
-  settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system", appearance: "settings-appearance" },
+  // Voorkeuren heette eerder Weergave: /settings/appearance opent hem nog (de eerste naam geeft het adres).
+  settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system", preferences: "settings-appearance", appearance: "settings-appearance" },
 };
 
 // Winkels: de onderdelen per winkel en hun subtab staan in STORE_SECTIONS (app.js), omdat de winkelkeuze ze ook gebruikt.
@@ -59,7 +60,7 @@ function routerCurrentPath() {
   }
   const sub = routerSlug(ROUTE_SUBTABS[root], routerActiveSubtab(panel));
   if (panel === "offers") {
-    const store = offersState.store && offersState.store !== "ah" ? offersState.store : "";
+    const store = offersState.store ? offersStoreParam(offersState.store) : "";
     if (sub !== "history") return offersPath(sub, { store });
     const product = (offerHistory.selected || "").split(":").slice(1).join(":");
     return offersPath(sub, { store, q: offerHistory.query || "", product: offerHistory.pinned ? product : "" });
@@ -87,13 +88,13 @@ function routerRefreshLinks() {
     if (section) link.setAttribute("href", storesPath(itemsStore, section));
   });
   document.querySelectorAll("#items-store-list [data-store]").forEach((link) => link.setAttribute("href", itemsStorePath(link.dataset.store)));
-  const offersStore = typeof offersState !== "undefined" && offersState.store !== "ah" ? offersState.store : "";
+  const offersStore = typeof offersState !== "undefined" ? offersStoreParam(offersState.store) : "";
   document.querySelectorAll("#offers .subtab[data-subtab]").forEach((link) => {
     link.setAttribute("href", offersPath(routerSlug(ROUTE_SUBTABS.offers, link.dataset.subtab), { store: offersStore }));
   });
   document.querySelectorAll("#offers-store-list [data-store]").forEach((link) => {
     const sub = routerSlug(ROUTE_SUBTABS.offers, routerActiveSubtab("offers"));
-    link.setAttribute("href", offersPath(sub, { store: link.dataset.store === "ah" ? "" : link.dataset.store }));
+    link.setAttribute("href", offersPath(sub, { store: offersStoreParam(link.dataset.store) }));
   });
 }
 
@@ -114,8 +115,12 @@ function routerIsOwner() {
 }
 
 function routerApplyStores(parts) {
-  showPanel("ah-items", routerTab("ah-items"));
   const [store, part = "", id = ""] = parts;
+  // Een winkel in het adres is een keuze; /stores zonder winkel opent de voorkeurssupermarkt (itemsFollowPreferred, bij het
+  // tonen van de pagina). Eerst dit, en dan de pagina tonen: anders laadt die eerst de voorkeurssupermarkt.
+  if (STORE_SECTIONS[store]) state.itemsStoreChosen = true;
+  else if (!store) state.itemsStoreChosen = false;
+  showPanel("ah-items", routerTab("ah-items"));
   const section = part === "receipts" || part === "imported" ? "orders" : part;
   if (store && STORE_SECTIONS[store] && store !== state.itemsStore) {
     if (!itemsStores().includes(store)) {
@@ -137,11 +142,20 @@ function routerApplyStores(parts) {
   }
 }
 
+// Zonder winkel in het adres opent Aanbiedingen met de voorkeurssupermarkt (of AH als die niet gekoppeld is); is nog niet
+// bekend of hij gekoppeld is, dan wacht het adres daarop. Met ?store=... is het een keuze, ook ?store=ah.
 function routerApplyOffers(sub, params) {
-  const store = params.get("store") || "ah";
-  if (store !== offersState.store && OFFERS_STORES.includes(store)) {
-    if (!offersStores().includes(store)) router.pending = window.location.href;
-    else offersSwitchStore(store);
+  const wanted = params.get("store") || "";
+  if (OFFERS_STORES.includes(wanted)) {
+    offersState.chosen = true;
+    if (wanted !== offersState.store) {
+      if (!offersStores().includes(wanted)) router.pending = window.location.href;
+      else offersSwitchStore(wanted);
+    }
+  } else {
+    offersState.chosen = false;
+    if (!preferredSupermarketKnown()) router.pending = window.location.href;
+    else if (defaultStoreOf(offersStores()) !== offersState.store) offersSwitchStore(defaultStoreOf(offersStores()), { chosen: false });
   }
   if (sub === "history") {
     $("#offers-history-search").value = params.get("q") || "";
@@ -171,10 +185,10 @@ function routerApply(href) {
     } else {
       const highlighted = ["profile", "settings", "about"].includes(panel) ? null : routerTab(panel);
       let subtab = ROUTE_SUBTABS[root]?.[parts[1] || ""];
-      // Instellingen zijn van de beheerder, op Weergave na: een gewone gebruiker komt altijd daar uit.
+      // Instellingen zijn van de beheerder, op Voorkeuren na: een gewone gebruiker komt altijd daar uit.
       if (panel === "settings" && !routerIsOwner()) {
         subtab = "settings-appearance";
-        if (url.pathname !== "/settings/appearance") history.replaceState({ ms: true }, "", "/settings/appearance");
+        if (url.pathname !== "/settings/preferences") history.replaceState({ ms: true }, "", "/settings/preferences");
       }
       showPanel(panel, highlighted);
       if (subtab) routerOpenSubtab(subtab);

@@ -20,6 +20,7 @@ async function refreshJumboStatus() {
   } catch (error) {
     message("#jumbo-status", error.message);
   }
+  state.storeStatusKnown.jumbo = true; // gekoppeld of niet: Aanbiedingen en Winkels hoeven er niet meer op te wachten
   renderStoreChoice();
 }
 

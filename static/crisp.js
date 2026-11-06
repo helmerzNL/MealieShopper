@@ -28,6 +28,7 @@ async function refreshCrispStatus() {
   } catch (error) {
     message("#crisp-status", error.message);
   }
+  state.storeStatusKnown.crisp = true; // gekoppeld of niet: Aanbiedingen en Winkels hoeven er niet meer op te wachten
   renderStoreChoice();
 }
 

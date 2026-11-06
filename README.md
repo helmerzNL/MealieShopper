@@ -72,7 +72,7 @@ Een weekmenu plannen in Mealie is fijn, maar daarna begint het overtypen: elk in
 - **Koken met een recept**: een recept staat in een kookweergave met de ingrediënten naast de genummerde stappen; vink af wat klaar is en zie welke stap nu aan de beurt is. **Start met koken** toont schermvullend één stap tegelijk, en met **Scherm aan laten** gaat je scherm intussen niet uit.
 - **Je winkels op één plek**: je mandje, lijstjes, bewaarde recepten, favorieten, bestellingen en AH-kassabonnen, in een eigen kopie die je doorzoekt ("wanneer kocht ik voor het laatst koffie?"), ook als de winkel even niet meewerkt. Een product op een bon dat de app niet herkent, koppel je zelf aan een product van de winkel; daarna herkent hij het wel.
 - **AI-assistenten**: een MCP-server, zodat Claude, ChatGPT of Copilot je weekmenu, recepten en lijstjes kan bekijken, een maaltijd kan plannen en een recept in Mealie kan importeren; inloggen met OAuth, met je eigen account.
-- **Voor het hele huishouden**: inloggen met een passkey, of met een wachtwoord en tweestapsverificatie; huisgenoten nodig je uit met een link, en alleen de beheerder koppelt Mealie en de winkels.
+- **Voor het hele huishouden**: inloggen met een passkey, of met een wachtwoord en tweestapsverificatie; huisgenoten nodig je uit met een link, en alleen de beheerder koppelt Mealie en de winkels. Iedereen kiest zelf een voorkeurssupermarkt, waarmee Aanbiedingen en Winkels openen.
 - **Een app op je telefoon**: installeer MealieShopper als app (PWA), in het Nederlands of Engels en in een licht of donker thema, met je eigen accentkleur; elk scherm heeft een eigen adres.
 - **Jij houdt de regie**: alles draait in je eigen container, en je gegevens staan in één map op je eigen server.
 
@@ -98,7 +98,7 @@ Elke functie staat uitgebreid in de [handleiding](docs/handleiding.md).
 
 ### Installeren als app
 
-MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen. Net als in een native app zoom je in de app niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept; in de browser kun je gewoon zoomen. De menubalk ziet eruit zoals bij je andere apps: zwevend glas op een iPhone, de balk van Android op een Android-toestel. Onder Instellingen, Weergave kies je zelf, en stel je het glaseffect in.
+MealieShopper is een PWA: je kunt hem installeren en hij opent dan zonder browserbalk. Op een telefoon krijg je dan een zwevende, glazen menubalk onderaan met zes onderdelen. Net als in een native app zoom je in de app niet met twee vingers en blijft de titelbalk bovenaan staan, ook als je naar beneden sleept; in de browser kun je gewoon zoomen. De menubalk ziet eruit zoals bij je andere apps: zwevend glas op een iPhone, de balk van Android op een Android-toestel. Onder Instellingen, Voorkeuren kies je zelf, en stel je het glaseffect in.
 
 - **iPhone en iPad (Safari):** Delen, dan `Zet op beginscherm`.
 - **Android (Chrome):** menu, dan `App installeren`.

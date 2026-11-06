@@ -1,4 +1,4 @@
-"""Instellingen, Weergave: de accentkleur en de donkere achtergrond (static/theme.js, static/appearance.js, styles.css).
+"""Instellingen, Voorkeuren: de accentkleur en de donkere achtergrond (static/theme.js, static/appearance.js, styles.css).
 
 De accentkleur mag iemand vrij kiezen, dus moet theme.js er altijd leesbare tinten van maken. Dat rekenen we hier na,
 voor de keuzes in het menu en voor een rij lastige eigen kleuren (wit, zwart, citroen, felgroen ...).
@@ -291,10 +291,14 @@ class AppearanceMarkupTest(unittest.TestCase):
         start = HTML.index('<div id="settings-appearance"')
         return HTML[start:HTML.index("\n      </section>", start)]
 
-    def test_two_folding_blocks_like_link_with_the_parts_in_order(self):
+    def test_three_folding_blocks_like_link_with_the_parts_in_order(self):
         panel = self.panel()
         boxes = re.findall(r'<div class="box fold fold--compact" id="appearance-(\w+)-box">', panel)
-        self.assertEqual(boxes, ["prefs", "theme"], "Voorkeuren, dan Thema")
+        self.assertEqual(boxes, ["store", "display", "theme"], "Supermarkt, Weergave, dan Thema")
+        titles = re.findall(r'<span data-i18n="appearance\.(\w+)\.title">([^<]+)</span>', panel)
+        self.assertEqual(titles[:3], [("store", "Supermarkt"), ("display", "Weergave"), ("theme", "Thema")])
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('const APPEARANCE_FOLDS = ["store", "display", "theme"];', script)
         for name in boxes:
             toggle = re.search(rf'<button type="button" class="fold__toggle" id="appearance-{name}-toggle"[^>]*>', panel).group(0)
             self.assertIn(f'aria-controls="appearance-{name}-body"', toggle)
@@ -305,7 +309,7 @@ class AppearanceMarkupTest(unittest.TestCase):
         self.assertEqual(titles, ["accent", "themebg", "nav"], "Accentkleur, Thema & achtergrond, Navigatiebalk")
         sections = re.findall(r'<section class="appearance-section( fold__section)?"', theme)
         self.assertEqual(sections, ["", " fold__section", " fold__section"], "een lijn tussen de onderdelen")
-        prefs = panel[panel.index('id="appearance-prefs-box"'):panel.index('id="appearance-theme-box"')]
+        prefs = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
         switch = re.search(r'<input type="checkbox" role="switch" class="switch" id="appearance-cooking"[^>]*>', prefs).group(0)
         self.assertIn(" checked", switch, "standaard aan")
         self.assertIn('aria-labelledby="appearance-cooking-label"', switch)
@@ -337,9 +341,11 @@ class AppearanceMarkupTest(unittest.TestCase):
         self.assertEqual(re.findall(r'name="appearance-theme" value="(\w+)"', panel), ["system", "light", "dark"])
         self.assertEqual(re.findall(r'name="appearance-dark-bg" value="(\w+)"', panel), ["green", "grey"])
         self.assertEqual(re.findall(r'name="appearance-nav" value="(\w+)"', panel), ["auto", "ios", "android"])
+        self.assertEqual(re.findall(r'name="appearance-store" value="(\w+)"', panel), ["ah", "jumbo", "picnic", "crisp"])
+        self.assertRegex(panel, r'name="appearance-store" value="ah" checked>', "standaard Albert Heijn")
         self.assertIn('<input type="range" id="appearance-glass" min="0" max="100" step="1" value="60"', panel)
-        self.assertEqual(panel.count("<fieldset"), 4)
-        self.assertEqual(panel.count("<legend"), 4)
+        self.assertEqual(panel.count("<fieldset"), 5)
+        self.assertEqual(panel.count("<legend"), 5)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)

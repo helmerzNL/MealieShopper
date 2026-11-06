@@ -72,7 +72,7 @@ Planning a week menu in Mealie is nice, but then the retyping starts: looking up
 - **Cooking from a recipe**: a recipe is shown in a cooking view with the ingredients next to the numbered steps; tick off what is done and see which step is next. **Start cooking** shows one step at a time full screen, and with **Keep screen on** your screen does not switch off meanwhile.
 - **Your stores in one place**: your basket, lists, saved recipes, favourites, orders and AH receipts, kept as a copy of their own that you can search ("when did I last buy coffee?"), even when the store is unavailable. A product on a receipt that the app does not recognise, you link to a product of the store yourself; from then on it does recognise it.
 - **AI assistants**: an MCP server, so Claude, ChatGPT or Copilot can look at your week menu, recipes and lists, plan a meal and import a recipe into Mealie; OAuth login, with your own account.
-- **For the whole household**: log in with a passkey, or with a password and two-step verification; you invite housemates with a link, and only the administrator links Mealie and the stores.
+- **For the whole household**: log in with a passkey, or with a password and two-step verification; you invite housemates with a link, and only the administrator links Mealie and the stores. Everyone picks their own preferred supermarket, which Offers and Stores open with.
 - **An app on your phone**: install MealieShopper as an app (PWA), in Dutch or English and in a light or dark theme, with your own accent colour; every screen has its own address.
 - **Your data, your server**: everything runs in your own container, and your data stays in one folder on your own host.
 
@@ -98,7 +98,7 @@ The full description of every feature is in the [user guide](docs/handleiding.en
 
 ### Install as an app
 
-MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items. As in a native app, you don't zoom with two fingers in the app and the title bar stays at the top, also when you drag down; in the browser you can zoom as usual. The menu bar looks like your other apps: floating glass on an iPhone, the Android bar on an Android device. Under Settings, Appearance you choose yourself and set the glass effect.
+MealieShopper is a PWA: you can install it and it then opens without a browser bar. On a phone you then get a floating, glass menu bar at the bottom with six items. As in a native app, you don't zoom with two fingers in the app and the title bar stays at the top, also when you drag down; in the browser you can zoom as usual. The menu bar looks like your other apps: floating glass on an iPhone, the Android bar on an Android device. Under Settings, Preferences you choose yourself and set the glass effect.
 
 - **iPhone and iPad (Safari):** Share, then `Add to Home Screen`.
 - **Android (Chrome):** menu, then `Install app`.
