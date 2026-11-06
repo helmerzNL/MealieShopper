@@ -1253,6 +1253,41 @@ const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-ite
 const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
 const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
+// Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
+// (/stores/jumbo/lists); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
+// oude bestelling (zie price_import.py en router.js). Elk subtab hoort bij één onderdeel, bij welke winkel ook.
+const STORE_SECTIONS = {
+  ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
+  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
+  crisp: { favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
+};
+
+function itemsOpenSubtab() {
+  return document.querySelector("#ah-items .subtab.is-active[data-subtab]")?.dataset.subtab || "";
+}
+
+// Het onderdeel van een subtab: "lists" voor ah-items-lijstjes, "orders" voor ah-items-picnic-bestellingen.
+function itemsSection(subtab) {
+  for (const sections of Object.values(STORE_SECTIONS)) {
+    const found = Object.entries(sections).find(([, id]) => id === subtab);
+    if (found) return found[0];
+  }
+  return "";
+}
+
+// Het subtab van een onderdeel bij een winkel. Heeft de winkel dat onderdeel niet (Lijstjes bij Picnic, Recepten bij
+// Crisp), dan zijn eerste tab.
+function itemsSubtab(store, section) {
+  const sections = STORE_SECTIONS[store] || STORE_SECTIONS.ah;
+  return sections[section] || Object.values(sections)[0];
+}
+
+// Waar de winkelkeuze heen gaat: hetzelfde onderdeel als nu open staat, zoals bij Aanbiedingen.
+function itemsStorePath(store) {
+  return storesPath(store, itemsSection(itemsSubtab(store, itemsSection(itemsOpenSubtab()))));
+}
+
 function renderItemsStore() {
   const stores = itemsStores();
   if (!stores.includes(state.itemsStore)) state.itemsStore = "ah";
@@ -1262,7 +1297,7 @@ function renderItemsStore() {
   $("#items-store-list").innerHTML = stores
     .map(
       (key) =>
-        `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="/stores/${key}" data-nav>${escapeHtml(STORES[key].name)}</a>`
+        `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(itemsStorePath(key))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
   // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
@@ -1280,26 +1315,34 @@ function renderItemsStore() {
   PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));
   JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));
   CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));
-  // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar de eerste die er wel is.
-  const open = document.querySelector("#ah-items .subtab.is-active");
-  if (open?.hidden) document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
+  // Staat de open tab niet meer bij de gekozen winkel (bijvoorbeeld na het ontkoppelen), ga dan naar hetzelfde onderdeel bij
+  // deze winkel, of naar zijn eerste tab.
+  const open = itemsOpenSubtab();
+  if (open && document.querySelector(`#ah-items .subtab[data-subtab="${open}"]`).hidden) {
+    document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, itemsSection(open))}"]`)?.click();
+  }
   if (typeof routerRetry === "function") routerRetry();
 }
 
-function switchItemsStore(store) {
+// Een andere winkel kiezen. Het onderdeel dat open staat (Recepten, Lijstjes, Bestellingen of Favorieten) blijft open, zoals
+// bij Aanbiedingen; heeft de nieuwe winkel het niet, dan opent zijn eerste tab. Een adres kan een ander onderdeel vragen.
+function switchItemsStore(store, section = itemsSection(itemsOpenSubtab())) {
   state.itemsStore = itemsStores().includes(store) ? store : "ah";
-  // Een andere winkel heeft andere lijstjes: begin met een schone lijst en laad opnieuw.
+  // Een andere winkel heeft andere lijstjes en bestellingen: begin schoon. Ze laden opnieuw als hun tab hieronder opent.
   state.ahListsLoaded = false;
   state.ahLists = [];
   state.ahListHits = {};
   state.ahListQuery = "";
   $("#ah-list-filter").value = "";
-  closeAhList(false);
+  // Een open lijstje dicht zonder stap terug in de browser: die zou het adres van de vorige winkel weer openen.
+  state.ahListFromOverview = false;
+  showAhListsOverview({ restoreScroll: false });
   renderAhLists();
-  renderItemsStore();
   if (typeof resetOrders === "function") resetOrders();
-  // Elke winkel begint bij zijn eerste tabblad, en dat is steeds Recepten. De lijstjes en bestellingen laden opnieuw als je ze opent.
-  document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();
+  // Eerst de tab openen en dan de balk tekenen: zo laadt alleen deze tab, een keer, en krijgt het adres een stap. Andersom
+  // ging renderItemsStore eerst nog naar een andere tab, als de open tab bij deze winkel niet bestaat.
+  document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, section)}"]`)?.click();
+  renderItemsStore();
 }
 
 try {

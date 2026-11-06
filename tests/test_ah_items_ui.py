@@ -69,10 +69,12 @@ class StoreSubtabsTest(unittest.TestCase):
         self.assertIn('"ah.tab.recipes": "Recipes"', en)
         self.assertIn('data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>', HTML)
 
-    def test_switching_store_opens_the_first_visible_tab_of_that_store(self):
+    def test_switching_store_opens_the_same_section_of_that_store(self):
+        # Wat er per wissel open gaat, staat in test_store_switch.py; daar draait de wissel echt.
         script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         body = script[script.index("function switchItemsStore"):script.index('localStorage.getItem("ms-store")')]
-        self.assertIn('document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();', body)
+        self.assertIn('document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, section)}"]`)?.click();', body)
+        self.assertLess(body.index("?.click();"), body.index("renderItemsStore();"), "eerst de tab, dan de balk")
         self.assertNotIn("PICNIC_SUBTABS", body)
         self.assertNotIn("loadAhFavoriteLists", body)
 
