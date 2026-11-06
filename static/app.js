@@ -1729,23 +1729,32 @@ async function importUrl(url, button = null) {
   }
 }
 
-// De blokken onder Beheer > Koppelen (Mealie, "Inloggen bij ..." per winkel en de AI-beoordeling) zijn inklapbaar en klappen in zodra de
-// koppeling er is (bij de AI-beoordeling: zodra er een sleutel is). Een keuze van de gebruiker blijft staan.
+// De blokken onder Instellingen > Koppelen zijn inklapbaar, in het compacte formaat van Weergave (.fold--compact). Mealie en de
+// winkels klappen in zodra de koppeling er is; de AI-beoordeling staat dicht tot je hem opent, de Aanbiedingen open. Een keuze van
+// de gebruiker blijft staan zolang de pagina open is. Per blok het begin van de id's van de knop en het inklapbare deel.
+const LINK_FOLDS = {
+  offers: "offers-sync",
+  ai: "ai-login",
+  mealie: "mealie-login",
+  ah: "ah-login",
+  jumbo: "jumbo-login",
+  picnic: "picnic-login",
+  crisp: "crisp-login",
+};
 state.storeFold = {};
 
-function applyStoreFold(store, linked) {
-  const toggle = $(`#${store}-login-toggle`);
+function applyStoreFold(store, closed) {
+  const toggle = $(`#${LINK_FOLDS[store]}-toggle`);
   if (!toggle) return;
-  const open = state.storeFold[store] ?? !linked;
+  const open = state.storeFold[store] ?? !closed;
   toggle.setAttribute("aria-expanded", String(open));
   toggle.title = t(open ? "sec.collapse" : "sec.expand");
-  $(`#${store}-login-body`).hidden = !open;
+  $(`#${LINK_FOLDS[store]}-body`).hidden = !open;
 }
 
-for (const store of ["mealie", "ah", "picnic", "jumbo", "crisp", "ai"]) {
-  $(`#${store}-login-toggle`).addEventListener("click", () => {
-    const toggle = $(`#${store}-login-toggle`);
-    state.storeFold[store] = toggle.getAttribute("aria-expanded") !== "true";
+for (const store of Object.keys(LINK_FOLDS)) {
+  $(`#${LINK_FOLDS[store]}-toggle`).addEventListener("click", () => {
+    state.storeFold[store] = $(`#${LINK_FOLDS[store]}-toggle`).getAttribute("aria-expanded") !== "true";
     applyStoreFold(store, false);
   });
 }

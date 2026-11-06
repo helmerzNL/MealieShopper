@@ -8537,9 +8537,9 @@ html.is-standalone body {
   overflow-wrap: anywhere;
 }
 
-/* Instellingen, Weergave: twee inklapbare blokken (Voorkeuren en Thema), zoals onder Koppelen, maar strakker. Dicht is een blok
-   alleen zijn kop: minder ruimte eromheen, de knop blijft 44 px hoog. Open lopen de onderdelen door, gescheiden door een lijn
-   (.fold__section). */
+/* Compacte inklapbare blokken: Instellingen, Weergave (Voorkeuren en Thema) en Instellingen, Koppelen (Aanbiedingen, de
+   AI-beoordeling, Mealie en de winkels). Dicht is een blok alleen zijn kop: minder ruimte eromheen, de knop blijft 44 px hoog.
+   Open lopen de onderdelen door, gescheiden door een lijn (.fold__section), met een tussenkop van 16 px onder de kop van 18 px. */
 .box.fold--compact {
   margin-bottom: 12px;
   padding: 8px 20px;
@@ -8562,7 +8562,7 @@ html.is-standalone body {
   padding-top: 14px;
 }
 
-.appearance-section h3 {
+.fold--compact .fold__body h3 {
   margin: 0 0 2px;
   font-size: 16px;
 }
@@ -8590,11 +8590,6 @@ html.is-standalone body {
 
 .appearance-setting__text {
   min-width: 0;
-}
-
-.appearance-setting h3 {
-  margin: 0 0 2px;
-  font-size: 16px;
 }
 
 /* Een schakelaar: een echt selectievakje (role="switch", toetsenbord en schermlezer werken zoals altijd), getekend als een
