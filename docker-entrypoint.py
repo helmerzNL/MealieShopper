@@ -1,7 +1,7 @@
 """Startpunt van de container: zet de opties van de Home Assistant-add-on om in omgevingsvariabelen en start de server.
 
 Buiten Home Assistant verandert er niets: zonder `/data/options.json` (het bestand waarin de Supervisor de opties van een
-add-on zet) start dit direct het commando uit de Dockerfile (gunicorn) of het commando dat je zelf meegeeft.
+add-on zet) start dit direct het commando uit de Dockerfile (hypercorn) of het commando dat je zelf meegeeft.
 
 Alleen de standaardbibliotheek, zodat dit ook werkt voordat de app is geladen.
 """

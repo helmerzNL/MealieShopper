@@ -17,9 +17,9 @@ from __future__ import annotations
 import os
 import shutil
 import signal
-import sys
 import threading
 from contextlib import closing
+from pathlib import Path
 from typing import Any
 
 from quart import Quart, jsonify, request
@@ -35,9 +35,10 @@ DATA_FILES = tuple(f"auth.sqlite3{suffix}" for suffix in ("", "-wal", "-shm", "-
 
 
 def restart_supported() -> bool:
-    """Kan de app zichzelf opnieuw starten? Alleen onder gunicorn (zoals in de container): die hoofdtaak stopt
-    en Docker start de container weer (restart-beleid `unless-stopped` of `always`)."""
-    return "gunicorn.arbiter" in sys.modules
+    """Kan de app zichzelf opnieuw starten? Alleen in een container (`/.dockerenv`) of als Home Assistant-add-on
+    (`/data/options.json`): daar stopt het proces en start het herstartbeleid (`unless-stopped` of `always` in
+    compose, de watchdog van Home Assistant) het weer."""
+    return Path("/.dockerenv").exists() or Path("/data/options.json").exists()
 
 
 def wipe_data() -> list[str]:
@@ -65,13 +66,9 @@ def wipe_data() -> list[str]:
 
 
 def restart() -> None:
-    """Stopt de gunicorn-hoofdtaak (de container herstart dan); lukt dat niet, dan alleen deze werker."""
-    for pid in (os.getppid(), os.getpid()):
-        try:
-            os.kill(pid, signal.SIGTERM)
-            return
-        except OSError:
-            continue
+    """Stuurt SIGTERM naar dit proces. Hypercorn sluit dan netjes af (`after_serving` draait), waarna het
+    herstartbeleid van compose of de watchdog van Home Assistant de container opnieuw start."""
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 def _owner_methods() -> dict[str, bool]:

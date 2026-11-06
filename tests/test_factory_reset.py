@@ -226,7 +226,7 @@ class WithoutLoginTest(unittest.TestCase):
 
 
 class RestartTest(FactoryResetCase):
-    def test_under_gunicorn_the_app_stops_itself_after_answering(self):
+    def test_in_a_container_the_app_stops_itself_after_answering(self):
         timer = mock.Mock()
         with mock.patch.object(factory_reset, "restart_supported", return_value=True), mock.patch.object(
             factory_reset.threading, "Timer", return_value=timer
@@ -236,18 +236,21 @@ class RestartTest(FactoryResetCase):
         make_timer.assert_called_once_with(factory_reset.RESTART_DELAY_SECONDS, factory_reset.restart)
         timer.start.assert_called_once_with()
 
-    def test_restart_stops_the_gunicorn_master_first(self):
+    def test_restart_sends_sigterm_to_itself(self):
         with mock.patch.object(factory_reset.os, "kill") as kill:
             factory_reset.restart()
-        kill.assert_called_once_with(os.getppid(), factory_reset.signal.SIGTERM)
+        kill.assert_called_once_with(os.getpid(), factory_reset.signal.SIGTERM)
 
-    def test_restart_falls_back_to_this_worker(self):
-        with mock.patch.object(factory_reset.os, "kill", side_effect=[OSError, None]) as kill:
-            factory_reset.restart()
-        self.assertEqual([call.args[0] for call in kill.call_args_list], [os.getppid(), os.getpid()])
+    def test_restart_is_supported_with_dockerenv_or_ha_options(self):
+        for present in ("/.dockerenv", "/data/options.json"):
+            with self.subTest(present=present), mock.patch.object(
+                factory_reset.Path, "exists", autospec=True, side_effect=lambda path, present=present: str(path) == present
+            ):
+                self.assertTrue(factory_reset.restart_supported())
 
-    def test_without_gunicorn_there_is_no_restart(self):
-        self.assertFalse(factory_reset.restart_supported())
+    def test_outside_a_container_there_is_no_restart(self):
+        with mock.patch.object(factory_reset.Path, "exists", autospec=True, return_value=False):
+            self.assertFalse(factory_reset.restart_supported())
 
 
 class PageTest(unittest.TestCase):

@@ -27,7 +27,7 @@ def create_app() -> Quart:
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-    # Lichaamsgrenzen als bij gunicorn (timeout 120 s, geen grens op het lichaam): Quart staat standaard 16 MiB, 60 s voor het
+    # Lichaamsgrenzen als vóór de omzetting (120 s, geen grens op het lichaam): Quart staat standaard 16 MiB, 60 s voor het
     # lezen van het lichaam en 60 s voor het schrijven van het antwoord toe. Een back-up terugzetten (tot MAX_STAGE_BYTES) en
     # een grote back-up downloaden mogen daar niet op stranden. De marge van 1 MiB is voor de rest van het formulier.
     app.config["MAX_CONTENT_LENGTH"] = backup.MAX_STAGE_BYTES + 1024 * 1024

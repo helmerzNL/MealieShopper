@@ -228,7 +228,7 @@ To erase everything and start over, see [Factory reset](docs/handleiding.en.md#f
 flowchart LR
     A[Browser or installed app] -->|https| P[Reverse proxy<br/>TLS]
     AI[AI assistant<br/>Claude, ChatGPT, Copilot] -->|MCP with OAuth| P
-    P --> B[MealieShopper container<br/>Flask and Gunicorn]
+    P --> B[MealieShopper container<br/>Quart and Hypercorn]
     B --> D[(SQLite<br/>auth.sqlite3)]
     B -->|API token| M[Mealie]
     B -->|unofficial app API| S[Albert Heijn, Picnic,<br/>Jumbo and Crisp]
@@ -237,7 +237,7 @@ flowchart LR
 
 | Component | Purpose | Data |
 |---|---|---|
-| `mealieshopper` | The container: the Flask app under Gunicorn with the interface, the API, the MCP server and the daily offers task | `/data` (`auth.sqlite3` and `secret.key`) |
+| `mealieshopper` | The container: the Quart app under Hypercorn with the interface, the API, the MCP server and the daily offers task | `/data` (`auth.sqlite3` and `secret.key`) |
 | Mealie | Your recipes and week menu; runs separately and is not included | in Mealie itself |
 | Albert Heijn, Picnic, Jumbo, Crisp | Products, baskets, lists, orders and offers | what MealieShopper keeps is in `auth.sqlite3` |
 
@@ -263,8 +263,8 @@ MealieShopper is an unofficial tool and is not affiliated with Mealie, Albert He
 | Component | Licence | What for |
 |---|---|---|
 | [Python](https://www.python.org) | PSF-2.0 | The programming language of the server. |
-| [Flask](https://flask.palletsprojects.com) | BSD-3-Clause | The web framework. |
-| [Gunicorn](https://gunicorn.org) | MIT | The web server in the container. |
+| [Quart](https://quart.palletsprojects.com) | MIT | The web framework. |
+| [Hypercorn](https://hypercorn.readthedocs.io) | MIT | The web server in the container. |
 | [PyJWT](https://pyjwt.readthedocs.io) | MIT | Signs sessions. |
 | [cryptography](https://cryptography.io) | Apache-2.0 OR BSD-3-Clause | Encrypts stored links and verifies passkeys. |
 | [cbor2](https://github.com/agronholm/cbor2) | MIT | Reads passkey data. |
@@ -328,7 +328,7 @@ python -m unittest discover -s tests          # all tests
 
 The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.local.example) for the options.
 
-- **Structure:** `mealieshopper/` (Flask app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `offers_schedule.py`, `offer_categories.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
+- **Structure:** `mealieshopper/` (Quart app: `app.py`, `auth.py`, `auth_password.py`, `users.py`, `onboarding.py`, `mealie.py`, `ah.py`, `picnic.py`, `jumbo.py`, `audit.py`, `updates.py`, `mcp.py`, `mcp_http.py`, `oauth.py`, `ah_orders.py`, `offers.py`, `offers_schedule.py`, `offer_categories.py`, `about.py`, `i18n.py`), `static/` and `templates/` (the interface, no build step), `tests/`.
 - **Texts and languages:** the interface texts are in `static/i18n/nl.js` and `en.js`, one text per line. In the HTML the Dutch text is in the page, with `data-i18n="key"`; in the scripts use `t("key", { name })`, `th(...)` (with markup, values escaped) and `tn("key", count)` (plurals). Adding a language means a file `static/i18n/<language>.js`, a flag and the language in `static/i18n.js` and `mealieshopper/i18n.py`. `tests/test_i18n.py` makes sure both dictionaries are equal.
 - **Brand:** colours, typography and PWA settings are in [`docs/huisstijl.md`](docs/huisstijl.md) (in Dutch). Rebuild the image files with `python scripts/build_brand.py` (needs Pillow).
 - **Version and release:** the version number is in `VERSION` (just `X.Y.Z`); raise it on a release, run `python scripts/ha_addon.py` (it puts the version in the Home Assistant add-ons under `homeassistant/`; a test fails if you forget), write a heading for the new version in [`CHANGELOG.md`](CHANGELOG.md) and merge to `beta`: the workflow `.github/workflows/release.yml` then creates the pre-release `vX.Y.Z-beta` with that text; promoting `beta` to `main` creates the stable release `vX.Y.Z`, with the text of every version since the previous stable release (`release_notes.py --since`). Every version gets its own GitHub release. The commit comes from the build: the Dockerfile has the build argument `GIT_COMMIT`, and the workflow in `.github/workflows/docker.yml` sets it to `github.sha`. By hand: `docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) -t mealieshopper .`

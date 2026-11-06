@@ -459,9 +459,10 @@ class RoutesTest(FetchCase):
         paused = self.client.get("/api/system/images").get_json()["paused"]
         self.assertEqual(paused, [{"host": "static.ah.nl", "store": "ah", "until": until}])
 
-    def test_the_container_serves_with_four_threads_so_a_slow_store_does_not_block_the_app(self):
+    def test_the_container_serves_with_one_asyncio_worker_so_a_slow_store_does_not_block_the_app(self):
         dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn('"--threads", "4"', dockerfile)
+        self.assertIn('"--workers", "1"', dockerfile)
+        self.assertNotIn("--threads", dockerfile)
 
     def test_the_route_needs_a_login_like_the_rest_of_the_api(self):
         with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):

@@ -101,7 +101,7 @@ class ChannelTest(unittest.TestCase):
 class ComponentsTest(unittest.TestCase):
     def test_installed_python_packages_report_their_real_version(self):
         data = {c["id"]: c for c in about.about()["components"]}
-        for ident in ("quart", "gunicorn", "pyjwt", "cryptography", "cbor2", "requests"):
+        for ident in ("quart", "hypercorn", "pyjwt", "cryptography", "cbor2", "requests"):
             self.assertRegex(data[ident]["version"], r"^\d+(\.\d+)+", ident)
         self.assertRegex(data["python"]["version"], r"^3\.\d+\.\d+")
         self.assertRegex(data["sqlite"]["version"], r"^3\.\d+")

@@ -1136,7 +1136,6 @@ I18N.add("nl", {
   "about.desc.totp": "Tweestapsverificatie met een authenticator-app.",
   "about.desc.python": "De programmeertaal van de server.",
   "about.desc.quart": "Het webframework van de server.",
-  "about.desc.gunicorn": "De webserver in de container.",
   "about.desc.hypercorn": "De webserver voor de async app (ASGI).",
   "about.desc.pyjwt": "Ondertekent sessies.",
   "about.desc.cryptography": "Versleutelt opgeslagen koppelingen en controleert passkeys.",
