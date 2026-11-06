@@ -14,6 +14,7 @@ ingrediënten naar de aanbieder, geen recepttitels, namen of adressen, en alleen
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import closing
 from datetime import date, datetime, timezone
@@ -275,6 +276,12 @@ async def _run(store: str, max_recipes: int) -> None:
         _set(state="error", error=ai_review._clean(exc), finishedAt=_now())
 
 
+def _on_cancelled(task: asyncio.Task[None]) -> None:
+    """Een geannuleerde task (afsluiten van de app) laat de stand niet op "running" staan: dan weigert elke nieuwe ronde."""
+    if task.cancelled() and _job.get("state") == "running":
+        _set(state="error", error=tr("Onderbroken", "Interrupted"), finishedAt=_now())
+
+
 async def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: bool = True) -> dict[str, Any]:
     """Start een ronde. Er loopt er hoogstens een tegelijk; met `background=False` wacht deze aanroep tot de ronde klaar is."""
     store = offers._valid_store(store)
@@ -286,7 +293,7 @@ async def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: 
     _job.clear()
     _job.update(state="running", store=store, done=0, total=info["chosen"], matched=0, tokens=0, error="", startedAt=_now())
     if background:
-        tasks.spawn("ai-match", _run(store, info["maxRecipes"]))
+        tasks.spawn("ai-match", _run(store, info["maxRecipes"])).add_done_callback(_on_cancelled)
     else:
         await _run(store, info["maxRecipes"])
     return progress()

@@ -1,11 +1,8 @@
 import asyncio
 import logging
 import os
-import tempfile
 import unittest
 from unittest import mock
-
-os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import offers_schedule, tasks  # noqa: E402
 
@@ -31,6 +28,11 @@ class StartTest(unittest.IsolatedAsyncioTestCase):
             offers_schedule.start()
         self.assertIsNotNone(first)
         self.assertIs(offers_schedule._task, first)
+        self.assertEqual(list(tasks.running()), ["offers-schedule"])
+        await tasks.cancel_all()
+        with mock.patch.object(offers_schedule, "_loop", idle):
+            offers_schedule.start()
+        self.assertIsNot(offers_schedule._task, first, "na het annuleren start hij opnieuw")
         self.assertEqual(list(tasks.running()), ["offers-schedule"])
 
     async def test_disabled_by_environment_does_not_start(self) -> None:

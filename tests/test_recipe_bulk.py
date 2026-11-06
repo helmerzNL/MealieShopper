@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import unittest
+from typing import Any
 from pathlib import Path
 from unittest import mock
 
@@ -50,7 +51,7 @@ class FakeMealie:
         return True
 
 
-async def finish_tasks():
+async def finish_tasks() -> None:
     """Wacht tot elke achtergrondtask van de app klaar is (de import loopt als task)."""
     await asyncio.gather(*tasks.running().values())
 
@@ -88,10 +89,10 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         await tasks.cancel_all()
 
-    def ah_recipe(self, number):
+    def ah_recipe(self, number: int) -> dict[str, Any]:
         self.fetched.append(number)
         return {"@type": "Recipe", "name": f"AH {number}", "recipeIngredient": ["1 ui"]}
 
@@ -272,6 +273,18 @@ class CancelTest(BulkCase):
         job = recipe_bulk.progress()
         self.assertEqual((job["state"], job["imported"], self.fetched), ("cancelled", 1, [100]))
         self.assertEqual([item["error"] for item in job["items"][1:]], ["cancelled"] * 2)
+
+    async def test_an_app_shutdown_does_not_leave_the_import_running(self) -> None:
+        self.seed_ah(count=3)
+        with mock.patch.object(recipe_bulk, "PAUSE_SECONDS", 30):
+            await recipe_bulk.start("ah", None, "", whole=True)
+            await asyncio.sleep(0.05)
+            await tasks.cancel_all()
+        job = recipe_bulk.progress()
+        self.assertEqual(job["state"], "cancelled")
+        self.assertEqual([item["error"] for item in job["items"][1:]], ["cancelled"] * 2)
+        again = await recipe_bulk.start("ah", ["100"], background=False)
+        self.assertEqual(again["state"], "done")
 
     def test_only_who_started_it_or_the_administrator(self):
         recipe_bulk._job.update(state="running", startedById="anna", items=[])
@@ -470,7 +483,7 @@ class RoutesTest(BulkCase):
         self.app = create_app()
         self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
 
-    async def asyncSetUp(self):
+    async def asyncSetUp(self) -> None:
         # De import loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
         # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
         self.test_app = self.app.test_app()
@@ -479,10 +492,10 @@ class RoutesTest(BulkCase):
         self.admin = self.new_client()
         await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
-    def new_client(self):
+    def new_client(self) -> LiveClient:
         return LiveClient(self.test_app.test_client())
 
-    async def join(self):
+    async def join(self) -> LiveClient:
         invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
         token = invite.get_json()["token"]
         client = self.new_client()

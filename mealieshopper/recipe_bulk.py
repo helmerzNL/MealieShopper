@@ -222,6 +222,16 @@ def _valid_store(store: Any) -> str:
     return key
 
 
+def _on_cancelled(task: asyncio.Task[None]) -> None:
+    """Een geannuleerde task (afsluiten van de app) laat de stand niet op "running" staan: dan weigert elke nieuwe import."""
+    if not task.cancelled() or _job.get("state") != "running":
+        return
+    items: list[dict[str, Any]] = _job.get("items") or []
+    first: int = next((i for i, item in enumerate(items) if item["status"] not in FINAL), len(items))
+    _skip_rest(first, "cancelled")
+    _finish("cancelled")
+
+
 async def start(
     store: Any,
     ids: Any = None,
@@ -265,7 +275,7 @@ async def start(
     _job.clear()
     _job.update(
         state="running",
-        # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de draad eerst bij de winkel op.
+        # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de taak eerst bij de winkel op.
         phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
         store=store,
         storeName=STORES[store],
@@ -282,7 +292,7 @@ async def start(
         finishedAt="",
     )
     if background:
-        tasks.spawn("recipe-bulk", _run(plan))
+        tasks.spawn("recipe-bulk", _run(plan)).add_done_callback(_on_cancelled)
     else:
         await _run(plan)
     return progress()
@@ -523,7 +533,7 @@ async def _run(plan: dict[str, Any]) -> None:
         await _import_all(plan)
     except _Stop as stop:
         _finish("error", stop.code)
-    except Exception:  # noqa: BLE001 - een draad mag nooit stil stoppen zonder melding
+    except Exception:  # noqa: BLE001 - een taak mag nooit stil stoppen zonder melding
         log.exception("Bulkimport mislukt")
         start = next((i for i, item in enumerate(_job["items"]) if item["status"] not in FINAL), len(_job["items"]))
         _skip_rest(start, "stopped")

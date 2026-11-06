@@ -108,7 +108,7 @@ class AiMatchCase(unittest.IsolatedAsyncioTestCase):
         auth.init_db()
         self.app = create_app()
 
-    async def asyncTearDown(self):
+    async def asyncTearDown(self) -> None:
         await tasks.cancel_all()
 
     FETCHED = [
@@ -345,6 +345,17 @@ class BackgroundTest(AiMatchCase):
         self.assertEqual(state["result"]["searched"], 2)
         self.assertEqual(seen, [])
 
+    async def test_an_app_shutdown_does_not_leave_the_round_running(self) -> None:
+        self.seed()
+        self.key()
+        await ai_match.start("ah", 10)
+        await tasks.cancel_all()
+        self.assertEqual(ai_match.progress()["state"], "error")
+        self.assertTrue(ai_match.progress()["error"])
+        with mock.patch.object(ai_review.requests, "post", side_effect=Provider()):
+            state = await ai_match.start("ah", 10, background=False)
+        self.assertEqual(state["state"], "done")
+
     async def test_only_one_round_at_a_time(self):
         self.seed()
         self.key()
@@ -367,7 +378,7 @@ class BackgroundTest(AiMatchCase):
 
 
 class RoutesTest(AiMatchCase):
-    async def asyncSetUp(self):
+    async def asyncSetUp(self) -> None:
         # De ronde loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
         # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
         self.test_app = self.app.test_app()
@@ -376,10 +387,10 @@ class RoutesTest(AiMatchCase):
         self.admin = self.new_client()
         await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
-    def new_client(self):
+    def new_client(self) -> LiveClient:
         return LiveClient(self.test_app.test_client())
 
-    async def join(self):
+    async def join(self) -> LiveClient:
         invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
         client = self.new_client()
         await client.post("/api/invites/password", json={"token": invite.get_json()["token"], "password": ANNA})
