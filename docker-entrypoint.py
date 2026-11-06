@@ -24,6 +24,8 @@ OPTION_ENV = {
     "auth_secret": "MEALIESHOPPER_AUTH_SECRET",
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
+    "anthropic_base_url": "ANTHROPIC_BASE_URL",
+    "openai_base_url": "OPENAI_BASE_URL",
     "picnic_country_code": "PICNIC_COUNTRY_CODE",
     "offers_schedule": "MEALIESHOPPER_OFFERS_SCHEDULE",
     "offers_sync_hour": "MEALIESHOPPER_OFFERS_SYNC_HOUR",

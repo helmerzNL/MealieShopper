@@ -192,6 +192,7 @@ I18N.add("nl", {
   "aireview.status.none": "Geen sleutel ingesteld.",
   "aireview.status.app": "Sleutel ingesteld ({hint}), bewaard in de app.",
   "aireview.status.env": "Sleutel ingesteld ({hint}), uit de omgevingsvariabele {env}.",
+  "aireview.status.endpoint": "Aanvragen gaan naar {endpoint} ({env}).",
   "aireview.saved": "Opgeslagen.",
   "aireview.testing": "Testen...",
   "aireview.test_ok": "{name} werkt: model {model}, {tokens} tokens gebruikt.",

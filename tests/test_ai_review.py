@@ -56,7 +56,7 @@ class AiTestCase(unittest.TestCase):
         )
         env.start()
         self.addCleanup(env.stop)
-        for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
             os.environ.pop(name, None)
         cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
         cost.start()
@@ -283,6 +283,56 @@ class ReviewTest(AiTestCase):
                 ai_review.test()
 
 
+class EndpointTest(AiTestCase):
+    pair = {"ingredient": "400 g kipfilet", "product": "AH Kipfilet", "category": "vlees"}
+
+    def test_without_a_base_url_the_requests_go_to_the_providers(self):
+        self.assertEqual(ai_review.endpoint("anthropic"), ("https://api.anthropic.com/v1/messages", "default"))
+        self.assertEqual(ai_review.endpoint("openai"), ("https://api.openai.com/v1/chat/completions", "default"))
+
+    def test_openai_base_url_is_the_address_with_v1_like_the_sdk(self):
+        with mock.patch.dict(os.environ, {"OPENAI_BASE_URL": " http://litellm:4000/v1/ "}):
+            with mock.patch.object(ai_review.requests, "post", return_value=answer("openai", [(1, "ok", "kip")])) as post:
+                verdicts, _ = ai_review.judge([self.pair], "openai", OPENAI_KEY, "gpt-5-mini")
+        self.assertEqual(post.call_args.args[0], "http://litellm:4000/v1/chat/completions")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], f"Bearer {OPENAI_KEY}")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "gpt-5-mini")
+        self.assertEqual(verdicts, {1: ("ok", "kip")})
+
+    def test_anthropic_base_url_is_the_address_without_v1_like_the_sdk(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "https://proxy.example/anthropic"}):
+            with mock.patch.object(ai_review.requests, "post", return_value=answer("anthropic", [(1, "ok", "kip")])) as post:
+                ai_review.judge([self.pair], "anthropic", CLAUDE_KEY, "claude-haiku-5-5")
+        self.assertEqual(post.call_args.args[0], "https://proxy.example/anthropic/v1/messages")
+
+    def test_the_test_call_and_the_status_use_the_base_url(self):
+        self.set_key("openai")
+        with mock.patch.dict(os.environ, {"OPENAI_BASE_URL": "http://user:geheim@192.168.0.70:3215/v1"}):
+            status = ai_review.status()["providers"]["openai"]
+            with mock.patch.object(ai_review.requests, "post", return_value=answer("openai", [(1, "ok", "kip")])) as post:
+                ai_review.test("openai")
+        self.assertEqual(post.call_args.args[0], "http://user:geheim@192.168.0.70:3215/v1/chat/completions")
+        self.assertEqual((status["endpoint"], status["endpointSource"], status["baseEnv"]), ("http://192.168.0.70:3215/v1/chat/completions", "env", "OPENAI_BASE_URL"))
+        self.assertNotIn("geheim", json.dumps(status), "geen wachtwoord uit het adres in de status")
+
+    def test_an_invalid_base_url_is_an_error_and_never_falls_back_to_the_provider(self):
+        for value in ("litellm:4000/v1", "ftp://litellm/v1", "http:///v1", "http://litellm/v1?x=1"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"OPENAI_BASE_URL": value}):
+                with mock.patch.object(ai_review.requests, "post") as post:
+                    with self.assertRaisesRegex(ai_review.AiError, "OPENAI_BASE_URL"):
+                        ai_review.judge([self.pair], "openai", OPENAI_KEY, "gpt-5-mini")
+                post.assert_not_called()
+                status = ai_review.status()["providers"]["openai"]
+                self.assertEqual((status["endpoint"], status["endpointSource"]), ("", "env"))
+                self.assertIn("OPENAI_BASE_URL", status["endpointError"])
+
+    def test_the_status_route_shows_the_address(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "http://litellm:4000"}):
+            data = self.admin.get("/api/offers/ai").get_json()
+        self.assertEqual(data["providers"]["anthropic"]["endpoint"], "http://litellm:4000/v1/messages")
+        self.assertEqual(data["providers"]["openai"]["endpointSource"], "default")
+
+
 class KeyTest(AiTestCase):
     def stored(self, name):
         with closing(auth.connect()) as conn:
@@ -295,7 +345,7 @@ class KeyTest(AiTestCase):
         self.assertTrue(raw.startswith("gAAAA"))
         self.assertNotIn("GEHEIM", raw)
         self.assertNotIn("GEHEIM", json.dumps(status))
-        self.assertEqual(status["providers"]["anthropic"], {"name": "Claude", "configured": True, "source": "app", "hint": "…cdef", "model": "claude-haiku-5-5", "defaultModel": "claude-haiku-5-5"})
+        self.assertEqual(status["providers"]["anthropic"], {"name": "Claude", "configured": True, "source": "app", "hint": "…cdef", "model": "claude-haiku-5-5", "defaultModel": "claude-haiku-5-5", "endpoint": "https://api.anthropic.com/v1/messages", "endpointSource": "default", "baseEnv": "ANTHROPIC_BASE_URL"})
         self.assertFalse(status["providers"]["openai"]["configured"])
         self.assertEqual(status["active"], "anthropic")
 
@@ -421,8 +471,9 @@ class MarkupTest(unittest.TestCase):
         self.assertNotIn("/api/offers/ai/review", script, "de knop zoekt recepten; het beoordelen van koppelingen blijft alleen als API")
         self.assertIn('$(`#ai-key-${provider}`).value = "";', script, "het sleutelveld wordt na opslaan leeg gemaakt")
         self.assertIn("loadAiReviewSettings", app_js)
+        self.assertIn('t("aireview.status.endpoint", { endpoint: info.endpoint, env: info.baseEnv })', script, "het afwijkende adres staat bij de sleutel")
         for text in (readme, readme_en):
-            for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "claude-haiku-5-5", "gpt-4o-mini", "/api/offers/ai/review"):
+            for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "claude-haiku-5-5", "gpt-4o-mini", "/api/offers/ai/review"):
                 self.assertIn(name, text)
 
 

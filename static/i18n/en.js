@@ -192,6 +192,7 @@ I18N.add("en", {
   "aireview.status.none": "No key set.",
   "aireview.status.app": "Key set ({hint}), stored in the app.",
   "aireview.status.env": "Key set ({hint}), from the environment variable {env}.",
+  "aireview.status.endpoint": "Requests go to {endpoint} ({env}).",
   "aireview.saved": "Saved.",
   "aireview.testing": "Testing...",
   "aireview.test_ok": "{name} works: model {model}, {tokens} tokens used.",

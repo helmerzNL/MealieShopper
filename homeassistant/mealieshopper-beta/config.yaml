@@ -27,6 +27,8 @@ schema:
   auth_secret: password?
   anthropic_api_key: password?
   openai_api_key: password?
+  anthropic_base_url: url?
+  openai_base_url: url?
   picnic_country_code: list(NL|DE|FR)?
   offers_schedule: bool?
   offers_sync_hour: int(0,23)?
