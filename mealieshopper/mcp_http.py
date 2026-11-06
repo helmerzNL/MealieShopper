@@ -33,9 +33,9 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     async def serializer() -> URLSafeTimedSerializer:
         return URLSafeTimedSerializer(await auth.asigning_secret(), salt="mealieshopper-oauth-authorize")
 
-    async def unavailable() -> Response:
+    async def unavailable_text() -> str:
         _, reason = await mcp.enabled()
-        text = (
+        return (
             tr("De MCP-server staat uit.", "The MCP server is turned off.")
             if reason == "disabled"
             else tr(
@@ -43,7 +43,9 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
                 "The MCP server only works when login is turned on. Set up a passkey or password first.",
             )
         )
-        return _json({"error": text}, 404)
+
+    async def unavailable() -> Response:
+        return _json({"error": await unavailable_text()}, 404)
 
     @app.after_request
     async def cors(response: Response) -> Response:
@@ -139,7 +141,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     @app.get("/oauth/authorize")
     async def oauth_authorize():
         if not (await mcp.enabled())[0]:
-            return await error_page((await (await unavailable()).get_json())["error"], 404)
+            return await error_page(await unavailable_text(), 404)
         params = request.args.to_dict()
         try:
             info = await oauth.check_authorize_request(params, mcp_url())
@@ -165,7 +167,7 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     @app.post("/oauth/authorize")
     async def oauth_authorize_decision():
         if not (await mcp.enabled())[0]:
-            return await error_page((await (await unavailable()).get_json())["error"], 404)
+            return await error_page(await unavailable_text(), 404)
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
             return await error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
@@ -243,7 +245,11 @@ def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
             return await audit.amcp_message(item, mcp.handle_message, identity)
 
         if isinstance(message, list):
-            replies = [reply for reply in [await handle(item) for item in message] if reply is not None]
+            replies: list[dict[str, Any]] = []
+            for item in message:
+                reply = await handle(item)
+                if reply is not None:
+                    replies.append(reply)
             return _json(replies) if replies else Response(status=202)
         reply = await handle(message)
         return _json(reply) if reply is not None else Response(status=202)

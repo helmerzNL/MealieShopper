@@ -372,6 +372,24 @@ class McpTest(AuditTestCase):
         )
         self.assertEqual(entry["detail"], {"user": "admin", "clientId": "c1"})
         self.assertTrue(entry["corr"])
+        full: dict[str, Any] = audit.get_entry(entry["id"])
+        self.assertIn("melk", full["request"])
+        self.assertIn("Melk", full["response"])
+        self.assertGreater(full["reqBytes"], 0)
+        self.assertGreater(full["respBytes"], 0)
+        self.assertIsInstance(full["durationMs"], int)
+        self.assertGreaterEqual(full["durationMs"], 0)
+
+    def test_a_cancelled_tool_is_logged_as_interrupted_and_the_cancellation_propagates(self) -> None:
+        async def tool(args: dict[str, Any]) -> Any:
+            raise asyncio.CancelledError()
+
+        message: dict[str, Any] = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_jumbo_products", "arguments": {}}}
+        with mock.patch.dict(mcp.TOOLS["search_jumbo_products"], {"handler": tool}):
+            with self.assertRaises(asyncio.CancelledError):
+                self.call(message)
+        (entry,) = self.entries()
+        self.assertEqual((entry["ok"], entry["status"], entry["error"]), (False, 499, "onderbroken"))
 
     def test_store_requests_made_by_a_tool_are_linked_to_it(self):
         async def tool(args):

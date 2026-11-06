@@ -736,7 +736,7 @@ def _mcp_actor(identity: dict[str, Any] | None) -> str:
     return f"mcp:{app_name}" if app_name else "mcp"
 
 
-def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | None, actor: str, corr: str, started: float, reply: dict[str, Any] | None, failure: Exception | None) -> dict[str, Any]:
+def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | None, actor: str, corr: str, started: float, reply: dict[str, Any] | None, failure: BaseException | None) -> dict[str, Any]:
     """De velden van de regel voor een verwerkt MCP-bericht."""
     identity = identity or {}
     tool = str(params.get("name") or "") if rpc == "tools/call" else ""
@@ -757,7 +757,9 @@ def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | Non
     if rpc == "tools/list":
         response_body = response_text
     error = ""
-    if failure:
+    if isinstance(failure, asyncio.CancelledError):
+        error = tr("onderbroken", "interrupted")
+    elif failure:
         error = f"{type(failure).__name__}: {failure}"
     elif isinstance(rpc_error, dict):
         error = str(rpc_error.get("message") or "")
@@ -769,7 +771,7 @@ def _mcp_fields(rpc: str, params: dict[str, Any], identity: dict[str, Any] | Non
         "action": tool or rpc,
         "method": rpc,
         "url": "/mcp",
-        "status": 200 if not failure else 500,
+        "status": 499 if isinstance(failure, asyncio.CancelledError) else 500 if failure else 200,
         "ok": not (failure or rpc_error or tool_error),
         "duration_ms": round((time.perf_counter() - started) * 1000),
         "actor": actor,
@@ -793,10 +795,13 @@ async def amcp_message(message: Any, handler: Callable[[Any], Awaitable[dict[str
     tokens = (_corr.set(corr), _actor.set(actor))
     started = time.perf_counter()
     reply: dict[str, Any] | None = None
-    failure: Exception | None = None
+    failure: BaseException | None = None
     try:
         reply = await handler(message)
         return reply
+    except asyncio.CancelledError as exc:
+        failure = exc  # een weggevallen client annuleert de handler: vastleggen als onderbroken
+        raise
     except Exception as exc:  # noqa: BLE001
         failure = exc
         raise
