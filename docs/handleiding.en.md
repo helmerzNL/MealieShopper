@@ -432,6 +432,8 @@ Under **Settings, Preferences** (in the avatar menu, for everyone; before versio
 
 - **Preferred supermarket:** *Albert Heijn* (the default), *Jumbo*, *Picnic* or *Crisp*. **Offers** and **Stores** open with it. If you pick a store that is not linked (yet), the line below says so and both pages open with Albert Heijn until you link it. If you pick another store on one of those pages in its drop-down menu, that one stays while the app is open; a new preferred supermarket applies to both pages again at once. The week menu and the Basket remember their own last choice.
 
+<img src="screenshots/en/preferences.png" alt="Settings, Preferences: the Supermarket block is open, with Albert Heijn, Jumbo, Picnic and Crisp, and Jumbo chosen as preferred supermarket; the Appearance and Theme blocks are closed" width="900">
+
 **Appearance**
 
 - **Cooking mode:** a switch, on by default. On, a recipe has the bar with **Start cooking**, the progress and **Keep screen on**, and you tick off ingredients. Off, a recipe is just a recipe: no bar, no ticks next to the ingredients and no counter, and the screen does not stay on. The numbered steps stay.

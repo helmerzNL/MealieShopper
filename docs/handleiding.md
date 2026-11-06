@@ -432,6 +432,8 @@ Onder **Instellingen, Voorkeuren** (in het avatar-menu, voor iedereen; vóór ve
 
 - **Voorkeurssupermarkt:** *Albert Heijn* (de standaard), *Jumbo*, *Picnic* of *Crisp*. Daarmee openen **Aanbiedingen** en **Winkels**. Kies je een winkel die (nog) niet gekoppeld is, dan staat dat eronder en openen beide pagina's met Albert Heijn tot je hem koppelt. Kies je op zo'n pagina zelf een andere winkel in het uitklapmenu, dan blijft die staan zolang je de app open hebt; een nieuwe voorkeurssupermarkt geldt meteen weer voor beide pagina's. Het weekmenu en het Mandje onthouden hun eigen laatste keuze.
 
+<img src="screenshots/nl/preferences.png" alt="Instellingen, Voorkeuren: het blok Supermarkt is open, met Albert Heijn, Jumbo, Picnic en Crisp, en Jumbo gekozen als voorkeurssupermarkt; de blokken Weergave en Thema zijn dicht" width="900">
+
 **Weergave**
 
 - **Kookmodus:** een schakelaar, standaard aan. Aan staat bij een recept de balk met **Start met koken**, de voortgang en **Scherm aan laten**, en vink je ingrediënten af. Uit is een recept gewoon een recept: geen balk, geen vinkjes bij de ingrediënten en geen teller, en het scherm blijft niet aan. De genummerde stappen blijven staan.
