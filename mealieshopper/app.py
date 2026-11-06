@@ -22,6 +22,39 @@ from .i18n import tr
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
+AH_PROXY_DROPPED_HEADERS: frozenset[str] = frozenset(
+    {
+        "host",
+        "accept-encoding",
+        "content-length",
+        "content-encoding",
+        "remote-addr",  # zet Quart er zelf bij, de browser niet: zonder deze gaan dezelfde headers mee als in 3.13.1
+        # Van de reverse proxy: het IP van de bezoeker en de interne opbouw horen niet bij AH.
+        "x-forwarded-for",
+        "x-forwarded-proto",
+        "x-forwarded-host",
+        "x-forwarded-port",
+        "x-forwarded-prefix",
+        "forwarded",
+        "x-real-ip",
+        "authorization",  # bedoeld voor MealieShopper zelf
+    }
+)
+
+
+def _ah_proxy_cookie(header: str) -> str | None:
+    """De Cookie-header voor AH: zonder de eigen cookies van MealieShopper (`ms_`), of None als er niets overblijft."""
+    kept: list[str] = []
+    for pair in header.split(";"):
+        pair = pair.strip()
+        if not pair:
+            continue
+        if pair.partition("=")[0].strip().startswith("ms_"):
+            continue
+        kept.append(pair)
+    return "; ".join(kept) or None
+
+
 def create_app() -> Quart:
     app = Quart(__name__, template_folder="../templates", static_folder="../static")
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261106-3")
@@ -1842,17 +1875,11 @@ def create_app() -> Quart:
     async def ah_auth_proxy(proxy_path: str) -> Response | tuple[str, int]:
         target_url = f"{ah.AH_LOGIN_BASE}/{proxy_path}".rstrip("/")
         headers: dict[str, str] = {
-            key: value
-            for key, value in request.headers.items()
-            if key.lower()
-            not in {
-                "host",
-                "accept-encoding",
-                "content-length",
-                "content-encoding",
-                "remote-addr",  # zet Quart er zelf bij, de browser niet: zonder deze gaan dezelfde headers mee als in 3.13.1
-            }
+            key: value for key, value in request.headers.items() if key.lower() not in AH_PROXY_DROPPED_HEADERS
         }
+        cookie: str | None = _ah_proxy_cookie(headers.pop("Cookie", ""))
+        if cookie is not None:
+            headers["Cookie"] = cookie
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
         headers.setdefault("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         headers.setdefault("Accept-Language", "nl-NL,nl;q=0.9,en;q=0.8")

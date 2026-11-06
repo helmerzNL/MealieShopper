@@ -174,3 +174,53 @@ async def test_a_header_with_a_utf8_byte_reaches_ah_byte_for_byte(client: TestCl
     assert reply.status_code == 200
     sent: dict[bytes, bytes] = {key.lower(): value for key, value in route.calls.last.request.headers.raw}
     assert sent[b"user-agent"] == "Browser/café".encode("utf-8")
+
+
+async def test_the_proxy_never_sends_mealieshoppers_own_cookies(
+    client: TestClientProtocol, respx_mock: respx.MockRouter
+) -> None:
+    route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
+    reply = await client.get(
+        "/api/ah/auth/proxy/login/step",
+        headers={"Cookie": "ms_session=geheim; ms_lang=en; ah_sess=abc; other=1"},
+    )
+    assert reply.status_code == 200
+    assert route.calls.last.request.headers["Cookie"] == "ah_sess=abc; other=1"
+
+
+async def test_the_proxy_sends_no_cookie_header_when_only_own_cookies_remain(
+    client: TestClientProtocol, respx_mock: respx.MockRouter
+) -> None:
+    route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
+    reply = await client.get("/api/ah/auth/proxy/login/step", headers={"Cookie": "ms_session=x; ms_lang=nl"})
+    assert reply.status_code == 200
+    assert "Cookie" not in route.calls.last.request.headers
+
+
+async def test_the_proxy_drops_forwarding_and_authorization_headers(
+    client: TestClientProtocol, respx_mock: respx.MockRouter
+) -> None:
+    route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
+    reply = await client.get(
+        "/api/ah/auth/proxy/login/step",
+        headers={
+            "X-Forwarded-For": "203.0.113.9",
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "shopper.example",
+            "X-Forwarded-Port": "443",
+            "X-Forwarded-Prefix": "/shopper",
+            "Forwarded": "for=203.0.113.9",
+            "X-Real-IP": "203.0.113.9",
+            "Authorization": "Bearer x",
+            "User-Agent": "Browser/1",
+            "Accept-Language": "en",
+            "Referer": f"{PROXY}/login",
+        },
+    )
+    assert reply.status_code == 200
+    sent: httpx.Headers = route.calls.last.request.headers
+    for name in ("X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Prefix", "Forwarded", "X-Real-IP", "Authorization"):
+        assert name not in sent, name
+    assert sent["User-Agent"] == "Browser/1"
+    assert sent["Accept-Language"] == "en"
+    assert sent["Referer"] == f"{ah.AH_LOGIN_BASE}/login"
