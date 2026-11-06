@@ -537,7 +537,7 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
              mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as background:
             result = await offers_schedule.sync_now()
         nightly.assert_not_called()
-        background.assert_called_once_with(limit=image_cache.PREFETCH_LIMIT)
+        background.assert_awaited_once_with(limit=image_cache.PREFETCH_LIMIT)
         self.assertNotIn("images", result)
 
     async def test_the_manual_run_skips_what_has_nothing_to_do(self):

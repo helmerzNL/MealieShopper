@@ -202,7 +202,10 @@ def store_for(url: Any) -> str | None:
     """De winkel bij een adres (`ah`, `jumbo`, `picnic`, `crisp`), of None als het geen foto van een winkel is."""
     if not isinstance(url, str) or not url:
         return None
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # bijvoorbeeld een kapotte IPv6-host (`https://[static.ah.nl]/`)
+        return None
     if parts.scheme not in ("http", "https"):
         return None
     host = parts.hostname or ""
@@ -217,21 +220,32 @@ def store_for(url: Any) -> str | None:
     return None
 
 
+def _plain_authority(authority: str) -> bool:
+    """Bestaat het stuk met de host alleen uit gewone zichtbare ASCII-tekens, zonder `@`, backslash of `%`? Een gecodeerd teken
+    (`%2e`, `%2f`) of een teken buiten ASCII (een host in Unicode, die httpx eerst omzet) leest de ene parser anders dan de andere."""
+    return not any(char in "@\\%" or not 32 < ord(char) < 127 for char in authority)
+
+
 def safe_url(url: Any) -> bool:
     """Mag de app dit adres ophalen? Alleen https naar een winkelhost (`store_for`), en de parser die het verzoek verstuurt (httpx)
-    moet dezelfde host lezen als de onze: een adres met een `@`, een backslash, spatie of stuurteken in de host valt zo af. Dezelfde
-    eis voor een token uit de browser, een adres uit een tabel en een doorverwijzing van een CDN: een adres dat hier niet door komt,
-    krijgt nooit een verzoek."""
-    if not store_for(url) or urlsplit(url).scheme != "https":
+    moet dezelfde host lezen als de onze: een adres met een `@`, een backslash, een `%`, spatie, stuurteken of teken buiten ASCII
+    in de host valt zo af, net als een poort buiten 1 tot 65535. Dezelfde eis voor een token uit de browser, een adres uit een
+    tabel en een doorverwijzing van een CDN: een adres dat hier niet door komt, krijgt nooit een verzoek. Geeft nooit een fout."""
+    if not store_for(url):
+        return False
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not _plain_authority(parts.netloc):
         return False
     try:
         sent: httpx.URL = httpx.URL(url)
-    except httpx.InvalidURL:
+        # Een host met een A-label (`xn--...`) mag, zoals voorheen, als httpx hem kan decoderen: `xn--mnchen-3ya.jumbo.com`
+        # gaat door, een kapot label (`xn--a`, `xn--`) geeft hier een idna-fout (een ValueError) en valt af.
+        decoded: str = sent.host
+    except (httpx.InvalidURL, ValueError):
         return False
-    authority: str = urlsplit(url).netloc
-    if any(char in authority for char in "@\\") or any(char.isspace() or ord(char) < 32 for char in authority):
+    if not decoded or sent.scheme != "https" or (sent.port is not None and not 1 <= sent.port <= 65535):
         return False
-    return bool(sent.host) and sent.host == urlsplit(url).hostname and sent.scheme == "https"
+    return sent.raw_host.decode("ascii") == parts.hostname  # de host waar httpx echt mee verbindt
 
 
 def token_for(url: str) -> str:

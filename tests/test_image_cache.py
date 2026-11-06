@@ -4,6 +4,7 @@ import asyncio
 import io
 import os
 import tempfile
+import time
 import unittest
 from contextlib import closing, suppress
 from pathlib import Path
@@ -137,6 +138,43 @@ class HostsAndTokensTest(Case):
         self.assertFalse(image_cache.safe_url("https://static.ah.nl\\@127.0.0.1/dam/x"))
         with mock.patch.object(image_cache.httpx, "URL", side_effect=httpx.InvalidURL("nee")):
             self.assertFalse(image_cache.safe_url(AH), "een adres dat httpx weigert, gaat nooit de deur uit")
+
+    def test_hostile_addresses_are_refused_without_an_error(self) -> None:
+        # Adressen die de oude controle (urllib3) weigerde of waarop httpx een andere host leest dan wij, of een fout geeft.
+        for url in (
+            "https://evil%2ecom.jumbo.com/",  # een gecodeerd teken in de host
+            "https://evil.com%2f.jumbo.com/",
+            "https://evil.com%23.jumbo.com/",
+            "https://127.0.0.1%2f.jumbo.com/",
+            "https://evil%.jumbo.com/x",
+            "https://static%2eah.nl/",
+            "https://münchen.jumbo.com/x",  # Unicode: httpx zet de host eerst om
+            "https://MÜNCHEN.jumbo.com/x",
+            "https://evil.com\u3002x.jumbo.com/x",
+            "https://evil\u200b.jumbo.com/x",
+            "https://static.ah.nl:99999/x",  # poort buiten 1 tot 65535: gaf eerst een OverflowError bij het verzoek
+            "https://static.ah.nl:0/x",
+            "https://xn--a.jumbo.com/x",  # een kapot A-label: httpx gaf een idna-fout
+            "https://xn--.jumbo.com/x",
+            "https://xn--ls8h.jumbo.com/x",
+            "https://[::ffff:127.0.0.1].jumbo.com/x",  # urlsplit gaf een ValueError
+            "https://[static.ah.nl]/x",
+            "https://static.ah.nl\x7f/x",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(image_cache.safe_url(url))
+                self.assertIsNone(image_cache.url_for(image_cache.token_for(url)))
+        for url in (
+            AH,
+            "https://STATIC.AH.NL/dam/x",
+            "https://static.ah.nl:443/dam/x",
+            JUMBO,
+            "https://xn--mnchen-3ya.jumbo.com/x",  # een geldig A-label mag, zoals voorheen
+            "https://storefront-prod.nl.picnicinternational.com/static/images/1/medium.png",
+            CRISP,
+        ):
+            with self.subTest(url=url):
+                self.assertTrue(image_cache.safe_url(url))
 
     def test_register_keeps_one_row_per_address_and_refreshes_seen_at(self) -> None:
         first = run(image_cache.register(AH, now="2026-11-04T01:00:00+00:00"))
@@ -461,8 +499,10 @@ class FetchTest(FetchCase):
     def test_a_waiting_request_gives_up_after_ten_seconds(self) -> None:
         self.assertEqual(image_cache.WAIT_SECONDS, 10)
         stuck = asyncio.Event()  # een download die nooit klaar komt
+        started = time.perf_counter()
         with mock.patch.dict(image_cache._INFLIGHT, {AH: stuck}), mock.patch.object(image_cache, "WAIT_SECONDS", 0.05):
             self.assertIsNone(fetch(AH))
+        self.assertLess(time.perf_counter() - started, 1, "het wachten volgt WAIT_SECONDS, geen vaste tijd")
         self.assertEqual(self.get.call_count, 0)
 
     def test_a_redirect_is_followed_only_to_a_store_host(self) -> None:
@@ -700,6 +740,7 @@ class PrefetchTest(FetchCase):
     def test_prefetch_stops_at_the_deadline_and_can_be_switched_off(self) -> None:
         self.register(AH)
         self.serve(AH, 200, "image/png", picture(4, 4))
+        self.assertEqual(run(image_cache.prefetch(deadline_seconds=0, now=NOW))["fetched"], 0)
         self.assertEqual(run(image_cache.prefetch(deadline_seconds=-1, now=NOW))["fetched"], 0)
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_IMAGE_PREFETCH": "false"}):
             self.assertFalse(image_cache.enabled())

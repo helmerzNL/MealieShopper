@@ -214,7 +214,7 @@ class OrdersCacheTest(AhOrdersTestCase):
     def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
         with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([{"id": 1, "state": "SUBMITTED", "deliveryDate": "2026-10-10", "slotStart": None, "slotEnd": None, "total": 1.0}])
-        prefetch.assert_called_once_with(limit=40)
+        prefetch.assert_awaited_once_with(limit=40)
 
     def test_the_list_route_carries_a_summary_but_the_function_does_not_by_default(self):
         def details(order_id):
@@ -599,7 +599,7 @@ class ReceiptsCacheTest(AhOrdersTestCase):
     def test_a_sync_starts_a_small_prefetch_round(self):
         with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
-        prefetch.assert_called_once_with(limit=40)
+        prefetch.assert_awaited_once_with(limit=40)
 
     def test_an_old_database_gets_the_image_column_once_even_from_two_connections(self):
         with closing(auth.connect()) as conn, conn:

@@ -243,7 +243,7 @@ class LocalCopyTest(TempDataDirTest):
     def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
         with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([listed(1)], {"1": order(1, [line(1)])})
-        prefetch.assert_called_once_with(limit=40)
+        prefetch.assert_awaited_once_with(limit=40)
 
     def test_the_list_route_carries_a_summary_but_the_function_does_not_by_default(self):
         self.sync([listed(1)], {"1": order(1, [line(1, before="4.00", image="https://jumbo.com/1.png"), line(2, image=""), line(3, image="https://jumbo.com/3.png")])})
