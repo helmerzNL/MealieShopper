@@ -1498,7 +1498,7 @@ I18N.add("en", {
   "price_archive.corrections": "Corrections of archive lines imported earlier: {apply} to apply, {already} already right, {missing} not needed (those lines are not there yet), {conflict} skipped (the current value differs).",
   "price_archive.total.one": "{count} new line in all.",
   "price_archive.total.other": "{count} new lines in all.",
-  "price_archive.tidied": "Tidied up: {linked} leaflet lines linked to your own products and {skipped} leaflet lines skipped that belong to no product of yours.",
+  "price_archive.tidied": "Tidied up: {linked} leaflet lines certainly belong to one product; {skipped} leaflet lines skipped (combination offers, uncertain links and lines that belong to no product of yours).",
   "price_archive.tidied_prices.one": "For {count} leaflet line without a known pack size the price is left out.",
   "price_archive.tidied_prices.other": "For {count} leaflet lines without a known pack size the price is left out.",
   "price_archive.nothing_new": "Everything in this archive is already there. There is nothing to import.",

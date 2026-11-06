@@ -108,10 +108,10 @@ function priceArchiveRenderSummary(summary) {
   ].filter(Boolean);
   $("#price-archive-source").textContent = meta.join(" · ");
   $("#price-archive-summary").innerHTML = (outcome.stores || []).map((stats) => priceArchiveStoreLine(stats.store, stats)).join("");
-  // Wat het opschonen deed: gekoppeld aan je eigen producten, en overgeslagen omdat het nergens bij hoort.
+  // Wat het opschonen deed: wat zeker bij één product hoort (door de app of al door het archief gekoppeld), en wat wegviel.
   const tidied = summary.tidied || {};
-  const linked = Number(tidied.exact || 0) + Number(tidied.approximate || 0);
-  const skipped = Number(tidied.unlinked || 0) + Number(tidied.groups || 0);
+  const linked = Number(tidied.exact || 0) + Number(tidied.linkedByArchive || 0);
+  const skipped = Number(tidied.unlinked || 0) + Number(tidied.groups || 0) + Number(tidied.uncertain || 0);
   const pricesLeftOut = Number(tidied.unknownPack || 0);
   const tidiedLine = $("#price-archive-tidied");
   const parts = [];
