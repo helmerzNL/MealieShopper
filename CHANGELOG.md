@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.13.2
+
+### Opgelost in 3.13.2
+
+*English summary: after starting Import all recipes at Crisp, the progress window said "Fetching the list from Jumbo". That text dated from when only Jumbo fetched a list first; it now names the store of the import. While checking the other recipe imports: Crisp's confirmation and progress now say favourite recipes (as the Crisp app does) instead of saved recipes, the note about the selection limit also fits Crisp, and the placeholder of Find recipes now lists Crisp too.*
+
+- **Opgelost: "De lijst bij Jumbo ophalen" bij een import van Crisp.** Na *Alle recepten importeren* bij Crisp stond in het venster dat de lijst bij Jumbo werd opgehaald. Die tekst (`bulk.preparing`) stamt uit de tijd dat alleen een Jumbo-lijst eerst werd opgehaald; nu noemt hij de winkel van de import (*De lijst bij Crisp ophalen...*).
+- **Nagelopen: de andere teksten van de recepten-import.** De bevestiging en het venster zeggen bij Crisp nu *favoriete recepten*, zoals de Crisp-app (nieuwe teksten `bulk.confirm.favorites` en `bulk.job.favorites`); bij Albert Heijn blijft het *bewaarde recepten*. Ook de melding als het ophalen bij Crisp mislukt, zegt nu favoriete recepten. De melding bij meer dan 50 gekozen recepten noemde alleen *de hele groep of lijst*; nu ook *alle recepten*, zoals bij Crisp. De zoekbalk van **Recepten zoeken** noemt nu ook Crisp, waar al sinds 2.86.1 in wordt gezocht. De foutmeldingen per winkel en de teksten van het receptdetail, importeren en inplannen klopten al.
+- **Ontwikkeling**: `test_recipe_bulk.MarkupTest` controleert dat de teksten van het venster die voor elke winkel gelden geen winkelnaam bevatten en dat `bulk.preparing` de winkel van de import krijgt.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.13.1
 
 ### Opgelost in 3.13.1

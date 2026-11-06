@@ -636,6 +636,25 @@ class MarkupTest(unittest.TestCase):
         for code in ("no_content", "store_failed", "mealie_failed", "limit", "cancelled", "stopped"):
             self.assertIn(f'{code}: "bulk.item.{code}"', script)
 
+    def test_shared_texts_name_the_store_of_the_import(self):
+        # De teksten van het venster gelden voor elke winkel: de winkel komt uit de import zelf, niet uit de tekst.
+        script = (ROOT / "static" / "recipe_bulk.js").read_text(encoding="utf-8")
+        self.assertIn('tn("bulk.preparing", job.total || 0, { store: job.storeName || "" })', script)
+        self.assertIn('favorites: () => tn("bulk.confirm.favorites", request.count, { store })', script)
+        self.assertIn('store === "crisp" ? "favorites"', script)
+        self.assertIn('job.store === "crisp" ? "bulk.job.favorites" : "bulk.job.saved"', script)
+        stores = ("Albert Heijn", "AH", "Jumbo", "Picnic", "Crisp")
+        for lang in ("nl", "en"):
+            texts = (ROOT / "static" / "i18n" / f"{lang}.js").read_text(encoding="utf-8")
+            shared = re.findall(r'"bulk\.(?:preparing|confirm\.(?:saved|favorites|selection)|job\.(?:saved|favorites|selection|group))[\w.]*": "([^"]*)"', texts)
+            self.assertEqual(len(shared), 13, lang)
+            for text in shared:
+                self.assertFalse(any(re.search(rf"\b{re.escape(name)}\b", text) for name in stores), f"{lang}: {text}")
+            preparing = re.findall(r'"bulk\.preparing\.(?:one|other)": "([^"]*)"', texts)
+            self.assertEqual(len(preparing), 2, lang)
+            for text in preparing:
+                self.assertIn("{store}", text, f"{lang}: de lijst wordt bij de winkel van de import opgehaald")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -224,7 +224,7 @@ function recipeBulkConfirmGroup(store) {
     path: "/api/mealie/bulk-import/group",
     body: { store, group: group.id },
     store,
-    kind: store === "jumbo" ? "list" : group.id ? "group" : "saved",
+    kind: store === "jumbo" ? "list" : store === "crisp" ? "favorites" : group.id ? "group" : "saved",
     count: group.count,
     name: group.name,
     category: group.category,
@@ -238,6 +238,7 @@ function recipeBulkConfirmLines(request) {
     group: () => tn("bulk.confirm.group", request.count, { name: request.name }),
     list: () => tn("bulk.confirm.list", request.count, { name: request.name }),
     saved: () => tn("bulk.confirm.saved", request.count, { store }),
+    favorites: () => tn("bulk.confirm.favorites", request.count, { store }),
   }[request.kind]();
   const lines = [
     what,
@@ -342,7 +343,8 @@ function recipeBulkJobLabel(job) {
   let what;
   if (!job.whole) what = tn("bulk.job.selection", job.total || 0, { store });
   else if (job.group?.name) what = t("bulk.job.group", { store, name: job.group.name });
-  else what = t("bulk.job.saved", { store });
+  // Crisp noemt ze favorieten (het hartje in de app), AH bewaarde recepten.
+  else what = t(job.store === "crisp" ? "bulk.job.favorites" : "bulk.job.saved", { store });
   return job.startedBy ? `${what} ${t("bulk.job.by", { name: job.startedBy })}` : what;
 }
 
@@ -374,7 +376,7 @@ function recipeBulkRender() {
   if (preparing) bar.removeAttribute("value");
   else bar.value = job.done || 0;
   $("#bulk-progress-label").textContent = preparing
-    ? tn("bulk.preparing", job.total || 0)
+    ? tn("bulk.preparing", job.total || 0, { store: job.storeName || "" }) // een Jumbo-lijst of je Crisp-favorieten
     : t("bulk.progress", { done: I18N.formatNumber(job.done || 0), total: I18N.formatNumber(job.total || 0) });
   const counts = [
     tn("bulk.count.imported", job.imported || 0),
