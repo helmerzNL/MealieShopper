@@ -14,6 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Een echte schakelaar.** Nieuw onderdeel `.switch`: een selectievakje met `role="switch"`, getekend als schuifje in de accentkleur, met een rand die 3 : 1 haalt en een zichtbare focusring.
 - **Handleiding** (NL en EN): de nieuwe indeling van Weergave en waar je de kookmodus uitzet; de huisstijl beschrijft de compacte blokken en de schakelaar. Nieuwe screenshots `appearance.png` en `navbar.png`.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#260](https://github.com/helmerzNL/MealieShopper/pull/260).
 
 ## v3.14.0
 
