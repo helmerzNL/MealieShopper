@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import inspect
 import mimetypes
 from collections.abc import Awaitable, Callable
 from datetime import date
@@ -267,7 +268,7 @@ def create_app() -> Quart:
 
         async def start() -> Any:
             # Binnen bulk_action: een fout bij het opzoeken van de gebruiker geeft dezelfde 424 als een fout bij het starten.
-            return recipe_bulk.start(
+            return await recipe_bulk.start(
                 body.get("store"), body.get("ids"), body.get("group"), whole=whole, titles=body.get("titles"), user=await bulk_user()
             )
 
@@ -571,9 +572,12 @@ def create_app() -> Quart:
 
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
-    def offers_action(action, error_text: str):
+    async def offers_action(action: Callable[[], Any], error_text: str) -> Response | tuple[Response, int]:
         try:
-            return jsonify(action())
+            result: Any = action()
+            if inspect.isawaitable(result):
+                result = await result
+            return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001 - winkels zijn onofficieel; toon de fout, de bewaarde kopie blijft staan
@@ -602,14 +606,14 @@ def create_app() -> Quart:
             prices.annotate(data["store"], data["offers"])  # het oordeel bij elke aanbieding (#178); een fout laat de lijst staan
             return data
 
-        response = offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
+        response = await offers_action(load_with_verdicts, tr("Aanbiedingen laden mislukt", "Loading the offers failed"))
         if isinstance(response, Response) and response.status_code == 200:
             response.headers.update(headers)
         return response
 
     @app.get("/api/offers/history")
     async def offers_history():
-        return offers_action(
+        return await offers_action(
             lambda: offers.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
             tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
         )
@@ -618,7 +622,7 @@ def create_app() -> Quart:
     async def prices_history():
         # ?bought=1: alleen de producten die je minstens één keer kocht.
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
-        return offers_action(
+        return await offers_action(
             # Namen op de bon die bij de zoekterm passen en nog bij geen product horen, zoekt dit meteen op bij AH (zuinig: zie
             # ah_orders.resolve_receipt_names).
             lambda: prices.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50, bought=bought,
@@ -731,7 +735,7 @@ def create_app() -> Quart:
     @app.get("/api/prices/compare")
     async def prices_compare():
         # Doet één zoekopdracht bij de winkel: andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar.
-        return offers_action(
+        return await offers_action(
             lambda: prices.compare(request.args.get("store"), request.args.get("id")),
             tr("Verpakkingen vergelijken mislukt", "Comparing pack sizes failed"),
         )
@@ -739,20 +743,20 @@ def create_app() -> Quart:
     @app.post("/api/offers/sync")
     async def offers_sync():
         body = await request.get_json(silent=True) or {}
-        return offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+        return await offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/status")
     async def offers_status():
-        return offers_action(offers_schedule.status, tr("Status van de aanbiedingen laden mislukt", "Loading the offers status failed"))
+        return await offers_action(offers_schedule.status, tr("Status van de aanbiedingen laden mislukt", "Loading the offers status failed"))
 
     @app.post("/api/offers/sync-all")
     async def offers_sync_all():
         # Alleen de beheerder (auth.ADMIN_PATHS): de knop onder Instellingen > Koppelen.
-        return offers_action(offers_schedule.sync_now, tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
+        return await offers_action(offers_schedule.sync_now, tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/recipes")
     async def offers_recipes():
-        return offers_action(
+        return await offers_action(
             lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week()),
             tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"),
         )
@@ -762,7 +766,7 @@ def create_app() -> Quart:
         # Een koppeling als onjuist melden (POST) of de melding weer intrekken (DELETE).
         body = await request.get_json(silent=True) or {}
         action = offers.report_mismatch if request.method == "POST" else offers.undo_mismatch
-        return offers_action(
+        return await offers_action(
             lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
             tr("Koppeling melden mislukt", "Reporting the match failed"),
         )
@@ -778,29 +782,29 @@ def create_app() -> Quart:
 
     @app.get("/api/offers/ai")
     async def offers_ai_status():
-        return offers_action(ai_status, tr("AI-instellingen laden mislukt", "Loading the AI settings failed"))
+        return await offers_action(ai_status, tr("AI-instellingen laden mislukt", "Loading the AI settings failed"))
 
     @app.put("/api/offers/ai")
     async def offers_ai_save():
         body = await request.get_json(silent=True) or {}
-        return offers_action(lambda: (ai_review.save(body), ai_status())[1], tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
+        return await offers_action(lambda: (ai_review.save(body), ai_status())[1], tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
 
     @app.post("/api/offers/ai/test")
     async def offers_ai_test():
         body = await request.get_json(silent=True) or {}
-        return offers_action(lambda: ai_review.test(body.get("provider")), tr("De AI testen mislukt", "Testing the AI failed"))
+        return await offers_action(lambda: ai_review.test(body.get("provider")), tr("De AI testen mislukt", "Testing the AI failed"))
 
     @app.post("/api/offers/ai/review")
     async def offers_ai_review():
         body = await request.get_json(silent=True) or {}
-        return offers_action(
+        return await offers_action(
             lambda: ai_review.review(body.get("store") or "ah", body.get("max") or ai_review.DEFAULT_MAX_PAIRS),
             tr("Beoordelen met AI mislukt", "Reviewing with AI failed"),
         )
 
     @app.get("/api/offers/ai/search/plan")
     async def offers_ai_search_plan():
-        return offers_action(
+        return await offers_action(
             lambda: ai_match.plan(request.args.get("store") or "ah", request.args.get("max") or ai_match.DEFAULT_MAX_RECIPES),
             tr("De omvang van het zoeken bepalen mislukt", "Determining the size of the search failed"),
         )
@@ -808,18 +812,18 @@ def create_app() -> Quart:
     @app.post("/api/offers/ai/search")
     async def offers_ai_search():
         body = await request.get_json(silent=True) or {}
-        return offers_action(
+        return await offers_action(
             lambda: ai_match.start(body.get("store") or "ah", body.get("max") or ai_match.DEFAULT_MAX_RECIPES),
             tr("Recepten zoeken met AI mislukt", "Searching recipes with AI failed"),
         )
 
     @app.get("/api/offers/ai/search/status")
     async def offers_ai_search_status():
-        return offers_action(ai_match.progress, tr("De stand van het zoeken laden mislukt", "Loading the state of the search failed"))
+        return await offers_action(ai_match.progress, tr("De stand van het zoeken laden mislukt", "Loading the state of the search failed"))
 
     @app.post("/api/offers/recipes/sync")
     async def offers_recipes_sync():
-        return offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
+        return await offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
 
     @app.get("/api/mealie/status")
     async def mealie_status():

@@ -1,21 +1,25 @@
 """De dagelijkse taak die de aanbiedingen van alle supermarkten ophaalt.
 
-Een achtergrondthread kijkt elk kwartier of het tijd is: een keer per dag, op `MEALIESHOPPER_OFFERS_SYNC_HOUR`
+Een achtergrondtask kijkt elk kwartier of het tijd is: een keer per dag, op `MEALIESHOPPER_OFFERS_SYNC_HOUR`
 (lokale tijd van de container, standaard 5 uur). Is de app dan uit, dan volgt de vernieuwing bij de eerstvolgende
 start. Meerdere workers zijn geen probleem: wie het eerst de run van dit tijdstip in SQLite vastlegt, voert hem uit.
 `MEALIESHOPPER_OFFERS_SCHEDULE=false` zet de taak uit; de knop onder Instellingen > Koppelen blijft werken.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import threading
-from contextlib import closing
+import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from os import environ
 from typing import Any
 
-from . import ah_orders, auth, image_cache, offers, prices
+import aiosqlite
+
+from . import ah_orders, auth, image_cache, offers, prices, tasks
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +36,7 @@ CREATE TABLE IF NOT EXISTS offers_schedule (
 );
 """
 
-_lock = threading.Lock()
-_thread: threading.Thread | None = None
+_task: asyncio.Task[None] | None = None
 
 
 def enabled() -> bool:
@@ -66,24 +69,33 @@ def next_slot(now: datetime) -> datetime:
     return latest_slot(now) + timedelta(days=1)
 
 
-def _connect():
-    conn = auth.connect()
+def _connect() -> sqlite3.Connection:
+    """Synchrone tweeling van `_aconnect`, alleen voor `backup.ensure_schemas` (dat werk blijft sync, zoals bij de winkelmodules)."""
+    conn: sqlite3.Connection = auth.connect()
     conn.executescript(SCHEMA)
     return conn
 
 
-def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) -> None:
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    async with auth.aconnect() as conn:
+        await conn.executescript(SCHEMA)
+        yield conn
+
+
+async def _record(trigger: str, result: dict[str, Any], when: datetime | None = None) -> None:
+    async with _aconnect() as conn:
+        await conn.execute(
             """
             INSERT INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET last_run = excluded.last_run, trigger = excluded.trigger, summary = excluded.summary
             """,
             (_utc_iso(when or _local_now()), trigger, json.dumps(result)),
         )
+        await conn.commit()
 
 
-def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool = True) -> dict[str, Any]:
+async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool = True) -> dict[str, Any]:
     """De dagelijkse run: alle aanbiedingen, daarna de extraatjes die in hetzelfde rustige tempo bij de winkels langsgaan: een deel
     van de artikelnummers op de kassabonnen koppelen (ah_orders.resolve_receipt_products), de foto's bij oude koppelingen en de
     afbeeldingencache aanvullen (image_cache.prefetch), en de gewone prijs per aankoopregel bijwerken
@@ -107,19 +119,20 @@ def run_all(trigger: str, now: datetime | None = None, *, wait_for_images: bool 
             result = {**result, "images": images}
     else:  # de knop: een gewone aanvraag mag niet tien minuten duren, de foto's gaan in een eigen thread
         image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
-    _record(trigger, result, now)
+    await _record(trigger, result, now)
     return result
 
 
-def sync_now(trigger: str = "manual") -> dict[str, Any]:
+async def sync_now(trigger: str = "manual") -> dict[str, Any]:
     """Haal alle aanbiedingen op (de knop onder Koppelen) en onthoud de uitkomst voor de statusregel."""
-    return run_all(trigger, wait_for_images=False)
+    return await run_all(trigger, wait_for_images=False)
 
 
-def status(now: datetime | None = None) -> dict[str, Any]:
+async def status(now: datetime | None = None) -> dict[str, Any]:
     now = now or _local_now()
-    with closing(_connect()) as conn:
-        row = conn.execute("SELECT last_run, trigger, summary FROM offers_schedule WHERE id = 1").fetchone()
+    async with _aconnect() as conn:
+        async with conn.execute("SELECT last_run, trigger, summary FROM offers_schedule WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
     on = enabled()
     return {
         "enabled": on,
@@ -132,46 +145,45 @@ def status(now: datetime | None = None) -> dict[str, Any]:
     }
 
 
-def _claim(now: datetime) -> bool:
+async def _claim(now: datetime) -> bool:
     """Leg vast dat deze worker de run van het laatste tijdstip uitvoert. Alleen de eerste die dat doet krijgt True."""
     slot = _utc_iso(latest_slot(now))
-    with closing(_connect()) as conn, conn:
-        conn.execute("INSERT OR IGNORE INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}')")
-        claimed = conn.execute(
+    async with _aconnect() as conn:
+        await conn.execute("INSERT OR IGNORE INTO offers_schedule (id, last_run, trigger, summary) VALUES (1, '', 'scheduled', '{}')")
+        claimed = await conn.execute(
             "UPDATE offers_schedule SET last_run = ?, trigger = 'scheduled' WHERE id = 1 AND last_run < ?",
             (_utc_iso(now), slot),
         )
+        await conn.commit()
         return claimed.rowcount == 1
 
 
-def run_if_due(now: datetime | None = None) -> bool:
+async def run_if_due(now: datetime | None = None) -> bool:
     """Voer de dagelijkse run uit als het tijd is en niemand anders hem al deed. Geeft terug of hij liep."""
     if not enabled():
         return False
     now = now or _local_now()
-    if not _claim(now):
+    if not await _claim(now):
         return False
-    run_all("scheduled", now)
+    await run_all("scheduled", now)
     return True
 
 
-def _loop() -> None:
-    wait = FIRST_CHECK_SECONDS
+async def _loop() -> None:
+    wait: float = FIRST_CHECK_SECONDS
     while True:
-        threading.Event().wait(wait)
+        await asyncio.sleep(wait)
         wait = CHECK_SECONDS
         try:
-            if run_if_due():
+            if await run_if_due():
                 log.info("Aanbiedingen van alle winkels vernieuwd")
         except Exception:  # noqa: BLE001 - de taak moet blijven draaien, ook na een fout
             log.exception("Dagelijkse aanbiedingen-run mislukt")
 
 
 def start() -> None:
-    """Start de achtergrondthread (een keer per proces)."""
-    global _thread
-    with _lock:
-        if _thread is not None or not enabled():
-            return
-        _thread = threading.Thread(target=_loop, name="offers-schedule", daemon=True)
-        _thread.start()
+    """Start de achtergrondtask (een keer per proces). Moet binnen een lopende event loop worden aangeroepen."""
+    global _task
+    if (_task is not None and not _task.done()) or not enabled():
+        return
+    _task = tasks.spawn("offers-schedule", _loop())

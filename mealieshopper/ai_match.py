@@ -15,12 +15,11 @@ ingrediënten naar de aanbieder, geen recepttitels, namen of adressen, en alleen
 from __future__ import annotations
 
 import json
-import threading
 from contextlib import closing
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-from . import ai_review, offers
+from . import ai_review, offers, tasks
 from .ai_review import AiError
 from .i18n import tr
 
@@ -254,44 +253,40 @@ def search(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, progress: Callabl
 
 # --- op de achtergrond ----------------------------------------------------------------------------
 
-_lock = threading.Lock()
 _job: dict[str, Any] = {"state": "idle"}
 
 
 def progress() -> dict[str, Any]:
     """De stand van de lopende (of laatste) ronde: `state` is idle, running, done of error."""
-    with _lock:
-        return dict(_job)
+    return dict(_job)
 
 
 def _set(**values: Any) -> None:
-    with _lock:
-        _job.update(values)
+    _job.update(values)
 
 
-def _run(store: str, max_recipes: int) -> None:
+async def _run(store: str, max_recipes: int) -> None:
     try:
         result = search(store, max_recipes, progress=lambda info: _set(**info))
         _set(state="error" if result["error"] else "done", result=result, error=result["error"], finishedAt=_now())
     except (AiError, ValueError) as exc:
         _set(state="error", error=str(exc), finishedAt=_now())
-    except Exception as exc:  # noqa: BLE001 - een draad mag nooit stil stoppen zonder melding
+    except Exception as exc:  # noqa: BLE001 - een taak mag nooit stil stoppen zonder melding
         _set(state="error", error=ai_review._clean(exc), finishedAt=_now())
 
 
-def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: bool = True) -> dict[str, Any]:
+async def start(store: Any, max_recipes: Any = DEFAULT_MAX_RECIPES, background: bool = True) -> dict[str, Any]:
     """Start een ronde. Er loopt er hoogstens een tegelijk; met `background=False` wacht deze aanroep tot de ronde klaar is."""
     store = offers._valid_store(store)
     info = plan(store, max_recipes)  # controleert ook of er een sleutel en aanbiedingen zijn
     if not ai_review.active_provider():
         raise ValueError(tr("Vul eerst een API-sleutel in (Instellingen > Koppelen)", "Enter an API key first (Settings > Link)"))
-    with _lock:
-        if _job.get("state") == "running":
-            raise ValueError(tr("Er loopt al een ronde", "A round is already running"))
-        _job.clear()
-        _job.update(state="running", store=store, done=0, total=info["chosen"], matched=0, tokens=0, error="", startedAt=_now())
+    if _job.get("state") == "running":
+        raise ValueError(tr("Er loopt al een ronde", "A round is already running"))
+    _job.clear()
+    _job.update(state="running", store=store, done=0, total=info["chosen"], matched=0, tokens=0, error="", startedAt=_now())
     if background:
-        threading.Thread(target=_run, args=(store, info["maxRecipes"]), daemon=True, name="ai-match").start()
+        tasks.spawn("ai-match", _run(store, info["maxRecipes"]))
     else:
-        _run(store, info["maxRecipes"])
+        await _run(store, info["maxRecipes"])
     return progress()

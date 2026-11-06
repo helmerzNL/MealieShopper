@@ -455,7 +455,7 @@ class SyncAllTest(TempDataDirTest):
         self.assertEqual((overview["jumbo"]["total"], bool(overview["jumbo"]["syncedAt"])), (2, True))
 
 
-class ScheduleTest(TempDataDirTest):
+class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         super().setUp()
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": "5", "MEALIESHOPPER_OFFERS_SCHEDULE": "true"})
@@ -476,28 +476,28 @@ class ScheduleTest(TempDataDirTest):
         self.assertEqual(offers_schedule.latest_slot(early), datetime(2026, 10, 21, 5, 0).astimezone())
         self.assertEqual(offers_schedule.next_slot(now), datetime(2026, 10, 23, 5, 0).astimezone())
 
-    def test_it_runs_once_per_day(self):
+    async def test_it_runs_once_per_day(self):
         morning = datetime(2026, 10, 22, 6, 0).astimezone()
-        self.assertTrue(offers_schedule.run_if_due(morning))
-        self.assertFalse(offers_schedule.run_if_due(morning + timedelta(hours=3)))
-        self.assertTrue(offers_schedule.run_if_due(morning + timedelta(days=1)))
+        self.assertTrue(await offers_schedule.run_if_due(morning))
+        self.assertFalse(await offers_schedule.run_if_due(morning + timedelta(hours=3)))
+        self.assertTrue(await offers_schedule.run_if_due(morning + timedelta(days=1)))
         self.assertEqual(self.sync_all.call_count, 2)
 
-    def test_it_catches_up_after_the_app_was_off_but_not_before_the_hour_of_the_first_day(self):
-        self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 3, 0).astimezone()), "de run van gisteren is nooit gedaan")
-        self.assertFalse(offers_schedule.run_if_due(datetime(2026, 10, 22, 4, 0).astimezone()))
-        self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 5, 1).astimezone()))
+    async def test_it_catches_up_after_the_app_was_off_but_not_before_the_hour_of_the_first_day(self):
+        self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 3, 0).astimezone()), "de run van gisteren is nooit gedaan")
+        self.assertFalse(await offers_schedule.run_if_due(datetime(2026, 10, 22, 4, 0).astimezone()))
+        self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 5, 1).astimezone()))
 
-    def test_only_the_first_claim_wins(self):
+    async def test_only_the_first_claim_wins(self):
         now = datetime(2026, 10, 22, 6, 0).astimezone()
-        self.assertTrue(offers_schedule._claim(now))
-        self.assertFalse(offers_schedule._claim(now))
+        self.assertTrue(await offers_schedule._claim(now))
+        self.assertFalse(await offers_schedule._claim(now))
 
-    def test_it_can_be_switched_off(self):
+    async def test_it_can_be_switched_off(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SCHEDULE": "false"}):
-            self.assertFalse(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
-            self.assertFalse(offers_schedule.status()["enabled"])
-            self.assertIsNone(offers_schedule.status()["nextRun"])
+            self.assertFalse(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
+            self.assertFalse((await offers_schedule.status())["enabled"])
+            self.assertIsNone((await offers_schedule.status())["nextRun"])
         self.sync_all.assert_not_called()
 
     def test_a_bad_hour_falls_back_to_the_default(self):
@@ -505,52 +505,52 @@ class ScheduleTest(TempDataDirTest):
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_SYNC_HOUR": value}):
                 self.assertEqual(offers_schedule.sync_hour(), 5)
 
-    def test_status_remembers_the_last_run(self):
-        self.assertIsNone(offers_schedule.status()["lastRun"])
+    async def test_status_remembers_the_last_run(self):
+        self.assertIsNone((await offers_schedule.status())["lastRun"])
         with mock.patch.object(offers_schedule, "_local_now", return_value=datetime(2026, 10, 24, 12, 0).astimezone()):
-            offers_schedule.sync_now()
-        status = offers_schedule.status()
+            await offers_schedule.sync_now()
+        status = await offers_schedule.status()
         self.assertEqual((status["lastTrigger"], status["lastResult"]["stores"]["ah"]["count"], status["hour"]), ("manual", 1, 5))
         self.assertTrue(status["enabled"] and status["nextRun"])
-        offers_schedule.run_if_due(datetime(2026, 10, 25, 6, 0).astimezone())
-        self.assertEqual(offers_schedule.status()["lastTrigger"], "scheduled")
+        await offers_schedule.run_if_due(datetime(2026, 10, 25, 6, 0).astimezone())
+        self.assertEqual((await offers_schedule.status())["lastTrigger"], "scheduled")
 
-    def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
+    async def test_the_scheduled_run_also_links_receipts_fills_their_images_and_the_cache(self):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value={"found": 1}) as link, \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value={"products": 2}) as fill, \
              mock.patch.object(prices, "fill_regular_prices_nightly", return_value={"lines": 4}) as regular, \
              mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
-            self.assertTrue(offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
+            self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
         self.assertIsNotNone(link.call_args.args[0])
         self.assertEqual(link.call_args.args, fill.call_args.args, "koppelen en foto's delen een tijdstip: een laatste ronde")
-        result = offers_schedule.status()["lastResult"]
+        result = (await offers_schedule.status())["lastResult"]
         self.assertEqual((result["receiptProducts"], result["receiptImages"], result["regularPrices"], result["images"]),
                          ({"found": 1}, {"products": 2}, {"lines": 4}, {"fetched": 3}))
         self.assertEqual(result["stores"]["ah"]["count"], 1)
 
-    def test_the_button_does_not_wait_for_the_image_round(self):
+    async def test_the_button_does_not_wait_for_the_image_round(self):
         # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
              mock.patch.object(image_cache, "prefetch_nightly") as nightly, \
              mock.patch.object(image_cache, "prefetch_async") as background:
-            result = offers_schedule.sync_now()
+            result = await offers_schedule.sync_now()
         nightly.assert_not_called()
         background.assert_called_once_with(limit=image_cache.PREFETCH_LIMIT)
         self.assertNotIn("images", result)
 
-    def test_the_manual_run_skips_what_has_nothing_to_do(self):
+    async def test_the_manual_run_skips_what_has_nothing_to_do(self):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", return_value=None), \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", return_value=None), \
              mock.patch.object(image_cache, "prefetch_nightly", return_value=None):
-            result = offers_schedule.sync_now()
+            result = await offers_schedule.sync_now()
         self.assertEqual(sorted(result), ["finishedAt", "stores"])
 
-    def test_a_failing_run_does_not_stop_the_loop_condition(self):
+    async def test_a_failing_run_does_not_stop_the_loop_condition(self):
         self.sync_all.side_effect = RuntimeError("stuk")
         with self.assertRaises(RuntimeError):
-            offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone())
+            await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone())
 
 
 class RoutesTest(TempDataDirTest):

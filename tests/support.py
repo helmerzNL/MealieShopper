@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 from quart import Quart
 from quart import Response as QuartResponse
 from quart.testing.utils import make_test_body_with_headers, sentinel
-from quart.typing import TestClientProtocol
+from quart.typing import TestClientProtocol, TestHTTPConnectionProtocol
 from werkzeug.datastructures import FileStorage, Headers
 from werkzeug.wrappers import Response
 
@@ -214,3 +214,35 @@ async def start_app(app: Quart) -> None:
     """Start en stop de app zoals de server doet: `before_serving` en `after_serving` lopen een keer."""
     async with app.test_app():
         pass
+
+
+class LiveClient:
+    """Een testclient binnen de lopende `test_app()` van de test, die elk antwoord meteen helemaal leest.
+
+    Achtergrondwerk (terugzetten, bulkimport, AI-match) loopt als task in de app. De `SyncClient` sluit de app na elke
+    aanroep en annuleert dan die tasks, dus deze tests houden een app open voor de hele test (zoals de fixture `client`).
+    """
+
+    def __init__(self, client: TestClientProtocol) -> None:
+        self._client: TestClientProtocol = client
+
+    async def open(self, path: str, method: str, **kwargs: Any) -> SyncResponse:
+        response = await self._client.open(path, method=method, **kwargs)
+        content: bytes = await response.get_data(as_text=False)
+        return SyncResponse(content, response.status_code, response.headers)
+
+    async def get(self, path: str, **kwargs: Any) -> SyncResponse:
+        return await self.open(path, "GET", **kwargs)
+
+    async def post(self, path: str, **kwargs: Any) -> SyncResponse:
+        return await self.open(path, "POST", **kwargs)
+
+    async def delete(self, path: str, **kwargs: Any) -> SyncResponse:
+        return await self.open(path, "DELETE", **kwargs)
+
+    def set_cookie(self, key: str, value: str) -> None:
+        self._client.set_cookie("localhost", key, value)
+
+    def stream(self, path: str, headers: dict[str, str], method: str = "POST") -> TestHTTPConnectionProtocol:
+        """Een verzoek waarvan de test het lichaam zelf in stukken stuurt (zonder Content-Length, zoals chunked)."""
+        return self._client.request(path, method=method, headers=headers)

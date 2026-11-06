@@ -17,16 +17,14 @@ logboek, nooit bij de gebruiker.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
-
-from . import ah, ah_recipes, audit, crisp, jumbo, jumbo_recipes, mealie
+from . import ah, ah_recipes, audit, crisp, jumbo, jumbo_recipes, mealie, tasks
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -47,9 +45,8 @@ class Busy(ValueError):
     """Er loopt al een import."""
 
 
-_lock = threading.Lock()
 _job: dict[str, Any] = {"state": "idle"}
-_cancel = threading.Event()
+_cancel: asyncio.Event = asyncio.Event()
 
 
 def _now() -> str:
@@ -59,10 +56,9 @@ def _now() -> str:
 # --- de stand -----------------------------------------------------------------------------------------
 
 def progress() -> dict[str, Any]:
-    """De stand van de lopende (of laatste) import, met de tellingen erbij. Een kopie: de draad werkt het origineel bij."""
-    with _lock:
-        job = dict(_job)
-        items = [{key: value for key, value in item.items() if not key.startswith("_")} for item in _job.get("items") or []]
+    """De stand van de lopende (of laatste) import, met de tellingen erbij. Een kopie: de task werkt het origineel bij."""
+    job = dict(_job)
+    items = [{key: value for key, value in item.items() if not key.startswith("_")} for item in _job.get("items") or []]
     if job.get("state") == "idle" and not items:
         return {"state": "idle", "limits": limits()}
     counts = {status: 0 for status in FINAL}
@@ -90,33 +86,28 @@ def limits() -> dict[str, int]:
 
 
 def _set(**values: Any) -> None:
-    with _lock:
-        _job.update(values)
+    _job.update(values)
 
 
 def _set_item(index: int, **values: Any) -> None:
-    with _lock:
-        _job["items"][index].update(values)
+    _job["items"][index].update(values)
 
 
 def _add_items(items: list[dict[str, Any]]) -> None:
-    with _lock:
-        _job["items"].extend(_new_item(item) for item in items)
+    _job["items"].extend(_new_item(item) for item in items)
 
 
 def _warn(code: str) -> None:
-    with _lock:
-        warnings = _job.setdefault("warnings", [])
-        if code not in warnings:
-            warnings.append(code)
+    warnings = _job.setdefault("warnings", [])
+    if code not in warnings:
+        warnings.append(code)
 
 
 def _skip_rest(start: int, code: str) -> None:
     """Zet de recepten vanaf `start` die nog niet aan de beurt waren op overgeslagen."""
-    with _lock:
-        for item in _job["items"][start:]:
-            if item["status"] not in FINAL:
-                item.update(status="skipped", error=code)
+    for item in _job["items"][start:]:
+        if item["status"] not in FINAL:
+            item.update(status="skipped", error=code)
 
 
 def _finish(state: str, error: str = "") -> None:
@@ -231,7 +222,7 @@ def _valid_store(store: Any) -> str:
     return key
 
 
-def start(
+async def start(
     store: Any,
     ids: Any = None,
     group: Any = None,
@@ -245,6 +236,7 @@ def start(
     de recepten `ids`, met `group` alleen voor de categorie. Of iemand een hele groep mag, bepaalt de route
     (`/api/mealie/bulk-import/group` is voor de beheerder). Er loopt hooguit één import; met `background=False` wacht
     deze aanroep tot de import klaar is. Doet zelf geen aanvragen bij de winkel of Mealie."""
+    global _cancel
     store = _valid_store(store)
     try:
         mealie.ensure_configured()
@@ -267,44 +259,41 @@ def start(
     else:
         plan = _crisp_plan(chosen, titles, group_id, whole)
     plan.update(store=store, whole=bool(whole))
-    with _lock:
-        if _job.get("state") == "running":
-            raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
-        _cancel.clear()
-        _job.clear()
-        _job.update(
-            state="running",
-            # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de draad eerst bij de winkel op.
-            phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
-            store=store,
-            storeName=STORES[store],
-            group=plan["group"],
-            category=plan["category"],
-            whole=bool(whole),
-            groupSize=plan["groupSize"],
-            items=[_new_item(item) for item in plan["items"]],
-            warnings=[],
-            error="",
-            startedBy=(user or {}).get("username") or "",
-            startedById=(user or {}).get("id") or "",
-            startedAt=_now(),
-            finishedAt="",
-        )
-    target = audit.propagate(_run)
+    if _job.get("state") == "running":
+        raise Busy(tr("Er loopt al een import naar Mealie. Wacht tot die klaar is.", "An import into Mealie is already running. Wait until it is finished."))
+    _cancel = asyncio.Event()
+    _job.clear()
+    _job.update(
+        state="running",
+        # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de draad eerst bij de winkel op.
+        phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
+        store=store,
+        storeName=STORES[store],
+        group=plan["group"],
+        category=plan["category"],
+        whole=bool(whole),
+        groupSize=plan["groupSize"],
+        items=[_new_item(item) for item in plan["items"]],
+        warnings=[],
+        error="",
+        startedBy=(user or {}).get("username") or "",
+        startedById=(user or {}).get("id") or "",
+        startedAt=_now(),
+        finishedAt="",
+    )
     if background:
-        threading.Thread(target=target, args=(plan,), daemon=True, name="recipe-bulk").start()
+        tasks.spawn("recipe-bulk", _run(plan))
     else:
-        target(plan)
+        await _run(plan)
     return progress()
 
 
 def cancel(user: dict[str, Any] | None = None, owner: bool = False) -> dict[str, Any]:
     """Stop de lopende import na het recept waar hij mee bezig is. Mag wie hem startte, en de beheerder."""
-    with _lock:
-        if _job.get("state") != "running":
-            raise ValueError(tr("Er loopt geen import", "No import is running"))
-        if not owner and _job.get("startedById") != (user or {}).get("id"):
-            raise PermissionError(tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it."))
+    if _job.get("state") != "running":
+        raise ValueError(tr("Er loopt geen import", "No import is running"))
+    if not owner and _job.get("startedById") != (user or {}).get("id"):
+        raise PermissionError(tr("Alleen wie de import startte of de beheerder kan hem stoppen.", "Only whoever started the import or the administrator can stop it."))
     _cancel.set()
     return progress()
 
@@ -352,9 +341,15 @@ class _Organizers:
             _warn("tagging_failed")
 
 
-def _pause() -> bool:
+async def _pause() -> bool:
     """Wacht tussen twee aanroepen bij de winkel. Geeft True als de import intussen gestopt is."""
-    return _cancel.wait(PAUSE_SECONDS) if PAUSE_SECONDS > 0 else _cancel.is_set()
+    if PAUSE_SECONDS <= 0:
+        return _cancel.is_set()
+    try:
+        await asyncio.wait_for(_cancel.wait(), PAUSE_SECONDS)
+    except asyncio.TimeoutError:
+        return False
+    return True
 
 
 def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
@@ -374,7 +369,7 @@ def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
     return found
 
 
-def _collect_jumbo(info: dict[str, Any]) -> None:
+async def _collect_jumbo(info: dict[str, Any]) -> None:
     """Alle recepten van een Jumbo-lijst, pagina voor pagina (met een pauze), tot `MAX_ITEMS`."""
     seen: set[str] = set()
     page = 1
@@ -402,7 +397,7 @@ def _collect_jumbo(info: dict[str, Any]) -> None:
         if len(seen) >= MAX_ITEMS or not data.get("hasNext") or not fresh:
             return
         page += 1
-        if _pause():
+        if await _pause():
             return
 
 
@@ -446,7 +441,7 @@ def _store_refusal(store: str, exc: Exception) -> str | None:
     return None
 
 
-def _import_all(plan: dict[str, Any]) -> None:
+async def _import_all(plan: dict[str, Any]) -> None:
     store = plan["store"]
     category = plan["category"]
     if store == "jumbo" and plan["group"]:
@@ -455,7 +450,7 @@ def _import_all(plan: dict[str, Any]) -> None:
             category = info["name"]
         _set(group={"id": info["id"], "name": info["name"]}, category=category)
         if plan["whole"]:
-            _collect_jumbo(info)
+            await _collect_jumbo(info)
             if _cancel.is_set():
                 _finish("cancelled")
                 return
@@ -464,8 +459,7 @@ def _import_all(plan: dict[str, Any]) -> None:
     _set(phase="importing")
     organizers = _Organizers(STORES[store], category)
     catalog = mealie.Catalog()
-    with _lock:
-        items = [dict(item) for item in _job["items"]]
+    items = [dict(item) for item in _job["items"]]
     fetched = 0
     failures = 0
     for index, item in enumerate(items):
@@ -488,7 +482,7 @@ def _import_all(plan: dict[str, Any]) -> None:
         if fetched >= MAX_IMPORTS:
             _set_item(index, status="skipped", error="limit")
             continue
-        if fetched and _pause():
+        if fetched and await _pause():
             _skip_rest(index, "cancelled")
             _finish("cancelled")
             return
@@ -523,16 +517,15 @@ def _import_all(plan: dict[str, Any]) -> None:
     _finish("done")
 
 
-def _run(plan: dict[str, Any]) -> None:
+async def _run(plan: dict[str, Any]) -> None:
     started = time.perf_counter()
     try:
-        _import_all(plan)
+        await _import_all(plan)
     except _Stop as stop:
         _finish("error", stop.code)
     except Exception:  # noqa: BLE001 - een draad mag nooit stil stoppen zonder melding
         log.exception("Bulkimport mislukt")
-        with _lock:
-            start = next((i for i, item in enumerate(_job["items"]) if item["status"] not in FINAL), len(_job["items"]))
+        start = next((i for i, item in enumerate(_job["items"]) if item["status"] not in FINAL), len(_job["items"]))
         _skip_rest(start, "stopped")
         _finish("error", "internal")
     finally:

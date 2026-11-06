@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -7,9 +8,9 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ai_match, ai_review, auth, auth_password, offers  # noqa: E402
+from mealieshopper import ai_match, ai_review, auth, auth_password, offers, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import LiveClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -82,7 +83,7 @@ class Provider:
         return reply(url, {"recipes": entries})
 
 
-class AiMatchCase(unittest.TestCase):
+class AiMatchCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -102,9 +103,13 @@ class AiMatchCase(unittest.TestCase):
         self.addCleanup(sleep.stop)
         ai_match._job.clear()
         ai_match._job["state"] = "idle"
+        auth.forget_runtime_state()
+        self.addCleanup(auth.forget_runtime_state)
+        auth.init_db()
         self.app = create_app()
-        self.admin = SyncClient(self.app)
-        self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+
+    async def asyncTearDown(self):
+        await tasks.cancel_all()
 
     FETCHED = [
         {"id": "1", "title": "AH Kipfilet", "price": 3.0, "priceBefore": 4.0, "promoLabel": "Bonus"},
@@ -313,7 +318,7 @@ class SearchTest(AiMatchCase):
         self.assertEqual((len(provider.calls), result["searched"], result["remaining"]), (2, 4, 1))
         self.assertEqual(ai_match.plan("ah", 99999)["maxRecipes"], ai_match.MAX_RECIPES)
 
-    def test_without_a_key_or_offers_nothing_happens(self):
+    async def test_without_a_key_or_offers_nothing_happens(self):
         with mock.patch.object(ai_review.requests, "post", side_effect=AssertionError("geen aanroep")):
             with self.assertRaises(ValueError):
                 ai_match.plan("ah")  # geen aanbiedingen
@@ -321,85 +326,90 @@ class SearchTest(AiMatchCase):
             with self.assertRaises(ValueError):
                 ai_match.search("ah")  # geen sleutel
             with self.assertRaises(ValueError):
-                ai_match.start("ah")
+                await ai_match.start("ah")
             with self.assertRaises(ValueError):
                 ai_match.plan("lidl")
 
 
 class BackgroundTest(AiMatchCase):
-    def test_a_round_runs_and_reports_its_progress(self):
+    async def test_a_round_runs_and_reports_its_progress(self):
         self.seed()
         self.key()
         seen = []
         with mock.patch.object(ai_review.requests, "post", side_effect=Provider()):
             self.assertEqual(ai_match.progress()["state"], "idle")
             with mock.patch.object(ai_match, "search", wraps=ai_match.search) as search:
-                state = ai_match.start("ah", 10, background=False)
+                state = await ai_match.start("ah", 10, background=False)
         self.assertEqual(search.call_count, 1)
         self.assertEqual((state["state"], state["done"], state["total"], state["matched"], state["tokens"]), ("done", 2, 2, 4, 1200))
         self.assertEqual(state["result"]["searched"], 2)
         self.assertEqual(seen, [])
 
-    def test_only_one_round_at_a_time(self):
+    async def test_only_one_round_at_a_time(self):
         self.seed()
         self.key()
         ai_match._job.update(state="running")
         with self.assertRaises(ValueError):
-            ai_match.start("ah")
+            await ai_match.start("ah")
 
-    def test_an_error_ends_in_the_error_state_with_a_readable_text(self):
+    async def test_an_error_ends_in_the_error_state_with_a_readable_text(self):
         self.seed()
         self.key()
         with mock.patch.object(ai_review.requests, "post", return_value=FakeResponse(401, {"error": {"message": f"bad {CLAUDE_KEY}"}})):
-            state = ai_match.start("ah", background=False)
+            state = await ai_match.start("ah", background=False)
         self.assertEqual(state["state"], "error")
         self.assertIn("Claude", state["error"])
         self.assertNotIn("GEHEIM", json.dumps(state))
         with mock.patch.object(ai_match, "search", side_effect=RuntimeError(f"stuk {CLAUDE_KEY}")):
-            state = ai_match.start("ah", background=False)
+            state = await ai_match.start("ah", background=False)
         self.assertEqual(state["state"], "error")
         self.assertNotIn("GEHEIM", state["error"])
 
 
-class InlineThread:
-    def __init__(self, target=None, args=(), daemon=None, name=None):
-        self.target, self.args = target, args
-
-    def start(self):
-        self.target(*self.args)
-
-
 class RoutesTest(AiMatchCase):
-    def join(self):
-        token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        client = SyncClient(self.app)
-        client.post("/api/invites/password", json={"token": token, "password": ANNA})
+    async def asyncSetUp(self):
+        # De ronde loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
+        # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
+        self.test_app = self.app.test_app()
+        await self.test_app.startup()
+        self.addAsyncCleanup(self.test_app.shutdown)
+        self.admin = self.new_client()
+        await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+
+    def new_client(self):
+        return LiveClient(self.test_app.test_client())
+
+    async def join(self):
+        invite = await self.admin.post("/api/users/invites", json={"username": "anna"})
+        client = self.new_client()
+        await client.post("/api/invites/password", json={"token": invite.get_json()["token"], "password": ANNA})
         return client
 
-    def test_only_the_administrator_can_search(self):
-        anna, anonymous = self.join(), SyncClient(self.app)
+    async def test_only_the_administrator_can_search(self):
+        anna, anonymous = await self.join(), self.new_client()
         for client, expected in ((anna, 403), (anonymous, 401)):
-            self.assertEqual(client.get("/api/offers/ai/search/plan?store=ah").status_code, expected)
-            self.assertEqual(client.post("/api/offers/ai/search", json={"store": "ah"}).status_code, expected)
-            self.assertEqual(client.get("/api/offers/ai/search/status").status_code, expected)
+            self.assertEqual((await client.get("/api/offers/ai/search/plan?store=ah")).status_code, expected)
+            self.assertEqual((await client.post("/api/offers/ai/search", json={"store": "ah"})).status_code, expected)
+            self.assertEqual((await client.get("/api/offers/ai/search/status")).status_code, expected)
         self.assertEqual(ai_match.progress()["state"], "idle")
 
-    def test_plan_start_and_status_over_the_api(self):
+    async def test_plan_start_and_status_over_the_api(self):
         self.seed()
         self.key()
-        plan = self.admin.get("/api/offers/ai/search/plan?store=ah&max=50").get_json()
+        plan = (await self.admin.get("/api/offers/ai/search/plan?store=ah&max=50")).get_json()
         self.assertEqual((plan["todo"], plan["chosen"], plan["chunks"]), (2, 2, 1))
-        with mock.patch.object(ai_match.threading, "Thread", InlineThread), mock.patch.object(ai_review.requests, "post", side_effect=Provider()):
-            started = self.admin.post("/api/offers/ai/search", json={"store": "ah", "max": 50})
+        with mock.patch.object(ai_review.requests, "post", side_effect=Provider()):
+            started = await self.admin.post("/api/offers/ai/search", json={"store": "ah", "max": 50})
+            await asyncio.gather(*tasks.running().values())
         self.assertEqual(started.status_code, 200)
-        status = self.admin.get("/api/offers/ai/search/status").get_json()
+        status = (await self.admin.get("/api/offers/ai/search/status")).get_json()
         self.assertEqual((status["state"], status["done"], status["total"], status["result"]["searched"]), ("done", 2, 2, 2))
-        self.assertEqual(self.admin.get("/api/offers/ai").get_json()["search"]["state"], "done", "ook in de AI-instellingen, voor de pagina na een herlading")
-        recipes = self.admin.get("/api/offers/recipes?store=ah").get_json()
+        self.assertEqual((await self.admin.get("/api/offers/ai")).get_json()["search"]["state"], "done", "ook in de AI-instellingen, voor de pagina na een herlading")
+        recipes = (await self.admin.get("/api/offers/recipes?store=ah")).get_json()
         self.assertEqual(recipes["ai"]["searched"], 2)
-        self.assertEqual(self.admin.get("/api/offers/ai/search/plan?store=lidl").status_code, 400)
+        self.assertEqual((await self.admin.get("/api/offers/ai/search/plan?store=lidl")).status_code, 400)
         ai_review.save({"clear": ["anthropic"]})
-        self.assertEqual(self.admin.post("/api/offers/ai/search", json={"store": "ah"}).status_code, 400)
+        self.assertEqual((await self.admin.post("/api/offers/ai/search", json={"store": "ah"})).status_code, 400)
 
 
 class MarkupTest(unittest.TestCase):

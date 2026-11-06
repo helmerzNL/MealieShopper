@@ -22,10 +22,10 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile, tasks  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncResponse  # noqa: E402
+from support import LiveClient, SyncResponse  # noqa: E402
 
-if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
-    from quart.typing import TestAppProtocol, TestClientProtocol, TestHTTPConnectionProtocol
+if TYPE_CHECKING:  # niet bij de import: pytest zou TestAppProtocol voor een testklasse aanzien
+    from quart.typing import TestAppProtocol
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_3131 = ROOT / "tests" / "fixtures" / "backup-3.13.1.json"
@@ -55,38 +55,6 @@ SECRETS = {
     "AI_ANTHROPIC_KEY": "sk-ant-0000000000000000000000",
     "AI_OPENAI_KEY": "sk-openai-111111111111111111",
 }
-
-
-class LiveClient:
-    """Een testclient binnen de lopende `test_app()` van de test, die elk antwoord meteen helemaal leest.
-
-    Het terugzetten loopt als achtergrondtask in de app. De `SyncClient` sluit de app na elke aanroep en annuleert dan
-    die task, dus deze tests houden een app open voor de hele test (zoals de fixture `client`) en praten met deze client.
-    """
-
-    def __init__(self, client: "TestClientProtocol") -> None:
-        self._client: TestClientProtocol = client
-
-    async def open(self, path: str, method: str, **kwargs: Any) -> SyncResponse:
-        response = await self._client.open(path, method=method, **kwargs)
-        content: bytes = await response.get_data(as_text=False)
-        return SyncResponse(content, response.status_code, response.headers)
-
-    async def get(self, path: str, **kwargs: Any) -> SyncResponse:
-        return await self.open(path, "GET", **kwargs)
-
-    async def post(self, path: str, **kwargs: Any) -> SyncResponse:
-        return await self.open(path, "POST", **kwargs)
-
-    async def delete(self, path: str, **kwargs: Any) -> SyncResponse:
-        return await self.open(path, "DELETE", **kwargs)
-
-    def set_cookie(self, key: str, value: str) -> None:
-        self._client.set_cookie("localhost", key, value)
-
-    def stream(self, path: str, headers: dict[str, str], method: str = "POST") -> "TestHTTPConnectionProtocol":
-        """Een verzoek waarvan de test het lichaam zelf in stukken stuurt (zonder Content-Length, zoals chunked)."""
-        return self._client.request(path, method=method, headers=headers)
 
 
 async def chunks(data: bytes, size: int) -> AsyncIterator[bytes]:
