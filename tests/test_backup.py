@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import closing
@@ -12,6 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from PIL import Image
+from werkzeug.exceptions import ClientDisconnected
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
@@ -749,6 +751,68 @@ class ChunkedUploadTest(BackupCase):
         self.assertEqual((caught.exception.key, caught.exception.status), ("too_large", 413))
         self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"")  # een half stuk blijft niet staan
 
+    def test_a_part_that_gets_stuck_does_not_hold_up_the_others(self):
+        # Een stuk dat onderweg blijft steken (de proxy geeft de rest nooit door) mag de volgende poging niet laten
+        # wachten: anders staan na een paar pogingen alle vier de werkers stil en antwoordt de hele app niet meer.
+        token = uploads.begin(backup.STAGE_PREFIX, 100, 100)["token"]
+        release, reading = threading.Event(), threading.Event()
+
+        class Stuck:
+            def __init__(self):
+                self.sent = False
+
+            def read(self, size):
+                if not self.sent:
+                    self.sent = True
+                    return b"{" * 10
+                reading.set()
+                release.wait(10)
+                return b""
+
+        outcome = {}
+
+        def stuck():
+            try:
+                outcome["result"] = uploads.append(backup.STAGE_PREFIX, token, 0, Stuck(), 20, 100)
+            except uploads.UploadError as exc:
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=stuck)
+        thread.start()
+        self.assertTrue(reading.wait(5))
+        started = time.monotonic()
+        self.assertEqual(uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"{" * 20), 20, 100), {"received": 20})
+        self.assertLess(time.monotonic() - started, 1)
+        release.set()
+        thread.join(5)
+        self.assertEqual((outcome["error"].key, outcome["error"].params["received"]), ("out_of_order", 20))  # te laat: niets dubbel
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"{" * 20)
+
+    def test_a_part_that_goes_silent_is_given_up_with_408(self):
+        token = uploads.begin(backup.STAGE_PREFIX, 100, 100)["token"]
+
+        class Sock:
+            def __init__(self):
+                self.timeouts = [None]
+
+            def gettimeout(self):
+                return self.timeouts[-1]
+
+            def settimeout(self, value):
+                self.timeouts.append(value)
+
+        class Silent:
+            def read(self, size):
+                raise ClientDisconnected()  # zo meldt werkzeug een verbinding die stil blijft (socket.timeout) of wegvalt
+
+        sock = Sock()
+        with self.assertLogs("mealieshopper.uploads", "WARNING"), self.assertRaises(uploads.UploadError) as caught:
+            uploads.append(backup.STAGE_PREFIX, token, 0, Silent(), 20, 100, sock=sock)
+        self.assertEqual((caught.exception.key, caught.exception.status), ("stalled", 408))
+        self.assertEqual(sock.timeouts, [None, uploads.READ_TIMEOUT_SECONDS, None])  # daarna weer zoals gunicorn hem had
+        self.assertEqual((self.data / f".restore-{token}.part").read_bytes(), b"")
+        self.assertEqual(uploads.append(backup.STAGE_PREFIX, token, 0, io.BytesIO(b"{"), 1, 100, sock=sock), {"received": 1})
+
     def test_an_incomplete_upload_is_not_checked_and_is_removed(self):
         _, data = self.make()
         token = self.begin(len(data)).get_json()["token"]
@@ -993,7 +1057,7 @@ class PageTest(unittest.TestCase):
             self.assertIn(needle, self.JS)
         # Het bestand gaat in stukken (upload.js), met een balk per verstuurde byte en een tijdslimiet per stuk.
         self.assertIn('uploadInChunks(file, "/api/backup/uploads"', self.JS)
-        for needle in ("XMLHttpRequest", "upload.onprogress", "request.timeout", "status === 409", "/stage`"):
+        for needle in ("XMLHttpRequest", "upload.onprogress", "request.timeout", "stall: UPLOAD_STALL_MS", "request.abort()", "status === 409", "408", "/stage`"):
             self.assertIn(needle, self.UPLOAD_JS)
         self.assertLess(self.HTML.index("filename='app.js'"), self.HTML.index("filename='upload.js'"))
         self.assertLess(self.HTML.index("filename='upload.js'"), self.HTML.index("filename='backup.js'"))

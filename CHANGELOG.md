@@ -2,6 +2,19 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.18.2
+
+### Opgelost in 3.18.2
+
+*English summary: a backup upload in parts (3.18.1) could freeze the whole app. A part that got stuck on the way kept a lock while the server waited for the rest of it, so every retry waited behind it and took one of the four workers; after a few retries nothing answered any more, and each next attempt hung earlier. The server now reads a part completely before taking the lock, gives up a part that stays silent for 30 seconds (408, with a line in the log), and the screen sends a part again after 30 seconds without progress instead of two minutes.*
+
+- **Opgelost: een tweede of derde poging om een back-up terug te zetten bleef steeds eerder hangen** (na 20 MB, daarna al na 4 MB), en dan antwoordde de hele app niet meer. Bleef één stuk onderweg steken, dan hield de server een slot vast terwijl hij op de rest van dat stuk wachtte. Elke nieuwe poging wachtte achter dat slot en nam een van de vier werkers van de app in beslag; na een paar pogingen stond alles stil, tot een herstart. Dat zat in 3.18.1.
+  - De server leest een stuk nu eerst helemaal en houdt het slot alleen vast tijdens het schrijven (milliseconden). Een stuk dat blijft steken, houdt de andere niet meer op.
+  - Een stuk waar 30 seconden niets van binnenkomt, geeft de server op met `408` (en een regel in het logboek: *Upload …: stuk afgebroken na … bytes*). Gunicorn heeft zelf geen tijdslimiet voor het lezen van een verzoek, dus zo'n werker bleef anders voor altijd bezet.
+  - Het scherm stuurt een stuk opnieuw als er 30 seconden niets mee gebeurt (was: twee minuten) en probeert het ook bij `408` opnieuw.
+- **Ontwikkeling**: `test_backup` heeft 2 nieuwe tests: een stuk dat blijft steken, houdt een ander stuk niet op (op 3.18.1 wachtte dat 10 seconden), en een verbinding die stil blijft, geeft `408` en zet de tijdslimiet van de verbinding daarna terug. Nagebootst met gunicorn en een proxy die twee stukken halverwege laat steken: de upload ging na 2 × 30 seconden verder, `/healthz` bleef antwoorden, en de twee pogingen daarna duurden elk 8 seconden.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-10`). Ververs de pagina één keer.
+
 ## v3.18.1
 
 ### Opgelost in 3.18.1
