@@ -20,6 +20,17 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
 - Pull request [#263](https://github.com/helmerzNL/MealieShopper/pull/263).
 
+## v3.16.2
+
+### Gewijzigd in 3.16.2
+
+*English summary: MealieShopper's MIT license now names Flux76 as copyright holder (`Copyright (c) 2026 Flux76`), in the `LICENSE` file and in the License section of both READMEs. The license itself and the app are unchanged.*
+
+- **Licentie op naam van Flux76.** In `LICENSE` staat nu `Copyright (c) 2026 Flux76` in plaats van `Helmer`. De licentie zelf blijft MIT, met dezelfde tekst.
+- **README's** (NL en EN): de regel onder *Licentie* / *License* luidt nu `MIT © 2026 Flux76`, gelijk aan het `LICENSE`-bestand.
+- Aan de app zelf verandert niets; je hoeft de pagina niet te verversen.
+- Pull request [#265](https://github.com/helmerzNL/MealieShopper/pull/265).
+
 ## v3.16.1
 
 ### Gewijzigd in 3.16.1
