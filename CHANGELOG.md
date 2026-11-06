@@ -2,21 +2,33 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.18.0
+
+### Nieuw, opgelost en verwijderd in 3.18.0
+
+*English summary: importing a price archive no longer fills the Price history with odd products. Every leaflet line is tidied up on import: it is linked to your own products where possible (with the linking from wolph's `import_archive.py`), a combination offer ("A or B", "all ...") that belongs to no product is left out, and a leaflet line without a known pack size gets no price, so prices of different packs no longer share one chart. Upload the package again with Replace what came from a price archive before ticked, and the earlier import is replaced by the tidied one. No separate tool is needed any more.*
+
+- **Opgelost: vreemde producten in de Prijsgeschiedenis.** Na de import van het folderarchief stond bij een zoekopdracht als *runderhamburger* een lange rij *Folder: …*-producten. Daarbij zaten combi-aanbiedingen (*AH Runderhamburger 2 stuks of gehaktschnitzel …*, ruim 60% van het archief), en folderproducten zonder verpakking waarin prijzen van verschillende schalen door elkaar liepen (€2,25 en €0,93 bij *Folder: AH Runderhamburgers*). Upload het pakket opnieuw met **Vervang wat eerder uit een prijsarchief kwam** aangevinkt: bij dat voorbeeld zijn het er dan 9 in plaats van 46.
+- **Opschonen bij het importeren** (nieuw: `price_archive_tidy.py`). Elke folderregel (een aanbieding met een product-id `folder:…`) gaat eerst hierdoor:
+  - **Koppelen aan je eigen producten:** de app zoekt hem op tussen wat hij zelf kent (je aanbiedingen, bijgehouden prijzen en bestellingen; geen archiefregels). Eerst exact op naam en verpakking, anders op woorden; dan zonder prijs, omdat verpakking of variant niet vaststaat. De koppeling komt uit `import_archive.py` van wolph (`match_product` en `link_approximate`, met dezelfde drempels).
+  - **Combi-aanbiedingen die bij geen product horen, komen er niet in.**
+  - **Een folderregel zonder gewicht, inhoud of aantal krijgt geen prijs**; hij telt wel als keer in de aanbieding.
+  - De samenvatting zegt hoeveel regels zijn gekoppeld, overgeslagen en zonder prijs gebleven (`tidied`). Een regel die het archief zelf al aan een product koppelde, blijft zoals hij is, en een regel die het opschonen niet kan lezen gaat ongemoeid naar de controle.
+- **Verwijderd: het losse hulpscript om het archief om te zetten.** Het opschonen zit nu in de import zelf, dus je uploadt gewoon het pakket. De handleiding beschrijft het niet meer.
+- **Handleiding** (NL en EN): het opschonen bij het importeren, en hoe je met Vervangen een eerdere import vervangt.
+- **Ontwikkeling**: `test_price_archive` heeft 6 nieuwe tests voor het opschonen (combi's, verpakking, koppelen aan eigen producten, een regel die het archief al koppelde, het eigen formaat, onleesbare regels). De nepmap in de tests heeft een verzonnen naam.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-8`; 3.16.1 en 3.17.0 gebruikten allebei `20261106-7`, waardoor een browser die 3.16.1 al had de stijlen en teksten van 3.17.0 niet ophaalde). Ververs de pagina één keer.
+
 ## v3.17.0
 
-### Nieuw en opgelost in 3.17.0
+### Nieuw in 3.17.0
 
-*English summary: the price archive no longer fills the Price history with odd products. A new script, `scripts/price_archive_from_gist.py`, converts wolph's gist (from its address, the ZIP, the .tar.gz or a folder) into one small `.jsonl.gz` in the `mealieshopper-price-archive` format, and tidies it up: with `--database` and a copy of your `auth.sqlite3` it links leaflet lines to your own products, using the linking from wolph's `import_archive.py`; combination offers ("A or B", "all ...") that belong to no product are left out; and a leaflet line without a known pack size gets no price, so prices of different packs no longer share one chart. Under Settings, System the import has a new box, Replace what came from a price archive before, that removes earlier archive lines first, in the same transaction; what the app fetched itself stays.*
+*English summary: under Settings, System the price archive import has a new box, Replace what came from a price archive before, that removes earlier archive lines first, in the same transaction; what the app fetched itself stays.*
 
-- **Opgelost: vreemde producten in de Prijsgeschiedenis.** Na de import van het folderarchief stond bij een zoekopdracht als *runderhamburger* een lange rij *Folder: …*-producten. Daarbij zaten combi-aanbiedingen (*AH Runderhamburger 2 stuks of gehaktschnitzel …*, ruim 60% van het archief), en folderproducten zonder verpakking waarin prijzen van verschillende schalen door elkaar liepen (€2,25 en €0,93 bij *Folder: AH Runderhamburgers*). Met het opgeschoonde bestand en **Vervangen** zijn het er bij dat voorbeeld 9 in plaats van 46.
-- **Script `scripts/price_archive_from_gist.py`** (in de repository, niet in de container; alleen de standaardbibliotheek van Python 3.9 of nieuwer). Het zet het pakket van de gist om naar één `.jsonl.gz` in het eigen formaat, vanaf het adres van de gist, de ZIP, het `.tar.gz` of een uitgepakte map, met dezelfde controlesommen als de app. Het bestand is 5 MB in plaats van een ZIP van ruim 100 MB.
-  - **Koppelen aan jouw producten** met `--database` (een kopie van `auth.sqlite3`, alleen gelezen). De koppeling komt uit `import_archive.py` van wolph (`match_product` en `link_approximate`, met dezelfde drempels): eerst exact op naam en verpakking, anders op woorden, en dan zonder prijs als verpakking of variant niet vaststaat. Archiefregels in je database tellen daarbij niet als product.
-  - **Combi-aanbiedingen die bij geen product horen, laat het weg** (`--keep-groups` houdt ze). **Een folderregel zonder gewicht, inhoud of aantal krijgt geen prijs** (`--keep-unknown-prices` houdt die). Met beide opties en zonder `--database` is de uitvoer gelijk aan het pakket.
-  - De herkomstvelden blijven staan (`--compact` laat ze weg), en de kop zegt wat het opschonen deed.
 - **Vervang wat eerder uit een prijsarchief kwam** (Instellingen, Systeem, Prijsarchief importeren). Staat er al iets uit een archief, dan toont de samenvatting een vinkje met hoeveel aanbiedingen en prijzen dat zijn. Aangevinkt gaan die er eerst uit, in dezelfde transactie als de import, en de samenvatting rekent dan uit wat er na het vervangen bij komt. Een archiefregel is een aanbieding met een product-id `folder:…` of een adres van supermarktaanbiedingen.com of voordeelmuis.nl, of een prijs met de bron `public_press_release` of `public_observed_unknown`; wat de app zelf ophaalde blijft altijd staan. `POST /api/price-archive/jobs` neemt `replace: true`; de samenvatting van de upload geeft `archived` en `replace`, de klus `removed`.
 - **Teksten.** De inleiding van het vak zegt niet meer dat er nooit iets wordt vervangen, en de regel onderaan volgt het vinkje.
-- **Handleiding** (NL en EN): het vinkje Vervangen, het script met zijn opties, en wat je doet als je het archief al had geïmporteerd. De README's noemen het vinkje.
-- **Ontwikkeling**: `test_price_archive` heeft 7 nieuwe tests voor het vervangen (alleen archiefregels, zonder vinkje niets weg, alleen `true`, dezelfde rijen bij hetzelfde pakket, correcties, mislukken, een lege installatie). `test_price_archive_from_gist` (16 tests) test het omzetten, de bronnen, het ophalen bij de gist, het weglaten van combi's, de prijs zonder verpakking, het koppelen aan een eigen database (alleen gelezen) en alles wat geweigerd wordt.
+- **Handleiding** (NL en EN): het vinkje Vervangen. De README's noemen het vinkje.
+- **Ontwikkeling**: `test_price_archive` heeft 7 nieuwe tests voor het vervangen (alleen archiefregels, zonder vinkje niets weg, alleen `true`, dezelfde rijen bij hetzelfde pakket, correcties, mislukken, een lege installatie).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
 - Pull request [#263](https://github.com/helmerzNL/MealieShopper/pull/263).
 

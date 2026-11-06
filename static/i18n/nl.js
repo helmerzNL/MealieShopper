@@ -1480,6 +1480,7 @@ I18N.add("nl", {
   "price_archive.corrections": "Correcties van eerder geïmporteerde archiefregels: {apply} toe te passen, {already} al goed, {missing} niet nodig (die regels staan er nog niet), {conflict} overgeslagen (de huidige waarde wijkt af).",
   "price_archive.total.one": "Samen {count} nieuwe regel.",
   "price_archive.total.other": "Samen {count} nieuwe regels.",
+  "price_archive.tidied": "Opgeschoond: {linked} folderregels gekoppeld aan je eigen producten, {groups} combi-aanbiedingen overgeslagen en bij {prices} folderregels zonder bekende verpakking de prijs weggelaten.",
   "price_archive.nothing_new": "Alles uit dit archief staat er al. Er valt niets te importeren.",
   "price_archive.replace_label": "Vervang wat eerder uit een prijsarchief kwam",
   "price_archive.replace_note": "Er staan nu {offers} aanbiedingen en {prices} prijzen uit een prijsarchief. Met dit vinkje gaan die er eerst uit, in dezelfde stap; wat de app zelf ophaalde blijft staan.",
