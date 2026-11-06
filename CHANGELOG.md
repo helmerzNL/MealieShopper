@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.12.3
+
+### Gewijzigd en opgelost in 3.12.3
+
+*English summary: when you switch store under Stores, the section that was open now stays open, as it already did under Offers. From Lists at Albert Heijn to Jumbo opens Lists at Jumbo, from Orders at Jumbo to Picnic opens Orders at Picnic; if the other store does not have that section, its first tab opens. The store menu links to that same address, so opening it in a new tab gives the same screen. A store switch is now one step in the browser history instead of two, and switching store with a list open no longer jumps back to an earlier screen. Reload the page once after updating.*
+
+- **Het open onderdeel blijft open bij een andere winkel.** Sta je onder Winkels op **Lijstjes** bij Albert Heijn en kies je Jumbo, dan opent **Lijstjes** van Jumbo, en van **Bestellingen** bij Jumbo naar Picnic opent **Bestellingen** van Picnic. Zo werkte Aanbiedingen al. Tot nu toe opende elke winkel bij **Recepten**. Heeft de andere winkel het onderdeel niet (Lijstjes bij Picnic, Recepten bij Crisp), dan opent zijn eerste tab. Recepten, Lijstjes, Bestellingen en Favorieten tellen als hetzelfde onderdeel bij elke winkel die ze heeft (`STORE_SECTIONS`, nu in `app.js`). Ook na het ontkoppelen van de open winkel blijft het onderdeel staan, bij Albert Heijn.
+- **De winkelkeuze linkt naar wat een klik opent.** De winkels in het uitklapmenu linkten naar `/stores/<winkel>`; nu naar het onderdeel dat een klik opent (`/stores/jumbo/lists`), zodat openen in een nieuw tabblad (Ctrl, Cmd of de middelste knop) hetzelfde scherm geeft. Een adres zonder onderdeel, zoals een oude bladwijzer `/stores/jumbo`, opent nog steeds de eerste tab.
+- **Opgelost: een winkelwissel was twee stappen in de geschiedenis.** Het adres kreeg eerst een tussenstap (de nieuwe winkel met het oude onderdeel, uit `resetOrders`) en daarna het echte adres, dus *Terug* moest twee keer. Nu opent de wissel één tab, die één keer laadt en één stap in het adres zet. `resetOrders` laadt zelf niet meer en zet het adres niet; dat doet de tab die erna opent. Een adres dat een andere winkel kiest (terug en vooruit, een bladwijzer) opent nu meteen het juiste onderdeel, zonder eerst de eerste tab van die winkel te laden.
+- **Opgelost: van winkel wisselen met een lijstje open sprong terug in de geschiedenis.** Had je een lijstje uit het overzicht geopend, dan sloot de wissel het met *Terug* in de browser. Dat opende het vorige adres, van de vorige winkel of een scherm daarvoor, in plaats van de gekozen winkel. Nu sluit het lijstje zonder stap terug.
+- **Handleiding** (NL en EN): wat er opent als je van winkel wisselt.
+- **Ontwikkeling**: `tests/test_store_switch.py` draait `switchItemsStore` en `renderItemsStore` in Node met een nagebootste tabbalk: per wissel welk onderdeel opent, dat het één klik is, de links in het menu en het ontkoppelen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#254](https://github.com/helmerzNL/MealieShopper/pull/254).
+
 ## v3.12.2
 
 ### Opgelost in 3.12.2
