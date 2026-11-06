@@ -823,7 +823,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "handler": tool_picnic_recipes,
     },
     "list_crisp_recipes": {
-        "description": "Je bewaarde recepten bij Crisp (Door jou bewaard in de Crisp-app), met id, naam, kooktijd, porties en labels. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
+        "description": "Je favoriete recepten bij Crisp (het hartje in de Crisp-app), met id, naam, kooktijd, porties en labels. Live opgehaald; er wordt niets opgeslagen of aan je mandje toegevoegd.",
         "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Aantal recepten, standaard 30."}}),
         "annotations": {**READ_ONLY, "title": "Crisp-recepten"},
         "handler": tool_crisp_recipes,

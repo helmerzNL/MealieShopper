@@ -694,9 +694,20 @@ def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Wat geen gewoon recept is. `itemType` in de zoekresultaten: producten en tekstblokken. `type` van een recept: een bundel
+# (meerdere recepten), een eigen recept of een maaltijdbox (`RecipeType` en `RecipeEntityType` in de app). Een soort die
+# hier niet staat, telt als recept: zo valt een nieuwe soort van Crisp niet stil weg.
+_NOT_RECIPE_ITEMS = {"product", "text"}
+_NOT_PLAIN_RECIPES = {"bundle", "user", "userRecipe", "mealkit", "mealkitRecipe"}
+
+
 def _plain_recipe(item: dict[str, Any]) -> bool:
-    """Eén gewoon recept. Een bundel (meerdere recepten), een eigen recept (`user`) of een maaltijdbox (`mealkit`) niet."""
-    return item.get("itemType", "recipe") == "recipe" and (item.get("type") or "") in ("", "recipe") and bool(item.get("id"))
+    """Eén gewoon recept. Een bundel, een eigen recept of een recept uit een maaltijdbox niet."""
+    return (
+        item.get("itemType") not in _NOT_RECIPE_ITEMS
+        and str(item.get("type") or "") not in _NOT_PLAIN_RECIPES
+        and bool(item.get("id"))
+    )
 
 
 def _recipe_cards(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -723,12 +734,40 @@ def search_recipes(query: Any) -> dict[str, Any]:
     return {"recipes": recipes, "total": len(recipes)}
 
 
-def get_saved_recipes() -> dict[str, Any]:
-    """Je bewaarde recepten: de recepten uit "Door jou bewaard" (`GET /saved/list`), in de volgorde van de app.
+def _favorite_recipe_items() -> list[dict[str, Any]]:
+    """De groep Favorieten van de receptenpagina in de app (`GET /recipe/favorites`): `{id, items: [...], total, ...}`."""
+    data = _authed("GET", "/recipe/favorites")
+    items = data.get("items") if isinstance(data, dict) else None
+    return [item for item in items or [] if isinstance(item, dict)]
 
-    Dezelfde lijst als `get_favorites`; daar staan de producten. Net als bij het zoeken alleen gewone recepten.
+
+def _saved_recipe_items() -> list[dict[str, Any]]:
+    """De recepten in "Door jou bewaard" (`GET /saved/list`); dezelfde lijst als `get_favorites`, die de producten neemt."""
+    return [entry["item"] for entry in _saved_entries() if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)]
+
+
+def get_saved_recipes() -> dict[str, Any]:
+    """Je favoriete recepten, zoals de app ze toont, zonder dubbelen en net als bij het zoeken alleen gewone recepten.
+
+    Het hartje bij een recept zet het in `recipeIds` van `/saved`. Waar de app dat terugtoont, hangt af van een experiment
+    (`202308:yourShop-saved`): met het experiment bij "Door jou bewaard" (`/saved/list`), zonder als Favorieten bovenaan
+    de receptenpagina (`/recipe/favorites`). Daarom lezen we allebei; eerst de favorieten. Lukt er één niet (anders dan
+    een verlopen koppeling), dan telt de andere; lukken ze allebei niet, dan de fout van de eerste.
     """
-    items = [entry["item"] for entry in _saved_entries() if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)]
+    items: list[dict[str, Any]] = []
+    failed: Exception | None = None
+    reached = 0
+    for fetch in (_favorite_recipe_items, _saved_recipe_items):
+        try:
+            items.extend(fetch())
+        except CrispAuthError:
+            raise  # de koppeling zelf is stuk: de andere bron helpt niet
+        except Exception as exc:  # noqa: BLE001 - de andere bron kan wel lukken
+            failed = failed or exc
+            continue
+        reached += 1
+    if not reached and failed:
+        raise failed
     recipes = _recipe_cards(items)
     return {"recipes": recipes, "total": len(recipes)}
 
@@ -932,6 +971,19 @@ def explore() -> dict[str, Any]:
         }
 
     check("favorites", "GET /saved/list", "/saved/list", inspect=saved_shape)
+
+    def favorite_recipes_shape(data: Any) -> dict[str, Any]:
+        items = [item for item in (data.get("items") or [] if isinstance(data, dict) else []) if isinstance(item, dict)]
+        total = data.get("total") if isinstance(data, dict) else None
+        return {
+            "count": len(items),
+            "total": total if isinstance(total, int) and not isinstance(total, bool) else None,
+            "itemFields": _keys(items[0] if items else {}),
+            "itemTypes": sorted({str(item.get("type") or "recipe") for item in items}),
+        }
+
+    # De favoriete recepten (het hartje): zonder het experiment yourShop-saved staan ze alleen hier, niet in /saved/list.
+    check("recipeFavorites", "GET /recipe/favorites", "/recipe/favorites", inspect=favorite_recipes_shape)
 
     def promo_shape(data: Any) -> dict[str, Any]:
         section = data.get("promo") if isinstance(data, dict) and isinstance(data.get("promo"), dict) else {}
