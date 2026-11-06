@@ -18,6 +18,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): het opschonen bij het importeren, en hoe je met Vervangen een eerdere import vervangt.
 - **Ontwikkeling**: `test_price_archive` heeft 6 nieuwe tests voor het opschonen (combi's, verpakking, koppelen aan eigen producten, een regel die het archief al koppelde, het eigen formaat, onleesbare regels). De nepmap in de tests heeft een verzonnen naam.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-8`; 3.16.1 en 3.17.0 gebruikten allebei `20261106-7`, waardoor een browser die 3.16.1 al had de stijlen en teksten van 3.17.0 niet ophaalde). Ververs de pagina één keer.
+- Pull request [#266](https://github.com/helmerzNL/MealieShopper/pull/266).
 
 ## v3.17.0
 
