@@ -421,6 +421,18 @@ class RoutesTest(FetchCase):
         self.assertEqual(again.status_code, 304)
         self.assertEqual(self.get.call_count, 1)
 
+    def test_image_route_answers_304_on_matching_etag(self):
+        self.serve(AH, 200, "image/png", picture(4, 4))
+        url = f"/api/images/{image_cache.token_for(AH)}"
+        first = self.client.get(url)
+        digest = image_cache.fetch(AH, now=NOW)["digest"]
+        self.assertEqual(first.headers["ETag"], f'"{digest}"')
+        again = self.client.get(url, headers={"If-None-Match": first.headers["ETag"]})
+        self.assertEqual((again.status_code, again.data), (304, b""))
+        self.assertEqual(again.headers["ETag"], f'"{digest}"')
+        self.assertEqual(again.headers["Cache-Control"], "private, max-age=31536000, immutable")
+        self.assertEqual(again.headers["X-Content-Type-Options"], "nosniff")
+
     def test_unknown_tokens_and_hosts_give_404_without_a_request(self):
         for token in ("%%%", image_cache.token_for("https://mealie.local/x.png"), image_cache.token_for("ftp://static.ah.nl/x")):
             self.assertEqual(self.client.get(f"/api/images/{token}").status_code, 404)

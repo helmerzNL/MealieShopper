@@ -823,6 +823,16 @@ class JobTest(BackupCase):
             self.assertEqual(conn.execute("SELECT id FROM backup_jobs").fetchone()["id"], job["id"])
 
 
+class BodyLimitTest(BackupCase):
+    def test_restore_upload_up_to_the_backup_limit_is_accepted(self):
+        # Quart weigert standaard alles boven 16 MiB met 413. Een bestand van precies de back-upgrens moet erdoor: het is geen
+        # geldige back-up, dus de validator mag 400 geven, maar de aanvraag mag niet al bij de lichaamsgrens stranden.
+        body = bytes(backup.MAX_STAGE_BYTES)
+        response = self.stage(body)
+        self.assertNotEqual(response.status_code, 413, response.get_data()[:200])
+        self.assertLess(response.status_code, 500)
+
+
 class PageTest(unittest.TestCase):
     HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
     JS = (ROOT / "static" / "backup.js").read_text(encoding="utf-8")
