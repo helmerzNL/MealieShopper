@@ -604,11 +604,11 @@ class PurchaseToolsTest(McpTestCase):
         run(ah_orders.save_basket({"id": 9, "state": "OPEN", "total": 4.5, "items": [{"productId": 1, "title": "Koffiebonen", "quantity": 2, "amount": 4.5}]}))
         with mock.patch.object(ah, "get_open_fulfillments", return_value=[{"id": 5, "state": "SCHEDULED", "total": 20.0, "deliveryDate": "2026-10-20"}]), mock.patch.object(ah, "get_closed_fulfillments", return_value=[]), mock.patch.object(
             ah, "get_order_details", return_value={"id": 5, "state": "DELIVERED", "deliveryDate": "2026-10-20", "items": [{"productId": 1, "title": "Koffiebonen", "brand": "AH", "quantity": 1, "amount": 5.0, "taxonomy": "Koffie"}]}
-        ), mock.patch.object(image_cache, "prefetch_async"):  # geen thread die echt foto's ophaalt
+        ), mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock):  # geen task die echt foto's ophaalt
             run(ah_orders.sync_orders())
         with mock.patch.object(ah, "get_receipts", return_value=[{"id": "R1", "dateTime": "2026-10-01T10:00:00", "total": 5.0}]), mock.patch.object(
             ah, "get_receipt", return_value={"id": "R1", "items": [{"productId": 1, "name": "Koffiebonen", "quantity": 1, "price": 5.0, "amount": 5.0}], "discounts": [], "payments": [{"method": "PIN", "amount": 5.0}]}
-        ), mock.patch.object(ah, "search_hq_ids", return_value=[]), mock.patch.object(image_cache, "prefetch_async"):
+        ), mock.patch.object(ah, "search_hq_ids", return_value=[]), mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock):
             run(ah_orders.sync_receipts())
 
     def test_empty_copy_says_so(self):

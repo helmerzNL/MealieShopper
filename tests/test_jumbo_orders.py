@@ -81,7 +81,7 @@ class TempDataDirTest(unittest.TestCase):
         jumbo._persisted_route.clear()
         jumbo._working_order_detail.clear()
         auth.set_secret(jumbo.REFRESH_SECRET, "ref")
-        prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij Jumbo ophaalt
+        prefetch = mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock)  # geen task die echt foto's bij Jumbo ophaalt
         prefetch.start()
         self.addCleanup(prefetch.stop)
 
@@ -241,7 +241,7 @@ class LocalCopyTest(TempDataDirTest):
             return run(jumbo_orders.sync_orders())
 
     def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
-        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+        with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([listed(1)], {"1": order(1, [line(1)])})
         prefetch.assert_called_once_with(limit=40)
 

@@ -18,10 +18,10 @@ class TempDataDirTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        # Geen thread die echt foto's ophaalt: na een synchronisatie (offers_schedule.sync_now, POST /api/offers/sync-all) start
+        # Geen task die echt foto's ophaalt: na een synchronisatie (offers_schedule.sync_now, POST /api/offers/sync-all) start
         # image_cache.prefetch_async er een, en die schreef soms nog in de tijdelijke map terwijl de test die opruimde
-        # ("OSError: Directory not empty"). Een test die de thread wil zien, zet zijn eigen mock eroverheen.
-        background = mock.patch.object(image_cache, "prefetch_async")
+        # ("OSError: Directory not empty"). Een test die de task wil zien, zet zijn eigen mock eroverheen.
+        background = mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock)
         background.start()
         self.addCleanup(background.stop)
         auth.init_db()
@@ -519,7 +519,7 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value={"found": 1}) as link, \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value={"products": 2}) as fill, \
              mock.patch.object(prices, "fill_regular_prices_nightly", new_callable=mock.AsyncMock, return_value={"lines": 4}) as regular, \
-             mock.patch.object(image_cache, "prefetch_nightly", return_value={"fetched": 3}) as prefetch:
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value={"fetched": 3}) as prefetch:
             self.assertTrue(await offers_schedule.run_if_due(datetime(2026, 10, 22, 6, 0).astimezone()))
         self.assertEqual((link.call_count, fill.call_count, regular.call_count, prefetch.call_count), (1, 1, 1, 1))
         self.assertIsNotNone(link.call_args.args[0])
@@ -533,8 +533,8 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
         # De knop onder Koppelen is een gewone aanvraag: de foto's gaan in de achtergrond, alleen de nachtelijke run wacht erop.
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly") as nightly, \
-             mock.patch.object(image_cache, "prefetch_async") as background:
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock) as nightly, \
+             mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as background:
             result = await offers_schedule.sync_now()
         nightly.assert_not_called()
         background.assert_called_once_with(limit=image_cache.PREFETCH_LIMIT)
@@ -543,7 +543,7 @@ class ScheduleTest(TempDataDirTest, unittest.IsolatedAsyncioTestCase):
     async def test_the_manual_run_skips_what_has_nothing_to_do(self):
         with mock.patch.object(ah_orders, "resolve_receipt_products_nightly", new_callable=mock.AsyncMock, return_value=None), \
              mock.patch.object(ah_orders, "backfill_receipt_images_nightly", new_callable=mock.AsyncMock, return_value=None), \
-             mock.patch.object(image_cache, "prefetch_nightly", return_value=None):
+             mock.patch.object(image_cache, "prefetch_nightly", new_callable=mock.AsyncMock, return_value=None):
             result = await offers_schedule.sync_now()
         self.assertEqual(sorted(result), ["finishedAt", "stores"])
 

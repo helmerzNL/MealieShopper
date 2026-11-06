@@ -103,7 +103,7 @@ def create_app() -> Quart:
             # Een onbereikbare data-map meldt zich bij het eerste gebruik; opstarten blijft mogelijk.
             app.logger.warning("Kon oude koppelingsgegevens niet opruimen", exc_info=True)
         try:
-            for host in image_cache.lift_stale_pauses():  # eenmalig: de pauze die een versie van voor 3.7.1 Picnic gaf (#236)
+            for host in await image_cache.lift_stale_pauses():  # eenmalig: de pauze die een versie van voor 3.7.1 Picnic gaf (#236)
                 app.logger.info("Pauze van de afbeeldingencache opgeheven voor %s", host)
         except (sqlite3.Error, OSError):
             app.logger.warning("Kon de pauze van de afbeeldingencache niet opheffen", exc_info=True)
@@ -649,7 +649,7 @@ def create_app() -> Quart:
         # er nog niet, dan haalt de server hem nu op (zoals een browser dat zou doen) en bewaart hem voor altijd. Een onbekende
         # host, een host in pauze na een 403 of een mislukking geven 404; de <img> verbergt zich dan (data-hide-on-error).
         url = image_cache.url_for(token)
-        found = image_cache.fetch(url) if url else None
+        found = await image_cache.fetch(url) if url else None
         if not found:
             return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
         # Quart kent geen etag= bij send_file: de ETag is de digest, en de 304 bij If-None-Match volgt daarna uit make_conditional.
@@ -663,7 +663,7 @@ def create_app() -> Quart:
     @app.get("/api/system/images")
     async def cached_images_status():
         # Voor de regel onder Instellingen > Systeem: hoeveel winkelfoto's er in de cache staan (image_cache.py).
-        return jsonify(image_cache.stats())
+        return jsonify(await image_cache.stats())
 
     # Oude aankopen inlezen uit bevestigingsmails (zie price_import.py). Alleen de beheerder: /api/prices/import staat in
     # auth.ADMIN_PREFIXES, want het schrijft (en wist) gegevens van het hele huishouden.

@@ -243,9 +243,10 @@ class ClassificationTest(BackupCase):
     async def test_every_table_is_either_in_the_backup_or_left_out_on_purpose(self) -> None:
         # Een nieuwe tabel met gegevens hoort in de back-up (DATA_TABLES) en in de round-trip-test: dit is de herinnering.
         backup.ensure_schemas()
-        for module in (audit, image_cache):
-            with closing(module._connect()):
-                pass
+        with closing(audit._connect()):
+            pass
+        async with image_cache._aconnect():
+            pass
         await self.oauth_schema()
         with closing(self.connect()) as conn:
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}

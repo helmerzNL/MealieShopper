@@ -114,11 +114,11 @@ async def run_all(trigger: str, now: datetime | None = None, *, wait_for_images:
         if outcome is not None:
             result = {**result, key: outcome}
     if wait_for_images:
-        images = image_cache.prefetch_nightly()
+        images = await image_cache.prefetch_nightly()
         if images is not None:
             result = {**result, "images": images}
-    else:  # de knop: een gewone aanvraag mag niet tien minuten duren, de foto's gaan in een eigen thread
-        image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
+    else:  # de knop: een gewone aanvraag mag niet tien minuten duren, de foto's gaan in een eigen task
+        await image_cache.prefetch_async(limit=image_cache.PREFETCH_LIMIT)
     await _record(trigger, result, now)
     return result
 

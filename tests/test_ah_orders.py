@@ -69,7 +69,7 @@ class AhOrdersTestCase(unittest.TestCase):
         pace = mock.patch.dict(ah_orders._PACE, {"last": float("-inf"), "recent": ah_orders.deque()})
         pace.start()
         self.addCleanup(pace.stop)
-        prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij AH ophaalt
+        prefetch = mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock)  # geen task die echt foto's bij AH ophaalt
         prefetch.start()
         self.addCleanup(prefetch.stop)
         self.client = SyncClient(create_app())
@@ -212,7 +212,7 @@ class OrdersCacheTest(AhOrdersTestCase):
             return self.client.post("/api/ah/orders/sync")
 
     def test_a_sync_starts_a_small_prefetch_round_for_the_photos(self):
-        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+        with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([{"id": 1, "state": "SUBMITTED", "deliveryDate": "2026-10-10", "slotStart": None, "slotEnd": None, "total": 1.0}])
         prefetch.assert_called_once_with(limit=40)
 
@@ -597,7 +597,7 @@ class ReceiptsCacheTest(AhOrdersTestCase):
         backfill.assert_called_once_with(batches=ah_orders.RECEIPT_IMAGES_BATCHES_OPEN, trigger="list")
 
     def test_a_sync_starts_a_small_prefetch_round(self):
-        with mock.patch.object(image_cache, "prefetch_async") as prefetch:
+        with mock.patch.object(image_cache, "prefetch_async", new_callable=mock.AsyncMock) as prefetch:
             self.sync([[{"id": "R1", "dateTime": "2026-10-10T09:00:00", "total": 2.58}]])
         prefetch.assert_called_once_with(limit=40)
 

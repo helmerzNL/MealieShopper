@@ -191,7 +191,7 @@ async def sync_orders() -> dict[str, Any]:
         )
         remaining = (await _fetchone(conn, "SELECT COUNT(*) FROM jumbo_orders WHERE items_synced = 0"))[0]
         await conn.commit()
-    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
+    await image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {
         "orders": len(orders), "new": new, "remaining": remaining, "storeReceipts": listed["storeReceipts"],
         **({"detailError": detail_error} if detail_error else {}),

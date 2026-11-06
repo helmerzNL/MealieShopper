@@ -388,7 +388,7 @@ async def sync_orders() -> dict[str, Any]:
         remaining = (await _fetchone(conn, "SELECT COUNT(*) FROM ah_orders WHERE kind = 'delivered' AND items_synced = 0"))[0]
         unfinished = sum(1 for order_id in gone if details.get(order_id) is None)
         await conn.commit()
-    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
+    await image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de nieuwe bestellingen alvast in de cache
     return {"open": len(open_orders), "archived": archived, "remaining": remaining, "unfinished": unfinished}
 
 
@@ -530,7 +530,7 @@ async def sync_receipts() -> dict[str, Any]:
         products = await resolve_receipt_products(now)
     except Exception:  # noqa: BLE001 - het koppelen van producten mag het ophalen van de bonnen nooit laten mislukken
         products = {"found": 0, "missing": 0, "failed": 0, "searches": 0}
-    image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de gekoppelde producten alvast in de cache
+    await image_cache.prefetch_async(limit=image_cache.PREFETCH_AFTER_SYNC)  # de foto's van de gekoppelde producten alvast in de cache
     return {"new": len(new), "total": len(listed), "remaining": remaining, "failed": failed, "products": products}
 
 
