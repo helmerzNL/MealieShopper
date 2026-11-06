@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def response(data=None, *, status=200, token=None):
@@ -896,7 +897,7 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual(set(calls), {"GET"})
 
     def test_favorites_route(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         found = {"products": [{"id": "s1", "title": "Melk"}], "total": 9, "filtered": True}
         with mock.patch.object(picnic, "get_favorites", return_value=found):
             self.assertEqual(client.get("/api/picnic/favorites").get_json(), found)
@@ -905,7 +906,7 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
     def test_favorites_route_passes_the_budget_and_refresh(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(picnic, "get_favorites", return_value={"products": [], "total": 0, "filtered": True, "pending": 0}) as get:
             client.get("/api/picnic/favorites?budget=4&refresh=1")
             client.get("/api/picnic/favorites?budget=999")
@@ -913,7 +914,7 @@ class FavoritesTest(TempDataDirTest):
         self.assertEqual([c.kwargs for c in get.call_args_list], [{"budget": 4, "refresh": True}, {"budget": 30, "refresh": False}, {"budget": None, "refresh": False}])
 
     def test_delivery_route(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         found = {"id": "d1", "items": [{"id": "s1", "title": "Melk", "quantity": 2}], "itemCount": 2}
         with mock.patch.object(picnic, "get_delivery", return_value=found) as get:
             self.assertEqual(client.get("/api/picnic/deliveries/d1").get_json(), found)
@@ -1100,7 +1101,7 @@ class RecipeExploreTest(TempDataDirTest):
 class PicnicRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_search_route(self):
         found = [{"id": "s1", "title": "Melk"}]

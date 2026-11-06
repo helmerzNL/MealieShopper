@@ -9,6 +9,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ai_match, ai_review, auth, auth_password, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -102,7 +103,7 @@ class AiMatchCase(unittest.TestCase):
         ai_match._job.clear()
         ai_match._job["state"] = "idle"
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     FETCHED = [
@@ -371,12 +372,12 @@ class InlineThread:
 class RoutesTest(AiMatchCase):
     def join(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.post("/api/invites/password", json={"token": token, "password": ANNA})
         return client
 
     def test_only_the_administrator_can_search(self):
-        anna, anonymous = self.join(), self.app.test_client()
+        anna, anonymous = self.join(), SyncClient(self.app)
         for client, expected in ((anna, 403), (anonymous, 401)):
             self.assertEqual(client.get("/api/offers/ai/search/plan?store=ah").status_code, expected)
             self.assertEqual(client.post("/api/offers/ai/search", json={"store": "ah"}).status_code, expected)

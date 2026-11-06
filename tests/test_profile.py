@@ -10,6 +10,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 from mealieshopper import auth, profile, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import ANNA, UsersTestCase  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
@@ -24,7 +25,7 @@ class ProfileTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         auth.init_db()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_display_name_is_cleaned_and_shown_in_the_status(self):
         response = self.client.put("/api/profile", json={"displayName": "  Helmer \n  Z\x00  "})
@@ -150,7 +151,7 @@ class ProfileTest(unittest.TestCase):
 
 class ProfileWithLoginTest(UsersTestCase):
     def test_everything_needs_a_login(self):
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         self.assertEqual(anonymous.get("/api/profile").status_code, 401)
         self.assertEqual(anonymous.put("/api/profile", json={"displayName": "x"}).status_code, 401)
         self.assertEqual(anonymous.post("/api/profile/avatar", data=PNG, content_type="image/png").status_code, 401)
@@ -178,7 +179,7 @@ class ProfileWithLoginTest(UsersTestCase):
         self.assertEqual(anna.put("/api/profile/preferences", json={"navbarStyle": "android"}).status_code, 200)
         self.assertEqual(self.admin.get("/api/auth/status").get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
         self.assertEqual((theirs["accent"], theirs["darkBackground"], theirs["theme"]), ("#0c9aa6", "green", "dark"))
-        self.assertEqual(self.app.test_client().put("/api/profile/preferences", json={"accent": "#000000"}).status_code, 401)
+        self.assertEqual(SyncClient(self.app).put("/api/profile/preferences", json={"accent": "#000000"}).status_code, 401)
 
 
 class ProfileMarkupTest(unittest.TestCase):

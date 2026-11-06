@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 class ExternalErrorStatusTest(unittest.TestCase):
@@ -18,7 +19,7 @@ class ExternalErrorStatusTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def assert_424(self, response, message):
         self.assertEqual(response.status_code, 424)

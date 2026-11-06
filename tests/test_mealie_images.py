@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import mealie, mealie_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 RECIPE_ID = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 OTHER_ID = "2b4e28ba-2fa1-11d2-883f-0016d3cca427"
@@ -32,7 +33,7 @@ class MealieImagesTestCase(unittest.TestCase):
             patcher = mock.patch.object(mealie, name, **({"return_value": value} if name != "ensure_configured" else {}))
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
 
 class ImagePathTest(unittest.TestCase):

@@ -13,7 +13,7 @@ from os import environ
 from typing import Any
 from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import auth, mealie
 from .i18n import tr
@@ -117,15 +117,15 @@ def settings_payload() -> dict[str, Any]:
     }
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/server-settings staat in auth.ADMIN_PREFIXES, ook voor lezen.
     @app.get("/api/server-settings")
-    def server_settings_get():
+    async def server_settings_get():
         return jsonify(settings_payload())
 
     @app.put("/api/server-settings")
-    def server_settings_put():
-        body = request.get_json(silent=True)
+    async def server_settings_put():
+        body = await request.get_json(silent=True)
         if not isinstance(body, dict) or not ({"publicBaseUrl", "mcpEnabled", "mcpTools", "weekStart"} & set(body)):
             return jsonify({"error": tr("Geen instelling opgegeven.", "No setting given.")}), 400
         updates: dict[str, str] = {}

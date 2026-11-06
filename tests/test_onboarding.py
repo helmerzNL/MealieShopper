@@ -8,6 +8,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, auth, auth_password, jumbo, mealie, onboarding, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 
@@ -35,7 +36,7 @@ class OnboardingTestCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.app = create_app()
-        self.client = self.app.test_client()
+        self.client = SyncClient(self.app)
 
     def status(self, client=None, **kwargs):
         return (client or self.client).get("/api/onboarding/status", **kwargs).get_json()
@@ -154,7 +155,7 @@ class LifecycleTest(OnboardingTestCase):
         self.assertEqual(status["authMode"], "password")
         self.assertEqual(self.client.post("/api/onboarding/complete").status_code, 200)
         self.assertFalse(self.status()["needed"])
-        self.assertFalse(self.status(self.app.test_client())["needed"], "ook voor een ander apparaat")
+        self.assertFalse(self.status(SyncClient(self.app))["needed"], "ook voor een ander apparaat")
 
     def test_skipping_security_also_stays_needed_until_completed(self):
         self.client.post("/api/auth/open", json={"confirm": True})
@@ -189,7 +190,7 @@ class LifecycleTest(OnboardingTestCase):
 class AccessTest(OnboardingTestCase):
     def test_status_and_start_are_public_but_complete_is_not(self):
         self.client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
-        stranger = self.app.test_client()
+        stranger = SyncClient(self.app)
         self.assertEqual(stranger.get("/api/onboarding/status").status_code, 200)
         self.assertEqual(stranger.post("/api/onboarding/start").status_code, 200)
         self.assertEqual(stranger.post("/api/onboarding/complete").status_code, 401)
@@ -197,7 +198,7 @@ class AccessTest(OnboardingTestCase):
 
     def test_status_reveals_nothing_secret(self):
         self.client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
-        text = str(self.status(self.app.test_client()))
+        text = str(self.status(SyncClient(self.app)))
         for secret in (PASSWORD, "test-secret", "admin"):
             self.assertNotIn(secret, text)
 

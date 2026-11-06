@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def live_list(list_id="abc", name="Favorieten", items=None):
@@ -34,7 +35,7 @@ class AhListsTestCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
 
 class SnapshotTest(AhListsTestCase):

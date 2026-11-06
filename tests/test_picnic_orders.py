@@ -12,6 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mcp, picnic, picnic_orders  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def summary(delivery_id, status="COMPLETED", start="2026-10-10T10:00:00+02:00", total=15.0):
@@ -142,7 +143,7 @@ class PicnicOrdersTest(unittest.TestCase):
     def test_routes(self):
         self.listed = [summary("d1")]
         self.details = {"d1": detail("d1", "Melk")}
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)), \
                 mock.patch.object(picnic, "get_delivery", side_effect=lambda i: self.details[i]):
             reply = client.post("/api/picnic/orders/sync")

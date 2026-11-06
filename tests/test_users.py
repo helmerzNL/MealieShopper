@@ -17,6 +17,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, auth_password, users  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -78,7 +79,7 @@ class UsersTestCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.post("/api/auth/password", {"username": "admin", "password": PASSWORD}, self.admin)
 
     def post(self, path, body=None, client=None):
@@ -92,7 +93,7 @@ class UsersTestCase(unittest.TestCase):
     def join(self, username="anna", password=ANNA):
         """Nodig een gebruiker uit en laat die een wachtwoord kiezen. Geeft de client van die gebruiker."""
         token = self.invite()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         response = self.post("/api/invites/password", {"token": token, "username": username, "password": password}, client)
         self.assertEqual(response.status_code, 200, response.get_json())
         return client
@@ -123,7 +124,7 @@ class InviteTest(UsersTestCase):
     def test_invite_creates_an_account_with_its_own_password(self):
         created = self.invite("anna")
         self.assertIn("#invite=" + created["token"], created["url"])
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         info = anonymous.get("/api/invites/info", headers={"X-Invite-Token": created["token"]}).get_json()
         self.assertEqual((info["valid"], info["kind"], info["username"], info["invitedBy"]), (True, "new", "anna", "admin"))
         response = self.post("/api/invites/password", {"token": created["token"], "password": ANNA}, anonymous)
@@ -135,7 +136,7 @@ class InviteTest(UsersTestCase):
         self.assertTrue(status["passwordConfigured"])
         # En de uitnodiging is gebruikt.
         self.assertEqual(anonymous.get("/api/invites/info", headers={"X-Invite-Token": created["token"]}).status_code, 404)
-        self.assertEqual(self.post("/api/invites/password", {"token": created["token"], "username": "bob", "password": ANNA}, self.app.test_client()).status_code, 404)
+        self.assertEqual(self.post("/api/invites/password", {"token": created["token"], "username": "bob", "password": ANNA}, SyncClient(self.app)).status_code, 404)
 
     def test_the_token_is_stored_hashed(self):
         token = self.invite()["token"]
@@ -147,7 +148,7 @@ class InviteTest(UsersTestCase):
         token = self.invite()["token"]
         with closing(auth.connect()) as conn, conn:
             conn.execute("UPDATE invites SET expires_at = ?", ((auth.utcnow() - timedelta(minutes=1)).isoformat(),))
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get("/api/invites/info", headers={"X-Invite-Token": token}).status_code, 404)
         self.assertEqual(client.get("/api/invites/info", headers={"X-Invite-Token": "nope"}).status_code, 404)
         self.assertEqual(client.get("/api/invites/info").status_code, 404)
@@ -155,7 +156,7 @@ class InviteTest(UsersTestCase):
 
     def test_name_and_password_rules_apply(self):
         token = self.invite()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "Admin", "password": ANNA}, client).status_code, 400)  # naam bezet
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "anna", "password": "kort"}, client).status_code, 400)
         self.assertEqual(self.post("/api/invites/password", {"token": token, "username": "", "password": ANNA}, client).status_code, 400)
@@ -171,12 +172,12 @@ class InviteTest(UsersTestCase):
         listed = self.admin.get("/api/users").get_json()
         self.assertEqual([i["id"] for i in listed["invites"]], [created["id"]])
         self.assertEqual(self.admin.delete(f"/api/users/invites/{created['id']}").status_code, 200)
-        self.assertEqual(self.app.test_client().get("/api/invites/info", headers={"X-Invite-Token": created["token"]}).status_code, 404)
+        self.assertEqual(SyncClient(self.app).get("/api/invites/info", headers={"X-Invite-Token": created["token"]}).status_code, 404)
         self.assertEqual(self.admin.delete(f"/api/users/invites/{created['id']}").status_code, 404)
 
     def test_an_invite_is_not_a_session(self):
         token = self.invite()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get("/api/users").status_code, 401)
         self.assertEqual(client.get("/api/auth/status").get_json()["authenticated"], False)
         self.assertIsNotNone(token)
@@ -213,13 +214,16 @@ class PermissionsTest(UsersTestCase):
         client = self.join()
         self.assertEqual(client.get("/api/ah/lists").status_code, 200)
         self.assertEqual(client.get("/api/about").status_code, 200)
-        self.assertEqual(self.app.test_client().get("/api/ah/lists").status_code, 401)
+        self.assertEqual(SyncClient(self.app).get("/api/ah/lists").status_code, 401)
 
     def test_without_login_everyone_is_the_administrator(self):
-        with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}), self.app.test_request_context():
-            self.assertTrue(auth.is_owner())
-        with self.app.test_request_context():
-            self.assertTrue(auth.is_owner() is False)  # niet ingelogd terwijl inloggen aanstaat
+        async def is_owner():
+            async with self.app.test_request_context("/"):
+                return auth.is_owner()
+
+        with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):
+            self.assertTrue(run(is_owner()))
+        self.assertTrue(run(is_owner()) is False)  # niet ingelogd terwijl inloggen aanstaat
 
     def test_which_paths_are_for_the_administrator(self):
         self.assertFalse(auth.admin_only("/api/ah/auth/status"))
@@ -244,7 +248,7 @@ class LoginTest(UsersTestCase):
     def test_each_user_logs_in_with_their_own_password(self):
         self.join("anna", ANNA)
         for name, password, ok in (("anna", ANNA, True), ("ANNA", ANNA, True), ("anna", PASSWORD, False), ("admin", ANNA, False), ("admin", PASSWORD, True)):
-            response = self.post("/api/auth/password/login", {"username": name, "password": password}, self.app.test_client())
+            response = self.post("/api/auth/password/login", {"username": name, "password": password}, SyncClient(self.app))
             self.assertEqual(response.status_code, 200 if ok else 401, (name, password))
 
     def test_mfa_is_per_user(self):
@@ -254,16 +258,16 @@ class LoginTest(UsersTestCase):
         self.assertEqual(started["account"], "anna")
         confirmed = self.post("/api/auth/mfa/confirm", {"code": auth_password.totp_code(secret)}, anna)
         self.assertEqual(confirmed.status_code, 200)
-        self.assertTrue(self.app.test_client().get("/api/auth/status").status_code == 200)
+        self.assertTrue(SyncClient(self.app).get("/api/auth/status").status_code == 200)
         # Anna heeft nu MFA, de beheerder niet.
-        login = self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.app.test_client()).get_json()
+        login = self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).get_json()
         self.assertTrue(login["mfaRequired"])
-        no_mfa = self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, self.app.test_client()).get_json()
+        no_mfa = self.post("/api/auth/password/login", {"username": "admin", "password": PASSWORD}, SyncClient(self.app)).get_json()
         self.assertNotIn("mfaRequired", no_mfa)
         self.assertFalse(self.admin.get("/api/auth/status").get_json()["mfaEnabled"])
         self.assertTrue(anna.get("/api/auth/status").get_json()["mfaEnabled"])
         # De code van Anna werkt met haar eigen kaartje.
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         ticket = self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, client).get_json()["ticket"]
         ok = self.post("/api/auth/password/mfa", {"ticket": ticket, "code": auth_password.totp_code(secret, at=__import__("time").time() + 30)}, client)
         self.assertEqual(ok.status_code, 200, ok.get_json())
@@ -271,7 +275,7 @@ class LoginTest(UsersTestCase):
 
     def test_changing_a_password_only_logs_that_user_out(self):
         anna = self.join("anna", ANNA)
-        anna_phone = self.app.test_client()
+        anna_phone = SyncClient(self.app)
         self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, anna_phone)
         changed = self.post("/api/auth/password", {"password": "nieuw-wachtwoord-123", "currentPassword": ANNA}, anna)
         self.assertEqual(changed.status_code, 200)
@@ -302,7 +306,7 @@ class LoginTest(UsersTestCase):
 class PasskeyInviteTest(UsersTestCase):
     def test_an_invited_user_can_choose_a_passkey_and_log_in_with_it(self):
         token = self.invite("bob")["token"]
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         phone = FakeAuthenticator()
         options = self.post("/api/auth/register/options", {"invite": token, "credentialName": "Bobs telefoon"}, anonymous)
         self.assertEqual(options.status_code, 200, options.get_json())
@@ -312,11 +316,11 @@ class PasskeyInviteTest(UsersTestCase):
         self.assertEqual(verified.status_code, 200, verified.get_json())
         status = anonymous.get("/api/auth/status").get_json()
         self.assertEqual((status["username"], status["isOwner"], status["credentialCount"]), ("bob", False, 1))
-        self.assertEqual(self.app.test_client().get("/api/invites/info", headers={"X-Invite-Token": token}).status_code, 404)
+        self.assertEqual(SyncClient(self.app).get("/api/invites/info", headers={"X-Invite-Token": token}).status_code, 404)
         self.assertEqual(auth.get_setting("AUTH_MODE"), "password")  # raakt de keuze van de beheerder niet
 
         # Inloggen met de passkey, op een ander apparaat.
-        other = self.app.test_client()
+        other = SyncClient(self.app)
         login = self.post("/api/auth/login/options", client=other).get_json()["options"]
         self.assertIn(b64(phone.credential_id), [c["id"] for c in login["allowCredentials"]])
         done = self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"])}, other)
@@ -326,7 +330,7 @@ class PasskeyInviteTest(UsersTestCase):
 
     def register_with(self, phone, flags=0x45, challenge=None, name="carol"):
         token = self.invite(name)["token"]
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         data = self.post("/api/auth/register/options", {"invite": token}, anonymous).get_json()
         credential = phone.create(challenge or data["options"]["challenge"], flags=flags)
         return anonymous, self.post("/api/auth/register/verify", {"invite": token, "userId": data["userId"], "credential": credential}, anonymous)
@@ -336,7 +340,7 @@ class PasskeyInviteTest(UsersTestCase):
         phone = FakeAuthenticator()
         _, verified = self.register_with(phone, flags=0x41)
         self.assertEqual(verified.status_code, 200, verified.get_json())
-        other = self.app.test_client()
+        other = SyncClient(self.app)
         login = self.post("/api/auth/login/options", client=other).get_json()["options"]
         done = self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x01)}, other)
         self.assertEqual(done.status_code, 200, done.get_json())
@@ -346,7 +350,7 @@ class PasskeyInviteTest(UsersTestCase):
         self.assertEqual(verified.status_code, 400)
         phone = FakeAuthenticator()
         self.register_with(phone, name="dave")
-        other = self.app.test_client()
+        other = SyncClient(self.app)
         login = self.post("/api/auth/login/options", client=other).get_json()["options"]
         self.assertEqual(self.post("/api/auth/login/verify", {"credential": phone.get(login["challenge"], flags=0x04)}, other).status_code, 400)
 
@@ -355,12 +359,12 @@ class PasskeyInviteTest(UsersTestCase):
         self.assertEqual(self.register_with(FakeAuthenticator(), challenge=b64(os.urandom(32)), name="erin")[1].status_code, 400)
 
     def test_a_bad_or_used_invite_gets_no_passkey_options(self):
-        self.assertEqual(self.post("/api/auth/register/options", {"invite": "nope"}, self.app.test_client()).status_code, 404)
-        self.assertEqual(self.post("/api/auth/register/options", {}, self.app.test_client()).status_code, 401)
+        self.assertEqual(self.post("/api/auth/register/options", {"invite": "nope"}, SyncClient(self.app)).status_code, 404)
+        self.assertEqual(self.post("/api/auth/register/options", {}, SyncClient(self.app)).status_code, 401)
 
     def test_a_taken_name_is_refused_before_a_passkey_is_made(self):
         token = self.invite()["token"]
-        response = self.post("/api/auth/register/options", {"invite": token, "username": "admin"}, self.app.test_client())
+        response = self.post("/api/auth/register/options", {"invite": token, "username": "admin"}, SyncClient(self.app))
         self.assertEqual(response.status_code, 400)
 
 
@@ -371,15 +375,15 @@ class ResetAndDeleteTest(UsersTestCase):
         reset = self.post(f"/api/users/{anna_id}/reset").get_json()
         self.assertEqual(reset["kind"], "reset")
         # Zolang de link niet gebruikt is, werkt het oude wachtwoord nog.
-        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.app.test_client()).status_code, 200)
-        client = self.app.test_client()
+        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).status_code, 200)
+        client = SyncClient(self.app)
         info = client.get("/api/invites/info", headers={"X-Invite-Token": reset["token"]}).get_json()
         self.assertEqual((info["kind"], info["username"]), ("reset", "anna"))
         # De naam uit het verzoek telt niet bij een reset.
         done = self.post("/api/invites/password", {"token": reset["token"], "username": "someoneelse", "password": "nieuw-wachtwoord-123"}, client)
         self.assertEqual(done.get_json()["username"], "anna")
-        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.app.test_client()).status_code, 401)
-        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": "nieuw-wachtwoord-123"}, self.app.test_client()).status_code, 200)
+        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).status_code, 401)
+        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": "nieuw-wachtwoord-123"}, SyncClient(self.app)).status_code, 200)
         self.assertFalse(anna.get("/api/auth/status").get_json()["authenticated"])  # oude sessie is weg
         self.assertEqual(len(users.list_users()), 2)
 
@@ -389,7 +393,7 @@ class ResetAndDeleteTest(UsersTestCase):
         self.post("/api/auth/mfa/confirm", {"code": auth_password.totp_code(secret)}, anna)
         anna_id = anna.get("/api/auth/status").get_json()["userId"]
         token = self.post(f"/api/users/{anna_id}/reset").get_json()["token"]
-        self.post("/api/invites/password", {"token": token, "password": "nieuw-wachtwoord-123"}, self.app.test_client())
+        self.post("/api/invites/password", {"token": token, "password": "nieuw-wachtwoord-123"}, SyncClient(self.app))
         self.assertFalse(auth.mfa_enabled(anna_id))
         self.assertEqual(auth.recovery_codes_left(anna_id), 0)
 
@@ -404,7 +408,7 @@ class ResetAndDeleteTest(UsersTestCase):
         anna_id = anna.get("/api/auth/status").get_json()["userId"]
         self.assertEqual(self.admin.delete(f"/api/users/{anna_id}").status_code, 200)
         self.assertFalse(anna.get("/api/auth/status").get_json()["authenticated"])
-        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, self.app.test_client()).status_code, 401)
+        self.assertEqual(self.post("/api/auth/password/login", {"username": "anna", "password": ANNA}, SyncClient(self.app)).status_code, 401)
         self.assertEqual([u["username"] for u in users.list_users()], ["admin"])
         with closing(auth.connect()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM password_credentials WHERE user_id = ?", (anna_id,)).fetchone()[0], 0)

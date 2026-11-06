@@ -14,6 +14,7 @@ os.environ.setdefault("MEALIESHOPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 OWN = "5e8f398d5c1add2c185b229d"
 OWN2 = "5eeb8bd189e849bb83470697"
@@ -276,7 +277,7 @@ class LocalCopyTest(TempDataDirTest):
 class RoutesAndToolsTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_a_list_opens_live_with_its_own_id_and_jumbo_s_quantities(self):
         live = {"id": OWN, "name": "Basis Lijstje", "items": [jumbo._product_list_item(product_item(1, amount=3))]}

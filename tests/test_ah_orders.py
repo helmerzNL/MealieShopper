@@ -10,6 +10,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_explore, ah_orders, auth, auth_password, image_cache, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ACTIVE = {
     "id": 4242, "state": "OPEN", "shoppingType": "DELIVERY",
@@ -65,7 +66,7 @@ class AhOrdersTestCase(unittest.TestCase):
         prefetch = mock.patch.object(image_cache, "prefetch_async")  # geen thread die echt foto's bij AH ophaalt
         prefetch.start()
         self.addCleanup(prefetch.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
 
 class ParsingTest(unittest.TestCase):
@@ -1377,14 +1378,14 @@ class PermissionsTest(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        self.anna = self.app.test_client()
+        self.anna = SyncClient(self.app)
         self.anna.post("/api/invites/password", json={"token": token, "password": "een-heel-ander-wachtwoord"})
 
     def test_everything_needs_a_login(self):
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         for path in ("/api/ah/basket", "/api/ah/orders", "/api/ah/receipts", "/api/ah/purchases/search?q=x", "/api/ah/receipts/search?q=x", "/api/ah/orders/1",
                      "/api/ah/linking"):
             self.assertEqual(anonymous.get(path).status_code, 401, path)

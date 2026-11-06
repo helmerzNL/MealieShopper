@@ -11,6 +11,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def reply(data=None, *, status=200, text=None, content_type="application/json"):
@@ -423,7 +424,7 @@ class BasketTest(TempDataDirTest):
 class JumboRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_start_redirects_to_the_jumbo_login(self):
         response = self.client.get("/api/jumbo/auth/start")

@@ -8,6 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mealie, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def rich(markdown, kind=None):
@@ -206,7 +207,7 @@ class SearchTest(TempDataDirTest):
         self.assertEqual(get.call_count, 1)
 
     def test_the_route_searches_when_q_is_given(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(picnic_recipes, "get_recipes", side_effect=lambda source: self.LISTS[source]):
             body = client.get("/api/picnic/recipes?q=pesto").get_json()
         self.assertEqual((body["source"], body["total"], body["recipes"][0]["id"]), ("search", 1, "r3"))
@@ -286,7 +287,7 @@ class MealieTest(unittest.TestCase):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_list_and_detail_routes(self):
         listed = [{"id": "r1", "name": "Pasta"}]

@@ -10,6 +10,7 @@ import requests  # noqa: E402
 
 from mealieshopper import audit, auth, mcp, oauth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def fake_response(url, status=200, body=b"{}", content_type="application/json", headers=None):
@@ -32,7 +33,7 @@ class AuditTestCase(unittest.TestCase):
             os.environ.pop(name, None)
         audit.install()
         self.app = create_app()
-        self.client = self.app.test_client()
+        self.client = SyncClient(self.app)
 
     def entries(self, **kwargs):
         return audit.list_entries(**kwargs)["entries"]
@@ -256,7 +257,7 @@ class EndpointTest(AuditTestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.app = create_app()
-        self.client = self.app.test_client()
+        self.client = SyncClient(self.app)
 
     def post(self, message, token="msa_goed"):
         headers = {"Authorization": f"Bearer {token}"} if token else {}

@@ -11,6 +11,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, auth, auth_password, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 READMES = {"nl": ROOT / "README.md", "en": ROOT / "README.en.md"}
@@ -185,7 +186,7 @@ class ResetLoginTest(unittest.TestCase):
                     mock.patch.object(mealie, "mealie_token", return_value=""), \
                     mock.patch.object(ah, "configured_refresh_token", return_value=""):
                 app = create_app()
-                client = app.test_client()
+                client = SyncClient(app)
                 auth.ensure_db()
                 with closing(auth.connect()) as conn, conn:
                     conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('owner', 'admin', 'x')")

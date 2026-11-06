@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def item(n, title, brand="AH"):
@@ -21,7 +22,7 @@ class ListSearchTest(unittest.TestCase):
         env = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         env.start()
         self.addCleanup(env.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
         ah_lists.save_snapshot({"id": "a", "name": "Weekboodschappen", "items": [
             item(1, "AH Halfvolle melk"), item(2, "Bio Café crème", brand="Douwe Egberts"), item(3, "Pindakaas")]})
         ah_lists.save_snapshot({"id": "b", "name": "Borrel", "items": [item(4, "Nootjes"), item(5, "AH Melkchocolade")]})

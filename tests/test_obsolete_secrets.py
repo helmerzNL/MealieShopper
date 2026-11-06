@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 class PurgeObsoleteSecretsTest(unittest.TestCase):
@@ -56,7 +57,7 @@ class RemovedRoutesTest(unittest.TestCase):
         # bedoeld (ook /api/jumbo/recipes, de recepten via de GraphQL-API); alleen wat met Chromium en de oude
         # REST-koppeling verdween blijft weg.
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"MEALIESHOPER_DATA_DIR": tmp}):
-            client = create_app().test_client()
+            client = SyncClient(create_app())
             for method, path in (
                 ("get", "/api/jumbo/browser/status"),
                 ("get", "/api/ah/browser/status"),

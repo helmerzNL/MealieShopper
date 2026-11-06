@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, crisp, crisp_orders, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def response(data=None, *, status=200):
@@ -448,7 +449,7 @@ class ExploreTest(TempDataDirTest):
 class CrispRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_login_routes(self):
         with mock.patch.object(crisp, "start_login", return_value={"connected": False, "codeRequired": True}) as start:
@@ -718,7 +719,7 @@ class OffersTest(TempDataDirTest):
 class CrispNewRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_quantity_and_clear_routes(self):
         with mock.patch.object(crisp, "set_quantity", return_value={"items": []}) as setter:

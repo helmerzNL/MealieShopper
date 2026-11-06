@@ -14,6 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, image_cache, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 STREET = "Voorbeeldstraat"
 CUSTOMER = "11111111-2222-3333-4444-555555555555"
@@ -252,7 +253,7 @@ class LocalCopyTest(TempDataDirTest):
         self.assertEqual((listed_order["savings"], listed_order["bonusCount"]), (0.81, 1))  # 4.00 - 3.19
         self.assertEqual((listed_order["statusKind"], listed_order["statusText"]), ("delivered", None))
         self.assertNotIn("images", jumbo_orders.list_orders()["orders"][0])
-        self.assertIn("images", create_app().test_client().get("/api/jumbo/orders").get_json()["orders"][0])
+        self.assertIn("images", SyncClient(create_app()).get("/api/jumbo/orders").get_json()["orders"][0])
 
     def test_sync_stores_orders_with_their_products_newest_first_and_no_address(self):
         result = self.sync(
@@ -359,7 +360,7 @@ class LocalCopyTest(TempDataDirTest):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_routes_read_the_copy_and_sync_talks_to_jumbo(self):
         self.assertEqual(self.client.get("/api/jumbo/orders").get_json(), {"syncedAt": None, "orders": []})
@@ -392,7 +393,7 @@ class DetailEnrichmentTest(TempDataDirTest):
             jumbo_orders._save_order(conn, {"id": "J2", "deliveryDate": "2026-09-21"}, [
                 {"productId": "1STK", "title": "Jumbo Huismerk 1", "quantity": 2, "price": 0.89, "priceBeforeBonus": 1.39, "bonus": True, "taxonomy": "Zuivel"},
             ])
-        order = create_app().test_client().get("/api/jumbo/orders/J2").get_json()
+        order = SyncClient(create_app()).get("/api/jumbo/orders/J2").get_json()
         item = order["items"][0]
         # De titel zegt niets, de taxonomie van Jumbo ("Zuivel") komt als hint mee. De gewone prijs komt uit bestelling J1.
         self.assertEqual((item["category"], item["regularPrice"], item["discount"], item["discountSource"], item["timesBefore"]),

@@ -9,6 +9,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import about, auth, auth_password  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -90,7 +91,7 @@ class ChannelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             os.environ, {"MEALIESHOPPER_TAG": tag, "MEALIESHOPPER_DATA_DIR": tmp, "PASSKEY_AUTH_ENABLED": "false"}
         ):
-            return create_app().test_client().get("/").get_data(as_text=True)
+            return SyncClient(create_app()).get("/").get_data(as_text=True)
 
     def test_beta_badge_only_on_a_beta_build(self):
         self.assertIn('id="beta-badge"', self._index("beta"))
@@ -100,7 +101,7 @@ class ChannelTest(unittest.TestCase):
 class ComponentsTest(unittest.TestCase):
     def test_installed_python_packages_report_their_real_version(self):
         data = {c["id"]: c for c in about.about()["components"]}
-        for ident in ("flask", "gunicorn", "pyjwt", "cryptography", "cbor2", "requests"):
+        for ident in ("quart", "gunicorn", "pyjwt", "cryptography", "cbor2", "requests"):
             self.assertRegex(data[ident]["version"], r"^\d+(\.\d+)+", ident)
         self.assertRegex(data["python"]["version"], r"^3\.\d+\.\d+")
         self.assertRegex(data["sqlite"]["version"], r"^3\.\d+")
@@ -145,7 +146,7 @@ class RouteTest(unittest.TestCase):
         cost = mock.patch.object(auth_password, "SCRYPT_N", 2**4)
         cost.start()
         self.addCleanup(cost.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_needs_a_login_when_security_is_on(self):
         self.client.post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
@@ -157,7 +158,7 @@ class RouteTest(unittest.TestCase):
         self.assertGreaterEqual(len(data["components"]), 15)
 
     def app_client(self):
-        return create_app().test_client()
+        return SyncClient(create_app())
 
 
 class PageTest(unittest.TestCase):

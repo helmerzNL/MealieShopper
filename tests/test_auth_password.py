@@ -8,6 +8,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, auth_password  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 OTHER = "een-heel-ander-wachtwoord"
@@ -28,7 +29,7 @@ class AuthPasswordTestCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.client = self.app.test_client()
+        self.client = SyncClient(self.app)
 
     def post(self, path, body=None, client=None):
         return (client or self.client).post(path, json=body or {})
@@ -37,7 +38,7 @@ class AuthPasswordTestCase(unittest.TestCase):
         return self.post("/api/auth/password", {"username": username, "password": password}, client)
 
     def new_client(self):
-        return self.app.test_client()
+        return SyncClient(self.app)
 
     def enable_mfa(self, client=None):
         client = client or self.client
@@ -255,7 +256,7 @@ class LoginTest(AuthPasswordTestCase):
         self.assertEqual(res.status_code, 401)
 
     def test_login_before_setup(self):
-        fresh = create_app().test_client()
+        fresh = SyncClient(create_app())
         with closing(auth.connect()) as conn, conn:
             conn.execute("DELETE FROM password_credentials")
         self.assertEqual(self.login(client=fresh).status_code, 400)
@@ -515,11 +516,11 @@ class MasterSecretTest(unittest.TestCase):
 
     def test_a_session_signed_with_the_old_guessable_secret_is_rejected(self):
         app = create_app()
-        client = app.test_client()
+        client = SyncClient(app)
         client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
         guessable = auth.hashlib.sha256(f"{auth.db_path()}:mealieshopper".encode()).hexdigest()  # de vroegere sleutel
         forged = auth.jwt.encode({"sub": "owner", "usr": "admin", "ep": 0, "exp": auth.utcnow() + auth.timedelta(hours=1)}, guessable, algorithm="HS256")
-        attacker = app.test_client()
+        attacker = SyncClient(app)
         attacker.set_cookie(auth.SESSION_COOKIE_NAME, forged)
         self.assertFalse(attacker.get("/api/auth/status").get_json()["authenticated"])
         self.assertEqual(attacker.get("/api/ah/lists/search?q=x").status_code, 401)

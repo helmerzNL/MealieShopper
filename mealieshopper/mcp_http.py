@@ -5,7 +5,7 @@ import json
 from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from flask import Flask, Response, jsonify, make_response, redirect, render_template, request
+from quart import Quart, Response, jsonify, make_response, redirect, render_template, request
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from . import audit, auth, mcp, oauth, server_settings
@@ -23,7 +23,7 @@ def _json(payload: Any, status: int = 200, **headers: str) -> Response:
     return response
 
 
-def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
+def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     app.jinja_env.globals["tr"] = tr
     app.jinja_env.globals["lang"] = current_lang
 
@@ -46,7 +46,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         return _json({"error": text}, 404)
 
     @app.after_request
-    def cors(response: Response) -> Response:
+    async def cors(response: Response) -> Response:
         # Token, registratie en MCP draaien zonder cookies: een webpagina (zoals de MCP Inspector) mag ze lezen.
         if request.path.startswith(CORS_PATHS):
             response.headers["Access-Control-Allow-Origin"] = "*"
@@ -59,7 +59,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
 
     @app.route("/.well-known/oauth-protected-resource", methods=["GET", "OPTIONS"])
     @app.route("/.well-known/oauth-protected-resource/mcp", methods=["GET", "OPTIONS"])
-    def protected_resource():
+    async def protected_resource():
         if request.method == "OPTIONS":
             return "", 204
         if not mcp.enabled()[0]:
@@ -75,7 +75,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         )
 
     @app.route("/.well-known/oauth-authorization-server", methods=["GET", "OPTIONS"])
-    def authorization_server():
+    async def authorization_server():
         if request.method == "OPTIONS":
             return "", 204
         if not mcp.enabled()[0]:
@@ -106,19 +106,19 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             Pragma="no-cache",
         )
 
-    def form_or_json() -> dict[str, str]:
+    async def form_or_json() -> dict[str, str]:
         if request.is_json:
-            data = request.get_json(silent=True)
+            data = await request.get_json(silent=True)
             return {str(k): v for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else {}
-        return request.form.to_dict()
+        return (await request.form).to_dict()
 
     @app.route("/oauth/register", methods=["POST", "OPTIONS"])
-    def oauth_register():
+    async def oauth_register():
         if request.method == "OPTIONS":
             return "", 204
         if not mcp.enabled()[0]:
             return unavailable()
-        metadata = request.get_json(silent=True)
+        metadata = await request.get_json(silent=True)
         if not isinstance(metadata, dict):
             return oauth_error(oauth.OAuthError("invalid_client_metadata", "Stuur een JSON-object"))
         try:
@@ -131,20 +131,20 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         query = parse_qsl(parts.query, keep_blank_values=True) + [(k, v) for k, v in params.items() if v]
         return redirect(urlunsplit(parts._replace(query=urlencode(query))), 302)
 
-    def error_page(message: str, status: int = 400) -> Response:
-        response = make_response(render_template("oauth.html", error=message, base=base_url()), status)
+    async def error_page(message: str, status: int = 400) -> Response:
+        response = await make_response(await render_template("oauth.html", error=message, base=base_url()), status)
         response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.get("/oauth/authorize")
-    def oauth_authorize():
+    async def oauth_authorize():
         if not mcp.enabled()[0]:
-            return error_page(unavailable().get_json()["error"], 404)
+            return await error_page((await unavailable().get_json())["error"], 404)
         params = request.args.to_dict()
         try:
             info = oauth.check_authorize_request(params, mcp_url())
         except oauth.OAuthError as exc:
-            return error_page(exc.description)
+            return await error_page(exc.description)
         if info["error"]:
             return redirect_with(info["redirect_uri"], error=info["error"].code, error_description=info["error"].description, state=info["state"], iss=base_url())
         if not auth.current_user():
@@ -154,8 +154,8 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             {k: info[k] for k in ("redirect_uri", "state", "code_challenge", "resource")}
             | {"client_id": info["client"]["client_id"], "user_id": user["id"]}
         )
-        response = make_response(
-            render_template("oauth.html", error="", client=info["client"]["name"], signed=signed, base=base_url(), username=user["username"])
+        response = await make_response(
+            await render_template("oauth.html", error="", client=info["client"]["name"], signed=signed, base=base_url(), username=user["username"])
         )
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Frame-Options"] = "DENY"
@@ -163,45 +163,45 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         return response
 
     @app.post("/oauth/authorize")
-    def oauth_authorize_decision():
+    async def oauth_authorize_decision():
         if not mcp.enabled()[0]:
-            return error_page(unavailable().get_json()["error"], 404)
+            return await error_page((await unavailable().get_json())["error"], 404)
         origin = request.headers.get("Origin")
         if origin and urlsplit(origin).netloc != request.host:
-            return error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
+            return await error_page(tr("Dit verzoek komt niet van deze pagina.", "This request did not come from this page."), 403)
         user = auth.current_user()
         if not user:
-            return error_page(tr("Je bent niet ingelogd.", "You are not logged in."), 401)
+            return await error_page(tr("Je bent niet ingelogd.", "You are not logged in."), 401)
         try:
-            data = serializer().loads(request.form.get("request", ""), max_age=600)
+            data = serializer().loads((await request.form).get("request", ""), max_age=600)
         except BadSignature:
-            return error_page(tr("Dit verzoek is verlopen. Begin opnieuw vanuit de app.", "This request has expired. Start again from the app."))
+            return await error_page(tr("Dit verzoek is verlopen. Begin opnieuw vanuit de app.", "This request has expired. Start again from the app."))
         if data.get("user_id") != user["id"]:  # tussendoor als iemand anders ingelogd
-            return error_page(tr("Je bent ondertussen als iemand anders ingelogd. Begin opnieuw vanuit de app.", "You are now logged in as someone else. Start again from the app."), 403)
+            return await error_page(tr("Je bent ondertussen als iemand anders ingelogd. Begin opnieuw vanuit de app.", "You are now logged in as someone else. Start again from the app."), 403)
         client = oauth.get_client(data["client_id"])
         if not client or data["redirect_uri"] not in client["redirect_uris"]:
-            return error_page(tr("Onbekende app.", "Unknown app."))
-        if request.form.get("decision") != "allow":
+            return await error_page(tr("Onbekende app.", "Unknown app."))
+        if (await request.form).get("decision") != "allow":
             return redirect_with(data["redirect_uri"], error="access_denied", state=data["state"], iss=base_url())
         code = oauth.issue_code(user["id"], data["client_id"], data["redirect_uri"], data["code_challenge"], data["resource"])
         return redirect_with(data["redirect_uri"], code=code, state=data["state"], iss=base_url())
 
     @app.route("/oauth/token", methods=["POST", "OPTIONS"])
-    def oauth_token():
+    async def oauth_token():
         if request.method == "OPTIONS":
             return "", 204
         if not mcp.enabled()[0]:
             return unavailable()
         try:
-            return _json(oauth.token_request(form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
+            return _json(oauth.token_request(await form_or_json(), mcp_url()), Cache_Control="no-store", Pragma="no-cache")
         except oauth.OAuthError as exc:
             return oauth_error(exc)
 
     @app.route("/oauth/revoke", methods=["POST", "OPTIONS"])
-    def oauth_revoke():
+    async def oauth_revoke():
         if request.method == "OPTIONS":
             return "", 204
-        oauth.revoke_token(form_or_json().get("token", ""))
+        oauth.revoke_token((await form_or_json()).get("token", ""))
         return "", 200
 
     # --- MCP ---------------------------------------------------------------------------------------
@@ -213,7 +213,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         return _json({"error": "unauthorized"}, 401, WWW_Authenticate=challenge)
 
     @app.route("/mcp", methods=["POST", "GET", "DELETE", "OPTIONS"])
-    def mcp_endpoint():
+    async def mcp_endpoint():
         if request.method == "OPTIONS":
             return "", 204
         if not mcp.enabled()[0]:
@@ -234,7 +234,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             audit.mcp_rejected(413, "request too large")
             return _json({"error": "Request too large"}, 413)
         try:
-            message = json.loads(request.get_data(as_text=True))
+            message = json.loads(await request.get_data(as_text=True))
         except ValueError:
             audit.mcp_rejected(400, "parse error")
             return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
@@ -251,7 +251,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
     # --- beheer in de app (achter de gewone inlog) ---------------------------------------------------
 
     @app.get("/api/mcp/status")
-    def mcp_status():
+    async def mcp_status():
         on, reason = mcp.enabled()
         base = base_url()
         host = urlsplit(base).hostname or ""
@@ -268,7 +268,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         )
 
     @app.delete("/api/mcp/apps/<client_id>")
-    def mcp_revoke_app(client_id: str):
+    async def mcp_revoke_app(client_id: str):
         if not oauth.revoke_app(auth.acting_user_id(), client_id):
             return jsonify({"error": tr("App niet gevonden.", "App not found.")}), 404
         return jsonify({"status": "ok"})

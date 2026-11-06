@@ -14,6 +14,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_orders, auth, image_cache, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
 NOW = "2026-11-04T03:00:00+00:00"
@@ -406,7 +407,7 @@ class FetchTest(FetchCase):
 class RoutesTest(FetchCase):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_the_route_serves_the_cached_file_with_a_long_cache_header(self):
         self.serve(AH, 200, "image/webp", picture(8, 8, "WEBP"))

@@ -10,6 +10,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 URL = "https://mealie.example.nl"
 TOKEN = "mealie-token"
@@ -43,7 +44,7 @@ class MealPlanTestCase(unittest.TestCase):
         self.addCleanup(mealie._group_slug_cache.clear)
         mealie._week_start_cache.clear()
         self.addCleanup(mealie._week_start_cache.clear)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
 
 class CreateTest(MealPlanTestCase):

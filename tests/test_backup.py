@@ -17,6 +17,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import audit, auth, auth_password, backup, factory_reset, image_cache, mealie, mealie_images, oauth, profile  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -59,7 +60,7 @@ class BackupCase(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def new_data_dir(self) -> Path:
@@ -247,7 +248,7 @@ class RoundTripTest(BackupCase):
 
         self.new_data_dir()
         auth.forget_runtime_state()
-        newcomer = self.app.test_client()
+        newcomer = SyncClient(self.app)
         newcomer.post("/api/auth/password", json={"username": "nieuw", "password": PASSWORD})
         job = self.restore(data, PASSPHRASE, newcomer)
         self.assertEqual(job["status"], "done", job)
@@ -683,13 +684,13 @@ class AccessTest(BackupCase):
     )
 
     def test_every_route_needs_a_session(self):
-        stranger = self.app.test_client()
+        stranger = SyncClient(self.app)
         for method, path in self.ROUTES:
             self.assertEqual(getattr(stranger, method)(path).status_code, 401, path)
 
     def test_only_the_administrator_may_use_them(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
+        anna = SyncClient(self.app)
         anna.post("/api/invites/password", json={"token": token, "password": ANNA})
         for method, path in self.ROUTES:
             self.assertEqual(getattr(anna, method)(path).status_code, 403, path)

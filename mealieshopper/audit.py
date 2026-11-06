@@ -33,7 +33,7 @@ from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
-from flask import Flask, Response, has_request_context, jsonify, request
+from quart import Quart, Response, has_request_context, jsonify, request
 
 from . import auth
 from .i18n import tr
@@ -515,15 +515,15 @@ def mcp_rejected(status: int, reason: str, *, header_present: bool = False) -> N
     )
 
 
-def _log_oauth(response):
+async def _log_oauth(response):
     if request.method == "OPTIONS" or not request.path.startswith("/oauth/") or not enabled():
         return response
     data: dict[str, Any] = {}
     if request.is_json:
-        parsed = request.get_json(silent=True)
+        parsed = await request.get_json(silent=True)
         data = parsed if isinstance(parsed, dict) else {}
     else:
-        data = {**request.args.to_dict(), **request.form.to_dict()}
+        data = {**request.args.to_dict(), **(await request.form).to_dict()}
     request_body, req_bytes = summarize_body(json.dumps(data, ensure_ascii=False, default=str) if data else "", "application/json")
     client_id = str(data.get("client_id") or "")
     name = str(data.get("client_name") or "")
@@ -677,12 +677,12 @@ def clear(actor: str = "") -> int:
     return removed
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     """Alleen de beheerder: `/api/audit` staat in auth.ADMIN_PREFIXES, ook voor lezen."""
     app.after_request(_log_oauth)
 
     @app.get("/api/audit")
-    def audit_list():
+    async def audit_list():
         try:
             before = int(request.args.get("before") or 0) or None
             limit = int(request.args.get("limit") or PAGE_SIZE)
@@ -700,7 +700,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.get("/api/audit/export")
-    def audit_export():
+    async def audit_export():
         entries = export_entries(
             service=request.args.get("service", ""),
             kind=request.args.get("kind", ""),
@@ -717,14 +717,14 @@ def register_routes(app: Flask) -> None:
         return Response(body, mimetype=mimetype, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
     @app.get("/api/audit/<int:entry_id>")
-    def audit_entry(entry_id: int):
+    async def audit_entry(entry_id: int):
         entry = get_entry(entry_id)
         if not entry:
             return jsonify({"error": tr("Regel niet gevonden.", "Entry not found.")}), 404
         return jsonify(entry)
 
     @app.delete("/api/audit")
-    def audit_clear():
+    async def audit_clear():
         user = auth.current_user()
         removed = clear(f"app:{user['username']}" if user else "app")
         return jsonify({"status": "ok", "removed": removed})

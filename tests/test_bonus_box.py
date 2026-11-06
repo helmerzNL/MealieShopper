@@ -21,6 +21,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -243,7 +244,7 @@ class BonusBoxOffersTest(TempDataDirTest):
 
     def test_the_offers_route_gives_the_box(self):
         self.sync()
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(ah, "configured_refresh_token", return_value="r"):
             data = client.get(f"/api/offers?store=ah&week={self.monday.isoformat()}").get_json()
         self.assertEqual(data["personal"]["count"], 2)

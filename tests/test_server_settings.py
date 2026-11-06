@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth_password, mealie, server_settings  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -28,7 +29,7 @@ class ServerSettingsTestCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def put(self, body, client=None):
@@ -39,7 +40,7 @@ class ServerSettingsTestCase(unittest.TestCase):
 
     def join(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.post("/api/invites/password", json={"token": token, "password": ANNA})
         return client
 
@@ -50,7 +51,7 @@ class OwnerOnlyTest(ServerSettingsTestCase):
         self.assertEqual(anna.get("/api/server-settings").status_code, 403)
         self.assertEqual(self.put({"mcpEnabled": False}, anna).status_code, 403)
         self.assertEqual(self.put({"publicBaseUrl": "https://evil.example.com"}, anna).status_code, 403)
-        anonymous = self.app.test_client()
+        anonymous = SyncClient(self.app)
         self.assertEqual(anonymous.get("/api/server-settings").status_code, 401)
         self.assertEqual(self.put({"mcpEnabled": False}, anonymous).status_code, 401)
         self.assertEqual(self.get()["mcpEnabled"], True)  # niets veranderd
@@ -95,7 +96,7 @@ class PublicBaseUrlTest(ServerSettingsTestCase):
 
     def test_the_setting_is_used_everywhere(self):
         self.put({"publicBaseUrl": "https://shop.example.com"})
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get("/.well-known/oauth-authorization-server").get_json()["issuer"], "https://shop.example.com")
         self.assertEqual(client.get("/.well-known/oauth-protected-resource").get_json()["resource"], "https://shop.example.com/mcp")
         self.assertEqual(self.admin.get("/api/mcp/status").get_json()["url"], "https://shop.example.com/mcp")
@@ -106,7 +107,7 @@ class PublicBaseUrlTest(ServerSettingsTestCase):
 
 class McpSwitchTest(ServerSettingsTestCase):
     def test_the_switch_turns_the_server_off_and_on(self):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get("/.well-known/oauth-authorization-server").status_code, 200)
         off = self.put({"mcpEnabled": False}).get_json()
         self.assertEqual((off["mcpEnabled"], off["mcpSource"]), (False, "setting"))
@@ -122,7 +123,7 @@ class McpSwitchTest(ServerSettingsTestCase):
             data = self.get()
             self.assertEqual((data["mcpEnabled"], data["mcpSource"]), (False, "default"))
             self.assertEqual(self.put({"mcpEnabled": True}).get_json()["mcpEnabled"], True)
-            self.assertEqual(self.app.test_client().get("/.well-known/oauth-authorization-server").status_code, 200)
+            self.assertEqual(SyncClient(self.app).get("/.well-known/oauth-authorization-server").status_code, 200)
 
     def test_bad_input(self):
         for body in ({}, {"other": 1}, {"mcpEnabled": "nee"}, {"mcpEnabled": 1}, []):

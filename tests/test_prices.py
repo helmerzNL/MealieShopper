@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_orders, auth, mcp, offers, picnic_orders, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 TODAY = "2026-10-20"
 
@@ -324,7 +325,7 @@ class HistoryTest(PricesCase):
 class RouteAndToolTest(PricesCase):
     def test_the_route(self):
         prices.record("ah", [{"id": "1", "title": "Kipfilet", "price": 5.49}])
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         reply = client.get("/api/prices/history?store=ah&q=kip&limit=5").get_json()
         self.assertEqual((reply["total"], reply["products"][0]["regularPrice"]), (1, 5.49))
         self.assertEqual(client.get("/api/prices/history?store=lidl").status_code, 400)
@@ -338,13 +339,13 @@ class RouteAndToolTest(PricesCase):
         self.assertEqual(reply["total"], 1)
         lookup.assert_not_called()
         self.assertEqual(prices.history("ah", "", 50, today=TODAY, product="nope")["products"], [])
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         self.assertEqual(client.get("/api/prices/history?store=ah&product=1").get_json()["products"][0]["regularPrice"], 5.49)
 
     def test_the_check_list_of_the_week_menu_records_the_regular_price(self):
         found = [{"webshopId": "42", "title": "AH Penne", "price": {"now": 1.19}, "unitSize": "500 g", "images": [], "isBonus": False}]
         with mock.patch.object(ah, "search_products", return_value=found):
-            reply = create_app().test_client().post("/api/ah/cart/preview", json={"items": [{"query": "penne", "quantity": 500, "unit": "g"}]})
+            reply = SyncClient(create_app()).post("/api/ah/cart/preview", json={"items": [{"query": "penne", "quantity": 500, "unit": "g"}]})
         self.assertEqual(reply.status_code, 200)
         self.assertEqual(prices.history("ah", "penne")["products"][0]["regularPrice"], 1.19)
 
@@ -730,7 +731,7 @@ class RegularPricesTest(PricesCase):
 class OffersRouteVerdictTest(PricesCase):
     def test_the_offers_carry_a_verdict_and_a_new_price_refreshes_the_cache(self):
         self.sync_offer("2026-11-02T05:00:00+00:00", offer("1", "AH Penne", 0.89, 1.19, "25% korting", unitSize="500 g"))
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         first = client.get("/api/offers?store=ah")
         item = first.get_json()["offers"][0]
         self.assertEqual((item["verdict"]["kind"], item["unitPricePer"]["unit"]), ("good", "kg"))
@@ -805,7 +806,7 @@ class CompareTest(PricesCase):
         })
 
     def test_the_route_refuses_an_unknown_product(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         self.assertEqual(client.get("/api/prices/compare?store=ah&id=404").status_code, 400)
         self.assertEqual(client.get("/api/prices/compare?store=lidl&id=1").status_code, 400)
 
@@ -837,7 +838,7 @@ class CheckListTest(PricesCase):
         if compare:
             body["compare"] = True
         with mock.patch.object(ah, "search_products", side_effect=lambda query, limit: self.found()[:limit]) as search:
-            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+            reply = SyncClient(create_app()).post("/api/ah/cart/preview", json=body)
         self.assertEqual(reply.status_code, 200)
         return reply.get_json()["items"][0]["candidates"], search
 
@@ -868,7 +869,7 @@ class CheckListTest(PricesCase):
         self.assertEqual(prices.per_item_price({"price": 3.49}), 3.49)
         found = [ah_found("300", "AH Rundergehakt", 3.49, "300 g", bonus=one_plus_one), ah_found("1000", "AH Rundergehakt", 9.99, "1000 g")]
         with mock.patch.object(ah, "search_products", return_value=found):
-            reply = create_app().test_client().post("/api/ah/cart/preview", json={"compare": True, "items": [{"query": "rundergehakt"}]})
+            reply = SyncClient(create_app()).post("/api/ah/cart/preview", json={"compare": True, "items": [{"query": "rundergehakt"}]})
         candidates = reply.get_json()["items"][0]["candidates"]
         self.assertEqual([(c["productId"], c["unitPrice"]["value"]) for c in candidates], [("300", 5.83), ("1000", 9.99)])  # zelfde product
         self.assertFalse(candidates[1]["cheaper"])
@@ -902,7 +903,7 @@ class OrganicTest(PricesCase):
             return list(found or [])[:limit]
 
         with mock.patch.object(ah, "search_products", side_effect=search):
-            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+            reply = SyncClient(create_app()).post("/api/ah/cart/preview", json=body)
         self.assertEqual(reply.status_code, 200)
         return reply.get_json()["items"][0], calls
 
@@ -957,7 +958,7 @@ class OrganicTest(PricesCase):
         spaghetti = [ah_found("1", "AH Biologisch Spaghetti", 1.99, "500 g", brand="AH Biologisch"), ah_found("2", "AH Spaghetti", 1.29, "500 g")]
         body = {"compare": True, "organic": True, "items": [{"query": "spaghetti"}]}
         with mock.patch.object(ah, "search_products", return_value=spaghetti) as search:
-            row = create_app().test_client().post("/api/ah/cart/preview", json=body).get_json()["items"][0]
+            row = SyncClient(create_app()).post("/api/ah/cart/preview", json=body).get_json()["items"][0]
         search.assert_called_once()
         self.assertEqual((row["candidates"][0]["productId"], row["organicMissing"]), ("1", False))
 
@@ -982,7 +983,7 @@ class IngredientKindTest(PricesCase):
     def preview(self, query, found, organic=False, quantity=None, unit=None):
         body = {"compare": True, "organic": organic, "items": [{"query": query, "quantity": quantity, "unit": unit}]}
         with mock.patch.object(ah, "search_products", side_effect=lambda q, limit: found if q == query else []):
-            reply = create_app().test_client().post("/api/ah/cart/preview", json=body)
+            reply = SyncClient(create_app()).post("/api/ah/cart/preview", json=body)
         self.assertEqual(reply.status_code, 200)
         return reply.get_json()["items"][0]
 

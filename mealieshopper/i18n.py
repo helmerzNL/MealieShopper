@@ -5,7 +5,7 @@ andere waarde, blijft het Nederlands. Meldingen schrijf je als `tr("Nederlands",
 """
 from __future__ import annotations
 
-from flask import has_request_context, request
+from quart import has_request_context, request
 
 LANGUAGES = ("nl", "en")
 COOKIE_NAME = "ms_lang"

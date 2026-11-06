@@ -10,6 +10,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 from mealieshopper import auth, auth_password, factory_reset  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import FakeAuthenticator, b64  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -35,7 +36,7 @@ class FactoryResetCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def files(self):
@@ -66,7 +67,7 @@ class PasswordResetTest(FactoryResetCase):
 
     def test_the_app_starts_over_as_a_new_installation_without_a_restart(self):
         self.reset({"password": PASSWORD})
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         status = client.get("/api/auth/status").get_json()
         self.assertFalse(status["configured"])
         self.assertFalse(status["authenticated"])
@@ -76,7 +77,7 @@ class PasswordResetTest(FactoryResetCase):
     def test_the_old_session_and_password_no_longer_work(self):
         old_cookie = self.admin.get_cookie("ms_session").value
         self.reset({"password": PASSWORD})
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.set_cookie("ms_session", old_cookie)
         self.assertFalse(client.get("/api/auth/status").get_json()["authenticated"])
         login = client.post("/api/auth/password/login", json={"username": "admin", "password": PASSWORD})
@@ -84,16 +85,16 @@ class PasswordResetTest(FactoryResetCase):
 
     def test_a_new_owner_can_be_set_up_afterwards(self):
         self.reset({"password": PASSWORD})
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.post("/api/auth/password", json={"username": "beheer", "password": ANNA}).status_code, 200)
         self.assertEqual(client.get("/api/auth/status").get_json()["username"], "beheer")
 
     def test_other_users_are_removed_too(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
+        anna = SyncClient(self.app)
         anna.post("/api/invites/password", json={"token": token, "password": ANNA})
         self.reset({"password": PASSWORD})
-        login = self.app.test_client().post("/api/auth/password/login", json={"username": "anna", "password": ANNA})
+        login = SyncClient(self.app).post("/api/auth/password/login", json={"username": "anna", "password": ANNA})
         self.assertGreaterEqual(login.status_code, 400)
 
     def test_nothing_is_wiped_without_the_typed_word(self):
@@ -136,7 +137,7 @@ class PasswordResetTest(FactoryResetCase):
 
 class AccessTest(FactoryResetCase):
     def test_not_logged_in_gets_nothing(self):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get(URL).status_code, 401)
         self.assertEqual(client.post(URL, json={"confirm": "RESET", "password": PASSWORD}).status_code, 401)
         self.assertEqual(client.post(URL + "/options", json={}).status_code, 401)
@@ -144,7 +145,7 @@ class AccessTest(FactoryResetCase):
 
     def test_a_regular_user_is_refused(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
+        anna = SyncClient(self.app)
         anna.post("/api/invites/password", json={"token": token, "password": ANNA})
         for response in (anna.get(URL), self.reset({"password": ANNA}, anna), anna.post(URL + "/options", json={})):
             self.assertEqual(response.status_code, 403)
@@ -215,7 +216,7 @@ class WithoutLoginTest(unittest.TestCase):
         ):
             auth.forget_runtime_state()
             self.addCleanup(auth.forget_runtime_state)
-            client = create_app().test_client()
+            client = SyncClient(create_app())
             self.assertFalse(client.get(URL).get_json()["authRequired"])
             self.assertEqual(client.post(URL, json={}).status_code, 400)
             auth.ensure_db()

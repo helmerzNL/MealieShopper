@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, ah_recipes, auth, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 BONUS_PAGE = {
     "bonusGroupOrProducts": [
@@ -303,7 +304,7 @@ class OffersWeekTest(TempDataDirTest):
         self.assertEqual([o["promoLabel"] for o in offers.load("ah", self.monday.isoformat())["offers"]], ["Feestfavoriet"])
 
     def test_the_routes_take_the_week_and_default_to_this_week(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         default = client.get("/api/offers?store=ah")
         self.assertTrue(default.get_json()["week"]["current"])
         self.assertEqual(default.get_json()["later"], 1)
@@ -1211,7 +1212,7 @@ class EnglishRecipesTest(TempDataDirTest):
 class OffersRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_routes_load_sync_and_suggest(self):
         self.assertEqual(self.client.get("/api/offers?store=ah").get_json()["syncedAt"], None)
@@ -1275,7 +1276,7 @@ class OffersRoutesTest(TempDataDirTest):
         with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-0123456789abcdef"}):
             self.assertNotIn(" hidden", subtab(self.client), "met een AI-sleutel verschijnt het tabblad ook zonder de variabele")
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_OFFERS_RECIPES": "true"}):
-            self.assertNotIn(" hidden", subtab(create_app().test_client()))
+            self.assertNotIn(" hidden", subtab(SyncClient(create_app())))
         self.assertEqual(self.client.get("/api/offers/recipes?store=ah").status_code, 200, "de API blijft werken")
 
     def test_unknown_store_is_a_400_and_a_store_failure_a_424(self):

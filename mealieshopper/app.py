@@ -9,8 +9,7 @@ from urllib.parse import quote_plus
 import sqlite3
 
 import requests
-from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
-from werkzeug.middleware.proxy_fix import ProxyFix
+from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals
@@ -21,17 +20,16 @@ from .i18n import tr
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
-def create_app() -> Flask:
-    app = Flask(__name__, template_folder="../templates", static_folder="../static")
+def create_app() -> Quart:
+    app = Quart(__name__, template_folder="../templates", static_folder="../static")
     app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261106-3")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     @app.context_processor
-    def offers_recipes_flag():
+    async def offers_recipes_flag():
         # Het tabblad Recepten bij Aanbiedingen: aan met de omgevingsvariabele, of zodra er een AI-sleutel is ingesteld (zie ai_review.py).
         return {"offers_recipes_visible": app.config["OFFERS_RECIPES"] or ai_review.configured()}
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
     audit.install()  # legt het verkeer met AH, Picnic en Jumbo vast (zie audit.py)
     audit.register_routes(app)
     auth.register_routes(app)
@@ -72,7 +70,7 @@ def create_app() -> Flask:
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
-    def database_error(exc):
+    async def database_error(exc):
         app.logger.exception("Storage error")
         message = tr(
             "Auth database is niet bereikbaar. Controleer MEALIESHOPPER_DATA_DIR en de /data volume mount/rechten.",
@@ -83,15 +81,15 @@ def create_app() -> Flask:
         return message, 503
 
     @app.before_request
-    def require_passkey_auth():
+    async def require_passkey_auth():
         blocked = auth.require_auth_for_request()
         if blocked:
             payload, status = blocked
             return jsonify(payload), status
 
     @app.get("/")
-    def index(**_route):
-        return render_template("index.html", public_base_url=public_base_url(), build_channel=about.build_channel())
+    async def index(**_route):
+        return await render_template("index.html", public_base_url=public_base_url(), build_channel=about.build_channel())
 
     # Elke pagina heeft een eigen adres (/recipes, /cart, /stores/ah/orders, ...): de server geeft dezelfde pagina terug en
     # static/router.js toont het juiste scherm. Zo werken herladen, een bladwijzer en Ctrl+klik naar een nieuw tabblad.
@@ -100,31 +98,31 @@ def create_app() -> Flask:
         app.add_url_rule(f"/{root}/<path:rest>", f"page_{root}_rest", index)
 
     @app.get("/favicon.ico")
-    def favicon():
+    async def favicon():
         # Browsers vragen /favicon.ico op zonder <link>; dit blijft zonder inloggen bereikbaar.
-        return send_from_directory(
+        return await send_from_directory(
             Path(app.static_folder) / "brand", "favicon.ico", mimetype="image/x-icon"
         )
 
     @app.get("/healthz")
-    def healthz():
+    async def healthz():
         return jsonify({"ok": True})
 
     @app.get("/api/about")
-    def about_info():
+    async def about_info():
         return jsonify(about.about())
 
     # Alleen de beheerder: /api/update staat in auth.ADMIN_PREFIXES.
     @app.get("/api/update")
-    def update_status():
+    async def update_status():
         return jsonify(updates.status())
 
     @app.post("/api/update/check")
-    def update_check():
+    async def update_check():
         return jsonify(updates.status(force=True))
 
     @app.get("/api/mealplan")
-    def mealplan():
+    async def mealplan():
         start = request.args.get("start")
         end = request.args.get("end")
         if not start or not end:
@@ -155,37 +153,37 @@ def create_app() -> Flask:
         return jsonify({"slug": slug, "mealieUrl": mealie.recipe_page_url(slug), "reused": True}) if slug else None
 
     @app.get("/api/mealplan/options")
-    def mealplan_options():
+    async def mealplan_options():
         return mealie_action(lambda: {"entryTypes": mealie.entry_types()}, tr("Mealie niet bereikbaar", "Mealie is not reachable"))
 
     @app.post("/api/mealplan")
-    def mealplan_create():
-        body = request.get_json(silent=True) or {}
+    async def mealplan_create():
+        body = await request.get_json(silent=True) or {}
         return mealie_action(lambda: mealie.create_meal_plan_entry(body), tr("Plannen mislukt", "Planning failed"), 201)
 
     @app.post("/api/mealplan/random")
-    def mealplan_random():
-        body = request.get_json(silent=True) or {}
+    async def mealplan_random():
+        body = await request.get_json(silent=True) or {}
         return mealie_action(lambda: mealie.random_meal_plan_entry(body), tr("Verrassen mislukt", "Surprise failed"), 201)
 
     @app.patch("/api/mealplan/<int:entry_id>")
-    def mealplan_update(entry_id: int):
-        body = request.get_json(silent=True) or {}
+    async def mealplan_update(entry_id: int):
+        body = await request.get_json(silent=True) or {}
         return mealie_action(lambda: mealie.update_meal_plan_entry(entry_id, body), tr("Wijzigen mislukt", "Changing failed"))
 
     @app.delete("/api/mealplan/<int:entry_id>")
-    def mealplan_delete(entry_id: int):
+    async def mealplan_delete(entry_id: int):
         return mealie_action(lambda: mealie.delete_meal_plan_entry(entry_id), tr("Verwijderen mislukt", "Removing failed"))
 
     @app.get("/api/mealie/recipes")
-    def mealie_recipes_search():
+    async def mealie_recipes_search():
         return mealie_action(
             lambda: mealie.search_recipes(request.args.get("q"), request.args.get("page") or 1),
             tr("Zoeken in Mealie mislukt", "Searching Mealie failed"),
         )
 
     @app.get("/api/mealie/recipes/<slug>")
-    def mealie_recipe_detail(slug: str):
+    async def mealie_recipe_detail(slug: str):
         return mealie_action(lambda: mealie.recipe_detail(slug), tr("Recept ophalen mislukt", "Could not fetch the recipe"))
 
     # Recepten van AH en Jumbo in één keer in Mealie zetten (zie recipe_bulk.py). Een selectie mag iedereen die ook één
@@ -206,8 +204,8 @@ def create_app() -> Flask:
     def bulk_user() -> dict[str, Any] | None:
         return auth.current_user() if auth.auth_required() else None
 
-    def bulk_start(whole: bool):
-        body = request.get_json(silent=True) or {}
+    async def bulk_start(whole: bool):
+        body = await request.get_json(silent=True) or {}
         return bulk_action(
             lambda: recipe_bulk.start(
                 body.get("store"), body.get("ids"), body.get("group"), whole=whole, titles=body.get("titles"), user=bulk_user()
@@ -216,23 +214,23 @@ def create_app() -> Flask:
         )
 
     @app.get("/api/mealie/bulk-import")
-    def bulk_import_status():
+    async def bulk_import_status():
         return jsonify(recipe_bulk.progress())
 
     @app.post("/api/mealie/bulk-import")
-    def bulk_import_selection():
-        return bulk_start(False)
+    async def bulk_import_selection():
+        return await bulk_start(False)
 
     @app.post("/api/mealie/bulk-import/group")
-    def bulk_import_group():
-        return bulk_start(True)
+    async def bulk_import_group():
+        return await bulk_start(True)
 
     @app.post("/api/mealie/bulk-import/cancel")
-    def bulk_import_cancel():
+    async def bulk_import_cancel():
         return bulk_action(lambda: recipe_bulk.cancel(bulk_user(), auth.is_owner()))
 
     @app.get("/api/ah/search")
-    def ah_search():
+    async def ah_search():
         query = (request.args.get("q") or "").strip()
         page = int(request.args.get("page") or 0)
         if not query:
@@ -245,7 +243,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("Zoeken mislukt", "Search failed")}), 424
 
     @app.get("/api/ah/recipes/saved")
-    def ah_saved_recipes():
+    async def ah_saved_recipes():
         # Uit de lokale kopie; ?refresh=1 haalt ze opnieuw bij AH op, ?cached=1 vraagt nooit aan AH.
         def flag(name: str) -> bool:
             return (request.args.get(name) or "").strip().lower() in {"1", "true", "yes"}
@@ -258,7 +256,7 @@ def create_app() -> Flask:
 
     # Een Allerhande-recept bekijken en in Mealie zetten, met dezelfde routes als bij Jumbo, Picnic en de maaltijdboxen.
     @app.get("/api/ah/recipes/<int:recipe_id>")
-    def ah_recipe_detail(recipe_id: int):
+    async def ah_recipe_detail(recipe_id: int):
         try:
             return jsonify(ah.recipe_detail(recipe_id))
         except Exception:  # noqa: BLE001 - de fout kan het antwoord van AH bevatten: alleen in het logboek
@@ -266,7 +264,7 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Het recept ophalen bij AH is mislukt", "Could not fetch the recipe from AH")}), 424
 
     @app.post("/api/ah/recipes/<int:recipe_id>/import")
-    def ah_recipe_import(recipe_id: int):
+    async def ah_recipe_import(recipe_id: int):
         try:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
@@ -283,7 +281,7 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.get("/api/mealie/recipes/<recipe_id>/image")
-    def mealie_recipe_image(recipe_id: str):
+    async def mealie_recipe_image(recipe_id: str):
         if not mealie_images.valid_recipe_id(recipe_id):
             return jsonify({"error": tr("Ongeldig recept", "Invalid recipe")}), 400
         version = (request.args.get("v") or "")[:64]
@@ -305,7 +303,7 @@ def create_app() -> Flask:
         return response
 
     @app.get("/api/ah/auth/status")
-    def ah_auth_status():
+    async def ah_auth_status():
         try:
             verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
             return jsonify(ah.auth_status(verify=verify))
@@ -314,7 +312,7 @@ def create_app() -> Flask:
             return jsonify({"connected": False, "error": str(exc)}), 424
 
     @app.get("/api/ah/favorite-lists")
-    def ah_favorite_lists():
+    async def ah_favorite_lists():
         try:
             return jsonify({"lists": ah.get_favorite_lists()})
         except Exception as exc:
@@ -322,7 +320,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("AH lijstjes ophalen mislukt", "Could not fetch AH lists")}), 424
 
     @app.get("/api/ah/favorite-lists/<list_id>/items")
-    def ah_favorite_list_items(list_id: str):
+    async def ah_favorite_list_items(list_id: str):
         try:
             return jsonify(ah.get_favorite_list_items(list_id))
         except Exception as exc:
@@ -330,18 +328,18 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
 
     @app.get("/api/ah/lists")
-    def ah_lists_overview():
+    async def ah_lists_overview():
         # Altijd 200: lokale kopieen blijven zichtbaar ook als AH niet bereikbaar is.
         return jsonify(ah_lists.merged_lists())
 
     @app.get("/api/ah/lists/search")
-    def ah_lists_search():
+    async def ah_lists_search():
         # Alleen de lokale kopieen: snel genoeg om bij elke toetsaanslag te vragen.
         query = (request.args.get("q") or "").strip()
         return jsonify({"query": query, "items": ah_lists.search_items(query)})
 
     @app.get("/api/ah/lists/<list_id>")
-    def ah_list_detail(list_id: str):
+    async def ah_list_detail(list_id: str):
         snapshot = ah_lists.get_snapshot(list_id)
         if snapshot:
             return jsonify(snapshot)
@@ -352,7 +350,7 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("AH lijstinhoud ophalen mislukt", "Could not fetch the contents of the AH list")}), 424
 
     @app.post("/api/ah/lists/<list_id>/sync")
-    def ah_list_sync(list_id: str):
+    async def ah_list_sync(list_id: str):
         try:
             return jsonify(ah_lists.sync_list(list_id))
         except Exception as exc:
@@ -360,8 +358,8 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or tr("Synchroniseren mislukt", "Sync failed")}), 424
 
     @app.patch("/api/ah/lists/<list_id>/items/<int:position>")
-    def ah_list_item_quantity(list_id: str, position: int):
-        body = request.get_json(silent=True) or {}
+    async def ah_list_item_quantity(list_id: str, position: int):
+        body = await request.get_json(silent=True) or {}
         try:
             snapshot = ah_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
@@ -371,14 +369,14 @@ def create_app() -> Flask:
         return jsonify(snapshot)
 
     @app.post("/api/ah/lists/<list_id>/reset")
-    def ah_list_reset(list_id: str):
+    async def ah_list_reset(list_id: str):
         snapshot = ah_lists.reset_quantities(list_id)
         if not snapshot:
             return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
         return jsonify(snapshot)
 
     @app.post("/api/ah/lists/<list_id>/cart")
-    def ah_list_to_cart(list_id: str):
+    async def ah_list_to_cart(list_id: str):
         """Zet het hele lijstje met een druk op de knop in het AH-mandje, met de aantallen zoals ze nu staan."""
         snapshot = ah_lists.get_snapshot(list_id)
         try:
@@ -409,42 +407,42 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc) or error_text}), 424
 
     @app.get("/api/ah/basket")
-    def ah_basket():
+    async def ah_basket():
         return jsonify(ah_orders.get_basket())
 
     @app.post("/api/ah/basket/sync")
-    def ah_basket_sync():
+    async def ah_basket_sync():
         return ah_sync(ah_orders.sync_basket, tr("Mandje ophalen mislukt", "Fetching the basket failed"))
 
     @app.get("/api/ah/orders")
-    def ah_orders_list():
+    async def ah_orders_list():
         return jsonify(ah_orders.list_orders(summary=True))
 
     @app.get("/api/ah/orders/<int:order_id>")
-    def ah_order_detail(order_id: int):
+    async def ah_order_detail(order_id: int):
         order = ah_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
 
     @app.post("/api/ah/orders/sync")
-    def ah_orders_sync():
+    async def ah_orders_sync():
         return ah_sync(ah_orders.sync_orders, tr("Bestellingen ophalen mislukt", "Fetching the orders failed"))
 
     @app.get("/api/ah/receipts")
-    def ah_receipts_list():
+    async def ah_receipts_list():
         ah_orders.backfill_receipt_images_async()  # ontbreken er nog foto's bij gekoppelde bonregels, dan komen er nu wat bij
         return jsonify(ah_orders.list_receipts(summary=True))
 
     @app.get("/api/ah/receipts/<receipt_id>")
-    def ah_receipt_detail(receipt_id: str):
+    async def ah_receipt_detail(receipt_id: str):
         receipt = ah_orders.get_receipt(receipt_id)
         if not receipt:
             return jsonify({"error": tr("Kassabon niet gevonden", "Receipt not found")}), 404
         return jsonify(receipt)
 
     @app.post("/api/ah/receipts/<receipt_id>/products")
-    def ah_receipt_products(receipt_id: str):
+    async def ah_receipt_products(receipt_id: str):
         # Bij het openen van een bon: de regels die nog bij geen webwinkelproduct horen opzoeken bij AH (zuinig, zie
         # ah_orders.resolve_receipt_names), de foto's van de gekoppelde regels die er nog geen hebben erbij halen, en de bon met
         # de koppelingen teruggeven. Mislukt het opzoeken, dan komt de bon toch.
@@ -454,19 +452,19 @@ def create_app() -> Flask:
         return jsonify(receipt)
 
     @app.get("/api/ah/linking")
-    def ah_linking_status():
+    async def ah_linking_status():
         # De toestand van het koppelen van bonregels en foto's: de pauze na een 403 of 429 van AH, het uurbudget, wat er nog open
         # staat en de volgende ronde (ah_orders.linking_status). Voor iedereen: de melding op de bestelpagina leest het.
         return jsonify(ah_orders.linking_status())
 
     @app.post("/api/ah/linking/run")
-    def ah_linking_run():
+    async def ah_linking_run():
         # Een ronde op afroep (de knop "Nu ophalen"), in een thread binnen het tempo van AH: voor een bon (receiptId) of voor alle
         # bonnen. Met images alleen de foto's van alle bonnen, zonder zoekopdrachten (de knop "Foto's aanvullen"). Samen met een
         # receiptId weigeren we dat. Met force heft de beheerder eerst de pauze na een 403 of 429 op. Iedereen mag een ronde starten.
         # Een lege aanvraag is een ronde voor alle bonnen. Een body die er wel is maar geen JSON-object is, weigeren we: anders start
         # een verminkte aanvraag de grote ronde.
-        body = request.get_json(silent=True) if request.get_data(cache=True) else {}
+        body = await request.get_json(silent=True) if await request.get_data(cache=True) else {}
         receipt_id = body.get("receiptId") if isinstance(body, dict) else None
         force = body.get("force", False) if isinstance(body, dict) else False
         images = body.get("images", False) if isinstance(body, dict) else False
@@ -485,7 +483,7 @@ def create_app() -> Flask:
             return jsonify(ah_orders.linking_status()), 409
 
     @app.post("/api/ah/receipts/sync")
-    def ah_receipts_sync():
+    async def ah_receipts_sync():
         return ah_sync(ah_orders.sync_receipts, tr("Kassabonnen ophalen mislukt", "Fetching the receipts failed"))
 
     def search_limit(default: int) -> int:
@@ -496,15 +494,15 @@ def create_app() -> Flask:
         return max(1, min(int(value), 100000)) if value.isdigit() else default
 
     @app.get("/api/ah/receipts/search")
-    def ah_receipts_search():
+    async def ah_receipts_search():
         return jsonify(ah_orders.search_receipts(request.args.get("q") or "", limit=search_limit(200)))
 
     @app.get("/api/ah/purchases/search")
-    def ah_purchases_search():
+    async def ah_purchases_search():
         return jsonify(ah_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     @app.post("/api/ah/explore")
-    def ah_explore_routes():
+    async def ah_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(ah_explore.explore())
 
@@ -524,7 +522,7 @@ def create_app() -> Flask:
         return request.args.get("week") or date.today().isoformat()
 
     @app.get("/api/offers")
-    def offers_list():
+    async def offers_list():
         # Cache: de browser bewaart de lijst en vraagt bij elke keer alleen of er iets veranderd is (ETag). Is de lijst niet veranderd
         # (geen nieuwe synchronisatie, nog dezelfde dag, dezelfde week), dan volgt een 304 zonder de lijst te laden of te versturen.
         store = request.args.get("store") or "ah"
@@ -547,14 +545,14 @@ def create_app() -> Flask:
         return response
 
     @app.get("/api/offers/history")
-    def offers_history():
+    async def offers_history():
         return offers_action(
             lambda: offers.history(request.args.get("store") or None, request.args.get("q") or "", request.args.get("limit") or 50),
             tr("Geschiedenis van de aanbiedingen laden mislukt", "Loading the offers history failed"),
         )
 
     @app.get("/api/prices/history")
-    def prices_history():
+    async def prices_history():
         # ?bought=1: alleen de producten die je minstens één keer kocht.
         bought = (request.args.get("bought") or "").strip().lower() in {"1", "true", "yes"}
         return offers_action(
@@ -566,7 +564,7 @@ def create_app() -> Flask:
         )
 
     @app.get("/api/prices/images/<int:image_id>")
-    def prices_image(image_id: int):
+    async def prices_image(image_id: int):
         # Een bewaarde afbeelding van een aanbieding die je eerder kocht (zie product_images.py); uit de database, nooit van de winkel.
         found = product_images.get(image_id)
         if not found:
@@ -579,7 +577,7 @@ def create_app() -> Flask:
         return response
 
     @app.get("/api/images/<token>")
-    def cached_image(token: str):
+    async def cached_image(token: str):
         # Een productfoto van een winkel uit de eigen cache (image_cache.py): het token is het winkeladres in base64. Staat de foto
         # er nog niet, dan haalt de server hem nu op (zoals een browser dat zou doen) en bewaart hem voor altijd. Een onbekende
         # host, een host in pauze na een 403 of een mislukking geven 404; de <img> verbergt zich dan (data-hide-on-error).
@@ -587,13 +585,16 @@ def create_app() -> Flask:
         found = image_cache.fetch(url) if url else None
         if not found:
             return jsonify({"error": tr("Afbeelding niet gevonden", "Image not found")}), 404
-        response = send_file(image_cache.images_dir() / found["path"], mimetype=found["content_type"], conditional=True, etag=found["digest"], max_age=31536000)
+        # Quart kent geen etag= bij send_file: de ETag is de digest, en de 304 bij If-None-Match volgt daarna uit make_conditional.
+        response = await send_file(image_cache.images_dir() / found["path"], mimetype=found["content_type"], add_etags=False, cache_timeout=31536000)
+        response.set_etag(found["digest"])
+        await response.make_conditional(request, accept_ranges=True, complete_length=response.content_length)
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
     @app.get("/api/system/images")
-    def cached_images_status():
+    async def cached_images_status():
         # Voor de regel onder Instellingen > Systeem: hoeveel winkelfoto's er in de cache staan (image_cache.py).
         return jsonify(image_cache.stats())
 
@@ -606,27 +607,27 @@ def create_app() -> Flask:
             return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/prices/import")
-    def prices_import_summary():
+    async def prices_import_summary():
         return import_action(lambda: price_import.summary(request.args.get("store") or "ah"))
 
     @app.post("/api/prices/import")
-    def prices_import_run():
-        body = request.get_json(silent=True) or {}
+    async def prices_import_run():
+        body = await request.get_json(silent=True) or {}
         return import_action(lambda: price_import.run(body.get("data"), body.get("store") or "ah", dry_run=bool(body.get("dryRun"))))
 
     @app.delete("/api/prices/import")
-    def prices_import_remove():
+    async def prices_import_remove():
         # Met ?ref= alleen die ene ingelezen bestelling (de prullenbak bij Bestellingen), zonder alle van de winkel.
         return import_action(lambda: price_import.remove(request.args.get("store") or "ah", request.args.get("ref")))
 
     # De ingelezen bestellingen bij Bestellingen, naast die uit je account. Lezen mag iedereen, net als de bestellingen zelf;
     # importeren en verwijderen gaan via /api/prices/import en zijn van de beheerder.
     @app.get("/api/imported-orders/<store>")
-    def imported_orders_list(store: str):
+    async def imported_orders_list(store: str):
         return import_action(lambda: price_import.list_orders(store, summary=True))
 
     @app.get("/api/imported-orders/<store>/<path:ref>")
-    def imported_order_detail(store: str, ref: str):
+    async def imported_order_detail(store: str, ref: str):
         try:
             order = price_import.get_order(store, ref)
         except ValueError as exc:
@@ -639,11 +640,11 @@ def create_app() -> Flask:
     # (of verkeerd) herkende, koppel je zelf aan een product van de winkel. Iedereen die de bon of bestelling ziet, mag koppelen en
     # ontkoppelen: het is een keuze die je weer terugdraait, net als een ander product in de controlelijst.
     @app.get("/api/product-links")
-    def product_links_list():
+    async def product_links_list():
         return import_action(lambda: product_links.list_links(request.args.get("store") or None))
 
     @app.get("/api/product-links/search")
-    def product_links_search():
+    async def product_links_search():
         # Doet één zoekopdracht bij de winkel, in dezelfde vorm voor elke winkel (prices.link_candidates).
         try:
             return jsonify(prices.link_candidates(request.args.get("store"), request.args.get("q") or ""))
@@ -654,18 +655,18 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Zoeken mislukt", "Search failed")}), 424
 
     @app.put("/api/product-links")
-    def product_links_save():
-        body = request.get_json(silent=True) or {}
+    async def product_links_save():
+        body = await request.get_json(silent=True) or {}
         return import_action(
             lambda: {"link": product_links.save(body.get("store"), body.get("name"), body.get("product"), body.get("article"))}
         )
 
     @app.delete("/api/product-links/<store>/<kind>/<path:key>")
-    def product_links_remove(store: str, kind: str, key: str):
+    async def product_links_remove(store: str, kind: str, key: str):
         return import_action(lambda: {"removed": product_links.remove(store, kind, key)})
 
     @app.get("/api/prices/compare")
-    def prices_compare():
+    async def prices_compare():
         # Doet één zoekopdracht bij de winkel: andere verpakkingen van hetzelfde product, per kilo, liter of stuk naast elkaar.
         return offers_action(
             lambda: prices.compare(request.args.get("store"), request.args.get("id")),
@@ -673,30 +674,30 @@ def create_app() -> Flask:
         )
 
     @app.post("/api/offers/sync")
-    def offers_sync():
-        body = request.get_json(silent=True) or {}
+    async def offers_sync():
+        body = await request.get_json(silent=True) or {}
         return offers_action(lambda: offers.sync(body.get("store") or "ah"), tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/status")
-    def offers_status():
+    async def offers_status():
         return offers_action(offers_schedule.status, tr("Status van de aanbiedingen laden mislukt", "Loading the offers status failed"))
 
     @app.post("/api/offers/sync-all")
-    def offers_sync_all():
+    async def offers_sync_all():
         # Alleen de beheerder (auth.ADMIN_PATHS): de knop onder Instellingen > Koppelen.
         return offers_action(offers_schedule.sync_now, tr("Aanbiedingen ophalen mislukt", "Fetching the offers failed"))
 
     @app.get("/api/offers/recipes")
-    def offers_recipes():
+    async def offers_recipes():
         return offers_action(
             lambda: offers.suggest(request.args.get("store") or "ah", course=request.args.get("course"), week=offers_week()),
             tr("Receptvoorstellen laden mislukt", "Loading the recipe suggestions failed"),
         )
 
     @app.route("/api/offers/rejections", methods=["POST", "DELETE"])
-    def offers_rejections():
+    async def offers_rejections():
         # Een koppeling als onjuist melden (POST) of de melding weer intrekken (DELETE).
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         action = offers.report_mismatch if request.method == "POST" else offers.undo_mismatch
         return offers_action(
             lambda: action(body.get("store") or "ah", body.get("ingredient"), body.get("offerId")),
@@ -713,70 +714,70 @@ def create_app() -> Flask:
         return data
 
     @app.get("/api/offers/ai")
-    def offers_ai_status():
+    async def offers_ai_status():
         return offers_action(ai_status, tr("AI-instellingen laden mislukt", "Loading the AI settings failed"))
 
     @app.put("/api/offers/ai")
-    def offers_ai_save():
-        body = request.get_json(silent=True) or {}
+    async def offers_ai_save():
+        body = await request.get_json(silent=True) or {}
         return offers_action(lambda: (ai_review.save(body), ai_status())[1], tr("AI-instellingen opslaan mislukt", "Saving the AI settings failed"))
 
     @app.post("/api/offers/ai/test")
-    def offers_ai_test():
-        body = request.get_json(silent=True) or {}
+    async def offers_ai_test():
+        body = await request.get_json(silent=True) or {}
         return offers_action(lambda: ai_review.test(body.get("provider")), tr("De AI testen mislukt", "Testing the AI failed"))
 
     @app.post("/api/offers/ai/review")
-    def offers_ai_review():
-        body = request.get_json(silent=True) or {}
+    async def offers_ai_review():
+        body = await request.get_json(silent=True) or {}
         return offers_action(
             lambda: ai_review.review(body.get("store") or "ah", body.get("max") or ai_review.DEFAULT_MAX_PAIRS),
             tr("Beoordelen met AI mislukt", "Reviewing with AI failed"),
         )
 
     @app.get("/api/offers/ai/search/plan")
-    def offers_ai_search_plan():
+    async def offers_ai_search_plan():
         return offers_action(
             lambda: ai_match.plan(request.args.get("store") or "ah", request.args.get("max") or ai_match.DEFAULT_MAX_RECIPES),
             tr("De omvang van het zoeken bepalen mislukt", "Determining the size of the search failed"),
         )
 
     @app.post("/api/offers/ai/search")
-    def offers_ai_search():
-        body = request.get_json(silent=True) or {}
+    async def offers_ai_search():
+        body = await request.get_json(silent=True) or {}
         return offers_action(
             lambda: ai_match.start(body.get("store") or "ah", body.get("max") or ai_match.DEFAULT_MAX_RECIPES),
             tr("Recepten zoeken met AI mislukt", "Searching recipes with AI failed"),
         )
 
     @app.get("/api/offers/ai/search/status")
-    def offers_ai_search_status():
+    async def offers_ai_search_status():
         return offers_action(ai_match.progress, tr("De stand van het zoeken laden mislukt", "Loading the state of the search failed"))
 
     @app.post("/api/offers/recipes/sync")
-    def offers_recipes_sync():
+    async def offers_recipes_sync():
         return offers_action(offers.sync_recipes, tr("Recepten indexeren mislukt", "Indexing the recipes failed"))
 
     @app.get("/api/mealie/status")
-    def mealie_status():
+    async def mealie_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
         return jsonify(mealie.status(verify=verify))
 
     @app.post("/api/mealie/auth")
-    def mealie_auth():
-        body = request.get_json(silent=True) or {}
+    async def mealie_auth():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(mealie.link(body.get("url"), body.get("token")))
         except (ValueError, RuntimeError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.post("/api/mealie/auth/logout")
-    def mealie_auth_logout():
+    async def mealie_auth_logout():
         return jsonify(mealie.clear())
 
     @app.post("/api/mealie/import")
-    def import_recipe():
-        body = request.get_json(silent=True) or {}
+    async def import_recipe():
+        body = await request.get_json(silent=True) or {}
         url = (body.get("url") or "").strip()
         if not url:
             return jsonify({"error": tr("URL ontbreekt", "URL is missing")}), 400
@@ -806,14 +807,14 @@ def create_app() -> Flask:
             "doubt": doubt,
         }
 
-    def cart_preview(search: Any, make_candidate: Any) -> Any:
+    async def cart_preview(search: Any, make_candidate: Any) -> Any:
         """Zoek per ingredient de beste producten en reken het aantal verpakkingen uit.
 
         Een regel met `doubt` is er niet zeker van; de gebruiker kiest dan zelf. Gedeeld door
         alle supermarkten: `search(query, limit)` en `make_candidate(product, quantity, unit)`
         zijn de enige winkelspecifieke delen.
         """
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -868,12 +869,12 @@ def create_app() -> Flask:
         return jsonify({"items": resolved})
 
     @app.post("/api/ah/cart/preview")
-    def ah_cart_preview():
-        return cart_preview(prices.recorded("ah", ah.search_products), cart_candidate)
+    async def ah_cart_preview():
+        return await cart_preview(prices.recorded("ah", ah.search_products), cart_candidate)
 
     @app.post("/api/ah/cart")
-    def ah_cart():
-        body = request.get_json(silent=True) or {}
+    async def ah_cart():
+        body = await request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -978,9 +979,9 @@ def create_app() -> Flask:
         app.logger.exception("%s error", label)
         return jsonify({"error": f"{label} fout"}), 424
 
-    def store_cart(store: Any, error: Any, auth_error: type) -> Any:
+    async def store_cart(store: Any, error: Any, auth_error: type) -> Any:
         """Zoek (indien nodig) de producten en zet ze in het mandje van de winkel; nooit een bestelling."""
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1032,21 +1033,21 @@ def create_app() -> Flask:
         return store_error("Picnic", exc, picnic.PicnicAuthError, picnic.Picnic2FAError, picnic.PicnicBlockedError)
 
     @app.get("/api/picnic/auth/status")
-    def picnic_auth_status():
+    async def picnic_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
         return jsonify(picnic.status(verify=verify))
 
     @app.post("/api/picnic/auth")
-    def picnic_auth():
-        body = request.get_json(silent=True) or {}
+    async def picnic_auth():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(picnic.login(body.get("email"), body.get("password") or ""))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/auth/2fa/request")
-    def picnic_auth_2fa_request():
-        body = request.get_json(silent=True) or {}
+    async def picnic_auth_2fa_request():
+        body = await request.get_json(silent=True) or {}
         try:
             picnic.request_2fa_code(body.get("channel") or "SMS")
             return jsonify({"requested": True})
@@ -1054,19 +1055,19 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.post("/api/picnic/auth/2fa/verify")
-    def picnic_auth_2fa_verify():
-        body = request.get_json(silent=True) or {}
+    async def picnic_auth_2fa_verify():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(picnic.verify_2fa(body.get("code")))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/auth/logout")
-    def picnic_auth_logout():
+    async def picnic_auth_logout():
         return jsonify(picnic.unlink())
 
     @app.get("/api/picnic/search")
-    def picnic_search():
+    async def picnic_search():
         query = (request.args.get("q") or "").strip()
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
@@ -1076,22 +1077,22 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.post("/api/picnic/cart/preview")
-    def picnic_cart_preview():
-        return cart_preview(prices.recorded("picnic", picnic.search_products), picnic.candidate)
+    async def picnic_cart_preview():
+        return await cart_preview(prices.recorded("picnic", picnic.search_products), picnic.candidate)
 
     @app.get("/api/picnic/cart")
-    def picnic_cart_get():
+    async def picnic_cart_get():
         try:
             return jsonify(picnic.get_cart())
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/cart")
-    def picnic_cart():
-        return store_cart(picnic, picnic_error, picnic.PicnicAuthError)
+    async def picnic_cart():
+        return await store_cart(picnic, picnic_error, picnic.PicnicAuthError)
 
     @app.get("/api/picnic/deliveries")
-    def picnic_deliveries():
+    async def picnic_deliveries():
         current = (request.args.get("current") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify({"deliveries": picnic.get_deliveries(current_only=current)})
@@ -1101,25 +1102,25 @@ def create_app() -> Flask:
     # Afgeleverde bestellingen: lezen uit de lokale kopie, synchroniseren bij Picnic. De ids zijn tekst (leveringsnummers).
 
     @app.get("/api/picnic/orders")
-    def picnic_orders_list():
+    async def picnic_orders_list():
         return jsonify(picnic_orders.list_orders())
 
     @app.get("/api/picnic/orders/<order_id>")
-    def picnic_order_detail(order_id: str):
+    async def picnic_order_detail(order_id: str):
         order = picnic_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
 
     @app.post("/api/picnic/orders/sync")
-    def picnic_orders_sync():
+    async def picnic_orders_sync():
         try:
             return jsonify(picnic_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
             return picnic_error(exc)
 
     @app.get("/api/picnic/deliveries/<delivery_id>")
-    def picnic_delivery(delivery_id: str):
+    async def picnic_delivery(delivery_id: str):
         # Alleen lezen: één levering met haar producten.
         try:
             return jsonify(picnic.get_delivery(delivery_id))
@@ -1129,18 +1130,18 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.put("/api/picnic/cart/items/<product_id>")
-    def picnic_cart_set_quantity(product_id: str):
+    async def picnic_cart_set_quantity(product_id: str):
         # Een exact aantal; 0 haalt het product uit het mandje. Plaatst nooit een bestelling.
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(picnic.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
     @app.post("/api/picnic/cart/clear")
-    def picnic_cart_clear():
+    async def picnic_cart_clear():
         # Het hele mandje leegmaken vraagt om een expliciete bevestiging, ook van andere aanroepers.
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
@@ -1149,7 +1150,7 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.get("/api/picnic/favorites")
-    def picnic_favorites():
+    async def picnic_favorites():
         # Alleen lezen: de favoriete producten uit de Favorieten-tab van de Picnic-app. De producten worden lui
         # gecontroleerd: met `budget` hooguit zoveel nieuwe per aanroep (`pending` zegt hoeveel er nog komen),
         # met `refresh=1` vergeet de server eerst wat hij wist.
@@ -1163,7 +1164,7 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.get("/api/picnic/recipes")
-    def picnic_recipe_list():
+    async def picnic_recipe_list():
         # Alleen lezen: de recepten van Picnic (opgeslagen of het kookboek), met id en naam.
         source = (request.args.get("source") or "saved").strip().lower()
         query = (request.args.get("q") or "").strip()
@@ -1175,7 +1176,7 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.get("/api/picnic/recipes/<recipe_id>")
-    def picnic_recipe_detail(recipe_id: str):
+    async def picnic_recipe_detail(recipe_id: str):
         # Alleen lezen: één recept met ingrediënten en bereiding.
         try:
             return jsonify(picnic_recipes.get_recipe(recipe_id))
@@ -1183,7 +1184,7 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.post("/api/picnic/recipes/<recipe_id>/import")
-    def picnic_recipe_import(recipe_id: str):
+    async def picnic_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe (Picnic-recepten hebben geen webpagina).
         try:
             mealie.ensure_configured()
@@ -1204,7 +1205,7 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.get("/api/picnic/slots")
-    def picnic_slots():
+    async def picnic_slots():
         # Alleen lezen: een bezorgmoment kiezen doe je in de Picnic-app.
         try:
             limit = max(1, min(30, int(request.args.get("limit") or 8)))
@@ -1213,7 +1214,7 @@ def create_app() -> Flask:
             return picnic_error(exc)
 
     @app.post("/api/picnic/explore")
-    def picnic_explore_routes():
+    async def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
 
@@ -1225,32 +1226,32 @@ def create_app() -> Flask:
         return store_error("Crisp", exc, crisp.CrispAuthError, crisp.CrispLoginError, crisp.CrispBasketError)
 
     @app.get("/api/crisp/auth/status")
-    def crisp_auth_status():
+    async def crisp_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
         return jsonify(crisp.status(verify=verify))
 
     @app.post("/api/crisp/auth")
-    def crisp_auth():
-        body = request.get_json(silent=True) or {}
+    async def crisp_auth():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(crisp.start_login(body.get("email"), body.get("country") or "nl"))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/auth/verify")
-    def crisp_auth_verify():
-        body = request.get_json(silent=True) or {}
+    async def crisp_auth_verify():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(crisp.verify_login(body.get("code")))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/auth/logout")
-    def crisp_auth_logout():
+    async def crisp_auth_logout():
         return jsonify(crisp.unlink())
 
     @app.get("/api/crisp/search")
-    def crisp_search():
+    async def crisp_search():
         query = (request.args.get("q") or "").strip()
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term missing")}), 400
@@ -1260,33 +1261,33 @@ def create_app() -> Flask:
             return crisp_error(exc)
 
     @app.post("/api/crisp/cart/preview")
-    def crisp_cart_preview():
-        return cart_preview(prices.recorded("crisp", crisp.search_products), crisp.candidate)
+    async def crisp_cart_preview():
+        return await cart_preview(prices.recorded("crisp", crisp.search_products), crisp.candidate)
 
     @app.get("/api/crisp/cart")
-    def crisp_cart_get():
+    async def crisp_cart_get():
         try:
             return jsonify(crisp.get_cart())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/cart")
-    def crisp_cart():
-        return store_cart(crisp, crisp_error, crisp.CrispAuthError)
+    async def crisp_cart():
+        return await store_cart(crisp, crisp_error, crisp.CrispAuthError)
 
     @app.put("/api/crisp/cart/items/<product_id>")
-    def crisp_cart_set_quantity(product_id: str):
+    async def crisp_cart_set_quantity(product_id: str):
         # Het aantal van één product in het echte Crisp-mandje; 0 haalt het weg. Nooit een bestelling.
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(crisp.set_quantity(product_id, body.get("quantity")))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/cart/clear")
-    def crisp_cart_clear():
+    async def crisp_cart_clear():
         # Het mandje leegmaken vraagt om een expliciete bevestiging, zoals bij Picnic.
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         if body.get("confirm") is not True:
             return jsonify({"error": tr("Bevestiging ontbreekt", "Confirmation is missing")}), 400
         try:
@@ -1296,25 +1297,25 @@ def create_app() -> Flask:
 
     # Bestellingen: de bezorgde uit de lokale kopie (crisp_orders), de aankomende live.
     @app.get("/api/crisp/orders")
-    def crisp_orders_list():
+    async def crisp_orders_list():
         return jsonify(crisp_orders.list_orders())
 
     @app.get("/api/crisp/orders/open")
-    def crisp_orders_open():
+    async def crisp_orders_open():
         try:
             return jsonify({"orders": crisp.get_open_orders()})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/orders/sync")
-    def crisp_orders_sync():
+    async def crisp_orders_sync():
         try:
             return jsonify(crisp_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.get("/api/crisp/orders/<order_id>")
-    def crisp_order_detail(order_id: str):
+    async def crisp_order_detail(order_id: str):
         # Uit de lokale kopie als de producten er al in staan; anders (een aankomende bestelling, of nog niet
         # gesynchroniseerd) live bij Crisp. Lukt dat niet, dan wat we hebben.
         local = crisp_orders.get_order(order_id)
@@ -1328,14 +1329,14 @@ def create_app() -> Flask:
             return crisp_error(exc)
 
     @app.get("/api/crisp/favorites")
-    def crisp_favorites():
+    async def crisp_favorites():
         try:
             return jsonify(crisp.get_favorites())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.get("/api/crisp/recipes")
-    def crisp_recipe_list():
+    async def crisp_recipe_list():
         # Met `q` zoeken in alle Crisp-recepten (Recepten zoeken); anders een lijst, zoals bij Picnic. Crisp heeft één
         # lijst: je bewaarde recepten (Winkels > Crisp > Recepten).
         query = request.args.get("q")
@@ -1350,14 +1351,14 @@ def create_app() -> Flask:
             return crisp_error(exc)
 
     @app.get("/api/crisp/recipes/<recipe_id>")
-    def crisp_recipe_detail(recipe_id: str):
+    async def crisp_recipe_detail(recipe_id: str):
         try:
             return jsonify(crisp.get_recipe(recipe_id))
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
     @app.post("/api/crisp/recipes/<recipe_id>/import")
-    def crisp_recipe_import(recipe_id: str):
+    async def crisp_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe (Crisp-recepten hebben geen webpagina).
         try:
             mealie.ensure_configured()
@@ -1379,7 +1380,7 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.post("/api/crisp/explore")
-    def crisp_explore_routes():
+    async def crisp_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
         return jsonify(crisp.explore())
 
@@ -1407,7 +1408,7 @@ def create_app() -> Flask:
         return store_error("HelloFresh", exc)
 
     @app.get("/api/hellofresh/menu")
-    def hellofresh_menu():
+    async def hellofresh_menu():
         refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify(hellofresh.get_menu(request.args.get("week"), refresh=refresh))
@@ -1415,21 +1416,21 @@ def create_app() -> Flask:
             return hellofresh_error(exc)
 
     @app.get("/api/hellofresh/search")
-    def hellofresh_search():
+    async def hellofresh_search():
         try:
             return jsonify(hellofresh.search(request.args.get("q"), load=load_weeks()))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
     @app.get("/api/hellofresh/recipes/<recipe_key>")
-    def hellofresh_recipe_detail(recipe_key: str):
+    async def hellofresh_recipe_detail(recipe_key: str):
         try:
             return jsonify(hellofresh.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return hellofresh_error(exc)
 
     @app.post("/api/hellofresh/recipes/<recipe_key>/import")
-    def hellofresh_recipe_import(recipe_key: str):
+    async def hellofresh_recipe_import(recipe_key: str):
         try:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
@@ -1453,7 +1454,7 @@ def create_app() -> Flask:
         return store_error("Marley Spoon", exc)
 
     @app.get("/api/marleyspoon/menu")
-    def marleyspoon_menu():
+    async def marleyspoon_menu():
         refresh = (request.args.get("refresh") or "").strip().lower() in {"1", "true", "yes"}
         try:
             return jsonify(marleyspoon.get_menu(request.args.get("week"), refresh=refresh))
@@ -1461,21 +1462,21 @@ def create_app() -> Flask:
             return marleyspoon_error(exc)
 
     @app.get("/api/marleyspoon/search")
-    def marleyspoon_search():
+    async def marleyspoon_search():
         try:
             return jsonify(marleyspoon.search(request.args.get("q"), load=load_weeks()))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
     @app.get("/api/marleyspoon/recipes/<recipe_key>")
-    def marleyspoon_recipe_detail(recipe_key: str):
+    async def marleyspoon_recipe_detail(recipe_key: str):
         try:
             return jsonify(marleyspoon.detail(recipe_key))
         except Exception as exc:  # noqa: BLE001
             return marleyspoon_error(exc)
 
     @app.post("/api/marleyspoon/recipes/<recipe_key>/import")
-    def marleyspoon_recipe_import(recipe_key: str):
+    async def marleyspoon_recipe_import(recipe_key: str):
         try:
             mealie.ensure_configured()
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
@@ -1491,28 +1492,28 @@ def create_app() -> Flask:
             return marleyspoon_error(exc)
 
     @app.get("/api/jumbo/auth/status")
-    def jumbo_auth_status():
+    async def jumbo_auth_status():
         verify = (request.args.get("verify") or "").strip().lower() in {"1", "true", "yes"}
         return jsonify(jumbo.status(verify=verify))
 
     @app.get("/api/jumbo/auth/start")
-    def jumbo_auth_start():
+    async def jumbo_auth_start():
         return redirect(jumbo.start_login(), code=302)
 
     @app.post("/api/jumbo/auth")
-    def jumbo_auth():
-        body = request.get_json(silent=True) or {}
+    async def jumbo_auth():
+        body = await request.get_json(silent=True) or {}
         try:
             return jsonify(jumbo.link_account(body.get("code") or body.get("token") or ""))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/auth/logout")
-    def jumbo_auth_logout():
+    async def jumbo_auth_logout():
         return jsonify(jumbo.unlink())
 
     @app.get("/api/jumbo/search")
-    def jumbo_search():
+    async def jumbo_search():
         query = (request.args.get("q") or "").strip()
         if not query:
             return jsonify({"error": tr("Zoekterm ontbreekt", "Search term is missing")}), 400
@@ -1522,34 +1523,34 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/cart/preview")
-    def jumbo_cart_preview():
-        return cart_preview(prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
+    async def jumbo_cart_preview():
+        return await cart_preview(prices.recorded("jumbo", jumbo.search_products), jumbo.candidate)
 
     @app.get("/api/jumbo/cart")
-    def jumbo_cart_get():
+    async def jumbo_cart_get():
         try:
             return jsonify(jumbo.get_cart())
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/cart")
-    def jumbo_cart():
-        return store_cart(jumbo, jumbo_error, jumbo.JumboAuthError)
+    async def jumbo_cart():
+        return await store_cart(jumbo, jumbo_error, jumbo.JumboAuthError)
 
     # Het Jumbo-lijstje: één lijstje, bewaard als lokale kopie en in dezelfde vorm als de AH-lijstjes.
 
     @app.get("/api/jumbo/lists")
-    def jumbo_lists_overview():
+    async def jumbo_lists_overview():
         # Altijd 200: de lokale kopie blijft zichtbaar ook als Jumbo niet bereikbaar is.
         return jsonify(jumbo_lists.merged_lists())
 
     @app.get("/api/jumbo/lists/search")
-    def jumbo_lists_search():
+    async def jumbo_lists_search():
         query = (request.args.get("q") or "").strip()
         return jsonify({"query": query, "items": jumbo_lists.search_items(query)})
 
     @app.get("/api/jumbo/lists/<list_id>")
-    def jumbo_list_detail(list_id: str):
+    async def jumbo_list_detail(list_id: str):
         snapshot = jumbo_lists.get_snapshot(list_id)
         if snapshot:
             return jsonify(snapshot)
@@ -1559,15 +1560,15 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/lists/<list_id>/sync")
-    def jumbo_list_sync(list_id: str):
+    async def jumbo_list_sync(list_id: str):
         try:
             return jsonify(jumbo_lists.sync_list(list_id))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.patch("/api/jumbo/lists/<list_id>/items/<int:position>")
-    def jumbo_list_item_quantity(list_id: str, position: int):
-        body = request.get_json(silent=True) or {}
+    async def jumbo_list_item_quantity(list_id: str, position: int):
+        body = await request.get_json(silent=True) or {}
         try:
             snapshot = jumbo_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
@@ -1577,14 +1578,14 @@ def create_app() -> Flask:
         return jsonify(snapshot)
 
     @app.post("/api/jumbo/lists/<list_id>/reset")
-    def jumbo_list_reset(list_id: str):
+    async def jumbo_list_reset(list_id: str):
         snapshot = jumbo_lists.reset_quantities(list_id)
         if not snapshot:
             return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
         return jsonify(snapshot)
 
     @app.post("/api/jumbo/lists/<list_id>/cart")
-    def jumbo_list_to_cart(list_id: str):
+    async def jumbo_list_to_cart(list_id: str):
         """Zet het hele lijstje in het Jumbo-mandje, met de aantallen zoals ze nu staan.
 
         Regels met een SKU gaan direct; een regel met alleen tekst zoeken we eerst op. Nooit een bestelling.
@@ -1613,9 +1614,9 @@ def create_app() -> Flask:
         return jsonify({"added": len(done), "units": sum(entry["quantity"] for entry in done), "name": snapshot.get("name"), "skippedItems": skipped})
 
     @app.post("/api/jumbo/list")
-    def jumbo_list_add():
+    async def jumbo_list_add():
         """Zet ingrediënten op het Jumbo-lijstje in plaats van in het mandje. Wat er al staat slaan we over."""
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         items = body.get("items") or []
         if not items:
             return jsonify({"error": tr("Geen ingredienten opgegeven", "No ingredients given")}), 400
@@ -1633,31 +1634,31 @@ def create_app() -> Flask:
     # Bestellingen: lezen uit de lokale kopie, synchroniseren bij Jumbo. De ids zijn tekst (Jumbo-ordernummers).
 
     @app.get("/api/jumbo/orders")
-    def jumbo_orders_list():
+    async def jumbo_orders_list():
         return jsonify(jumbo_orders.list_orders(summary=True))
 
     @app.get("/api/jumbo/orders/<order_id>")
-    def jumbo_order_detail(order_id: str):
+    async def jumbo_order_detail(order_id: str):
         order = jumbo_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
 
     @app.post("/api/jumbo/orders/sync")
-    def jumbo_orders_sync():
+    async def jumbo_orders_sync():
         try:
             return jsonify(jumbo_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/purchases/search")
-    def jumbo_purchases_search():
+    async def jumbo_purchases_search():
         return jsonify(jumbo_orders.search_purchases(request.args.get("q") or "", limit=search_limit(50)))
 
     # Recepten: zoekresultaten, één recept met ingrediënten en bereiding, en importeren in Mealie.
 
     @app.get("/api/jumbo/recipes")
-    def jumbo_recipe_list():
+    async def jumbo_recipe_list():
         # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
         try:
             return jsonify({**jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
@@ -1665,7 +1666,7 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/favorite-recipes")
-    def jumbo_favorite_recipes():
+    async def jumbo_favorite_recipes():
         # Alleen lezen: je favoriete recepten bij Jumbo, per pagina (`page` begint bij 1).
         try:
             return jsonify({**jumbo_recipes.get_favorites(request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
@@ -1673,7 +1674,7 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/recipe-lists")
-    def jumbo_recipe_lists():
+    async def jumbo_recipe_lists():
         # Alleen lezen: je receptenlijsten bij Jumbo (Favorieten eerst, dan je eigen lijstjes) met aantallen.
         try:
             return jsonify({"lists": jumbo_recipes.get_lists()})
@@ -1681,7 +1682,7 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/recipe-lists/<list_id>")
-    def jumbo_recipe_list_recipes(list_id: str):
+    async def jumbo_recipe_list_recipes(list_id: str):
         # Alleen lezen: de recepten van een eigen lijstje, per pagina (`page` begint bij 1).
         try:
             return jsonify({**jumbo_recipes.get_list_recipes(list_id, request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
@@ -1689,7 +1690,7 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.get("/api/jumbo/recipes/<recipe_id>")
-    def jumbo_recipe_detail(recipe_id: str):
+    async def jumbo_recipe_detail(recipe_id: str):
         # Alleen lezen: één recept met ingrediënten en bereiding.
         try:
             return jsonify(jumbo_recipes.get_recipe(recipe_id))
@@ -1697,7 +1698,7 @@ def create_app() -> Flask:
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/recipes/<recipe_id>/import")
-    def jumbo_recipe_import(recipe_id: str):
+    async def jumbo_recipe_import(recipe_id: str):
         # Zet het recept in Mealie, als schema.org Recipe met de link naar jumbo.com als bron.
         try:
             mealie.ensure_configured()
@@ -1718,13 +1719,13 @@ def create_app() -> Flask:
             return jsonify({"error": tr("Importeren in Mealie mislukt", "Importing into Mealie failed")}), 424
 
     @app.post("/api/jumbo/explore")
-    def jumbo_explore_routes():
+    async def jumbo_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): meldt of Jumbo deze server toelaat en de vorm van de antwoorden.
         return jsonify(jumbo_explore.explore())
 
     @app.post("/api/ah/auth")
-    def ah_auth():
-        body = request.get_json(silent=True) or {}
+    async def ah_auth():
+        body = await request.get_json(silent=True) or {}
         raw = (body.get("code") or body.get("token") or "").strip()
         if not raw:
             return jsonify({"error": tr("Geen code of token opgegeven", "No code or token given")}), 400
@@ -1735,8 +1736,8 @@ def create_app() -> Flask:
         return jsonify({"error": result.get("error") or tr("Onbekende fout", "Unknown error")}), 400
 
     @app.post("/api/ah/auth/verify")
-    def ah_auth_verify():
-        body = request.get_json(silent=True) or {}
+    async def ah_auth_verify():
+        body = await request.get_json(silent=True) or {}
         token = (body.get("refreshToken") or "").strip()
         if not token:
             return jsonify({"error": tr("Geen token opgegeven", "No token given")}), 400
@@ -1749,11 +1750,11 @@ def create_app() -> Flask:
         return jsonify({"error": result["error"]}), 400
 
     @app.get("/api/ah/auth/start")
-    def ah_auth_start():
+    async def ah_auth_start():
         return redirect(ah.login_url(), code=302)
 
     @app.get("/api/ah/auth/callback")
-    def ah_auth_callback():
+    async def ah_auth_callback():
         error = request.args.get("error")
         if error:
             description = request.args.get("error_description") or error
@@ -1773,7 +1774,7 @@ def create_app() -> Flask:
             )
 
     @app.get("/api/ah/auth/proxy/callback")
-    def ah_auth_proxy_callback():
+    async def ah_auth_proxy_callback():
         error = request.args.get("error")
         if error:
             description = request.args.get("error_description") or error
@@ -1800,7 +1801,7 @@ def create_app() -> Flask:
         defaults={"proxy_path": ""},
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     )
-    def ah_auth_proxy(proxy_path: str):
+    async def ah_auth_proxy(proxy_path: str):
         target_url = f"{ah.AH_LOGIN_BASE}/{proxy_path}".rstrip("/")
         headers = {
             key: value
@@ -1833,7 +1834,7 @@ def create_app() -> Flask:
                     request.method,
                     target_url,
                     params=request.args,
-                    data=request.get_data(),
+                    data=await request.get_data(),
                     headers=headers,
                     allow_redirects=False,
                     timeout=30,

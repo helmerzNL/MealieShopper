@@ -8,6 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, offer_categories, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -203,7 +204,7 @@ class HistoryTest(TempDataDirTest):
 
     def test_the_route(self):
         self.sync(item("1", "Kipfilet"))
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         reply = client.get("/api/offers/history?store=ah&q=kip&limit=5").get_json()
         self.assertEqual((reply["total"], reply["products"][0]["timesOnOffer"]), (1, 1))
         self.assertEqual(client.get("/api/offers/history?store=lidl").status_code, 400)

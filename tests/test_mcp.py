@@ -16,6 +16,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -44,17 +45,17 @@ class McpTestCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def join(self, name="anna", password=ANNA):
         token = self.admin.post("/api/users/invites", json={"username": name}).get_json()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.post("/api/invites/password", json={"token": token, "password": password})
         return client
 
     def register(self, uris=(REDIRECT,), name="Claude"):
-        response = self.app.test_client().post("/oauth/register", json={"client_name": name, "redirect_uris": list(uris)})
+        response = SyncClient(self.app).post("/oauth/register", json={"client_name": name, "redirect_uris": list(uris)})
         self.assertEqual(response.status_code, 201, response.get_json())
         return response.get_json()["client_id"]
 
@@ -76,7 +77,7 @@ class McpTestCase(unittest.TestCase):
         self.assertEqual(done.status_code, 302)
         query = parse_qs(urlsplit(done.headers["Location"]).query)
         self.assertEqual(query["state"], ["xyz"])
-        token = self.app.test_client().post(
+        token = SyncClient(self.app).post(
             "/oauth/token",
             data={"grant_type": "authorization_code", "code": query["code"][0], "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier},
         )
@@ -85,7 +86,7 @@ class McpTestCase(unittest.TestCase):
 
     def rpc(self, token, method, params=None, request_id=1, **kwargs):
         body = {"jsonrpc": "2.0", "method": method, **({"id": request_id} if request_id is not None else {}), **({"params": params} if params is not None else {})}
-        return self.app.test_client().post("/mcp", json=body, headers={"Authorization": f"Bearer {token}"}, **kwargs)
+        return SyncClient(self.app).post("/mcp", json=body, headers={"Authorization": f"Bearer {token}"}, **kwargs)
 
     def call(self, token, name, arguments=None):
         reply = self.rpc(token, "tools/call", {"name": name, "arguments": arguments or {}}).get_json()
@@ -96,14 +97,14 @@ class AvailabilityTest(McpTestCase):
     def test_off_without_login(self):
         with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):
             self.assertEqual(mcp.enabled(), (False, "no_login"))
-            self.assertEqual(self.app.test_client().post("/mcp", json={}).status_code, 404)
-            self.assertEqual(self.app.test_client().get("/.well-known/oauth-authorization-server").status_code, 404)
-            self.assertEqual(self.app.test_client().post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 404)
+            self.assertEqual(SyncClient(self.app).post("/mcp", json={}).status_code, 404)
+            self.assertEqual(SyncClient(self.app).get("/.well-known/oauth-authorization-server").status_code, 404)
+            self.assertEqual(SyncClient(self.app).post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 404)
 
     def test_can_be_switched_off(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_MCP": "false"}):
             self.assertEqual(mcp.enabled(), (False, "disabled"))
-            self.assertEqual(self.app.test_client().post("/mcp", json={}).status_code, 404)
+            self.assertEqual(SyncClient(self.app).post("/mcp", json={}).status_code, 404)
             status = self.admin.get("/api/mcp/status").get_json()
             self.assertEqual((status["enabled"], status["reason"]), (False, "disabled"))
 
@@ -113,7 +114,7 @@ class AvailabilityTest(McpTestCase):
 
 class MetadataTest(McpTestCase):
     def test_protected_resource_and_authorization_server(self):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         resource = client.get("/.well-known/oauth-protected-resource").get_json()
         self.assertEqual((resource["resource"], resource["authorization_servers"]), (MCP_URL, [BASE]))
         self.assertEqual(client.get("/.well-known/oauth-protected-resource/mcp").get_json(), resource)
@@ -126,12 +127,12 @@ class MetadataTest(McpTestCase):
 
     def test_public_base_url_is_used_behind_a_proxy(self):
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_PUBLIC_BASE_URL": "https://shop.example.com"}):
-            meta = self.app.test_client().get("/.well-known/oauth-authorization-server").get_json()
+            meta = SyncClient(self.app).get("/.well-known/oauth-authorization-server").get_json()
             self.assertEqual(meta["issuer"], "https://shop.example.com")
-            self.assertEqual(self.app.test_client().get("/.well-known/oauth-protected-resource").get_json()["resource"], "https://shop.example.com/mcp")
+            self.assertEqual(SyncClient(self.app).get("/.well-known/oauth-protected-resource").get_json()["resource"], "https://shop.example.com/mcp")
 
     def test_cors_for_token_and_metadata(self):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         response = client.options("/oauth/token")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
@@ -152,7 +153,7 @@ class RegistrationTest(McpTestCase):
         self.assertFalse(oauth.valid_redirect_uri("https://x.example/" + "a" * 2100))
 
     def test_registration_validates_the_request(self):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         for body in ({}, {"redirect_uris": []}, {"redirect_uris": ["http://evil.example.com/"]}, {"redirect_uris": [REDIRECT], "token_endpoint_auth_method": "client_secret_basic"},
                      {"redirect_uris": [REDIRECT], "grant_types": ["password"]}, {"redirect_uris": ["https://a.example/%d" % i for i in range(11)]}):
             response = client.post("/oauth/register", json=body)
@@ -161,7 +162,7 @@ class RegistrationTest(McpTestCase):
         self.assertEqual(client.post("/oauth/register", data="no json").status_code, 400)
 
     def test_registration_gives_a_public_client(self):
-        data = self.app.test_client().post("/oauth/register", json={"client_name": "  Claude\n  Desktop ", "redirect_uris": [REDIRECT]}).get_json()
+        data = SyncClient(self.app).post("/oauth/register", json={"client_name": "  Claude\n  Desktop ", "redirect_uris": [REDIRECT]}).get_json()
         self.assertTrue(data["client_id"].startswith("msc_"))
         self.assertEqual(data["client_name"], "Claude Desktop")
         self.assertNotIn("client_secret", data)
@@ -169,7 +170,7 @@ class RegistrationTest(McpTestCase):
     def test_the_number_of_clients_is_limited(self):
         with mock.patch.object(oauth, "MAX_CLIENTS", 2):
             self.register(), self.register()
-            response = self.app.test_client().post("/oauth/register", json={"redirect_uris": [REDIRECT]})
+            response = SyncClient(self.app).post("/oauth/register", json={"redirect_uris": [REDIRECT]})
             self.assertEqual(response.status_code, 503)
 
     def test_a_full_registry_makes_room_by_dropping_unused_clients_but_never_used_ones(self):
@@ -181,7 +182,7 @@ class RegistrationTest(McpTestCase):
             self.register()  # er is plek gemaakt
             self.assertIsNone(oauth.get_client(unused))
             self.assertIsNotNone(oauth.get_client(used))
-            self.assertEqual(self.app.test_client().post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 503)
+            self.assertEqual(SyncClient(self.app).post("/oauth/register", json={"redirect_uris": [REDIRECT]}).status_code, 503)
 
     def test_stale_unused_clients_are_cleaned_up(self):
         client_id = self.register()
@@ -195,7 +196,7 @@ class AuthorizeTest(McpTestCase):
     def test_not_logged_in_goes_to_the_login_and_back(self):
         client_id = self.register()
         _, challenge = pkce()
-        response = self.app.test_client().get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge, "code_challenge_method": "S256"})
+        response = SyncClient(self.app).get("/oauth/authorize", query_string={"response_type": "code", "client_id": client_id, "redirect_uri": REDIRECT, "code_challenge": challenge, "code_challenge_method": "S256"})
         self.assertEqual(response.status_code, 302)
         location = urlsplit(response.headers["Location"])
         self.assertEqual(location.path, "/")
@@ -257,7 +258,7 @@ class AuthorizeTest(McpTestCase):
         post = lambda client, **kw: client.post("/oauth/authorize", data={"request": kw.get("request", signed), "decision": "allow"}, headers=kw.get("headers", {}))
         self.assertEqual(post(self.admin, request=signed + "x").status_code, 400)  # aangepaste ondertekening
         self.assertEqual(post(self.admin, headers={"Origin": "https://evil.example.com"}).status_code, 403)
-        self.assertEqual(post(self.app.test_client()).status_code, 401)  # niet ingelogd
+        self.assertEqual(post(SyncClient(self.app)).status_code, 401)  # niet ingelogd
         self.assertEqual(post(self.admin, headers={"Origin": BASE}).status_code, 302)
 
     def test_the_consent_belongs_to_the_user_who_saw_it(self):
@@ -280,7 +281,7 @@ class AuthorizeTest(McpTestCase):
 class TokenTest(McpTestCase):
     def exchange(self, client_id, code, verifier, **extra):
         form = {"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier, **extra}
-        return self.app.test_client().post("/oauth/token", data=form)
+        return SyncClient(self.app).post("/oauth/token", data=form)
 
     def code(self, user=None, client_id=None):
         client_id = client_id or self.register()
@@ -300,7 +301,7 @@ class TokenTest(McpTestCase):
 
     def test_token_endpoint_accepts_json_too(self):
         client_id, verifier, code = self.code()
-        response = self.app.test_client().post("/oauth/token", json={"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier})
+        response = SyncClient(self.app).post("/oauth/token", json={"grant_type": "authorization_code", "code": code, "client_id": client_id, "redirect_uri": REDIRECT, "code_verifier": verifier})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
@@ -333,12 +334,12 @@ class TokenTest(McpTestCase):
         self.assertEqual(self.exchange(client_id, code, verifier).status_code, 400)
 
     def test_unknown_grant_type(self):
-        response = self.app.test_client().post("/oauth/token", data={"grant_type": "password"})
+        response = SyncClient(self.app).post("/oauth/token", data={"grant_type": "password"})
         self.assertEqual(response.get_json()["error"], "unsupported_grant_type")
 
     def test_refresh_rotates_and_a_replay_revokes_everything(self):
         tokens, client_id = self.grant()
-        refresh = lambda token, cid=client_id: self.app.test_client().post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": token, "client_id": cid})
+        refresh = lambda token, cid=client_id: SyncClient(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": token, "client_id": cid})
         second = refresh(tokens["refresh_token"])
         self.assertEqual(second.status_code, 200)
         new = second.get_json()
@@ -352,12 +353,12 @@ class TokenTest(McpTestCase):
 
     def test_refresh_needs_the_same_client(self):
         tokens, _ = self.grant()
-        response = self.app.test_client().post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": self.register(name="x")})
+        response = SyncClient(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"], "client_id": self.register(name="x")})
         self.assertEqual(response.status_code, 400)
 
     def test_revoke(self):
         tokens, _ = self.grant()
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.post("/oauth/revoke", data={"token": "unknown"}).status_code, 200)
         self.assertEqual(client.post("/oauth/revoke", data={"token": tokens["refresh_token"]}).status_code, 200)
         self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 401)
@@ -398,7 +399,7 @@ class UserBindingTest(McpTestCase):
         anna.post("/api/auth/password", json={"password": "nieuw-wachtwoord-123", "currentPassword": ANNA})
         self.assertEqual(self.rpc(anna_tokens["access_token"], "ping").status_code, 401)
         self.assertEqual(self.rpc(admin_tokens["access_token"], "ping").status_code, 200)
-        refresh = self.app.test_client().post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": anna_tokens["refresh_token"], "client_id": self.register(name="x")})
+        refresh = SyncClient(self.app).post("/oauth/token", data={"grant_type": "refresh_token", "refresh_token": anna_tokens["refresh_token"], "client_id": self.register(name="x")})
         self.assertEqual(refresh.status_code, 400)
 
     def test_deleting_the_user_removes_their_apps(self):
@@ -411,18 +412,18 @@ class UserBindingTest(McpTestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM oauth_tokens").fetchone()[0], 0)
 
     def test_status_requires_a_session(self):
-        self.assertEqual(self.app.test_client().get("/api/mcp/status").status_code, 401)
-        self.assertEqual(self.app.test_client().delete("/api/mcp/apps/x").status_code, 401)
+        self.assertEqual(SyncClient(self.app).get("/api/mcp/status").status_code, 401)
+        self.assertEqual(SyncClient(self.app).delete("/api/mcp/apps/x").status_code, 401)
         status = self.admin.get("/api/mcp/status").get_json()
         self.assertEqual((status["enabled"], status["url"]), (True, MCP_URL))
         self.assertIn("import_recipe_to_mealie", [t["name"] for t in status["tools"]])
 
     def test_a_session_cookie_is_not_a_token_and_a_token_is_not_a_session(self):
         tokens, _ = self.grant()
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.get("/api/ah/lists", headers={"Authorization": f"Bearer {tokens['access_token']}"}).status_code, 401)
         cookie = self.admin.get_cookie(auth.SESSION_COOKIE_NAME).value
-        self.assertEqual(self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"}).status_code, 401)
+        self.assertEqual(SyncClient(self.app).post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Authorization": f"Bearer {cookie}"}).status_code, 401)
 
 
 class LoginReturnTest(McpTestCase):
@@ -442,7 +443,7 @@ class SettingsEffectTest(McpTestCase):
         self.assertEqual(self.rpc(tokens["access_token"], "ping").status_code, 200)
         self.assertEqual(self.admin.put("/api/server-settings", json={"publicBaseUrl": "https://shop.example.com"}).status_code, 200)
         # Het token is uitgegeven voor het oude adres van de MCP-server.
-        response = self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, base_url="https://shop.example.com",
+        response = SyncClient(self.app).post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, base_url="https://shop.example.com",
                                                headers={"Authorization": f"Bearer {tokens['access_token']}"})
         self.assertEqual(response.status_code, 401)
 
@@ -461,11 +462,11 @@ class ProtocolTest(McpTestCase):
 
     def test_unauthorized_points_to_the_metadata(self):
         for headers in ({}, {"Authorization": "Bearer msa_wrong"}, {"Authorization": "Basic abc"}):
-            response = self.app.test_client().post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=headers)
+            response = SyncClient(self.app).post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers=headers)
             self.assertEqual(response.status_code, 401)
             challenge = response.headers["WWW-Authenticate"]
             self.assertIn(f'resource_metadata="{BASE}/.well-known/oauth-protected-resource"', challenge)
-        self.assertIn("invalid_token", self.app.test_client().post("/mcp", json={}, headers={"Authorization": "Bearer msa_wrong"}).headers["WWW-Authenticate"])
+        self.assertIn("invalid_token", SyncClient(self.app).post("/mcp", json={}, headers={"Authorization": "Bearer msa_wrong"}).headers["WWW-Authenticate"])
 
     def test_initialize_negotiates_the_version(self):
         for asked, expected in (("2025-03-26", "2025-03-26"), ("2025-06-18", "2025-06-18"), ("1999-01-01", mcp.LATEST_PROTOCOL), (None, mcp.LATEST_PROTOCOL)):
@@ -481,12 +482,12 @@ class ProtocolTest(McpTestCase):
 
     def test_batches(self):
         batch = [{"jsonrpc": "2.0", "id": 1, "method": "ping"}, {"jsonrpc": "2.0", "method": "notifications/initialized"}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
-        replies = self.app.test_client().post("/mcp", json=batch, headers={"Authorization": f"Bearer {self.token}"}).get_json()
+        replies = SyncClient(self.app).post("/mcp", json=batch, headers={"Authorization": f"Bearer {self.token}"}).get_json()
         self.assertEqual([r["id"] for r in replies], [1, 2])
 
     def test_errors(self):
         auth_header = {"Authorization": f"Bearer {self.token}"}
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         self.assertEqual(client.post("/mcp", data="{kapot", headers=auth_header).get_json()["error"]["code"], -32700)
         self.assertEqual(client.post("/mcp", json={"jsonrpc": "1.0", "id": 1, "method": "ping"}, headers=auth_header).get_json()["error"]["code"], -32600)
         self.assertEqual(self.rpc(self.token, "bogus/method").get_json()["error"]["code"], -32601)
@@ -497,7 +498,7 @@ class ProtocolTest(McpTestCase):
 
     def test_no_streams_and_no_sessions(self):
         for method in ("get", "delete"):
-            response = getattr(self.app.test_client(), method)("/mcp", headers={"Authorization": f"Bearer {self.token}"})
+            response = getattr(SyncClient(self.app), method)("/mcp", headers={"Authorization": f"Bearer {self.token}"})
             self.assertEqual(response.status_code, 405)
             self.assertEqual(response.headers["Allow"], "POST")
 

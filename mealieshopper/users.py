@@ -18,7 +18,7 @@ from contextlib import closing
 from datetime import timedelta
 from typing import Any, Callable
 
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import auth, oauth, profile
 from .i18n import tr
@@ -196,17 +196,17 @@ def check_new_username(username: str, invite: dict[str, Any]) -> str | None:
 
 # --- routes --------------------------------------------------------------------------------------
 
-def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
+def register_routes(app: Quart, base_url: Callable[[], str]) -> None:
     def invite_payload(created: dict[str, Any]) -> dict[str, Any]:
         return {**created, "url": f"{base_url()}/#invite={created['token']}"}
 
     @app.get("/api/users")
-    def users_list():
+    async def users_list():
         return jsonify({"users": list_users(), "invites": list_invites(), "maxUsers": MAX_USERS})
 
     @app.post("/api/users/invites")
-    def users_invite():
-        body = request.get_json(silent=True) or {}
+    async def users_invite():
+        body = await request.get_json(silent=True) or {}
         username = str(body.get("username") or "").strip()
         if username:
             from .auth_password import validate_username
@@ -224,7 +224,7 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         return jsonify(invite_payload(created)), 201
 
     @app.post("/api/users/<user_id>/reset")
-    def users_reset(user_id: str):
+    async def users_reset(user_id: str):
         user = get_user(user_id)
         if not user or user_id == OWNER_ID:
             return jsonify({"error": tr("Gebruiker niet gevonden.", "User not found.")}), 404
@@ -232,13 +232,13 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
         return jsonify(invite_payload(created)), 201
 
     @app.delete("/api/users/invites/<invite_id>")
-    def users_invite_revoke(invite_id: str):
+    async def users_invite_revoke(invite_id: str):
         if not revoke_invite(invite_id):
             return jsonify({"error": tr("Uitnodiging niet gevonden.", "Invitation not found.")}), 404
         return jsonify({"status": "ok"})
 
     @app.delete("/api/users/<user_id>")
-    def users_delete(user_id: str):
+    async def users_delete(user_id: str):
         if user_id == OWNER_ID:
             return jsonify({"error": tr("De beheerder kan niet worden verwijderd.", "The administrator cannot be removed.")}), 400
         if not delete_user(user_id):
@@ -247,17 +247,17 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
 
     # Publiek: wat iemand met een uitnodigingslink nodig heeft. Het token zelf is het geheim.
     @app.get("/api/invites/info")
-    def invite_info():
+    async def invite_info():
         invite = find_invite(request.headers.get("X-Invite-Token") or request.args.get("token"))
         if not invite:
             return jsonify({"valid": False, "error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
         return jsonify({"valid": True, "kind": invite["kind"], "username": invite["username"], "invitedBy": invite["invitedBy"], "expiresAt": invite["expiresAt"]})
 
     @app.post("/api/invites/password")
-    def invite_password():
+    async def invite_password():
         from . import auth_password
 
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         invite = find_invite(body.get("token"))
         if not invite:
             return jsonify({"error": tr("Deze uitnodiging bestaat niet meer of is verlopen.", "This invitation no longer exists or has expired.")}), 404
@@ -272,4 +272,4 @@ def register_routes(app: Flask, base_url: Callable[[], str]) -> None:
             return jsonify({"error": tr("Deze naam is al in gebruik. Kies een andere.", "This name is already taken. Choose another one.")}), 409
         auth_password.store_password(user_id, username, str(body["password"]))
         consume_invite(invite["id"])
-        return auth_password.session_response(user_id)
+        return await auth_password.session_response(user_id)

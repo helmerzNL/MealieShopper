@@ -12,6 +12,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_recipes, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def card(recipe_id, title, *, time=20, persons=4, rating=(3, 4.5), image="https://img/r.jpg", author="jumbo", tip=""):
@@ -273,7 +274,7 @@ class ListTest(TempDataDirTest):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_list_search_detail_and_import(self):
         with mock.patch.object(jumbo, "_persisted_query", return_value=search_answer([card("1001249", "Een")], total=820)):

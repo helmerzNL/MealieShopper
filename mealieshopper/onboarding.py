@@ -12,7 +12,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import ah, auth, crisp, jumbo, mealie, picnic
 from .i18n import tr
@@ -112,9 +112,9 @@ def complete() -> None:
     auth.set_setting(SETTING_ACTIVE, "0")
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.get("/api/onboarding/status")
-    def onboarding_status():
+    async def onboarding_status():
         env = environment()
         required = auth.auth_required()
         return jsonify(
@@ -131,12 +131,12 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/onboarding/start")
-    def onboarding_start():
+    async def onboarding_start():
         begin()
         return jsonify({"needed": needed()})
 
     @app.post("/api/onboarding/complete")
-    def onboarding_complete():
+    async def onboarding_complete():
         # Valt onder de gewone inlogcontrole: zonder sessie (als inloggen aan staat) komt dit er niet door.
         complete()
         return jsonify({"needed": False})

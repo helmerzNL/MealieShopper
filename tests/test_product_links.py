@@ -17,6 +17,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, backup, image_cache, price_import, prices, product_links  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = "2026-10-20T08:00:00+00:00"
@@ -235,7 +236,7 @@ class ImportedOrderTest(LinksCase):
 class ApiTest(LinksCase):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_link_list_and_unlink_through_the_api(self):
         self.ah_receipt("R1", "2026-10-02T09:00:00", (20960, "COTTAGE CH", 1, 1.29, 1.29))

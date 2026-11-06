@@ -10,6 +10,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, auth_password, i18n, onboarding  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -267,19 +268,20 @@ class ServerLanguageTest(unittest.TestCase):
         self.app = create_app()
 
     def client(self, lang=None):
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         if lang:
             client.set_cookie("ms_lang", lang)
         return client
 
     def test_default_and_unknown_languages_are_dutch(self):
         self.assertEqual(i18n.tr("nl", "en"), "nl", "zonder verzoek")
-        with self.app.test_request_context("/"):
-            self.assertEqual(i18n.current_lang(), "nl")
-        with self.app.test_request_context("/", headers={"Cookie": "ms_lang=fr"}):
-            self.assertEqual(i18n.current_lang(), "nl")
-        with self.app.test_request_context("/", headers={"Cookie": "ms_lang=en"}):
-            self.assertEqual(i18n.current_lang(), "en")
+        async def lang(**kwargs):
+            async with self.app.test_request_context("/", **kwargs):
+                return i18n.current_lang()
+
+        self.assertEqual(run(lang()), "nl")
+        self.assertEqual(run(lang(headers={"Cookie": "ms_lang=fr"})), "nl")
+        self.assertEqual(run(lang(headers={"Cookie": "ms_lang=en"})), "en")
 
     def test_login_errors_follow_the_cookie(self):
         self.client().post("/api/auth/password", json={"username": "admin", "password": "koffie-met-melk-42"})
@@ -304,7 +306,7 @@ class ServerLanguageTest(unittest.TestCase):
         url = "/api/onboarding/status"
 
         def fetch(lang):
-            client = self.app.test_client()
+            client = SyncClient(self.app)
             client.set_cookie("ms_lang", lang, domain="192.168.1.20")
             return client.get(url, base_url="http://192.168.1.20:8080").get_json()
 

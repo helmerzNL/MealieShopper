@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 import json
 import logging
 import os
@@ -41,7 +42,7 @@ from typing import Any, Callable, Iterator
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from flask import Flask, Response, jsonify, request
+from quart import Quart, Response, jsonify, request
 
 from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings
 from .i18n import tr
@@ -816,15 +817,15 @@ def _error(exc: BackupError):
     return jsonify({"error": describe(exc.key, exc.params), "code": exc.key}), exc.status
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/backup staat in auth.ADMIN_PREFIXES.
     @app.get("/api/backup")
-    def backup_info():
+    async def backup_info():
         return jsonify({"maxBytes": MAX_STAGE_BYTES, "minPassphraseLength": MIN_PASSPHRASE_LENGTH})
 
     @app.post("/api/backup")
-    def backup_create():
-        body = request.get_json(silent=True) or {}
+    async def backup_create():
+        body = await request.get_json(silent=True) or {}
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
         started = time.monotonic()
@@ -863,14 +864,15 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/backup/stage")
-    def backup_stage():
+    async def backup_stage():
         try:
-            return jsonify(stage(request.stream, request.content_length))
+            # Brug tot de back-up async is: Quart heeft geen synchrone request.stream, dus het lichaam gaat eerst in het geheugen.
+            return jsonify(stage(io.BytesIO(await request.get_data()), request.content_length))
         except BackupError as exc:
             return _error(exc)
 
     @app.delete("/api/backup/stage/<token>")
-    def backup_unstage(token: str):
+    async def backup_unstage(token: str):
         try:
             discard(token)
         except BackupError as exc:
@@ -878,8 +880,8 @@ def register_routes(app: Flask) -> None:
         return jsonify({"status": "ok"})
 
     @app.post("/api/backup/jobs")
-    def backup_start():
-        body = request.get_json(silent=True) or {}
+    async def backup_start():
+        body = await request.get_json(silent=True) or {}
         try:
             job = start_job(str(body.get("token") or ""), str(body.get("passphrase") or ""))
         except BackupError as exc:
@@ -887,11 +889,11 @@ def register_routes(app: Flask) -> None:
         return jsonify(job), 202
 
     @app.get("/api/backup/jobs/latest")
-    def backup_latest():
+    async def backup_latest():
         return jsonify({"job": latest_job()})
 
     @app.delete("/api/backup/jobs/<job_id>")
-    def backup_dismiss(job_id: str):
+    async def backup_dismiss(job_id: str):
         if not dismiss_job(job_id):
             return _error(BackupError("unknown_job", 404))
         return jsonify({"status": "ok"})

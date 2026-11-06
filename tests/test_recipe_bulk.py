@@ -11,6 +11,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes, audit, auth, auth_password, crisp, jumbo, jumbo_recipes, mealie, recipe_bulk  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PASSWORD = "koffie-met-melk-42"
@@ -455,13 +456,13 @@ class RoutesTest(BulkCase):
         thread.start()
         self.addCleanup(thread.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
         self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
 
     def join(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.post("/api/invites/password", json={"token": token, "password": ANNA})
         return client
 
@@ -474,7 +475,7 @@ class RoutesTest(BulkCase):
         self.assertNotIn("startedById", status)
 
     def test_a_whole_group_is_for_the_administrator(self):
-        anna, anonymous = self.join(), self.app.test_client()
+        anna, anonymous = self.join(), SyncClient(self.app)
         self.assertEqual(anna.post("/api/mealie/bulk-import/group", json={"store": "ah", "group": "g1"}).status_code, 403)
         for path in ("/api/mealie/bulk-import", "/api/mealie/bulk-import/group", "/api/mealie/bulk-import/cancel"):
             self.assertEqual(anonymous.post(path, json={"store": "ah"}).status_code, 401)

@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def recipe(n):
@@ -37,7 +38,7 @@ class SavedRecipesCacheTestCase(unittest.TestCase):
         groups = mock.patch.object(ah, "get_saved_recipe_groups", return_value=[])
         self.groups = groups.start()
         self.addCleanup(groups.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
 
 class CacheTest(SavedRecipesCacheTestCase):

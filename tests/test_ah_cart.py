@@ -7,6 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 class NormalizeQuantityTest(unittest.TestCase):
@@ -349,7 +350,7 @@ class CartRouteTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def post(self, items, unit_size):
         product = {"webshopId": "42", "title": "Product", "unitSize": unit_size,
@@ -407,7 +408,7 @@ class CartPreviewRouteTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def preview(self, items, search):
         with mock.patch.object(ah, "search_products", side_effect=search):
@@ -503,8 +504,12 @@ class DoubtLanguageTest(unittest.TestCase):
         from mealieshopper.app import create_app
 
         app = create_app()
-        with app.test_request_context("/", headers={"Cookie": f"ms_lang={lang}"}):
-            return ah.assess_packs(*args)[1]
+
+        async def assess():
+            async with app.test_request_context("/", headers={"Cookie": f"ms_lang={lang}"}):
+                return ah.assess_packs(*args)[1]
+
+        return run(assess())
 
     def test_unknown_pack_size(self):
         self.assertEqual(self.doubt("nl", 500, "g", None), "Verpakkingsgrootte onbekend")

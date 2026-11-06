@@ -9,6 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import audit, auth, hellofresh, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 KEY = "pasta-met-pesto-" + "a" * 24
 KEY_B = "salade-met-kip-" + "b" * 24
@@ -193,7 +194,7 @@ class SearchLoadTest(TempDataDirTest):
                     hellofresh.search("pesto", load=2)
 
     def test_the_search_route_limits_load_and_the_detail_route_has_the_shape_of_the_other_stores(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(hellofresh, "search", return_value={"weeks": 0, "total": 0, "recipes": []}) as search:
             for raw, expected in (("4", 4), ("99", 4), ("-3", 0), ("x", 0), (None, 0)):
                 client.get("/api/hellofresh/search?q=a" + (f"&load={raw}" if raw is not None else ""))
@@ -263,7 +264,7 @@ class RecipeTest(TempDataDirTest):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_menu_and_search_routes(self):
         with mock.patch.object(hellofresh.requests, "get", return_value=page(menu_page([course(KEY, "Pasta met pesto")]))):

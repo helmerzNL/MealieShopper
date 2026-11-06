@@ -8,6 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore, jumbo_lists  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 def list_data(*items, active=True, typename="ShoppingList"):
@@ -194,7 +195,7 @@ class LocalCopyTest(TempDataDirTest):
 class ListRoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_overview_is_always_200(self):
         with mock.patch.object(jumbo, "get_shopping_list", side_effect=RuntimeError("x")), \

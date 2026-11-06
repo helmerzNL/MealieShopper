@@ -9,6 +9,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ai_review, auth, auth_password, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
@@ -65,7 +66,7 @@ class AiTestCase(unittest.TestCase):
         sleep.start()
         self.addCleanup(sleep.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def seed(self):
@@ -386,12 +387,12 @@ class KeyTest(AiTestCase):
 class RoutesTest(AiTestCase):
     def join(self):
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        client = self.app.test_client()
+        client = SyncClient(self.app)
         client.post("/api/invites/password", json={"token": token, "password": ANNA})
         return client
 
     def test_only_the_administrator_can_use_the_ai_routes(self):
-        anna, anonymous = self.join(), self.app.test_client()
+        anna, anonymous = self.join(), SyncClient(self.app)
         for client, expected in ((anna, 403), (anonymous, 401)):
             self.assertEqual(client.get("/api/offers/ai").status_code, expected)
             self.assertEqual(client.put("/api/offers/ai", json={"keys": {"anthropic": CLAUDE_KEY}}).status_code, expected)

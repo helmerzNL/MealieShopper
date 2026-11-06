@@ -14,7 +14,7 @@ from typing import Any
 
 import jwt
 from cryptography.fernet import Fernet, InvalidToken
-from flask import Flask, jsonify, make_response, request
+from quart import Quart, jsonify, make_response, request
 from webauthn import verify_authentication_response, verify_registration_response
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
@@ -551,8 +551,8 @@ def forget_runtime_state() -> None:
     _master_secrets.clear()
 
 
-def cookie_response(payload: dict[str, Any], token: str | None = None, status: int = 200):
-    result = make_response(jsonify(payload), status)
+async def cookie_response(payload: dict[str, Any], token: str | None = None, status: int = 200):
+    result = await make_response(jsonify(payload), status)
     if token:
         result.set_cookie(
             SESSION_COOKIE_NAME,
@@ -566,19 +566,19 @@ def cookie_response(payload: dict[str, Any], token: str | None = None, status: i
     return result
 
 
-def clear_cookie_response(payload: dict[str, Any]):
-    result = make_response(jsonify(payload))
+async def clear_cookie_response(payload: dict[str, Any]):
+    result = await make_response(jsonify(payload))
     result.delete_cookie(SESSION_COOKIE_NAME, path="/", secure=request_is_secure(), samesite="Lax")
     return result
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.get("/.well-known/webauthn")
-    def webauthn_well_known():
+    async def webauthn_well_known():
         return jsonify({"origins": rp_origins()})
 
     @app.get("/api/auth/status")
-    def auth_status():
+    async def auth_status():
         user = current_user()
         configured = credentials_exist()
         required = auth_required()
@@ -609,13 +609,13 @@ def register_routes(app: Flask) -> None:
         return jsonify(payload)
 
     @app.get("/api/auth/credentials")
-    def credentials_list():
+    async def credentials_list():
         if auth_required() and credentials_exist() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
         return jsonify({"credentials": credential_rows(acting_user_id())})
 
     @app.delete("/api/auth/credentials/<credential_id>")
-    def credentials_delete(credential_id: str):
+    async def credentials_delete(credential_id: str):
         if auth_required() and not current_user():
             return jsonify({"error": "Unauthorized"}), 401
         uid = acting_user_id()  # alleen je eigen passkeys
@@ -633,10 +633,10 @@ def register_routes(app: Flask) -> None:
         return jsonify({"status": "deleted", "remaining": passkey_count(uid)})
 
     @app.post("/api/auth/register/options")
-    def register_options():
+    async def register_options():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         from . import users  # lokaal: users importeert dit module
 
         invite = None
@@ -677,11 +677,11 @@ def register_routes(app: Flask) -> None:
         return jsonify({"status": "ok", "userId": user_id, "username": username, "credentialName": credential_name, "options": options})
 
     @app.post("/api/auth/register/verify")
-    def register_verify():
+    async def register_verify():
         ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         from . import users  # lokaal: users importeert dit module
 
         invite = None
@@ -746,10 +746,10 @@ def register_routes(app: Flask) -> None:
         elif user_id == OWNER_ID:
             set_setting(SETTING_AUTH_MODE, "passkey")
         token = create_token(user_id, username)
-        return cookie_response({"status": "ok", "username": username}, token)
+        return await cookie_response({"status": "ok", "username": username}, token)
 
     @app.post("/api/auth/login/options")
-    def login_options():
+    async def login_options():
         ensure_db()
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
@@ -773,10 +773,10 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/auth/login/verify")
-    def login_verify():
+    async def login_verify():
         if not auth_enabled():
             return jsonify({"error": "Passkey auth is disabled"}), 400
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         credential = body.get("credential") or {}
         credential_id = str(credential.get("id") or "")
         challenge = pop_challenge("login")
@@ -809,11 +809,11 @@ def register_routes(app: Flask) -> None:
                 (new_sign_count, utcnow().isoformat(), credential_id),
             )
         token = create_token(str(stored["user_id"]), str(stored["username"]))
-        return cookie_response({"status": "ok", "username": stored["username"]}, token)
+        return await cookie_response({"status": "ok", "username": stored["username"]}, token)
 
     @app.post("/api/auth/logout")
-    def logout():
-        return clear_cookie_response({"status": "ok"})
+    async def logout():
+        return await clear_cookie_response({"status": "ok"})
 
 
 # Alleen de beheerder: Mealie en Albert Heijn koppelen, gebruikers beheren en de serverinstellingen. Gewone gebruikers

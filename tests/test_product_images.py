@@ -15,6 +15,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, mcp, offers, picnic, prices, product_images  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TODAY = "2026-10-20"
@@ -97,7 +98,7 @@ class BoughtFilterTest(Case):
     def test_the_route_and_the_mcp_tool(self):
         self.sync("2026-10-05T05:00:00+00:00", offer("1", "AH Penne"), offer("2", "AH Fusilli"))
         self.bought(101, "2026-10-07", order_item(2, "AH Fusilli"))
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         self.assertEqual(client.get("/api/prices/history?store=ah").get_json()["total"], 2)
         reply = client.get("/api/prices/history?store=ah&bought=1").get_json()
         self.assertEqual(([p["productId"] for p in reply["products"]], reply["total"]), (["2"], 1))
@@ -267,7 +268,7 @@ class SaveBoughtTest(Case):
         [saved] = product["savedImages"]
         self.assertEqual((saved["title"], saved["savedAt"], saved["width"], saved["height"]), ("AH Penne", "2026-10-05T05:00:00+00:00", 100, 80))
         self.assertRegex(saved["url"], r"^/api/prices/images/\d+\?v=[0-9a-f]{16}$")
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         reply = client.get(saved["url"])
         self.assertEqual(reply.status_code, 200)
         self.assertEqual(reply.mimetype, "image/jpeg")

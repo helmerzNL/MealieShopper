@@ -10,6 +10,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ROUTER = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
@@ -26,7 +27,7 @@ class PageRoutesTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_every_page_address_serves_the_app(self):
         home = self.client.get("/").get_data(as_text=True)

@@ -11,6 +11,7 @@ import requests  # noqa: E402
 
 from mealieshopper import auth_password, updates  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -172,7 +173,7 @@ class RouteTest(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
+        self.admin = SyncClient(self.app)
         self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def test_owner_gets_the_status_and_can_check_now(self):
@@ -183,9 +184,9 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(data["latest"], "9.9.9")
 
     def test_only_the_owner_and_only_when_logged_in(self):
-        self.assertEqual(self.app.test_client().get("/api/update").status_code, 401)
+        self.assertEqual(SyncClient(self.app).get("/api/update").status_code, 401)
         token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
+        anna = SyncClient(self.app)
         anna.post("/api/invites/password", json={"token": token, "password": ANNA})
         self.assertEqual(anna.get("/api/update").status_code, 403)
         self.assertEqual(anna.post("/api/update/check").status_code, 403)

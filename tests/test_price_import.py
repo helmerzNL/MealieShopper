@@ -14,6 +14,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, i18n, jumbo_orders, price_import, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 NOW = "2026-10-20T08:00:00+00:00"
 TODAY = "2026-10-20"
@@ -291,7 +292,7 @@ class OrdersTest(ImportCase):
     def test_the_imported_list_route_carries_the_first_four_names(self):
         items = [{"name": f"Product {n}", "quantity": 1, "price": 1.0, "total": 1.0, "discount": 0} for n in range(1, 7)]
         self.run_import(mail_order(items=items))
-        listed = create_app().test_client().get("/api/imported-orders/ah").get_json()["orders"][0]
+        listed = SyncClient(create_app()).get("/api/imported-orders/ah").get_json()["orders"][0]
         self.assertEqual(listed["productNames"], ["Product 1", "Product 2", "Product 3", "Product 4"])
         self.assertNotIn("productNames", price_import.list_orders("ah")["orders"][0])
 
@@ -384,7 +385,7 @@ class OrdersTest(ImportCase):
         ])
         products = {p["productId"] for p in prices.history("ah", "bananen", 50, today=TODAY)["products"]}
         self.assertIn(items[0]["productId"], products, "de link naar de prijsgeschiedenis komt bij hetzelfde product uit")
-        listed = create_app().test_client().get("/api/imported-orders/ah").get_json()["orders"][0]
+        listed = SyncClient(create_app()).get("/api/imported-orders/ah").get_json()["orders"][0]
         self.assertEqual((listed["images"], listed["savings"], listed["bonusCount"]), (["https://static.ah.nl/bananen.jpg"], 2.0, 1))
         self.assertEqual((listed["statusKind"], listed["statusText"], listed["status"]), ("imported", None, "delivered"))
         self.assertNotIn("images", price_import.list_orders("ah")["orders"][0], "alleen de lijstroute rekent de samenvatting uit")
@@ -442,7 +443,7 @@ class OrdersTest(ImportCase):
 
 class RouteTest(ImportCase):
     def test_the_routes_for_imported_orders(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         self.run_import(mail_order(), mail_order(number="AB/12", day="2025-05-01"), mail_order(number=None, day="2025-06-01", total=9.5))
         listed = client.get("/api/imported-orders/ah").get_json()["orders"]
         self.assertEqual([o["ref"] for o in listed], ["dag:2025-06-01:9.50", "AB/12", "225301"])
@@ -460,7 +461,7 @@ class RouteTest(ImportCase):
 
 
     def test_the_routes(self):
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         summary = client.get("/api/prices/import?store=ah").get_json()
         self.assertEqual((summary["orders"], "date" in summary["prompt"]), (0, True))
         body = {"store": "ah", "data": json.dumps({"orders": [mail_order()]}), "dryRun": True}

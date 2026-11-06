@@ -13,6 +13,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -161,7 +162,7 @@ class ServedAssetsTest(unittest.TestCase):
         })
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_manifest_content_type(self):
         response = self.client.get("/static/manifest.webmanifest")

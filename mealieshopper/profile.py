@@ -15,7 +15,7 @@ import sqlite3
 from contextlib import closing
 from typing import Any
 
-from flask import Flask, Response, jsonify, request
+from quart import Quart, Response, jsonify, request
 
 from . import auth
 from .i18n import tr
@@ -251,28 +251,28 @@ def delete(user_id: str) -> None:
         conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     def payload(user_id: str) -> dict[str, Any]:
         user = auth.current_user()
         return {"username": user["username"] if user else None, **get(user_id)}
 
     @app.get("/api/profile")
-    def profile_get():
+    async def profile_get():
         return jsonify(payload(auth.acting_user_id()))
 
     @app.put("/api/profile")
-    def profile_put():
-        body = request.get_json(silent=True) or {}
+    async def profile_put():
+        body = await request.get_json(silent=True) or {}
         user_id = auth.acting_user_id()
         set_display_name(user_id, body.get("displayName"))
         return jsonify(payload(user_id))
 
     @app.put("/api/profile/preferences")
-    def profile_preferences_put():
+    async def profile_preferences_put():
         # Los van PUT /api/profile, zodat een schakelaar de displaynaam niet meestuurt (en dus niet leegmaakt).
         # Alleen wat in het verzoek staat verandert: *Liever biologisch* en de weergave (theme, darkBackground, accent,
         # navbarStyle, navbarGlass).
-        body = request.get_json(silent=True)
+        body = await request.get_json(silent=True)
         if not isinstance(body, dict):
             body = {}
         try:
@@ -286,26 +286,26 @@ def register_routes(app: Flask) -> None:
         return jsonify(payload(user_id))
 
     @app.post("/api/profile/avatar")
-    def profile_avatar_put():
+    async def profile_avatar_put():
         # De afbeelding komt als gewone body met zijn eigen Content-Type: een andere website kan dat niet zonder
         # toestemming van de browser (preflight) namens jou sturen.
         if (request.content_length or 0) > MAX_AVATAR_BYTES:
             return jsonify({"error": tr("De afbeelding is te groot (hoogstens 256 kB).", "The image is too large (256 kB at most).")}), 413
         user_id = auth.acting_user_id()
         try:
-            set_avatar(user_id, request.get_data(), (request.mimetype or "").lower())
+            set_avatar(user_id, await request.get_data(), (request.mimetype or "").lower())
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify(payload(user_id))
 
     @app.delete("/api/profile/avatar")
-    def profile_avatar_delete():
+    async def profile_avatar_delete():
         user_id = auth.acting_user_id()
         clear_avatar(user_id)
         return jsonify(payload(user_id))
 
     @app.get("/api/profile/avatar/<user_id>")
-    def profile_avatar_get(user_id: str):
+    async def profile_avatar_get(user_id: str):
         found = avatar(user_id)
         if not found:
             return jsonify({"error": "Not found"}), 404

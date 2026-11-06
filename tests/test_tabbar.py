@@ -8,6 +8,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
@@ -61,7 +62,7 @@ class TabbarMarkupTest(unittest.TestCase):
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.html = create_app().test_client().get("/").get_data(as_text=True)
+        self.html = SyncClient(create_app()).get("/").get_data(as_text=True)
         self.nav = re.search(r'<nav class="tabs".*?</nav>', self.html, re.S).group(0)
 
     def test_viewport_reaches_under_the_home_indicator(self):

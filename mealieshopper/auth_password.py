@@ -27,7 +27,7 @@ from typing import Any
 from urllib.parse import quote
 
 import jwt
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import auth
 from .i18n import tr
@@ -388,9 +388,9 @@ def _json_error(message: str, status: int):
     return jsonify({"error": message}), status
 
 
-def session_response(user_id: str, payload: dict[str, Any] | None = None):
+async def session_response(user_id: str, payload: dict[str, Any] | None = None):
     username = _username_of(user_id) or "admin"
-    return auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, auth.create_token(user_id, username))
+    return await auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, auth.create_token(user_id, username))
 
 
 def _needs_session():
@@ -427,13 +427,13 @@ def reauthenticate(user_id: str, body: dict[str, Any]):
     return None
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.post("/api/auth/open")
-    def auth_open():
+    async def auth_open():
         """Bewust zonder inloggen verder; alleen op een nieuwe installatie, en alleen met bevestiging."""
         from . import onboarding
 
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         if not auth.auth_enabled():
             return _json_error(
                 tr("Inloggen staat al uit via de omgevingsvariabelen.", "Login is already turned off through the environment variables."), 400
@@ -449,7 +449,7 @@ def register_routes(app: Flask) -> None:
         return jsonify({"status": "ok"})
 
     @app.post("/api/auth/password")
-    def password_set():
+    async def password_set():
         """Eerste wachtwoord (nieuwe installatie), of wachtwoord wijzigen/toevoegen als je bent ingelogd."""
         from . import onboarding
 
@@ -460,7 +460,7 @@ def register_routes(app: Flask) -> None:
         denied = _needs_session()
         if denied:
             return denied
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         uid = auth.acting_user_id()
         own_name = _username_of(uid)
         # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt de naam uit de uitnodiging.
@@ -492,15 +492,15 @@ def register_routes(app: Flask) -> None:
             auth.set_setting(auth.SETTING_AUTH_MODE, "password" if auth.passkey_count() == 0 else "")
         if replacing:
             auth.bump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
-        return session_response(uid, {"replaced": replacing})
+        return await session_response(uid, {"replaced": replacing})
 
     @app.post("/api/auth/password/login")
-    def password_login():
+    async def password_login():
         if not auth.auth_required() or not auth.password_configured():
             return _json_error(tr("Inloggen met een wachtwoord is niet ingesteld.", "Password login is not set up."), 400)
         if locked_seconds():
             return _too_many()
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
         found = _user_by_name(username) if username else None
@@ -514,15 +514,15 @@ def register_routes(app: Flask) -> None:
                 if auth.mfa_enabled(found[0]):
                     return jsonify({"status": "mfa", "mfaRequired": True, "ticket": _make_ticket(found[0])})
                 reset_failures()
-                return session_response(found[0])
+                return await session_response(found[0])
         register_failure()
         return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
 
     @app.post("/api/auth/password/mfa")
-    def password_mfa():
+    async def password_mfa():
         if locked_seconds():
             return _too_many()
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         uid = _read_ticket(body.get("ticket"))
         if not uid or not auth.mfa_enabled(uid):
             return _json_error(
@@ -541,10 +541,10 @@ def register_routes(app: Flask) -> None:
             register_failure()
             return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
         reset_failures()
-        return session_response(uid, {"recoveryCodesLeft": auth.recovery_codes_left(uid)})
+        return await session_response(uid, {"recoveryCodesLeft": auth.recovery_codes_left(uid)})
 
     @app.post("/api/auth/mfa/start")
-    def mfa_start():
+    async def mfa_start():
         denied = _needs_session()
         if denied:
             return denied
@@ -577,7 +577,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/auth/mfa/confirm")
-    def mfa_confirm():
+    async def mfa_confirm():
         denied = _needs_session()
         if denied:
             return denied
@@ -593,7 +593,7 @@ def register_routes(app: Flask) -> None:
                 ),
                 400,
             )
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         counter = check_totp(pending["secret"], str(body.get("code") or ""))
         if counter is None:
             register_failure()
@@ -612,7 +612,7 @@ def register_routes(app: Flask) -> None:
                 "UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, uid)
             )
         auth.bump_session_epoch(uid)
-        return session_response(uid, {"recoveryCodes": codes})
+        return await session_response(uid, {"recoveryCodes": codes})
 
     def _check_current_password(uid: str, body: dict[str, Any]):
         if not auth.password_configured(uid):
@@ -626,29 +626,29 @@ def register_routes(app: Flask) -> None:
         return None
 
     @app.post("/api/auth/mfa/disable")
-    def mfa_disable():
+    async def mfa_disable():
         denied = _needs_session()
         if denied:
             return denied
         uid = auth.acting_user_id()
-        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
+        wrong = _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:
             return wrong
         with closing(auth.connect()) as conn, conn:
             conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (uid,))
         auth.bump_session_epoch(uid)
-        return session_response(uid)
+        return await session_response(uid)
 
     @app.post("/api/auth/mfa/recovery")
-    def mfa_recovery():
+    async def mfa_recovery():
         denied = _needs_session()
         if denied:
             return denied
         uid = auth.acting_user_id()
         if not auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
-        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
+        wrong = _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:
             return wrong
         codes = new_recovery_codes()

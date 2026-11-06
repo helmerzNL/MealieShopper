@@ -10,6 +10,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, auth, hellofresh, jumbo_recipes, marleyspoon, mealie, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 URL = "https://mealie.example.nl"
 HF_KEY = "pasta-pesto-0123456789abcdef01234567"
@@ -31,7 +32,7 @@ class ReuseTestCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         auth._INITIALIZED = False
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
         group = mock.patch.object(mealie, "group_slug", return_value="thuis")
         group.start()
         self.addCleanup(group.stop)

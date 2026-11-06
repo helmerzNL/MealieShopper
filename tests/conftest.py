@@ -1,10 +1,12 @@
 """Gedeelde pytest-fixtures voor de tests van MealieShopper."""
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 import respx
+from quart import Quart
+from quart.typing import TestClientProtocol
 
 from mealieshopper.app import create_app
 
@@ -25,12 +27,13 @@ def respx_mock() -> Iterator[respx.MockRouter]:
 
 
 @pytest.fixture
-def app(data_dir: Path):
+def app(data_dir: Path) -> Quart:
     """De app uit create_app(), gebouwd in de tijdelijke datamap."""
     return create_app()
 
 
 @pytest.fixture
-def client(app):
-    """Testclient van de app (wordt async in Taak 2)."""
-    return app.test_client()
+async def client(app: Quart) -> AsyncIterator[TestClientProtocol]:
+    """Async testclient van de app: `before_serving` en `after_serving` lopen een keer per test."""
+    async with app.test_app() as test_app:
+        yield test_app.test_client()

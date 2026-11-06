@@ -22,6 +22,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, mcp, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -57,7 +58,7 @@ class WeekStartTestCase(unittest.TestCase):
         auth._INITIALIZED = False
         mealie._week_start_cache.clear()
         self.addCleanup(mealie._week_start_cache.clear)
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def link(self):
         auth.set_secret("MEALIE_URL", URL)

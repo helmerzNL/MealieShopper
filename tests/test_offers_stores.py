@@ -8,6 +8,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah_orders, auth, crisp, image_cache, jumbo, offers, offers_schedule, picnic, prices  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 
 class TempDataDirTest(unittest.TestCase):
@@ -395,7 +396,7 @@ class PicnicExplorerDetailTest(TempDataDirTest):
     def test_the_route_passes_extended_on(self):
         from mealieshopper import picnic_explore
 
-        client = create_app().test_client()
+        client = SyncClient(create_app())
         with mock.patch.object(picnic_explore, "explore", return_value={"probes": [], "ok": 0, "linked": True}) as explore:
             client.post("/api/picnic/explore")
             client.post("/api/picnic/explore?extended=1")
@@ -555,7 +556,7 @@ class ScheduleTest(TempDataDirTest):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = SyncClient(create_app())
 
     def test_status_and_sync_all(self):
         status = self.client.get("/api/offers/status").get_json()

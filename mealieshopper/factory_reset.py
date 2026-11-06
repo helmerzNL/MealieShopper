@@ -22,7 +22,7 @@ import threading
 from contextlib import closing
 from typing import Any
 
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import auth, auth_password
 from .i18n import tr
@@ -106,9 +106,9 @@ def _check_passkey(uid: str, credential: Any):
     return None
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.get("/api/system/factory-reset")
-    def factory_reset_info():
+    async def factory_reset_info():
         return jsonify(
             {
                 "phrase": CONFIRM_PHRASE,
@@ -119,7 +119,7 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/system/factory-reset/options")
-    def factory_reset_options():
+    async def factory_reset_options():
         """De uitdaging voor de passkey waarmee de beheerder het wissen bevestigt."""
         if not auth.auth_required() or not _owner_methods()["passkey"]:
             return jsonify({"error": tr("Bevestigen met een passkey kan hier niet.", "Confirming with a passkey is not possible here.")}), 400
@@ -141,8 +141,8 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/system/factory-reset")
-    def factory_reset():
-        body = request.get_json(silent=True) or {}
+    async def factory_reset():
+        body = await request.get_json(silent=True) or {}
         if str(body.get("confirm") or "").strip() != CONFIRM_PHRASE:
             return jsonify({"error": tr(f"Typ {CONFIRM_PHRASE} om te bevestigen.", f"Type {CONFIRM_PHRASE} to confirm.")}), 400
 
@@ -166,4 +166,4 @@ def register_routes(app: Flask) -> None:
             timer = threading.Timer(RESTART_DELAY_SECONDS, restart)
             timer.daemon = True
             timer.start()
-        return auth.clear_cookie_response({"status": "ok", "restarting": restarting})
+        return await auth.clear_cookie_response({"status": "ok", "restarting": restarting})

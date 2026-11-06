@@ -8,6 +8,7 @@ from unittest import mock
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper.app import create_app  # noqa: E402
+from support import SyncClient  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -45,7 +46,7 @@ class MarkupTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         with mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name}):
-            client = create_app().test_client()
+            client = SyncClient(create_app())
             html = client.get("/").get_data(as_text=True)
             self.assertIn("onboarding.js?v=", html)
             self.assertEqual(client.get("/static/onboarding.js").status_code, 200)
