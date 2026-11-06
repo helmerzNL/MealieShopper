@@ -716,9 +716,8 @@ def verify_token(token: str) -> dict[str, Any] | None:
 
 
 async def averify_token(token: str) -> dict[str, Any] | None:
-    secret = await asigning_secret()
     try:
-        return jwt.decode(token, secret, algorithms=["HS256"])
+        return jwt.decode(token, await asigning_secret(), algorithms=["HS256"])
     except Exception:
         return None
 
@@ -1179,13 +1178,11 @@ def is_page_path(path: str) -> bool:
     return any(path == f"/{root}" or path.startswith(f"/{root}/") for root in PAGE_ROOTS)
 
 
-def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
-    if not auth_required():
-        return None
-    path = request.path
-    # De MCP-ingang en OAuth controleren zelf hun toegangstoken (of, voor /oauth/authorize, de sessie).
-    public_prefixes = ("/static/", "/api/auth/", "/api/invites/", "/oauth/", "/.well-known/oauth-")
-    public_paths = {
+# Zonder inlog bereikbaar. De MCP-ingang en OAuth controleren zelf hun toegangstoken (of, voor /oauth/authorize, de
+# sessie). Gedeeld door require_auth_for_request en arequire_auth_for_request, zodat de twee niet uiteen kunnen lopen.
+_PUBLIC_PREFIXES: tuple[str, ...] = ("/static/", "/api/auth/", "/api/invites/", "/oauth/", "/.well-known/oauth-")
+_PUBLIC_PATHS: frozenset[str] = frozenset(
+    {
         "/",
         "/healthz",
         "/.well-known/webauthn",
@@ -1195,7 +1192,18 @@ def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
         "/api/onboarding/status",
         "/api/onboarding/start",
     }
-    if path in public_paths or is_page_path(path) or any(path.startswith(prefix) for prefix in public_prefixes):
+)
+
+
+def _is_public_path(path: str) -> bool:
+    return path in _PUBLIC_PATHS or is_page_path(path) or any(path.startswith(prefix) for prefix in _PUBLIC_PREFIXES)
+
+
+def require_auth_for_request() -> tuple[dict[str, Any], int] | None:
+    if not auth_required():
+        return None
+    path = request.path
+    if _is_public_path(path):
         return None
     user = current_user()
     if user:
@@ -1212,17 +1220,7 @@ async def arequire_auth_for_request() -> tuple[dict[str, Any], int] | None:
     if not await aauth_required():
         return None
     path = request.path
-    public_prefixes = ("/static/", "/api/auth/", "/api/invites/", "/oauth/", "/.well-known/oauth-")
-    public_paths = {
-        "/",
-        "/healthz",
-        "/.well-known/webauthn",
-        "/favicon.ico",
-        "/mcp",
-        "/api/onboarding/status",
-        "/api/onboarding/start",
-    }
-    if path in public_paths or is_page_path(path) or any(path.startswith(prefix) for prefix in public_prefixes):
+    if _is_public_path(path):
         return None
     user = await acurrent_user()
     if user:

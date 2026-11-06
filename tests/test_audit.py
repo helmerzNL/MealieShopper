@@ -612,16 +612,47 @@ AUDIT_FIELDS: dict[str, Any] = {
 }
 
 
-async def test_arecord_writes_the_same_row_as_record(audit_dir: Path) -> None:
-    sync_id: int | None = audit.record(**AUDIT_FIELDS)
-    async_id: int | None = await audit.arecord(**AUDIT_FIELDS)
-    assert isinstance(sync_id, int) and async_id == sync_id + 1
+# Boven elke inkortgrens (action en actor 200, url 2000, error 500) en met een fout die redact_text verandert.
+OVERSIZED_FIELDS: dict[str, Any] = {
+    **AUDIT_FIELDS,
+    "action": "spam " * 60,
+    "url": "https://api.ah.nl/" + "eggs/" * 500,
+    "actor": "mcp:" + "ham" * 80,
+    "ok": True,
+    "duration_ms": 12.7,
+    "error": "password=hunter2 upstream sent Bearer abc.def.ghi " + "x" * 600,
+    "detail": {"naam": "crème brûlée"},
+}
+
+
+def audit_rows() -> list[dict[str, Any]]:
+    """Alle rijen zonder id en tijdstip, oudste eerst."""
     with audit.closing(auth.connect()) as conn:
         rows: list[dict[str, Any]] = [dict(row) for row in conn.execute("SELECT * FROM audit_log ORDER BY id")]
     for row in rows:
         del row["id"], row["ts"]
+    return rows
+
+
+@pytest.mark.parametrize("fields", [AUDIT_FIELDS, OVERSIZED_FIELDS], ids=["gewoon", "ingekort-en-geredigeerd"])
+async def test_arecord_writes_the_same_row_as_record(audit_dir: Path, fields: dict[str, Any]) -> None:
+    sync_id: int | None = audit.record(**fields)
+    async_id: int | None = await audit.arecord(**fields)
+    assert isinstance(sync_id, int) and async_id == sync_id + 1
+    rows: list[dict[str, Any]] = audit_rows()
     assert rows[0] == rows[1]
-    assert audit.get_entry(async_id)["detail"] == {"hops": 2}
+    assert audit.get_entry(async_id)["detail"] == fields["detail"]
+
+
+async def test_the_oversized_row_is_cut_and_redacted(audit_dir: Path) -> None:
+    """Bewaakt dat OVERSIZED_FIELDS echt elke grens en de redactie raakt, anders bewijst de pariteitstest weinig."""
+    await audit.arecord(**OVERSIZED_FIELDS)
+    row: dict[str, Any] = audit_rows()[0]
+    assert (len(row["action"]), len(row["url"]), len(row["actor"]), len(row["error"])) == (200, 2000, 200, 500)
+    assert "hunter2" not in row["error"] and "abc.def.ghi" not in row["error"]
+    assert audit.HIDDEN in row["error"]
+    assert (row["ok"], row["duration_ms"]) == (1, 12)
+    assert json.loads(row["detail"]) == {"naam": "crème brûlée"}
 
 
 async def test_arecord_creates_the_table_in_a_fresh_data_dir(audit_dir: Path) -> None:

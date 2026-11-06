@@ -74,7 +74,7 @@ def seeded(data_dir: Path) -> Path:
 
 @asynccontextmanager
 async def request_as(
-    user_id: str | None, *, bearer: bool = False
+    user_id: str | None, *, bearer: bool = False, path: str = "/api/recipes"
 ) -> AsyncIterator[None]:
     """Een verzoekcontext met (of zonder) een sessie van `user_id`, als cookie of als Bearer-token."""
     headers: dict[str, str] = {}
@@ -86,7 +86,7 @@ async def request_as(
             if bearer
             else {"Cookie": f"{auth.SESSION_COOKIE_NAME}={token}"}
         )
-    async with Quart(__name__).test_request_context("/api/recipes", headers=headers):
+    async with Quart(__name__).test_request_context(path, headers=headers):
         yield
 
 
@@ -171,6 +171,58 @@ async def test_averify_token_matches_verify_token(seeded: Path) -> None:
     token: str = auth.create_token(auth.OWNER_ID, "spam")
     assert await auth.averify_token(token) == auth.verify_token(token)
     assert await auth.averify_token("geen-token") is None
+
+
+async def test_averify_token_matches_verify_token_with_a_damaged_key(
+    data_dir: Path,
+) -> None:
+    """Een beschadigde `secret.key`: beide geven None in plaats van een fout."""
+    (data_dir / auth.SECRET_FILE).write_text("kort", encoding="ascii")
+    assert auth.verify_token("een.token.hier") is None
+    assert await auth.averify_token("een.token.hier") is None
+
+
+# Paden voor de toegangscontrole: openbaar via een pad, een voorvoegsel of een pagina, alleen voor de beheerder, of gewoon.
+ACCESS_PATHS: list[str] = [
+    "/",
+    "/healthz",
+    "/mcp",
+    "/api/onboarding/status",
+    "/static/app.js",
+    "/api/auth/status",
+    "/api/invites/abc",
+    "/oauth/token",
+    "/.well-known/oauth-authorization-server",
+    "/recipes",
+    "/settings/backup",
+    "/api/users",
+    "/api/backup/export",
+    "/api/ah/auth/status",
+    "/api/recipes",
+    "/api/onboarding/finish",
+]
+
+
+@pytest.mark.parametrize("path", ACCESS_PATHS)
+@pytest.mark.parametrize(("user_id", "bearer"), REQUEST_CALLERS, ids=["owner", "user", "user-bearer", "anonymous"])
+async def test_require_auth_twin_matches_sync_on_every_path(
+    seeded: Path, path: str, user_id: str | None, bearer: bool
+) -> None:
+    async with request_as(user_id, bearer=bearer, path=path):
+        assert await auth.arequire_auth_for_request() == auth.require_auth_for_request()
+
+
+async def test_both_hooks_share_one_allowlist(seeded: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Een pad dat aan de gedeelde lijst wordt toegevoegd, is voor beide hooks openbaar."""
+    async with request_as(None, path="/api/spam"):
+        assert auth.require_auth_for_request() == ({"error": "Unauthorized"}, 401)
+        monkeypatch.setattr(auth, "_PUBLIC_PATHS", auth._PUBLIC_PATHS | {"/api/spam"})
+        assert auth.require_auth_for_request() is None
+        assert await auth.arequire_auth_for_request() is None
+    async with request_as(None, path="/eggs/ham"):
+        monkeypatch.setattr(auth, "_PUBLIC_PREFIXES", (*auth._PUBLIC_PREFIXES, "/eggs/"))
+        assert auth.require_auth_for_request() is None
+        assert await auth.arequire_auth_for_request() is None
 
 
 async def test_acreate_token_carries_the_same_claims(seeded: Path) -> None:

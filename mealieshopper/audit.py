@@ -252,6 +252,39 @@ def _prune(conn) -> None:
     conn.execute("DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?", (MAX_ROWS,))
 
 
+_INSERT_SQL: str = (
+    "INSERT INTO audit_log (ts, kind, service, action, method, url, status, ok, duration_ms, actor, corr, request, response, req_bytes, resp_bytes, error, detail) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def _row_values(
+    *,
+    kind: str,
+    service: str,
+    action: str,
+    method: str,
+    url: str,
+    status: int | None,
+    ok: bool,
+    duration_ms: int,
+    actor: str,
+    corr: str,
+    request_body: str,
+    response_body: str,
+    req_bytes: int | None,
+    resp_bytes: int | None,
+    error: str,
+    detail: dict[str, Any] | None,
+) -> tuple[str | int | None, ...]:
+    """De waarden voor `_INSERT_SQL`, ingekort en geredigeerd. Gedeeld door `record` en `arecord`."""
+    return (
+        _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
+        request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
+        json.dumps(detail, ensure_ascii=False) if detail else "",
+    )
+
+
 def record(
     *,
     kind: str,
@@ -278,12 +311,11 @@ def record(
     try:
         with closing(_connect()) as conn, conn:
             cursor = conn.execute(
-                "INSERT INTO audit_log (ts, kind, service, action, method, url, status, ok, duration_ms, actor, corr, request, response, req_bytes, resp_bytes, error, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
-                    request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
-                    json.dumps(detail, ensure_ascii=False) if detail else "",
+                _INSERT_SQL,
+                _row_values(
+                    kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok,
+                    duration_ms=duration_ms, actor=actor, corr=corr, request_body=request_body, response_body=response_body,
+                    req_bytes=req_bytes, resp_bytes=resp_bytes, error=error, detail=detail,
                 ),
             )
             row_id = cursor.lastrowid
@@ -345,12 +377,11 @@ async def arecord(
     try:
         async with _aconnect() as conn:
             cursor = await conn.execute(
-                "INSERT INTO audit_log (ts, kind, service, action, method, url, status, ok, duration_ms, actor, corr, request, response, req_bytes, resp_bytes, error, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
-                    request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
-                    json.dumps(detail, ensure_ascii=False) if detail else "",
+                _INSERT_SQL,
+                _row_values(
+                    kind=kind, service=service, action=action, method=method, url=url, status=status, ok=ok,
+                    duration_ms=duration_ms, actor=actor, corr=corr, request_body=request_body, response_body=response_body,
+                    req_bytes=req_bytes, resp_bytes=resp_bytes, error=error, detail=detail,
                 ),
             )
             row_id = cursor.lastrowid
