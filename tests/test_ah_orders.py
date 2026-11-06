@@ -1452,7 +1452,7 @@ class ExploreTest(unittest.TestCase):
         }
         with mock.patch.object(ah_explore, "_raw_get", side_effect=get), mock.patch.object(ah_explore, "_raw_graphql", side_effect=graphql), \
                 mock.patch.object(ah_explore, "_anonymous_graphql", return_value=bonus), mock.patch.object(ah, "configured_refresh_token", return_value="x"):
-            report = ah_explore.explore()
+            report = run(ah_explore.explore())
         names = [p["name"] for p in report["probes"]]
         periods = next(p for p in report["probes"] if "bonusPeriods" in p["name"])
         self.assertEqual(periods["info"]["periodes"][1], {"week": 45, "van": "2026-11-02", "tot": "2026-11-08", "acties": 1, "producten": 1},
@@ -1472,7 +1472,7 @@ class ExploreTest(unittest.TestCase):
     def test_a_route_that_fails_is_reported_not_raised(self):
         with mock.patch.object(ah_explore, "_raw_get", side_effect=RuntimeError("404: not found")), mock.patch.object(ah_explore, "_raw_graphql", side_effect=RuntimeError("boom")), \
                 mock.patch.object(ah_explore, "_anonymous_graphql", side_effect=RuntimeError("boom")), mock.patch.object(ah, "configured_refresh_token", return_value=""):
-            report = ah_explore.explore()
+            report = run(ah_explore.explore())
         self.assertEqual(report["ok"], 0)
         self.assertIn("overgeslagen", next(p for p in report["probes"] if p["name"].startswith("inhoud"))["error"])
 
@@ -1509,7 +1509,7 @@ class PermissionsTest(unittest.TestCase):
         with mock.patch.object(ah, "get_open_fulfillments", return_value=[]):
             self.assertEqual(self.anna.post("/api/ah/orders/sync").status_code, 200)
         self.assertEqual(self.anna.post("/api/ah/explore").status_code, 403)
-        with mock.patch.object(ah_explore, "explore", return_value={"probes": [], "ok": 0}):
+        with mock.patch.object(ah_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0}):
             self.assertEqual(self.admin.post("/api/ah/explore").status_code, 200)
 
 

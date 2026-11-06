@@ -1542,11 +1542,11 @@ async def _collect_mealie() -> list[dict[str, Any]]:
 async def _collect_jumbo() -> list[dict[str, Any]]:
     if not jumbo.configured_refresh_token():
         raise LookupError(tr("niet gekoppeld", "not linked"))
-    cards = jumbo_recipes.get_favorites(1).get("recipes") or []
+    cards = (await jumbo_recipes.get_favorites(1)).get("recipes") or []
 
     async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = jumbo_recipes.get_recipe(card["id"])
+            recipe = await jumbo_recipes.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [i["name"] for i in recipe["ingredients"] if i.get("name")]
@@ -1565,14 +1565,14 @@ async def _collect_picnic() -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
     seen: set[str] = set()
     for source in ("saved", "cookbook"):
-        for card in picnic_recipes.get_recipes(source):
+        for card in await picnic_recipes.get_recipes(source):
             if card["id"] not in seen:
                 seen.add(card["id"])
                 cards.append(card)
 
     async def one(card: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            recipe = picnic_recipes.get_recipe(card["id"])
+            recipe = await picnic_recipes.get_recipe(card["id"])
         except Exception:  # noqa: BLE001
             return None
         lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
@@ -1617,7 +1617,7 @@ async def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
 
 
 async def _collect_ah() -> list[dict[str, Any]]:
-    saved = ah_recipes.load()
+    saved = await ah_recipes.load()
     if not saved or not saved["recipes"]:
         raise LookupError(tr("geen bewaarde recepten (haal ze eerst op bij Winkels > Albert Heijn > Recepten)", "no saved recipes (fetch them first under Stores > Albert Heijn > Recipes)"))
     known = await _indexed("ah")

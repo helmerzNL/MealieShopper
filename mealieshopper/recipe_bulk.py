@@ -139,8 +139,8 @@ def _ids(raw: Any) -> list[str]:
     return ids
 
 
-def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
-    data = ah_recipes.load()
+async def _ah_plan(ids: list[str], group_id: str, whole: bool) -> dict[str, Any]:
+    data = await ah_recipes.load()
     if not data or not data.get("recipes"):
         raise ValueError(tr(
             "Haal eerst je bewaarde recepten op bij AH (Winkels > Albert Heijn > Recepten).",
@@ -264,7 +264,7 @@ async def start(
                 f"Choose at most {MAX_SELECTION} recipes at a time, or import the whole group.",
             ))
     if store == "ah":
-        plan = _ah_plan(chosen, group_id, whole)
+        plan = await _ah_plan(chosen, group_id, whole)
     elif store == "jumbo":
         plan = _jumbo_plan(chosen, titles, group_id, whole)
     else:
@@ -363,10 +363,10 @@ async def _pause() -> bool:
     return True
 
 
-def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
+async def _jumbo_list(group: dict[str, Any]) -> dict[str, Any]:
     """De receptenlijst van Jumbo met dit id (`{id, name, kind, count}`)."""
     try:
-        lists = jumbo_recipes.get_lists()
+        lists = await jumbo_recipes.get_lists()
     except jumbo.JumboBlocked as exc:
         raise _Stop("jumbo_blocked" if exc.refused else "list_failed") from exc
     except jumbo.JumboAuthError as exc:
@@ -386,7 +386,7 @@ async def _collect_jumbo(info: dict[str, Any]) -> None:
     page = 1
     while True:
         try:
-            data = jumbo_recipes.get_recipes_of(info, page)
+            data = await jumbo_recipes.get_recipes_of(info, page)
         except jumbo.JumboBlocked as exc:
             raise _Stop("jumbo_blocked" if exc.refused else "list_failed") from exc
         except jumbo.JumboAuthError as exc:
@@ -424,7 +424,7 @@ def _collect_crisp() -> None:
     _set(groupSize=len(items))
 
 
-def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+async def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
     """Haal het recept bij de winkel op: (bron, schema.org-recept, titel)."""
     if store == "ah":
         number = int(item["id"])
@@ -433,7 +433,7 @@ def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
     if store == "crisp":
         recipe = crisp.get_recipe(item["id"])
         return crisp.source_url(item["id"]), crisp.jsonld(recipe), str(recipe.get("name") or "")
-    recipe = jumbo_recipes.get_recipe(item["id"])
+    recipe = await jumbo_recipes.get_recipe(item["id"])
     return jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe), str(recipe.get("name") or "")
 
 
@@ -456,7 +456,7 @@ async def _import_all(plan: dict[str, Any]) -> None:
     store = plan["store"]
     category = plan["category"]
     if store == "jumbo" and plan["group"]:
-        info = _jumbo_list(plan["group"])
+        info = await _jumbo_list(plan["group"])
         if info.get("kind") != "favorites":
             category = info["name"]
         _set(group={"id": info["id"], "name": info["name"]}, category=category)
@@ -500,7 +500,7 @@ async def _import_all(plan: dict[str, Any]) -> None:
         fetched += 1
         stage = "store_failed"
         try:
-            source, recipe, title = _fetch(store, item)
+            source, recipe, title = await _fetch(store, item)
             stage = "mealie_failed"
             slug = await mealie.import_via_jsonld(source, recipe, catalog=catalog)
         except (ah.RecipeUnavailable, jumbo_recipes.RecipeUnavailable, crisp.RecipeUnavailable) as exc:

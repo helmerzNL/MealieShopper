@@ -117,8 +117,8 @@ def summaries(page: Any) -> list[dict[str, Any]]:
     return [recipe for recipe in recipes if recipe["name"]]
 
 
-def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
-    """Recepten van Picnic: `saved` (Koken > Bewaard), `cookbook` of `ordered` (Opnieuw bestellen)."""
+async def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
+    """Recepten van Picnic: `saved` (Koken > Bewaard), `cookbook` of `ordered` (Opnieuw bestellen). `picnic` blijft synchroon tot Taak 21."""
     source = str(source or "saved").strip().lower()
     if source not in SOURCES:
         raise ValueError(
@@ -133,7 +133,7 @@ def get_recipes(source: Any = "saved") -> list[dict[str, Any]]:
     return summaries(page)
 
 
-def search(query: Any) -> dict[str, Any]:
+async def search(query: Any) -> dict[str, Any]:
     """Zoek op naam in de recepten van Picnic (je bewaarde recepten en het kookboek): alle woorden moeten in de naam staan.
 
     Picnic heeft geen zoekfunctie voor recepten, dus we filteren de lijsten zelf. `{recipes, total}`, zonder dubbelen.
@@ -146,7 +146,7 @@ def search(query: Any) -> dict[str, Any]:
     reached = 0
     for source in ("saved", "cookbook"):
         try:
-            recipes = get_recipes(source)
+            recipes = await get_recipes(source)
         except picnic.PicnicAuthError:
             raise  # de koppeling zelf is stuk: de tweede lijst helpt niet
         except Exception as exc:  # noqa: BLE001 - de andere lijst kan wel lukken
@@ -238,7 +238,7 @@ def details(page: Any, recipe_id: str) -> dict[str, Any]:
     }
 
 
-def get_recipe(recipe_id: Any) -> dict[str, Any]:
+async def get_recipe(recipe_id: Any) -> dict[str, Any]:
     recipe_id = str(recipe_id or "").strip()
     if not recipe_id or len(recipe_id) > MAX_ID_LENGTH or not _RECIPE_ID.match(recipe_id):
         raise ValueError(tr("Geen geldig recept", "Not a valid recipe"))

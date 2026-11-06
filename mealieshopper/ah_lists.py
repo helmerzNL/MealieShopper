@@ -11,10 +11,14 @@ gebruiker aangepaste aantallen (per product) en haalt de rest weer bij AH op.
 """
 from __future__ import annotations
 
+import sqlite3
 import unicodedata
-from contextlib import closing
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+
+import aiosqlite
 
 from . import ah, auth
 
@@ -49,15 +53,47 @@ def normalize_id(list_id: Any) -> str:
     return str(list_id or "").strip().upper()
 
 
-def _connect():
-    conn = auth.connect()
+# De migratie van een database van voor de aanpasbare aantallen, gedeeld door `_connect` en `_aconnect`.
+MIGRATE_DEFAULT_QUANTITY: tuple[str, ...] = (
+    "ALTER TABLE ah_list_items ADD COLUMN default_quantity INTEGER",
+    "UPDATE ah_list_items SET default_quantity = quantity",
+)
+
+
+def _connect() -> sqlite3.Connection:
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
+    conn: sqlite3.Connection = auth.connect()
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(ah_list_items)")}
+    columns: set[str] = {row["name"] for row in conn.execute("PRAGMA table_info(ah_list_items)")}
     if "default_quantity" not in columns:  # database van voor de aanpasbare aantallen
-        conn.execute("ALTER TABLE ah_list_items ADD COLUMN default_quantity INTEGER")
-        conn.execute("UPDATE ah_list_items SET default_quantity = quantity")
+        for sql in MIGRATE_DEFAULT_QUANTITY:
+            conn.execute(sql)
     return conn
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_connect`: foreign keys aan, hetzelfde schema en dezelfde migratie. Sluit zonder commit,
+    zoals `auth.aconnect`, behalve de migratie: die staat vast voordat de verbinding wordt teruggegeven."""
+    async with auth.aconnect() as conn:
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.executescript(SCHEMA)
+        columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(ah_list_items)")}
+        if "default_quantity" not in columns:  # database van voor de aanpasbare aantallen
+            try:
+                for sql in MIGRATE_DEFAULT_QUANTITY:
+                    await conn.execute(sql)
+            except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
+                if "duplicate column" not in str(exc):
+                    raise
+            await conn.commit()
+        yield conn
+
+
+async def _fetchone(conn: aiosqlite.Connection, sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    async with conn.execute(sql, params) as cursor:
+        return await cursor.fetchone()
 
 
 def _now() -> str:
@@ -117,7 +153,7 @@ def _match_previous(previous: list[Any], items: list[dict[str, Any]]) -> list[An
     return matches
 
 
-def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
+async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     """Werk de lokale kopie van een lijstje bij met `live` (uitvoer van ah.get_favorite_list_items).
 
     - Nieuwe items komen erbij met het aantal van AH, en wat bij AH is verdwenen verdwijnt hier ook.
@@ -133,15 +169,15 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     synced_at = _now()
     items = live.get("items") or []
 
-    with closing(_connect()) as conn, conn:
-        conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
-        previous = conn.execute(
+    async with _aconnect() as conn:
+        await conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
+        previous: list[Any] = list(await conn.execute_fetchall(
             "SELECT position, item_id, product_id, quantity, default_quantity FROM ah_list_items WHERE list_id = ? ORDER BY position",
             (list_id,),
-        ).fetchall()
+        ))
         matches = _match_previous(previous, items)
 
-        rows = []
+        rows: list[tuple[Any, ...]] = []
         kept = 0
         for position, (item, old) in enumerate(zip(items, matches)):
             product = item.get("product") or {}
@@ -174,15 +210,15 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             "removed": len(previous) - sum(1 for old in matches if old is not None),
             "keptQuantities": kept,
         }
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO ah_lists (id, name, synced_at) VALUES (?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET name = excluded.name, synced_at = excluded.synced_at
             """,
             (list_id, name, synced_at),
         )
-        conn.execute("DELETE FROM ah_list_items WHERE list_id = ?", (list_id,))
-        conn.executemany(
+        await conn.execute("DELETE FROM ah_list_items WHERE list_id = ?", (list_id,))
+        await conn.executemany(
             """
             INSERT INTO ah_list_items (
               list_id, position, item_id, product_id, quantity, default_quantity, title, brand,
@@ -191,19 +227,20 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             """,
             rows,
         )
-    return {**(get_snapshot(list_id) or {}), "sync": info}
+        await conn.commit()
+    return {**(await get_snapshot(list_id) or {}), "sync": info}
 
 
-def list_snapshots() -> list[dict[str, Any]]:
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+async def list_snapshots() -> list[dict[str, Any]]:
+    async with _aconnect() as conn:
+        rows = await conn.execute_fetchall(
             """
             SELECT l.id, l.name, l.synced_at,
                    (SELECT COUNT(*) FROM ah_list_items i WHERE i.list_id = l.id) AS item_count
             FROM ah_lists l
             ORDER BY LOWER(l.name)
             """
-        ).fetchall()
+        )
     return [
         {
             "id": row["id"],
@@ -215,15 +252,15 @@ def list_snapshots() -> list[dict[str, Any]]:
     ]
 
 
-def get_snapshot(list_id: str) -> dict[str, Any] | None:
+async def get_snapshot(list_id: str) -> dict[str, Any] | None:
     list_id = normalize_id(list_id)
-    with closing(_connect()) as conn:
-        head = conn.execute("SELECT id, name, synced_at FROM ah_lists WHERE id = ?", (list_id,)).fetchone()
+    async with _aconnect() as conn:
+        head = await _fetchone(conn, "SELECT id, name, synced_at FROM ah_lists WHERE id = ?", (list_id,))
         if not head:
             return None
-        rows = conn.execute(
+        rows = await conn.execute_fetchall(
             "SELECT * FROM ah_list_items WHERE list_id = ? ORDER BY position", (list_id,)
-        ).fetchall()
+        )
     items = [_item_row(row) for row in rows]
     return {
         "id": head["id"],
@@ -241,7 +278,7 @@ def _fold(value: Any) -> str:
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
-def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
+async def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
     """Gesynchroniseerde lijstjes waarin een product de zoekwoorden bevat: {lijst-id: [producttitels]}.
 
     Alle woorden moeten in dezelfde titel (of merknaam) staan. Alleen lokale kopieen
@@ -250,10 +287,10 @@ def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
     words = _fold(query).split()
     if not words:
         return {}
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+    async with _aconnect() as conn:
+        rows = await conn.execute_fetchall(
             "SELECT list_id, title, brand FROM ah_list_items WHERE title IS NOT NULL ORDER BY list_id, position"
-        ).fetchall()
+        )
     found: dict[str, list[str]] = {}
     for row in rows:
         haystack = _fold(f"{row['title']} {row['brand'] or ''}")
@@ -267,7 +304,7 @@ def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
 MAX_QUANTITY = ah.MAX_CART_QUANTITY
 
 
-def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] | None:
+async def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] | None:
     """Pas het aantal van een regel in een gesynchroniseerd lijstje aan. None als de regel niet bestaat."""
     try:
         value = int(quantity)
@@ -275,29 +312,32 @@ def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] |
         raise ValueError("Aantal moet een geheel getal zijn") from None
     if not 1 <= value <= MAX_QUANTITY:
         raise ValueError(f"Aantal moet tussen 1 en {MAX_QUANTITY} liggen")
-    with closing(_connect()) as conn, conn:
-        changed = conn.execute(
+    async with _aconnect() as conn:
+        cursor = await conn.execute(
             "UPDATE ah_list_items SET quantity = ? WHERE list_id = ? AND position = ?",
             (value, normalize_id(list_id), position),
-        ).rowcount
-    return get_snapshot(list_id) if changed else None
+        )
+        changed: int = cursor.rowcount
+        await conn.commit()
+    return await get_snapshot(list_id) if changed else None
 
 
-def reset_quantities(list_id: str) -> dict[str, Any] | None:
+async def reset_quantities(list_id: str) -> dict[str, Any] | None:
     """Zet alle aangepaste aantallen terug naar de waarden zoals AH ze gaf."""
-    if not get_snapshot(list_id):
+    if not await get_snapshot(list_id):
         return None
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+    async with _aconnect() as conn:
+        await conn.execute(
             "UPDATE ah_list_items SET quantity = COALESCE(default_quantity, quantity) WHERE list_id = ?",
             (normalize_id(list_id),),
         )
-    return get_snapshot(list_id)
+        await conn.commit()
+    return await get_snapshot(list_id)
 
 
-def cart_items(list_id: str) -> list[dict[str, Any]]:
+async def cart_items(list_id: str) -> list[dict[str, Any]]:
     """De regels van een lokaal lijstje zoals ze naar het AH-mandje gaan."""
-    snapshot = get_snapshot(list_id)
+    snapshot = await get_snapshot(list_id)
     if not snapshot:
         return []
     return cart_items_from(snapshot)
@@ -315,17 +355,17 @@ def cart_items_from(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def sync_list(list_id: str) -> dict[str, Any]:
-    live = ah.get_favorite_list_items(list_id)
-    return save_snapshot(live)
+async def sync_list(list_id: str) -> dict[str, Any]:
+    live = ah.get_favorite_list_items(list_id)  # `ah` blijft synchroon tot Taak 21
+    return await save_snapshot(live)
 
 
-def merged_lists() -> dict[str, Any]:
+async def merged_lists() -> dict[str, Any]:
     """Lokale en live lijstjes samengevoegd. Een AH-fout breekt de lokale weergave niet."""
-    local = {item["id"]: item for item in list_snapshots()}
+    local = {item["id"]: item for item in await list_snapshots()}
     ah_error = None
     try:
-        live = ah.get_favorite_lists()
+        live = ah.get_favorite_lists()  # `ah` blijft synchroon tot Taak 21
     except Exception as exc:  # noqa: BLE001 - AH is onofficieel; toon de fout, val terug op lokaal
         live = []
         ah_error = str(exc) or "AH lijstjes ophalen mislukt"

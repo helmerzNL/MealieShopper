@@ -14,6 +14,7 @@ from unittest import mock
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, crisp, crisp_orders  # noqa: E402
+from support import run  # noqa: E402
 
 
 def header(order_id, status="done", date="2026-10-10"):
@@ -55,7 +56,7 @@ class CrispOrdersTest(unittest.TestCase):
 
         with mock.patch.object(crisp, "order_history_page", side_effect=page), \
                 mock.patch.object(crisp, "get_order", side_effect=get_order):
-            return crisp_orders.sync_orders()
+            return run(crisp_orders.sync_orders())
 
     def test_delivered_orders_are_stored_with_their_products_over_pages(self):
         self.pages = {None: ([header(2, date="2026-10-17"), header(9, status="ready")], "p2"), "p2": ([header(1)], None)}
@@ -64,11 +65,11 @@ class CrispOrdersTest(unittest.TestCase):
         self.assertEqual((result["orders"], result["new"], result["remaining"]), (2, 2, 0))
         self.assertEqual(self.pages_asked, [None, "p2"])
         self.assertNotIn("9", self.asked, "een aankomende bestelling bewaren we niet")
-        data = crisp_orders.list_orders()
+        data = run(crisp_orders.list_orders())
         self.assertEqual([order["id"] for order in data["orders"]], ["2", "1"])  # nieuwste eerst
         self.assertEqual((data["orders"][1]["itemCount"], data["orders"][1]["lineCount"], data["orders"][1]["total"]), (3, 2, 15.0))
         self.assertTrue(data["syncedAt"])
-        order = crisp_orders.get_order("1")
+        order = run(crisp_orders.get_order("1"))
         self.assertEqual([item["title"] for item in order["items"]], ["Melk", "Kaas"])
         self.assertTrue(order["itemsSynced"])
 
@@ -100,7 +101,7 @@ class CrispOrdersTest(unittest.TestCase):
         result = self.sync()
         self.assertEqual(result["detailError"], "RuntimeError")
         self.assertEqual(len(self.asked), crisp_orders.MAX_FIRST_FAILURES)
-        self.assertEqual(len(crisp_orders.list_orders()["orders"]), 10)
+        self.assertEqual(len(run(crisp_orders.list_orders())["orders"]), 10)
 
     def test_a_refused_session_stops_the_sync(self):
         self.pages = {None: ([header(1)], None)}
@@ -114,7 +115,7 @@ class CrispOrdersTest(unittest.TestCase):
         self.sync()
         self.pages = {None: ([header(1, status="cancel")], None)}
         self.sync()
-        self.assertIsNone(crisp_orders.get_order("1"))
+        self.assertIsNone(run(crisp_orders.get_order("1")))
 
     def test_no_personal_data_ends_up_in_the_database(self):
         page = {"data": [{"type": "order", "item": {"id": 1, "fulfillStatus": "done", "deliverySlot": {"date": "2026-10-10"}}}]}
@@ -125,7 +126,7 @@ class CrispOrdersTest(unittest.TestCase):
         auth.set_secret(crisp.CLIENT_SECRET, "CLIENTabc1234567890x")
         answers = {"/order/history": page, "/order/1": full}
         with mock.patch.object(crisp, "_call", side_effect=lambda method, path, client_id, body=None: answers[path]):
-            crisp_orders.sync_orders()
+            run(crisp_orders.sync_orders())
         with closing(crisp_orders._connect()) as conn:
             rows = [dict(row) for table in ("crisp_orders", "crisp_order_items") for row in conn.execute(f"SELECT * FROM {table}")]
         dumped = json.dumps(rows)
@@ -137,9 +138,9 @@ class CrispOrdersTest(unittest.TestCase):
         self.pages = {None: ([header(2, date="2026-10-17"), header(1)], None)}
         self.details = {"1": detail(1, "Volle melk"), "2": detail(2, "Volle melk", "Kaas", date="2026-10-17")}
         self.sync()
-        result = crisp_orders.search_purchases("melk")
+        result = run(crisp_orders.search_purchases("melk"))
         self.assertEqual((result["total"], result["products"][0]["times"], result["products"][0]["lastDate"]), (2, 2, "2026-10-17"))
-        self.assertEqual(crisp_orders.search_purchases(" ")["total"], 0)
+        self.assertEqual(run(crisp_orders.search_purchases(" "))["total"], 0)
 
 
 if __name__ == "__main__":

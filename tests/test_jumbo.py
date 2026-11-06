@@ -7,11 +7,13 @@ import unittest
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, jumbo, jumbo_explore  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run, served  # noqa: E402
 
 
 def reply(data=None, *, status=200, text=None, content_type="application/json"):
@@ -447,7 +449,7 @@ class JumboRoutesTest(TempDataDirTest):
         self.assertEqual(response.get_json()["error"], "Jumbo fout")
 
     def test_explorer_reports_error_type_without_exception_details(self):
-        report, _ = jumbo_explore._probe("test", mock.Mock(side_effect=RuntimeError("private response body")))
+        report, _ = run(jumbo_explore._probe("test", mock.Mock(side_effect=RuntimeError("private response body"))))
         self.assertEqual(report["error"], "RuntimeError")
 
     def test_preview_uses_jumbo_candidates(self):
@@ -488,14 +490,14 @@ class ExploreTest(TempDataDirTest):
     def test_the_report_starts_with_reachability_and_contains_no_data(self):
         self.link()
         jumbo._access_cache.update(token="acc", expires_at=jumbo.time.time() + 3600)
-        blocked = mock.Mock(status_code=403, headers={"content-type": "text/html"})
+        blocked = httpx.Response(403, headers={"content-type": "text/html"})
         found = [{"id": "SECRET-SKU", "title": "Geheime Melk", "price": 1.23, "unitSize": "1 l", "image": None, "isBonus": False, "url": None}]
-        with mock.patch.object(jumbo_explore.requests, "request", return_value=blocked), \
+        with served(blocked), \
                 mock.patch.object(jumbo, "get_access_token", return_value="acc"), \
                 mock.patch.object(jumbo, "search_products", return_value=found), \
                 mock.patch.object(jumbo, "get_cart", return_value={"items": [], "totalCount": 0, "totalPrice": None}), \
                 mock.patch.object(jumbo, "_graphql", return_value={"addBasketLines": {"__typename": "AddBasketLinesError"}}):
-            report = jumbo_explore.explore()
+            report = run(jumbo_explore.explore())
         names = [p["name"] for p in report["probes"]]
         self.assertTrue(names[0].startswith("bereikbaar"))
         self.assertTrue(report["probes"][0]["info"]["looksLikeBotBlock"])

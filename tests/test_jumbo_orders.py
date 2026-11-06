@@ -10,11 +10,13 @@ import unittest
 from contextlib import closing
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, image_cache, jumbo, jumbo_explore, jumbo_orders, mcp  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient, in_db, run  # noqa: E402
+from support import SyncClient, in_db, run, served  # noqa: E402
 
 STREET = "Voorbeeldstraat"
 CUSTOMER = "11111111-2222-3333-4444-555555555555"
@@ -425,9 +427,9 @@ class McpAndExplorerTest(TempDataDirTest):
 
     def test_the_explorer_reports_shapes_without_personal_data(self):
         listing = page([listed(7000000001)], receipts=2)
-        with mock.patch.object(jumbo, "_persisted_query", return_value=listing), \
+        with mock.patch.object(jumbo, "_persisted_query", return_value=listing), served(httpx.Response(200, json={})), \
                 mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(7000000001, [line(1)]))):
-            probes = {p["name"]: p for p in jumbo_explore.explore()["probes"]}
+            probes = {p["name"]: p for p in run(jumbo_explore.explore())["probes"]}
         orders_probe = probes["mijn bestellingen: opgeslagen query OnlineOrdersAndStoreReceipts"]
         self.assertTrue(orders_probe["ok"])
         self.assertEqual((orders_probe["info"]["bestellingen"], orders_probe["info"]["winkelbonnen volgens Jumbo"]), (1, 2))

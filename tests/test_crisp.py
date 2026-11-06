@@ -735,19 +735,19 @@ class CrispNewRoutesTest(TempDataDirTest):
 
     def test_order_routes_use_the_local_copy_first(self):
         stored = {"id": "1", "itemsSynced": True, "items": [{"id": "101"}]}
-        with mock.patch.object(crisp_orders, "get_order", return_value=stored), \
+        with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=stored), \
                 mock.patch.object(crisp, "get_order", side_effect=AssertionError("niet live")):
             self.assertEqual(self.client.get("/api/crisp/orders/1").get_json(), stored)
         live = {"id": "2", "itemsSynced": True, "items": []}
-        with mock.patch.object(crisp_orders, "get_order", return_value=None), mock.patch.object(crisp, "get_order", return_value=live):
+        with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=None), mock.patch.object(crisp, "get_order", return_value=live):
             self.assertEqual(self.client.get("/api/crisp/orders/2").get_json(), live)
         pending = {"id": "3", "itemsSynced": False, "items": []}
-        with mock.patch.object(crisp_orders, "get_order", return_value=pending), \
+        with mock.patch.object(crisp_orders, "get_order", new_callable=mock.AsyncMock, return_value=pending), \
                 mock.patch.object(crisp, "get_order", side_effect=RuntimeError("offline")):
             self.assertEqual(self.client.get("/api/crisp/orders/3").get_json(), pending)
         with mock.patch.object(crisp, "get_open_orders", return_value=[{"id": "9"}]):
             self.assertEqual(self.client.get("/api/crisp/orders/open").get_json(), {"orders": [{"id": "9"}]})
-        with mock.patch.object(crisp_orders, "sync_orders", return_value={"orders": 1, "new": 1, "remaining": 0}):
+        with mock.patch.object(crisp_orders, "sync_orders", new_callable=mock.AsyncMock, return_value={"orders": 1, "new": 1, "remaining": 0}):
             self.assertEqual(self.client.post("/api/crisp/orders/sync").get_json()["new"], 1)
         self.assertEqual(self.client.get("/api/crisp/orders").get_json(), {"syncedAt": None, "orders": []})
 

@@ -7,7 +7,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, ah_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 def recipe(n):
@@ -43,11 +43,11 @@ class SavedRecipesCacheTestCase(unittest.TestCase):
 
 class CacheTest(SavedRecipesCacheTestCase):
     def test_nothing_cached_yet(self):
-        self.assertIsNone(ah_recipes.load())
+        self.assertIsNone(run(ah_recipes.load()))
 
     def test_first_call_fetches_every_page_and_keeps_the_order(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(120)) as live:
-            data = ah_recipes.get()
+            data = run(ah_recipes.get())
         self.assertEqual(live.call_count, 3)
         self.assertEqual(data["total"], 120)
         self.assertEqual([r["id"] for r in data["recipes"]][:3], ["1", "2", "3"])
@@ -56,32 +56,32 @@ class CacheTest(SavedRecipesCacheTestCase):
 
     def test_second_call_does_not_touch_ah(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(5)):
-            ah_recipes.get()
+            run(ah_recipes.get())
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("niet bij AH vragen")):
-            data = ah_recipes.get()
+            data = run(ah_recipes.get())
         self.assertEqual(data["total"], 5)
         self.assertEqual(data["source"], "local")
 
     def test_forced_refresh_replaces_the_copy(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(5)):
-            ah_recipes.get()
+            run(ah_recipes.get())
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(2)):
-            data = ah_recipes.get(force=True)
+            data = run(ah_recipes.get(force=True))
         self.assertEqual([r["id"] for r in data["recipes"]], ["1", "2"])
-        self.assertEqual(ah_recipes.load()["total"], 2)
+        self.assertEqual(run(ah_recipes.load())["total"], 2)
 
     def test_failed_refresh_keeps_the_copy_and_reports_the_error(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(3)):
-            ah_recipes.get()
+            run(ah_recipes.get())
         with mock.patch.object(ah, "get_saved_recipes", side_effect=RuntimeError("AH sessie verlopen")):
-            data = ah_recipes.get(force=True)
+            data = run(ah_recipes.get(force=True))
         self.assertEqual(data["total"], 3)
         self.assertEqual(data["ahError"], "AH sessie verlopen")
-        self.assertEqual(ah_recipes.load()["total"], 3)
+        self.assertEqual(run(ah_recipes.load())["total"], 3)
 
     def test_failure_halfway_leaves_the_old_copy_intact(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(3)):
-            ah_recipes.get()
+            run(ah_recipes.get())
         first = pager(120)
 
         def flaky(page=0, size=50):
@@ -90,41 +90,41 @@ class CacheTest(SavedRecipesCacheTestCase):
             return first(page, size)
 
         with mock.patch.object(ah, "get_saved_recipes", side_effect=flaky):
-            ah_recipes.get(force=True)
-        self.assertEqual(ah_recipes.load()["total"], 3)
+            run(ah_recipes.get(force=True))
+        self.assertEqual(run(ah_recipes.load())["total"], 3)
 
     def test_failure_without_a_copy_is_raised(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=RuntimeError("AH account niet gekoppeld")):
             with self.assertRaisesRegex(RuntimeError, "niet gekoppeld"):
-                ah_recipes.get()
+                run(ah_recipes.get())
 
     def test_duplicates_and_endless_pages_are_cut_off(self):
         same = {"recipes": [recipe(1), recipe(2)], "total": 99}
         with mock.patch.object(ah, "get_saved_recipes", return_value=same) as live:
-            data = ah_recipes.get()
+            data = run(ah_recipes.get())
         self.assertEqual(live.call_count, 2, "stopt zodra een pagina niets nieuws geeft")
         self.assertEqual(data["total"], 2)
 
     def test_cache_only_never_asks_ah(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError("niet bij AH vragen")):
-            data = ah_recipes.get(fetch_if_missing=False)
+            data = run(ah_recipes.get(fetch_if_missing=False))
         self.assertEqual(data["source"], "none")
         self.assertEqual(data["recipes"], [])
         self.assertIsNone(data["syncedAt"])
-        self.assertIsNone(ah_recipes.load(), "een lege uitkomst is geen kopie")
+        self.assertIsNone(run(ah_recipes.load()), "een lege uitkomst is geen kopie")
 
     def test_cache_only_returns_an_existing_copy(self):
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(3)):
-            ah_recipes.get()
+            run(ah_recipes.get())
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError):
-            self.assertEqual(ah_recipes.get(fetch_if_missing=False)["total"], 3)
+            self.assertEqual(run(ah_recipes.get(fetch_if_missing=False))["total"], 3)
 
     def test_empty_collection_is_a_valid_copy(self):
         with mock.patch.object(ah, "get_saved_recipes", return_value={"recipes": [], "total": 0}):
-            data = ah_recipes.get()
+            data = run(ah_recipes.get())
         self.assertEqual(data["recipes"], [])
         with mock.patch.object(ah, "get_saved_recipes", side_effect=AssertionError):
-            self.assertEqual(ah_recipes.get()["total"], 0)
+            self.assertEqual(run(ah_recipes.get())["total"], 0)
 
 
 class GroupsTest(SavedRecipesCacheTestCase):
@@ -132,7 +132,7 @@ class GroupsTest(SavedRecipesCacheTestCase):
         self.groups.return_value = groups
         self.groups.side_effect = None
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(total)):
-            return ah_recipes.get(force=force)
+            return run(ah_recipes.get(force=force))
 
     def test_groups_are_kept_in_ah_order_with_their_own_recipe_order(self):
         data = self.fetch(5, [group(7, "Taarten", [4, 2]), group(3, "Soepen", [1, 5, 3])])
@@ -141,7 +141,7 @@ class GroupsTest(SavedRecipesCacheTestCase):
             [("7", "Taarten", 2, ["4", "2"], False), ("3", "Soepen", 3, ["1", "5", "3"], False)],
         )
         with mock.patch.object(ah, "get_saved_recipe_groups", side_effect=AssertionError("niet bij AH vragen")):
-            self.assertEqual(ah_recipes.get()["groups"], data["groups"], "de groepen komen uit de kopie")
+            self.assertEqual(run(ah_recipes.get())["groups"], data["groups"], "de groepen komen uit de kopie")
 
     def test_default_group_with_everything_is_the_same_as_all_recipes(self):
         data = self.fetch(3, [group(1, "Bewaard", [3, 2, 1], default=True), group(2, "Snel", [2])])
@@ -158,18 +158,18 @@ class GroupsTest(SavedRecipesCacheTestCase):
     def test_failing_groups_still_keep_the_recipes(self):
         self.groups.side_effect = RuntimeError("collectie: 500")
         with mock.patch.object(ah, "get_saved_recipes", side_effect=pager(4)):
-            data = ah_recipes.get()
+            data = run(ah_recipes.get())
         self.assertEqual((data["total"], data["groups"]), (4, []))
-        self.assertEqual(ah_recipes.load()["total"], 4)
+        self.assertEqual(run(ah_recipes.load())["total"], 4)
 
     def test_refresh_replaces_the_groups(self):
         self.fetch(3, [group(1, "Oud", [1]), group(2, "Ook oud", [2])])
         data = self.fetch(3, [group(5, "Nieuw", [3])], force=True)
         self.assertEqual([g["name"] for g in data["groups"]], ["Nieuw"])
-        self.assertEqual([g["name"] for g in ah_recipes.load()["groups"]], ["Nieuw"])
+        self.assertEqual([g["name"] for g in run(ah_recipes.load())["groups"]], ["Nieuw"])
 
     def test_empty_and_cache_only_have_no_groups(self):
-        self.assertEqual(ah_recipes.get(fetch_if_missing=False)["groups"], [])
+        self.assertEqual(run(ah_recipes.get(fetch_if_missing=False))["groups"], [])
         self.assertEqual(ah_recipes.EMPTY["groups"], [], "de lege uitkomst wordt niet gedeeld aangepast")
 
     def test_resolve_group_by_id_or_name(self):

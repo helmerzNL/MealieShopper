@@ -156,7 +156,7 @@ async def tool_search_recipes(args: dict[str, Any]) -> Any:
 
 
 async def tool_saved_recipes(args: dict[str, Any]) -> Any:
-    data = ah_recipes.get()
+    data = await ah_recipes.get()
     try:
         group = ah_recipes.resolve_group(data.get("groups") or [], _text(args.get("group"), 120))
     except ValueError as exc:
@@ -182,7 +182,7 @@ async def tool_saved_recipes(args: dict[str, Any]) -> Any:
 
 async def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
     """De receptgroepen van de bewaarde AH-recepten, uit de lokale kopie. Alleen lezen."""
-    data = ah_recipes.get()
+    data = await ah_recipes.get()
     return {
         "total": data["total"],
         "syncedAt": data.get("syncedAt"),
@@ -191,7 +191,7 @@ async def tool_list_ah_recipe_groups(args: dict[str, Any]) -> Any:
 
 
 async def tool_list_lists(args: dict[str, Any]) -> Any:
-    data = ah_lists.merged_lists()
+    data = await ah_lists.merged_lists()
     return {
         "lists": [
             {
@@ -225,7 +225,7 @@ async def tool_get_list(args: dict[str, Any]) -> Any:
     list_id = _text(args.get("list_id"), 100)
     if not list_id:
         raise ToolError("Geef het id van een lijstje op (zie list_ah_lists)")
-    data = ah_lists.get_snapshot(list_id) or {**ah.get_favorite_list_items(list_id), "source": "ah"}
+    data = await ah_lists.get_snapshot(list_id) or {**ah.get_favorite_list_items(list_id), "source": "ah"}
     items = data.get("items") or []
     return {
         "name": data.get("name"),
@@ -240,8 +240,8 @@ async def tool_search_list_items(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 200)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    names = {item["id"]: item["name"] for item in ah_lists.list_snapshots()}
-    found = ah_lists.search_items(query, limit=10)
+    names = {item["id"]: item["name"] for item in await ah_lists.list_snapshots()}
+    found = await ah_lists.search_items(query, limit=10)
     return {"matches": [{"list": names.get(list_id, list_id), "listId": list_id, "products": titles} for list_id, titles in found.items()]}
 
 
@@ -308,12 +308,12 @@ async def tool_search_jumbo_products(args: dict[str, Any]) -> Any:
     }
 
 
-def _resolve_jumbo_list(wanted: Any) -> str:
+async def _resolve_jumbo_list(wanted: Any) -> str:
     """Een lijstje op id of (deel van de) naam; zonder opgave het boodschappenlijstje."""
     text = _text(wanted, 120)
     if not text:
         return jumbo_lists.LIST_ID
-    lists = jumbo_lists.merged_lists()["lists"]
+    lists = (await jumbo_lists.merged_lists())["lists"]
     exact = [item for item in lists if item["id"] == text or item["id"].upper() == text.upper()]
     if exact:
         return exact[0]["id"]
@@ -328,7 +328,7 @@ def _resolve_jumbo_list(wanted: Any) -> str:
 async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
     """Alle Jumbo-lijstjes: het boodschappenlijstje, je eigen lijstjes en Favorieten. Alleen lezen."""
     _jumbo_linked()
-    overview = jumbo_lists.merged_lists()
+    overview = await jumbo_lists.merged_lists()
     return {
         "lists": [
             {"id": item["id"], "name": item["name"], "kind": item["kind"], "items": item["itemCount"],
@@ -342,11 +342,11 @@ async def tool_list_jumbo_lists(args: dict[str, Any]) -> Any:
 async def tool_jumbo_list(args: dict[str, Any]) -> Any:
     """Een Jumbo-lijstje: de lokale kopie als die er is, anders live. Alleen lezen."""
     _jumbo_linked()
-    list_id = _resolve_jumbo_list(args.get("list"))
-    snapshot = jumbo_lists.get_snapshot(list_id)
+    list_id = await _resolve_jumbo_list(args.get("list"))
+    snapshot = await jumbo_lists.get_snapshot(list_id)
     source = "lokale kopie"
     if not snapshot:
-        snapshot = jumbo_lists.live_view(jumbo_lists.fetch_live(list_id))
+        snapshot = jumbo_lists.live_view(await jumbo_lists.fetch_live(list_id))
         source = "live van Jumbo"
     return {
         "name": snapshot["name"],
@@ -373,7 +373,7 @@ async def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
     query = _text(args.get("query"), 100)
     if not query:
         raise ToolError("Geef een zoekterm op")
-    found = jumbo_recipes.search(query)
+    found = await jumbo_recipes.search(query)
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 10)))
     return {
         "total": found["total"],
@@ -387,15 +387,15 @@ async def tool_search_jumbo_recipes(args: dict[str, Any]) -> Any:
 async def tool_list_jumbo_recipe_lists(args: dict[str, Any]) -> Any:
     """Je receptenlijsten bij Jumbo: Favorieten en eigen lijstjes, met aantallen. Alleen lezen."""
     _jumbo_linked()
-    return {"lists": jumbo_recipes.get_lists()}
+    return {"lists": await jumbo_recipes.get_lists()}
 
 
 async def tool_get_jumbo_recipe_list(args: dict[str, Any]) -> Any:
     """De recepten van een Jumbo-receptenlijst (standaard Favorieten), per pagina. Alleen lezen."""
     _jumbo_linked()
     try:
-        info = jumbo_recipes.resolve_list(_text(args.get("list"), 120))
-        found = jumbo_recipes.get_recipes_of(info, args.get("page"))
+        info = await jumbo_recipes.resolve_list(_text(args.get("list"), 120))
+        found = await jumbo_recipes.get_recipes_of(info, args.get("page"))
     except ValueError as exc:
         raise ToolError(str(exc)) from None
     return {
@@ -414,7 +414,7 @@ async def tool_get_jumbo_recipe(args: dict[str, Any]) -> Any:
     """Een Jumbo-recept met ingrediënten en bereiding. Alleen lezen; er wordt niets geïmporteerd."""
     _jumbo_linked()
     try:
-        recipe = jumbo_recipes.get_recipe(_text(args.get("recipe_id"), 30))
+        recipe = await jumbo_recipes.get_recipe(_text(args.get("recipe_id"), 30))
     except ValueError as exc:
         raise ToolError(str(exc)) from None
     return {key: recipe[key] for key in ("name", "description", "portions", "minutes", "url", "tip")} | {
@@ -444,7 +444,7 @@ async def tool_picnic_delivery(args: dict[str, Any]) -> Any:
 
 
 async def tool_list_picnic_orders(args: dict[str, Any]) -> Any:
-    data = picnic_orders.list_orders()
+    data = await picnic_orders.list_orders()
     limit = max(1, min(MAX_LIST_ITEMS, int(args.get("limit") or 50)))
     orders = data["orders"]
     return {"note": _copy_note(data["syncedAt"]), "total": len(orders), "orders": orders[:limit]}
@@ -452,7 +452,7 @@ async def tool_list_picnic_orders(args: dict[str, Any]) -> Any:
 
 async def tool_get_picnic_order(args: dict[str, Any]) -> Any:
     order_id = _text(args.get("order_id"), 80)
-    order = picnic_orders.get_order(order_id) if order_id else None
+    order = await picnic_orders.get_order(order_id) if order_id else None
     if not order:
         raise ToolError("Deze bestelling staat niet in de lokale kopie (zie list_picnic_orders)")
     return order
@@ -480,7 +480,7 @@ async def tool_picnic_recipes(args: dict[str, Any]) -> Any:
     if source not in picnic_recipes.SOURCES:
         raise ToolError("Kies als bron saved (bewaard), cookbook (het kookboek) of ordered (opnieuw bestellen)")
     limit = max(1, min(100, int(args.get("limit") or 30)))
-    recipes = picnic_recipes.get_recipes(source)
+    recipes = await picnic_recipes.get_recipes(source)
     # Alleen wat een assistent nodig heeft; de afbeeldingsadressen laten we weg.
     brief = [{"id": r["id"], "name": r["name"], "minutes": r["minutes"], "tags": r["tags"]} for r in recipes[:limit]]
     return {"source": source, "total": len(recipes), "recipes": brief}

@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import unittest
+from collections.abc import Iterable
 from typing import Any
 from pathlib import Path
 from unittest import mock
@@ -98,11 +99,11 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
         self.fetched.append(number)
         return {"@type": "Recipe", "name": f"AH {number}", "recipeIngredient": ["1 ui"]}
 
-    def seed_ah(self, count=5, groups=()):
+    async def seed_ah(self, count: int = 5, groups: Iterable[dict[str, Any]] = ()) -> None:
         recipes = [{"id": str(100 + i), "title": f"Recept {100 + i}", "image": "", "url": ah_url(100 + i)} for i in range(count)]
-        with mock.patch.object(ah_recipes, "_fetch_all", return_value=recipes), \
-                mock.patch.object(ah_recipes, "_fetch_groups", return_value=list(groups)):
-            ah_recipes.refresh()
+        with mock.patch.object(ah_recipes, "_fetch_all", new_callable=mock.AsyncMock, return_value=recipes), \
+                mock.patch.object(ah_recipes, "_fetch_groups", new_callable=mock.AsyncMock, return_value=list(groups)):
+            await ah_recipes.refresh()
 
     def statuses(self, job):
         return [(item["id"], item["status"], item["error"]) for item in job["items"]]
@@ -110,7 +111,7 @@ class BulkCase(unittest.IsolatedAsyncioTestCase):
 
 class AhSelectionTest(BulkCase):
     async def test_only_the_chosen_recipes_in_their_order_without_duplicates(self):
-        self.seed_ah()
+        await self.seed_ah()
         job = await recipe_bulk.start("ah", ["102", "100", "102"], background=False)
         self.assertEqual(job["state"], "done")
         self.assertEqual(self.fetched, [102, 100])
@@ -122,13 +123,13 @@ class AhSelectionTest(BulkCase):
         self.assertNotIn("_source", json.dumps(job))
 
     async def test_a_selection_in_a_group_gets_the_category(self):
-        self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
+        await self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
         job = await recipe_bulk.start("ah", ["101"], "g1", background=False)
         self.assertEqual(job["category"], "Kerst")
         self.assertEqual(self.mealie.organized, [("r-101", ["Albert Heijn"], ["Kerst"], False)])
 
     async def test_a_recipe_that_is_not_saved_or_too_many_are_refused(self):
-        self.seed_ah()
+        await self.seed_ah()
         with self.assertRaises(ValueError):
             await recipe_bulk.start("ah", ["999"], background=False)
         with self.assertRaises(ValueError):
@@ -145,14 +146,14 @@ class AhSelectionTest(BulkCase):
             await recipe_bulk.start("ah", ["100"], background=False)
 
     async def test_mealie_must_be_linked(self):
-        self.seed_ah()
+        await self.seed_ah()
         with mock.patch.dict(os.environ, {"MEALIE_URL": "", "MEALIE_API_TOKEN": ""}), self.assertRaises(ValueError):
             await recipe_bulk.start("ah", ["100"], background=False)
 
 
 class ExistingRecipeTest(BulkCase):
     async def test_a_recipe_already_in_mealie_is_not_fetched_but_gets_the_tag(self):
-        self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
+        await self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
         self.mealie.add(ah_url(101), "stamppot")
         job = await recipe_bulk.start("ah", None, "g1", whole=True, background=False)
         self.assertEqual(self.fetched, [100])
@@ -162,27 +163,27 @@ class ExistingRecipeTest(BulkCase):
 
 class WholeGroupTest(BulkCase):
     async def test_a_group_imports_exactly_its_recipes_with_its_name(self):
-        self.seed_ah(groups=[{"id": "g1", "name": "Doordeweeks", "isDefault": False, "recipeIds": ["103", "100"]}])
+        await self.seed_ah(groups=[{"id": "g1", "name": "Doordeweeks", "isDefault": False, "recipeIds": ["103", "100"]}])
         job = await recipe_bulk.start("ah", None, "g1", whole=True, background=False)
         self.assertEqual(self.fetched, [103, 100])
         self.assertEqual((job["group"], job["category"], job["whole"]), ({"id": "g1", "name": "Doordeweeks"}, "Doordeweeks", True))
 
     async def test_all_saved_recipes_get_only_the_tag(self):
-        self.seed_ah(count=3)
+        await self.seed_ah(count=3)
         job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual(self.fetched, [100, 101, 102])
         self.assertIsNone(job["category"])
         self.assertTrue(all(categories == [] for _, _, categories, _ in self.mealie.organized))
 
     async def test_an_unknown_group(self):
-        self.seed_ah()
+        await self.seed_ah()
         with self.assertRaises(ValueError):
             await recipe_bulk.start("ah", None, "weg", whole=True, background=False)
 
 
 class LimitTest(BulkCase):
     async def test_only_new_imports_count_and_a_next_run_continues(self):
-        self.seed_ah(count=5)
+        await self.seed_ah(count=5)
         with mock.patch.object(recipe_bulk, "MAX_IMPORTS", 2):
             first = await recipe_bulk.start("ah", None, "", whole=True, background=False)
             self.assertEqual((first["state"], first["imported"], first["skipped"], first["remaining"]), ("done", 2, 3, 3))
@@ -194,7 +195,7 @@ class LimitTest(BulkCase):
 
 class StopTest(BulkCase):
     async def test_ah_refusing_stops_the_import(self):
-        self.seed_ah(count=4)
+        await self.seed_ah(count=4)
         replies = iter([{"name": "eerste"}, ah.AhHttpError("AH zoeken mislukt (429): te veel", 429)])
 
         def fetch(number):
@@ -211,7 +212,7 @@ class StopTest(BulkCase):
         self.assertEqual(self.statuses(job), [("100", "imported", ""), ("101", "failed", "store_failed"), ("102", "skipped", "stopped"), ("103", "skipped", "stopped")])
 
     async def test_a_recipe_without_content_is_not_a_failure_of_the_store(self):
-        self.seed_ah(count=4)
+        await self.seed_ah(count=4)
         with mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2), \
                 mock.patch.object(ah, "get_recipe_jsonld", side_effect=ah.RecipeUnavailable("leeg")):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
@@ -219,7 +220,7 @@ class StopTest(BulkCase):
         self.assertEqual({item["error"] for item in job["items"]}, {"no_content"})
 
     async def test_too_many_failures_in_a_row(self):
-        self.seed_ah(count=4)
+        await self.seed_ah(count=4)
         with mock.patch.object(recipe_bulk, "MAX_FAILURES_IN_A_ROW", 2), \
                 mock.patch.object(ah, "get_recipe_jsonld", side_effect=RuntimeError("antwoord van AH: GEHEIM")):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
@@ -228,21 +229,21 @@ class StopTest(BulkCase):
         self.assertNotIn("GEHEIM", json.dumps(job), "de tekst van de winkel blijft in het logboek")
 
     async def test_without_a_lookup_in_mealie_nothing_is_imported(self):
-        self.seed_ah(count=2)
+        await self.seed_ah(count=2)
         with mock.patch.object(mealie, "find_recipe_summary_by_source", new_callable=mock.AsyncMock, side_effect=mealie.MealieLookupError("400")):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "mealie_lookup"))
         self.assertEqual((self.fetched, self.mealie.imported), ([], []))
 
     async def test_mealie_refusing_the_token_stops(self):
-        self.seed_ah(count=3)
+        await self.seed_ah(count=3)
         with mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=mealie.MealieImportError("geweigerd", 401)):
             job = await recipe_bulk.start("ah", None, "", whole=True, background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "mealie_denied"))
         self.assertEqual(self.fetched, [100])
 
     async def test_a_tag_mealie_refuses_is_a_warning(self):
-        self.seed_ah(count=2)
+        await self.seed_ah(count=2)
         with mock.patch.object(mealie, "ensure_tag", new_callable=mock.AsyncMock, side_effect=mealie.OrganizerError("tags aanmaken mislukt (403)", 403)):
             job = await recipe_bulk.start("ah", ["100", "101"], background=False)
         self.assertEqual((job["state"], job["imported"], job["warnings"]), ("done", 2, ["organizers_denied"]))
@@ -251,7 +252,7 @@ class StopTest(BulkCase):
 
 class CancelTest(BulkCase):
     async def test_stopping_skips_the_rest(self):
-        self.seed_ah(count=4)
+        await self.seed_ah(count=4)
 
         def fetch(number):
             self.fetched.append(number)
@@ -265,7 +266,7 @@ class CancelTest(BulkCase):
         self.assertEqual([item["error"] for item in job["items"][1:]], ["cancelled"] * 3)
 
     async def test_stopping_interrupts_the_pause_between_two_recipes(self):
-        self.seed_ah(count=3)
+        await self.seed_ah(count=3)
         with mock.patch.object(recipe_bulk, "PAUSE_SECONDS", 30):
             await recipe_bulk.start("ah", None, "", whole=True)
             await asyncio.sleep(0.05)
@@ -277,7 +278,7 @@ class CancelTest(BulkCase):
         self.assertEqual([item["error"] for item in job["items"][1:]], ["cancelled"] * 2)
 
     async def test_an_app_shutdown_does_not_leave_the_import_running(self) -> None:
-        self.seed_ah(count=3)
+        await self.seed_ah(count=3)
         with mock.patch.object(recipe_bulk, "PAUSE_SECONDS", 30):
             await recipe_bulk.start("ah", None, "", whole=True)
             await asyncio.sleep(0.05)
@@ -301,19 +302,19 @@ class CancelTest(BulkCase):
 
 class BackgroundTest(BulkCase):
     async def test_one_import_at_a_time(self):
-        self.seed_ah()
+        await self.seed_ah()
         recipe_bulk._job.update(state="running", items=[])
         with self.assertRaises(recipe_bulk.Busy):
             await recipe_bulk.start("ah", ["100"], background=False)
 
     async def test_the_progress_is_a_copy(self):
-        self.seed_ah(count=1)
+        await self.seed_ah(count=1)
         job = await recipe_bulk.start("ah", ["100"], background=False)
         job["items"][0]["status"] = "veranderd"
         self.assertEqual(recipe_bulk.progress()["items"][0]["status"], "imported")
 
     async def test_in_a_task_with_one_audit_line(self):
-        self.seed_ah(count=2)
+        await self.seed_ah(count=2)
         with mock.patch.object(audit, "record") as record:
             await recipe_bulk.start("ah", ["100", "101"])
             await finish_tasks()
@@ -332,8 +333,8 @@ class JumboTest(BulkCase):
         self.jumbo_fetched = []
         patches = [
             mock.patch.object(jumbo, "configured_refresh_token", return_value="v1.token"),
-            mock.patch.object(jumbo_recipes, "get_lists", return_value=self.LISTS),
-            mock.patch.object(jumbo_recipes, "get_recipe", side_effect=self.recipe),
+            mock.patch.object(jumbo_recipes, "get_lists", new_callable=mock.AsyncMock, return_value=self.LISTS),
+            mock.patch.object(jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=self.recipe),
             mock.patch.object(jumbo_recipes, "jsonld", side_effect=lambda recipe: {"@type": "Recipe", "name": recipe["name"]}),
         ]
         for patch in patches:
@@ -352,7 +353,7 @@ class JumboTest(BulkCase):
         pages = {1: {"recipes": [self.card("1"), self.card("2")], "total": 3, "hasNext": True},
                  2: {"recipes": [self.card("2"), self.card("3")], "total": 3, "hasNext": True},
                  3: {"recipes": [self.card("3")], "total": 3, "hasNext": True}}
-        with mock.patch.object(jumbo_recipes, "get_recipes_of", side_effect=lambda info, page: pages[page]) as pager:
+        with mock.patch.object(jumbo_recipes, "get_recipes_of", new_callable=mock.AsyncMock, side_effect=lambda info, page: pages[page]) as pager:
             job = await recipe_bulk.start("jumbo", None, "kerst", whole=True, background=False)
         self.assertEqual(pager.call_count, 3, "een pagina zonder nieuwe recepten stopt het bladeren")
         self.assertEqual(self.jumbo_fetched, ["1", "2", "3"])
@@ -361,7 +362,7 @@ class JumboTest(BulkCase):
         self.assertEqual(self.mealie.imported[0], "https://www.jumbo.com/recepten/iets-1")
 
     async def test_favourites_get_only_the_tag(self):
-        with mock.patch.object(jumbo_recipes, "get_recipes_of", return_value={"recipes": [self.card("1")], "total": 1, "hasNext": False}):
+        with mock.patch.object(jumbo_recipes, "get_recipes_of", new_callable=mock.AsyncMock, return_value={"recipes": [self.card("1")], "total": 1, "hasNext": False}):
             job = await recipe_bulk.start("jumbo", None, "fav", whole=True, background=False)
         self.assertIsNone(job["category"])
         self.assertEqual(self.mealie.organized[0][1:3], (["Jumbo"], []))
@@ -375,7 +376,7 @@ class JumboTest(BulkCase):
         self.assertEqual(jumbo_recipes.get_lists.call_count, 0, "zonder groep ook geen lijsten bij Jumbo")
 
     async def test_jumbo_refusing_stops(self):
-        with mock.patch.object(jumbo_recipes, "get_recipe", side_effect=jumbo._blocked("403")):
+        with mock.patch.object(jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=jumbo._blocked("403")):
             job = await recipe_bulk.start("jumbo", ["1", "2"], background=False)
         self.assertEqual((job["state"], job["error"]), ("error", "jumbo_blocked"))
         self.assertEqual([item["status"] for item in job["items"]], ["failed", "skipped"])
@@ -483,9 +484,9 @@ class RoutesTest(BulkCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
 
     async def asyncSetUp(self) -> None:
+        await self.seed_ah(groups=[{"id": "g1", "name": "Kerst", "isDefault": False, "recipeIds": ["100", "101"]}])
         # De import loopt als task in de app: een app die de hele test openblijft (zoals de fixture `client`), niet een
         # `SyncClient` die hem na elke aanroep sluit en de task annuleert.
         self.test_app = self.app.test_app()

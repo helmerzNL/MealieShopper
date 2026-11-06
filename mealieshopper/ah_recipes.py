@@ -11,9 +11,13 @@ recepten wel bewaard, zonder groepen.
 """
 from __future__ import annotations
 
-from contextlib import closing
+import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
+
+import aiosqlite
 
 from . import ah, auth
 from .ah_lists import _fold
@@ -52,27 +56,36 @@ CREATE TABLE IF NOT EXISTS ah_saved_recipe_group_items (
 """
 
 
-def _connect():
-    conn = auth.connect()
+def _connect() -> sqlite3.Connection:
+    """Een sqlite3-verbinding met het schema, voor `backup.ensure_schemas`. De rest gebruikt `_aconnect`."""
+    conn: sqlite3.Connection = auth.connect()
     conn.executescript(SCHEMA)
     return conn
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_connect`: hetzelfde schema. Sluit zonder commit, zoals `auth.aconnect`."""
+    async with auth.aconnect() as conn:
+        await conn.executescript(SCHEMA)
+        yield conn
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _groups(conn, recipe_ids: list[str]) -> list[dict[str, Any]]:
+async def _groups(conn: aiosqlite.Connection, recipe_ids: list[str]) -> list[dict[str, Any]]:
     """De receptgroepen uit de kopie, in de volgorde van AH, elk met zijn recepten in groepsvolgorde.
 
     Een standaardgroep met precies alle recepten valt weg: die is gelijk aan *Alle recepten*.
     """
     members: dict[str, list[str]] = {}
-    for row in conn.execute("SELECT group_id, recipe_id FROM ah_saved_recipe_group_items ORDER BY group_id, position"):
+    for row in await conn.execute_fetchall("SELECT group_id, recipe_id FROM ah_saved_recipe_group_items ORDER BY group_id, position"):
         members.setdefault(row["group_id"], []).append(row["recipe_id"])
     everything = set(recipe_ids)
-    groups = []
-    for row in conn.execute("SELECT group_id, name, is_default FROM ah_saved_recipe_groups ORDER BY position"):
+    groups: list[dict[str, Any]] = []
+    for row in await conn.execute_fetchall("SELECT group_id, name, is_default FROM ah_saved_recipe_groups ORDER BY position"):
         ids = [recipe_id for recipe_id in members.get(row["group_id"], []) if recipe_id in everything]
         if row["is_default"] and set(ids) == everything:
             continue
@@ -80,16 +93,17 @@ def _groups(conn, recipe_ids: list[str]) -> list[dict[str, Any]]:
     return groups
 
 
-def load() -> dict[str, Any] | None:
+async def load() -> dict[str, Any] | None:
     """De lokale kopie, of None als er nog nooit is opgehaald."""
-    with closing(_connect()) as conn:
-        meta = conn.execute("SELECT synced_at FROM ah_saved_recipes_meta WHERE id = 1").fetchone()
+    async with _aconnect() as conn:
+        found = await conn.execute_fetchall("SELECT synced_at FROM ah_saved_recipes_meta WHERE id = 1")
+        meta = next(iter(found), None)
         if not meta:
             return None
-        rows = conn.execute(
+        rows = await conn.execute_fetchall(
             "SELECT recipe_id, title, image, url FROM ah_saved_recipes ORDER BY position"
-        ).fetchall()
-        groups = _groups(conn, [row["recipe_id"] for row in rows])
+        )
+        groups = await _groups(conn, [row["recipe_id"] for row in rows])
     recipes = [
         {"id": row["recipe_id"], "title": row["title"], "image": row["image"] or "", "url": row["url"] or ""}
         for row in rows
@@ -97,12 +111,12 @@ def load() -> dict[str, Any] | None:
     return {"recipes": recipes, "total": len(recipes), "groups": groups, "syncedAt": meta["synced_at"], "source": "local"}
 
 
-def _fetch_all() -> list[dict[str, Any]]:
+async def _fetch_all() -> list[dict[str, Any]]:
     recipes: list[dict[str, Any]] = []
     seen: set[str] = set()
     total = None
     for page in range(MAX_PAGES):
-        data = ah.get_saved_recipes(page, PAGE_SIZE)
+        data = ah.get_saved_recipes(page, PAGE_SIZE)  # `ah` blijft synchroon tot Taak 21
         batch = data.get("recipes") or []
         total = int(data.get("total") or 0)
         fresh = 0
@@ -118,7 +132,7 @@ def _fetch_all() -> list[dict[str, Any]]:
     return recipes
 
 
-def _fetch_groups() -> list[dict[str, Any]]:
+async def _fetch_groups() -> list[dict[str, Any]]:
     """De receptgroepen bij AH; mislukt dat, dan geen groepen (de recepten zelf gaan voor)."""
     try:
         groups = ah.get_saved_recipe_groups()
@@ -127,10 +141,10 @@ def _fetch_groups() -> list[dict[str, Any]]:
     return [group for group in groups or [] if isinstance(group, dict) and group.get("id") is not None]
 
 
-def refresh() -> dict[str, Any]:
+async def refresh() -> dict[str, Any]:
     """Haal alle bewaarde recepten en hun receptgroepen bij AH op en vervang de lokale kopie."""
-    recipes = _fetch_all()
-    groups = _fetch_groups()
+    recipes = await _fetch_all()
+    groups = await _fetch_groups()
     rows = [
         (
             str(recipe.get("id") or recipe.get("url")),
@@ -142,8 +156,8 @@ def refresh() -> dict[str, Any]:
         for position, recipe in enumerate(recipes)
     ]
     known = {row[0] for row in rows}
-    group_rows = []
-    member_rows = []
+    group_rows: list[tuple[Any, ...]] = []
+    member_rows: list[tuple[Any, ...]] = []
     for position, group in enumerate(groups):
         group_id = str(group["id"])
         group_rows.append((group_id, position, str(group.get("name") or group_id), 1 if group.get("isDefault") else 0))
@@ -153,49 +167,50 @@ def refresh() -> dict[str, Any]:
             if recipe_id in known and recipe_id not in seen:
                 seen.add(recipe_id)
                 member_rows.append((group_id, recipe_id, len(seen) - 1))
-    with closing(_connect()) as conn, conn:
-        conn.execute("DELETE FROM ah_saved_recipes")
-        conn.execute("DELETE FROM ah_saved_recipe_group_items")
-        conn.execute("DELETE FROM ah_saved_recipe_groups")
-        conn.executemany(
+    async with _aconnect() as conn:
+        await conn.execute("DELETE FROM ah_saved_recipes")
+        await conn.execute("DELETE FROM ah_saved_recipe_group_items")
+        await conn.execute("DELETE FROM ah_saved_recipe_groups")
+        await conn.executemany(
             "INSERT INTO ah_saved_recipes (recipe_id, position, title, image, url) VALUES (?, ?, ?, ?, ?)",
             rows,
         )
-        conn.executemany(
+        await conn.executemany(
             "INSERT OR IGNORE INTO ah_saved_recipe_groups (group_id, position, name, is_default) VALUES (?, ?, ?, ?)",
             group_rows,
         )
-        conn.executemany(
+        await conn.executemany(
             "INSERT OR IGNORE INTO ah_saved_recipe_group_items (group_id, recipe_id, position) VALUES (?, ?, ?)",
             member_rows,
         )
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO ah_saved_recipes_meta (id, synced_at) VALUES (1, ?)
             ON CONFLICT(id) DO UPDATE SET synced_at = excluded.synced_at
             """,
             (_now(),),
         )
-    return load() or {"recipes": [], "total": 0, "groups": [], "syncedAt": None, "source": "local"}
+        await conn.commit()
+    return await load() or {"recipes": [], "total": 0, "groups": [], "syncedAt": None, "source": "local"}
 
 
 EMPTY = {"recipes": [], "total": 0, "groups": [], "syncedAt": None, "source": "none"}
 
 
-def get(force: bool = False, fetch_if_missing: bool = True) -> dict[str, Any]:
+async def get(force: bool = False, fetch_if_missing: bool = True) -> dict[str, Any]:
     """Uit de lokale kopie; bij `force` of zonder kopie eerst bij AH ophalen.
 
     Met `fetch_if_missing=False` gaat er nooit een aanroep naar AH uit: zonder kopie komt
     een lege uitkomst (`source: "none"`) terug. Mislukt een vernieuwing terwijl er een
     kopie is, dan komt die terug met `ahError`.
     """
-    cached = load()
+    cached = await load()
     if cached and not force:
         return cached
     if not cached and not force and not fetch_if_missing:
         return {**EMPTY, "groups": []}
     try:
-        return refresh()
+        return await refresh()
     except Exception as exc:  # noqa: BLE001 - AH is onofficieel; val terug op de kopie
         if cached:
             return {**cached, "ahError": str(exc) or "Vernieuwen mislukt"}

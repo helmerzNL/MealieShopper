@@ -660,7 +660,7 @@ class ToolsTest(McpTestCase):
     def test_picnic_recipes_tool(self):
         recipes = [{"id": f"r{n}", "name": f"Recept {n}", "image": "https://x/y.png", "minutes": 20, "tags": [], "segment": None} for n in range(5)]
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic_recipes, "get_recipes", return_value=recipes) as get:
+                mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=recipes) as get:
             default = self.data("list_picnic_recipes")
             cookbook = self.data("list_picnic_recipes", {"source": "cookbook", "limit": 2})
         self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
@@ -707,7 +707,7 @@ class ToolsTest(McpTestCase):
 
     def test_picnic_recipes_tool_refuses_unknown_sources_and_an_unlinked_account(self):
         with mock.patch.object(picnic, "configured_auth_key", return_value="key"), \
-                mock.patch.object(picnic_recipes, "get_recipes", side_effect=AssertionError("niet ophalen")):
+                mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")):
             self.assertTrue(self.call(self.token, "list_picnic_recipes", {"source": "boodschappen"})["isError"])
         with mock.patch.object(picnic, "configured_auth_key", return_value=""):
             self.assertTrue(self.call(self.token, "list_picnic_recipes")["isError"])
@@ -786,7 +786,7 @@ class ToolsTest(McpTestCase):
 
     def test_saved_recipes_filter_on_all_words(self):
         saved = {"recipes": [{"title": "Pasta pesto", "url": "u1"}, {"title": "Pasta carbonara", "url": "u2"}], "total": 2, "syncedAt": "x"}
-        with mock.patch.object(ah_recipes, "get", return_value=saved):
+        with mock.patch.object(ah_recipes, "get", new_callable=mock.AsyncMock, return_value=saved):
             self.assertEqual(self.data("list_saved_ah_recipes", {"query": "pasta PESTO"})["total"], 1)
             self.assertEqual(self.data("list_saved_ah_recipes")["total"], 2)
 
@@ -800,7 +800,7 @@ class ToolsTest(McpTestCase):
                 {"id": "8", "name": "Pasta's", "isDefault": False, "count": 1, "recipeIds": ["1"]},
             ],
         }
-        with mock.patch.object(ah_recipes, "get", return_value=saved):
+        with mock.patch.object(ah_recipes, "get", new_callable=mock.AsyncMock, return_value=saved):
             groups = self.data("list_ah_recipe_groups")
             self.assertEqual(groups["groups"], [{"id": "7", "name": "Taarten", "count": 2}, {"id": "8", "name": "Pasta's", "count": 1}])
             self.assertEqual(groups["total"], 3)
@@ -813,9 +813,9 @@ class ToolsTest(McpTestCase):
             self.assertIn("Taarten", self.text(wrong))
 
     def test_lists(self):
-        ah_lists.save_snapshot({"id": "abc", "name": "Weekboodschappen", "items": [
-            {"id": "1", "productId": 10, "quantity": 2, "url": "", "product": {"title": "Melk", "brand": "AH", "unitSize": "1 l", "price": 1.25, "isBonus": True}}]})
-        ah_lists.set_quantity("abc", 0, 5)
+        run(ah_lists.save_snapshot({"id": "abc", "name": "Weekboodschappen", "items": [
+            {"id": "1", "productId": 10, "quantity": 2, "url": "", "product": {"title": "Melk", "brand": "AH", "unitSize": "1 l", "price": 1.25, "isBonus": True}}]}))
+        run(ah_lists.set_quantity("abc", 0, 5))
         with mock.patch.object(ah, "get_favorite_lists", return_value=[{"id": "ABC", "name": "Weekboodschappen", "itemCount": 1}]):
             lists = self.data("list_ah_lists")
         self.assertEqual((lists["lists"][0]["id"], lists["lists"][0]["synced"]), ("ABC", True))

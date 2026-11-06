@@ -108,7 +108,7 @@ class ReuseOnImportTest(ReuseTestCase):
         jumbo_recipe = {"id": "700001", "url": "https://www.jumbo.com/recepten/pasta-pesto-700001"}
         self.reused("/api/ah/recipes/1199999/import", "https://www.ah.nl/allerhande/recept/R-R1199999")
         self.reused("/api/jumbo/recipes/700001/import", jumbo_recipe["url"],
-                    [mock.patch.object(jumbo_recipes, "get_recipe", return_value=jumbo_recipe)])
+                    [mock.patch.object(jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=jumbo_recipe)])
         self.reused("/api/picnic/recipes/r1/import", picnic_recipes.source_url("r1"))
         self.reused(f"/api/hellofresh/recipes/{HF_KEY}/import", hellofresh.source_url(HF_KEY))
         self.reused(f"/api/marleyspoon/recipes/{MS_KEY}/import", marleyspoon.source_url(MS_KEY))
@@ -168,7 +168,7 @@ class AllerhandeRecipeTest(ReuseTestCase):
             self.assertEqual(self.client.get("/api/ah/recipes/abc").status_code, 404)
             self.assertEqual(self.client.post("/api/ah/recipes/abc/import").status_code, 404)
         # De bewaarde recepten houden hun eigen route.
-        with mock.patch("mealieshopper.ah_recipes.get", return_value={"recipes": [], "syncedAt": None}):
+        with mock.patch("mealieshopper.ah_recipes.get", new_callable=mock.AsyncMock, return_value={"recipes": [], "syncedAt": None}):
             self.assertEqual(self.client.get("/api/ah/recipes/saved").status_code, 200)
 
     def test_import_without_mealie_says_so(self):

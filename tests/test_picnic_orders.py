@@ -47,33 +47,33 @@ class PicnicOrdersTest(unittest.TestCase):
             return result
         with mock.patch.object(picnic, "get_deliveries", side_effect=lambda: list(self.listed)), \
                 mock.patch.object(picnic, "get_delivery", side_effect=get_delivery):
-            return picnic_orders.sync_orders()
+            return run(picnic_orders.sync_orders())
 
     def test_delivered_orders_are_stored_with_their_products(self):
         self.listed = [summary("d2", start="2026-10-17T10:00:00+02:00"), summary("d1")]
         self.details = {"d1": detail("d1", "Melk", "Kaas"), "d2": detail("d2", "Prei", start="2026-10-17T10:00:00+02:00", total=5.0)}
         result = self.sync()
         self.assertEqual((result["orders"], result["new"], result["remaining"]), (2, 2, 0))
-        data = picnic_orders.list_orders()
+        data = run(picnic_orders.list_orders())
         self.assertEqual([o["id"] for o in data["orders"]], ["d2", "d1"])  # nieuwste eerst
         self.assertEqual((data["orders"][1]["itemCount"], data["orders"][1]["lineCount"], data["orders"][1]["total"]), (3, 2, 15.0))
         self.assertTrue(data["syncedAt"])
-        order = picnic_orders.get_order("d1")
+        order = run(picnic_orders.get_order("d1"))
         self.assertEqual([(i["id"], i["title"], i["quantity"], i["price"]) for i in order["items"]], [("s1", "Melk", 2, 2.5), ("s2", "Kaas", 1, 3.5)])
         self.assertTrue(order["itemsSynced"])
-        self.assertIsNone(picnic_orders.get_order("nope"))
+        self.assertIsNone(run(picnic_orders.get_order("nope")))
 
     def test_open_and_cancelled_orders_are_not_stored_and_cancelled_ones_are_removed(self):
         self.listed = [summary("d1"), summary("d2", status="CURRENT"), summary("d3", status="CANCELLED")]
         self.details = {"d1": detail("d1", "Melk"), "d3": detail("d3", "Kaas", status="CANCELLED")}
         picnic_orders_save = self.sync()
         self.assertEqual(picnic_orders_save["orders"], 1)
-        self.assertEqual([o["id"] for o in picnic_orders.list_orders()["orders"]], ["d1"])
+        self.assertEqual([o["id"] for o in run(picnic_orders.list_orders())["orders"]], ["d1"])
         self.assertNotIn("d2", self.asked)
         # later geannuleerd: de bewaarde kopie verdwijnt
         self.listed = [summary("d1", status="CANCELLED")]
         self.sync()
-        self.assertEqual(picnic_orders.list_orders()["orders"], [])
+        self.assertEqual(run(picnic_orders.list_orders())["orders"], [])
 
     def test_a_synced_order_is_kept_and_not_fetched_again(self):
         self.listed = [summary("d1")]
@@ -81,7 +81,7 @@ class PicnicOrdersTest(unittest.TestCase):
         self.sync()
         self.listed = []  # Picnic toont hem niet meer
         self.sync()
-        self.assertEqual([o["id"] for o in picnic_orders.list_orders()["orders"]], ["d1"])
+        self.assertEqual([o["id"] for o in run(picnic_orders.list_orders())["orders"]], ["d1"])
         self.listed = [summary("d1")]
         self.sync()
         self.assertEqual(self.asked, ["d1"])  # de producten zijn maar één keer opgehaald
@@ -102,15 +102,15 @@ class PicnicOrdersTest(unittest.TestCase):
         result = self.sync()
         self.assertEqual((result["orders"], result["remaining"], result["detailError"]), (5, 5, "RuntimeError"))
         self.assertEqual(len(self.asked), picnic_orders.MAX_FIRST_FAILURES)  # na een paar mislukkingen stoppen we
-        self.assertEqual(len(picnic_orders.list_orders()["orders"]), 5)
-        self.assertFalse(picnic_orders.list_orders()["orders"][0]["itemsSynced"])
+        self.assertEqual(len(run(picnic_orders.list_orders())["orders"]), 5)
+        self.assertFalse(run(picnic_orders.list_orders())["orders"][0]["itemsSynced"])
 
     def test_an_expired_link_stops_the_sync(self):
         self.listed = [summary("d1")]
         self.details = {"d1": picnic.PicnicAuthError("verlopen")}
         with self.assertRaises(picnic.PicnicAuthError):
             self.sync()
-        self.assertEqual(picnic_orders.list_orders()["orders"], [])
+        self.assertEqual(run(picnic_orders.list_orders())["orders"], [])
 
     def test_reading_never_asks_picnic(self):
         self.listed = [summary("d1")]
@@ -118,9 +118,9 @@ class PicnicOrdersTest(unittest.TestCase):
         self.sync()
         with mock.patch.object(picnic, "_authed", side_effect=AssertionError("geen verbinding")), \
                 mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verbinding")):
-            self.assertEqual(len(picnic_orders.list_orders()["orders"]), 1)
-            self.assertEqual(picnic_orders.get_order("d1")["items"][0]["title"], "Melk")
-            self.assertEqual(picnic_orders.search_purchases("melk")["total"], 1)
+            self.assertEqual(len(run(picnic_orders.list_orders())["orders"]), 1)
+            self.assertEqual(run(picnic_orders.get_order("d1"))["items"][0]["title"], "Melk")
+            self.assertEqual(run(picnic_orders.search_purchases("melk"))["total"], 1)
 
     def test_no_address_is_stored(self):
         self.listed = [summary("d1")]
@@ -135,10 +135,10 @@ class PicnicOrdersTest(unittest.TestCase):
         self.listed = [summary("d2", start="2026-10-17T10:00:00+02:00"), summary("d1")]
         self.details = {"d1": detail("d1", "Halfvolle melk", "Kaas"), "d2": detail("d2", "Melk halfvol", start="2026-10-17T10:00:00+02:00")}
         self.sync()
-        found = picnic_orders.search_purchases("Melk")
+        found = run(picnic_orders.search_purchases("Melk"))
         self.assertEqual((found["total"], [o["id"] for o in found["occurrences"]]), (2, ["d2", "d1"]))
-        self.assertEqual(picnic_orders.search_purchases("")["total"], 0)
-        self.assertEqual(picnic_orders.search_purchases("zalm")["total"], 0)
+        self.assertEqual(run(picnic_orders.search_purchases(""))["total"], 0)
+        self.assertEqual(run(picnic_orders.search_purchases("zalm"))["total"], 0)
 
     def test_routes(self):
         self.listed = [summary("d1")]

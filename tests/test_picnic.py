@@ -9,7 +9,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, picnic  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, run  # noqa: E402
 
 
 def response(data=None, *, status=200, token=None):
@@ -581,7 +581,7 @@ class ExploreTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=fake):
-            report = picnic_explore.explore()
+            report = run(picnic_explore.explore())
         names = [probe["name"] for probe in report["probes"]]
         self.assertTrue(any("product-details-page-root" in name for name in names))
         self.assertFalse(next(p for p in report["probes"] if "lists" in p["name"])["ok"])
@@ -604,7 +604,7 @@ class ExploreTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=fake):
-            report = picnic_explore.explore()
+            report = run(picnic_explore.explore())
         self.assertIn(("GET", "/deliveries/d-geheim-1"), asked)
         probe = next(p for p in report["probes"] if p["name"].startswith("bestelling: GET deliveries"))
         self.assertTrue(probe["ok"])
@@ -997,7 +997,7 @@ class FavoritesTest(TempDataDirTest):
                 return response(self.TABS)
             return response(pages.get(path.split("/pages/", 1)[1], {}) if "/pages/" in path else {})
         with mock.patch.object(picnic.requests, "request", side_effect=fake):
-            report = picnic_explore.explore(extended=True)
+            report = run(picnic_explore.explore(extended=True))
         names = {p["name"]: p for p in report["probes"]}
         tabs = next(p for n, p in names.items() if n.startswith("tabbalk"))
         self.assertEqual(tabs["info"]["favorietenpagina"], "favorites-root")
@@ -1082,7 +1082,7 @@ class RecipeExploreTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=fake):
-            report = picnic_explore.explore(extended=True)
+            report = run(picnic_explore.explore(extended=True))
         names = {probe["name"]: probe for probe in report["probes"]}
         self.assertTrue(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["ok"])
         self.assertEqual(names["opgeslagen recepten: GET pages/saved-deep-dive-page-content"]["info"]["receptonderdelen"], 1)

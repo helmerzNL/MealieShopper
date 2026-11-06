@@ -316,7 +316,7 @@ def create_app() -> Quart:
             return (request.args.get(name) or "").strip().lower() in {"1", "true", "yes"}
 
         try:
-            return jsonify(ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
+            return jsonify(await ah_recipes.get(force=flag("refresh"), fetch_if_missing=not flag("cached")))
         except Exception as exc:
             app.logger.exception("AH saved recipes error")
             return jsonify({"error": str(exc) or tr("Bewaarde recepten ophalen mislukt", "Could not fetch saved recipes")}), 424
@@ -397,17 +397,17 @@ def create_app() -> Quart:
     @app.get("/api/ah/lists")
     async def ah_lists_overview():
         # Altijd 200: lokale kopieen blijven zichtbaar ook als AH niet bereikbaar is.
-        return jsonify(ah_lists.merged_lists())
+        return jsonify(await ah_lists.merged_lists())
 
     @app.get("/api/ah/lists/search")
     async def ah_lists_search():
         # Alleen de lokale kopieen: snel genoeg om bij elke toetsaanslag te vragen.
         query = (request.args.get("q") or "").strip()
-        return jsonify({"query": query, "items": ah_lists.search_items(query)})
+        return jsonify({"query": query, "items": await ah_lists.search_items(query)})
 
     @app.get("/api/ah/lists/<list_id>")
     async def ah_list_detail(list_id: str):
-        snapshot = ah_lists.get_snapshot(list_id)
+        snapshot = await ah_lists.get_snapshot(list_id)
         if snapshot:
             return jsonify(snapshot)
         try:
@@ -419,7 +419,7 @@ def create_app() -> Quart:
     @app.post("/api/ah/lists/<list_id>/sync")
     async def ah_list_sync(list_id: str):
         try:
-            return jsonify(ah_lists.sync_list(list_id))
+            return jsonify(await ah_lists.sync_list(list_id))
         except Exception as exc:
             app.logger.exception("AH list sync error")
             return jsonify({"error": str(exc) or tr("Synchroniseren mislukt", "Sync failed")}), 424
@@ -428,7 +428,7 @@ def create_app() -> Quart:
     async def ah_list_item_quantity(list_id: str, position: int):
         body = await request.get_json(silent=True) or {}
         try:
-            snapshot = ah_lists.set_quantity(list_id, position, body.get("quantity"))
+            snapshot = await ah_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         if not snapshot:
@@ -437,7 +437,7 @@ def create_app() -> Quart:
 
     @app.post("/api/ah/lists/<list_id>/reset")
     async def ah_list_reset(list_id: str):
-        snapshot = ah_lists.reset_quantities(list_id)
+        snapshot = await ah_lists.reset_quantities(list_id)
         if not snapshot:
             return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
         return jsonify(snapshot)
@@ -445,7 +445,7 @@ def create_app() -> Quart:
     @app.post("/api/ah/lists/<list_id>/cart")
     async def ah_list_to_cart(list_id: str):
         """Zet het hele lijstje met een druk op de knop in het AH-mandje, met de aantallen zoals ze nu staan."""
-        snapshot = ah_lists.get_snapshot(list_id)
+        snapshot = await ah_lists.get_snapshot(list_id)
         try:
             if not snapshot:
                 snapshot = ah.get_favorite_list_items(list_id)
@@ -571,7 +571,7 @@ def create_app() -> Quart:
     @app.post("/api/ah/explore")
     async def ah_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
-        return jsonify(ah_explore.explore())
+        return jsonify(await ah_explore.explore())
 
     # --- aanbiedingen en receptvoorstellen: lezen uit de lokale kopie, vernieuwen op verzoek ----------------
 
@@ -1190,11 +1190,11 @@ def create_app() -> Quart:
 
     @app.get("/api/picnic/orders")
     async def picnic_orders_list():
-        return jsonify(picnic_orders.list_orders())
+        return jsonify(await picnic_orders.list_orders())
 
     @app.get("/api/picnic/orders/<order_id>")
     async def picnic_order_detail(order_id: str):
-        order = picnic_orders.get_order(order_id)
+        order = await picnic_orders.get_order(order_id)
         if not order:
             return jsonify({"error": tr("Bestelling niet gevonden.", "Order not found.")}), 404
         return jsonify(order)
@@ -1202,7 +1202,7 @@ def create_app() -> Quart:
     @app.post("/api/picnic/orders/sync")
     async def picnic_orders_sync():
         try:
-            return jsonify(picnic_orders.sync_orders())
+            return jsonify(await picnic_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001 - de bewaarde kopie blijft staan
             return picnic_error(exc)
 
@@ -1257,8 +1257,8 @@ def create_app() -> Quart:
         query = (request.args.get("q") or "").strip()
         try:
             if query:  # zoeken in je bewaarde recepten en het kookboek, voor Recepten zoeken
-                return jsonify({"source": "search", **picnic_recipes.search(query)})
-            return jsonify({"source": source, "recipes": picnic_recipes.get_recipes(source)})
+                return jsonify({"source": "search", **await picnic_recipes.search(query)})
+            return jsonify({"source": source, "recipes": await picnic_recipes.get_recipes(source)})
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1266,7 +1266,7 @@ def create_app() -> Quart:
     async def picnic_recipe_detail(recipe_id: str):
         # Alleen lezen: één recept met ingrediënten en bereiding.
         try:
-            return jsonify(picnic_recipes.get_recipe(recipe_id))
+            return jsonify(await picnic_recipes.get_recipe(recipe_id))
         except Exception as exc:  # noqa: BLE001
             return picnic_error(exc)
 
@@ -1281,7 +1281,7 @@ def create_app() -> Quart:
         if found:
             return found
         try:
-            recipe = picnic_recipes.get_recipe(recipe_id)
+            recipe = await picnic_recipes.get_recipe(recipe_id)
             slug = await mealie.import_via_jsonld(picnic_recipes.source_url(recipe_id), picnic_recipes.jsonld(recipe))
             return jsonify({"slug": slug, "mealieUrl": await mealie.recipe_page_url(slug)})
         except Exception as exc:  # noqa: BLE001
@@ -1303,7 +1303,7 @@ def create_app() -> Quart:
     @app.post("/api/picnic/explore")
     async def picnic_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): roept leesroutes aan en meldt de vorm van de antwoorden.
-        return jsonify(picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
+        return jsonify(await picnic_explore.explore(extended=(request.args.get("extended") or "") == "1"))
 
     # --- Crisp --------------------------------------------------------------------------
     # Koppelen met een code per mail (zoals de Crisp-app); de producten gaan, net als bij Picnic, direct in het echte
@@ -1385,7 +1385,7 @@ def create_app() -> Quart:
     # Bestellingen: de bezorgde uit de lokale kopie (crisp_orders), de aankomende live.
     @app.get("/api/crisp/orders")
     async def crisp_orders_list():
-        return jsonify(crisp_orders.list_orders())
+        return jsonify(await crisp_orders.list_orders())
 
     @app.get("/api/crisp/orders/open")
     async def crisp_orders_open():
@@ -1397,7 +1397,7 @@ def create_app() -> Quart:
     @app.post("/api/crisp/orders/sync")
     async def crisp_orders_sync():
         try:
-            return jsonify(crisp_orders.sync_orders())
+            return jsonify(await crisp_orders.sync_orders())
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 
@@ -1405,7 +1405,7 @@ def create_app() -> Quart:
     async def crisp_order_detail(order_id: str):
         # Uit de lokale kopie als de producten er al in staan; anders (een aankomende bestelling, of nog niet
         # gesynchroniseerd) live bij Crisp. Lukt dat niet, dan wat we hebben.
-        local = crisp_orders.get_order(order_id)
+        local = await crisp_orders.get_order(order_id)
         if local and local["itemsSynced"]:
             return jsonify(local)
         try:
@@ -1629,27 +1629,27 @@ def create_app() -> Quart:
     @app.get("/api/jumbo/lists")
     async def jumbo_lists_overview():
         # Altijd 200: de lokale kopie blijft zichtbaar ook als Jumbo niet bereikbaar is.
-        return jsonify(jumbo_lists.merged_lists())
+        return jsonify(await jumbo_lists.merged_lists())
 
     @app.get("/api/jumbo/lists/search")
     async def jumbo_lists_search():
         query = (request.args.get("q") or "").strip()
-        return jsonify({"query": query, "items": jumbo_lists.search_items(query)})
+        return jsonify({"query": query, "items": await jumbo_lists.search_items(query)})
 
     @app.get("/api/jumbo/lists/<list_id>")
     async def jumbo_list_detail(list_id: str):
-        snapshot = jumbo_lists.get_snapshot(list_id)
+        snapshot = await jumbo_lists.get_snapshot(list_id)
         if snapshot:
             return jsonify(snapshot)
         try:
-            return jsonify(jumbo_lists.live_view(jumbo_lists.fetch_live(list_id)))
+            return jsonify(jumbo_lists.live_view(await jumbo_lists.fetch_live(list_id)))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
     @app.post("/api/jumbo/lists/<list_id>/sync")
     async def jumbo_list_sync(list_id: str):
         try:
-            return jsonify(jumbo_lists.sync_list(list_id))
+            return jsonify(await jumbo_lists.sync_list(list_id))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1657,7 +1657,7 @@ def create_app() -> Quart:
     async def jumbo_list_item_quantity(list_id: str, position: int):
         body = await request.get_json(silent=True) or {}
         try:
-            snapshot = jumbo_lists.set_quantity(list_id, position, body.get("quantity"))
+            snapshot = await jumbo_lists.set_quantity(list_id, position, body.get("quantity"))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         if not snapshot:
@@ -1666,7 +1666,7 @@ def create_app() -> Quart:
 
     @app.post("/api/jumbo/lists/<list_id>/reset")
     async def jumbo_list_reset(list_id: str):
-        snapshot = jumbo_lists.reset_quantities(list_id)
+        snapshot = await jumbo_lists.reset_quantities(list_id)
         if not snapshot:
             return jsonify({"error": tr("Dit lijstje is niet gesynchroniseerd.", "This list is not synced.")}), 404
         return jsonify(snapshot)
@@ -1678,7 +1678,7 @@ def create_app() -> Quart:
         Regels met een SKU gaan direct; een regel met alleen tekst zoeken we eerst op. Nooit een bestelling.
         """
         try:
-            snapshot = jumbo_lists.get_snapshot(list_id) or jumbo_lists.live_view(jumbo_lists.fetch_live(list_id))
+            snapshot = await jumbo_lists.get_snapshot(list_id) or jumbo_lists.live_view(await jumbo_lists.fetch_live(list_id))
             matched: list[dict[str, Any]] = []
             skipped: list[str] = []
             for item in snapshot.get("items") or []:
@@ -1748,7 +1748,7 @@ def create_app() -> Quart:
     async def jumbo_recipe_list():
         # Alleen lezen: zoeken in alle recepten van Jumbo (`offset` voor de volgende pagina).
         try:
-            return jsonify({**jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+            return jsonify({**await jumbo_recipes.search(request.args.get("q"), request.args.get("offset")), "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1756,7 +1756,7 @@ def create_app() -> Quart:
     async def jumbo_favorite_recipes():
         # Alleen lezen: je favoriete recepten bij Jumbo, per pagina (`page` begint bij 1).
         try:
-            return jsonify({**jumbo_recipes.get_favorites(request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+            return jsonify({**await jumbo_recipes.get_favorites(request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1764,7 +1764,7 @@ def create_app() -> Quart:
     async def jumbo_recipe_lists():
         # Alleen lezen: je receptenlijsten bij Jumbo (Favorieten eerst, dan je eigen lijstjes) met aantallen.
         try:
-            return jsonify({"lists": jumbo_recipes.get_lists()})
+            return jsonify({"lists": await jumbo_recipes.get_lists()})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1772,7 +1772,7 @@ def create_app() -> Quart:
     async def jumbo_recipe_list_recipes(list_id: str):
         # Alleen lezen: de recepten van een eigen lijstje, per pagina (`page` begint bij 1).
         try:
-            return jsonify({**jumbo_recipes.get_list_recipes(list_id, request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
+            return jsonify({**await jumbo_recipes.get_list_recipes(list_id, request.args.get("page")), "pageSize": jumbo_recipes.RECIPE_PAGE})
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1780,7 +1780,7 @@ def create_app() -> Quart:
     async def jumbo_recipe_detail(recipe_id: str):
         # Alleen lezen: één recept met ingrediënten en bereiding.
         try:
-            return jsonify(jumbo_recipes.get_recipe(recipe_id))
+            return jsonify(await jumbo_recipes.get_recipe(recipe_id))
         except Exception as exc:  # noqa: BLE001
             return jumbo_error(exc)
 
@@ -1792,7 +1792,7 @@ def create_app() -> Quart:
         except RuntimeError as exc:  # Mealie is niet gekoppeld: de tekst is van onszelf en zegt wat te doen
             return jsonify({"error": str(exc)}), 400
         try:
-            recipe = jumbo_recipes.get_recipe(recipe_id)
+            recipe = await jumbo_recipes.get_recipe(recipe_id)
             found = await reused_recipe(jumbo_recipes.source_url(recipe))
             if found:
                 return found
@@ -1808,7 +1808,7 @@ def create_app() -> Quart:
     @app.post("/api/jumbo/explore")
     async def jumbo_explore_routes():
         # Alleen de beheerder (auth.ADMIN_PATHS): meldt of Jumbo deze server toelaat en de vorm van de antwoorden.
-        return jsonify(jumbo_explore.explore())
+        return jsonify(await jumbo_explore.explore())
 
     @app.post("/api/ah/auth")
     async def ah_auth():

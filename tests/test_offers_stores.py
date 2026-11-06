@@ -327,7 +327,7 @@ class PicnicExplorerTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=authed):
-            probes = picnic_explore.offer_probes()
+            probes = run(picnic_explore.offer_probes())
         names = [p["name"] for p in probes]
         self.assertEqual(names[0], "aanbiedingen: welke pagina's zoeken we (pagina, streng)")
         home_probe = next(p for p in probes if p["name"] == "aanbiedingen: GET pages/home_page_root")
@@ -385,10 +385,10 @@ class PicnicExplorerDetailTest(TempDataDirTest):
 
         picnic.save_auth_key("key")
         with mock.patch.object(picnic, "_authed", side_effect=authed):
-            picnic_explore.explore()
+            run(picnic_explore.explore())
             short = len(asked)
             asked.clear()
-            picnic_explore.explore(extended=True)
+            run(picnic_explore.explore(extended=True))
         self.assertLess(short, 40, "zonder extended geen ruim honderd verzoeken")
         self.assertGreater(len(asked), short)
         self.assertFalse(any("liked_sellables" in path for path in asked[:short]))
@@ -397,7 +397,7 @@ class PicnicExplorerDetailTest(TempDataDirTest):
         from mealieshopper import picnic_explore
 
         client = SyncClient(create_app())
-        with mock.patch.object(picnic_explore, "explore", return_value={"probes": [], "ok": 0, "linked": True}) as explore:
+        with mock.patch.object(picnic_explore, "explore", new_callable=mock.AsyncMock, return_value={"probes": [], "ok": 0, "linked": True}) as explore:
             client.post("/api/picnic/explore")
             client.post("/api/picnic/explore?extended=1")
         self.assertEqual([call.kwargs for call in explore.call_args_list], [{"extended": False}, {"extended": True}])

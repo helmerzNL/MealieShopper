@@ -646,7 +646,7 @@ class SuggestionsTest(TempDataDirTest):
             calls.append(recipe_id)
             return {"recipeIngredient": ["kip"]}
 
-        with mock.patch.object(ah_recipes, "load", return_value=saved), \
+        with mock.patch.object(ah_recipes, "load", new_callable=mock.AsyncMock, return_value=saved), \
                 mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld), \
                 mock.patch.object(offers, "AH_NEW_RECIPES_PER_SYNC", 2):
             self.assertEqual(len(run(offers._collect_ah())), 2)
@@ -665,15 +665,15 @@ class CourseCollectorsTest(TempDataDirTest):
 
         jumbo_recipe = {"id": "j1", "name": "Ontbijtbowl", "ingredients": [{"name": "yoghurt"}], "course": "Ontbijt"}
         with mock.patch.object(offers.jumbo, "configured_refresh_token", return_value="x"), \
-                mock.patch.object(offers.jumbo_recipes, "get_favorites", return_value={"recipes": [{"id": "j1"}]}), \
-                mock.patch.object(offers.jumbo_recipes, "get_recipe", return_value=jumbo_recipe), \
+                mock.patch.object(offers.jumbo_recipes, "get_favorites", new_callable=mock.AsyncMock, return_value={"recipes": [{"id": "j1"}]}), \
+                mock.patch.object(offers.jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=jumbo_recipe), \
                 mock.patch.object(offers.jumbo_recipes, "source_url", return_value=""):
             self.assertEqual(run(offers._collect_jumbo())[0]["course"], "ontbijt")
 
         picnic_recipe = {"id": "p1", "name": "Soep", "ingredients": [{"name": "prei"}]}
         with mock.patch.object(offers.picnic, "configured_auth_key", return_value="x"), \
-                mock.patch.object(offers.picnic_recipes, "get_recipes", return_value=[{"id": "p1", "tags": ["Soepen"]}]), \
-                mock.patch.object(offers.picnic_recipes, "get_recipe", return_value=picnic_recipe), \
+                mock.patch.object(offers.picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=[{"id": "p1", "tags": ["Soepen"]}]), \
+                mock.patch.object(offers.picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=picnic_recipe), \
                 mock.patch.object(offers.picnic_recipes, "source_url", return_value=""):
             self.assertEqual(run(offers._collect_picnic())[0]["course"], "soep")
 
@@ -701,7 +701,7 @@ class CourseCollectorsTest(TempDataDirTest):
             calls.append(recipe_id)
             return {"recipeIngredient": ["kip"], "recipeCategory": "Hoofdgerecht" if recipe_id == 1 else ["Dessert"]}
 
-        with mock.patch.object(ah_recipes, "load", return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
+        with mock.patch.object(ah_recipes, "load", new_callable=mock.AsyncMock, return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
             first = run(offers._collect_ah())
             self.assertEqual([item["course"] for item in first], ["hoofdgerecht", "dessert"])
         # In de index, recept 1 mét soort en recept 2 zonder (ingelezen vóór de soorten): alleen 2 wordt opnieuw opgehaald.
@@ -714,7 +714,7 @@ class CourseCollectorsTest(TempDataDirTest):
                     (recipe_id, course),
                 )
         calls.clear()
-        with mock.patch.object(ah_recipes, "load", return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
+        with mock.patch.object(ah_recipes, "load", new_callable=mock.AsyncMock, return_value=saved), mock.patch.object(ah, "get_recipe_jsonld", side_effect=jsonld):
             again = run(offers._collect_ah())
         self.assertEqual(calls, [2])
         self.assertEqual([item["course"] for item in again], ["hoofdgerecht", "dessert"])
@@ -810,16 +810,16 @@ class CollectorPoolTest(TempDataDirTest):
     def test_the_jumbo_pool(self) -> None:
         fetch, state = self.counting(lambda recipe_id: {"id": recipe_id, "name": f"R{recipe_id}", "ingredients": [{"name": "kip"}]})
         with mock.patch.object(offers.jumbo, "configured_refresh_token", return_value="x"), \
-                mock.patch.object(offers.jumbo_recipes, "get_favorites", return_value={"recipes": self.cards()}), \
-                mock.patch.object(offers.jumbo_recipes, "get_recipe", side_effect=fetch), \
+                mock.patch.object(offers.jumbo_recipes, "get_favorites", new_callable=mock.AsyncMock, return_value={"recipes": self.cards()}), \
+                mock.patch.object(offers.jumbo_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=fetch), \
                 mock.patch.object(offers.jumbo_recipes, "source_url", return_value=""):
             self.assert_pool(run(offers._collect_jumbo()), state)
 
     def test_the_picnic_pool(self) -> None:
         fetch, state = self.counting(lambda recipe_id: {"id": recipe_id, "name": f"R{recipe_id}", "ingredients": [{"name": "kip"}]})
         with mock.patch.object(offers.picnic, "configured_auth_key", return_value="x"), \
-                mock.patch.object(offers.picnic_recipes, "get_recipes", side_effect=lambda source: self.cards() if source == "saved" else []), \
-                mock.patch.object(offers.picnic_recipes, "get_recipe", side_effect=fetch), \
+                mock.patch.object(offers.picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=lambda source: self.cards() if source == "saved" else []), \
+                mock.patch.object(offers.picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=fetch), \
                 mock.patch.object(offers.picnic_recipes, "source_url", return_value=""):
             self.assert_pool(run(offers._collect_picnic()), state)
 
