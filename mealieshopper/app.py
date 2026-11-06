@@ -1850,7 +1850,7 @@ def create_app() -> Quart:
                 "accept-encoding",
                 "content-length",
                 "content-encoding",
-                "remote-addr",  # zet Quart er zelf bij (het adres van de bezoeker), de browser stuurde hem niet
+                "remote-addr",  # zet Quart er zelf bij, de browser niet: zonder deze gaan dezelfde headers mee als in 3.13.1
             }
         }
         headers.setdefault("User-Agent", ah.AH_BROWSER_USER_AGENT)
@@ -1879,7 +1879,9 @@ def create_app() -> Quart:
                     target_url,
                     params=request.args,
                     content=data,
-                    headers=headers,
+                    # latin-1 zoals Quart ze las en requests ze schreef: een UTF-8-byte van de browser gaat ongewijzigd door.
+                    # Een gewone str codeert httpx als ASCII, en dan geeft zo'n byte een UnicodeEncodeError (500).
+                    headers=httpx.Headers(headers, encoding="latin-1"),
                     timeout=30,
                 )
         except (httpx.HTTPError, httpx.InvalidURL) as exc:  # InvalidURL (een stuurteken in het pad) valt niet onder HTTPError

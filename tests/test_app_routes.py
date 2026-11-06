@@ -165,3 +165,12 @@ async def test_a_control_character_in_the_path_is_a_502_and_not_a_crash(client: 
     assert reply.status_code == 502
     assert (await reply.get_data(as_text=True)).startswith("AH login proxy error: ")
     assert respx_mock.calls.call_count == 0
+
+
+async def test_a_header_with_a_utf8_byte_reaches_ah_byte_for_byte(client: TestClientProtocol, respx_mock: respx.MockRouter) -> None:
+    # Quart leest headers als latin-1. requests schreef ze ook zo terug, dus AH kreeg de bytes van de browser ongewijzigd.
+    route: respx.Route = respx_mock.get(STEP).respond(200, text="ok")
+    reply = await client.get("/api/ah/auth/proxy/login/step", headers={"User-Agent": "Browser/café"})
+    assert reply.status_code == 200
+    sent: dict[bytes, bytes] = {key.lower(): value for key, value in route.calls.last.request.headers.raw}
+    assert sent[b"user-agent"] == "Browser/café".encode("utf-8")
