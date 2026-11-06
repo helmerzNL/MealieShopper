@@ -3,6 +3,7 @@
 De fixtures hebben de vorm van de echte antwoorden van jumbo.com (OnlineOrdersAndStoreReceipts en de
 bestelling met producten), met verzonnen ordernummers, adressen, titels en bedragen.
 """
+import contextlib
 import os
 import sqlite3
 import tempfile
@@ -425,10 +426,23 @@ class McpAndExplorerTest(TempDataDirTest):
         for name in ("list_jumbo_orders", "get_jumbo_order"):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
 
+    def offline(self):
+        """De sync Jumbo-aanroepen die de verkenner naast de recepten en bestellingen doet, zonder netwerk."""
+        return [
+            mock.patch.object(jumbo, "get_access_token", return_value="acc"),
+            mock.patch.object(jumbo, "search_products", return_value=[]),
+            mock.patch.object(jumbo, "get_cart", return_value={"items": []}),
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}),
+            mock.patch.object(jumbo, "_graphql", return_value={}),
+            mock.patch.object(jumbo, "_graphql_variants", return_value={}),
+        ]
+
     def test_the_explorer_reports_shapes_without_personal_data(self):
         listing = page([listed(7000000001)], receipts=2)
-        with mock.patch.object(jumbo, "_persisted_query", return_value=listing), served(httpx.Response(200, json={})), \
-                mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(7000000001, [line(1)]))):
+        with contextlib.ExitStack() as stack:
+            for patch in [mock.patch.object(jumbo, "_persisted_query", return_value=listing), served(httpx.Response(200, json={})),
+                          mock.patch.object(jumbo, "get_order", return_value=jumbo.parse_order(order(7000000001, [line(1)]))), *self.offline()]:
+                stack.enter_context(patch)
             probes = {p["name"]: p for p in run(jumbo_explore.explore())["probes"]}
         orders_probe = probes["mijn bestellingen: opgeslagen query OnlineOrdersAndStoreReceipts"]
         self.assertTrue(orders_probe["ok"])

@@ -3,6 +3,7 @@
 De fixtures hebben de vorm van de echte antwoorden van jumbo.com (getRecipe en getRecipesListers), met
 verzonnen recepten.
 """
+import contextlib
 import os
 import tempfile
 import unittest
@@ -380,6 +381,17 @@ class McpAndExplorerTest(TempDataDirTest):
         for name in ("search_jumbo_recipes", "get_jumbo_recipe"):
             self.assertTrue(mcp.TOOLS[name]["annotations"]["readOnlyHint"])
 
+    def offline(self):
+        """De sync Jumbo-aanroepen die de verkenner naast de recepten en bestellingen doet, zonder netwerk."""
+        return [
+            mock.patch.object(jumbo, "get_access_token", return_value="acc"),
+            mock.patch.object(jumbo, "search_products", return_value=[]),
+            mock.patch.object(jumbo, "get_cart", return_value={"items": []}),
+            mock.patch.object(jumbo, "get_shopping_list", return_value={"active": True, "items": []}),
+            mock.patch.object(jumbo, "_graphql", return_value={}),
+            mock.patch.object(jumbo, "_graphql_variants", return_value={}),
+        ]
+
     def test_the_explorer_reports_shapes_without_titles(self):
         def answer(operation, variables):
             if operation == "getRecipe":
@@ -395,7 +407,9 @@ class McpAndExplorerTest(TempDataDirTest):
             return {"favouriteLists": {"items": [{"id": "l1", "title": "Geheime lijst", "totalRecipes": 5, "type": "FAVORITE_LIST"}]},
                     "customerLists": {"items": [{"id": "l2", "title": "Geheime eigen lijst", "totalRecipes": 2, "type": "CATEGORY"}]}}
 
-        with mock.patch.object(jumbo, "_persisted_query", side_effect=answer), served(httpx.Response(200, json={})):
+        with contextlib.ExitStack() as stack:
+            for patch in [mock.patch.object(jumbo, "_persisted_query", side_effect=answer), served(httpx.Response(200, json={})), *self.offline()]:
+                stack.enter_context(patch)
             probes = {p["name"]: p for p in run(jumbo_explore.explore())["probes"] if "recept" in p["name"]}
         self.assertEqual(len(probes), 6)
         self.assertTrue(all(p["ok"] for p in probes.values()), probes)

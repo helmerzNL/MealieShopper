@@ -1451,7 +1451,8 @@ class ExploreTest(unittest.TestCase):
             ],
         }
         with mock.patch.object(ah_explore, "_raw_get", side_effect=get), mock.patch.object(ah_explore, "_raw_graphql", side_effect=graphql), \
-                mock.patch.object(ah_explore, "_anonymous_graphql", return_value=bonus), mock.patch.object(ah, "configured_refresh_token", return_value="x"):
+                mock.patch.object(ah_explore, "_anonymous_graphql", return_value=bonus), mock.patch.object(ah, "configured_refresh_token", return_value="x"), \
+                mock.patch.object(ah, "get_token", return_value="anoniem"), mock.patch.object(ah, "_request_json", side_effect=RuntimeError("geen netwerk in de test")):
             report = run(ah_explore.explore())
         names = [p["name"] for p in report["probes"]]
         periods = next(p for p in report["probes"] if "bonusPeriods" in p["name"])
@@ -1471,7 +1472,8 @@ class ExploreTest(unittest.TestCase):
 
     def test_a_route_that_fails_is_reported_not_raised(self):
         with mock.patch.object(ah_explore, "_raw_get", side_effect=RuntimeError("404: not found")), mock.patch.object(ah_explore, "_raw_graphql", side_effect=RuntimeError("boom")), \
-                mock.patch.object(ah_explore, "_anonymous_graphql", side_effect=RuntimeError("boom")), mock.patch.object(ah, "configured_refresh_token", return_value=""):
+                mock.patch.object(ah_explore, "_anonymous_graphql", side_effect=RuntimeError("boom")), mock.patch.object(ah, "configured_refresh_token", return_value=""), \
+                mock.patch.object(ah, "get_token", return_value="anoniem"), mock.patch.object(ah, "_request_json", side_effect=RuntimeError("geen netwerk in de test")):
             report = run(ah_explore.explore())
         self.assertEqual(report["ok"], 0)
         self.assertIn("overgeslagen", next(p for p in report["probes"] if p["name"].startswith("inhoud"))["error"])
