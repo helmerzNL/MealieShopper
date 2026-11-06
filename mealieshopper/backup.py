@@ -17,6 +17,9 @@ met zichtbare voortgang). Kort:
   over de bestaande gegevens heen. Een geweigerd bestand verandert niets.
 * Het terugzetten is werk van de server: de browser start het en kijkt mee. De staat van de klus staat in de database
   (`backup_jobs`), dus een andere werker, een herladen pagina of een gesloten browser maakt niets uit.
+* De klus is een achtergrondtask (`tasks.spawn`). Het zware werk (het bestand maken, lezen en controleren, en het
+  vervangen in een transactie) loopt per fase als geheel in `asyncio.to_thread`, op een eigen sqlite3-verbinding. Alles
+  wat de event loop zelf doet (de klus starten, de stand lezen en bijwerken, wegklikken) gaat via aiosqlite.
 
 Buiten de back-up blijven: het auditlog (een logboek dat na 30 dagen vanzelf wordt opgeruimd), de bewaarde
 Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres dat de beheerder voor deze server instelde
@@ -24,27 +27,29 @@ Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres da
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
-import io
 import json
 import logging
 import os
 import re
 import secrets
 import sqlite3
-import threading
 import time
-from contextlib import closing
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable, Iterator
+from contextlib import aclosing, asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
+import aiosqlite
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
+from werkzeug.exceptions import RequestTimeout
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -55,7 +60,7 @@ FORMAT_VERSION = 1
 MAX_STAGE_BYTES = 200 * 1024 * 1024  # één bestand; een back-up van jaren aanbiedingen is enkele megabytes
 CHUNK = 1024 * 1024
 STAGE_TTL_SECONDS = 3600  # een bestand dat niet gebruikt wordt, ruimen we na een uur op
-JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n thread kwijt (herstart)
+JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n task kwijt (herstart)
 MIN_PASSPHRASE_LENGTH = 8
 SCRYPT_N = 2**15  # ~32 MB geheugen en ~0,1 s; in de tests lager gezet
 SCRYPT_R, SCRYPT_P = 8, 1
@@ -155,6 +160,18 @@ CREATE TABLE IF NOT EXISTS backup_jobs (
 );
 """
 
+# De SQL van de klussen, gedeeld door de synchrone helper in de thread en zijn async tweeling op de loop.
+JOB_UPDATE_SQL = "UPDATE backup_jobs SET {assignments} WHERE id = ?"
+# Een klus die niet meer verder komt (task kwijt na een herstart, of geannuleerd bij het afsluiten): mislukt, er is niets gewijzigd.
+JOB_INTERRUPTED = "status = 'failed', error_key = 'interrupted', finished_at = ?"
+JOB_GIVE_UP_STALE_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED} WHERE status = 'running' AND updated_at < ?"
+JOB_INTERRUPT_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED}, updated_at = ? WHERE id = ? AND status = 'running'"
+JOB_LATEST_SQL = "SELECT * FROM backup_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
+JOB_DISMISS_SQL = "UPDATE backup_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'"
+JOB_DONE_SQL = (
+    "UPDATE backup_jobs SET status = 'done', phase = 'replacing', summary = ?, replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?"
+)
+
 TOKEN_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 STAGE_PREFIX = ".restore-"
 FERNET_PREFIX = "gAAAA"
@@ -231,8 +248,19 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _thread_connect() -> sqlite3.Connection:
+    """Een eigen synchrone verbinding voor het werk in een thread (`asyncio.to_thread`), niet voor de event loop."""
+    auth.data_dir().mkdir(parents=True, exist_ok=True)
+    conn: sqlite3.Connection = sqlite3.connect(auth.db_path())
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def ensure_schemas() -> None:
-    """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik)."""
+    """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik).
+
+    Synchroon: draait in de thread van een fase. De winkelmodules hebben nog een synchrone `_connect`.
+    """
     auth.ensure_db()
     for module in SCHEMA_OWNERS:
         with closing(module._connect()):
@@ -242,10 +270,20 @@ def ensure_schemas() -> None:
 
 
 def _jobs_connect() -> sqlite3.Connection:
+    """De tabel van de klussen op een verbinding voor een thread (de voortgang tijdens het controleren)."""
     auth.ensure_db()
-    conn = auth.connect()
+    conn: sqlite3.Connection = _thread_connect()
     conn.executescript(JOB_SCHEMA)
     return conn
+
+
+@asynccontextmanager
+async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.aconnect`."""
+    await auth.aensure_db()
+    async with auth.aconnect() as conn:
+        await conn.executescript(JOB_SCHEMA)
+        yield conn
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
@@ -353,7 +391,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "") -> dict[str
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
     ensure_schemas()
     counts: dict[str, int] = {}
-    with closing(auth.connect()) as conn:
+    with closing(_thread_connect()) as conn:
         conn.execute("BEGIN")
         stored, unreadable = _stored_secrets(conn) if links else ({}, 0)
         plain = {
@@ -421,6 +459,11 @@ def read_file(path: Path) -> dict[str, Any]:
     if version > FORMAT_VERSION:
         raise BackupError("newer_version", found=version, supported=FORMAT_VERSION, app_version=str(data.get("app_version") or "?")[:20])
     return data
+
+
+def read_plan(path: Path) -> Plan:
+    """`read_file` en `prepare` in een keer: de fase die het bestand leest, als geheel voor `asyncio.to_thread`."""
+    return prepare(read_file(path))
 
 
 class Plan:
@@ -536,7 +579,7 @@ def check_rows(plan: Plan, progress: Callable[[int, int], None] | None = None) -
     Geeft de rijen terug zoals ze ingevoegd gaan worden (waarden ontcijferd). Niets in de echte database verandert.
     """
     ensure_schemas()
-    with closing(auth.connect()) as real, closing(_schema_copy(real)) as scratch:
+    with closing(_thread_connect()) as real, closing(_schema_copy(real)) as scratch:
         known = {table: _column_rules(real, table) for table in DATA_TABLES}
         prepared: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for step, table in enumerate(DATA_TABLES, 1):
@@ -580,7 +623,7 @@ def replace_everything(
     """Zet alles in één transactie over de bestaande gegevens heen. `on_commit` loopt in dezelfde transactie."""
     ensure_schemas()
     skipped_profiles = 0
-    conn = auth.connect()
+    conn = _thread_connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
@@ -653,36 +696,66 @@ def remove_old_staged_files() -> None:
             continue
 
 
-def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
-    """Slaat het geüploade bestand op, controleert het helemaal en geeft een samenvatting. De database verandert niet."""
+async def _read_within(body: AsyncIterable[bytes], seconds: float | None) -> AsyncGenerator[bytes, None]:
+    """De stukken van `body`, met een grens op de tijd voor het hele lichaam.
+
+    `await request.get_data()` houdt zich aan `BODY_TIMEOUT` (een 408 daarna), `async for` over `request.body` niet.
+    Zo blijft die grens ook bij het streamen gelden.
+    """
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    deadline: float | None = None if seconds is None else loop.time() + seconds
+    iterator: AsyncIterator[bytes] = aiter(body)
+    chunk: bytes
+    while True:
+        try:
+            if deadline is None:
+                chunk = await anext(iterator)
+            else:
+                chunk = await asyncio.wait_for(anext(iterator), max(0.0, deadline - loop.time()))
+        except StopAsyncIteration:
+            return
+        except TimeoutError:
+            raise RequestTimeout() from None
+        yield chunk
+
+
+async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[str, Any]:
+    """Slaat het geüploade bestand op, controleert het helemaal en geeft een samenvatting. De database verandert niet.
+
+    Het lichaam komt in stukken binnen (`request.body`) en gaat zo naar schijf, nooit helemaal in het geheugen. Een
+    Content-Length boven de grens wordt geweigerd voor er iets gelezen is.
+    """
     if content_length is not None and content_length > MAX_STAGE_BYTES:
         raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     remove_old_staged_files()
-    token = secrets.token_hex(16)
-    path = _stage_path(token)
-    received = 0
+    token: str = secrets.token_hex(16)
+    path: Path = _stage_path(token)
+    received: int = 0
+    summary: dict[str, Any]
     try:
         with path.open("wb") as handle:
             os.chmod(path, 0o600)
-            while True:
-                chunk = stream.read(CHUNK)
-                if not chunk:
-                    break
+            async for chunk in body:
                 received += len(chunk)
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
-                handle.write(chunk)
-        plan = prepare(read_file(path))
-        check_rows(plan)
-        summary = summarize(plan)
+                handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+        summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
         path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
         raise
     return {"token": token, **summary}
 
 
-def discard(token: str) -> None:
+def _check_staged(path: Path) -> dict[str, Any]:
+    """Lezen en controleren van een klaargezet bestand, als geheel voor `asyncio.to_thread`."""
+    plan: Plan = read_plan(path)
+    check_rows(plan)
+    return summarize(plan)
+
+
+async def discard(token: str) -> None:
     _stage_path(token).unlink(missing_ok=True)
 
 
@@ -704,106 +777,144 @@ def _job_view(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _give_up_stale_jobs(conn: sqlite3.Connection) -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
-    conn.execute(
-        "UPDATE backup_jobs SET status = 'failed', error_key = 'interrupted', finished_at = ? WHERE status = 'running' AND updated_at < ?",
-        (_now(), cutoff),
-    )
+def _stale_cutoff() -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
+
+
+async def _give_up_stale_jobs(conn: aiosqlite.Connection) -> None:
+    await conn.execute(JOB_GIVE_UP_STALE_SQL, (_now(), _stale_cutoff()))
+
+
+def _job_update_statement(job_id: str, fields: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    """De UPDATE voor `_job_update` en `_ajob_update`: dezelfde velden, plus `updated_at`."""
+    values: dict[str, Any] = {**fields, "updated_at": _now()}
+    assignments: str = ", ".join(f"{name} = ?" for name in values)
+    return JOB_UPDATE_SQL.format(assignments=assignments), (*values.values(), job_id)
 
 
 def _job_update(job_id: str, **fields: Any) -> None:
-    fields["updated_at"] = _now()
-    assignments = ", ".join(f"{name} = ?" for name in fields)
+    """Synchroon, voor de thread van een fase (de voortgang tijdens het controleren)."""
+    sql, params = _job_update_statement(job_id, fields)
     with closing(_jobs_connect()) as conn, conn:
-        conn.execute(f"UPDATE backup_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+        conn.execute(sql, params)
 
 
-def _fail_job(job_id: str, error: BackupError | None) -> None:
-    key = error.key if error else "failed"
-    params = error.params if error else {}
-    _job_update(job_id, status="failed", error_key=key, error_params=json.dumps(params), finished_at=_now())
+async def _ajob_update(job_id: str, **fields: Any) -> None:
+    """Async tweeling van `_job_update`, voor de event loop (tussen de fases)."""
+    sql, params = _job_update_statement(job_id, fields)
+    async with _ajobs_connect() as conn:
+        await conn.execute(sql, params)
+        await conn.commit()
 
 
-def latest_job() -> dict[str, Any] | None:
+async def _fail_job(job_id: str, error: BackupError | None) -> None:
+    key: str = error.key if error else "failed"
+    params: dict[str, Any] = error.params if error else {}
+    await _ajob_update(job_id, status="failed", error_key=key, error_params=json.dumps(params), finished_at=_now())
+
+
+async def _interrupt_job(job_id: str) -> None:
+    """Een geannuleerde klus (de app sluit af) krijgt de stand die `_give_up_stale_jobs` hem na een herstart zou geven.
+
+    Alleen zolang hij nog loopt: heeft het vervangen in zijn thread toch nog vastgelegd dat hij klaar is, dan klopt dat.
+    """
+    now: str = _now()
+    async with _ajobs_connect() as conn:
+        await conn.execute(JOB_INTERRUPT_SQL, (now, now, job_id))
+        await conn.commit()
+
+
+async def latest_job() -> dict[str, Any] | None:
     """De klus die loopt, of de laatst afgeronde die de beheerder nog niet heeft weggeklikt."""
-    with closing(_jobs_connect()) as conn, conn:
-        _give_up_stale_jobs(conn)
-        row = conn.execute(
-            "SELECT * FROM backup_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
-        ).fetchone()
+    async with _ajobs_connect() as conn:
+        await _give_up_stale_jobs(conn)
+        await conn.commit()
+        async with conn.execute(JOB_LATEST_SQL) as cursor:
+            row: sqlite3.Row | None = await cursor.fetchone()
     return _job_view(row) if row else None
 
 
-def dismiss_job(job_id: str) -> bool:
-    with closing(_jobs_connect()) as conn, conn:
-        cursor = conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'", (job_id,))
+async def dismiss_job(job_id: str) -> bool:
+    async with _ajobs_connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(JOB_DISMISS_SQL, (job_id,))
+        await conn.commit()
     return cursor.rowcount > 0
 
 
-def start_job(token: str, passphrase: str) -> dict[str, Any]:
+async def start_job(token: str, passphrase: str) -> dict[str, Any]:
     """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond."""
-    path = _stage_path(token)
+    path: Path = _stage_path(token)
     if not path.is_file():
         raise BackupError("stage_missing", 404)
-    plan = prepare(read_file(path))  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
+    plan: Plan = await asyncio.to_thread(read_plan, path)  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
     if plan.needs_passphrase:
-        unseal(plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
-    running = path.with_name(path.name + ".job")
-    job_id = secrets.token_hex(8)
-    with closing(_jobs_connect()) as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE")
+        await asyncio.to_thread(unseal, plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
+    running: Path = path.with_name(path.name + ".job")
+    job_id: str = secrets.token_hex(8)
+    async with _ajobs_connect() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
         try:
-            _give_up_stale_jobs(conn)
-            if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
-                raise BackupError("busy", 409)
+            await _give_up_stale_jobs(conn)
+            async with conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'") as cursor:
+                if await cursor.fetchone():
+                    raise BackupError("busy", 409)
             try:
                 os.replace(path, running)  # een token werkt één keer
             except FileNotFoundError:
                 raise BackupError("stage_missing", 404) from None
-            now = _now()
-            conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE status != 'running'")
-            conn.execute(
+            now: str = _now()
+            await conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE status != 'running'")
+            await conn.execute(
                 "INSERT INTO backup_jobs (id, status, phase, step, steps, started_at, updated_at) VALUES (?, 'running', 'checking', 0, ?, ?, ?)",
                 (job_id, len(DATA_TABLES), now, now),
             )
-            conn.execute("COMMIT")
+            await conn.commit()
         except BaseException:
-            conn.execute("ROLLBACK")
+            await conn.rollback()
             raise
-    thread = threading.Thread(target=run_job, args=(job_id, running, passphrase), name=f"backup-restore-{job_id}", daemon=True)
-    thread.start()
+    tasks.spawn(f"backup-restore-{job_id}", arun_job(job_id, running, passphrase))
     return {"id": job_id}
 
 
-def run_job(job_id: str, staged: Path, passphrase: str) -> None:
-    started = time.monotonic()
+async def arun_job(job_id: str, staged: Path, passphrase: str) -> None:
+    """De klus zelf, als achtergrondtask. Elke fase loopt als geheel in een thread, de stand wordt ertussen bijgewerkt.
+
+    Een geweigerd bestand of een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van
+    de app wordt de task geannuleerd: de klus heet dan onderbroken, net als na een herstart.
+    """
+    started: float = time.monotonic()
     try:
-        plan = prepare(read_file(staged))
+        plan: Plan = await asyncio.to_thread(read_plan, staged)
         if plan.needs_passphrase:
-            plan.secrets = unseal(plan.sealed, passphrase)
-        prepared = check_rows(plan, lambda step, steps: _job_update(job_id, step=step, steps=steps))
-        checking = time.monotonic() - started
+            plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
+        prepared: dict[str, list[tuple[int, dict[str, Any]]]] = await asyncio.to_thread(
+            check_rows, plan, lambda step, steps: _job_update(job_id, step=step, steps=steps)
+        )
+        checking: float = time.monotonic() - started
         # Het terugzetten zelf is één transactie en dus niet te tellen: de voortgang blijft "bezig" zonder getal.
-        _job_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
-        replacing_started = time.monotonic()
+        await _ajob_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
+        replacing_started: float = time.monotonic()
 
         def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
-            conn.execute(
-                "UPDATE backup_jobs SET status = 'done', phase = 'replacing', summary = ?, replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?",
-                (json.dumps(summary), round(time.monotonic() - replacing_started, 2), _now(), _now(), job_id),
-            )
+            now: str = _now()
+            conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - replacing_started, 2), now, now, job_id))
 
-        replace_everything(plan, prepared, done)
+        await asyncio.to_thread(replace_everything, plan, prepared, done)
         log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
     except BackupError as exc:
         log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
-        _fail_job(job_id, exc)
+        await _fail_job(job_id, exc)
+    except asyncio.CancelledError:
+        log.warning("Terugzetten onderbroken: de app sluit af")
+        try:
+            await _interrupt_job(job_id)
+        except sqlite3.Error:
+            log.exception("Kon de onderbroken klus niet vastleggen")
+        raise
     except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
         log.exception("Terugzetten mislukt")
         try:
-            _fail_job(job_id, None)
+            await _fail_job(job_id, None)
         except sqlite3.Error:
             log.exception("Kon de mislukte klus niet vastleggen")
     finally:
@@ -813,18 +924,18 @@ def run_job(job_id: str, staged: Path, passphrase: str) -> None:
 # --- routes -----------------------------------------------------------------------------------------------------
 
 
-def _error(exc: BackupError):
+def _error(exc: BackupError) -> tuple[Response, int]:
     return jsonify({"error": describe(exc.key, exc.params), "code": exc.key}), exc.status
 
 
 def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/backup staat in auth.ADMIN_PREFIXES.
     @app.get("/api/backup")
-    async def backup_info():
+    async def backup_info() -> Response:
         return jsonify({"maxBytes": MAX_STAGE_BYTES, "minPassphraseLength": MIN_PASSPHRASE_LENGTH})
 
     @app.post("/api/backup")
-    async def backup_create():
+    async def backup_create() -> Response | tuple[Response, int]:
         body = await request.get_json(silent=True) or {}
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
@@ -832,7 +943,7 @@ def register_routes(app: Quart) -> None:
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
         try:
-            write_backup(path, links=links, passphrase=passphrase)
+            await asyncio.to_thread(write_backup, path, links=links, passphrase=passphrase)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)
@@ -845,7 +956,8 @@ def register_routes(app: Quart) -> None:
         size = os.fstat(handle.fileno()).st_size
         path.unlink(missing_ok=True)
 
-        def stream() -> Iterator[bytes]:
+        async def stream() -> AsyncIterator[bytes]:
+            # Async, zodat Quart niet elk stuk via een thread leest (dat doet hij bij een gewone generator). Lokale schijf.
             try:
                 while chunk := handle.read(CHUNK):
                     yield chunk
@@ -864,36 +976,36 @@ def register_routes(app: Quart) -> None:
         )
 
     @app.post("/api/backup/stage")
-    async def backup_stage():
+    async def backup_stage() -> Response | tuple[Response, int]:
         try:
-            # Brug tot de back-up async is: Quart heeft geen synchrone request.stream, dus het lichaam gaat eerst in het geheugen.
-            return jsonify(stage(io.BytesIO(await request.get_data()), request.content_length))
+            async with aclosing(_read_within(request.body, request.body_timeout)) as body:
+                return jsonify(await stage(body, request.content_length))
         except BackupError as exc:
             return _error(exc)
 
     @app.delete("/api/backup/stage/<token>")
-    async def backup_unstage(token: str):
+    async def backup_unstage(token: str) -> Response | tuple[Response, int]:
         try:
-            discard(token)
+            await discard(token)
         except BackupError as exc:
             return _error(exc)
         return jsonify({"status": "ok"})
 
     @app.post("/api/backup/jobs")
-    async def backup_start():
+    async def backup_start() -> tuple[Response, int]:
         body = await request.get_json(silent=True) or {}
         try:
-            job = start_job(str(body.get("token") or ""), str(body.get("passphrase") or ""))
+            job = await start_job(str(body.get("token") or ""), str(body.get("passphrase") or ""))
         except BackupError as exc:
             return _error(exc)
         return jsonify(job), 202
 
     @app.get("/api/backup/jobs/latest")
-    async def backup_latest():
-        return jsonify({"job": latest_job()})
+    async def backup_latest() -> Response:
+        return jsonify({"job": await latest_job()})
 
     @app.delete("/api/backup/jobs/<job_id>")
-    async def backup_dismiss(job_id: str):
-        if not dismiss_job(job_id):
+    async def backup_dismiss(job_id: str) -> Response | tuple[Response, int]:
+        if not await dismiss_job(job_id):
             return _error(BackupError("unknown_job", 404))
         return jsonify({"status": "ok"})
