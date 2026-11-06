@@ -2,6 +2,16 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v4.1.2
+
+### Opgelost in 4.1.2
+
+*English summary: The **Price history** lists every store again, also one without a linked account. Prices from a price archive or from receipts of such a store (Picnic, Jumbo or Crisp without a login) were in the database but out of reach: the store menu of the Offers page only offered AH and the linked stores, and an address such as `/offers/history?store=crisp` waited for a link that never came. In the price history the menu now offers all stores and its links stay on the price history. Choosing a store there loads only its price history, not the offers of the week. Going back to Offers or Recipes with an unlinked store chosen opens the preferred supermarket, as before.*
+
+- **Prijsgeschiedenis: ook winkels zonder koppeling.** Prijzen uit een prijsarchief of van kassabonnen van een winkel zonder koppeling (Picnic, Jumbo of Crisp zonder inloggen) stonden in de database, maar waren niet te openen. Het winkelmenu van Aanbiedingen bood alleen AH en de gekoppelde winkels, en een adres als `/offers/history?store=crisp` wachtte op een koppeling die niet kwam. In de prijsgeschiedenis biedt het menu nu alle winkels (`offersStores` met `offersHistoryActive`) en blijven de links in de prijsgeschiedenis. Een winkel kiezen laadt daar alleen zijn prijsgeschiedenis, niet de aanbiedingen van de week (`/api/offers` geeft bij een winkel zonder koppeling een fout). Het adres opent eerst het scherm en het subtab en kiest daarna de winkel, zodat `?store=crisp` in de prijsgeschiedenis meteen werkt. Een wissel van subtab binnen Aanbiedingen werkt het winkelmenu bij: ga je terug naar **Aanbiedingen** of **Recepten** met zo'n winkel gekozen, dan opent de voorkeurssupermarkt. De links naar die subtabs (ook in het zijmenu) laten een winkel zonder koppeling weg (`routerRefreshLinks`), zodat het adres niet `/offers?store=crisp` blijft en op een koppeling wacht.
+- **Handleiding** (NL en EN): de prijsgeschiedenis noemt alle winkels in het menu.
+- **Tests:** `tests/test_history_stores_js.py` draait de echte router, de tabknoppen en de winkelkeuze in Node: het menu in de prijsgeschiedenis, een direct adres naar een winkel zonder koppeling (met zoekterm en product), wisselen in de prijsgeschiedenis, teruggaan naar Aanbiedingen en Recepten, de links van de subtabs, en het gewone adres dat wacht tot de koppeling binnen is. `tests/test_preferred_store.py` bootst `offersHistoryActive` na.
+
 ## v4.1.1
 
 ### Gewijzigd in 4.1.1

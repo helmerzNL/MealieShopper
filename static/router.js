@@ -88,9 +88,13 @@ function routerRefreshLinks() {
     if (section) link.setAttribute("href", storesPath(itemsStore, section));
   });
   document.querySelectorAll("#items-store-list [data-store]").forEach((link) => link.setAttribute("href", itemsStorePath(link.dataset.store)));
-  const offersStore = typeof offersState !== "undefined" ? offersStoreParam(offersState.store) : "";
+  const offersStore = typeof offersState !== "undefined" ? offersState.store : "";
   document.querySelectorAll("#offers .subtab[data-subtab]").forEach((link) => {
-    link.setAttribute("href", offersPath(routerSlug(ROUTE_SUBTABS.offers, link.dataset.subtab), { store: offersStore }));
+    const sub = routerSlug(ROUTE_SUBTABS.offers, link.dataset.subtab);
+    // Een winkel zonder koppeling is alleen in de prijsgeschiedenis te kiezen: de andere subtabs openen dan de
+    // voorkeurssupermarkt, in plaats van een adres dat op een koppeling blijft wachten.
+    const store = sub === "history" || linkedStoreKeys().includes(offersStore) ? offersStoreParam(offersStore) : "";
+    link.setAttribute("href", offersPath(sub, { store }));
   });
   document.querySelectorAll("#offers-store-list [data-store]").forEach((link) => {
     const sub = routerSlug(ROUTE_SUBTABS.offers, routerActiveSubtab("offers"));
@@ -144,27 +148,28 @@ function routerApplyStores(parts) {
 
 // Zonder winkel in het adres opent Aanbiedingen met de voorkeurssupermarkt (of AH als die niet gekoppeld is); is nog niet
 // bekend of hij gekoppeld is, dan wacht het adres daarop. Met ?store=... is het een keuze, ook ?store=ah.
+// Het scherm gaat eerst open: in de prijsgeschiedenis zijn ook de winkels zonder koppeling te kiezen (offersStores), dus
+// ?store=crisp mag daar meteen.
 function routerApplyOffers(sub, params) {
   const wanted = params.get("store") || "";
-  if (OFFERS_STORES.includes(wanted)) {
-    offersState.chosen = true;
+  offersState.chosen = OFFERS_STORES.includes(wanted);
+  if (sub === "history") $("#offers-history-search").value = params.get("q") || "";
+  showPanel("offers", routerTab("offers"));
+  routerOpenSubtab(ROUTE_SUBTABS.offers[sub] || "offers-items");
+  if (offersState.chosen) {
     if (wanted !== offersState.store) {
       if (!offersStores().includes(wanted)) router.pending = window.location.href;
       else offersSwitchStore(wanted);
     }
   } else {
-    offersState.chosen = false;
     if (!preferredSupermarketKnown()) router.pending = window.location.href;
     else if (defaultStoreOf(offersStores()) !== offersState.store) offersSwitchStore(defaultStoreOf(offersStores()), { chosen: false });
   }
   if (sub === "history") {
-    $("#offers-history-search").value = params.get("q") || "";
     const product = params.get("product");
     offerHistory.pinned = Boolean(product);
     if (product) offerHistory.selected = `${offersState.store}:${product}`;
   }
-  showPanel("offers", routerTab("offers"));
-  routerOpenSubtab(ROUTE_SUBTABS.offers[sub] || "offers-items");
 }
 
 function routerApply(href) {

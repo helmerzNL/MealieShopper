@@ -53,6 +53,7 @@ const loads = [];
 let active = true;
 let historyChanged = 0;
 function offersTabActive() { return active; }
+function offersHistoryActive() { return false; }
 function showOffers() { loads.push(offersState.store); }
 function offerHistoryStoreChanged() { historyChanged++; }
 function routerSync() {}

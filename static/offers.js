@@ -165,12 +165,18 @@ function offersChangeWeek(step) {
   showOffers();
 }
 
+// De winkels die op Aanbiedingen te kiezen zijn. In de prijsgeschiedenis zijn dat ze allemaal: daar staan ook prijzen uit
+// een prijsarchief of van kassabonnen, van een winkel waar je geen account aan gekoppeld hebt.
 function offersStores() {
-  return OFFERS_STORES.filter((key) => key === "ah" || state.linkedStores[key]);
+  return OFFERS_STORES.filter((key) => offersHistoryActive() || key === "ah" || state.linkedStores[key]);
 }
 
 function offersTabActive() {
   return Boolean(document.querySelector("#offers.is-active"));
+}
+
+function offersHistoryActive() {
+  return Boolean(document.querySelector("#offers-history.is-active"));
 }
 
 // Aanbiedingen opent met de voorkeurssupermarkt, tot je zelf een winkel kiest; is die (nog) niet gekoppeld, dan met AH. Wacht
@@ -202,7 +208,7 @@ function renderOffersStore() {
   $("#offers-store-list").innerHTML = available
     .map(
       (key) =>
-        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath("", { store: offersStoreParam(key) }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
+        `<a class="subtab-menu__item${offersState.store === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(offersPath(offersHistoryActive() ? "history" : "", { store: offersStoreParam(key) }))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
   if (typeof routerRetry === "function") routerRetry();
@@ -782,6 +788,13 @@ const offersCache = {};
 
 async function showOffers() {
   const loadId = ++offersLoadId;
+  // In de prijsgeschiedenis alleen de winkelkeuze: de aanbiedingen van de week horen daar niet, en een winkel zonder
+  // koppeling heeft er geen (/api/offers geeft dan een fout).
+  if (offersHistoryActive()) {
+    offersState.waiting = false;
+    renderOffersStore();
+    return;
+  }
   // Is nog niet bekend of de voorkeurssupermarkt gekoppeld is, dan wachten we daarop (renderOffersStore laadt dan alsnog).
   offersState.waiting = !offersState.chosen && !preferredSupermarketKnown();
   renderOffersStore();
