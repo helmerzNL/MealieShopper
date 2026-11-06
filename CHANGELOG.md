@@ -18,6 +18,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **README** (NL en EN): wat je kiest bij maken en terugzetten, en wat te doen als je het wachtwoord kwijt bent.
 - **Ontwikkeling**: `test_backup` heeft 7 nieuwe tests (weglaten, wat weggelaten is blijft staan, uitvinken bij terugzetten, zonder koppelingen geen wachtwoord, bewerkt bestand, oudere back-up, elk onderdeel heeft een regel op het scherm).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-11`). Ververs de pagina één keer.
+- Pull request [#270](https://github.com/helmerzNL/MealieShopper/pull/270).
 
 ## v3.18.2
 
