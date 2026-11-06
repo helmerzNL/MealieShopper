@@ -185,6 +185,7 @@ async function importStoreRecipe(store, id, button, target) {
 const SEARCH_HOST = { prefix: "search-detail", list: "#search-main", detail: "#search-detail", known: (store) => recipeSearch[store].recipes };
 const FAVORITES_HOST = { prefix: "jumbo-recipe", list: "#jumbo-favorites-view", detail: "#jumbo-recipe-view", known: () => jumboFavorites.recipes };
 const PICNIC_HOST = { prefix: "picnic-recipe", list: "#picnic-recipes-view", detail: "#picnic-recipe-view", known: () => picnicRecipes.recipes };
+const CRISP_HOST = { prefix: "crisp-recipe", list: "#crisp-recipes-view", detail: "#crisp-recipe-view", known: () => crispRecipes.recipes };
 const AH_SAVED_HOST = { prefix: "ah-recipe", list: "#ah-recipes-view", detail: "#ah-recipe-view", known: () => state.ahRecipes };
 const MEALKIT_HOST = { prefix: "mealkit-recipe", list: "#mealkits-view", detail: "#mealkit-recipe-view", known: () => mealKits.search?.recipes || mealKits.menu?.recipes || [] };
 

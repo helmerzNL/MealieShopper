@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
+from mealieshopper import ah, ah_lists, ah_recipes, auth, auth_password, crisp, image_cache, mcp, mealie, oauth, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -506,7 +506,7 @@ class ProtocolTest(McpTestCase):
         self.assertEqual(set(tools), {"get_week_menu", "search_mealie_recipes", "plan_meal", "remove_planned_meal", "search_allerhande_recipes", "list_saved_ah_recipes", "list_ah_recipe_groups", "list_ah_lists", "get_ah_list", "search_ah_list_items", "search_ah_products", "import_recipe_to_mealie",
                              "get_ah_basket", "list_ah_orders", "get_ah_order", "list_ah_receipts", "get_ah_receipt", "search_ah_purchases",
                              "search_picnic_products", "get_picnic_basket", "list_picnic_deliveries", "get_picnic_delivery", "list_picnic_orders", "get_picnic_order",
-                             "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
+                             "list_picnic_delivery_slots", "list_picnic_recipes", "list_picnic_favorites", "list_crisp_recipes", "search_jumbo_products", "get_jumbo_basket", "get_jumbo_list", "list_jumbo_lists",
                          "list_jumbo_orders", "get_jumbo_order", "search_jumbo_recipes", "list_jumbo_recipe_lists", "get_jumbo_recipe_list", "get_jumbo_recipe",
                          "review_offer_matches", "report_offer_mismatch", "list_offer_mismatches", "get_price_history"})
         # De enige tool die iets weghaalt, haalt een maaltijd uit het weekmenu (het recept blijft); die zegt dat eerlijk.
@@ -666,6 +666,19 @@ class ToolsTest(McpTestCase):
         self.assertEqual((cookbook["source"], cookbook["total"], len(cookbook["recipes"])), ("cookbook", 5, 2))
         self.assertEqual([c.args for c in get.call_args_list], [("saved",), ("cookbook",)])
         self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "tags"})  # geen afbeeldingsadressen
+
+    def test_crisp_recipes_tool(self):
+        recipes = [{"id": str(n), "name": f"Recept {n}", "image": "https://crispapp.nl/blob/x?thumb=512", "minutes": 20, "portions": 2, "tags": []} for n in range(5)]
+        with mock.patch.object(crisp, "configured_client_id", return_value="apparaat-id"), \
+                mock.patch.object(crisp, "get_saved_recipes", return_value={"recipes": recipes, "total": 5}):
+            default = self.data("list_crisp_recipes")
+            two = self.data("list_crisp_recipes", {"limit": 2})
+        self.assertEqual((default["source"], default["total"], len(default["recipes"])), ("saved", 5, 5))
+        self.assertEqual((two["total"], len(two["recipes"])), (5, 2))
+        self.assertEqual(set(default["recipes"][0]), {"id", "name", "minutes", "portions", "tags"})  # geen afbeeldingsadressen
+        with mock.patch.object(crisp, "configured_client_id", return_value=""), \
+                mock.patch.object(crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")):
+            self.assertTrue(self.call(self.token, "list_crisp_recipes")["isError"])
 
     def test_picnic_delivery_tool(self):
         found = {"id": "d1", "status": "COMPLETED", "total": 15.0, "itemCount": 3,

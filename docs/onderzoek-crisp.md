@@ -17,13 +17,15 @@ Gebouwd in v2.86.0 en uitgebreid in v2.87.0 (branch `feature/crisp`). Crisp staa
   - Crisp-recepten zoeken, bekijken, importeren en inplannen, met foto's (v2.86.1);
   - het mandje in het tabblad Mandje bekijken en aanpassen: aantal, weghalen en legen (v2.87.0);
   - onder Winkels de favorieten en de bestellingen, met een lokale kopie van de bezorgde bestellingen (v2.87.0);
+  - onder Winkels je bewaarde recepten, met bekijken, importeren, inplannen en in bulk in Mealie zetten; ze tellen ook mee
+    bij de receptvoorstellen onder Aanbiedingen, en de MCP-tool `list_crisp_recipes` geeft ze (v3.13.0);
   - de aanbiedingen in het tabblad Aanbiedingen, ook in de dagelijkse synchronisatie (v2.87.0);
   - een verkenner voor de beheerder;
   - het verkeer in het auditlog;
   - het apparaat-id en de bewaarde bestellingen in de back-up.
 - **Niet (nog)**:
   - een stap in de installatiehulp;
-  - MCP-tools;
+  - MCP-tools, behalve `list_crisp_recipes` (de bewaarde recepten);
   - de Weekbox (vervolgstap A);
   - een looptijd bij de aanbiedingen (zie hieronder).
 
@@ -111,7 +113,7 @@ daaruit gebruikt:
 | `GET /order/history` | `{data: [{type: "order", item}, {type: "subscriptionOrder", ...}], cursor}`; de volgende pagina komt met `?cursor=`. Een bestelling heeft `id`, `deliverySlot.{date,tsStart,tsEnd}`, `fulfillStatus` (`ready`, `picked`, `delivery`, `done`, `manual` of `cancel`) en `products[]`, maar geen prijzen. |
 | `GET /order/{id}` | `{data: order}` met `products[]` (`id`, `title`, `images`, `count`, `totalPrice`, `totalBasePrice`), `deliverySlot` en de totalen `paidPrice`, `payPrice` en `finalPrice`. Er staan ook persoonsgegevens in (`address`, `mandateIban`, `payMethod`, `invoiceUrl`, `deliveryLink`); MealieShopper bewaart en toont die niet. |
 | `GET /order/count` | `openOrderIds`: de bestellingen die nog bezorgd worden. |
-| `GET /saved/list` | "Door jou bewaard": `{items: [{type, item}]}`, met `type` `product` of `recipe` en met volledige producten. In de app hangt het hartje van een experiment af; voor wie dat niet heeft, kan de lijst leeg zijn. |
+| `GET /saved/list` | "Door jou bewaard": `{items: [{type, item}]}`, met `type` `product` of `recipe` en met volledige producten. In de app hangt het hartje van een experiment af; voor wie dat niet heeft, kan de lijst leeg zijn. De producten zijn de Favorieten (`get_favorites`), de recepten de tab Recepten (`get_saved_recipes`, sinds v3.13.0). Van een recept gebruikt MealieShopper dezelfde velden als bij het zoeken (`id`, `title`, `subTitle`, `images`, `portions`, `cookingMethods`); bundels, eigen recepten (`user`) en maaltijdboxen laat het weg. De verkenner meldt de velden van een bewaard recept (`recipeFields`), de soorten (`recipeKinds`) en of de lijst een cursor heeft. |
 | `GET /promo/current` | `{promo: {blocks: [...]}}`, met blokken `product` (`{product}`), `productGroup` (`{products[]}`) en `promotion` (`{promotion: {title, details, products[{id, title, weightIndication, image}]}}`, zonder prijzen). Een looptijd staat alleen in `GET /promo/{id}` (`expiration`, één verzoek per actie; de app toont "Geldig t/m" die datum plus een dag). Daarom heeft MealieShopper geen looptijd bij Crisp: de aanbiedingen staan bij de huidige week, zoals bij Picnic. |
 
 **Foto's** (`images[]` bij producten en recepten) zijn blob-id's, geen adressen. De app maakt er
@@ -187,6 +189,7 @@ Crisp-mandje vullen. Voor die eindpunten koos hij route 3: de openbare Android-a
 - Of `weightIndication` altijd een verpakkingsgrootte is die `packs.assess_packs` kan lezen. Bij twijfel markeert de
   controlelijst de regel.
 - Of Crisp de `from` met de naam MealieShopper accepteert.
+- Of een bewaard recept in `/saved/list` dezelfde velden heeft als een recept uit het zoeken (de verkenner toont `recipeFields`), en of de lijst ooit een cursor (meer pagina's) heeft.
 - Of een `client_id` die niet is ingelogd al producten kan zoeken.
 - Of Crisp verzoeken vanaf servers of datacenters weert, zoals Picnic soms doet (`PicnicBlockedError`).
 - Hoe lang Crisp de app-versie in `X-Crisp-Agent` blijft accepteren.

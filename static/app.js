@@ -1251,7 +1251,7 @@ function itemsStores() {
 
 const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];
 const JUMBO_SUBTABS = ["ah-items-jumbo-recepten"];
-const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
+const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];
 
 // Winkels: per winkel de onderdelen en hun subtab, in de volgorde van de tabs. Het onderdeel is ook het stuk in het adres
 // (/stores/jumbo/lists); /stores/ah/receipts/<id> is een kassabon onder Bestellingen, /stores/ah/imported/<ref> een ingelezen
@@ -1260,7 +1260,7 @@ const STORE_SECTIONS = {
   ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
   picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
-  crisp: { favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
+  crisp: { recipes: "ah-items-crisp-recepten", favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
 };
 
 function itemsOpenSubtab() {
@@ -1276,8 +1276,8 @@ function itemsSection(subtab) {
   return "";
 }
 
-// Het subtab van een onderdeel bij een winkel. Heeft de winkel dat onderdeel niet (Lijstjes bij Picnic, Recepten bij
-// Crisp), dan zijn eerste tab.
+// Het subtab van een onderdeel bij een winkel. Heeft de winkel dat onderdeel niet (Lijstjes bij Picnic, Favorieten bij
+// AH), dan zijn eerste tab.
 function itemsSubtab(store, section) {
   const sections = STORE_SECTIONS[store] || STORE_SECTIONS.ah;
   return sections[section] || Object.values(sections)[0];
@@ -1300,7 +1300,7 @@ function renderItemsStore() {
         `<a class="subtab-menu__item${state.itemsStore === key ? " is-active" : ""}" data-store="${key}" href="${escapeHtml(itemsStorePath(key))}" data-nav>${escapeHtml(STORES[key].name)}</a>`
     )
     .join("");
-  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp favorieten en bestellingen.
+  // AH heeft recepten, Jumbo zijn favoriete recepten (zoeken naar Jumbo-recepten staat bij Recepten zoeken); lijstjes en bestellingen zijn er voor AH en Jumbo; Picnic heeft recepten, favorieten en bestellingen; Crisp je bewaarde recepten, favorieten en bestellingen.
   const picnic = state.itemsStore === "picnic";
   const crisp = state.itemsStore === "crisp";
   // Picnic en Crisp hebben eigen tabs voor hun bestellingen; de lijstjes en bestellingen van AH en Jumbo horen daar niet bij.
@@ -2621,6 +2621,7 @@ document.querySelectorAll(".subtab[data-subtab], .subtab-menu__item[data-subtab]
     if (subtab.dataset.subtab === "ah-items-picnic-favorieten" && typeof loadPicnicFavorites === "function" && !picnicFavorites.loaded) loadPicnicFavorites({ refresh: false });
     if (subtab.dataset.subtab === "ah-items-picnic-bestellingen" && typeof loadPicnicOrders === "function" && !picnicOrders.loaded) loadPicnicOrders();
     if (subtab.dataset.subtab === "ah-items-jumbo-recepten" && typeof loadJumboFavorites === "function" && !jumboFavorites.loaded) loadJumboFavorites();
+    if (subtab.dataset.subtab === "ah-items-crisp-recepten" && typeof loadCrispRecipes === "function" && !crispRecipes.loaded) loadCrispRecipes();
     if (subtab.dataset.subtab === "ah-items-crisp-favorieten" && typeof loadCrispFavorites === "function" && !crispFavorites.loaded) loadCrispFavorites();
     if (subtab.dataset.subtab === "ah-items-crisp-bestellingen" && typeof loadCrispOrders === "function" && !crispOrders.loaded) loadCrispOrders();
     if (subtab.dataset.subtab === "ah-items-lijstjes" && !state.ahListsLoaded) {

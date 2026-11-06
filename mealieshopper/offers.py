@@ -1083,7 +1083,7 @@ def link_offer(
 
 
 # Bij gelijke dekking staat het eigen recept (Mealie) boven hetzelfde recept uit een winkel.
-SOURCE_RANK = {"mealie": 0, "ah": 1, "jumbo": 2, "picnic": 3}
+SOURCE_RANK = {"mealie": 0, "ah": 1, "jumbo": 2, "picnic": 3, "crisp": 4}
 
 
 def _title_key(title: Any) -> str:
@@ -1474,6 +1474,30 @@ def _collect_picnic() -> list[dict[str, Any]]:
         return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
 
 
+def _collect_crisp() -> list[dict[str, Any]]:
+    """Je bewaarde Crisp-recepten (Winkels > Crisp > Recepten), per recept live opgehaald, zoals bij Picnic."""
+    if not crisp.configured_client_id():
+        raise LookupError(tr("niet gekoppeld", "not linked"))
+    cards = crisp.get_saved_recipes()["recipes"]
+
+    def one(card: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            recipe = crisp.get_recipe(card["id"])
+        except Exception:  # noqa: BLE001
+            return None
+        lines = [str(i.get("name") or i.get("line") or "").strip() for i in recipe["ingredients"]]
+        lines = [line for line in lines if line]
+        if not lines:
+            return None
+        # Crisp heeft geen receptpagina op het web; de deellink van de app (als die er is) opent het recept wel.
+        return {"id": recipe["id"], "title": recipe["name"], "image": recipe.get("image") or "",
+                "url": recipe.get("url") or crisp.source_url(recipe["id"]), "ingredients": lines,
+                "course": offer_courses.course_of(card.get("tags"))}
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        return [item for item in pool.map(one, cards[:OTHER_RECIPE_LIMIT]) if item]
+
+
 def _indexed(source: str) -> dict[str, tuple[list[str], str | None]]:
     """Wat er van een bron al in de index staat: per recept de ingrediënten en de soort (None als die nog niet is ingelezen)."""
     with closing(_connect()) as conn:
@@ -1515,6 +1539,7 @@ COLLECTORS: tuple[tuple[str, Callable[[], list[dict[str, Any]]]], ...] = (
     ("mealie", _collect_mealie),
     ("jumbo", _collect_jumbo),
     ("picnic", _collect_picnic),
+    ("crisp", _collect_crisp),
     ("ah", _collect_ah),
 )
 
