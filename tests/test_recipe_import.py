@@ -153,6 +153,20 @@ class ImportFromUrlTest(unittest.TestCase):
         self.assertEqual(page.calls.last.request.headers["User-Agent"], mealie.BROWSER_HEADERS["User-Agent"], "de pagina krijgt een browser")
         self.assertNotIn("Authorization", page.calls.last.request.headers, "het token gaat alleen naar Mealie")
 
+    def test_a_cookie_from_a_redirect_goes_along_to_the_page(self):
+        # Een cookiemuur: eerst een 302 met een cookie, en pas met die cookie komt de pagina zelf.
+        with routes() as api:
+            page = api.get("https://www.example.com/soep").mock(side_effect=[
+                httpx.Response(302, headers={"Location": "https://www.example.com/soep", "Set-Cookie": "consent=yes; Path=/"}),
+                httpx.Response(200, text="<html>recept</html>"),
+            ])
+            post = api.post(CREATE_HTML).mock(return_value=self.response(body="soep"))
+            self.assertEqual(run(mealie.import_via_html("https://www.example.com/soep")), "soep")
+        self.assertNotIn("Cookie", page.calls[0].request.headers)
+        self.assertEqual(page.calls[1].request.headers["Cookie"], "consent=yes")
+        self.assertEqual(sent_json(post.calls.last)["data"], "<html>recept</html>")
+        self.assertNotIn("Cookie", post.calls.last.request.headers, "de cookie gaat niet mee naar Mealie")
+
     def test_the_page_follows_a_redirect(self):
         with routes() as api:
             api.get("https://example.com/soep").mock(return_value=httpx.Response(301, headers={"Location": "https://www.example.com/soep"}))

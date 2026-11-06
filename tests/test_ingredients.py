@@ -166,8 +166,7 @@ class ScaleTest(unittest.TestCase):
 class GetRecipeTest(unittest.TestCase):
     def test_get_recipe_normalises_the_ingredients(self):
         body = {"name": "Stroganoff", "recipeIngredient": [unparsed("1 ui"), unparsed("200 ml melk")]}
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://m.example"), \
-                mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api:
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("https://m.example", "t")), routes() as api:
             api.get("https://m.example/api/recipes/stroganoff").mock(return_value=httpx.Response(200, json=body))
             recipe = run(mealie.get_recipe("stroganoff"))
         self.assertEqual([i["food"]["name"] for i in recipe["recipeIngredient"]], ["ui", "melk"])
@@ -204,8 +203,7 @@ class ImportParseTest(unittest.TestCase):
             created.append((kind, body))
             return httpx.Response(201, json={"id": f"new-{len(created)}", **body})
 
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://m"), \
-                mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api:
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t")), routes() as api:
             api.get("http://m/api/units").mock(return_value=page(self.UNITS if units is None else units))
             api.get("http://m/api/foods").mock(return_value=page(self.FOODS if foods is None else foods))
             api.get("http://m/api/recipes/stroganoff").mock(return_value=httpx.Response(200, json={"recipeIngredient": lines}))
@@ -243,16 +241,14 @@ class ImportParseTest(unittest.TestCase):
         self.assertEqual(lines[1]["unit"]["id"], "u-g")
 
     def test_a_failure_never_breaks_the_import(self):
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://m"), \
-                mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api:
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t")), routes() as api:
             api.get("http://m/api/recipes/stroganoff").mock(side_effect=httpx.ConnectError("weg"))
             self.assertEqual(run(mealie.parse_imported_ingredients("stroganoff")), "stroganoff")
 
 
 class ImportHookTest(unittest.TestCase):
     def test_every_import_path_ends_in_the_parse(self):
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://m"), \
-                mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api, \
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t")), routes() as api, \
                 mock.patch.object(mealie, "parse_imported_ingredients", new_callable=mock.AsyncMock, return_value="geparsed") as parse:
             api.post(url__regex=r"^http://m/api/recipes/create/(url|html-or-json)$").mock(return_value=httpx.Response(200, json="slug"))
             self.assertEqual(run(mealie.import_via_url("https://x.nl/r")), "geparsed")

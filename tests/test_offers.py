@@ -798,8 +798,7 @@ class CollectorPoolTest(TempDataDirTest):
             return httpx.Response(200, json={"id": slug, "name": f"R{slug}", "recipeIngredient": [{"food": {"name": "kip"}}]})
 
         with mock.patch.object(offers.mealie, "list_recipes", new_callable=mock.AsyncMock, return_value=self.cards()), \
-                mock.patch.object(offers.mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://mealie.test"), \
-                mock.patch.object(offers.mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t"), \
+                mock.patch.object(offers.mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://mealie.test", "t")), \
                 mock.patch.object(offers.mealie, "recipe_page_url", new_callable=mock.AsyncMock, return_value=""), \
                 mock.patch.object(offers.mealie_images, "image_path", return_value=""), routes() as api:
             fetched = api.get(url__regex=r"^http://mealie\.test/api/recipes/\d+$").mock(side_effect=recipe)

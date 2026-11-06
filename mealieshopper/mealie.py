@@ -28,9 +28,9 @@ UNREACHABLE: tuple[type[httpx.HTTPError], ...] = (httpx.NetworkError, httpx.Remo
 
 
 def _client() -> httpx.AsyncClient:
-    """De gedeelde client voor Mealie (en voor de pagina in `import_via_html`). Het token gaat niet in de client maar per
-    verzoek mee in `auth_headers`: het kan wisselen via Instellingen > Koppelen > Mealie. Volgt doorverwijzingen, zoals
-    voor de omzetting naar httpx. Een verzoek dat dat niet mag, geeft zelf `follow_redirects=False` mee."""
+    """De gedeelde client voor Mealie. Het token gaat niet in de client maar per verzoek mee (`_headers`): het kan
+    wisselen via Instellingen > Koppelen > Mealie. Volgt doorverwijzingen, zoals voor de omzetting naar httpx. Een verzoek
+    dat dat niet mag, geeft zelf `follow_redirects=False` mee. Een receptpagina gaat via `http_client.session`."""
     return http_client.client("mealie", timeout=TIMEOUT)
 
 
@@ -112,22 +112,40 @@ async def mealie_token() -> str:
     return (await _config())[1]
 
 
-async def auth_headers() -> dict[str, str]:
-    """De headers voor een verzoek aan Mealie, met het token van dit moment."""
+def _headers(token: str) -> dict[str, str]:
     return {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {await mealie_token()}",
+        "Authorization": f"Bearer {token}",
     }
 
 
-async def ensure_configured() -> None:
-    if not await mealie_url() or not await mealie_token():
+async def auth_headers() -> dict[str, str]:
+    """De headers voor een verzoek aan Mealie, met het token van dit moment."""
+    return _headers(await mealie_token())
+
+
+async def _endpoint() -> tuple[str, str]:
+    """Adres en token voor een verzoek aan Mealie uit een keer `_config()`: per verzoek een keer lezen, en adres en token
+    altijd van hetzelfde moment. Leeg als Mealie niet gekoppeld is."""
+    url, token, _ = await _config()
+    return url, token
+
+
+async def _configured() -> tuple[str, str]:
+    """Zoals `_endpoint`, maar met de fout van `ensure_configured` als Mealie niet gekoppeld is."""
+    url, token = await _endpoint()
+    if not url or not token:
         raise RuntimeError(
             tr(
                 "Mealie is niet gekoppeld. Koppel Mealie bij Instellingen > Koppelen > Mealie.",
                 "Mealie is not linked. Link Mealie under Settings > Link > Mealie.",
             )
         )
+    return url, token
+
+
+async def ensure_configured() -> None:
+    await _configured()
 
 
 async def check_connection(url: str, token: str) -> dict[str, Any]:
@@ -227,9 +245,10 @@ async def clear() -> dict[str, Any]:
 
 
 async def import_via_url(url: str) -> str:
+    base, token = await _endpoint()
     response = await _client().post(
-        f"{await mealie_url()}/api/recipes/create/url",
-        headers=await auth_headers(),
+        f"{base}/api/recipes/create/url",
+        headers=_headers(token),
         json={"url": url, "include_tags": True, "include_categories": True},
         timeout=60,
     )
@@ -239,8 +258,10 @@ async def import_via_url(url: str) -> str:
 
 
 async def import_via_html(url: str) -> str:
-    # Een cookie uit een doorverwijzing gaat niet mee naar de volgende stap (zie http_client). Voor httpx ging die wel mee.
-    page_response = await _client().get(url, headers=BROWSER_HEADERS, timeout=60)
+    # Een eigen sessie, niet de gedeelde client: zet de site bij een doorverwijzing een cookie (toestemming, een
+    # cookiecontrole), dan gaat die mee naar de volgende stap. Na deze ene pagina sluit de sessie met haar cookies.
+    async with http_client.session("mealie-page", headers=BROWSER_HEADERS, timeout=60, follow_redirects=True) as page:
+        page_response = await page.get(url)
     if page_response.status_code >= 400:
         raise RuntimeError(f"Kon de pagina niet ophalen ({page_response.status_code})")
     return await _post_html_or_json(url, page_response.text)
@@ -283,8 +304,9 @@ async def import_via_jsonld(url: str, recipe: dict[str, Any], catalog: "Catalog 
 async def _set_source(slug: str, source: str) -> None:
     """Zet de bron (`orgURL`) van een recept. Best effort: lukt het niet, dan staat het recept er al wel, met alles erin."""
     try:
+        base, token = await _endpoint()
         response = await _client().patch(
-            f"{await mealie_url()}/api/recipes/{slug}", headers=await auth_headers(), json={"orgURL": source}, timeout=30
+            f"{base}/api/recipes/{slug}", headers=_headers(token), json={"orgURL": source}, timeout=30
         )
         if response.status_code >= 400:
             log.warning("Bron van %s niet gezet (%s)", slug, response.status_code)
@@ -295,9 +317,10 @@ async def _set_source(slug: str, source: str) -> None:
 async def _post_html_or_json(url: str, data: str, catalog: "Catalog | None" = None, *, source: str | None = None) -> str:
     """Stuur HTML of JSON-LD naar Mealie onder link `url`. Is `source` een andere link (zie `_scrape_url`), dan wordt die
     daarna de bron van het recept."""
+    base, token = await _endpoint()
     response = await _client().post(
-        f"{await mealie_url()}/api/recipes/create/html-or-json",
-        headers=await auth_headers(),
+        f"{base}/api/recipes/create/html-or-json",
+        headers=_headers(token),
         json={
             "data": data,
             "url": url,
@@ -382,12 +405,15 @@ async def find_recipe_summary_by_source(source_url: Any, *, strict: bool = False
     aanhalingsteken) geeft altijd None.
     """
     url = str(source_url or "").strip()
-    if not url or '"' in url or len(url) > 1000 or not await mealie_url() or not await mealie_token():
+    if not url or '"' in url or len(url) > 1000:
+        return None
+    base, token = await _endpoint()
+    if not base or not token:
         return None
     try:
         response = await _client().get(
-            f"{await mealie_url()}/api/recipes",
-            headers=await auth_headers(),
+            f"{base}/api/recipes",
+            headers=_headers(token),
             params={"queryFilter": _source_filter(url), "page": 1, "perPage": 1},
             timeout=15,
         )
@@ -448,9 +474,10 @@ async def _organizer(kind: str, name: Any) -> dict[str, str]:
     label = " ".join(str(name or "").split())[:100]
     if not label:
         raise ValueError("Naam ontbreekt")
-    base = f"{await mealie_url()}/api/organizers/{kind}"
+    root, token = await _endpoint()
+    base = f"{root}/api/organizers/{kind}"
     wanted = label.casefold()
-    response = await _client().get(base, headers=await auth_headers(), params={"search": label, "page": 1, "perPage": 100}, timeout=15)
+    response = await _client().get(base, headers=_headers(token), params={"search": label, "page": 1, "perPage": 100}, timeout=15)
     if response.status_code in (401, 403):
         raise OrganizerError(f"{kind} opzoeken geweigerd ({response.status_code})", response.status_code)
     if response.status_code < 400:
@@ -461,11 +488,11 @@ async def _organizer(kind: str, name: Any) -> dict[str, str]:
                 return found
     slug = _organizer_slug(label)
     if slug:
-        response = await _client().get(f"{base}/slug/{slug}", headers=await auth_headers(), timeout=15)
+        response = await _client().get(f"{base}/slug/{slug}", headers=_headers(token), timeout=15)
         found = _organizer_ref(response.json()) if response.status_code < 400 else None
         if found and found["name"].casefold() == wanted:
             return found
-    response = await _client().post(base, headers=await auth_headers(), json={"name": label}, timeout=15)
+    response = await _client().post(base, headers=_headers(token), json={"name": label}, timeout=15)
     if response.status_code >= 400:
         raise OrganizerError(f"{kind} aanmaken mislukt ({response.status_code})", response.status_code)
     created = _organizer_ref(response.json())
@@ -515,7 +542,8 @@ async def add_organizers(
             changes[field] = current + missing
     if not changes:
         return False
-    response = await _client().patch(f"{await mealie_url()}/api/recipes/{slug}", headers=await auth_headers(), json=changes, timeout=30)
+    base, token = await _endpoint()
+    response = await _client().patch(f"{base}/api/recipes/{slug}", headers=_headers(token), json=changes, timeout=30)
     if response.status_code >= 400:
         raise RuntimeError(f"Tags en categorieën zetten mislukt ({response.status_code})")
     return True
@@ -526,9 +554,10 @@ async def _catalog(kind: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     page, per_page = 1, 500
     while True:
+        base, token = await _endpoint()
         response = await _client().get(
-            f"{await mealie_url()}/api/{kind}",
-            headers=await auth_headers(),
+            f"{base}/api/{kind}",
+            headers=_headers(token),
             params={"page": page, "perPage": per_page},
             timeout=30,
         )
@@ -557,7 +586,8 @@ def _catalog_index(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 
 async def _create_catalog_item(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-    response = await _client().post(f"{await mealie_url()}/api/{kind}", headers=await auth_headers(), json=payload, timeout=30)
+    base, token = await _endpoint()
+    response = await _client().post(f"{base}/api/{kind}", headers=_headers(token), json=payload, timeout=30)
     if response.status_code >= 400:
         raise RuntimeError(f"{kind} aanmaken mislukt ({response.status_code}): {response.text[:200]}")
     return response.json()
@@ -632,9 +662,10 @@ async def parse_imported_ingredients(slug: str, catalog: Catalog | None = None) 
             await _link_to_catalog(new, units, foods) if new is not old else old
             for new, old in zip(parsed_lines, lines)
         ]
+        base, token = await _endpoint()
         response = await _client().patch(
-            f"{await mealie_url()}/api/recipes/{slug}",
-            headers=await auth_headers(),
+            f"{base}/api/recipes/{slug}",
+            headers=_headers(token),
             json={"recipeIngredient": linked},
             timeout=60,
         )
@@ -658,7 +689,7 @@ async def group_slug() -> str | None:
     Wordt een uur onthouden. Geeft None als Mealie het niet zegt (een oudere versie) of niet te bereiken is; dan gebruiken we het
     oude adres. Een mislukte poging blokkeert niets en wordt na een minuut opnieuw geprobeerd.
     """
-    base = await mealie_url()
+    base, token = await _endpoint()
     if not base:
         return None
     now = time.time()
@@ -667,7 +698,7 @@ async def group_slug() -> str | None:
         return cached[1]
     slug: str | None = None
     try:
-        response = await _client().get(f"{base}/api/users/self", headers=await auth_headers(), timeout=10)
+        response = await _client().get(f"{base}/api/users/self", headers=_headers(token), timeout=10)
         if response.status_code < 400:
             value = (response.json() or {}).get("groupSlug")
             slug = str(value).strip() or None if value else None
@@ -697,7 +728,7 @@ async def first_day_of_week() -> int | None:
     Mealie (v2 en later) geeft die in `GET /api/households/preferences` als `firstDayOfWeek`; elke gebruiker met een token mag dat
     lezen. Geeft None als Mealie niet gekoppeld of niet te bereiken is, of geen geldige dag geeft; na een minuut proberen we het opnieuw.
     """
-    base = await mealie_url()
+    base, token = await _endpoint()
     if not base:
         return None
     now = time.time()
@@ -706,7 +737,7 @@ async def first_day_of_week() -> int | None:
         return cached[1]
     day: int | None = None
     try:
-        response = await _client().get(f"{base}/api/households/preferences", headers=await auth_headers(), timeout=10)
+        response = await _client().get(f"{base}/api/households/preferences", headers=_headers(token), timeout=10)
         if response.status_code < 400:
             day = _weekday((response.json() or {}).get("firstDayOfWeek"))
     except Exception:  # noqa: BLE001 - de eerste dag is een extra: een fout mag de status of het koppelen nooit breken
@@ -749,10 +780,10 @@ async def recipe_page_url(slug: str) -> str:
 
 
 async def get_meal_plan(start_date: str, end_date: str) -> list[dict[str, Any]]:
-    await ensure_configured()
+    base, token = await _configured()
     response = await _client().get(
-        f"{await mealie_url()}/api/households/mealplans",
-        headers=await auth_headers(),
+        f"{base}/api/households/mealplans",
+        headers=_headers(token),
         params={"start_date": start_date, "end_date": end_date, "perPage": "50"},
         timeout=30,
     )
@@ -762,9 +793,10 @@ async def get_meal_plan(start_date: str, end_date: str) -> list[dict[str, Any]]:
 
 
 async def _fetch_recipe(slug: str) -> dict[str, Any]:
+    base, token = await _endpoint()
     response = await _client().get(
-        f"{await mealie_url()}/api/recipes/{slug}",
-        headers=await auth_headers(),
+        f"{base}/api/recipes/{slug}",
+        headers=_headers(token),
         timeout=30,
     )
     if response.status_code >= 400:
@@ -993,11 +1025,11 @@ def _require_recipe_or_title(fields: dict[str, Any]) -> None:
 
 async def create_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
     """Zet een recept of een notitie op een dag in het weekmenu van Mealie."""
-    await ensure_configured()
+    base, token = await _configured()
     fields = await _clean_entry(values)
     _require_recipe_or_title(fields)
     response = await _client().post(
-        f"{await mealie_url()}/api/households/mealplans", headers=await auth_headers(), json=fields, timeout=30
+        f"{base}/api/households/mealplans", headers=_headers(token), json=fields, timeout=30
     )
     if response.status_code >= 400:
         raise _mealie_error(response, "Mealie kon de maaltijd niet plannen", "Mealie could not plan the meal")
@@ -1005,8 +1037,9 @@ async def create_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _get_entry(entry_id: int) -> dict[str, Any]:
+    base, token = await _endpoint()
     response = await _client().get(
-        f"{await mealie_url()}/api/households/mealplans/{entry_id}", headers=await auth_headers(), timeout=30
+        f"{base}/api/households/mealplans/{entry_id}", headers=_headers(token), timeout=30
     )
     if response.status_code >= 400:
         raise _mealie_error(response, "Maaltijd ophalen uit Mealie mislukt", "Could not fetch the meal from Mealie")
@@ -1022,7 +1055,7 @@ def _same_recipe(new: Any, old: Any) -> bool:
 
 async def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[str, Any]:
     """Verplaats of wijzig een maaltijd. Mealie wil bij wijzigen het hele item, dus eerst ophalen en dan samenvoegen."""
-    await ensure_configured()
+    base, token = await _configured()
     number = _entry_id(entry_id)
     changes = await _clean_entry(values, partial=True)
     current = await _get_entry(number)
@@ -1034,7 +1067,7 @@ async def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[
         merged["recipeScale"] = 1.0  # een ander recept (of een notitie): de porties van het oude gelden niet, net als in Mealie
     _require_recipe_or_title(merged)
     response = await _client().put(
-        f"{await mealie_url()}/api/households/mealplans/{number}", headers=await auth_headers(), json=merged, timeout=30
+        f"{base}/api/households/mealplans/{number}", headers=_headers(token), json=merged, timeout=30
     )
     if response.status_code >= 400:
         raise _mealie_error(response, "Mealie kon de maaltijd niet wijzigen", "Mealie could not change the meal")
@@ -1043,10 +1076,10 @@ async def update_meal_plan_entry(entry_id: Any, values: dict[str, Any]) -> dict[
 
 async def delete_meal_plan_entry(entry_id: Any) -> dict[str, Any]:
     """Haal een maaltijd uit het weekmenu. Het recept zelf blijft in Mealie staan."""
-    await ensure_configured()
+    base, token = await _configured()
     number = _entry_id(entry_id)
     response = await _client().delete(
-        f"{await mealie_url()}/api/households/mealplans/{number}", headers=await auth_headers(), timeout=30
+        f"{base}/api/households/mealplans/{number}", headers=_headers(token), timeout=30
     )
     if response.status_code >= 400:
         raise _mealie_error(response, "Mealie kon de maaltijd niet verwijderen", "Mealie could not remove the meal")
@@ -1055,12 +1088,12 @@ async def delete_meal_plan_entry(entry_id: Any) -> dict[str, Any]:
 
 async def random_meal_plan_entry(values: dict[str, Any]) -> dict[str, Any]:
     """Laat Mealie een recept kiezen volgens de planregels van het huishouden en zet het meteen in het weekmenu."""
-    await ensure_configured()
+    base, token = await _configured()
     if not isinstance(values, dict):
         raise ValueError(tr("Ongeldige invoer.", "Invalid input."))
     payload = {"date": _plan_date(values.get("date")), "entryType": await _entry_type(values.get("entryType") or "dinner")}
     response = await _client().post(
-        f"{await mealie_url()}/api/households/mealplans/random", headers=await auth_headers(), json=payload, timeout=30
+        f"{base}/api/households/mealplans/random", headers=_headers(token), json=payload, timeout=30
     )
     if response.status_code == 404:
         raise RuntimeError(
@@ -1118,7 +1151,7 @@ def recipe_card(recipe: dict[str, Any]) -> dict[str, Any]:
 
 async def search_recipes(query: Any, page: Any = 1, per_page: int = SEARCH_PAGE) -> dict[str, Any]:
     """Zoek in de recepten van Mealie. Zonder zoekterm alle recepten op naam."""
-    await ensure_configured()
+    base, token = await _configured()
     try:
         number = max(1, int(page or 1))
     except (TypeError, ValueError):
@@ -1130,7 +1163,7 @@ async def search_recipes(query: Any, page: Any = 1, per_page: int = SEARCH_PAGE)
         params["search"] = text  # Mealie sorteert dan zelf op relevantie
     else:
         params.update({"orderBy": "name", "orderDirection": "asc"})
-    response = await _client().get(f"{await mealie_url()}/api/recipes", headers=await auth_headers(), params=params, timeout=30)
+    response = await _client().get(f"{base}/api/recipes", headers=_headers(token), params=params, timeout=30)
     if response.status_code >= 400:
         raise _mealie_error(response, "Zoeken in Mealie mislukt", "Searching Mealie failed")
     data = response.json()
@@ -1168,14 +1201,14 @@ async def recipe_detail(slug: Any) -> dict[str, Any]:
 
 async def list_recipes(limit: int = 500) -> list[dict[str, Any]]:
     """Alle recepten in Mealie (naam, slug, afbeelding), voor het zoeken naar receptvoorstellen."""
-    await ensure_configured()
+    base, token = await _configured()
     items: list[dict[str, Any]] = []
     page = 1
     per_page = 100
     while len(items) < limit:
         response = await _client().get(
-            f"{await mealie_url()}/api/recipes",
-            headers=await auth_headers(),
+            f"{base}/api/recipes",
+            headers=_headers(token),
             params={"page": page, "perPage": per_page, "orderBy": "name", "orderDirection": "asc"},
             timeout=30,
         )

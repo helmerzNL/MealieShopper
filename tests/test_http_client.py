@@ -137,3 +137,42 @@ async def test_reset_forgets_clients(closing_clients: None) -> None:
     assert second is not first
     assert not first.is_closed, "reset vergeet alleen, sluiten doet aclose_all"
     await first.aclose()
+
+
+PAGE: str = "https://recept.example/soep"
+CONSENT: str = "https://recept.example/toestemming"
+
+
+async def test_a_session_carries_a_cookie_across_a_redirect_and_forgets_it_afterwards(
+    respx_mock: respx.MockRouter,
+) -> None:
+    # Een cookiemuur: de pagina stuurt door naar de toestemming, die zet een cookie en stuurt terug naar de pagina.
+    def page(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("Cookie") == "consent=yes":
+            return httpx.Response(200, text="<html>recept</html>")
+        return httpx.Response(302, headers={"Location": CONSENT})
+
+    pages: respx.Route = respx_mock.get(PAGE).mock(side_effect=page)
+    respx_mock.get(CONSENT).respond(302, headers={"Location": PAGE, "Set-Cookie": "consent=yes; Path=/"})
+    async with http_client.session("test", headers={"User-Agent": "Browser/1.0"}) as first:
+        answer: httpx.Response = await first.get(PAGE)
+        assert first.trust_env is False
+    assert answer.text == "<html>recept</html>"
+    assert pages.calls.last.request.headers["Cookie"] == "consent=yes"
+    assert pages.calls.last.request.headers["User-Agent"] == "Browser/1.0"
+    assert first.is_closed, "de sessie sluit na het blok"
+    async with http_client.session("test") as second:
+        await second.get(CONSENT, follow_redirects=False)
+        assert "Cookie" not in respx_mock.calls.last.request.headers, "een nieuwe sessie kent de cookie van de vorige niet"
+        assert respx_mock.calls.last.request.headers["User-Agent"] == http_client.DEFAULT_USER_AGENT
+
+
+async def test_a_session_cookie_never_reaches_the_shared_client(
+    respx_mock: respx.MockRouter, closing_clients: None
+) -> None:
+    respx_mock.get(CONSENT).respond(200, headers={"Set-Cookie": "consent=yes; Path=/"})
+    shared: respx.Route = respx_mock.get(PAGE).respond(200)
+    async with http_client.session("test") as page:
+        await page.get(CONSENT)
+        await http_client.client("test").get(PAGE)
+    assert "Cookie" not in shared.calls.last.request.headers

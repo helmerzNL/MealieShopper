@@ -541,11 +541,9 @@ class RoutesTest(BulkCase):
 
 class MealieHelpersTest(unittest.TestCase):
     def setUp(self):
-        patches = [mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="http://m"),
-                   mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value="t")]
-        for patch in patches:
-            patch.start()
-            self.addCleanup(patch.stop)
+        patch = mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("http://m", "t"))
+        patch.start()
+        self.addCleanup(patch.stop)
 
     @staticmethod
     def reply(status=200, body=None):
@@ -621,7 +619,7 @@ class MealieHelpersTest(unittest.TestCase):
             return self.reply(body={"recipeIngredient": [line]})
 
         catalog = mealie.Catalog()
-        with mock.patch.object(mealie, "auth_headers", new_callable=mock.AsyncMock, return_value={}), routes() as api:
+        with routes() as api:
             api.get(url__startswith="http://m/api/").mock(side_effect=get)
             api.patch(url__startswith="http://m/api/recipes/").mock(return_value=self.reply(body={}))
             run(mealie.parse_imported_ingredients("een", catalog))

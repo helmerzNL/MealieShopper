@@ -156,6 +156,28 @@ class ClientTest(MealieTestCase):
         self.assertNotIn("Authorization", first.headers, "het token zit niet in de client")
         self.assertEqual(requests[0].headers["User-Agent"], http_client.DEFAULT_USER_AGENT, "Mealie krijgt de vaste User-Agent")
 
+    def test_each_request_reads_address_and_token_once(self):
+        auth.set_secret("MEALIE_URL", URL)
+        auth.set_secret("MEALIE_API_TOKEN", TOKEN)
+        real = mealie._config
+        calls = (
+            ("weekmenu", lambda: mealie.get_meal_plan("2026-11-02", "2026-11-08")),
+            ("recept", lambda: mealie.get_recipe("pasta")),
+            ("eerste dag", mealie.first_day_of_week),
+            ("zoeken op bron", lambda: mealie.find_recipe_by_source("https://example.com/r")),
+        )
+        for label, call in calls:
+            mealie._week_start_cache.clear()
+            with self.subTest(label), routes() as api, \
+                    mock.patch.object(mealie, "_config", new_callable=mock.AsyncMock, side_effect=real) as config:
+                api.get(f"{URL}/api/households/mealplans").mock(return_value=response(body={"items": []}))
+                api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body={"recipeIngredient": []}))
+                api.get(PREFERENCES).mock(return_value=preferences())
+                api.get(f"{URL}/api/recipes").mock(return_value=response(body={"items": []}))
+                run(call())
+                self.assertEqual(config.await_count, 1, "adres en token een keer per verzoek")
+                self.assertEqual(api.calls.last.request.headers["Authorization"], f"Bearer {TOKEN}")
+
 
 class RecipePageUrlTest(MealieTestCase):
     """Mealie zet de groep in het adres van een recept: /g/<groep>/r/<recept>, niet /recipe/<recept>."""
@@ -212,7 +234,7 @@ class RecipePageUrlTest(MealieTestCase):
             self.assertEqual(run(mealie.recipe_page_url("pasta")), f"{URL}/g/zb/r/pasta")
 
     def test_without_a_link_there_is_no_request(self):
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""), routes() as api:
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("", TOKEN)), routes() as api:
             get = api.get(SELF)
             self.assertIsNone(run(mealie.group_slug()))
         self.assertFalse(get.called)
@@ -222,7 +244,7 @@ class RecipePageUrlTest(MealieTestCase):
             api.get(SELF).mock(return_value=response(body={"groupSlug": "zb"}))
             self.assertEqual(run(mealie.group_slug()), "zb")
         mealie._group_slug_cache[URL] = (mealie._group_slug_cache[URL][0], "zb")
-        with mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://andere.example"), routes() as api:
+        with mock.patch.object(mealie, "_endpoint", new_callable=mock.AsyncMock, return_value=("https://andere.example", TOKEN)), routes() as api:
             api.get("https://andere.example/api/users/self").mock(return_value=response(body={"groupSlug": "home"}))
             self.assertEqual(run(mealie.group_slug()), "home")
 
