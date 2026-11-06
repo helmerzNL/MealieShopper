@@ -426,7 +426,7 @@ Next to the flags is a button (moon or sun) that switches between the light and 
 
 ### Preferences
 
-Under **Settings, Preferences** (in the avatar menu, for everyone; before version 3.19.0 this was called *Appearance*) you set how the app looks and works. The choice belongs to your account: on another device or in another browser you see the same after logging in, and every member of the household picks their own. There are three blocks you open with a tap on their heading, like the blocks under Link; until you open them they are closed, and this browser remembers which ones you had open.
+Under **Settings, Preferences** (in the avatar menu, for everyone; before version 3.20.0 this was called *Appearance*) you set how the app looks and works. The choice belongs to your account: on another device or in another browser you see the same after logging in, and every member of the household picks their own. There are three blocks you open with a tap on their heading, like the blocks under Link; until you open them they are closed, and this browser remembers which ones you had open.
 
 **Supermarket**
 

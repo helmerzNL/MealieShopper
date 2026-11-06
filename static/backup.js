@@ -6,6 +6,8 @@
 const backupState = { info: null, token: "", summary: null, busy: false, poller: null, finishing: false, timing: {} };
 const BACKUP_POLL_MS = 1000;
 const BACKUP_TIMING_KEY = "ms_backup_timing";
+// Onderdelen die je kunt weglaten of niet terugzetten (backup.OPTIONAL_PARTS), met het vinkje bij maken en bij terugzetten.
+const BACKUP_PARTS = { offers: ["#backup-offers", "#backup-restore-offers"], offerHistory: ["#backup-offer-history", "#backup-restore-offer-history"] };
 
 function backupMessage(text, type = "error") {
   message("#backup-message", text, type);
@@ -39,7 +41,7 @@ function backupHideProgress() {
 
 function backupSetBusy(busy) {
   backupState.busy = busy;
-  ["#backup-make", "#backup-file", "#backup-restore", "#backup-discard", "#backup-links"].forEach((selector) => {
+  ["#backup-make", "#backup-file", "#backup-restore", "#backup-discard", "#backup-links", "#backup-restore-links", ...Object.values(BACKUP_PARTS).flat()].forEach((selector) => {
     $(selector).disabled = busy;
   });
 }
@@ -79,7 +81,7 @@ async function backupMake() {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ links, passphrase }),
+      body: JSON.stringify({ links, passphrase, ...backupChoices(0) }),
     });
     if (!response.ok) throw await backupError(response);
     const total = Number(response.headers.get("Content-Length")) || 0;
@@ -126,6 +128,11 @@ async function backupMake() {
   }
 }
 
+// Per onderdeel: wel (true) of niet (false) mee, volgens het vinkje bij maken (0) of bij terugzetten (1).
+function backupChoices(which) {
+  return Object.fromEntries(Object.entries(BACKUP_PARTS).map(([part, boxes]) => [part, $(boxes[which]).checked]));
+}
+
 // --- kiezen en controleren ----------------------------------------------------------------------------------------
 
 // In stukken (upload.js): een back-up van 100 MB in één verzoek komt niet door elke proxy. Daarna leest de server het
@@ -168,18 +175,39 @@ async function backupChoose() {
 
 function backupRenderSummary(summary) {
   const when = summary.createdAt ? new Date(summary.createdAt) : null;
+  const leftOut = summary.leftOut || [];
   $("#backup-made").textContent = t("backup.made_at", {
     date: when && !Number.isNaN(when.getTime()) ? when.toLocaleString(I18N.locale(), { dateStyle: "medium", timeStyle: "short" }) : "?",
     version: summary.appVersion || "?",
   });
+  const count = (group) => Number(summary.counts[group] || 0).toLocaleString(I18N.locale());
   $("#backup-summary").innerHTML = Object.keys(summary.counts)
-    .map((group) => `<li>${escapeHtml(t(`backup.count.${group}`, { count: Number(summary.counts[group]).toLocaleString(I18N.locale()) }))}</li>`)
+    .map((group) => {
+      const line = leftOut.includes(group) ? t("backup.left_out", { part: t(`backup.part.${group}`) }) : t(`backup.count.${group}`, { count: count(group) });
+      return `<li>${escapeHtml(line)}</li>`;
+    })
     .join("");
   const names = summary.links.map((link) => t(`backup.link.${link}`)).join(", ");
   $("#backup-links-line").textContent = summary.links.length ? t("backup.links_in", { links: names }) : t("backup.links_none");
-  $("#backup-restore-passphrase-field").hidden = !summary.needsPassphrase;
+  // Wat je terugzet: de koppelingen (alleen als ze in het bestand zitten) en de onderdelen die erin zitten. Alles staat aan.
+  $("#backup-restore-links").checked = true;
+  $("#backup-restore-links-field").hidden = !summary.links.length;
+  $("#backup-restore-links-hint").hidden = !summary.needsPassphrase;
+  Object.entries(BACKUP_PARTS).forEach(([part, boxes]) => {
+    const box = $(boxes[1]);
+    box.checked = true;
+    box.closest("label").hidden = leftOut.includes(part);
+    box.closest("label").querySelector("span").textContent = t(`backup.restore_part.${part}`, { count: count(part) });
+  });
   $("#backup-restore-passphrase").value = "";
+  backupRenderPassphraseField();
   $("#backup-confirm").hidden = false;
+}
+
+// Het wachtwoord is alleen nodig als je de (versleutelde) koppelingen terugzet.
+function backupRenderPassphraseField() {
+  const needed = Boolean(backupState.summary?.needsPassphrase) && $("#backup-restore-links").checked;
+  $("#backup-restore-passphrase-field").hidden = !needed;
 }
 
 async function backupDiscard({ quiet = false } = {}) {
@@ -206,7 +234,12 @@ async function backupRestore() {
     await jsonFetch("/api/backup/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: backupState.token, passphrase: $("#backup-restore-passphrase").value }),
+      body: JSON.stringify({
+        token: backupState.token,
+        passphrase: $("#backup-restore-links").checked ? $("#backup-restore-passphrase").value : "",
+        links: $("#backup-restore-links").checked,
+        ...backupChoices(1),
+      }),
     });
   } catch (error) {
     // Een verkeerd wachtwoord laat het bestand en het token staan: de beheerder kan het meteen opnieuw proberen.
@@ -308,6 +341,7 @@ async function backupFinish(job) {
   const notes = [t("backup.done")];
   if (summary.skippedProfiles) notes.push(t("backup.skipped_profiles", { count: summary.skippedProfiles }));
   if (summary.linksKept) notes.push(t("backup.links_kept"));
+  if (summary.kept?.length) notes.push(t("backup.kept", { parts: summary.kept.map((part) => t(`backup.part.${part}`)).join(", ") }));
   backupMessage(notes.join(" "), "success");
   const earlier = backupStoredTiming() || {};
   $("#backup-timing").textContent = t(earlier.upload ? "backup.timing_restore" : "backup.timing_restore_server", {
@@ -346,6 +380,7 @@ async function loadBackup() {
 }
 
 $("#backup-links").addEventListener("change", backupRenderLinksFields);
+$("#backup-restore-links").addEventListener("change", backupRenderPassphraseField);
 $("#backup-make").addEventListener("click", backupMake);
 $("#backup-file").addEventListener("change", backupChoose);
 $("#backup-restore").addEventListener("click", backupRestore);

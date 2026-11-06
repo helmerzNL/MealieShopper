@@ -59,7 +59,7 @@ _ADDED_COLUMNS = {
     "navbar_style": "TEXT NOT NULL DEFAULT 'auto'",  # de navigatiebalk onderaan
     "navbar_glass": "INTEGER NOT NULL DEFAULT 60",
     "cooking_mode": "INTEGER NOT NULL DEFAULT 1",  # Start met koken en het afvinken bij een recept (3.14.0); standaard aan
-    "preferred_store": "TEXT NOT NULL DEFAULT 'ah'",  # de voorkeurssupermarkt (3.19.0); standaard Albert Heijn
+    "preferred_store": "TEXT NOT NULL DEFAULT 'ah'",  # de voorkeurssupermarkt (3.20.0); standaard Albert Heijn
 }
 
 

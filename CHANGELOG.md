@@ -2,9 +2,9 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
-## v3.19.0
+## v3.20.0
 
-### Nieuw en gewijzigd in 3.19.0
+### Nieuw en gewijzigd in 3.20.0
 
 *English summary: under Settings the menu Appearance is now called Preferences, and its block Preferences (cooking mode) is now called Appearance. A new block Supermarket has the preferred supermarket: Albert Heijn (the default), Jumbo, Picnic or Crisp. Offers and Stores open with it, per user, as soon as that store is linked; until then they open with Albert Heijn. A store you pick yourself on one of those pages stays while the app is open, and a new preferred supermarket applies to both pages again at once.*
 
@@ -19,8 +19,27 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **API:** `PUT /api/profile/preferences` neemt `preferredStore` (`ah`, `jumbo`, `picnic` of `crisp`; iets anders geeft `400`), en `GET /api/auth/status` en `GET /api/profile` geven hem terug. Nieuwe kolom `preferred_store` in `user_profiles` (standaard `ah`); hij gaat mee in de back-up, en een oudere back-up zet Albert Heijn terug.
 - **Handleiding** (NL en EN): het onderdeel *Weergave* heet nu *Voorkeuren*, met het blok Supermarkt; bij Aanbiedingen en Winkels staat waarmee ze openen. De README's noemen de voorkeurssupermarkt.
 - **Ontwikkeling**: nieuw `test_preferred_store` (14 tests: de standaard en terugvallen op AH, adressen met en zonder winkel, volgen tot je zelf kiest, een dichte pagina, een adres dat op een koppeling wacht, Winkels alleen als hij open is, een nieuwe voorkeur na een eigen keuze, de namen en het bewaren). `test_profile` test de nieuwe voorkeur (standaard, keuzes, weigeren, per gebruiker, een oude database), `test_backup` neemt hem mee, en `test_appearance`, `test_router` en `test_offers` volgen de nieuwe namen.
-- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-11`; 3.18.2 gebruikte al `20261106-10`). Ververs de pagina één keer.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-12`; 3.18.2 en 3.19.0 gebruikten al `20261106-10` en `20261106-11`). Ververs de pagina één keer.
 - Pull request [#269](https://github.com/helmerzNL/MealieShopper/pull/269).
+
+## v3.19.0
+
+### Nieuw in 3.19.0
+
+*English summary: under Settings, System, Backup and restore you choose what goes along. When making a backup you can leave out the current offers and the offer history (a smaller file); when restoring you can untick the links, the current offers and the offer history. What is not in the file or what you untick stays as it is. Without the links no password is needed, so you can still restore your data if you lost the password of the file.*
+
+- **Bij het maken: de aanbiedingen van nu en de historie van aanbiedingen mogen eruit.** Twee nieuwe vinkjes naast *Neem de koppelingen mee*: *Neem de aanbiedingen van nu mee* en *Neem de historie van aanbiedingen mee*. Beide staan aan. Uitgevinkt gaan die tabellen niet in het bestand (de aanbiedingen van nu: `offers` en `offers_meta`; de historie: `offer_history`), en het bestand zegt welke onderdelen ontbreken (`left_out`). Zo wordt het bestand kleiner.
+- **Bij het terugzetten: kiezen wat je terugzet.** Onder *Wat zet je terug?* staan vinkjes voor wat er in het bestand zit:
+  - **De koppelingen.** Uitgevinkt is er geen wachtwoord nodig: handig als je het wachtwoord van het bestand kwijt bent. De koppelingen die er nu zijn, blijven staan.
+  - **De aanbiedingen van nu** en **de historie van aanbiedingen**, met het aantal.
+  - Wat je uitvinkt, en wat niet in het bestand zit, blijft zoals het nu is; de samenvatting zegt *niet in dit bestand* en na afloop *Niet teruggezet, gebleven zoals het was*.
+- **Een bewerkt bestand** dat zegt dat een onderdeel ontbreekt terwijl het er wel in staat, of een onbekend onderdeel noemt, wordt geweigerd. Een oudere back-up zonder `left_out` werkt zoals altijd: alles gaat terug.
+- **API:** `POST /api/backup` en `POST /api/backup/jobs` kennen `"offers": false` en `"offerHistory": false`; `POST /api/backup/jobs` ook `"links": false` (dan geen wachtwoord). Zonder die velden gaat alles mee, zoals voorheen. De samenvatting heeft `leftOut`, het resultaat van het terugzetten `kept`.
+- **README** (NL en EN): wat je kiest bij maken en terugzetten, en wat te doen als je het wachtwoord kwijt bent.
+- **Ontwikkeling**: `test_backup` heeft 7 nieuwe tests (weglaten, wat weggelaten is blijft staan, uitvinken bij terugzetten, zonder koppelingen geen wachtwoord, bewerkt bestand, oudere back-up, elk onderdeel heeft een regel op het scherm).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-11`). Ververs de pagina één keer.
+- Pull request [#270](https://github.com/helmerzNL/MealieShopper/pull/270).
+
 ## v3.18.2
 
 ### Opgelost in 3.18.2

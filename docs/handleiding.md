@@ -426,7 +426,7 @@ Naast de vlaggetjes staat een knop (maan of zon) waarmee je tussen het lichte en
 
 ### Voorkeuren
 
-Onder **Instellingen, Voorkeuren** (in het avatar-menu, voor iedereen; vóór versie 3.19.0 heette dit *Weergave*) stel je in hoe de app eruitziet en werkt. De keuze hoort bij je account: op een ander apparaat of in een andere browser zie je na het inloggen hetzelfde, en iedere huisgenoot kiest zelf. Er zijn drie blokken die je openklapt met een tik op hun kop, net als de blokken onder Koppelen; zolang je ze niet opent, staan ze dicht, en deze browser onthoudt welke je open had.
+Onder **Instellingen, Voorkeuren** (in het avatar-menu, voor iedereen; vóór versie 3.20.0 heette dit *Weergave*) stel je in hoe de app eruitziet en werkt. De keuze hoort bij je account: op een ander apparaat of in een andere browser zie je na het inloggen hetzelfde, en iedere huisgenoot kiest zelf. Er zijn drie blokken die je openklapt met een tik op hun kop, net als de blokken onder Koppelen; zolang je ze niet opent, staan ze dicht, en deze browser onthoudt welke je open had.
 
 **Supermarkt**
 
