@@ -11,6 +11,9 @@ aanbieding met een product-id `folder:…`, dus nog bij geen echt product):
 2. **Een combi-aanbieding die bij geen product hoort, komt er niet in.**
 3. **Een folderregel zonder bekende verpakking krijgt geen prijs.**
 
+Standaard komt een folderregel die bij geen product van jou hoort er helemaal niet in (`keep_unlinked` houdt hem, met de regels
+2 en 3); zo staan er geen "Folder: …"-producten in de Prijsgeschiedenis.
+
 De koppeling en het lezen van verpakkingen komen uit `import_archive.py` van wolph, in het pakket met zijn folderarchief
 (`fold`, `size`, `words`, `match_product`, `link_approximate` en `catalogue_from`, met dezelfde drempels).
 """
@@ -232,17 +235,23 @@ class Linker:
 
 
 class Tidy:
-    """Wat er met een aanbieding uit een archief gebeurt voor ze wordt gecontroleerd: koppelen, combi's weg, onzekere prijzen leeg."""
+    """Wat er met een aanbieding uit een archief gebeurt: koppelen aan je eigen producten, en wat nergens bij hoort eruit.
 
-    def __init__(self, conn: sqlite3.Connection):
+    Standaard komt een folderregel die bij geen product van jou hoort er niet in: anders staat de Prijsgeschiedenis vol met
+    "Folder: …"-producten. Met `keep_unlinked` blijft hij, behalve een combi-aanbieding, en dan zonder prijs als de verpakking
+    onbekend is (voor een eigen archief waarvan je alle regels wilt bewaren).
+    """
+
+    def __init__(self, conn: sqlite3.Connection, keep_unlinked: bool = False):
         self.linker = Linker(conn)
-        self.stats = {"exact": 0, "approximate": 0, "groups": 0, "unknownPack": 0}
+        self.keep_unlinked = keep_unlinked
+        self.stats = {"exact": 0, "approximate": 0, "unlinked": 0, "groups": 0, "unknownPack": 0}
 
     def offer(self, row: dict[str, Any]) -> dict[str, Any] | None:
         """De regel zoals hij geïmporteerd wordt, of None als hij er niet in hoort.
 
-        Dit draait vóór de controle van de regel (`normalise_offer`): een regel die we niet kunnen lezen (een onbekende winkel,
-        een getal waar tekst hoort) laten we ongemoeid, zodat de controle hem met een duidelijke reden weigert.
+        De regel is dan al gecontroleerd (`normalise_offer` in price_archive.py): een kapotte regel weigert het hele bestand,
+        ook als hij hier zou wegvallen.
         """
         if not is_archive_product(row) or row.get("store") not in STORES or not _plain(row):
             return row
@@ -250,6 +259,9 @@ class Tidy:
         if linked:
             self.stats[linked] += 1
             return row
+        if not self.keep_unlinked:
+            self.stats["unlinked"] += 1
+            return None
         if is_group(row):
             self.stats["groups"] += 1
             return None

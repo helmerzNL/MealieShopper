@@ -145,8 +145,13 @@ class ArchiveCase(unittest.TestCase):
         price_archive._connect().close()
         return auth.connect()
 
+    # De meeste tests gebruiken folderregels als gewone archiefregels; standaard komen alleen regels binnen die bij een
+    # product van jou horen (LinkedOnlyTest). Daarom uploaden deze tests met keep_unlinked, tenzij ze anders vragen.
+    keep_unlinked = True
+
     def stage(self, data: bytes, client=None):
-        return (client or self.admin).post("/api/price-archive/stage", data=data, content_type="application/octet-stream")
+        url = "/api/price-archive/stage" + ("?keep_unlinked=1" if self.keep_unlinked else "")
+        return (client or self.admin).post(url, data=data, content_type="application/octet-stream")
 
     def wait(self, seconds: float = 20) -> dict:
         deadline = time.time() + seconds
@@ -537,7 +542,7 @@ class ReplaceTest(ArchiveCase):
 
 
 class TidyTest(ArchiveCase):
-    """Folderregels worden bij het importeren opgeschoond (price_archive_tidy.py)."""
+    """Folderregels worden bij het importeren opgeschoond (price_archive_tidy.py), hier met keep_unlinked."""
 
     def import_ah(self, *rows: dict) -> tuple[dict, list[dict]]:
         files = gist_files(**{"ah-corrected/observations.jsonl": jsonl(list(rows))})
@@ -611,12 +616,64 @@ class TidyTest(ArchiveCase):
     def test_a_line_already_linked_in_the_archive_stays_as_it_is(self):
         summary, rows = self.import_ah(offer(1, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels", price=None, price_before=None))
         self.assertEqual([(row["product_id"], row["title"]) for row in rows], [("169238", "AH Runderhamburger 2st")])
-        self.assertEqual(summary["tidied"], {"exact": 0, "approximate": 0, "groups": 0, "unknownPack": 0})
+        self.assertEqual(summary["tidied"], {"exact": 0, "approximate": 0, "unlinked": 0, "groups": 0, "unknownPack": 0})
 
     def test_a_line_it_cannot_read_is_left_to_the_checks(self):
         body = self.refused(own([{"type": "offer", **offer(1, unit_size=500)}]), "bad_row")
         self.assertIn("unit_size", body["error"])
         self.refused(own([{"type": "offer", **offer(1), "store": "lidl"}]), "bad_row")
+
+
+class LinkedOnlyTest(ArchiveCase):
+    """Standaard komt een folderregel alleen binnen als hij bij een product van jou hoort: geen "Folder: …"-producten."""
+
+    keep_unlinked = False
+
+    def add_own_products(self):
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('ah', '8001', 'AH Biologisch Halfvolle melk', '1000 ml', 1.39, 'https://www.ah.nl/producten/product/wi8001', '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
+
+    def test_only_lines_that_belong_to_your_products_come_in(self):
+        self.add_own_products()
+        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl([
+            offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
+            offer(2, source_title="AH Excellent tafelversiering", unit_size=None, price=None, price_before=None),
+            offer(3, source_title="A-merk speelgoed"),
+            offer(4, product_id="4183", title="AH Bloemkool", source_title="AH Bloemkool", unit_size="per stuk"),
+        ])})
+        summary, job = self.run_import(gist_zip(tar_gz(files)))
+        self.assertFalse(summary["keepUnlinked"])
+        self.assertEqual(summary["tidied"]["exact"], 1)
+        # Twee AH-regels en de Jumbo- en Picnic-aanbiedingen uit het pakket horen bij geen product van jou.
+        self.assertEqual(summary["tidied"]["unlinked"], 2 + 2 + 1)
+        offers = self.rows("offer_history")
+        self.assertEqual(sorted(row["product_id"] for row in offers if row["url"] and row["url"].startswith("https://www.supermarktaanbiedingen")), ["4183", "8001"])
+        self.assertEqual([row for row in offers if row["product_id"].startswith("folder:")], [])
+        # De prijzen (Picnic en Crisp) zijn geen folderregels en komen gewoon binnen.
+        self.assertEqual(len(self.rows("price_observations")), 4)
+        self.assertEqual(job["summary"]["offers"], 2)
+
+    def test_a_broken_line_still_refuses_the_file_even_if_it_would_be_skipped(self):
+        files = gist_files(**{"jumbo/reports/observations.jsonl": jsonl([offer(3, "jumbo", url="http://example.com/x")])})
+        self.refused(gist_zip(tar_gz(files)), "bad_row")
+
+    def test_an_archive_in_pieces_also_keeps_only_your_products(self):
+        # Het scherm uploadt in stukken en zonder keep_unlinked: dan blijven alleen gekoppelde regels over.
+        data = gist_zip()
+        token = self.admin.post("/api/price-archive/uploads", json={"size": len(data)}).get_json()["token"]
+        self.admin.put(f"/api/price-archive/uploads/{token}?offset=0", data=data, content_type="application/octet-stream")
+        summary = self.admin.post(f"/api/price-archive/uploads/{token}/stage", json={"size": len(data)}).get_json()
+        self.assertFalse(summary["keepUnlinked"])
+        self.assertEqual(summary["tidied"]["unlinked"], 4)  # folder:ah0001, twee Jumbo-regels en de Picnic-aanbieding
+        self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 1)  # 4183 hoorde al bij een product
+
+    def test_the_route_reads_keep_unlinked(self):
+        response = self.admin.post("/api/price-archive/stage?keep_unlinked=1", data=gist_zip(), content_type="application/octet-stream")
+        self.assertTrue(response.get_json()["keepUnlinked"])
+        self.assertEqual(response.get_json()["tidied"]["unlinked"], 0)
 
 
 class JobAndAccessTest(ArchiveCase):
@@ -664,7 +721,7 @@ class JobAndAccessTest(ArchiveCase):
             for offset in range(0, len(data), 512):
                 sent = self.admin.put(f"/api/price-archive/uploads/{token}?offset={offset}", data=data[offset:offset + 512], content_type="application/octet-stream")
                 self.assertEqual(sent.status_code, 200, sent.get_json())
-        response = self.admin.post(f"/api/price-archive/uploads/{token}/stage", json={"size": len(data)})
+        response = self.admin.post(f"/api/price-archive/uploads/{token}/stage?keep_unlinked=1", json={"size": len(data)})
         self.assertEqual(response.status_code, 200, response.get_json())
         summary = response.get_json()
         self.assertEqual(summary["token"], token)

@@ -13,9 +13,9 @@ Twee formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) 
   `supermarket-archives-<datum>.tar.gz`, met daarin `data-manifest.json` en zes gegevensbestanden (`GIST_FILES`). Het losse
   `.tar.gz` mag ook. De app leest alleen die bestanden; de tar wordt nooit uitgepakt en geen script uit het pakket draait.
 
-Elke folderregel (een aanbieding met een product-id `folder:…`) gaat eerst door het opschonen in price_archive_tidy.py: koppelen
-aan de producten die de app zelf kent, combi-aanbiedingen die bij geen product horen eruit, en geen prijs zonder bekende
-verpakking. Zo staan er in de Prijsgeschiedenis geen vreemde producten.
+Elke folderregel (een aanbieding met een product-id `folder:…`) gaat na de controle door het opschonen in price_archive_tidy.py:
+koppelen aan de producten die de app zelf kent, en een folderregel die nergens bij hoort komt er niet in. Zo staan er in de
+Prijsgeschiedenis geen vreemde producten. Met `?keep_unlinked=1` bij het uploaden blijven die regels (voor een eigen archief).
 
 Het bestand wordt niet vertrouwd. Elke controlesom, elke regel en elke waarde wordt gecontroleerd; één fout weigert het hele
 bestand en verandert niets. Wat er al staat gaat altijd voor: een regel die er al is, een eigen prijs op dezelfde dag of een
@@ -838,8 +838,8 @@ def _same(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
 def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, ...]], None] | None = None, tidy: Tidy | None = None) -> int:
     """Leest en controleert het hele archief tegen elk `plan`; `write` krijgt elke geldige regel. Geeft het aantal regels.
 
-    Met `tidy` gaat elke aanbieding eerst door het opschonen (price_archive_tidy.py): koppelen aan je eigen producten,
-    combi-aanbiedingen eruit, geen prijs zonder bekende verpakking.
+    Met `tidy` gaat elke gecontroleerde aanbieding door het opschonen (price_archive_tidy.py): koppelen aan je eigen producten,
+    en een folderregel die nergens bij hoort eruit.
     """
     bounds = Today()
     count = 0
@@ -849,11 +849,12 @@ def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, 
             raise ArchiveError("too_many", limit=MAX_RECORDS)
         try:
             if kind == "offer":
+                row = normalise_offer(data, bounds)  # eerst controleren: ook een regel die wegvalt, moet kloppen
                 if tidy is not None:
                     data = tidy.offer(data)
                     if data is None:
                         continue
-                row = normalise_offer(data, bounds)
+                    row = normalise_offer(data, bounds)
                 for plan in plans:
                     plan.offer(row)
                 if write:
@@ -935,7 +936,7 @@ def _connect() -> sqlite3.Connection:
     return prices._connect()
 
 
-def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
+def stage(stream: Any, content_length: int | None, keep_unlinked: bool = False) -> dict[str, Any]:
     """Slaat de upload op, controleert alles en zet de nieuwe regels klaar. De database verandert niet."""
     limit = MAX_UPLOAD_BYTES // (1024 * 1024)
     if content_length is not None and content_length > MAX_UPLOAD_BYTES:
@@ -960,15 +961,15 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
     except BaseException:
         upload.unlink(missing_ok=True)
         raise
-    return _check_upload(token, upload)
+    return _check_upload(token, upload, keep_unlinked)
 
 
-def stage_upload(token: str, size: Any) -> dict[str, Any]:
+def stage_upload(token: str, size: Any, keep_unlinked: bool = False) -> dict[str, Any]:
     """Als `stage`, voor een archief dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
     remove_old_staged_files()
     upload = _upload_path(token)
     uploads.take(STAGE_PREFIX, token, size).replace(upload)
-    return _check_upload(token, upload)
+    return _check_upload(token, upload, keep_unlinked)
 
 
 def _upload_path(token: str) -> Path:
@@ -976,8 +977,11 @@ def _upload_path(token: str) -> Path:
     return auth.data_dir() / f"{STAGE_PREFIX}{token}.upload"
 
 
-def _check_upload(token: str, upload: Path) -> dict[str, Any]:
-    """Controleert het geüploade archief en zet de nieuwe regels klaar; het archief zelf gaat daarna weg."""
+def _check_upload(token: str, upload: Path, keep_unlinked: bool = False) -> dict[str, Any]:
+    """Controleert het geüploade archief en zet de nieuwe regels klaar; het archief zelf gaat daarna weg.
+
+    Met `keep_unlinked` blijven folderregels die bij geen product van jou horen (price_archive_tidy.Tidy).
+    """
     directory = auth.data_dir()
     rows_path = _stage_path(token)
     try:
@@ -987,7 +991,7 @@ def _check_upload(token: str, upload: Path) -> dict[str, Any]:
         with closing(_connect()) as conn:
             plan = Plan(conn)
             replacing = Plan(conn, without_archive=True)
-            tidy = Tidy(conn)
+            tidy = Tidy(conn, keep_unlinked=keep_unlinked)
             with rows_path.open("w", encoding="utf-8") as out:
                 os.chmod(rows_path, 0o600)
                 lines = check(archive, [plan, replacing], lambda kind, row: out.write(json.dumps([kind, list(row)], ensure_ascii=False) + "\n"), tidy)
@@ -1000,6 +1004,7 @@ def _check_upload(token: str, upload: Path) -> dict[str, Any]:
         summary = summarize(archive, plan, corrections, lines)
         summary["archived"] = existing
         summary["tidied"] = dict(tidy.stats)
+        summary["keepUnlinked"] = keep_unlinked
         summary["replace"] = _outcome(replacing, replace_corrections)
     except BaseException:
         rows_path.unlink(missing_ok=True)
@@ -1175,13 +1180,14 @@ def run_job(job_id: str, staged: Path, actor: str = "system", replace: bool = Fa
     started = time.monotonic()
     try:
         summary = apply(staged, replace=replace)
-        _finish_job(job_id, status="done", summary=json.dumps(summary), seconds=round(time.monotonic() - started, 2))
         log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
+        # Eerst het auditlog, dan klaar: wie op "klaar" wacht, ziet de regel in het auditlog dan al staan.
         audit.record(
             kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
             detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
                     "replaced": summary["replaced"], "removed": summary["removed"]},
         )
+        _finish_job(job_id, status="done", summary=json.dumps(summary), seconds=round(time.monotonic() - started, 2))
     except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
         log.exception("Import van een prijsarchief mislukt")
         try:
@@ -1208,7 +1214,7 @@ def register_routes(app: Flask) -> None:
     @app.post("/api/price-archive/stage")
     def price_archive_stage():
         try:
-            return jsonify(stage(request.stream, request.content_length))
+            return jsonify(stage(request.stream, request.content_length, keep_unlinked=request.args.get("keep_unlinked") == "1"))
         except ArchiveError as exc:
             return _error(exc)
 
@@ -1219,7 +1225,7 @@ def register_routes(app: Flask) -> None:
     def price_archive_stage_upload(token: str):
         body = request.get_json(silent=True) or {}
         try:
-            return jsonify(stage_upload(token, body.get("size")))
+            return jsonify(stage_upload(token, body.get("size"), keep_unlinked=request.args.get("keep_unlinked") == "1"))
         except uploads.UploadError as exc:
             return uploads.error_response(exc)
         except ArchiveError as exc:

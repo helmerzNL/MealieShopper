@@ -2,6 +2,21 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.21.0
+
+### Gewijzigd in 3.21.0
+
+*English summary: a price archive now only adds leaflet lines that belong to a product of yours. After tidying up in 3.18.0 about 24,700 "Folder: ..." products were still left (toys, decorations, products you never buy). Each leaflet line is linked to a product the app knows, with the linking from wolph's `import_archive.py`; a line that belongs to nothing is no longer imported. Import the package again with Replace what came from a price archive before ticked to clear out the old ones. For an archive of your own, `?keep_unlinked=1` keeps the unlinked lines.*
+
+- **Alleen wat bij je eigen producten hoort.** Na het opschonen uit 3.18.0 bleven er nog zo'n 24.700 *Folder: …*-producten over: speelgoed, versiering, en producten die je nooit koopt (*AH Excellent tafelversiering*, *A-merk speelgoed*). Een folderregel die bij geen product van jou hoort, komt er nu niet meer in; de app koppelt elke folderregel eerst aan een product dat hij kent (je aanbiedingen, bijgehouden prijzen en bestellingen), met de koppeling uit `import_archive.py` van wolph. Een regel die het archief zelf al aan een product koppelde, blijft zoals hij is. Importeer het pakket opnieuw met **Vervang wat eerder uit een prijsarchief kwam**: dan staat er geen enkel *Folder: …*-product meer. Koop of zoek je later producten die in het archief staan, importeer dan nog een keer met Vervangen.
+- **Voor een eigen archief** houdt `?keep_unlinked=1` bij het uploaden (`POST /api/price-archive/stage` en `POST /api/price-archive/uploads/<token>/stage`) de ongekoppelde regels, zoals in 3.18.0: zonder combi-aanbiedingen, en zonder prijs als ze geen gewicht, inhoud of aantal noemen.
+- **Ook een overgeslagen regel wordt gecontroleerd**: een kapotte regel weigert nog steeds het hele bestand. De samenvatting telt de overgeslagen regels (`tidied.unlinked`) en zegt het in één zin.
+- **Auditlog eerst.** De regel in het auditlog staat er nu voordat de import als klaar wordt gemeld.
+- Met het echte pakket en een database met 363 eigen producten komen er 4.186 aanbiedingen bij een echt product binnen, en 128.368 folderregels blijven buiten.
+- **Handleiding** (NL en EN): *Alleen wat bij je eigen producten hoort* en *Zo zie je ze*.
+- **Ontwikkeling**: `test_price_archive` heeft 4 nieuwe tests: standaard alleen gekoppelde regels (in één keer en in stukken geüpload), een kapotte regel die ook overgeslagen zou worden, en de optie `keep_unlinked`. De bestaande tests uploaden met `keep_unlinked`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+
 ## v3.20.0
 
 ### Nieuw en gewijzigd in 3.20.0

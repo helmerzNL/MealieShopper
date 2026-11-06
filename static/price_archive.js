@@ -108,18 +108,17 @@ function priceArchiveRenderSummary(summary) {
   ].filter(Boolean);
   $("#price-archive-source").textContent = meta.join(" · ");
   $("#price-archive-summary").innerHTML = (outcome.stores || []).map((stats) => priceArchiveStoreLine(stats.store, stats)).join("");
+  // Wat het opschonen deed: gekoppeld aan je eigen producten, en overgeslagen omdat het nergens bij hoort.
   const tidied = summary.tidied || {};
   const linked = Number(tidied.exact || 0) + Number(tidied.approximate || 0);
+  const skipped = Number(tidied.unlinked || 0) + Number(tidied.groups || 0);
+  const pricesLeftOut = Number(tidied.unknownPack || 0);
   const tidiedLine = $("#price-archive-tidied");
-  const anyTidied = linked + Number(tidied.groups || 0) + Number(tidied.unknownPack || 0);
-  tidiedLine.textContent = anyTidied
-    ? t("price_archive.tidied", {
-        linked: I18N.formatNumber(linked),
-        groups: I18N.formatNumber(tidied.groups || 0),
-        prices: I18N.formatNumber(tidied.unknownPack || 0),
-      })
-    : "";
-  tidiedLine.hidden = !anyTidied;
+  const parts = [];
+  if (linked + skipped) parts.push(t("price_archive.tidied", { linked: I18N.formatNumber(linked), skipped: I18N.formatNumber(skipped) }));
+  if (pricesLeftOut) parts.push(tn("price_archive.tidied_prices", pricesLeftOut));
+  tidiedLine.textContent = parts.join(" ");
+  tidiedLine.hidden = !parts.length;
   const corrections = outcome.corrections || {};
   const counted = ["apply", "already", "missing", "conflict"].reduce((total, key) => total + Number(corrections[key] || 0), 0);
   const line = $("#price-archive-corrections");
