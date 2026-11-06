@@ -2,15 +2,18 @@ import asyncio
 import contextvars
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, TypeAlias
 from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 import httpx  # noqa: E402
+import pytest  # noqa: E402
 import requests  # noqa: E402
 import respx  # noqa: E402
 
@@ -575,6 +578,80 @@ class PropagateTest(AuditTestCase):
             audit._actor.reset(token)
             audit._corr.reset(corr)
         self.assertEqual({(e["actor"], e["corr"]) for e in self.entries()}, {("mcp:Claude", "abc123")})
+
+
+
+# --- arecord (async tweeling van record) -----------------------------------------------------------------
+
+
+@pytest.fixture
+def audit_dir(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Een lege datamap met het auditlog aan en de standaardinstellingen."""
+    for name in ("MEALIESHOPPER_AUDIT_LOG", "MEALIESHOPPER_AUDIT_BODIES", "MEALIESHOPPER_AUDIT_BODY_CHARS", "MEALIESHOPPER_AUDIT_RETENTION_DAYS"):
+        monkeypatch.delenv(name, raising=False)
+    return data_dir
+
+
+AUDIT_FIELDS: dict[str, Any] = {
+    "kind": "outbound",
+    "service": "ah",
+    "action": "GET /mobile-services/v1/receipts",
+    "method": "GET",
+    "url": "https://api.ah.nl/mobile-services/v1/receipts?page=1",
+    "status": 502,
+    "ok": False,
+    "duration_ms": 1234,
+    "actor": "mcp:Claude",
+    "corr": "abc123",
+    "request_body": '{"spam": "eggs"}',
+    "response_body": "kapot",
+    "req_bytes": 16,
+    "resp_bytes": 5,
+    "error": "Bad gateway",
+    "detail": {"hops": 2},
+}
+
+
+async def test_arecord_writes_the_same_row_as_record(audit_dir: Path) -> None:
+    sync_id: int | None = audit.record(**AUDIT_FIELDS)
+    async_id: int | None = await audit.arecord(**AUDIT_FIELDS)
+    assert isinstance(sync_id, int) and async_id == sync_id + 1
+    with audit.closing(auth.connect()) as conn:
+        rows: list[dict[str, Any]] = [dict(row) for row in conn.execute("SELECT * FROM audit_log ORDER BY id")]
+    for row in rows:
+        del row["id"], row["ts"]
+    assert rows[0] == rows[1]
+    assert audit.get_entry(async_id)["detail"] == {"hops": 2}
+
+
+async def test_arecord_creates_the_table_in_a_fresh_data_dir(audit_dir: Path) -> None:
+    row_id: int | None = await audit.arecord(kind="inbound", service="mcp", action="tools/list")
+    assert [entry["action"] for entry in audit.list_entries()["entries"]] == ["tools/list"]
+    assert row_id == audit.list_entries()["entries"][0]["id"]
+
+
+async def test_arecord_respects_the_switch(audit_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEALIESHOPPER_AUDIT_LOG", "false")
+    assert await audit.arecord(kind="outbound", service="ah", action="uit") is None
+    assert audit.list_entries()["entries"] == []
+
+
+async def test_arecord_never_raises(audit_dir: Path) -> None:
+    with mock.patch.object(audit, "_aconnect", side_effect=sqlite3.OperationalError("disk I/O error")), mock.patch.object(audit.log, "warning") as warning:
+        assert await audit.arecord(kind="outbound", service="ah", action="kapot") is None
+    warning.assert_called_once()
+
+
+async def test_arecord_prunes_like_record(audit_dir: Path) -> None:
+    with mock.patch.object(audit, "PRUNE_EVERY", 1), mock.patch.object(audit, "MAX_ROWS", 3):
+        for number in range(6):
+            await audit.arecord(kind="outbound", service="ah", action=f"r{number}")
+    assert [entry["action"] for entry in audit.list_entries()["entries"]] == ["r5", "r4", "r3"]
+
+
+async def test_arecord_writes_through_aconnect(audit_dir: Path) -> None:
+    with mock.patch.object(auth, "connect", side_effect=AssertionError("sync connect() in arecord")):
+        assert isinstance(await audit.arecord(kind="outbound", service="ah", action="async"), int)
 
 
 if __name__ == "__main__":

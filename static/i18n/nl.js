@@ -1147,6 +1147,7 @@ I18N.add("nl", {
   "about.desc.pyopenssl": "Wordt door py_webauthn gebruikt om passkey-certificaten te controleren.",
   "about.desc.requests": "Praat met Mealie en Albert Heijn.",
   "about.desc.httpx": "Praat met de winkels, Mealie en GitHub vanuit de async app.",
+  "about.desc.aiosqlite": "Leest en schrijft de SQLite-database vanuit de async app.",
   "about.desc.pillow": "Verkleint de bewaarde afbeeldingen van aanbiedingen die je kocht.",
   "about.desc.sqlite": "De database voor instellingen, passkeys, lijstjes en recepten.",
   "about.desc.mdi": "De iconen.",

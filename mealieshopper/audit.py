@@ -28,13 +28,15 @@ import re
 import secrets
 import threading
 import time
-from contextlib import closing, contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, closing, contextmanager
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from os import environ
 from typing import Any, Awaitable, Callable, Iterator, Mapping, TypeAlias
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+import aiosqlite
 import httpx
 import requests
 from quart import Quart, Response, has_request_context, jsonify, request
@@ -289,6 +291,74 @@ def record(
             if _since_prune >= PRUNE_EVERY:
                 _since_prune = 0
                 _prune(conn)
+        return row_id
+    except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
+        log.warning("Kon geen auditregel schrijven", exc_info=True)
+        return None
+
+
+@asynccontextmanager
+async def _aconnect() -> AsyncIterator[aiosqlite.Connection]:
+    """Zoals `_connect`, op `auth.aconnect`: het schema een keer per database, en ook hier geen commit bij het verlaten.
+
+    Geen slot nodig: het schema is `IF NOT EXISTS`, twee coroutines die het tegelijk draaien zitten elkaar niet in de weg.
+    """
+    async with auth.aconnect() as conn:
+        key = str(auth.db_path())
+        if key not in _initialised:
+            await conn.executescript(SCHEMA)
+            await conn.commit()
+            _initialised.add(key)
+        yield conn
+
+
+async def _aprune(conn: aiosqlite.Connection) -> None:
+    days = retention_days()
+    if days:
+        await conn.execute("DELETE FROM audit_log WHERE ts < ?", ((auth.utcnow() - timedelta(days=days)).isoformat(),))
+    await conn.execute("DELETE FROM audit_log WHERE id <= (SELECT MAX(id) FROM audit_log) - ?", (MAX_ROWS,))
+
+
+async def arecord(
+    *,
+    kind: str,
+    service: str,
+    action: str,
+    method: str = "",
+    url: str = "",
+    status: int | None = None,
+    ok: bool = True,
+    duration_ms: int = 0,
+    actor: str = "",
+    corr: str = "",
+    request_body: str = "",
+    response_body: str = "",
+    req_bytes: int | None = None,
+    resp_bytes: int | None = None,
+    error: str = "",
+    detail: dict[str, Any] | None = None,
+) -> int | None:
+    """Async tweeling van `record`: dezelfde regel, via aiosqlite. Mislukt het schrijven, dan gaat de aanvraag door."""
+    global _since_prune
+    if not enabled():
+        return None
+    try:
+        async with _aconnect() as conn:
+            cursor = await conn.execute(
+                "INSERT INTO audit_log (ts, kind, service, action, method, url, status, ok, duration_ms, actor, corr, request, response, req_bytes, resp_bytes, error, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    _now(), kind, service, action[:200], method, url[:2000], status, 1 if ok else 0, int(duration_ms), actor[:200], corr,
+                    request_body, response_body, req_bytes, resp_bytes, redact_text(error)[:500],
+                    json.dumps(detail, ensure_ascii=False) if detail else "",
+                ),
+            )
+            row_id = cursor.lastrowid
+            _since_prune += 1
+            if _since_prune >= PRUNE_EVERY:
+                _since_prune = 0
+                await _aprune(conn)
+            await conn.commit()
         return row_id
     except Exception:  # noqa: BLE001 - de log mag nooit een verzoek laten mislukken
         log.warning("Kon geen auditregel schrijven", exc_info=True)
