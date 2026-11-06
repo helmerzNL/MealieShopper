@@ -15,6 +15,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): wat er opent als je van winkel wisselt.
 - **Ontwikkeling**: `tests/test_store_switch.py` draait `switchItemsStore` en `renderItemsStore` in Node met een nagebootste tabbalk: per wissel welk onderdeel opent, dat het één klik is, de links in het menu en het ontkoppelen.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#254](https://github.com/helmerzNL/MealieShopper/pull/254).
 
 ## v3.12.2
 
