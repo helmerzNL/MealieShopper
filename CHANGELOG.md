@@ -2,6 +2,17 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.20.1
+
+### Opgelost en bijgewerkt in 3.20.1
+
+*English summary: restoring a backup with login switched off no longer loses your own profile (theme, accent colour, navigation bar, cooking mode, Prefer organic and the preferred supermarket); it used to be skipped as "a user that does not exist here". The screenshots of Settings now show the menu Preferences, with a new one of the Supermarket block in the manual.*
+
+- **Opgelost: zonder inloggen raakte terugzetten je eigen profiel kwijt.** Met inloggen uit (`PASSKEY_AUTH_ENABLED=false`) doet de app alles als de beheerder, maar die staat dan niet als gebruiker in de database. Het terugzetten sloeg zijn profiel daarom over als *profiel van een gebruiker die hier niet bestaat*, en het profiel dat er stond was dan al weg: thema, accentkleur, navigatiebalk, kookmodus, *Liever biologisch* en de voorkeurssupermarkt gingen terug naar de standaard. Het profiel van de beheerder hoort nu altijd bij de installatie; dat van een gebruiker die hier niet bestaat, wordt nog steeds overgeslagen.
+- **Schermafbeeldingen bijgewerkt** (NL en EN): Instellingen met het menu **Voorkeuren** (`appearance`, `navbar`, `users`, `audit`, `audit-detail` en `updates`), en een nieuwe van het blok **Supermarkt** met Jumbo als voorkeurssupermarkt (`preferences`, in de handleiding onder *Voorkeuren*). Het scenario `appearance` klikte nog op het blok van voor 3.20.0 en liep vast.
+- **Ontwikkeling**: `test_backup` heeft 2 nieuwe tests (het profiel van de beheerder zonder inloggen, en een profiel van iemand die er niet is).
+- Pull request [#271](https://github.com/helmerzNL/MealieShopper/pull/271).
+
 ## v3.20.0
 
 ### Nieuw en gewijzigd in 3.20.0
