@@ -10,6 +10,9 @@ Anthropic (Claude) of OpenAI (ChatGPT) ingevuld, dan kan de beheerder met een kn
 Er gaat alleen tekst van ingrediënten en producten naar de aanbieder: geen recepttitels, namen, adressen of winkelgegevens. De sleutel
 wordt versleuteld bewaard, nooit teruggestuurd naar de browser en niet in foutmeldingen getoond. Het is aan: alleen op een knop,
 en er gebeurt niets zonder sleutel.
+
+De aanvragen gaan standaard naar Anthropic of OpenAI. Met `ANTHROPIC_BASE_URL` of `OPENAI_BASE_URL` gaan ze naar een ander adres met
+dezelfde API, zoals bij de officiële SDK's: een proxy als LiteLLM, Azure OpenAI of een lokaal model (zie `endpoint`).
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ import time
 from contextlib import closing
 from os import environ
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -36,7 +40,10 @@ SETTING_PROVIDER = "AI_PROVIDER"
 PROVIDERS: dict[str, dict[str, str]] = {
     "anthropic": {
         "name": "Claude",
-        "url": "https://api.anthropic.com/v1/messages",
+        # Zoals de SDK van Anthropic: ANTHROPIC_BASE_URL is het adres zonder /v1.
+        "base": "https://api.anthropic.com",
+        "base_env": "ANTHROPIC_BASE_URL",
+        "path": "/v1/messages",
         "secret": "AI_ANTHROPIC_KEY",
         "env": "ANTHROPIC_API_KEY",
         "model_setting": "AI_ANTHROPIC_MODEL",
@@ -44,7 +51,10 @@ PROVIDERS: dict[str, dict[str, str]] = {
     },
     "openai": {
         "name": "ChatGPT",
-        "url": "https://api.openai.com/v1/chat/completions",
+        # Zoals de SDK van OpenAI: OPENAI_BASE_URL is het adres met /v1.
+        "base": "https://api.openai.com/v1",
+        "base_env": "OPENAI_BASE_URL",
+        "path": "/chat/completions",
         "secret": "AI_OPENAI_KEY",
         "env": "OPENAI_API_KEY",
         "model_setting": "AI_OPENAI_MODEL",
@@ -114,6 +124,42 @@ def model_of(provider: str) -> str:
     return auth.get_setting(info["model_setting"]).strip() or info["default_model"]
 
 
+def endpoint(provider: str) -> tuple[str, str]:
+    """(adres, bron) van de aanvraag: bron "env" met `ANTHROPIC_BASE_URL` of `OPENAI_BASE_URL`, anders "default".
+
+    Alleen het adres verandert. De sleutel en het model blijven wat in de app of de omgeving staat. Een ongeldig adres is een fout,
+    zodat een tikfout niet stil naar de echte aanbieder gaat.
+    """
+    info = PROVIDERS[provider]
+    base = (environ.get(info["base_env"]) or "").strip().rstrip("/")
+    if not base:
+        return info["base"] + info["path"], "default"
+    parts = urlsplit(base)
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.query or parts.fragment:
+        raise AiError(
+            tr(
+                "{env} is geen geldig adres: gebruik http:// of https:// met een host, zonder ? of #.",
+                "{env} is not a valid address: use http:// or https:// with a host, without ? or #.",
+            ).format(env=info["base_env"])
+        )
+    return base + info["path"], "env"
+
+
+def _shown(url: str) -> str:
+    """Het adres zonder gebruikersnaam en wachtwoord, om te tonen."""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
+
+
+def _endpoint_status(provider: str) -> dict[str, str]:
+    info = PROVIDERS[provider]
+    try:
+        url, source = endpoint(provider)
+    except AiError as exc:
+        return {"endpoint": "", "endpointSource": "env", "endpointError": str(exc), "baseEnv": info["base_env"]}
+    return {"endpoint": _shown(url), "endpointSource": source, "baseEnv": info["base_env"]}
+
+
 def active_provider() -> str:
     """De gekozen aanbieder als die een sleutel heeft, anders de eerste die een sleutel heeft, anders ""."""
     chosen = auth.get_setting(SETTING_PROVIDER).strip().lower()
@@ -131,13 +177,14 @@ def _hint(key: str) -> str:
 
 
 def status() -> dict[str, Any]:
-    """Wat er is ingesteld, zonder de sleutels zelf: per aanbieder of er een sleutel is, waar die vandaan komt, de laatste vier tekens en het model."""
+    """Wat er is ingesteld, zonder de sleutels zelf: per aanbieder of er een sleutel is, waar die vandaan komt, de laatste vier tekens,
+    het model en het adres van de aanvragen."""
     providers = {}
     for name, info in PROVIDERS.items():
         key, source = api_key(name)
         providers[name] = {
             "name": info["name"], "configured": bool(key), "source": source, "hint": _hint(key),
-            "model": model_of(name), "defaultModel": info["default_model"],
+            "model": model_of(name), "defaultModel": info["default_model"], **_endpoint_status(name),
         }
     chosen = auth.get_setting(SETTING_PROVIDER).strip().lower()
     return {
@@ -248,11 +295,12 @@ def _parse(provider: str, data: Any) -> tuple[Any, int]:
 
 def _call(provider: str, key: str, model: str, system: str, payload: str, **options: Any) -> tuple[Any, int]:
     info = PROVIDERS[provider]
+    url, _ = endpoint(provider)
     body = _request_body(provider, model, system, payload, **options)
     last = ""
     for attempt in range(RETRIES + 1):
         try:
-            response = requests.post(info["url"], headers=_headers(provider, key), json=body, timeout=TIMEOUT)
+            response = requests.post(url, headers=_headers(provider, key), json=body, timeout=TIMEOUT)
         except requests.RequestException as exc:
             last = tr("Geen verbinding met {name}: {error}", "No connection to {name}: {error}").format(name=info["name"], error=_clean(exc, key))
         else:
