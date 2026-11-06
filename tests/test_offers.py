@@ -728,7 +728,9 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn('<div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>', html)
         body = script[script.index("async function showOffers()"):script.index("function offerRecipeCard")]
         self.assertLess(body.index("renderOffersLoading()"), body.index("await jsonFetch"), "de laadstand staat er al voordat er iets wordt opgehaald")
-        self.assertEqual(body.count("loadId !== offersLoadId"), 2, "een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout")
+        # Een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout; en wisselt renderOffersStore naar de
+        # voorkeurssupermarkt, dan laadt die zelf en stopt deze aanvraag.
+        self.assertEqual(body.count("loadId !== offersLoadId"), 3)
         self.assertIn("mdiIcon(MDI_LOADING", script)
         self.assertIn("const offersCache = {};", script, "de laatst geladen lijst per winkel staat er bij terugkeren meteen")
         self.assertIn("if (cached) renderOffers(cached);\n  else renderOffersLoading();", body.replace(body[:0], ""), "met een lijst in de cache geen spinner")
@@ -814,7 +816,8 @@ class OffersTabMarkupTest(unittest.TestCase):
         script = (root / "static" / "offers.js").read_text(encoding="utf-8")
         self.assertIn("&course=", script, "de gekozen soort gaat mee naar de server")
         self.assertIn('"#offers-courses").addEventListener("click"', script)
-        self.assertIn("offersState.course = \"all\";\n  try {", script, "een andere winkel zet het filter terug op alles")
+        switch = script[script.index("function offersSwitchStore("):script.index("// De voorwaarden van een aanbieding")]
+        self.assertIn("offersState.course = \"all\";\n  showOffers();", switch, "een andere winkel zet het filter terug op alles")
 
     def test_a_matched_product_opens_a_dialog_with_a_link_to_the_store(self):
         import re

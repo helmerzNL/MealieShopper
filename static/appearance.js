@@ -1,5 +1,6 @@
-// Instellingen, Weergave, per gebruiker, in twee inklapbare blokken (zoals onder Koppelen): Voorkeuren (de kookmodus) en
-// Thema (de accentkleur, het thema met de achtergrond van het donkere thema, en de navigatiebalk).
+// Instellingen, Voorkeuren, per gebruiker, in drie inklapbare blokken (zoals onder Koppelen): Supermarkt (de
+// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus) en Thema (de accentkleur, het thema met
+// de achtergrond van het donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -15,7 +16,7 @@ function appearanceSignedIn() {
 }
 
 // De keuze van het profiel toepassen, na het laden van /api/auth/status. Een thema van null is nog niet gekozen: dan blijft
-// wat deze browser had, zoals voor er een menu Weergave was.
+// wat deze browser had, zoals voor er een menu Weergave (nu Voorkeuren) was.
 function appearanceFromProfile() {
   const auth = state.auth || {};
   if (!appearanceSignedIn() || !("accent" in auth)) return;
@@ -49,6 +50,7 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       navbarStyle: data.navbarStyle,
       navbarGlass: data.navbarGlass,
       cookingMode: data.cookingMode,
+      preferredStore: data.preferredStore,
     };
   } catch (error) {
     if (previous) {
@@ -135,7 +137,46 @@ function renderAppearanceNav(look) {
   if (value) value.textContent = t("appearance.glass.value", { n: slider ? slider.value : look.navbarGlass });
 }
 
+// De voorkeurssupermarkt: de gekozen winkel, en een regel als die nog niet gekoppeld is (dan openen de pagina's met AH).
+function renderAppearanceStore() {
+  const store = preferredSupermarket();
+  document.querySelectorAll('input[name="appearance-store"]').forEach((input) => {
+    input.checked = input.value === store;
+  });
+  const current = $("#appearance-store-current");
+  if (!current) return;
+  const unlinked = store !== "ah" && state.storeStatusKnown[store] && !state.linkedStores[store];
+  current.textContent = unlinked ? t("appearance.store.unlinked", { store: STORES[store].name }) : "";
+  current.hidden = !unlinked;
+}
+
+// Een andere voorkeurssupermarkt: meteen toepassen (Aanbiedingen en Winkels) en bij het profiel bewaren. Weigert de server hem,
+// dan komt de vorige terug.
+async function appearanceSaveStore(store) {
+  const previous = preferredSupermarket();
+  if (store === previous) return;
+  state.auth = { ...state.auth, preferredStore: store };
+  preferredSupermarketChanged();
+  renderAppearanceStore();
+  message("#appearance-store-message", "");
+  if (!appearanceSignedIn()) return;
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferredStore: store }),
+    });
+    state.auth = { ...state.auth, preferredStore: data.preferredStore };
+  } catch (error) {
+    state.auth = { ...state.auth, preferredStore: previous };
+    preferredSupermarketChanged();
+    renderAppearanceStore();
+    message("#appearance-store-message", error.message);
+  }
+}
+
 function renderAppearance() {
+  renderAppearanceStore();
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
   document.querySelectorAll('input[name="appearance-theme"]').forEach((input) => {
@@ -152,7 +193,7 @@ function renderAppearance() {
 
 // ---- De blokken klappen in en uit. De keuze blijft in deze browser (ms-fold-appearance-<naam>); zonder keuze staan ze
 // dicht, zodat de pagina kort blijft en je meteen ziet wat er is.
-const APPEARANCE_FOLDS = ["prefs", "theme"];
+const APPEARANCE_FOLDS = ["store", "display", "theme"];
 
 function appearanceFoldStored(name) {
   try {
@@ -192,7 +233,11 @@ APPEARANCE_FOLDS.forEach((name) => {
 $("#appearance-cooking").addEventListener("change", (event) => {
   const previous = { cookingMode: THEME.appearance().cookingMode };
   THEME.apply({ cookingMode: event.target.checked });
-  appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-prefs-message" });
+  appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-display-message" });
+});
+
+$("#appearance-store").addEventListener("change", (event) => {
+  if (event.target.name === "appearance-store") appearanceSaveStore(event.target.value);
 });
 
 $("#appearance-theme").addEventListener("change", (event) => {
