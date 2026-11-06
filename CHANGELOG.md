@@ -17,6 +17,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding (NL en EN)**: nieuw onderdeel *Koken met een recept* / *Cooking from a recipe*, een screenshot van de kookmodus, en nieuwe screenshots van het recept in het weekmenu, bij Recepten zoeken en bij Jumbo. De README's noemen de functie.
 - **Ontwikkeling**: de kookweergave staat in `static/recipe_view.js` (geladen na `app.js`); `renderStoreRecipeDetail` en `renderMealRecipeBody` gebruiken allebei `renderCookView`. `mealRecipeLines` en `.picnic-recipe__list` zijn weg. Nieuwe tests in `test_recipe_view` (de hoeveelheden, beide bronnen, de weergave, de opslag, de kookmodus en de wake lock, in Node), `test_meal_plan_edit` (de kopjes uit Mealie) en `test_static_scripts`, dat nu ook faalt als een `const`, `let` of `class` in twee scripts staat.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#258](https://github.com/helmerzNL/MealieShopper/pull/258).
 
 ## v3.13.1
 
