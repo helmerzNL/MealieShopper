@@ -1,0 +1,27 @@
+name: Tests
+
+# Draait de testsuite op elke pull request naar beta en main en op elke push naar beta.
+on:
+  pull_request:
+    branches:
+      - beta
+      - main
+  push:
+    branches:
+      - beta
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Afhankelijkheden installeren
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Tests draaien
+        run: MEALIESHOPPER_TESTING=1 python -m pytest -q
