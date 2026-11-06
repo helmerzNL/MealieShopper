@@ -19,6 +19,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **README en handleiding** (NL en EN): een proxy hoeft geen verzoek van 200 MB meer toe te laten; de regel over de 120 seconden van gunicorn is weg.
 - **Ontwikkeling**: `test_backup` heeft 11 nieuwe tests voor uploaden in stukken (dezelfde samenvatting en het terugzetten, een stuk dat niet aansluit, te groot vooraf en per stuk, de grens, een onvolledige upload, een geweigerd bestand, tokens, weggooien, opruimen, rechten en fabrieksreset) en `test_price_archive` 2; de routes staan in de toegangstests.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-9`). Ververs de pagina één keer.
+- Pull request [#267](https://github.com/helmerzNL/MealieShopper/pull/267).
 
 ## v3.18.0
 
