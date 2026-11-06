@@ -17,7 +17,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import auth, auth_password, backup, deals, price_archive, price_archive_tidy, prices, uploads  # noqa: E402
+from mealieshopper import about, auth, auth_password, backup, deals, price_archive, price_archive_tidy, prices, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -390,7 +390,7 @@ class RefusedTest(ArchiveCase):
         cases = [
             ({"type": "visit"}, "type"),
             ({"type": "offer", **offer(1), "store": "lidl"}, "store"),
-            ({"type": "price", **price(1, source="search")}, "source"),
+            ({"type": "price", **price(1, source="receipt")}, "source"),
             ({"type": "price", **price(1, source="order")}, "source"),
             ({"type": "offer", **offer(1, url="http://www.supermarktaanbiedingen.com/x")}, "url"),
             ({"type": "offer", **offer(1, url="javascript:alert(1)")}, "url"),
@@ -745,12 +745,161 @@ class ShortLabelTest(unittest.TestCase):
                 self.assertEqual(deals.parse_mechanic(price_archive_tidy.short_label(label))["type"], "unknown")
 
 
+class ExportTest(ArchiveCase):
+    """Prijsarchief exporteren (price_archive_export.py): een ZIP met een bestand per winkel en maand, die de import weer leest."""
+
+    def fill(self):
+        offer_sql = ("INSERT INTO offer_history (store, product_id, title, unit_size, price, price_before, promo_label, image, url, "
+                     "valid_from, valid_until, first_seen, last_seen, personal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        price_sql = ("INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, image, url, price, seen_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        with closing(self.connect()) as conn, conn:
+            conn.executemany(offer_sql, [
+                ("ah", "8001", "AH Halfvolle melk", "1 l", 1.19, 1.39, "voor 1.19", "https://static.ah.nl/melk.jpg",
+                 "https://www.ah.nl/producten/product/wi8001", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 0),
+                ("ah", "8002", "AH Persoonlijke kaas", "500 g", 3.0, 4.0, "Bonus Box", None,
+                 "https://www.ah.nl/producten/product/wi8002", "2026-10-26", "2026-11-01", "2026-10-26T06:00:00+00:00", "2026-11-01T06:00:00+00:00", 1),
+                ("picnic", "s1001", "Picnic eieren", "10 stuks", 2.49, 2.99, "1+1 gratis", None,
+                 None, "2026-11-02", "2026-11-08", "2026-11-02T06:00:00+00:00", "2026-11-03T06:00:00+00:00", 0),
+                ("ah", "4183", "AH Bloemkool", "per stuk", 1.39, 1.79, "voor: 1.39 Los", None,
+                 f"{FOLDER}/albert_heijn/2013/23/product-2", "2013-06-03", "2013-06-09", "2013-06-03T00:00:00+00:00", "2013-06-09T23:59:59+00:00", 0),
+            ])
+            conn.executemany(price_sql, [
+                ("ah", "8001", "2026-10-05", "search", "AH Halfvolle melk", "AH", "1 l", None, "https://www.ah.nl/producten/product/wi8001", 1.39, "2026-10-05T10:00:00+00:00"),
+                ("picnic", "s1001", "2022-11-30", "public_observed_unknown", "Picnic eieren", None, "10 stuks", None, None, 2.79, "2022-11-30T19:56:18+01:00"),
+            ])
+
+    def export(self, client=None) -> tuple[zipfile.ZipFile, dict]:
+        response = (client or self.admin).post("/api/price-archive/export")
+        self.assertEqual(response.status_code, 200, response.get_data()[:300])
+        self.assertEqual(response.mimetype, "application/zip")
+        self.assertRegex(response.headers["Content-Disposition"], r'attachment; filename="mealieshopper-prijsarchief-\d{8}-\d{6}\.zip"')
+        archive = zipfile.ZipFile(io.BytesIO(response.get_data()))
+        return archive, json.loads(archive.read("mealieshopper-price-archive.json"))
+
+    @staticmethod
+    def lines(archive: zipfile.ZipFile, name: str) -> list[dict]:
+        return [json.loads(line) for line in archive.read(name).decode("utf-8").splitlines()]
+
+    def test_a_file_per_store_and_month_without_personal_offers(self):
+        self.fill()
+        archive, header = self.export()
+        files = ["offers/ah/2013-06.jsonl", "offers/ah/2026-10.jsonl", "offers/picnic/2026-11.jsonl",
+                 "prices/ah/2026-10.jsonl", "prices/picnic/2022-11.jsonl"]
+        self.assertEqual(header["files"], files)
+        self.assertEqual(sorted(archive.namelist()), sorted(files + ["README.md", "mealieshopper-price-archive.json"]))
+        self.assertEqual((header["format"], header["formatVersion"]), ("mealieshopper-price-archive", 1))
+        self.assertEqual(header["counts"], {"offers": {"ah": 2, "picnic": 1}, "prices": {"ah": 1, "picnic": 1}})
+        # De persoonlijke aanbieding (Bonus Box) staat nergens, ook niet in de README.
+        self.assertFalse(any(b"Persoonlijke kaas" in archive.read(name) for name in archive.namelist()))
+        melk = self.lines(archive, "offers/ah/2026-10.jsonl")
+        self.assertEqual(melk[0]["type"], "offer")
+        self.assertEqual((melk[0]["product_id"], melk[0]["image"], melk[0]["price"]), ("8001", "https://static.ah.nl/melk.jpg", 1.19))
+        self.assertNotIn("personal", melk[0])
+        self.assertIsNone(self.lines(archive, "offers/picnic/2026-11.jsonl")[0]["url"])  # Picnic heeft geen webwinkel
+        self.assertEqual(self.lines(archive, "prices/ah/2026-10.jsonl")[0]["source"], "search")
+        self.assertIn("| Albert Heijn | 2 | 1 | 2013-06 | 2026-10 |", archive.read("README.md").decode("utf-8"))
+        with closing(self.connect()) as conn:
+            detail = conn.execute("SELECT detail FROM audit_log WHERE service = 'price-archive' AND action = 'export'").fetchone()
+        self.assertEqual(json.loads(detail[0])["offers"], 3)
+
+    def test_the_same_data_gives_the_same_files(self):
+        self.fill()
+        first, _ = self.export()
+        second, _ = self.export()
+        for name in first.namelist():
+            if name.endswith(".jsonl"):
+                self.assertEqual(first.read(name), second.read(name), name)
+
+    def test_an_export_comes_back_with_the_import(self):
+        self.fill()
+        before = self.snapshot()
+        archive, _ = self.export()
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as out:
+            for name in archive.namelist():
+                out.writestr(name, archive.read(name))
+        with closing(self.connect()) as conn, conn:
+            conn.execute("DELETE FROM offer_history")
+            conn.execute("DELETE FROM price_observations")
+        summary, job = self.run_import(data.getvalue())
+        self.assertEqual(summary["source"], f"MealieShopper {about.read_version()}")
+        self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (3, 2))
+        offers_after, prices_after = self.snapshot()
+        columns = ("store", "product_id", "title", "unit_size", "price", "price_before", "url", "valid_from", "valid_until", "first_seen")
+        def plain(rows):
+            return sorted(([row[key] for key in columns] for row in rows), key=lambda values: (values[0], values[1]))
+
+        self.assertEqual(plain(offers_after), plain(row for row in before[0] if not row["personal"]))
+        # De schapprijs komt terug als archiefregel (archive_search): een gewone prijs, die Vervangen herkent.
+        self.assertEqual(sorted((row["store"], row["source"], row["price"]) for row in prices_after),
+                         [("ah", "archive_search", 1.39), ("picnic", "public_observed_unknown", 2.79)])
+        # Nog een keer: alles staat er al, ook de aanbieding zonder adres.
+        again = self.stage(data.getvalue()).get_json()
+        self.assertEqual(again["new"], 0)
+        self.assertEqual(by_store(again)["picnic"]["offers"], {"new": 0, "duplicate": 1, "covered": 0})
+        self.assertEqual(again["archived"]["prices"], 2)
+
+    def test_the_zip_of_a_github_repository_imports(self):
+        self.fill()
+        archive, _ = self.export()
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as out:
+            out.writestr("prijzen-main/LICENSE", "CC0")
+            out.writestr("prijzen-main/.github/notes.md", "x")
+            out.writestr("prijzen-main/offers/ah/1999-01.jsonl", "niet in de lijst, dus niet gelezen")
+            for name in archive.namelist():
+                out.writestr(f"prijzen-main/{name}", archive.read(name))
+        with closing(self.connect()) as conn, conn:
+            conn.execute("DELETE FROM offer_history")
+            conn.execute("DELETE FROM price_observations")
+        staged = self.stage(data.getvalue())
+        self.assertEqual(staged.status_code, 200, staged.get_json())
+        self.assertEqual(staged.get_json()["new"], 5)
+
+    def test_a_missing_file_or_a_broken_line_refuses_it(self):
+        self.fill()
+        archive, header = self.export()
+
+        def rebuilt(change) -> bytes:
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as out:
+                for name in archive.namelist():
+                    content = change(name, archive.read(name))
+                    if content is not None:
+                        out.writestr(name, content)
+            return data.getvalue()
+
+        missing = self.stage(rebuilt(lambda name, content: None if name == "prices/ah/2026-10.jsonl" else content))
+        self.assertEqual((missing.status_code, missing.get_json()["code"]), (400, "missing_file"))
+        self.assertIn("prices/ah/2026-10.jsonl", missing.get_json()["error"])
+        broken = self.stage(rebuilt(lambda name, content: content.replace(b'"store": "ah"', b'"store": "aldi"') if name == "offers/ah/2026-10.jsonl" else content))
+        self.assertEqual((broken.status_code, broken.get_json()["code"]), (400, "bad_row"))
+        self.assertIn("offers/ah/2026-10.jsonl", broken.get_json()["error"])
+        outside = dict(header, files=header["files"] + ["../geheim.jsonl"])
+        escaped = self.stage(rebuilt(lambda name, content: json.dumps(outside).encode() if name == "mealieshopper-price-archive.json" else content))
+        self.assertEqual((escaped.status_code, escaped.get_json()["code"]), (400, "bad_structure"))
+        self.assertEqual(self.staged_files(), [])
+
+    def test_a_line_the_import_would_refuse_is_left_out(self):
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('ah', '9001', 'Kapot', 'http://niet-https.example', '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
+        response = self.admin.post("/api/price-archive/export")
+        self.assertEqual(response.headers["X-Export-Skipped"], "1")
+        header = json.loads(zipfile.ZipFile(io.BytesIO(response.get_data())).read("mealieshopper-price-archive.json"))
+        self.assertEqual((header["files"], header["skipped"]), ([], {"offers": 1, "prices": 0}))
+
+
 class JobAndAccessTest(ArchiveCase):
     ROUTES = (
         ("get", "/api/price-archive"), ("post", "/api/price-archive/stage"), ("delete", "/api/price-archive/stage/" + "0" * 32),
         ("post", "/api/price-archive/jobs"), ("get", "/api/price-archive/jobs/latest"), ("delete", "/api/price-archive/jobs/abc"),
         ("post", "/api/price-archive/uploads"), ("put", "/api/price-archive/uploads/" + "0" * 32),
         ("delete", "/api/price-archive/uploads/" + "0" * 32), ("post", "/api/price-archive/uploads/" + "0" * 32 + "/stage"),
+        ("post", "/api/price-archive/export"),
     )
 
     def test_every_route_needs_a_session(self):
