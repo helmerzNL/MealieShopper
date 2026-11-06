@@ -1006,6 +1006,35 @@ class PassphraseTest(BackupCase):
                 self.assertNotIn(PASSPHRASE.encode(), path.read_bytes(), path.name)
 
 
+class OpenModeTest(BackupCase):
+    def test_the_owner_profile_comes_back_when_login_is_off(self):
+        # Zonder inloggen staat de eigenaar niet in users, maar de app doet alles als OWNER_ID: zijn profiel hoort erbij.
+        self.new_data_dir()
+        auth.forget_runtime_state()
+        with mock.patch.dict(os.environ, {"PASSKEY_AUTH_ENABLED": "false"}):
+            client = self.app.test_client()
+            wanted = {"preferredStore": "jumbo", "accent": "#0b62c4", "theme": "dark"}
+            self.assertEqual(client.put("/api/profile/preferences", json=wanted).status_code, 200)
+            with closing(self.connect()) as conn:
+                self.assertIsNone(conn.execute("SELECT 1 FROM users WHERE id = ?", (auth.OWNER_ID,)).fetchone())
+            response, data = self.make(client=client)
+            self.assertEqual(response.status_code, 200)
+            client.put("/api/profile/preferences", json={"preferredStore": "ah", "accent": "", "theme": "light"})
+            job = self.restore(data, client=client)
+            self.assertEqual(job["status"], "done", job)
+            self.assertEqual(job["summary"]["skippedProfiles"], 0)
+            status = client.get("/api/auth/status").get_json()
+            self.assertEqual({key: status[key] for key in wanted}, wanted)
+
+    def test_a_profile_of_someone_who_is_not_here_is_still_skipped(self):
+        self.seed()  # profielen van "owner" en "ghost"
+        _, data = self.make()
+        job = self.restore(data)
+        self.assertEqual(job["summary"]["skippedProfiles"], 1)
+        with closing(self.connect()) as conn:
+            self.assertEqual([row[0] for row in conn.execute("SELECT user_id FROM user_profiles")], [auth.OWNER_ID])
+
+
 class AccessTest(BackupCase):
     ROUTES = (
         ("get", "/api/backup"), ("post", "/api/backup"), ("post", "/api/backup/stage"), ("delete", "/api/backup/stage/" + "0" * 32),

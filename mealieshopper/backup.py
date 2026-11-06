@@ -639,7 +639,9 @@ def replace_everything(
         for table in reversed(DATA_TABLES):
             if table not in kept:
                 conn.execute(f"DELETE FROM {_quote(table)}")
-        users = {row["id"] for row in conn.execute("SELECT id FROM users")}
+        # De eigenaar bestaat op elke installatie: zonder inloggen (of voor de eerste gebruiker) doet de app alles als OWNER_ID,
+        # ook als die niet in users staat. Zonder deze regel verdween bij terugzetten zonder inlog het eigen profiel.
+        users = {row["id"] for row in conn.execute("SELECT id FROM users")} | {auth.OWNER_ID}
         for table in DATA_TABLES:
             if table in kept:
                 continue
