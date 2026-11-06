@@ -8,7 +8,18 @@ import respx
 from quart import Quart
 from quart.typing import TestClientProtocol
 
+from mealieshopper import auth
 from mealieshopper.app import create_app
+
+
+@pytest.fixture(autouse=True)
+def fresh_auth_state() -> None:
+    """Elke test begint zonder onthouden database en geheimen.
+
+    `create_app()` maakt de database niet meer aan (dat doet `before_serving`), dus een test die zelf een data-map
+    instelt en `auth.ensure_db()` aanroept, mag niet leunen op de vlag van een eerdere test.
+    """
+    auth.forget_runtime_state()
 
 
 @pytest.fixture

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -8,6 +9,12 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient  # noqa: E402
+
+
+async def start_app(app) -> None:
+    """Start en stop de app zoals de server doet: `before_serving` en `after_serving` lopen een keer."""
+    async with app.test_app():
+        pass
 
 
 class PurgeObsoleteSecretsTest(unittest.TestCase):
@@ -41,14 +48,14 @@ class PurgeObsoleteSecretsTest(unittest.TestCase):
 
     def test_app_start_purges(self):
         self.seed()
-        create_app()
+        asyncio.run(start_app(create_app()))
         self.assertEqual(auth.get_secret("AH_PASSWORD"), "")
         self.assertEqual(auth.get_secret("JUMBO_USERNAME"), "")
         self.assertEqual(auth.get_secret("AH_REFRESH_TOKEN"), "bewaren")
 
     def test_app_start_survives_unreachable_database(self):
         with mock.patch.object(auth, "purge_obsolete_secrets", side_effect=OSError("read-only")):
-            create_app()  # mag niet crashen
+            asyncio.run(start_app(create_app()))  # mag niet crashen
 
 
 class RemovedRoutesTest(unittest.TestCase):

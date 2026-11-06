@@ -1,5 +1,6 @@
 """De afbeeldingencache (mealieshopper/image_cache.py): winkelfoto's een keer ophalen en daarna van schijf serveren."""
 
+import asyncio
 import io
 import os
 import tempfile
@@ -15,6 +16,12 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 from mealieshopper import ah, ah_orders, auth, image_cache, offers  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from support import SyncClient  # noqa: E402
+
+
+async def start_app(app) -> None:
+    """Start en stop de app zoals de server doet: `before_serving` en `after_serving` lopen een keer."""
+    async with app.test_app():
+        pass
 
 AH = "https://static.ah.nl/dam/product/AHI_4354523130323030333238?revLabel=1&rendition=800x800_WEBP&fileType=binary"
 NOW = "2026-11-04T03:00:00+00:00"
@@ -484,7 +491,7 @@ class PausesTest(Case):
     def test_starting_the_app_lifts_the_stale_picnic_pause(self):
         image_cache._pause(self.PICNIC, image_cache._now())
         with self.assertLogs(level="INFO") as logs:
-            create_app()
+            asyncio.run(start_app(create_app()))
         self.assertIsNone(image_cache.paused_until(self.PICNIC))
         self.assertTrue(any(self.PICNIC in line for line in logs.output))
 

@@ -161,7 +161,7 @@ class ReadmeFilesTest(unittest.TestCase):
         used = set()
         for file in (ROOT / "mealieshopper").glob("*.py"):
             used |= set(re.findall(r"environ(?:\.get)?[\[(]\s*\"([A-Z][A-Z0-9_]+)\"", file.read_text(encoding="utf-8")))
-        used -= {"MEALIESHOPPER_ASSET_VERSION", "MEALIESHOPPER_DATA_DIR_UNUSED"}
+        used -= {"MEALIESHOPPER_ASSET_VERSION", "MEALIESHOPPER_DATA_DIR_UNUSED", "MEALIESHOPPER_TESTING"}
         self.assertIn("MEALIE_URL", used)
         for lang in READMES:
             for name in sorted(used):

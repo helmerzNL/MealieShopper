@@ -12,7 +12,7 @@ import requests
 from quart import Quart, Response, jsonify, redirect, render_template, request, send_file, send_from_directory
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
-from . import auth, deals
+from . import auth, deals, tasks
 from .i18n import tr
 
 
@@ -42,18 +42,27 @@ def create_app() -> Quart:
     backup.register_routes(app)
     profile.register_routes(app)
 
-    try:
-        removed = auth.purge_obsolete_secrets()
-        if removed:
-            app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)
-    except (sqlite3.Error, OSError):
-        # Een onbereikbare data-map meldt zich bij het eerste gebruik; opstarten blijft mogelijk.
-        app.logger.warning("Kon oude koppelingsgegevens niet opruimen", exc_info=True)
-    try:
-        for host in image_cache.lift_stale_pauses():  # eenmalig: de pauze die een versie van voor 3.7.1 Picnic gaf (#236)
-            app.logger.info("Pauze van de afbeeldingencache opgeheven voor %s", host)
-    except (sqlite3.Error, OSError):
-        app.logger.warning("Kon de pauze van de afbeeldingencache niet opheffen", exc_info=True)
+    tasks.register(app)
+
+    @app.before_serving
+    async def _startup() -> None:
+        """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
+        try:
+            auth.init_db()  # idempotent; het lazy pad (ensure_db) blijft bestaan
+            removed = auth.purge_obsolete_secrets()
+            if removed:
+                app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)
+        except (sqlite3.Error, OSError):
+            # Een onbereikbare data-map meldt zich bij het eerste gebruik; opstarten blijft mogelijk.
+            app.logger.warning("Kon oude koppelingsgegevens niet opruimen", exc_info=True)
+        try:
+            for host in image_cache.lift_stale_pauses():  # eenmalig: de pauze die een versie van voor 3.7.1 Picnic gaf (#236)
+                app.logger.info("Pauze van de afbeeldingencache opgeheven voor %s", host)
+        except (sqlite3.Error, OSError):
+            app.logger.warning("Kon de pauze van de afbeeldingencache niet opheffen", exc_info=True)
+        # De dagelijkse aanbiedingen-run hoort niet in de tests: die maken de app vaak aan.
+        if not environ.get("MEALIESHOPPER_TESTING"):
+            offers_schedule.start()
 
     # Fouten van externe diensten (AH, Mealie) geven we terug als 424 in
     # plaats van 502: reverse proxies (Cloudflare, SWAG, NPM) vervangen een 502
