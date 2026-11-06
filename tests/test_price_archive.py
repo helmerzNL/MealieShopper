@@ -22,7 +22,7 @@ from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
 ANNA = "een-heel-ander-wachtwoord"
-TOP = "195c8964d4e63eb1774fc14ba35b4f09-058f0a157c46eab27e38f65b4b2d96af9bf679fe"
+TOP = "0123456789abcdef0123456789abcdef-fedcba9876543210fedcba9876543210fedcba98"  # zoals <gist-id>-<revisie>, verzonnen
 ROOT_DIR = "supermarket-archives/2026-11-06"
 FOLDER = "https://www.supermarktaanbiedingen.com/folders"
 
@@ -534,6 +534,89 @@ class ReplaceTest(ArchiveCase):
         staged = self.stage(gist_zip()).get_json()
         self.assertEqual(staged["archived"], {"offers": 0, "prices": 0})
         self.assertEqual(staged["replace"]["new"], staged["new"])
+
+
+class TidyTest(ArchiveCase):
+    """Folderregels worden bij het importeren opgeschoond (price_archive_tidy.py)."""
+
+    def import_ah(self, *rows: dict) -> tuple[dict, list[dict]]:
+        files = gist_files(**{"ah-corrected/observations.jsonl": jsonl(list(rows))})
+        summary, _ = self.run_import(gist_zip(tar_gz(files)))
+        return summary, [row for row in self.rows("offer_history") if row["store"] == "ah"]
+
+    def test_a_combination_offer_is_left_out(self):
+        summary, rows = self.import_ah(
+            offer(1, source_title="AH Runderhamburger 2 stuks of gehaktschnitzel Hongaarse stijl 4 stuks"),
+            offer(2, source_title="Alle Ajax", description="2e halve prijs, diverse soorten"),
+            offer(3, source_title="AH Runderhamburger 4 stuks"),
+        )
+        self.assertEqual([row["product_id"] for row in rows], ["folder:ah0003"])
+        self.assertEqual(summary["tidied"]["groups"], 2)
+        self.assertEqual(by_store(summary)["ah"]["offers"]["new"], 1)
+
+    def test_without_a_known_pack_the_price_is_left_out(self):
+        summary, rows = self.import_ah(
+            offer(1, source_title="AH Runderhamburgers", description="2e gratis, 2 schalen", unit_size=None),
+            offer(2, source_title="AH Runderhamburger 4 stuks", description="voor 3.99", unit_size=None),
+        )
+        by_id = {row["product_id"]: row for row in rows}
+        self.assertEqual((by_id["folder:ah0001"]["price"], by_id["folder:ah0001"]["price_before"]), (None, None))
+        self.assertIn("verpakking onbekend", by_id["folder:ah0001"]["promo_label"])
+        self.assertIsNotNone(by_id["folder:ah0002"]["price"])  # een aantal stuks telt als verpakking
+        self.assertEqual(summary["tidied"]["unknownPack"], 1)
+
+    def test_own_format_lines_are_tidied_by_their_title(self):
+        summary, _ = self.run_import(own([
+            {"type": "offer", **{k: v for k, v in offer(1, "jumbo", title="Folder: Alle Ajax").items() if k != "source_title"}},
+            {"type": "offer", **offer(2, "jumbo")},
+        ]))
+        self.assertEqual(summary["tidied"]["groups"], 1)
+        self.assertEqual([row["product_id"] for row in self.rows("offer_history")], ["folder:jumbo0002"])
+
+    def add_own_products(self):
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('ah', '8001', 'AH Biologisch Halfvolle melk', '1000 ml', 1.39, 'https://www.ah.nl/producten/product/wi8001', '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
+            # Wat uit een archief kwam, telt niet als jouw product: anders vond de exacte koppeling hier twee producten.
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, unit_size, price, url, first_seen, last_seen) "
+                "VALUES ('ah', '9999', 'AH Biologisch Halfvolle melk', '1000 ml', 1.0, 'https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/1/x', '2013-01-01', '2013-01-07')"
+            )
+
+    def test_lines_are_linked_to_your_own_products(self):
+        self.add_own_products()
+        summary, rows = self.import_ah(
+            offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
+            offer(2, source_title="AH Biologisch halfvolle melk pak", description="per pak", unit_size=None, price=1.29),
+            offer(3, source_title="AH Biologisch halfvolle melk of karnemelk", description="2 pakken", unit_size=None),
+            offer(4, source_title="Alle Ajax", description="diverse soorten"),
+        )
+        self.assertEqual((summary["tidied"]["exact"], summary["tidied"]["approximate"]), (1, 2))
+        linked = [row for row in rows if row["product_id"] == "8001" and row["url"].startswith(FOLDER)]
+        self.assertEqual(sorted((row["url"].rsplit("/", 1)[1], row["price"]) for row in linked), [
+            ("product-1", 1.29),  # exact: naam en verpakking kloppen
+            ("product-2", None),  # op woorden: zonder prijs, de verpakking is onzeker
+            ("product-3", None),  # een combi die bij jouw product hoort, blijft, maar zonder prijs
+        ])
+        self.assertTrue(all("koppeling onzeker" in row["promo_label"] for row in linked if row["price"] is None))
+        # De combi die bij geen product hoort, blijft weg.
+        self.assertEqual(summary["tidied"]["groups"], 1)
+        self.assertNotIn("folder:ah0004", {row["product_id"] for row in rows})
+        # In de Prijsgeschiedenis staan de folderregels nu bij het product (plus de eigen aanbieding).
+        product = prices.history("ah", product="8001")["products"][0]
+        self.assertEqual(product["timesOnOffer"], 4)
+
+    def test_a_line_already_linked_in_the_archive_stays_as_it_is(self):
+        summary, rows = self.import_ah(offer(1, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels", price=None, price_before=None))
+        self.assertEqual([(row["product_id"], row["title"]) for row in rows], [("169238", "AH Runderhamburger 2st")])
+        self.assertEqual(summary["tidied"], {"exact": 0, "approximate": 0, "groups": 0, "unknownPack": 0})
+
+    def test_a_line_it_cannot_read_is_left_to_the_checks(self):
+        body = self.refused(own([{"type": "offer", **offer(1, unit_size=500)}]), "bad_row")
+        self.assertIn("unit_size", body["error"])
+        self.refused(own([{"type": "offer", **offer(1), "store": "lidl"}]), "bad_row")
 
 
 class JobAndAccessTest(ArchiveCase):

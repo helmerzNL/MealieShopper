@@ -13,6 +13,10 @@ Twee formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) 
   `supermarket-archives-<datum>.tar.gz`, met daarin `data-manifest.json` en zes gegevensbestanden (`GIST_FILES`). Het losse
   `.tar.gz` mag ook. De app leest alleen die bestanden; de tar wordt nooit uitgepakt en geen script uit het pakket draait.
 
+Elke folderregel (een aanbieding met een product-id `folder:…`) gaat eerst door het opschonen in price_archive_tidy.py: koppelen
+aan de producten die de app zelf kent, combi-aanbiedingen die bij geen product horen eruit, en geen prijs zonder bekende
+verpakking. Zo staan er in de Prijsgeschiedenis geen vreemde producten.
+
 Het bestand wordt niet vertrouwd. Elke controlesom, elke regel en elke waarde wordt gecontroleerd; één fout weigert het hele
 bestand en verandert niets. Wat er al staat gaat altijd voor: een regel die er al is, een eigen prijs op dezelfde dag of een
 correctie waarvan de oude waarde niet klopt, wordt overgeslagen en in de samenvatting genoemd.
@@ -54,6 +58,7 @@ from typing import IO, Any, Callable, Iterator
 from flask import Flask, jsonify, request
 
 from . import audit, auth, offers, prices
+from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -105,14 +110,6 @@ OFFER_COLUMNS = (
     "valid_from", "valid_until", "first_seen", "last_seen", "ended_at", "syncs", "continued", "personal",
 )
 PRICE_COLUMNS = ("store", "product_id", "day", "source", "title", "brand", "unit_size", "image", "url", "price", "seen_at")
-# Wat er eerder uit een prijsarchief kwam: een aanbieding met een product-id `folder:…` of het adres van een folderbron
-# (supermarktaanbiedingen.com, voordeelmuis.nl), en een prijs met een openbare bron. Wat de app zelf ophaalt, heeft dat nooit;
-# alleen dit gaat eruit bij **Vervangen**. Een leeg adres telt niet (COALESCE: anders maakt NULL de vergelijking onbepaald).
-ARCHIVE_OFFERS_SQL = (
-    "(product_id LIKE 'folder:%' OR COALESCE(url, '') LIKE 'https://www.supermarktaanbiedingen.com/folders/%' "
-    "OR COALESCE(url, '') LIKE 'https://www.voordeelmuis.nl/cgi-bin/v.cgi?%')"
-)
-ARCHIVE_PRICES_SQL = "(source IN ('public_press_release', 'public_observed_unknown'))"
 
 JOB_SCHEMA = """
 -- De import van een prijsarchief die loopt of net klaar is (zie price_archive.py). Hoort niet in de back-up.
@@ -838,8 +835,12 @@ def _same(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     return True
 
 
-def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, ...]], None] | None = None) -> int:
-    """Leest en controleert het hele archief tegen elk `plan`; `write` krijgt elke geldige regel. Geeft het aantal regels."""
+def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, ...]], None] | None = None, tidy: Tidy | None = None) -> int:
+    """Leest en controleert het hele archief tegen elk `plan`; `write` krijgt elke geldige regel. Geeft het aantal regels.
+
+    Met `tidy` gaat elke aanbieding eerst door het opschonen (price_archive_tidy.py): koppelen aan je eigen producten,
+    combi-aanbiedingen eruit, geen prijs zonder bekende verpakking.
+    """
     bounds = Today()
     count = 0
     for kind, data, name, number in archive.records():
@@ -848,6 +849,10 @@ def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, 
             raise ArchiveError("too_many", limit=MAX_RECORDS)
         try:
             if kind == "offer":
+                if tidy is not None:
+                    data = tidy.offer(data)
+                    if data is None:
+                        continue
                 row = normalise_offer(data, bounds)
                 for plan in plans:
                     plan.offer(row)
@@ -959,9 +964,10 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
         with closing(_connect()) as conn:
             plan = Plan(conn)
             replacing = Plan(conn, without_archive=True)
+            tidy = Tidy(conn)
             with rows_path.open("w", encoding="utf-8") as out:
                 os.chmod(rows_path, 0o600)
-                lines = check(archive, [plan, replacing], lambda kind, row: out.write(json.dumps([kind, list(row)], ensure_ascii=False) + "\n"))
+                lines = check(archive, [plan, replacing], lambda kind, row: out.write(json.dumps([kind, list(row)], ensure_ascii=False) + "\n"), tidy)
             corrections, _ = plan.resolve_corrections(conn)
             replace_corrections, _ = replacing.resolve_corrections(conn)
             with rows_path.open("a", encoding="utf-8") as out:
@@ -970,6 +976,7 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
             existing = archived(conn)
         summary = summarize(archive, plan, corrections, lines)
         summary["archived"] = existing
+        summary["tidied"] = dict(tidy.stats)
         summary["replace"] = _outcome(replacing, replace_corrections)
     except BaseException:
         rows_path.unlink(missing_ok=True)

@@ -1480,6 +1480,7 @@ I18N.add("en", {
   "price_archive.corrections": "Corrections of archive lines imported earlier: {apply} to apply, {already} already right, {missing} not needed (those lines are not there yet), {conflict} skipped (the current value differs).",
   "price_archive.total.one": "{count} new line in all.",
   "price_archive.total.other": "{count} new lines in all.",
+  "price_archive.tidied": "Tidied up: {linked} leaflet lines linked to your own products, {groups} combination offers skipped and the price left out for {prices} leaflet lines without a known pack size.",
   "price_archive.nothing_new": "Everything in this archive is already there. There is nothing to import.",
   "price_archive.replace_label": "Replace what came from a price archive before",
   "price_archive.replace_note": "There are now {offers} offers and {prices} prices from a price archive. With this box ticked they are removed first, in the same step; what the app fetched itself stays.",

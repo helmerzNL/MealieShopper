@@ -124,6 +124,18 @@ function priceArchiveRenderSummary(summary) {
   ].filter(Boolean);
   $("#price-archive-source").textContent = meta.join(" · ");
   $("#price-archive-summary").innerHTML = (outcome.stores || []).map((stats) => priceArchiveStoreLine(stats.store, stats)).join("");
+  const tidied = summary.tidied || {};
+  const linked = Number(tidied.exact || 0) + Number(tidied.approximate || 0);
+  const tidiedLine = $("#price-archive-tidied");
+  const anyTidied = linked + Number(tidied.groups || 0) + Number(tidied.unknownPack || 0);
+  tidiedLine.textContent = anyTidied
+    ? t("price_archive.tidied", {
+        linked: I18N.formatNumber(linked),
+        groups: I18N.formatNumber(tidied.groups || 0),
+        prices: I18N.formatNumber(tidied.unknownPack || 0),
+      })
+    : "";
+  tidiedLine.hidden = !anyTidied;
   const corrections = outcome.corrections || {};
   const counted = ["apply", "already", "missing", "conflict"].reduce((total, key) => total + Number(corrections[key] || 0), 0);
   const line = $("#price-archive-corrections");
