@@ -26,14 +26,7 @@ const ROUTE_SUBTABS = {
   settings: { "": "settings-link", users: "settings-users", audit: "settings-audit", system: "settings-system", appearance: "settings-appearance" },
 };
 
-// Winkels: per winkel de onderdelen en hun subtab. /stores/ah/receipts/<id> is een kassabon onder Bestellingen, en
-// /stores/ah/imported/<ref> een ingelezen oude bestelling (zie price_import.py).
-const STORE_SECTIONS = {
-  ah: { recipes: "ah-items-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  jumbo: { recipes: "ah-items-jumbo-recepten", lists: "ah-items-lijstjes", orders: "ah-items-bestellingen" },
-  picnic: { recipes: "ah-items-picnic", favorites: "ah-items-picnic-favorieten", orders: "ah-items-picnic-bestellingen" },
-  crisp: { favorites: "ah-items-crisp-favorieten", orders: "ah-items-crisp-bestellingen" },
-};
+// Winkels: de onderdelen per winkel en hun subtab staan in STORE_SECTIONS (app.js), omdat de winkelkeuze ze ook gebruikt.
 
 const router = { started: false, applying: 0, pending: "" };
 
@@ -93,7 +86,7 @@ function routerRefreshLinks() {
     const section = routerSlug(STORE_SECTIONS[itemsStore], link.dataset.subtab);
     if (section) link.setAttribute("href", storesPath(itemsStore, section));
   });
-  document.querySelectorAll("#items-store-list [data-store]").forEach((link) => link.setAttribute("href", storesPath(link.dataset.store)));
+  document.querySelectorAll("#items-store-list [data-store]").forEach((link) => link.setAttribute("href", itemsStorePath(link.dataset.store)));
   const offersStore = typeof offersState !== "undefined" && offersState.store !== "ah" ? offersState.store : "";
   document.querySelectorAll("#offers .subtab[data-subtab]").forEach((link) => {
     link.setAttribute("href", offersPath(routerSlug(ROUTE_SUBTABS.offers, link.dataset.subtab), { store: offersStore }));
@@ -123,16 +116,17 @@ function routerIsOwner() {
 function routerApplyStores(parts) {
   showPanel("ah-items", routerTab("ah-items"));
   const [store, part = "", id = ""] = parts;
+  const section = part === "receipts" || part === "imported" ? "orders" : part;
   if (store && STORE_SECTIONS[store] && store !== state.itemsStore) {
     if (!itemsStores().includes(store)) {
       router.pending = window.location.href; // de koppelingen zijn nog niet geladen: zie routerRetry
       return;
     }
-    switchItemsStore(store);
+    // De wissel opent zelf het onderdeel uit het adres, of zonder onderdeel (/stores/jumbo) de eerste tab van de winkel.
+    switchItemsStore(store, section);
+  } else if (STORE_SECTIONS[state.itemsStore]?.[section]) {
+    routerOpenSubtab(STORE_SECTIONS[state.itemsStore][section]);
   }
-  const section = part === "receipts" || part === "imported" ? "orders" : part;
-  const subtab = STORE_SECTIONS[state.itemsStore]?.[section];
-  if (subtab) routerOpenSubtab(subtab);
   if (section === "lists") {
     if (id) openAhList(id, { push: false });
     else if (state.ahOpenListId) showAhListsOverview();

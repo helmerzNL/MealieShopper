@@ -29,13 +29,13 @@ class StoreSubtabsTest(unittest.TestCase):
     ORDER = [
         "ah-items-recepten", "ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen",
         "ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen",
-        "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
+        "ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen",
     ]
     STORES = {
         "ah": ["ah-items-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
         "jumbo": ["ah-items-jumbo-recepten", "ah-items-lijstjes", "ah-items-bestellingen"],
         "picnic": ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"],
-        "crisp": ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
+        "crisp": ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"],
     }
 
     def nav(self):
@@ -54,7 +54,7 @@ class StoreSubtabsTest(unittest.TestCase):
         self.assertIn('hide("ah-items-lijstjes", ownTabs);', script)
         self.assertIn('hide("ah-items-bestellingen", ownTabs);', script)
         self.assertIn('CRISP_SUBTABS.forEach((subtab) => hide(subtab, !crisp));', script)
-        self.assertIn('const CRISP_SUBTABS = ["ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];', script)
+        self.assertIn('const CRISP_SUBTABS = ["ah-items-crisp-recepten", "ah-items-crisp-favorieten", "ah-items-crisp-bestellingen"];', script)
         self.assertIn('PICNIC_SUBTABS.forEach((subtab) => hide(subtab, !picnic));', script)
         self.assertIn('JUMBO_SUBTABS.forEach((subtab) => hide(subtab, state.itemsStore !== "jumbo"));', script)
         self.assertIn('const PICNIC_SUBTABS = ["ah-items-picnic", "ah-items-picnic-favorieten", "ah-items-picnic-bestellingen"];', script)
@@ -69,10 +69,12 @@ class StoreSubtabsTest(unittest.TestCase):
         self.assertIn('"ah.tab.recipes": "Recipes"', en)
         self.assertIn('data-i18n="ah.tab.recipes" href="/stores/ah/recipes" data-nav>Recepten</a>', HTML)
 
-    def test_switching_store_opens_the_first_visible_tab_of_that_store(self):
+    def test_switching_store_opens_the_same_section_of_that_store(self):
+        # Wat er per wissel open gaat, staat in test_store_switch.py; daar draait de wissel echt.
         script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
         body = script[script.index("function switchItemsStore"):script.index('localStorage.getItem("ms-store")')]
-        self.assertIn('document.querySelector("#ah-items .subtab[data-subtab]:not([hidden])")?.click();', body)
+        self.assertIn('document.querySelector(`#ah-items .subtab[data-subtab="${itemsSubtab(state.itemsStore, section)}"]`)?.click();', body)
+        self.assertLess(body.index("?.click();"), body.index("renderItemsStore();"), "eerst de tab, dan de balk")
         self.assertNotIn("PICNIC_SUBTABS", body)
         self.assertNotIn("loadAhFavoriteLists", body)
 

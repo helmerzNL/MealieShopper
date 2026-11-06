@@ -1,4 +1,5 @@
-"""Recepten van Albert Heijn en Jumbo in één keer in Mealie zetten: een selectie, of een hele receptgroep of -lijst.
+"""Recepten van Albert Heijn, Jumbo en Crisp in één keer in Mealie zetten: een selectie, of een hele receptgroep of -lijst
+(bij Crisp: al je bewaarde recepten).
 
 Er loopt hooguit één import tegelijk, op de achtergrond (zoals de AI-ronde in `ai_match.py`). De stand staat in het
 geheugen van dit proces: de container draait één gunicorn-worker. Met meer workers ziet een andere worker de voortgang
@@ -7,8 +8,8 @@ wordt overgeslagen en telt niet mee voor het maximum, dus een nieuwe import gaat
 
 Per recept zoeken we eerst in Mealie op de bron. Alleen als het er nog niet staat, halen we het bij de winkel op en
 zetten we het als schema.org-recept in Mealie, net als bij het importeren van één recept. Elk recept krijgt de tag met
-de naam van de winkel, en uit een groep of lijst ook de categorie met die naam (niet uit *Alle recepten* of de
-Jumbo-Favorieten: dat is geen eigen indeling). Rustig voor de winkels: anderhalve seconde tussen twee recepten, en bij
+de naam van de winkel, en uit een groep of lijst ook de categorie met die naam (niet uit *Alle recepten*, de
+Jumbo-Favorieten of de bewaarde Crisp-recepten: dat is geen eigen indeling). Rustig voor de winkels: anderhalve seconde tussen twee recepten, en bij
 een weigering (403 of 429) stopt de import.
 
 Fouten staan als code in de voortgang; de browser vertaalt ze. De tekst van de winkel of van Mealie komt alleen in het
@@ -25,12 +26,12 @@ from typing import Any
 
 import requests
 
-from . import ah, ah_recipes, audit, jumbo, jumbo_recipes, mealie
+from . import ah, ah_recipes, audit, crisp, jumbo, jumbo_recipes, mealie
 from .i18n import tr
 
 log = logging.getLogger(__name__)
 
-STORES = {"ah": "Albert Heijn", "jumbo": "Jumbo"}
+STORES = {"ah": "Albert Heijn", "jumbo": "Jumbo", "crisp": "Crisp"}
 MAX_SELECTION = 50  # een selectie mag iedereen; meer in één keer is een hele groep, en die is voor de beheerder
 MAX_IMPORTS = 250  # zoveel recepten per import halen we bij de winkel op; wat al in Mealie staat telt niet mee
 MAX_ITEMS = 1000  # zoveel recepten bekijken we hooguit per import
@@ -38,6 +39,7 @@ PAUSE_SECONDS = 1.5  # tussen twee aanroepen bij de winkel
 MAX_FAILURES_IN_A_ROW = 5  # daarna stopt de import: dan is er iets mis met de winkel of Mealie
 MAX_TITLE = 200
 _LIST_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_CRISP_REFUSED = re.compile(r"^(?:403|429):")  # zo begint de fout van crisp._call bij een weigering (403 wordt meestal CrispAuthError)
 FINAL = ("imported", "existing", "failed", "skipped")
 
 
@@ -205,10 +207,27 @@ def _jumbo_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict
     return {"items": items, "group": {"id": group_id, "name": ""} if group_id else None, "category": None, "groupSize": len(items)}
 
 
+def _crisp_plan(ids: list[str], titles: Any, group_id: str, whole: bool) -> dict[str, Any]:
+    if not crisp.configured_client_id():
+        raise ValueError(tr(
+            "Crisp is niet gekoppeld. De beheerder koppelt het bij Instellingen > Koppelen > Crisp.",
+            "Crisp is not linked. The admin links it under Settings > Link > Crisp.",
+        ))
+    if group_id:
+        raise ValueError(tr("Crisp heeft geen receptgroepen", "Crisp has no recipe groups"))
+    names = titles if isinstance(titles, dict) else {}
+    items = []
+    for key in ids:
+        recipe_id = crisp.valid_recipe_id(key)
+        items.append({"id": recipe_id, "title": _title(names.get(key)), "source": crisp.source_url(recipe_id)})
+    # Bij al je bewaarde recepten haalt de import de lijst zelf op: dat is een aanvraag bij Crisp.
+    return {"items": items, "group": None, "category": None, "groupSize": len(items)}
+
+
 def _valid_store(store: Any) -> str:
     key = str(store or "").strip().lower()
     if key not in STORES:
-        raise ValueError(tr("Kies Albert Heijn of Jumbo", "Choose Albert Heijn or Jumbo"))
+        raise ValueError(tr("Kies Albert Heijn, Jumbo of Crisp", "Choose Albert Heijn, Jumbo or Crisp"))
     return key
 
 
@@ -222,7 +241,7 @@ def start(
     user: dict[str, Any] | None = None,
     background: bool = True,
 ) -> dict[str, Any]:
-    """Start een import. `whole`: de hele groep of lijst `group` (bij AH zonder groep: alle bewaarde recepten); anders
+    """Start een import. `whole`: de hele groep of lijst `group` (bij AH zonder groep en bij Crisp: alle bewaarde recepten); anders
     de recepten `ids`, met `group` alleen voor de categorie. Of iemand een hele groep mag, bepaalt de route
     (`/api/mealie/bulk-import/group` is voor de beheerder). Er loopt hooguit één import; met `background=False` wacht
     deze aanroep tot de import klaar is. Doet zelf geen aanvragen bij de winkel of Mealie."""
@@ -241,7 +260,12 @@ def start(
                 f"Kies hooguit {MAX_SELECTION} recepten tegelijk, of importeer de hele groep.",
                 f"Choose at most {MAX_SELECTION} recipes at a time, or import the whole group.",
             ))
-    plan = _ah_plan(chosen, group_id, whole) if store == "ah" else _jumbo_plan(chosen, titles, group_id, whole)
+    if store == "ah":
+        plan = _ah_plan(chosen, group_id, whole)
+    elif store == "jumbo":
+        plan = _jumbo_plan(chosen, titles, group_id, whole)
+    else:
+        plan = _crisp_plan(chosen, titles, group_id, whole)
     plan.update(store=store, whole=bool(whole))
     with _lock:
         if _job.get("state") == "running":
@@ -250,7 +274,8 @@ def start(
         _job.clear()
         _job.update(
             state="running",
-            phase="preparing" if store == "jumbo" and (whole or group_id) else "importing",
+            # Een Jumbo-lijst en al je bewaarde Crisp-recepten haalt de draad eerst bij de winkel op.
+            phase="preparing" if (store == "jumbo" and (whole or group_id)) or (store == "crisp" and whole) else "importing",
             store=store,
             storeName=STORES[store],
             group=plan["group"],
@@ -381,12 +406,27 @@ def _collect_jumbo(info: dict[str, Any]) -> None:
             return
 
 
+def _collect_crisp() -> None:
+    """Al je bewaarde Crisp-recepten, tot `MAX_ITEMS`. Crisp geeft de hele lijst in één antwoord."""
+    try:
+        recipes = crisp.get_saved_recipes()["recipes"]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Bulkimport: bewaarde recepten van Crisp ophalen mislukt: %s", exc)
+        raise _Stop(_store_refusal("crisp", exc) or "crisp_saved_failed") from exc
+    items = [{"id": recipe["id"], "title": _title(recipe.get("name")), "source": crisp.source_url(recipe["id"])} for recipe in recipes[:MAX_ITEMS]]
+    _add_items(items)
+    _set(groupSize=len(items))
+
+
 def _fetch(store: str, item: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
     """Haal het recept bij de winkel op: (bron, schema.org-recept, titel)."""
     if store == "ah":
         number = int(item["id"])
         ld = ah.get_recipe_jsonld(number)
         return ah.recipe_url(number), ld, str(ld.get("name") or "")
+    if store == "crisp":
+        recipe = crisp.get_recipe(item["id"])
+        return crisp.source_url(item["id"]), crisp.jsonld(recipe), str(recipe.get("name") or "")
     recipe = jumbo_recipes.get_recipe(item["id"])
     return jumbo_recipes.source_url(recipe), jumbo_recipes.jsonld(recipe), str(recipe.get("name") or "")
 
@@ -399,6 +439,10 @@ def _store_refusal(store: str, exc: Exception) -> str | None:
         return "jumbo_blocked"
     if store == "jumbo" and isinstance(exc, jumbo.JumboAuthError):
         return "jumbo_auth"
+    if store == "crisp" and isinstance(exc, crisp.CrispAuthError):
+        return "crisp_auth"
+    if store == "crisp" and _CRISP_REFUSED.match(str(exc)):
+        return "crisp_blocked"
     return None
 
 
@@ -415,6 +459,8 @@ def _import_all(plan: dict[str, Any]) -> None:
             if _cancel.is_set():
                 _finish("cancelled")
                 return
+    if store == "crisp" and plan["whole"]:
+        _collect_crisp()
     _set(phase="importing")
     organizers = _Organizers(STORES[store], category)
     catalog = mealie.Catalog()
@@ -452,7 +498,7 @@ def _import_all(plan: dict[str, Any]) -> None:
             source, recipe, title = _fetch(store, item)
             stage = "mealie_failed"
             slug = mealie.import_via_jsonld(source, recipe, catalog=catalog)
-        except (ah.RecipeUnavailable, jumbo_recipes.RecipeUnavailable) as exc:
+        except (ah.RecipeUnavailable, jumbo_recipes.RecipeUnavailable, crisp.RecipeUnavailable) as exc:
             log.info("Bulkimport: %s-recept %s niet te importeren: %s", store, item["id"], exc)
             _set_item(index, status="failed", error="no_content")
             continue  # dit recept zelf: telt niet als fout van de winkel

@@ -1,7 +1,9 @@
-// Crisp: koppelen (met een code per mail), het mandje aanpassen, favorieten en bestellingen onder Winkels, en de verkenner.
+// Crisp: koppelen (met een code per mail), het mandje aanpassen, recepten, favorieten en bestellingen onder Winkels, en de verkenner.
 // Laadt na app.js en picnic.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, postJson, setBusy, t, ...).
 
 const crispState = { connected: false, codePending: false, report: null };
+// Je bewaarde recepten (Winkels > Crisp > Recepten); `run` negeert het antwoord van een eerdere, tragere aanvraag.
+const crispRecipes = { recipes: [], query: "", loaded: false, run: 0 };
 const crispFavorites = { products: [], query: "", loaded: false, run: 0 };
 // `imported`: de ingelezen oude bestellingen (zie price_import.py), die bij de afgelopen bestellingen staan.
 const crispOrders = { upcoming: [], past: [], imported: [], syncedAt: null, upcomingFailed: false, detail: null, loaded: false, run: 0 };
@@ -46,7 +48,8 @@ function setCrispLinked(linked) {
   crispState.connected = linked;
   crispState.codePending = false;
   state.linkedStores.crisp = linked;
-  // Een ander (of geen) account: favorieten en bestellingen opnieuw laden zodra je ze opent.
+  // Een ander (of geen) account: recepten, favorieten en bestellingen opnieuw laden zodra je ze opent.
+  crispRecipes.loaded = false;
   crispFavorites.loaded = false;
   crispOrders.loaded = false;
   renderCrispStatus();
@@ -125,6 +128,40 @@ async function runCrispExplore() {
     message("#crisp-explore-message", error.message);
   } finally {
     setBusy(button, false);
+  }
+}
+
+// ---- Recepten (Winkels > Crisp): de recepten die je in de Crisp-app hebt bewaard. Het detail, importeren en inplannen
+// zijn dezelfde als bij Picnic (recipe_search.js); selecteren en in bulk importeren staat in recipe_bulk.js.
+function renderCrispRecipes() {
+  const query = crispRecipes.query.trim();
+  const all = crispRecipes.recipes;
+  const shown = query ? all.filter((recipe) => matchesWords(recipe.name, query)) : all;
+  $("#crisp-recipes").innerHTML = shown.map((recipe) => renderStoreRecipeCard("crisp", recipe)).join("");
+  $("#crisp-recipe-filter").disabled = !all.length;
+  $("#crisp-recipes-status").textContent = all.length ? t("picnic.recipes.count", { count: I18N.formatNumber(all.length) }) : "";
+  if (crispRecipes.loaded) message("#crisp-recipes-message", !all.length ? t("crisp.recipes.none") : shown.length ? "" : t("picnic.recipes.none_match", { query }), "success");
+  if (typeof recipeBulkDecorate === "function") recipeBulkDecorate("crisp");
+}
+
+async function loadCrispRecipes() {
+  const button = $("#load-crisp-recipes");
+  const run = ++crispRecipes.run;
+  setBusy(button, true);
+  message("#crisp-recipes-message", "");
+  try {
+    const data = await jsonFetch("/api/crisp/recipes?source=saved");
+    if (run !== crispRecipes.run) return;
+    crispRecipes.recipes = data.recipes || [];
+    crispRecipes.loaded = true;
+    renderCrispRecipes();
+  } catch (error) {
+    if (run !== crispRecipes.run) return;
+    crispRecipes.recipes = [];
+    renderCrispRecipes();
+    message("#crisp-recipes-message", error.message);
+  } finally {
+    if (run === crispRecipes.run) setBusy(button, false);
   }
 }
 
@@ -474,6 +511,16 @@ $("#crisp-code-form").addEventListener("submit", confirmCrispCode);
 $("#crisp-check").addEventListener("click", checkCrispConnection);
 $("#crisp-unlink").addEventListener("click", unlinkCrisp);
 $("#crisp-explore-run").addEventListener("click", runCrispExplore);
+$("#load-crisp-recipes").addEventListener("click", loadCrispRecipes);
+$("#crisp-recipe-filter").addEventListener("input", (event) => {
+  crispRecipes.query = event.target.value;
+  renderCrispRecipes();
+});
+$("#crisp-recipes").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-store-open]");
+  if (open) openStoreRecipe("crisp", open.dataset.storeOpen.split(":", 2)[1], CRISP_HOST);
+});
+$("#crisp-recipe-back").addEventListener("click", () => showRecipeList(CRISP_HOST));
 $("#load-crisp-favorites").addEventListener("click", loadCrispFavorites);
 $("#crisp-favorite-filter").addEventListener("input", (event) => {
   crispFavorites.query = event.target.value;
@@ -523,6 +570,7 @@ $("#crisp-explore-copy").addEventListener("click", async (event) => {
 window.addEventListener("ms:languagechange", () => {
   renderCrispStatus();
   renderCrispExploreSummary();
+  if (crispRecipes.loaded) renderCrispRecipes();
   if (crispFavorites.loaded) renderCrispFavorites();
   if (crispOrders.loaded) renderCrispOrders();
 });

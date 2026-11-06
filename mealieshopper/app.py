@@ -23,7 +23,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
-    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261106-1")
+    app.config["ASSET_VERSION"] = environ.get("MEALIESHOPPER_ASSET_VERSION", "20261106-3")
     # De receptvoorstellen bij Aanbiedingen staan standaard verborgen zolang de koppelingen niet goed genoeg zijn.
     app.config["OFFERS_RECIPES"] = environ.get("MEALIESHOPPER_OFFERS_RECIPES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -1335,9 +1335,17 @@ def create_app() -> Flask:
             return crisp_error(exc)
 
     @app.get("/api/crisp/recipes")
-    def crisp_recipe_search():
+    def crisp_recipe_list():
+        # Met `q` zoeken in alle Crisp-recepten (Recepten zoeken); anders een lijst, zoals bij Picnic. Crisp heeft één
+        # lijst: je bewaarde recepten (Winkels > Crisp > Recepten).
+        query = request.args.get("q")
+        source = (request.args.get("source") or "saved").strip().lower()
         try:
-            return jsonify(crisp.search_recipes(request.args.get("q")))
+            if query is not None:
+                return jsonify(crisp.search_recipes(query))
+            if source != "saved":
+                raise ValueError(tr("Onbekende bron voor recepten (kies saved)", "Unknown recipe source (choose saved)"))
+            return jsonify({"source": "saved", **crisp.get_saved_recipes()})
         except Exception as exc:  # noqa: BLE001
             return crisp_error(exc)
 

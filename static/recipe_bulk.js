@@ -1,16 +1,20 @@
-// Recepten van AH en Jumbo in één keer in Mealie zetten: kaarten selecteren, of een hele groep of lijst (alleen de beheerder).
+// Recepten van AH, Jumbo en Crisp in één keer in Mealie zetten: kaarten selecteren, of een hele groep of lijst (alleen de beheerder).
 // Laadt na app.js, picnic.js en jumbo.js en gebruikt daar de hulpfuncties van ($, jsonFetch, postJson, message, setBusy, t, ...).
+// crisp.js laadt later; `crispRecipes` lezen we pas als je iets kiest.
 // De import loopt op de server (recipe_bulk.py). Dit script volgt hem elke twee seconden, ook na het herladen van de pagina.
 
 const RECIPE_BULK_POLL_MS = 2000;
 const RECIPE_BULK_SECONDS_PER_RECIPE = 4; // ongeveer: ophalen bij de winkel, de pauze ertussen en de import in Mealie
-const RECIPE_BULK_GRIDS = { ah: "#ah-recipes", jumbo: "#jumbo-favorites" };
-const RECIPE_BULK_STORES = { ah: "Albert Heijn", jumbo: "Jumbo" };
+const RECIPE_BULK_GRIDS = { ah: "#ah-recipes", jumbo: "#jumbo-favorites", crisp: "#crisp-recipes" };
+const RECIPE_BULK_STORES = { ah: "Albert Heijn", jumbo: "Jumbo", crisp: "Crisp" };
 // De codes van de server, elk met een eigen tekst (zo blijven de sleutels letterlijk in de code staan).
 const RECIPE_BULK_ERRORS = {
   ah_blocked: "bulk.error.ah_blocked",
   jumbo_blocked: "bulk.error.jumbo_blocked",
   jumbo_auth: "bulk.error.jumbo_auth",
+  crisp_blocked: "bulk.error.crisp_blocked",
+  crisp_auth: "bulk.error.crisp_auth",
+  crisp_saved_failed: "bulk.error.crisp_saved_failed",
   mealie_denied: "bulk.error.mealie_denied",
   mealie_lookup: "bulk.error.mealie_lookup",
   too_many_failures: "bulk.error.too_many_failures",
@@ -43,8 +47,8 @@ const RECIPE_BULK_WARNINGS = {
 const RECIPE_BULK_REPORT_CLASS = { imported: "is-new", existing: "is-known", failed: "is-problem", skipped: "is-problem" };
 
 const recipeBulk = {
-  selecting: { ah: false, jumbo: false },
-  selected: { ah: new Map(), jumbo: new Map() }, // id -> titel, in de volgorde van kiezen
+  selecting: { ah: false, jumbo: false, crisp: false },
+  selected: { ah: new Map(), jumbo: new Map(), crisp: new Map() }, // id -> titel, in de volgorde van kiezen
   limits: { selection: 50, imports: 250, items: 1000 },
   job: null, // de laatste stand van de server
   timer: 0,
@@ -71,9 +75,10 @@ function recipeBulkCards(store) {
   return grid ? [...grid.querySelectorAll(`.recipe-card[data-store-recipe^="${store}:"]`)] : [];
 }
 
-// De gekozen groep of lijst: `category` is de naam die de recepten in Mealie als categorie krijgen ("" bij Alle recepten
-// en de Jumbo-Favorieten: dat is geen eigen indeling). Null als er bij Jumbo geen lijst te kiezen is.
+// De gekozen groep of lijst: `category` is de naam die de recepten in Mealie als categorie krijgen ("" bij Alle recepten,
+// de Jumbo-Favorieten en de bewaarde Crisp-recepten: dat is geen eigen indeling). Null als er bij Jumbo geen lijst te kiezen is.
 function recipeBulkGroup(store) {
+  if (store === "crisp") return { id: "", name: "", count: crispRecipes.recipes.length, category: "" };
   if (store === "ah") {
     const group = state.ahRecipeGroups.find((item) => item.id === state.ahRecipeGroup);
     if (group) return { id: group.id, name: group.name, count: group.count, category: group.name };
@@ -134,7 +139,7 @@ function recipeBulkRenderTools(store) {
 
   const group = recipeBulkGroup(store);
   const groupButton = recipeBulkEl("group", store);
-  groupButton.hidden = !(recipeBulkIsOwner() && group && group.count > 0 && (store === "ah" || group.id));
+  groupButton.hidden = !(recipeBulkIsOwner() && group && group.count > 0 && (store !== "jumbo" || group.id));
   if (!groupButton.hidden) groupButton.textContent = recipeBulkGroupLabel(store, group);
   groupButton.disabled = recipeBulkRunning();
 
@@ -232,7 +237,7 @@ function recipeBulkConfirmLines(request) {
     selection: () => tn("bulk.confirm.selection", request.count, { store }),
     group: () => tn("bulk.confirm.group", request.count, { name: request.name }),
     list: () => tn("bulk.confirm.list", request.count, { name: request.name }),
-    saved: () => tn("bulk.confirm.saved", request.count),
+    saved: () => tn("bulk.confirm.saved", request.count, { store }),
   }[request.kind]();
   const lines = [
     what,

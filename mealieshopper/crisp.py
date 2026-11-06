@@ -69,6 +69,10 @@ class CrispBasketError(RuntimeError):
     """Crisp weigerde een wijziging in het mandje (een `_error` in het antwoord); de tekst is van onszelf."""
 
 
+class RecipeUnavailable(RuntimeError):
+    """Dit recept heeft geen ingrediënten en geen bereiding: niets om in Mealie te zetten (geen fout van Crisp zelf)."""
+
+
 def _not_linked() -> RuntimeError:
     return RuntimeError(
         tr(
@@ -581,14 +585,19 @@ def get_open_orders() -> list[dict[str, Any]]:
     return sorted(orders, key=lambda order: str(order.get("windowStart") or order.get("deliveryDate") or ""))
 
 
-def get_favorites() -> dict[str, Any]:
-    """Je bewaarde producten ("Door jou bewaard" in de app). Recepten in die lijst laten we weg."""
+def _saved_entries() -> list[dict[str, Any]]:
+    """De lijst "Door jou bewaard" (`GET /saved/list`): producten en recepten door elkaar, als `{type, item}`."""
     data = _authed("GET", "/saved/list")
     entries = data.get("items") if isinstance(data, dict) else None
+    return [entry for entry in entries or [] if isinstance(entry, dict)]
+
+
+def get_favorites() -> dict[str, Any]:
+    """Je bewaarde producten ("Door jou bewaard" in de app). De recepten uit die lijst staan bij `get_saved_recipes`."""
     products = []
     seen: set[str] = set()
-    for entry in entries or []:
-        item = entry.get("item") if isinstance(entry, dict) and entry.get("type") == "product" else None
+    for entry in _saved_entries():
+        item = entry.get("item") if entry.get("type") == "product" else None
         if isinstance(item, dict) and item.get("id") and item.get("title"):
             product = product_summary(item)
             if product["id"] not in seen:
@@ -685,18 +694,42 @@ def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _plain_recipe(item: dict[str, Any]) -> bool:
+    """Eén gewoon recept. Een bundel (meerdere recepten), een eigen recept (`user`) of een maaltijdbox (`mealkit`) niet."""
+    return item.get("itemType", "recipe") == "recipe" and (item.get("type") or "") in ("", "recipe") and bool(item.get("id"))
+
+
+def _recipe_cards(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Kaarten van gewone recepten met een naam, zonder dubbelen, in de volgorde van Crisp."""
+    cards: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not _plain_recipe(item):
+            continue
+        card = recipe_summary(item)
+        if card["name"] and card["id"] not in seen:
+            seen.add(card["id"])
+            cards.append(card)
+    return cards
+
+
 def search_recipes(query: Any) -> dict[str, Any]:
     """Zoek in de recepten van Crisp, zoals het receptenzoeken in de app. Bundels (meerdere recepten) laten we weg."""
     term = str(query or "").strip()
     if not term:
         raise ValueError(tr("Zoekterm ontbreekt", "Search term missing"))
     data = _authed("POST", "/search/recipe", {"query": term, "cursor": False, "limit": RECIPE_SEARCH_LIMIT})
-    recipes = [
-        recipe_summary(item)
-        for item in _items(data)
-        if item.get("itemType", "recipe") == "recipe" and (item.get("type") or "") in ("", "recipe") and item.get("id")
-    ]
-    recipes = [recipe for recipe in recipes if recipe["name"]]
+    recipes = _recipe_cards(_items(data))
+    return {"recipes": recipes, "total": len(recipes)}
+
+
+def get_saved_recipes() -> dict[str, Any]:
+    """Je bewaarde recepten: de recepten uit "Door jou bewaard" (`GET /saved/list`), in de volgorde van de app.
+
+    Dezelfde lijst als `get_favorites`; daar staan de producten. Net als bij het zoeken alleen gewone recepten.
+    """
+    items = [entry["item"] for entry in _saved_entries() if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)]
+    recipes = _recipe_cards(items)
     return {"recipes": recipes, "total": len(recipes)}
 
 
@@ -705,6 +738,9 @@ def _recipe_id(value: Any) -> str:
     if not _ID.match(recipe_id):
         raise ValueError(tr("Geen geldig recept", "Not a valid recipe"))
     return recipe_id
+
+
+valid_recipe_id = _recipe_id  # voor de bulk-import (recipe_bulk.py)
 
 
 def _plain(value: Any) -> str:
@@ -728,6 +764,7 @@ def recipe_details(recipe: dict[str, Any]) -> dict[str, Any]:
             ingredients.append(
                 {
                     "line": f"{quantity} {name}".strip(),
+                    "name": name,
                     "productId": str(ingredient.get("productId") or product.get("id") or "") or None,
                     "addSelf": group.get("groupType") == "addSelf" or ingredient.get("type") == "addSelf",
                 }
@@ -758,7 +795,7 @@ def jsonld(recipe: dict[str, Any]) -> dict[str, Any]:
     lines = [item["line"] for item in recipe["ingredients"]]
     steps = [{"@type": "HowToStep", "text": text} for text in recipe["steps"]]
     if not lines and not steps:
-        raise RuntimeError(tr("Dit Crisp-recept heeft geen ingrediënten of bereiding", "This Crisp recipe has no ingredients or steps"))
+        raise RecipeUnavailable(tr("Dit Crisp-recept heeft geen ingrediënten of bereiding", "This Crisp recipe has no ingredients or steps"))
     data: dict[str, Any] = {
         "@context": "https://schema.org",
         "@type": "Recipe",
@@ -882,7 +919,17 @@ def explore() -> dict[str, Any]:
     def saved_shape(data: Any) -> dict[str, Any]:
         items = [entry for entry in (data.get("items") or [] if isinstance(data, dict) else []) if isinstance(entry, dict)]
         product_entry = next((entry.get("item") for entry in items if entry.get("type") == "product"), {})
-        return {"count": len(items), "types": sorted({str(entry.get("type")) for entry in items}), "productFields": _keys(product_entry)}
+        # Een bewaard recept: zijn velden laten zien of het een volledig recept is (zoals de kaarten van het zoeken).
+        recipe_entry = next((entry.get("item") for entry in items if entry.get("type") == "recipe"), {})
+        return {
+            "count": len(items),
+            "types": sorted({str(entry.get("type")) for entry in items}),
+            "productFields": _keys(product_entry),
+            "recipeFields": _keys(recipe_entry),
+            "recipeKinds": sorted({str(entry["item"].get("type") or "recipe") for entry in items
+                                   if entry.get("type") == "recipe" and isinstance(entry.get("item"), dict)}),
+            "hasCursor": bool(isinstance(data, dict) and data.get("cursor")),
+        }
 
     check("favorites", "GET /saved/list", "/saved/list", inspect=saved_shape)
 
