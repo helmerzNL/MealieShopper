@@ -761,6 +761,7 @@ I18N.add("en", {
   "err.bad_json": "Unexpected response from the server (not valid JSON).",
   "err.server": "Server error ({status}). Is the app up to date and are you logged in?{hint}",
   "err.generic": "Something went wrong",
+  "upload.stalled": "The upload is stuck: the server, or a proxy in front of it, no longer answers. Try again; if it keeps hanging, check the container logs.",
   "passkey.unsupported": "This browser doesn't support passkeys.",
   "passkey.needs_https": "Open MealieShopper over HTTPS to use passkeys.",
   "passkey.waiting": "Waiting for your passkey prompt...",

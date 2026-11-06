@@ -36,6 +36,7 @@ SOURCES = {
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
     "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
+    "upload.js": (STATIC / "upload.js").read_text(encoding="utf-8"),
     "backup.js": (STATIC / "backup.js").read_text(encoding="utf-8"),
     "price_archive.js": (STATIC / "price_archive.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),

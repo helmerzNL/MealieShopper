@@ -2,6 +2,25 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.18.1
+
+### Opgelost in 3.18.1
+
+*English summary: restoring a large backup (or importing a large price archive) no longer hangs during the upload. The screen now sends the file in parts of 4 MB, each a request of its own, so a reverse proxy, tunnel or CDN in front of the app (Cloudflare's free plan allows at most 100 MB per request) no longer refuses it or leaves it waiting; a part that fails is sent again, and an upload that really gets no further now says so.*
+
+- **Opgelost: het terugzetten van een grote back-up bleef hangen tijdens het uploaden** (bijvoorbeeld op *9,6 MB van 100,5 MB*). Met een geïmporteerd prijsarchief is een back-up al snel ruim 100 MB, en het scherm stuurde dat in één verzoek. Wat voor de app staat (een reverse proxy, een tunnel of CDN zoals Cloudflare, dat op de gratis versie hoogstens 100 MB per verzoek doorlaat) weigerde dat of gaf het nooit door; de browser bleef dan staan bij wat in de buffers paste en hoorde nooit waarom. De app zelf verwerkt zo'n bestand prima (in een test 115 MB in 8 seconden, uploaden en controleren samen).
+- **Uploaden in stukken** (nieuw: `uploads.py` en `static/upload.js`). Het scherm stuurt het bestand in stukken van 4 MB, elk een eigen verzoek, en de server zet ze achter elkaar in `.restore-<code>.part` in de data-map; daarna controleert hij het bestand zoals altijd. De balk loopt over het hele bestand.
+  - Een stuk dat mislukt, twee minuten geen antwoord krijgt of een `502`, `503` of `504` van de proxy krijgt (of de varianten van Cloudflare), gaat tot vier keer opnieuw. De server zegt bij elk stuk hoeveel hij al heeft (`409` met `received` als het niet aansluit), dus na een verloren antwoord gaat het verder waar de server is, zonder iets dubbel te plakken.
+  - Weigert een proxy zelfs een stuk van 4 MB (`413`), dan worden de stukken kleiner (tot 256 kB).
+  - Komt de upload echt niet verder, dan zegt het scherm dat, in plaats van te blijven staan.
+  - Een te groot bestand (boven 200 MB) wordt meteen geweigerd, vóór de eerste byte. Een upload waar een uur niets bij kwam, wordt opgeruimd; een fabrieksreset neemt hem mee.
+- **Het prijsarchief** (Instellingen, Systeem, Prijsarchief importeren) uploadt op dezelfde manier; het archief van de gist is ook ruim 100 MB.
+- **API:** `POST /api/backup/uploads` met `{"size": …}`, `PUT /api/backup/uploads/<token>?offset=…` (het stuk als body), `DELETE /api/backup/uploads/<token>` en `POST /api/backup/uploads/<token>/stage` met `{"size": …}`; hetzelfde onder `/api/price-archive/uploads`. `POST /api/backup/stage` en `POST /api/price-archive/stage` met het hele bestand werken nog zoals voorheen.
+- **README en handleiding** (NL en EN): een proxy hoeft geen verzoek van 200 MB meer toe te laten; de regel over de 120 seconden van gunicorn is weg.
+- **Ontwikkeling**: `test_backup` heeft 11 nieuwe tests voor uploaden in stukken (dezelfde samenvatting en het terugzetten, een stuk dat niet aansluit, te groot vooraf en per stuk, de grens, een onvolledige upload, een geweigerd bestand, tokens, weggooien, opruimen, rechten en fabrieksreset) en `test_price_archive` 2; de routes staan in de toegangstests.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-9`). Ververs de pagina één keer.
+- Pull request [#267](https://github.com/helmerzNL/MealieShopper/pull/267).
+
 ## v3.18.0
 
 ### Nieuw, opgelost en verwijderd in 3.18.0

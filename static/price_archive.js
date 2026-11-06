@@ -33,34 +33,18 @@ function priceArchiveSetBusy(busy) {
   });
 }
 
-// XMLHttpRequest meldt hoeveel bytes er zijn verstuurd (fetch niet); daarna controleert de server het archief.
+// In stukken (upload.js): een archief van 100 MB in één verzoek komt niet door elke proxy. Daarna controleert de server
+// het archief.
 function priceArchiveUpload(file) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", "/api/price-archive/stage");
-    request.setRequestHeader("Content-Type", "application/octet-stream");
-    request.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
+  return uploadInChunks(file, "/api/price-archive/uploads", {
+    onProgress: (done, total) =>
       priceArchiveShowProgress({
         label: t("price_archive.progress.uploading"),
-        value: event.loaded,
-        max: event.total,
-        note: t("backup.note.bytes", { done: backupMegabytes(event.loaded), total: backupMegabytes(event.total) }),
-      });
-    };
-    request.upload.onload = () => priceArchiveShowProgress({ label: t("price_archive.progress.reading"), note: t("price_archive.note.reading") });
-    request.onerror = () => reject(new Error(t("err.generic")));
-    request.onload = () => {
-      let data = {};
-      try {
-        data = JSON.parse(request.responseText);
-      } catch (error) {
-        data = {};
-      }
-      if (request.status >= 200 && request.status < 300) resolve(data);
-      else reject(new Error(data.error || t("err.server", { status: request.status, hint: request.status === 413 || request.status === 502 ? t("err.proxy_hint") : "" })));
-    };
-    request.send(file);
+        value: done,
+        max: total,
+        note: t("backup.note.bytes", { done: backupMegabytes(done), total: backupMegabytes(total) }),
+      }),
+    onChecking: () => priceArchiveShowProgress({ label: t("price_archive.progress.reading"), note: t("price_archive.note.reading") }),
   });
 }
 

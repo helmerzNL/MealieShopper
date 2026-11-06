@@ -17,7 +17,7 @@ from unittest import mock
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
-from mealieshopper import auth, auth_password, backup, price_archive, prices  # noqa: E402
+from mealieshopper import auth, auth_password, backup, price_archive, prices, uploads  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 
 PASSWORD = "koffie-met-melk-42"
@@ -623,6 +623,8 @@ class JobAndAccessTest(ArchiveCase):
     ROUTES = (
         ("get", "/api/price-archive"), ("post", "/api/price-archive/stage"), ("delete", "/api/price-archive/stage/" + "0" * 32),
         ("post", "/api/price-archive/jobs"), ("get", "/api/price-archive/jobs/latest"), ("delete", "/api/price-archive/jobs/abc"),
+        ("post", "/api/price-archive/uploads"), ("put", "/api/price-archive/uploads/" + "0" * 32),
+        ("delete", "/api/price-archive/uploads/" + "0" * 32), ("post", "/api/price-archive/uploads/" + "0" * 32 + "/stage"),
     )
 
     def test_every_route_needs_a_session(self):
@@ -650,6 +652,35 @@ class JobAndAccessTest(ArchiveCase):
         self.assertEqual(self.admin.post("/api/price-archive/jobs", json={"token": other}).status_code, 404)
         self.assertEqual(self.admin.post("/api/price-archive/jobs", json={"token": "../../auth.sqlite3"}).status_code, 404)
         self.assertEqual(self.staged_files(), [])
+
+    def test_an_archive_in_pieces_gives_the_same_summary_and_imports(self):
+        # Het scherm stuurt het archief in stukken (uploads.py): één verzoek van 100 MB komt niet door elke proxy.
+        data = gist_zip()
+        whole = self.stage(data).get_json()
+        self.admin.delete(f"/api/price-archive/stage/{whole['token']}")
+        with mock.patch.object(uploads, "CHUNK_BYTES", 512):
+            begun = self.admin.post("/api/price-archive/uploads", json={"size": len(data)}).get_json()
+            token = begun["token"]
+            for offset in range(0, len(data), 512):
+                sent = self.admin.put(f"/api/price-archive/uploads/{token}?offset={offset}", data=data[offset:offset + 512], content_type="application/octet-stream")
+                self.assertEqual(sent.status_code, 200, sent.get_json())
+        response = self.admin.post(f"/api/price-archive/uploads/{token}/stage", json={"size": len(data)})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        summary = response.get_json()
+        self.assertEqual(summary["token"], token)
+        self.assertEqual({k: v for k, v in summary.items() if k != "token"}, {k: v for k, v in whole.items() if k != "token"})
+        self.assertEqual(self.staged_files(), [f".price-archive-{token}.rows"])  # de upload zelf is weg
+        self.assertEqual(self.admin.post("/api/price-archive/jobs", json={"token": token}).status_code, 202)
+        self.assertEqual(self.wait()["status"], "done")
+
+    def test_a_refused_archive_in_pieces_leaves_nothing_behind(self):
+        token = self.admin.post("/api/price-archive/uploads", json={"size": 9}).get_json()["token"]
+        self.admin.put(f"/api/price-archive/uploads/{token}?offset=0", data=b"geen zip!", content_type="application/octet-stream")
+        response = self.admin.post(f"/api/price-archive/uploads/{token}/stage", json={"size": 9})
+        self.assertEqual(response.status_code, 400, response.get_json())
+        self.assertEqual(self.staged_files(), [])
+        too_large = self.admin.post("/api/price-archive/uploads", json={"size": price_archive.MAX_UPLOAD_BYTES + 1})
+        self.assertEqual((too_large.status_code, too_large.get_json()["code"]), (413, "upload_too_large"))
 
     def test_a_finished_job_is_shown_once(self):
         _, job = self.run_import(gist_zip())

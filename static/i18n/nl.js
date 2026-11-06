@@ -761,6 +761,7 @@ I18N.add("nl", {
   "err.bad_json": "Onverwacht antwoord van de server (geen geldige JSON).",
   "err.server": "Serverfout ({status}). Is de app bijgewerkt en ben je ingelogd?{hint}",
   "err.generic": "Er is iets misgegaan",
+  "upload.stalled": "De upload loopt vast: de server, of een proxy ervoor, antwoordt niet meer. Probeer het opnieuw; blijft hij hangen, kijk dan in de container-logs.",
   "passkey.unsupported": "Deze browser ondersteunt geen passkeys.",
   "passkey.needs_https": "Open MealieShopper via HTTPS om passkeys te gebruiken.",
   "passkey.waiting": "Wachten op je passkey prompt...",

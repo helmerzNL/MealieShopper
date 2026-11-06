@@ -128,34 +128,18 @@ async function backupMake() {
 
 // --- kiezen en controleren ----------------------------------------------------------------------------------------
 
-// XMLHttpRequest meldt hoeveel bytes er zijn verstuurd (fetch niet); daarna leest de server het bestand en is er niets te tellen.
+// In stukken (upload.js): een back-up van 100 MB in één verzoek komt niet door elke proxy. Daarna leest de server het
+// bestand en is er niets te tellen.
 function backupUpload(file) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", "/api/backup/stage");
-    request.setRequestHeader("Content-Type", "application/octet-stream");
-    request.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
+  return uploadInChunks(file, "/api/backup/uploads", {
+    onProgress: (done, total) =>
       backupShowProgress({
         label: t("backup.progress.uploading"),
-        value: event.loaded,
-        max: event.total,
-        note: t("backup.note.bytes", { done: backupMegabytes(event.loaded), total: backupMegabytes(event.total) }),
-      });
-    };
-    request.upload.onload = () => backupShowProgress({ label: t("backup.progress.reading") });
-    request.onerror = () => reject(new Error(t("err.generic")));
-    request.onload = () => {
-      let data = {};
-      try {
-        data = JSON.parse(request.responseText);
-      } catch (error) {
-        data = {};
-      }
-      if (request.status >= 200 && request.status < 300) resolve(data);
-      else reject(new Error(data.error || t("err.server", { status: request.status, hint: request.status === 413 || request.status === 502 ? t("err.proxy_hint") : "" })));
-    };
-    request.send(file);
+        value: done,
+        max: total,
+        note: t("backup.note.bytes", { done: backupMegabytes(done), total: backupMegabytes(total) }),
+      }),
+    onChecking: () => backupShowProgress({ label: t("backup.progress.reading") }),
   });
 }
 
