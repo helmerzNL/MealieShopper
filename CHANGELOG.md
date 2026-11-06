@@ -22,6 +22,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): nieuw onderdeel *Prijsarchief exporteren*; bij *Het eigen formaat* staan de map, de aanbieding zonder adres en de bronnen `search` en `archive_search`. De README's noemen de export.
 - **Ontwikkeling**: nieuw `price_archive_export.py`. `test_price_archive` heeft 6 nieuwe tests: een bestand per winkel en maand zonder persoonlijke aanbiedingen (met de README en het auditlog), twee keer dezelfde bestanden, terug importeren (ook nog een keer), de ZIP van een GitHub-repo, een ontbrekend bestand, een kapotte regel of een pad buiten de map, en een regel die de import zou weigeren. De export-route staat in de toegangstests, en de bron `search` is niet meer het voorbeeld van een geweigerde bron (dat is nu `receipt`).
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-14`). Ververs de pagina één keer.
+- Pull request [#273](https://github.com/helmerzNL/MealieShopper/pull/273).
 
 ## v3.21.0
 
