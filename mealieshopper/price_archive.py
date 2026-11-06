@@ -22,7 +22,8 @@ Twee stappen, zoals bij het terugzetten van een back-up (`backup.py`):
 1. `stage` slaat de upload op, controleert alles, schrijft de nieuwe regels genormaliseerd naar een werkbestand en geeft een
    samenvatting. De database verandert niet; het geüploade bestand zelf is daarna weg.
 2. `start_job` zet het werkbestand op de achtergrond in de database, in één korte transactie die opnieuw controleert wat er al
-   staat (er kan intussen een synchronisatie zijn geweest).
+   staat (er kan intussen een synchronisatie zijn geweest). Met **Vervangen** (`replace`) gaat in die transactie eerst alles
+   eruit wat eerder uit een prijsarchief kwam (ARCHIVE_OFFERS_SQL en ARCHIVE_PRICES_SQL); wat de app zelf ophaalde blijft.
 
 Een afbeeldingsadres uit een archief neemt de app niet over: de app haalt afbeeldingen van zijn eigen winkels op, niet van een
 adres uit een bestand.
@@ -104,6 +105,14 @@ OFFER_COLUMNS = (
     "valid_from", "valid_until", "first_seen", "last_seen", "ended_at", "syncs", "continued", "personal",
 )
 PRICE_COLUMNS = ("store", "product_id", "day", "source", "title", "brand", "unit_size", "image", "url", "price", "seen_at")
+# Wat er eerder uit een prijsarchief kwam: een aanbieding met een product-id `folder:…` of het adres van een folderbron
+# (supermarktaanbiedingen.com, voordeelmuis.nl), en een prijs met een openbare bron. Wat de app zelf ophaalt, heeft dat nooit;
+# alleen dit gaat eruit bij **Vervangen**. Een leeg adres telt niet (COALESCE: anders maakt NULL de vergelijking onbepaald).
+ARCHIVE_OFFERS_SQL = (
+    "(product_id LIKE 'folder:%' OR COALESCE(url, '') LIKE 'https://www.supermarktaanbiedingen.com/folders/%' "
+    "OR COALESCE(url, '') LIKE 'https://www.voordeelmuis.nl/cgi-bin/v.cgi?%')"
+)
+ARCHIVE_PRICES_SQL = "(source IN ('public_press_release', 'public_observed_unknown'))"
 
 JOB_SCHEMA = """
 -- De import van een prijsarchief die loopt of net klaar is (zie price_archive.py). Hoort niet in de back-up.
@@ -716,20 +725,26 @@ class Plan:
     De regels voor dubbel komen uit wolphs `insert_rows`: een aanbieding met dezelfde winkel, url en looptijd is er al, en een
     aanbieding die de app zelf al kent (zelfde product en looptijd) ook. Een prijs met dezelfde winkel, product en dag is er al;
     staat er een andere prijs, dan gaat die van de app voor.
+
+    Met `without_archive` telt alleen wat de app zelf ophaalde: zo ziet het eruit als de archiefregels eerst verdwijnen
+    (**Vervangen**).
     """
 
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, without_archive: bool = False):
         self.offer_urls: set[bytes] = set()
         self.offer_products: set[bytes] = set()
         self.max_offer_id = 0
-        for row in conn.execute("SELECT id, store, product_id, url, valid_from, valid_until FROM offer_history"):
+        self.without_archive = without_archive
+        offers_where = f" WHERE NOT {ARCHIVE_OFFERS_SQL}" if without_archive else ""
+        prices_where = f" WHERE NOT {ARCHIVE_PRICES_SQL}" if without_archive else ""
+        for row in conn.execute(f"SELECT id, store, product_id, url, valid_from, valid_until FROM offer_history{offers_where}"):
             self.max_offer_id = max(self.max_offer_id, int(row["id"]))
             if row["url"]:
                 self.offer_urls.add(_key(row["store"], row["url"], row["valid_from"], row["valid_until"]))
             self.offer_products.add(_key(row["store"], row["product_id"], row["valid_from"], row["valid_until"]))
         self.prices: dict[bytes, float] = {
             _key(row["store"], row["product_id"], row["day"]): float(row["price"])
-            for row in conn.execute("SELECT store, product_id, day, price FROM price_observations")
+            for row in conn.execute(f"SELECT store, product_id, day, price FROM price_observations{prices_where}")
         }
         self.corrections: list[tuple[Any, ...]] = []
         self.stores: dict[str, dict[str, Any]] = {}
@@ -790,7 +805,8 @@ class Plan:
             return counts, updates
         wanted = {(row[0], row[1]) for row in self.corrections}
         found: dict[tuple[str, str], list[sqlite3.Row]] = {}
-        for row in conn.execute("SELECT id, store, product_id, url, price, price_before FROM offer_history WHERE id <= ? AND url IS NOT NULL", (self.max_offer_id,)):
+        archive = f" AND NOT {ARCHIVE_OFFERS_SQL}" if self.without_archive else ""
+        for row in conn.execute(f"SELECT id, store, product_id, url, price, price_before FROM offer_history WHERE id <= ? AND url IS NOT NULL{archive}", (self.max_offer_id,)):
             if (row["store"], row["url"]) in wanted:
                 found.setdefault((row["store"], row["url"]), []).append(row)
         for store, url, old_price, old_before, new_price, new_before in self.corrections:
@@ -822,8 +838,8 @@ def _same(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     return True
 
 
-def check(archive: Archive, plan: Plan, write: Callable[[str, tuple[Any, ...]], None] | None = None) -> int:
-    """Leest en controleert het hele archief tegen `plan`; `write` krijgt elke nieuwe regel. Geeft het aantal regels."""
+def check(archive: Archive, plans: list[Plan], write: Callable[[str, tuple[Any, ...]], None] | None = None) -> int:
+    """Leest en controleert het hele archief tegen elk `plan`; `write` krijgt elke geldige regel. Geeft het aantal regels."""
     bounds = Today()
     count = 0
     for kind, data, name, number in archive.records():
@@ -833,14 +849,20 @@ def check(archive: Archive, plan: Plan, write: Callable[[str, tuple[Any, ...]], 
         try:
             if kind == "offer":
                 row = normalise_offer(data, bounds)
-                if plan.offer(row) and write:
+                for plan in plans:
+                    plan.offer(row)
+                if write:
                     write("o", row)
             elif kind == "price":
                 row = normalise_price(data, bounds)
-                if plan.price(row) and write:
+                for plan in plans:
+                    plan.price(row)
+                if write:
                     write("p", row)
             else:
-                plan.correction(normalise_correction(data))
+                correction = normalise_correction(data)
+                for plan in plans:
+                    plan.correction(correction)
         except RowError as exc:
             raise ArchiveError("bad_row", file=name, line=number, reason=exc.reason, field=exc.field, value=exc.value) from None
     if not count:
@@ -851,6 +873,23 @@ def check(archive: Archive, plan: Plan, write: Callable[[str, tuple[Any, ...]], 
 def _store_list(plan: Plan) -> list[dict[str, Any]]:
     """Per winkel, in de volgorde van de app (een JSON-object zou Flask op naam sorteren)."""
     return [{"store": store, **plan.stores[store]} for store in STORES if store in plan.stores]
+
+
+def archived(conn: sqlite3.Connection) -> dict[str, int]:
+    """Hoeveel aanbiedingen en prijzen er nu uit een prijsarchief komen (wat **Vervangen** eerst weghaalt)."""
+    return {
+        "offers": conn.execute(f"SELECT COUNT(*) FROM offer_history WHERE {ARCHIVE_OFFERS_SQL}").fetchone()[0],
+        "prices": conn.execute(f"SELECT COUNT(*) FROM price_observations WHERE {ARCHIVE_PRICES_SQL}").fetchone()[0],
+    }
+
+
+def _outcome(plan: Plan, corrections: dict[str, int]) -> dict[str, Any]:
+    stores = _store_list(plan)
+    return {
+        "stores": stores,
+        "corrections": corrections,
+        "new": sum(s["offers"]["new"] + s["prices"]["new"] for s in stores) + corrections["apply"],
+    }
 
 
 def summarize(archive: Archive, plan: Plan, corrections: dict[str, int], lines: int) -> dict[str, Any]:
@@ -919,14 +958,19 @@ def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
         archive = Archive(upload, directory)
         with closing(_connect()) as conn:
             plan = Plan(conn)
+            replacing = Plan(conn, without_archive=True)
             with rows_path.open("w", encoding="utf-8") as out:
                 os.chmod(rows_path, 0o600)
-                lines = check(archive, plan, lambda kind, row: out.write(json.dumps([kind, list(row)], ensure_ascii=False) + "\n"))
+                lines = check(archive, [plan, replacing], lambda kind, row: out.write(json.dumps([kind, list(row)], ensure_ascii=False) + "\n"))
             corrections, _ = plan.resolve_corrections(conn)
+            replace_corrections, _ = replacing.resolve_corrections(conn)
             with rows_path.open("a", encoding="utf-8") as out:
                 for row in plan.corrections:
                     out.write(json.dumps(["c", list(row)], ensure_ascii=False) + "\n")
+            existing = archived(conn)
         summary = summarize(archive, plan, corrections, lines)
+        summary["archived"] = existing
+        summary["replace"] = _outcome(replacing, replace_corrections)
     except BaseException:
         rows_path.unlink(missing_ok=True)
         raise
@@ -949,8 +993,12 @@ def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
             yield kind, tuple(values)
 
 
-def apply(path: Path) -> dict[str, Any]:
-    """Zet de klaargezette regels in één transactie in de database, na een nieuwe vergelijking met wat er dan staat."""
+def apply(path: Path, replace: bool = False) -> dict[str, Any]:
+    """Zet de klaargezette regels in één transactie in de database, na een nieuwe vergelijking met wat er dan staat.
+
+    Met `replace` gaat eerst alles eruit wat eerder uit een prijsarchief kwam (ARCHIVE_OFFERS_SQL en ARCHIVE_PRICES_SQL), in
+    dezelfde transactie: mislukt er iets, dan staat alles er nog.
+    """
     started = time.monotonic()
     conn = _connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
@@ -958,6 +1006,10 @@ def apply(path: Path) -> dict[str, Any]:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("PRAGMA cache_size = -65536")  # zo houden andere verbindingen langer leestoegang
         conn.execute("BEGIN IMMEDIATE")
+        removed = {"offers": 0, "prices": 0}
+        if replace:
+            removed["offers"] = conn.execute(f"DELETE FROM offer_history WHERE {ARCHIVE_OFFERS_SQL}").rowcount
+            removed["prices"] = conn.execute(f"DELETE FROM price_observations WHERE {ARCHIVE_PRICES_SQL}").rowcount
         plan = Plan(conn)
         offers_batch: list[tuple[Any, ...]] = []
         prices_batch: list[tuple[Any, ...]] = []
@@ -998,6 +1050,8 @@ def apply(path: Path) -> dict[str, Any]:
         "corrections": corrections,
         "offers": sum(s["offers"]["new"] for s in stores),
         "prices": sum(s["prices"]["new"] for s in stores),
+        "replaced": replace,
+        "removed": removed,
         "seconds": round(time.monotonic() - started, 2),
     }
 
@@ -1054,8 +1108,8 @@ def dismiss_job(job_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def start_job(token: str) -> dict[str, Any]:
-    """Neemt de klaargezette regels over en zet ze op de achtergrond in de database."""
+def start_job(token: str, replace: bool = False) -> dict[str, Any]:
+    """Neemt de klaargezette regels over en zet ze op de achtergrond in de database (met `replace`: eerst de oude eruit)."""
     path = _stage_path(token)
     if not path.is_file():
         raise ArchiveError("stage_missing", 404)
@@ -1082,20 +1136,21 @@ def start_job(token: str) -> dict[str, Any]:
         except BaseException:
             conn.execute("ROLLBACK")
             raise
-    thread = threading.Thread(target=run_job, args=(job_id, running, actor), name=f"price-archive-{job_id}", daemon=True)
+    thread = threading.Thread(target=run_job, args=(job_id, running, actor, replace), name=f"price-archive-{job_id}", daemon=True)
     thread.start()
     return {"id": job_id}
 
 
-def run_job(job_id: str, staged: Path, actor: str = "system") -> None:
+def run_job(job_id: str, staged: Path, actor: str = "system", replace: bool = False) -> None:
     started = time.monotonic()
     try:
-        summary = apply(staged)
+        summary = apply(staged, replace=replace)
         _finish_job(job_id, status="done", summary=json.dumps(summary), seconds=round(time.monotonic() - started, 2))
         log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
         audit.record(
             kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
-            detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"]},
+            detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
+                    "replaced": summary["replaced"], "removed": summary["removed"]},
         )
     except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
         log.exception("Import van een prijsarchief mislukt")
@@ -1139,7 +1194,7 @@ def register_routes(app: Flask) -> None:
     def price_archive_start():
         body = request.get_json(silent=True) or {}
         try:
-            job = start_job(str(body.get("token") or ""))
+            job = start_job(str(body.get("token") or ""), replace=body.get("replace") is True)
         except ArchiveError as exc:
             return _error(exc)
         return jsonify(job), 202

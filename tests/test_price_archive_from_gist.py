@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import sqlite3
 import sys
 import tempfile
 import zipfile
@@ -125,6 +126,91 @@ class ConvertTest(ConvertCase):
         convert_script.convert(str(self.write("gist.zip", fixtures.gist_zip())), output, compress=False)
         self.assertEqual(output.read_bytes()[:1], b"{")
         self.assertEqual(self.stage(output.read_bytes()).get_json()["new"], 9)
+
+
+class TidyTest(ConvertCase):
+    """Opschonen: combi-aanbiedingen weg, geen prijs zonder bekende verpakking, en koppelen aan je eigen producten."""
+
+    def rows(self, *rows: dict) -> Path:
+        files = fixtures.gist_files(**{"ah-corrected/observations.jsonl": fixtures.jsonl(list(rows))})
+        return self.write("archive.tar.gz", fixtures.tar_gz(files))
+
+    def offers(self, source, **options) -> dict[str, dict]:
+        lines = read_lines(self.converted(source, **options))
+        return {line["url"].rsplit("/", 1)[1]: line for line in lines if line.get("type") == "offer" and line["store"] == "ah"}
+
+    def test_a_combination_offer_is_left_out_and_can_be_kept(self):
+        source = self.rows(
+            fixtures.offer(1, source_title="AH Runderhamburger 2 stuks of gehaktschnitzel Hongaarse stijl 4 stuks"),
+            fixtures.offer(2, source_title="Alle Ajax", description="2e halve prijs, diverse soorten"),
+            fixtures.offer(3, source_title="AH Runderhamburger 4 stuks"),
+        )
+        self.assertEqual(sorted(self.offers(source)), ["product-3"])
+        self.assertEqual(sorted(self.offers(source, keep_groups=True)), ["product-1", "product-2", "product-3"])
+
+    def test_without_a_known_pack_the_price_is_left_out(self):
+        source = self.rows(
+            fixtures.offer(1, source_title="AH Runderhamburgers", description="2e gratis, 2 schalen", unit_size=None),
+            fixtures.offer(2, source_title="AH Runderhamburger 4 stuks", description="voor 3.99", unit_size=None),
+            fixtures.offer(3, source_title="AH Rundergehakt", description="500 gram", unit_size="500 g"),
+        )
+        offers = self.offers(source)
+        self.assertEqual((offers["product-1"]["price"], offers["product-1"]["price_before"]), (None, None))
+        self.assertIn("verpakking onbekend", offers["product-1"]["promo_label"])
+        self.assertIsNotNone(offers["product-2"]["price"])  # een aantal stuks telt als verpakking
+        self.assertIsNotNone(offers["product-3"]["price"])
+        self.assertIsNotNone(self.offers(source, keep_unknown_prices=True)["product-1"]["price"])
+
+    def test_a_line_linked_by_wolph_is_kept_as_it_is(self):
+        source = self.rows(fixtures.offer(1, product_id="169238", title="AH Runderhamburger 2st", source_title="AH Runderhamburgers of schnitzels", unit_size=None, price=None, price_before=None))
+        line = self.offers(source)["product-1"]
+        self.assertEqual((line["product_id"], line["title"]), ("169238", "AH Runderhamburger 2st"))
+
+    def database(self) -> Path:
+        path = self.work / "auth.sqlite3"
+        with sqlite3.connect(path) as conn:
+            conn.execute("CREATE TABLE offer_history (store TEXT, product_id TEXT, title TEXT, unit_size TEXT, url TEXT)")
+            conn.execute("CREATE TABLE price_observations (store TEXT, product_id TEXT, title TEXT, unit_size TEXT, url TEXT, source TEXT)")
+            conn.execute("CREATE TABLE ah_order_items (order_id INTEGER, product_id INTEGER, title TEXT, unit_size TEXT)")
+            conn.execute("INSERT INTO ah_order_items VALUES (1, 8001, 'AH Biologisch Halfvolle melk', '1000 ml')")
+            conn.execute("INSERT INTO offer_history VALUES ('ah', '8002', 'AH Halfvolle melk', '1500 ml', 'https://www.ah.nl/p/8002')")
+            # Wat uit een archief kwam, hoort niet bij jouw producten: anders zou de exacte koppeling hier twee producten vinden.
+            conn.execute("INSERT INTO offer_history VALUES ('ah', 'folder:oud', 'AH Biologisch Halfvolle melk', '1000 ml', 'https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/1/x')")
+            conn.execute("INSERT INTO offer_history VALUES ('ah', '9999', 'AH Biologisch Halfvolle melk', '1000 ml', 'https://www.supermarktaanbiedingen.com/folders/albert_heijn/2013/1/y')")
+            conn.execute("INSERT INTO price_observations VALUES ('ah', '9998', 'AH Biologisch Halfvolle melk', '1000 ml', '', 'public_press_release')")
+        return path
+
+    def test_lines_are_linked_to_your_own_products(self):
+        source = self.rows(
+            fixtures.offer(1, source_title="AH Biologisch halfvolle melk", description="1 liter", unit_size="1000 ml", price=1.29),
+            fixtures.offer(2, source_title="AH Biologisch halfvolle melk pak", description="per pak", unit_size=None, price=1.29),
+            fixtures.offer(3, source_title="Jumbo-only product", description="per stuk", unit_size="per stuk"),
+        )
+        output = self.work / "linked.jsonl.gz"
+        result = convert_script.convert(str(source), output, database=self.database())
+        self.assertEqual((result["tidied"]["exact"], result["tidied"]["approximate"]), (1, 1))
+        offers = {line["url"].rsplit("/", 1)[1]: line for line in read_lines(output) if line.get("type") == "offer" and line["store"] == "ah"}
+        exact, approximate = offers["product-1"], offers["product-2"]
+        self.assertEqual((exact["product_id"], exact["title"], exact["match_kind"], exact["price"]), ("8001", "AH Biologisch halfvolle melk", "exact", 1.29))
+        self.assertEqual((approximate["product_id"], approximate["match_kind"], approximate["price"]), ("8001", "approximate", None))
+        self.assertIn("koppeling onzeker", approximate["promo_label"])
+        self.assertTrue(offers["product-3"]["product_id"].startswith("folder:"))
+        # De kop zegt wat het opschonen deed.
+        self.assertEqual(read_lines(output)[0]["tidied"]["approximate"], 1)
+        # En de app importeert het zo: de folderregels horen nu bij product 8001.
+        summary, _ = self.run_import(output.read_bytes())
+        self.assertEqual(sum(1 for row in self.rows_in("offer_history") if row["product_id"] == "8001"), 2)
+
+    def rows_in(self, table: str) -> list[dict]:
+        return fixtures.ArchiveCase.rows(self, table)
+
+    def test_the_database_is_only_read(self):
+        database = self.database()
+        before = database.read_bytes()
+        convert_script.convert(str(self.rows(fixtures.offer(1))), self.work / "x.jsonl.gz", database=database)
+        self.assertEqual(database.read_bytes(), before)
+        with self.assertRaises(convert_script.ConversionError):
+            convert_script.convert(str(self.rows(fixtures.offer(1))), self.work / "y.jsonl.gz", database=self.work / "bestaat-niet.sqlite3")
 
 
 class DownloadTest(ConvertCase):

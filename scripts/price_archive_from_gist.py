@@ -10,13 +10,27 @@ Alleen de standaardbibliotheek van Python 3.9 of nieuwer; het script hoort niet 
 voert niets uit het pakket uit en pakt niets uit naar schijf: de tar wordt alleen gelezen.
 
 Gebruik:
-    python3 scripts/price_archive_from_gist.py BRON [-o prijsarchief.jsonl.gz] [--compact] [--no-gzip]
+    python3 scripts/price_archive_from_gist.py BRON [-o prijsarchief.jsonl.gz] [--database auth.sqlite3]
+        [--keep-groups] [--keep-unknown-prices] [--compact] [--no-gzip]
 
 BRON is een van:
     https://gist.github.com/wolph/195c8964d4e63eb1774fc14ba35b4f09   de gist zelf (het script haalt de delen op)
     gist.zip                                                         de ZIP van Download ZIP
     supermarket-archives-20261106.tar.gz                             het archief, als je restore_other.py al draaide
     een map                                                          de uitgepakte ZIP, of supermarket-archives/<datum>
+
+Opschonen, zodat de Prijsgeschiedenis geen vreemde producten krijgt:
+
+* Met --database (een kopie van auth.sqlite3 uit je data-map; het script opent hem alleen lezend) koppelt het script elke
+  folderregel die nog bij geen product hoort aan een product uit jouw eigen gegevens: je aanbiedingen, bijgehouden prijzen en
+  bestellingen. Dat is de koppeling uit import_archive.py van wolph (`match_product` en `link_approximate`): eerst exact
+  (dezelfde naam en verpakking), anders op woorden, en dan zonder prijs als verpakking of variant niet vaststaat.
+* Een combi-aanbieding ("A of B", "alle ...", "diverse soorten") die bij geen product hoort, laat het script weg: die gaat
+  over meer producten tegelijk. --keep-groups houdt ze.
+* Een folderregel die bij geen product hoort en geen gewicht, inhoud of aantal noemt, krijgt geen prijs: anders staan
+  prijzen van verschillende verpakkingen in één grafiek. --keep-unknown-prices houdt die prijzen.
+
+Met --keep-groups en --keep-unknown-prices en zonder --database is de uitvoer gelijk aan het pakket zelf.
 
 Zonder --compact blijven de herkomstvelden (bronbedragen, Git-commits, oorspronkelijke titels) in elke regel staan; de app
 negeert ze bij het importeren, maar zo blijft na te gaan waar een prijs vandaan komt. --compact laat ze weg.
@@ -31,13 +45,18 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import sys
 import tarfile
 import tempfile
+import unicodedata
 import urllib.request
 import zipfile
 import zlib
 from datetime import datetime, timezone
+from decimal import Decimal
+from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Iterator
 
@@ -71,6 +90,241 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_PART_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
 USER_AGENT = "MealieShopper price archive converter"
+
+
+# --- opschonen en koppelen aan je eigen producten -----------------------------------------------------------------
+# De koppeling en de verpakkingen komen uit import_archive.py van wolph, in hetzelfde pakket (`fold`, `size`, `words`,
+# `match_product`, `link_approximate` en `catalogue_from`, met dezelfde drempels). Hier draait ze op de regels die al uit het
+# pakket komen, tegen de producten in jouw database in plaats van die van wolph.
+
+GROUP = re.compile(r"\b(?:alle|of|en|diverse|varianten|combineren|bijv|bijvoorbeeld)\b", re.I)
+NOISE = frozenset("ah albert heijn jumbo picnic crisp alle diverse varianten van de het een en of per stuk stuks gram kg ml liter bijv voor bonus verse vers".split())
+PACKAGING_WORDS = frozenset({"los", "pak", "zak", "bak", "schaal", "fles", "pot"})
+ARCHIVE_URLS = ("https://www.supermarktaanbiedingen.com/folders/", "https://www.voordeelmuis.nl/cgi-bin/v.cgi?")
+ARCHIVE_SOURCES = ("public_press_release", "public_observed_unknown")
+UNKNOWN_PACK = " | verpakking onbekend, prijs weggelaten"
+
+
+def _clean(value: str) -> str:
+    return " ".join(value.split())
+
+
+@lru_cache(maxsize=150_000)
+def fold(value: str) -> str:
+    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().lower()
+    return _clean(re.sub(r"[^a-z0-9]+", " ", text))
+
+
+@lru_cache(maxsize=100_000)
+def size(text: str) -> tuple[str, Decimal] | None:
+    """De verpakking als (soort, hoeveelheid) als de tekst er precies één noemt, anders None."""
+    if re.search(r"\d+(?:[.,]\d+)?\s*(?:-|/|tot|t/m|of|en)\s*\d+(?:[.,]\d+)?\s*(?:gram|gr|g|kg|kilo|ml|cl|liter|l)\b", text, re.I):
+        return None
+    if re.search(r"\d\s*[x×]\s*\d|\b[2-9]\d*\s*(?:flesjes?|flessen|blikken?|blikjes?|pakken?|zakken?|dozen?|cups?|kuipjes?)\b|\b\d+\s*-?\s*pack\b", text, re.I):
+        return None
+    if fold(text) == "per stuk":
+        return "count", Decimal(1)
+    pattern = r"(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(kilogram|kilograms|kilo|kg|gram|gr|g|milliliter|ml|cl|liter|litre|l|stuks|stuk)\b"
+    values = set()
+    for match in re.finditer(pattern, text.lower()):
+        unit = match[2]
+        value = Decimal(match[1].replace(",", "."))
+        kind = "count" if unit in {"stuks", "stuk"} else "volume" if unit in {"milliliter", "ml", "cl", "liter", "litre", "l"} else "mass"
+        if unit in {"kilogram", "kilograms", "kilo", "kg", "liter", "litre", "l"}:
+            value *= 1000
+        elif unit == "cl":
+            value *= 10
+        values.add((kind, value))
+    return next(iter(values)) if len(values) == 1 else None
+
+
+@lru_cache(maxsize=100_000)
+def words(title: str) -> frozenset[str]:
+    return frozenset(w for w in fold(title).split() if w not in NOISE and not w.isdigit() and len(w) > 1)
+
+
+def display_text(text: str) -> str:
+    """Leesbare voorwaarden, zonder dat de app er een actie in leest (zoals wolph de folderteksten schrijft)."""
+    result = re.sub(r"voor(?=\s*(?:€|eur(?:o)?)?\s*\d)", lambda m: m[0] + ":", text, flags=re.I)
+    result = re.sub(r"\bnu(?=\s*(?:€|eur(?:o)?)?\s*\d)", lambda m: m[0] + ":", result, flags=re.I)
+    result = re.sub(r"gratis", "kosteloos", result, flags=re.I)
+    result = re.sub(r"halve\s*prijs", "halve-prijs", result, flags=re.I)
+    result = re.sub(r"korting", "voordeel", result, flags=re.I)
+    return result.replace("%", " procent")
+
+
+def _texts(row: dict[str, Any]) -> str:
+    return f"{row.get('source_title') or ''} {row.get('description') or ''}"
+
+
+def is_group(row: dict[str, Any]) -> bool:
+    """Een aanbieding voor meer producten tegelijk ("A of B", "alle ...", "diverse soorten")."""
+    return bool(GROUP.search(_texts(row)))
+
+
+def known_pack(row: dict[str, Any]) -> bool:
+    """Noemt de folder een gewicht, inhoud of aantal (één, niet "2 of 4 stuks")?"""
+    return bool(row.get("unit_size")) or size(_texts(row)) is not None
+
+
+def is_archive_product(row: dict[str, Any]) -> bool:
+    return str(row.get("product_id") or "").startswith("folder:")
+
+
+class Linker:
+    """Koppelt folderregels aan de producten in jouw database (alleen lezen), per winkel."""
+
+    def __init__(self, database: Path):
+        if not database.is_file():
+            raise ConversionError(f"{database} bestaat niet")
+        try:
+            self.conn = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+            self.conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchall()
+        except sqlite3.Error as exc:
+            raise ConversionError(f"{database} is geen leesbare database: {exc}") from None
+        self.catalogues: dict[str, dict[str, list[dict[str, str]]]] = {}
+        self.indexes: dict[str, dict[str, set[str]]] = {}
+        self.candidates: dict[tuple[str, str], list[dict[str, str]]] = {}
+
+    def close(self) -> None:
+        self.conn.close()
+
+    def catalogue(self, store: str) -> dict[str, list[dict[str, str]]]:
+        """Jouw producten van een winkel, per opgevouwen naam (zoals `catalogue_from`), zonder regels uit een archief."""
+        if store in self.catalogues:
+            return self.catalogues[store]
+        result: dict[str, list[dict[str, str]]] = {}
+        seen = set()
+        tables = {row[0] for row in self.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        for table in ("offer_history", "price_observations", f"{store}_order_items"):
+            if table not in tables:
+                continue
+            columns = {row[1] for row in self.conn.execute(f'PRAGMA table_info("{table}")')}
+            if not {"product_id", "title", "unit_size"} <= columns:
+                continue
+            sql = f'SELECT DISTINCT product_id, title, unit_size FROM "{table}"'
+            conditions, params = [], []
+            if "store" in columns:
+                conditions.append("store = ?")
+                params.append(store)
+            if "url" in columns:
+                conditions += ["COALESCE(url, '') NOT LIKE ?" for _ in ARCHIVE_URLS]
+                params += [prefix + "%" for prefix in ARCHIVE_URLS]
+            if "source" in columns:
+                conditions.append(f"source NOT IN ({','.join('?' for _ in ARCHIVE_SOURCES)})")
+                params += list(ARCHIVE_SOURCES)
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
+            for product_id, title, unit_size in self.conn.execute(sql, params):
+                if product_id is None or not str(product_id).strip() or str(product_id).startswith("folder:"):
+                    continue
+                product = {"product_id": str(product_id), "title": title or "", "unit_size": unit_size or ""}
+                key = (product["product_id"], product["title"], product["unit_size"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.setdefault(fold(product["title"]), []).append(product)
+        index: dict[str, set[str]] = {}
+        for title in result:
+            for word in words(title):
+                index.setdefault(word, set()).add(title)
+        self.catalogues[store], self.indexes[store] = result, index
+        return result
+
+    def link(self, row: dict[str, Any]) -> str | None:
+        """'exact' of 'approximate' als de regel nu bij een product van jou hoort (de regel is dan bijgewerkt), anders None."""
+        store = str(row.get("store") or "")
+        if not row.get("source_title"):
+            return None
+        catalogue = self.catalogue(store)
+        exact = self._exact(row, catalogue.get(fold(row["source_title"]), []))
+        if exact:
+            row.update(product_id=exact, title=row["source_title"], brand=None, match_kind="exact")
+            return "exact"
+        key = (store, fold(row["source_title"]))
+        if key not in self.candidates:
+            names = set().union(*(self.indexes[store].get(w, set()) for w in words(key[1])))
+            self.candidates[key] = [product for name in sorted(names) for product in catalogue[name]]
+        return "approximate" if self._approximate(row, self.candidates[key]) else None
+
+    @staticmethod
+    def _exact(row: dict[str, Any], products: list[dict[str, str]]) -> str | None:
+        """`match_product`: dezelfde naam en dezelfde verpakking, bij precies één product, en nooit bij een combi."""
+        if is_group(row):
+            return None
+        pack = size(row.get("unit_size") or "")
+        if not pack or row.get("price") is None:
+            return None
+        matches = {p["product_id"] for p in products if fold(p["title"]) == fold(row["source_title"]) and size(p["unit_size"] or "") == pack}
+        return next(iter(matches)) if len(matches) == 1 else None
+
+    @staticmethod
+    def _approximate(row: dict[str, Any], products: list[dict[str, str]]) -> bool:
+        """`link_approximate`: op woorden, alleen bij een duidelijke winnaar; zonder prijs als verpakking of variant onzeker is."""
+        source = fold(row["source_title"])
+        source_words = words(source)
+        if not source_words:
+            return False
+        pack = size(row.get("unit_size") or "")
+        ranked: dict[str, tuple[float, dict[str, str]]] = {}
+        for product in products:
+            target = fold(product["title"])
+            house = str(row.get("store") or "")
+            if source.startswith(house + " ") != target.startswith(house + " "):
+                continue
+            target_words = words(target)
+            common = len(source_words & target_words)
+            if not common or not target_words:
+                continue
+            overlap = .4 * common / len(source_words) + .4 * common / len(target_words)
+            if overlap < .48:
+                continue
+            score = overlap + .2 * SequenceMatcher(None, source, target).ratio()
+            if pack and size(product["unit_size"] or "") == pack:
+                score += .1
+            pid = product["product_id"]
+            if pid not in ranked or score > ranked[pid][0]:
+                ranked[pid] = (score, product)
+        ordered = sorted(ranked.values(), key=lambda pair: pair[0], reverse=True)
+        if not ordered or ordered[0][0] < .78 or (len(ordered) > 1 and ordered[0][0] - ordered[1][0] < .06):
+            return False
+        score, chosen = ordered[0]
+        same_pack = pack is not None and size(chosen["unit_size"] or "") == pack
+        row.update(product_id=chosen["product_id"], title=chosen["title"], brand=None, match_kind="approximate",
+                   match_score=round(min(score, 1.0), 3), matched_title=chosen["title"])
+        row["promo_label"] = (row.get("promo_label") or "") + " | koppeling onzeker: " + display_text(row["source_title"])
+        if not same_pack or is_group(row) or words(row["source_title"]) - PACKAGING_WORDS != words(chosen["title"]) - PACKAGING_WORDS:
+            row.update(price=None, price_before=None)
+            row["promo_label"] += " | verpakking of variant onzeker"
+        return True
+
+
+class Tidy:
+    """Wat er met een aanbieding gebeurt voor ze in het bestand komt: koppelen, combi's weglaten, onzekere prijzen leeg."""
+
+    def __init__(self, linker: Linker | None = None, keep_groups: bool = False, keep_unknown_prices: bool = False):
+        self.linker = linker
+        self.keep_groups = keep_groups
+        self.keep_unknown_prices = keep_unknown_prices
+        self.stats = {"exact": 0, "approximate": 0, "groups": 0, "unknownPack": 0}
+
+    def __call__(self, kind: str, row: dict[str, Any]) -> dict[str, Any] | None:
+        if kind != "offer":
+            return row
+        if self.linker is not None and is_archive_product(row):
+            linked = self.linker.link(row)
+            if linked:
+                self.stats[linked] += 1
+        if not is_archive_product(row):
+            return row
+        if not self.keep_groups and is_group(row):
+            self.stats["groups"] += 1
+            return None
+        if not self.keep_unknown_prices and not known_pack(row) and (row.get("price") is not None or row.get("price_before") is not None):
+            row["price"] = row["price_before"] = None
+            row["promo_label"] = (row.get("promo_label") or "") + UNKNOWN_PACK
+            self.stats["unknownPack"] += 1
+        return row
 
 
 class ConversionError(Exception):
@@ -278,7 +532,8 @@ def _folder_members(folder: Path) -> Iterator[tuple[str, str, int, IO[bytes]]]:
             yield package, name, file.stat().st_size, handle
 
 
-def _write_body(members: Iterator[tuple[str, str, int, IO[bytes]]], body: IO[str], compact: bool) -> tuple[str, dict[str, int]]:
+def _write_body(members: Iterator[tuple[str, str, int, IO[bytes]]], body: IO[str], compact: bool,
+                tidy: Callable[[str, dict[str, Any]], dict[str, Any] | None] | None = None) -> tuple[str, dict[str, int]]:
     """Schrijft elke regel naar `body` en controleert daarna de controlesommen uit data-manifest.json.
 
     Klopt een controlesom niet, dan volgt een fout en gebruikt `convert` wat er geschreven is niet.
@@ -305,7 +560,10 @@ def _write_body(members: Iterator[tuple[str, str, int, IO[bytes]]], body: IO[str
                 continue
             digest = hashlib.sha256()
             for kind, row in _records(name, handle, digest):
-                body.write(json.dumps(_line(kind, row, compact), ensure_ascii=False) + "\n")
+                kept = tidy(kind, row) if tidy else row
+                if kept is None:
+                    continue
+                body.write(json.dumps(_line(kind, kept, compact), ensure_ascii=False) + "\n")
                 counts[kind] += 1
             digests[name] = digest.hexdigest()
             progress(f"{name}: gelezen")
@@ -364,20 +622,33 @@ def _source(source: str, work: Path, download: Callable[[str], bytes]) -> tuple[
 
 
 def convert(source: str, output: Path, compact: bool = False, compress: bool = True,
-            download: Callable[[str], bytes] = _download) -> dict[str, Any]:
-    """Zet `source` om naar `output` en geeft per soort het aantal regels."""
+            download: Callable[[str], bytes] = _download, database: Path | None = None,
+            keep_groups: bool = False, keep_unknown_prices: bool = False) -> dict[str, Any]:
+    """Zet `source` om naar `output` en geeft per soort het aantal regels en wat het opschonen deed."""
+    linker = Linker(database) if database is not None else None
+    tidy = Tidy(linker, keep_groups=keep_groups, keep_unknown_prices=keep_unknown_prices)
+    try:
+        return _convert(source, output, compact, compress, download, tidy)
+    finally:
+        if linker is not None:
+            linker.close()
+
+
+def _convert(source: str, output: Path, compact: bool, compress: bool, download: Callable[[str], bytes], tidy: Tidy) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="price-archive-") as folder:
         work = Path(folder)
         members, archive = _source(source, work, download)
         body_path = work / "body.jsonl"
         with body_path.open("w", encoding="utf-8", newline="\n") as body:
-            package_name, counts = _write_body(members, body, compact)
+            package_name, counts = _write_body(members, body, compact, tidy)
         header: dict[str, Any] = {
             "format": FORMAT,
             "formatVersion": FORMAT_VERSION,
             "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "source": f"{package_name} (gist van wolph, omgezet met scripts/price_archive_from_gist.py)",
             "license": LICENSE,
+            "tidied": {**tidy.stats, "linkedWithOwnDatabase": tidy.linker is not None,
+                       "groupsKept": tidy.keep_groups, "unknownPackPricesKept": tidy.keep_unknown_prices},
         }
         if archive is not None:
             header["sourceArchiveSha256"] = _sha256(archive)
@@ -393,7 +664,7 @@ def convert(source: str, output: Path, compact: bool = False, compress: bool = T
             if temporary.exists():
                 temporary.unlink()
             raise
-    return {"package": package_name, "lines": counts, "output": str(output), "bytes": output.stat().st_size}
+    return {"package": package_name, "lines": counts, "tidied": dict(tidy.stats), "output": str(output), "bytes": output.stat().st_size}
 
 
 def _sha256(path: Path) -> str:
@@ -409,6 +680,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Zet het prijsarchief van de gist om naar het formaat mealieshopper-price-archive.")
     parser.add_argument("source", nargs="?", default=DEFAULT_GIST, help=f"gist-adres, ZIP, .tar.gz of map (standaard {DEFAULT_GIST})")
     parser.add_argument("-o", "--output", type=Path, help="het bestand om te schrijven (standaard prijsarchief.jsonl.gz)")
+    parser.add_argument("--database", type=Path, help="een kopie van auth.sqlite3: koppel folderregels aan jouw producten (alleen lezen)")
+    parser.add_argument("--keep-groups", action="store_true", help="houd combi-aanbiedingen die bij geen product horen")
+    parser.add_argument("--keep-unknown-prices", action="store_true", help="houd prijzen van folderregels zonder bekende verpakking")
     parser.add_argument("--compact", action="store_true", help="alleen de kolommen van de app, zonder herkomstvelden")
     parser.add_argument("--no-gzip", action="store_true", help="schrijf een gewone .jsonl in plaats van .jsonl.gz")
     parser.add_argument("-q", "--quiet", action="store_true", help="geen voortgang tonen")
@@ -416,11 +690,18 @@ def main(argv: list[str] | None = None) -> int:
     QUIET = args.quiet
     output = args.output or Path("prijsarchief.jsonl" if args.no_gzip else "prijsarchief.jsonl.gz")
     try:
-        result = convert(args.source, output, compact=args.compact, compress=not args.no_gzip)
+        result = convert(args.source, output, compact=args.compact, compress=not args.no_gzip, database=args.database,
+                         keep_groups=args.keep_groups, keep_unknown_prices=args.keep_unknown_prices)
     except ConversionError as exc:
         print(f"Fout: {exc}", file=sys.stderr)
         return 1
-    lines = result["lines"]
+    lines, tidied = result["lines"], result["tidied"]
+    if args.database is not None:
+        print(f"Gekoppeld aan jouw producten: {tidied['exact']} exact, {tidied['approximate']} op woorden (zonder prijs als de variant onzeker is).")
+    if tidied["groups"]:
+        print(f"Weggelaten: {tidied['groups']} combi-aanbiedingen die bij geen product horen.")
+    if tidied["unknownPack"]:
+        print(f"Zonder prijs: {tidied['unknownPack']} folderregels zonder bekende verpakking.")
     print(
         f"{result['output']}: {lines['offer']} aanbiedingen, {lines['price']} prijzen en {lines['correction']} correcties "
         f"uit {result['package']} ({result['bytes'] / (1024 * 1024):.1f} MB). "

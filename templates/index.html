@@ -1715,7 +1715,7 @@
         </div>
         <div class="box" id="price-archive-box">
           <h2 data-i18n="price_archive.title">Prijsarchief importeren</h2>
-          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Er wordt niets vervangen: wat er al staat blijft staan, en dezelfde prijs komt er maar één keer in.</p>
+          <p class="muted" data-i18n="price_archive.intro">Voeg historische prijzen toe aan de Prijsgeschiedenis, bijvoorbeeld het folderarchief van Albert Heijn, Jumbo, Picnic en Crisp. Wat de app zelf ophaalde blijft altijd staan, en dezelfde prijs komt er maar één keer in.</p>
           <label class="field">
             <span data-i18n="price_archive.file_label">Prijsarchief</span>
             <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
@@ -1726,8 +1726,14 @@
             <p class="muted" id="price-archive-source"></p>
             <ul class="price-archive-stores" id="price-archive-summary"></ul>
             <p class="muted" id="price-archive-corrections" hidden></p>
+            <label class="check" id="price-archive-replace-field" hidden>
+              <input type="checkbox" id="price-archive-replace">
+              <span data-i18n="price_archive.replace_label">Vervang wat eerder uit een prijsarchief kwam</span>
+            </label>
+            <p class="muted" id="price-archive-replace-note" hidden></p>
             <p id="price-archive-total"></p>
-            <p class="muted" data-i18n="price_archive.keeps">Er wordt niets vervangen of verwijderd. Verlaat je de pagina, dan gaat de import door op de server.</p>
+            <p class="muted" id="price-archive-keeps-replace" data-i18n="price_archive.keeps_replace" hidden>Alleen wat eerder uit een prijsarchief kwam wordt vervangen; wat de app zelf ophaalde blijft staan. Verlaat je de pagina, dan gaat de import door op de server.</p>
+            <p class="muted" id="price-archive-keeps" data-i18n="price_archive.keeps">Er wordt niets vervangen of verwijderd. Verlaat je de pagina, dan gaat de import door op de server.</p>
             <div class="security-actions">
               <button class="button" type="button" id="price-archive-import" data-i18n="price_archive.go">Importeren</button>
               <button class="button button--secondary" type="button" id="price-archive-discard" data-i18n="common.cancel">Annuleren</button>

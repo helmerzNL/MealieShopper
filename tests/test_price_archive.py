@@ -430,6 +430,112 @@ class RefusedTest(ArchiveCase):
             self.refused(gist_zip(), "too_many")
 
 
+class ReplaceTest(ArchiveCase):
+    """Vervang wat eerder uit een prijsarchief kwam: eerst de oude archiefregels eruit, in dezelfde transactie."""
+
+    def add_live_data(self):
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, price, url, valid_from, valid_until, first_seen, last_seen) "
+                "VALUES ('ah', '4183', 'AH Bloemkool', 0.99, 'https://www.ah.nl/producten/product/wi4183', '2026-10-26', '2026-11-01', '2026-10-26', '2026-11-01')"
+            )
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, price, url, first_seen, last_seen) "
+                "VALUES ('jumbo', '123456PAK', 'Jumbo Koffie', 4.99, NULL, '2026-10-26', '2026-11-01')"
+            )
+            conn.execute(
+                "INSERT INTO price_observations (store, product_id, day, source, title, price, seen_at) "
+                "VALUES ('picnic', 's100', '2026-11-01', 'search', 'Melk', 1.19, '2026-11-01T10:00:00+00:00')"
+            )
+
+    def start(self, token: str, replace) -> dict:
+        response = self.admin.post("/api/price-archive/jobs", json={"token": token, "replace": replace})
+        self.assertEqual(response.status_code, 202, response.get_json())
+        job = self.wait()
+        self.assertEqual(job["status"], "done", job)
+        return job
+
+    def smaller(self) -> bytes:
+        return own([{"type": "offer", **offer(9, "jumbo")}, {"type": "price", **price(9, "crisp", url="https://crisp.nl/download/9/9/x.pdf")}])
+
+    def test_only_what_came_from_an_archive_is_replaced(self):
+        self.run_import(gist_zip())
+        self.add_live_data()
+        staged = self.stage(self.smaller()).get_json()
+        self.assertEqual(staged["archived"], {"offers": 5, "prices": 4})
+        self.assertEqual(staged["new"], 2)
+        self.assertEqual(staged["replace"]["new"], 2)
+        job = self.start(staged["token"], True)
+        self.assertEqual(job["summary"]["removed"], {"offers": 5, "prices": 4})
+        self.assertTrue(job["summary"]["replaced"])
+        offers = sorted((row["store"], row["product_id"]) for row in self.rows("offer_history"))
+        self.assertEqual(offers, [("ah", "4183"), ("jumbo", "123456PAK"), ("jumbo", "folder:jumbo0009")])
+        live = [row for row in self.rows("offer_history") if row["product_id"] == "4183"]
+        self.assertEqual(live[0]["url"], "https://www.ah.nl/producten/product/wi4183")  # de eigen aanbieding, niet die uit het archief
+        observed = sorted((row["store"], row["source"]) for row in self.rows("price_observations"))
+        self.assertEqual(observed, [("crisp", "public_press_release"), ("picnic", "search")])
+
+    def test_without_the_box_nothing_is_removed(self):
+        self.run_import(gist_zip())
+        before = len(self.rows("offer_history")), len(self.rows("price_observations"))
+        job = self.start(self.stage(self.smaller()).get_json()["token"], False)
+        self.assertEqual(job["summary"]["removed"], {"offers": 0, "prices": 0})
+        self.assertEqual((len(self.rows("offer_history")), len(self.rows("price_observations"))), (before[0] + 1, before[1] + 1))
+
+    def test_only_true_replaces(self):
+        self.run_import(gist_zip())
+        for value in ("yes", 1, "true"):
+            with self.subTest(value=value):
+                job = self.start(self.stage(self.smaller()).get_json()["token"], value)
+                self.assertEqual(job["summary"]["removed"], {"offers": 0, "prices": 0})
+                self.admin.delete(f"/api/price-archive/jobs/{job['id']}")
+
+    def test_replacing_with_the_same_package_gives_the_same_rows(self):
+        self.run_import(gist_zip())
+        def content():
+            columns = ("store", "product_id", "title", "price", "price_before", "url", "valid_from", "valid_until")
+            return sorted(tuple(row[c] for c in columns) for row in self.rows("offer_history")), sorted(
+                (row["store"], row["product_id"], row["day"], row["price"]) for row in self.rows("price_observations"))
+        before = content()
+        staged = self.stage(gist_zip()).get_json()
+        self.assertEqual((staged["new"], staged["replace"]["new"]), (0, 9))
+        self.assertEqual(by_store(staged["replace"])["ah"]["offers"], {"new": 2, "duplicate": 0, "covered": 0})
+        job = self.start(staged["token"], True)
+        self.assertEqual((job["summary"]["offers"], job["summary"]["prices"]), (5, 4))
+        self.assertEqual(content(), before)
+
+    def test_corrections_find_nothing_once_the_archive_is_replaced(self):
+        url = f"{FOLDER}/albert_heijn/2013/23/eerder"
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO offer_history (store, product_id, title, price, price_before, url, first_seen, last_seen) "
+                "VALUES ('ah', 'folder:eerder', 'Eerder', 1.0, 1.5, ?, '2013-06-03', '2013-06-09')", (url,),
+            )
+        changes = json.dumps([correction(url, (1.0, 1.5), (0.5, 0.75))]).encode()
+        staged = self.stage(gist_zip(tar_gz(gist_files(**{"ah-corrected/corrections.json": changes})))).get_json()
+        self.assertEqual(staged["corrections"]["apply"], 1)
+        self.assertEqual(staged["replace"]["corrections"]["missing"], 1)
+        job = self.start(staged["token"], True)
+        self.assertEqual(job["summary"]["corrections"]["apply"], 0)
+        self.assertEqual([row for row in self.rows("offer_history") if row["url"] == url], [])
+
+    def test_a_failed_replace_changes_nothing(self):
+        self.run_import(gist_zip())
+        self.add_live_data()
+        token = self.stage(self.smaller()).get_json()["token"]
+        before = self.snapshot()
+        with mock.patch.object(price_archive.Plan, "resolve_corrections", side_effect=RuntimeError("stuk")):
+            self.assertEqual(self.admin.post("/api/price-archive/jobs", json={"token": token, "replace": True}).status_code, 202)
+            job = self.wait()
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_fresh_installation_has_nothing_to_replace(self):
+        staged = self.stage(gist_zip()).get_json()
+        self.assertEqual(staged["archived"], {"offers": 0, "prices": 0})
+        self.assertEqual(staged["replace"]["new"], staged["new"])
+
+
 class JobAndAccessTest(ArchiveCase):
     ROUTES = (
         ("get", "/api/price-archive"), ("post", "/api/price-archive/stage"), ("delete", "/api/price-archive/stage/" + "0" * 32),
