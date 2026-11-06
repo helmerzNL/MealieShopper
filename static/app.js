@@ -649,32 +649,20 @@ function renderMeal(entry) {
 }
 
 // ---- Het recept van een maaltijd in een venster: wat de week al van Mealie kreeg (recipeDetail, met de hoeveelheden
-// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster.
+// voor de geplande porties), zonder nieuw verzoek. Wijzigen opent vanuit het venster het plan-venster. De ingrediënten en
+// de bereiding staan in de kookweergave (renderCookView in recipe_view.js); de sleutel mealie:<slug> is dezelfde als bij
+// Recepten zoeken, zodat de voortgang van een recept op beide plekken dezelfde is.
 const mealRecipe = { entry: null };
-
-function mealRecipeLines(detail) {
-  const ingredients = (detail.recipeIngredient || [])
-    .map((item) => String(item?.display || item?.note || "").replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  const steps = (detail.recipeInstructions || []).map((step) => String(step?.text || "").trim()).filter(Boolean);
-  return { ingredients, steps };
-}
 
 function renderMealRecipeBody(entry) {
   const detail = entry.recipeDetail;
   if (!detail) return `<p class="muted">${escapeHtml(t("plan.view_unavailable"))}</p>`;
-  const { ingredients, steps } = mealRecipeLines(detail);
   const description = String(detail.description || "").trim();
+  const slug = entry.recipe?.slug || detail.slug;
+  const recipe = cookRecipeFromMealie(detail, slug ? `mealie:${slug}` : `plan:${entry.id}`, mealName(entry));
   return `
     ${description ? `<p class="meal-recipe__description">${escapeHtml(description)}</p>` : ""}
-    <h4>${escapeHtml(t("rsearch.ingredients"))}</h4>
-    ${ingredients.length
-      ? `<ul class="picnic-recipe__list">${ingredients.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
-      : `<p class="muted">${escapeHtml(t("rsearch.no_ingredients_mealie"))}</p>`}
-    <h4>${escapeHtml(t("rsearch.steps"))}</h4>
-    ${steps.length
-      ? `<ol class="picnic-recipe__list meal-recipe__steps">${steps.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ol>`
-      : `<p class="muted">${escapeHtml(t("rsearch.no_steps_mealie"))}</p>`}`;
+    ${renderCookView(recipe, { headingLevel: 4, noIngredients: t("rsearch.no_ingredients_mealie"), noSteps: t("rsearch.no_steps_mealie") })}`;
 }
 
 function openMealRecipe(entry) {
@@ -696,6 +684,7 @@ function openMealRecipe(entry) {
   $("#meal-recipe-body").innerHTML = renderMealRecipeBody(entry);
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
+  if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // "Scherm aan laten" (recipe_view.js)
 }
 
 function renderMealPlan(entries) {
@@ -2519,6 +2508,7 @@ function showPanel(panelId, tab = null) {
   if (panelId === "recipes") ensureMealPlan();
   if (panelId === "settings" && !isRegularUser() && typeof loadOffersSyncStatus === "function") loadOffersSyncStatus();
   if (panelId === "settings" && !isRegularUser() && typeof loadLinkingBox === "function") loadLinkingBox();
+  if (typeof cookWakeUpdate === "function") cookWakeUpdate(); // een ander scherm: is er nog een recept in beeld?
   if (typeof routerSync === "function") routerSync();
 }
 
@@ -2717,6 +2707,7 @@ $("#meal-days").addEventListener("click", (event) => {
   else openPlanDialog({ entry });
 });
 // Het recept van een maaltijd (openMealRecipe): Wijzigen gaat naar het plan-venster; Sluiten, Esc of een tik naast het venster sluit.
+// "Start met koken" in het venster opent de kookmodus (#cook-mode, recipe_view.js) erbovenop; dat is een eigen venster ernaast.
 $("#meal-recipe-edit").addEventListener("click", () => {
   const entry = mealRecipe.entry;
   $("#meal-recipe-dialog").close();

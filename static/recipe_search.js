@@ -164,7 +164,7 @@ async function runRecipeSearch(event) {
   setBusy(button, false);
 }
 
-// ---- Een recept van Jumbo, Picnic of Crisp openen: ingrediënten en bereiding, en importeren in Mealie
+// ---- Een recept van Jumbo, Picnic of Crisp openen: ingrediënten en bereiding (de kookweergave, recipe_view.js), en importeren in Mealie
 async function importStoreRecipe(store, id, button, target) {
   button.disabled = true;
   button.textContent = t("recipe.importing");
@@ -195,6 +195,7 @@ const RECIPE_SOURCE_NAMES = { ah: "Albert Heijn", jumbo: "Jumbo", picnic: "Picni
 function showRecipeList(host) {
   $(host.detail).hidden = true;
   $(host.list).hidden = false;
+  cookWakeUpdate(); // het recept is uit beeld: "Scherm aan laten" hoeft niet meer (recipe_view.js)
 }
 
 async function openStoreRecipe(store, id, host = SEARCH_HOST) {
@@ -210,6 +211,8 @@ async function openStoreRecipe(store, id, host = SEARCH_HOST) {
   } catch (error) {
     $(`#${host.prefix}-body`).innerHTML = "";
     message(`#${host.prefix}-message`, error.message);
+  } finally {
+    cookWakeUpdate();
   }
 }
 
@@ -222,8 +225,6 @@ function renderStoreRecipeDetail(store, recipe, host) {
     recipe.rating ? `\u2605 ${I18N.formatNumber(recipe.rating)}${recipe.ratingCount ? ` (${I18N.formatNumber(recipe.ratingCount)})` : ""}` : "",
     recipe.author || "",
   ].filter(Boolean);
-  const ingredients = (recipe.ingredients || []).map((item) => `<li>${escapeHtml(item.line)}</li>`).join("");
-  const steps = (recipe.steps || []).map((text) => `<li>${escapeHtml(text)}</li>`).join("");
   const nutrition = (recipe.nutrition || []).map((item) => `${item.name} ${I18N.formatNumber(item.quantity)} ${item.unit}`.trim()).join(" \u00b7 ");
   const fromMealie = store === "mealie";
   // Inplannen, Importeer (een recept uit Mealie staat er al) en de link naar de bron: Mealie of de winkel.
@@ -233,6 +234,14 @@ function renderStoreRecipeDetail(store, recipe, host) {
     fromMealie ? "" : `<button class="button button--secondary" type="button" id="${prefix}-import">${escapeHtml(t("recipe.import"))}</button>`,
     recipe.url ? `<a class="button button--secondary" href="${escapeHtml(recipe.url)}" target="_blank" rel="noreferrer noopener">${mdiIcon(MDI_OPEN_IN_NEW)}<span>${escapeHtml(source)}</span></a>` : "",
   ].join("");
+  // De ingrediënten en de bereiding in de kookweergave (renderCookView in recipe_view.js): afvinken, de stap waar je bent,
+  // de kookmodus en "Scherm aan laten".
+  const cookView = renderCookView(cookRecipeFromStore(store, recipe), {
+    headingLevel: 3,
+    noIngredients: t(fromMealie ? "rsearch.no_ingredients_mealie" : "rsearch.no_ingredients"),
+    noSteps: t(fromMealie ? "rsearch.no_steps_mealie" : "rsearch.no_steps"),
+    stepsNote: recipe.stepsPortions && recipe.stepsPortions !== recipe.portions ? t("picnic.recipes.steps_for", { count: recipe.stepsPortions }) : "",
+  });
   $(`#${prefix}-body`).innerHTML = `
     <div class="picnic-recipe">
       ${recipe.image ? `<img class="picnic-recipe__image" src="${escapeHtml(storeImage(recipe.image))}" alt="" data-hide-on-error>` : ""}
@@ -240,11 +249,7 @@ function renderStoreRecipeDetail(store, recipe, host) {
       ${recipe.description ? `<p>${escapeHtml(recipe.description)}</p>` : ""}
       <div class="recipe-detail__actions">${actions}</div>
       <div id="${prefix}-import-result"></div>
-      <h3>${escapeHtml(t("rsearch.ingredients"))}</h3>
-      ${ingredients ? `<ul class="picnic-recipe__list">${ingredients}</ul>` : `<p class="muted">${escapeHtml(t(fromMealie ? "rsearch.no_ingredients_mealie" : "rsearch.no_ingredients"))}</p>`}
-      <h3>${escapeHtml(t("rsearch.steps"))}</h3>
-      ${steps ? `<ol class="picnic-recipe__list">${steps}</ol>` : `<p class="muted">${escapeHtml(t(fromMealie ? "rsearch.no_steps_mealie" : "rsearch.no_steps"))}</p>`}
-      ${recipe.stepsPortions && recipe.stepsPortions !== recipe.portions ? `<p class="muted">${escapeHtml(t("picnic.recipes.steps_for", { count: recipe.stepsPortions }))}</p>` : ""}
+      ${cookView}
       ${recipe.tip ? `<h3>${escapeHtml(t("rsearch.tip"))}</h3><p>${escapeHtml(recipe.tip)}</p>` : ""}
       ${nutrition ? `<p class="muted">${escapeHtml(t("rsearch.nutrition", { values: nutrition }))}</p>` : ""}
     </div>`;
