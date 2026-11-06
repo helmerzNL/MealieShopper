@@ -393,6 +393,14 @@ Under **Settings, System, Import price archive** (administrator only) you add hi
 - **`correction`** changes `price` and `price_before` of one existing archive line with that `url`: `store`, `url`, `old_price`, `old_before`, `new_price` and `new_before` (a value may be `null`). Corrections only touch lines that were there before the import.
 - **Limits:** dates from 2000; a price or `day` not in the future, a validity at most a year ahead; a price up to 100,000; at most 1 million lines.
 
+**Converting the package from the gist.** The script `scripts/price_archive_from_gist.py` (in the repository, not in the container) converts the package to this format:
+
+```bash
+python3 scripts/price_archive_from_gist.py https://gist.github.com/wolph/195c8964d4e63eb1774fc14ba35b4f09 -o prijsarchief.jsonl.gz
+```
+
+It fetches the manifest and the parts from GitHub itself, or reads the ZIP, the `.tar.gz` or an unpacked folder. It checks the same checksums as the app and writes one `.jsonl.gz` of about 14 MB instead of a ZIP of over 100 MB; the app imports it exactly as it imports the package itself. The provenance fields (source amounts, Git commits, original titles) stay in every line; `--compact` leaves them out (about 11 MB) and `--no-gzip` writes a plain `.jsonl`. The script uses only the standard library of Python 3.9 or newer, unpacks nothing to disk and runs nothing from the package.
+
 API: `GET /api/price-archive` (the limit), `POST /api/price-archive/stage` (the file as the body; returns a `token` and the summary, with `stores` per store), `DELETE /api/price-archive/stage/<token>`, `POST /api/price-archive/jobs` with `{"token": …}`, `GET /api/price-archive/jobs/latest` and `DELETE /api/price-archive/jobs/<id>`. After the import there is a line in the audit log (`price-archive`, `import`).
 
 ### Stores

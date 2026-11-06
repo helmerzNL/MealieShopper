@@ -393,6 +393,14 @@ Onder **Instellingen, Systeem, Prijsarchief importeren** (alleen de beheerder) v
 - **`correction`** verandert `price` en `price_before` van één bestaande archiefregel met die `url`: `store`, `url`, `old_price`, `old_before`, `new_price` en `new_before` (een waarde mag `null` zijn). Correcties raken alleen regels die er vóór de import al stonden.
 - **Grenzen:** datums vanaf 2000; een prijs of `day` niet in de toekomst, een looptijd hooguit een jaar vooruit; een prijs tot 100.000; hooguit 1 miljoen regels.
 
+**Het pakket van de gist omzetten.** Het script `scripts/price_archive_from_gist.py` (in de repository, niet in de container) zet het pakket om naar dit formaat:
+
+```bash
+python3 scripts/price_archive_from_gist.py https://gist.github.com/wolph/195c8964d4e63eb1774fc14ba35b4f09 -o prijsarchief.jsonl.gz
+```
+
+Het haalt het manifest en de delen zelf op bij GitHub, of leest de ZIP, het `.tar.gz` of een uitgepakte map. Het controleert dezelfde controlesommen als de app en schrijft één `.jsonl.gz` van zo'n 14 MB in plaats van een ZIP van ruim 100 MB; de app importeert dat precies zo als het pakket zelf. De herkomstvelden (bronbedragen, Git-commits, oorspronkelijke titels) blijven in elke regel staan; `--compact` laat ze weg (zo'n 11 MB) en `--no-gzip` schrijft een gewone `.jsonl`. Het script gebruikt alleen de standaardbibliotheek van Python 3.9 of nieuwer, pakt niets uit naar schijf en voert niets uit het pakket uit.
+
 API: `GET /api/price-archive` (de grens), `POST /api/price-archive/stage` (het bestand als body; geeft een `token` en de samenvatting, met `stores` per winkel), `DELETE /api/price-archive/stage/<token>`, `POST /api/price-archive/jobs` met `{"token": …}`, `GET /api/price-archive/jobs/latest` en `DELETE /api/price-archive/jobs/<id>`. Na de import staat een regel in het auditlog (`price-archive`, `import`).
 
 ### Winkels
