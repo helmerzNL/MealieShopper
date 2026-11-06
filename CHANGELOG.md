@@ -14,6 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
   - Het scherm stuurt een stuk opnieuw als er 30 seconden niets mee gebeurt (was: twee minuten) en probeert het ook bij `408` opnieuw.
 - **Ontwikkeling**: `test_backup` heeft 2 nieuwe tests: een stuk dat blijft steken, houdt een ander stuk niet op (op 3.18.1 wachtte dat 10 seconden), en een verbinding die stil blijft, geeft `408` en zet de tijdslimiet van de verbinding daarna terug. Nagebootst met gunicorn en een proxy die twee stukken halverwege laat steken: de upload ging na 2 × 30 seconden verder, `/healthz` bleef antwoorden, en de twee pogingen daarna duurden elk 8 seconden.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-10`). Ververs de pagina één keer.
+- Pull request [#268](https://github.com/helmerzNL/MealieShopper/pull/268).
 
 ## v3.18.1
 
