@@ -49,6 +49,9 @@ def create_app() -> Quart:
         """Opstartwerk van de app: database, opruimen en de dagelijkse aanbiedingen-run."""
         try:
             auth.init_db()  # idempotent; het lazy pad (ensure_db) blijft bestaan
+        except (sqlite3.Error, OSError):
+            app.logger.warning("Kon de database niet aanmaken", exc_info=True)
+        try:
             removed = auth.purge_obsolete_secrets()
             if removed:
                 app.logger.info("Opgeslagen gegevens van verwijderde koppelingen gewist (%d)", removed)

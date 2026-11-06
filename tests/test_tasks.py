@@ -2,12 +2,21 @@
 
 import asyncio
 import logging
+import threading
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from quart import Quart
 
 from mealieshopper import tasks
+
+
+@pytest.fixture(autouse=True)
+async def _clean_registry() -> AsyncIterator[None]:
+    """Een falende assert laat geen tasks achter in de globale register."""
+    yield
+    await tasks.cancel_all()
 
 
 async def _forever() -> None:
@@ -69,3 +78,9 @@ async def test_startup_hook_initialises_the_database(app: Quart, data_dir: Path)
     assert not (data_dir / "auth.sqlite3").exists()
     async with app.test_app():
         assert (data_dir / "auth.sqlite3").exists()
+
+
+async def test_startup_does_not_start_the_offers_thread(app: Quart) -> None:
+    async with app.test_app():
+        names: list[str] = [thread.name for thread in threading.enumerate()]
+    assert "offers-schedule" not in names

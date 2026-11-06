@@ -8,13 +8,8 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
-from support import SyncClient  # noqa: E402
+from support import SyncClient, start_app  # noqa: E402
 
-
-async def start_app(app) -> None:
-    """Start en stop de app zoals de server doet: `before_serving` en `after_serving` lopen een keer."""
-    async with app.test_app():
-        pass
 
 
 class PurgeObsoleteSecretsTest(unittest.TestCase):

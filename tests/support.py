@@ -208,3 +208,9 @@ class SyncClient:
             if cookie.name == key and cookie.path == path and cookie.domain in hosts:
                 return cookie
         return None
+
+
+async def start_app(app: Quart) -> None:
+    """Start en stop de app zoals de server doet: `before_serving` en `after_serving` lopen een keer."""
+    async with app.test_app():
+        pass

@@ -1,5 +1,6 @@
 """Gedeelde pytest-fixtures voor de tests van MealieShopper."""
 
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -8,8 +9,12 @@ import respx
 from quart import Quart
 from quart.typing import TestClientProtocol
 
-from mealieshopper import auth
-from mealieshopper.app import create_app
+# Ook zonder de fixture `data_dir` (een kale `pytest`-run, unittest-tests) mag `before_serving` de dagelijkse
+# aanbiedingen-thread niet starten. Dit moet vooraf, voor de eerste import van mealieshopper.
+os.environ.setdefault("MEALIESHOPPER_TESTING", "1")
+
+from mealieshopper import auth  # noqa: E402
+from mealieshopper.app import create_app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
