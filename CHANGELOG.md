@@ -14,6 +14,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - Wat je zelf open- of dichtklapt onder Koppelen blijft zo tot je de pagina herlaadt, zoals eerst.
 - **Handleiding** (NL en EN) en de huisstijl: de blokken onder Koppelen en hun standaardstand. Nieuwe screenshots `settings-stores.png`, `settings-picnic.png`, `settings-jumbo.png` en `settings-crisp.png`.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#262](https://github.com/helmerzNL/MealieShopper/pull/262).
 
 ## v3.16.0
 
