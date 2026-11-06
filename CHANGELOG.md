@@ -20,6 +20,7 @@ Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar
 - **Handleiding** (NL en EN): het onderdeel *Weergave* heet nu *Voorkeuren*, met het blok Supermarkt; bij Aanbiedingen en Winkels staat waarmee ze openen. De README's noemen de voorkeurssupermarkt.
 - **Ontwikkeling**: nieuw `test_preferred_store` (14 tests: de standaard en terugvallen op AH, adressen met en zonder winkel, volgen tot je zelf kiest, een dichte pagina, een adres dat op een koppeling wacht, Winkels alleen als hij open is, een nieuwe voorkeur na een eigen keuze, de namen en het bewaren). `test_profile` test de nieuwe voorkeur (standaard, keuzes, weigeren, per gebruiker, een oude database), `test_backup` neemt hem mee, en `test_appearance`, `test_router` en `test_offers` volgen de nieuwe namen.
 - **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-10`). Ververs de pagina één keer.
+- Pull request [#269](https://github.com/helmerzNL/MealieShopper/pull/269).
 
 ## v3.18.1
 
