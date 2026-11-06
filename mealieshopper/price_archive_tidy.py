@@ -38,7 +38,7 @@ ARCHIVE_OFFERS_SQL = (
     "(product_id LIKE 'folder:%' OR COALESCE(url, '') LIKE 'https://www.supermarktaanbiedingen.com/folders/%' "
     "OR COALESCE(url, '') LIKE 'https://www.voordeelmuis.nl/cgi-bin/v.cgi?%')"
 )
-ARCHIVE_PRICES_SQL = "(source IN ('public_press_release', 'public_observed_unknown'))"
+ARCHIVE_PRICES_SQL = "(source IN ('public_press_release', 'public_observed_unknown', 'archive_search'))"
 
 GROUP = re.compile(r"\b(?:alle|of|en|diverse|varianten|combineren|bijv|bijvoorbeeld|naar\s+keuze)\b", re.I)
 ARCHIVE_URLS = ("https://www.supermarktaanbiedingen.com/folders/", "https://www.voordeelmuis.nl/cgi-bin/v.cgi?")

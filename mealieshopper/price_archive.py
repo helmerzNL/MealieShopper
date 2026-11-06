@@ -8,7 +8,9 @@ Twee formaten, die op dezelfde regels uitkomen (`offer`, `price`, `correction`) 
 
 * **Eigen formaat** `mealieshopper-price-archive`, versie 1: een `.jsonl`-bestand (of `.jsonl.gz`) met op de eerste regel een kop
   (`{"format": "mealieshopper-price-archive", "formatVersion": 1, ...}`) en daarna één JSON-object per regel met `type` en de
-  kolommen van de tabel. De handleiding beschrijft het formaat.
+  kolommen van de tabel. De handleiding beschrijft het formaat. Of als map, zoals **Prijsarchief exporteren** hem maakt
+  (price_archive_export.py): een ZIP met `mealieshopper-price-archive.json` (de kop, met `files`) en per winkel en maand een
+  `.jsonl`-bestand met alleen regels, ook als de ZIP van een GitHub-repo, waarin alles in één map staat.
 * **Het pakket van de gist** zoals **Download ZIP** het geeft: `supermarket-manifest.json` met Base64-delen van
   `supermarket-archives-<datum>.tar.gz`, met daarin `data-manifest.json` en zes gegevensbestanden (`GIST_FILES`). Het losse
   `.tar.gz` mag ook. De app leest alleen die bestanden; de tar wordt nooit uitgepakt en geen script uit het pakket draait.
@@ -55,7 +57,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Iterator
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 from . import audit, auth, offers, prices, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
@@ -70,6 +72,10 @@ GIST_FORMAT_VERSION = 1
 GIST_MANIFEST = "supermarket-manifest.json"
 OLD_GIST_MANIFEST = "manifest.json"  # het eerdere AH-pakket; het nieuwe pakket bevat dezelfde gegevens, gecorrigeerd
 DATA_MANIFEST = "data-manifest.json"
+EXPORT_MANIFEST = "mealieshopper-price-archive.json"  # de eigen export als map (price_archive_export.py)
+EXPORT_FILE = re.compile(r"^(?:offers|prices|corrections)/[a-z]+/[0-9A-Za-z._-]+\.jsonl$")
+MAX_EXPORT_FILES = 5000
+MAX_EXPORT_BYTES = 2 * 1024 * 1024 * 1024  # uitgepakt, alle bestanden samen
 # De gegevensbestanden in het pakket van de gist en wat elke regel wordt. De rest (bron-HTML, pdf's, scripts) lezen we niet.
 GIST_FILES: dict[str, str] = {
     "ah-corrected/corrections.json": "correction",
@@ -104,7 +110,10 @@ EARLIEST = date(2000, 1, 1)
 MAX_PRICE = 100_000.0
 
 STORES = offers.STORES
-PRICE_SOURCES = ("public_press_release", prices.PUBLIC_OBSERVED_UNKNOWN)
+# Een schapprijs uit een archief (`search`: wat een MealieShopper bij het zoeken zag) wordt `archive_search`: een gewone prijs,
+# die **Vervangen** herkent als archiefregel en die niet meetelt als product van jou bij het koppelen (price_archive_tidy.py).
+ARCHIVE_SEARCH = "archive_search"
+PRICE_SOURCES = ("public_press_release", prices.PUBLIC_OBSERVED_UNKNOWN, "search", ARCHIVE_SEARCH)
 OFFER_COLUMNS = (
     "store", "product_id", "title", "brand", "unit_size", "category", "price", "price_before", "promo_label", "image", "url",
     "valid_from", "valid_until", "first_seen", "last_seen", "ended_at", "syncs", "continued", "personal",
@@ -131,8 +140,8 @@ CREATE TABLE IF NOT EXISTS price_archive_jobs (
 
 MESSAGES: dict[str, tuple[str, str]] = {
     "not_an_archive": (
-        "Dit is geen prijsarchief. Kies de ZIP van het pakket, het .tar.gz-archief of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
-        "This is not a price archive. Choose the ZIP of the package, the .tar.gz archive or a .jsonl file in the mealieshopper-price-archive format.",
+        "Dit is geen prijsarchief. Kies de ZIP van het pakket, het .tar.gz-archief, een export van MealieShopper of een .jsonl-bestand in het formaat mealieshopper-price-archive.",
+        "This is not a price archive. Choose the ZIP of the package, the .tar.gz archive, an export from MealieShopper or a .jsonl file in the mealieshopper-price-archive format.",
     ),
     "old_package": (
         "Dit is het eerdere AH-pakket. Kies de ZIP met supermarket-manifest.json: die bevat dezelfde AH-gegevens, gecorrigeerd, en ook Jumbo, Picnic en Crisp.",
@@ -185,8 +194,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "price": ("{field} is geen geldige prijs", "{field} is not a valid price"),
     "number": ("{field} is geen geldig getal", "{field} is not a valid number"),
     "source": (
-        "bron {value} is niet toegestaan (alleen public_press_release of public_observed_unknown)",
-        "source {value} is not allowed (only public_press_release or public_observed_unknown)",
+        "bron {value} is niet toegestaan (alleen public_press_release, public_observed_unknown, search of archive_search)",
+        "source {value} is not allowed (only public_press_release, public_observed_unknown, search or archive_search)",
     ),
     "personal": ("een archief kan geen persoonlijke aanbieding (Bonus Box) bevatten", "an archive cannot contain a personal offer (Bonus Box)"),
     "seen_at": ("seen_at valt niet op day", "seen_at is not on day"),
@@ -358,7 +367,7 @@ def normalise_offer(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
     price = _price(row, "price")
     price_before = _price(row, "price_before")
     promo_label = _text(row, "promo_label", 2000, clean=True)
-    url = _url(row, "url", required=True)
+    url = _url(row, "url")  # Picnic en Crisp hebben geen webwinkel, dus hun aanbiedingen geen adres
     valid_from = _date(row, "valid_from", bounds.later)
     valid_until = _date(row, "valid_until", bounds.later)
     first_seen = _stamp(row, "first_seen", bounds.later, required=True)
@@ -390,7 +399,8 @@ def normalise_price(row: dict[str, Any], bounds: Today) -> tuple[Any, ...]:
     seen_at = _stamp(row, "seen_at", bounds.later) or f"{day}T00:00:00+00:00"
     if datetime.fromisoformat(seen_at).date().isoformat() != day:
         raise RowError("seen_at", "seen_at")
-    return (store, product_id, day, str(source), title, brand, unit_size, "", url, price, seen_at)
+    stored = ARCHIVE_SEARCH if source in ("search", ARCHIVE_SEARCH) else str(source)
+    return (store, product_id, day, stored, title, brand, unit_size, "", url, price, seen_at)
 
 
 def normalise_correction(row: dict[str, Any]) -> tuple[Any, ...]:
@@ -458,7 +468,7 @@ class Archive:
         with self.path.open("rb") as handle:
             head = handle.read(8)
         if head.startswith(b"PK\x03\x04"):
-            return "zip"
+            return "export" if self._export_manifest() is not None else "zip"
         if head.startswith(b"\x1f\x8b"):
             try:
                 with gzip.open(self.path, "rb") as handle:
@@ -478,6 +488,9 @@ class Archive:
         """(soort, regel, bestand, regelnummer) voor elke regel. Een fout in het bestand is een ArchiveError."""
         if self.kind in ("jsonl", "jsonl.gz"):
             yield from self._own()
+            return
+        if self.kind == "export":
+            yield from self._from_export()
             return
         tar_path = self.path
         temporary: Path | None = None
@@ -536,6 +549,63 @@ class Archive:
             "createdAt": str(header.get("createdAt") or "")[:40],
             "license": str(header.get("license") or "")[:200],
         }
+
+    # De eigen export als map (price_archive_export.py): de kop in mealieshopper-price-archive.json, de regels per bestand.
+    def _export_manifest(self) -> str | None:
+        """Het pad van mealieshopper-price-archive.json in de ZIP (bovenin, of één map diep zoals in de ZIP van een GitHub-repo)."""
+        try:
+            with zipfile.ZipFile(self.path) as archive:
+                found = [info.filename for info in archive.infolist()
+                         if not info.is_dir() and PurePosixPath(info.filename).name == EXPORT_MANIFEST
+                         and len(PurePosixPath(info.filename).parts) <= 2]
+        except (zipfile.BadZipFile, OSError):
+            raise ArchiveError("not_an_archive") from None
+        return found[0] if len(found) == 1 else None
+
+    def _from_export(self) -> Iterator[tuple[str, dict[str, Any], str, int]]:
+        manifest_name = self._export_manifest()
+        if manifest_name is None:
+            raise ArchiveError("not_an_archive")
+        folder = str(PurePosixPath(manifest_name).parent)
+        prefix = "" if folder == "." else folder + "/"
+        try:
+            with zipfile.ZipFile(self.path) as archive:
+                by_name = {info.filename: info for info in archive.infolist() if not info.is_dir()}
+                with archive.open(by_name[manifest_name]) as handle:
+                    try:
+                        header = json.loads(_bounded(handle, MAX_MANIFEST_BYTES))
+                    except ValueError:
+                        raise ArchiveError("bad_structure", detail=EXPORT_MANIFEST) from None
+                self._own_header(header)
+                files = header.get("files")
+                if (not isinstance(files, list) or len(files) > MAX_EXPORT_FILES or len(set(map(str, files))) != len(files)
+                        or not all(isinstance(name, str) and EXPORT_FILE.match(name) for name in files)):
+                    raise ArchiveError("bad_structure", detail=f"{EXPORT_MANIFEST}: files")
+                infos = []
+                for name in files:
+                    info = by_name.get(prefix + name)
+                    if info is None:
+                        raise ArchiveError("missing_file", file=name)
+                    infos.append((name, info))
+                # De opgegeven grootte is een echte grens: zipfile leest nooit meer dan file_size (en controleert de CRC).
+                if sum(info.file_size for _, info in infos) > MAX_EXPORT_BYTES:
+                    raise ArchiveError("too_large", 413, limit=MAX_EXPORT_BYTES // (1024 * 1024))
+                for name, info in infos:
+                    number = 0
+                    try:
+                        with archive.open(info) as handle:
+                            for number, raw in _lines(handle):
+                                data = _json_line(raw)
+                                if not isinstance(data, dict):
+                                    raise RowError("object")
+                                kind = data.get("type")
+                                if kind not in ("offer", "price", "correction"):
+                                    raise RowError("type", "type", kind)
+                                yield str(kind), data, name, number
+                    except RowError as exc:
+                        raise ArchiveError("bad_row", file=name, line=number or "?", reason=exc.reason, field=exc.field, value=exc.value) from None
+        except (zipfile.BadZipFile, zlib.error, OSError, EOFError):
+            raise ArchiveError("bad_structure", detail="zip") from None
 
     # De ZIP van de gist: Base64-delen naar één .tar.gz, met de controlesommen uit supermarket-manifest.json.
     def _from_zip(self) -> Path:
@@ -767,14 +837,18 @@ class Plan:
         stats = self._store(store)
         self._span(stats, valid_from or row[13])
         self._span(stats, valid_until or row[14])
-        by_url = _key(store, url, valid_from, valid_until)
-        if by_url in self.offer_urls:
+        by_url = _key(store, url, valid_from, valid_until) if url else None
+        by_product = _key(store, product_id, valid_from, valid_until)
+        if by_url is not None and by_url in self.offer_urls:
             stats["offers"]["duplicate"] += 1
             return False
-        if _key(store, product_id, valid_from, valid_until) in self.offer_products:
-            stats["offers"]["covered"] += 1
+        if by_product in self.offer_products:
+            stats["offers"]["duplicate" if by_url is None else "covered"] += 1
             return False
-        self.offer_urls.add(by_url)
+        if by_url is not None:
+            self.offer_urls.add(by_url)
+        else:
+            self.offer_products.add(by_product)  # zonder adres: hetzelfde product met dezelfde looptijd is dezelfde aanbieding
         stats["offers"]["new"] += 1
         return True
 
@@ -1252,6 +1326,49 @@ def register_routes(app: Flask) -> None:
         except ArchiveError as exc:
             return _error(exc)
         return jsonify(job), 202
+
+    # De export (price_archive_export.py): een ZIP met een bestand per winkel en maand. POST, zoals de back-up: het werk gebeurt
+    # pas als je op de knop drukt, niet bij een link die iets vooraf ophaalt.
+    @app.post("/api/price-archive/export")
+    def price_archive_export():
+        from .price_archive_export import write_export  # pas hier: price_archive_export importeert dit bestand
+
+        started = time.monotonic()
+        auth.data_dir().mkdir(parents=True, exist_ok=True)
+        path = auth.data_dir() / f"{STAGE_PREFIX}export-{secrets.token_hex(8)}.zip"
+        try:
+            header = write_export(path)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        offers_total = sum(header["counts"]["offers"].values())
+        prices_total = sum(header["counts"]["prices"].values())
+        audit.record(
+            kind="task", service="price-archive", action="export", actor=audit.current_actor(),
+            duration_ms=int((time.monotonic() - started) * 1000),
+            detail={"offers": offers_total, "prices": prices_total, "files": len(header["files"]), "skipped": header["skipped"]},
+        )
+        name = "mealieshopper-prijsarchief-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
+        # Het bestand is van het bestandssysteem af zodra het open is: er blijft niets staan, ook niet bij een afgebroken download.
+        handle = path.open("rb")
+        size = os.fstat(handle.fileno()).st_size
+        path.unlink(missing_ok=True)
+
+        def stream() -> Iterator[bytes]:
+            try:
+                while chunk := handle.read(CHUNK):
+                    yield chunk
+            finally:
+                handle.close()
+
+        return Response(stream(), mimetype="application/zip", headers={
+            "Content-Length": str(size),
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Cache-Control": "no-store",
+            "X-Export-Offers": str(offers_total),
+            "X-Export-Prices": str(prices_total),
+            "X-Export-Skipped": str(sum(header["skipped"].values())),
+        })
 
     @app.get("/api/price-archive/jobs/latest")
     def price_archive_latest():

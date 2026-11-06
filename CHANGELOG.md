@@ -2,6 +2,27 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.22.0
+
+### Nieuw in 3.22.0
+
+*English summary: new under Settings, System: Export price archive. It downloads all offers and prices as a ZIP with one file per store and month (`offers/<store>/<yyyy-mm>.jsonl`, `prices/<store>/<yyyy-mm>.jsonl`), plus `mealieshopper-price-archive.json` (the header, with the list of files) and a `README.md`, to publish for example in a GitHub repository. Personal offers (Bonus Box) are never included. The same data gives exactly the same files, so git only shows what changed. Import price archive reads the export back, also as the ZIP of a GitHub repository; it now also accepts offers without an address (Picnic, Crisp) and regular prices (`search`, stored as `archive_search`, which Replace removes again).*
+
+- **Nieuw: Prijsarchief exporteren** (Instellingen, Systeem, alleen de beheerder). Je downloadt alle aanbiedingen en prijzen als ZIP, om te delen in bijvoorbeeld een openbare GitHub-repo: pak de ZIP uit in de repo en commit.
+  - **Wat erin staat:** alle aanbiedingen van Albert Heijn, Jumbo, Picnic en Crisp, en alle prijzen: de gewone prijzen die de app bij het zoeken zag en wat eerder uit een prijsarchief kwam. Een afbeelding gaat alleen als adres mee.
+  - **Nooit erin:** je persoonlijke aanbiedingen (Bonus Box). Bestellingen, kassabonnen, lijstjes en instellingen staan in andere tabellen en gaan dus ook niet mee. Een regel die de import zou weigeren, blijft eruit; de melding na het exporteren noemt hoeveel.
+  - **Een bestand per winkel en maand:** `offers/<winkel>/<jjjj-mm>.jsonl` en `prices/<winkel>/<jjjj-mm>.jsonl`, met één regel van het eigen formaat per regel. `mealieshopper-price-archive.json` is de kop, met `files` (de bestanden) en `counts` (het aantal per winkel), en `README.md` zegt wat erin staat, in het Nederlands en het Engels.
+  - **Git-vriendelijk:** dezelfde gegevens geven precies dezelfde bestanden, met de regels in een vaste volgorde. Een nieuwe export laat in git dus alleen zien wat er veranderde, meestal de laatste maand. Geen bestand komt in de buurt van de grens van 100 MB van GitHub.
+- **De import leest de export terug**, ook als de ZIP van een GitHub-repo (**Code, Download ZIP**), waarin alles in één map staat. Hij leest alleen de bestanden in `files`: een oud bestand of een `LICENSE` in de repo stoort niet. Een bestand dat in `files` staat maar ontbreekt, of een pad buiten de map, weigert het hele archief.
+- **Gewijzigd in de import:**
+  - Een aanbieding zonder adres mag nu: Picnic en Crisp hebben geen webwinkel. Zo'n aanbieding staat er al als hetzelfde product met dezelfde looptijd er staat.
+  - Een gewone prijs (`search`, wat een MealieShopper bij het zoeken zag) mag nu ook, en wordt `archive_search`. Hij telt als gewone prijs, telt niet mee als product van jou bij het koppelen, en **Vervang wat eerder uit een prijsarchief kwam** haalt hem er weer uit.
+- Met de database van de vorige proef (45.048 aanbiedingen en 44.170 prijzen) maakt de app de export in ruim 2 seconden: 437 bestanden, 5,1 MB als ZIP. Twee exporten na elkaar geven dezelfde bestanden. Terug geïmporteerd in een lege installatie, ook als ZIP van een repo met een map erboven, komen alle prijzen en 45.019 aanbiedingen binnen: de 29 andere zijn combi-aanbiedingen uit een import van vóór 3.21.0, die de import nu tegenhoudt.
+- **API:** `POST /api/price-archive/export` geeft de ZIP, met `X-Export-Offers`, `X-Export-Prices` en `X-Export-Skipped`. Na het exporteren staat een regel in het auditlog (`price-archive`, `export`).
+- **Handleiding** (NL en EN): nieuw onderdeel *Prijsarchief exporteren*; bij *Het eigen formaat* staan de map, de aanbieding zonder adres en de bronnen `search` en `archive_search`. De README's noemen de export.
+- **Ontwikkeling**: nieuw `price_archive_export.py`. `test_price_archive` heeft 6 nieuwe tests: een bestand per winkel en maand zonder persoonlijke aanbiedingen (met de README en het auditlog), twee keer dezelfde bestanden, terug importeren (ook nog een keer), de ZIP van een GitHub-repo, een ontbrekend bestand, een kapotte regel of een pad buiten de map, en een regel die de import zou weigeren. De export-route staat in de toegangstests, en de bron `search` is niet meer het voorbeeld van een geweigerde bron (dat is nu `receipt`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-14`). Ververs de pagina één keer.
+
 ## v3.21.0
 
 ### Gewijzigd in 3.21.0

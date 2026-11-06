@@ -242,6 +242,78 @@ async function priceArchiveFinish(job) {
   priceArchiveMessage(notes.join(" "), "success");
 }
 
+// --- exporteren (price_archive_export.py) ------------------------------------------------------------------------
+
+const priceExportState = { busy: false };
+
+function priceExportProgress({ label, value = null, max = null, note = "" }) {
+  const bar = $("#price-export-progress-bar");
+  if (value !== null && max) {
+    bar.max = max;
+    bar.value = value;
+  } else {
+    bar.removeAttribute("value");
+  }
+  $("#price-export-progress-label").textContent = label;
+  $("#price-export-progress-note").textContent = note;
+  $("#price-export-progress").hidden = false;
+}
+
+// Zoals een back-up maken (backup.js): de server bouwt de ZIP, daarna komt hij binnen met een voortgangsbalk.
+async function priceExportMake() {
+  if (priceExportState.busy) return;
+  priceExportState.busy = true;
+  $("#price-export-make").disabled = true;
+  message("#price-export-message", "");
+  try {
+    priceExportProgress({ label: t("price_export.progress.making") });
+    const response = await fetch("/api/price-archive/export", { method: "POST", credentials: "same-origin" });
+    if (!response.ok) throw await backupError(response);
+    const total = Number(response.headers.get("Content-Length")) || 0;
+    const chunks = [];
+    let received = 0;
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      priceExportProgress({
+        label: t("price_export.progress.downloading"),
+        value: received,
+        max: total,
+        note: total
+          ? t("backup.note.bytes", { done: backupMegabytes(received), total: backupMegabytes(total) })
+          : t("backup.note.bytes_only", { done: backupMegabytes(received) }),
+      });
+    }
+    const name = /filename="?([^";]+)"?/.exec(response.headers.get("Content-Disposition") || "")?.[1] || "mealieshopper-prijsarchief.zip";
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob(chunks, { type: "application/zip" }));
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    const notes = [
+      t("price_export.done", {
+        name,
+        offers: I18N.formatNumber(Number(response.headers.get("X-Export-Offers")) || 0),
+        prices: I18N.formatNumber(Number(response.headers.get("X-Export-Prices")) || 0),
+      }),
+    ];
+    const skipped = Number(response.headers.get("X-Export-Skipped")) || 0;
+    if (skipped) notes.push(tn("price_export.skipped", skipped));
+    message("#price-export-message", notes.join(" "), "success");
+  } catch (error) {
+    message("#price-export-message", error.message);
+  } finally {
+    $("#price-export-progress").hidden = true;
+    $("#price-export-make").disabled = false;
+    priceExportState.busy = false;
+  }
+}
+
 // Bij het openen van het scherm: weer aansluiten bij een import die nog loopt (of net klaar is).
 function loadPriceArchive() {
   priceArchiveFollow();
@@ -249,6 +321,7 @@ function loadPriceArchive() {
 
 $("#price-archive-file").addEventListener("change", priceArchiveChoose);
 $("#price-archive-import").addEventListener("click", priceArchiveImport);
+$("#price-export-make").addEventListener("click", priceExportMake);
 $("#price-archive-discard").addEventListener("click", () => priceArchiveDiscard());
 $("#price-archive-replace").addEventListener("change", () => {
   if (priceArchiveState.summary) priceArchiveRenderSummary(priceArchiveState.summary);

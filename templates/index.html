@@ -1746,7 +1746,7 @@
             <span data-i18n="price_archive.file_label">Prijsarchief</span>
             <input class="input" id="price-archive-file" type="file" accept=".zip,.gz,.tgz,.jsonl,application/zip,application/gzip">
           </label>
-          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
+          <p class="muted" data-i18n="price_archive.formats">Kies de ZIP van het pakket zoals je hem downloadt, het .tar.gz-archief daaruit, een export van MealieShopper (ook de ZIP van een GitHub-repo), of een .jsonl-bestand (ook als .jsonl.gz) in het formaat mealieshopper-price-archive. De handleiding beschrijft het formaat.</p>
           <div class="backup-confirm" id="price-archive-confirm" hidden>
             <h4 data-i18n="price_archive.confirm_title">Dit komt erbij</h4>
             <p class="muted" id="price-archive-source"></p>
@@ -1772,6 +1772,19 @@
             <p class="muted" id="price-archive-progress-note"></p>
           </div>
           <div id="price-archive-message"></div>
+        </div>
+        <div class="box" id="price-export-box">
+          <h2 data-i18n="price_export.title">Prijsarchief exporteren</h2>
+          <p class="muted" data-i18n="price_export.intro">Alle aanbiedingen en prijzen als ZIP, met een bestand per winkel en maand: om te delen, bijvoorbeeld in een GitHub-repo. Je persoonlijke aanbiedingen (Bonus Box) gaan er nooit in. Een andere MealieShopper importeert de ZIP weer met Prijsarchief importeren.</p>
+          <div class="security-actions">
+            <button class="button" type="button" id="price-export-make" data-i18n="price_export.go">Exporteren</button>
+          </div>
+          <div class="backup-progress" id="price-export-progress" role="status" hidden>
+            <p id="price-export-progress-label"></p>
+            <progress id="price-export-progress-bar" max="100"></progress>
+            <p class="muted" id="price-export-progress-note"></p>
+          </div>
+          <div id="price-export-message"></div>
         </div>
         <div class="box" id="cleanup-box">
           <h2 data-i18n="system.cleanup_title">Opschonen</h2>
