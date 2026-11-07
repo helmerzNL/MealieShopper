@@ -37,6 +37,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aiosqlite
 import httpx
 from quart import Quart, Response, has_request_context, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from . import auth
 from .i18n import tr
@@ -703,11 +704,15 @@ async def _log_oauth(response):
     if request.method == "OPTIONS" or not request.path.startswith("/oauth/") or not enabled():
         return response
     data: dict[str, Any] = {}
-    if request.is_json:
-        parsed = await request.get_json(silent=True)
-        data = parsed if isinstance(parsed, dict) else {}
-    else:
-        data = {**request.args.to_dict(), **(await request.form).to_dict()}
+    try:
+        if request.is_json:
+            parsed = await request.get_json(silent=True)
+            data = parsed if isinstance(parsed, dict) else {}
+        else:
+            data = {**request.args.to_dict(), **(await request.form).to_dict()}
+    except HTTPException:
+        # Een lichaam boven de grens (413) of te traag (408): de route gaf die fout al, het auditlog legt hem vast zonder lichaam.
+        data = request.args.to_dict()
     request_body, req_bytes = summarize_body(json.dumps(data, ensure_ascii=False, default=str) if data else "", "application/json")
     client_id = str(data.get("client_id") or "")
     name = str(data.get("client_name") or "")

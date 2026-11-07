@@ -706,22 +706,18 @@ def remove_old_staged_files() -> None:
             continue
 
 
-async def _read_within(body: AsyncIterable[bytes], seconds: float | None) -> AsyncGenerator[bytes, None]:
-    """De stukken van `body`, met een grens op de tijd voor het hele lichaam.
+async def _read_while_arriving(body: AsyncIterable[bytes], idle_seconds: float | None) -> AsyncGenerator[bytes, None]:
+    """De stukken van `body`, met een grens op de stilte tussen twee stukken (408 daarna), niet op het hele lichaam.
 
-    `await request.get_data()` houdt zich aan `BODY_TIMEOUT` (een 408 daarna), `async for` over `request.body` niet.
-    Zo blijft die grens ook bij het streamen gelden.
+    Een back-up van 200 MB over een trage verbinding duurt langer dan `BODY_TIMEOUT`, en mag daar niet op stranden. Een
+    upload die stilvalt, stopt wel: anders bleef de route er voor altijd op wachten. (`await request.get_data()` houdt
+    zich aan `BODY_TIMEOUT` voor het geheel, `async for` over `request.body` kent geen grens.)
     """
-    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-    deadline: float | None = None if seconds is None else loop.time() + seconds
     iterator: AsyncIterator[bytes] = aiter(body)
     chunk: bytes
     while True:
         try:
-            if deadline is None:
-                chunk = await anext(iterator)
-            else:
-                chunk = await asyncio.wait_for(anext(iterator), max(0.0, deadline - loop.time()))
+            chunk = await asyncio.wait_for(anext(iterator), idle_seconds)
         except StopAsyncIteration:
             return
         except TimeoutError:
@@ -987,7 +983,7 @@ def register_routes(app: Quart) -> None:
             finally:
                 handle.close()
 
-        return Response(
+        response = Response(
             stream(),
             mimetype="application/json",
             headers={
@@ -997,11 +993,15 @@ def register_routes(app: Quart) -> None:
                 "X-Backup-Seconds": f"{time.monotonic() - started:.2f}",
             },
         )
+        # Geen RESPONSE_TIMEOUT: Quart breekt een gestreamd antwoord daarna stil af, en een grote back-up over een trage
+        # verbinding mag gewoon lang duren. Gaat de browser weg, dan stopt het streamen (keep_running.py).
+        response.timeout = None
+        return response
 
     @app.post("/api/backup/stage")
     async def backup_stage() -> Response | tuple[Response, int]:
         try:
-            async with aclosing(_read_within(request.body, request.body_timeout)) as body:
+            async with aclosing(_read_while_arriving(request.body, request.body_timeout)) as body:
                 return jsonify(await stage(body, request.content_length))
         except BackupError as exc:
             return _error(exc)

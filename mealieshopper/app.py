@@ -14,6 +14,7 @@ from quart import Quart, Response, jsonify, redirect, render_template, request, 
 
 from . import about, ah, ah_explore, ah_lists, ah_orders, ah_recipes, ai_match, ai_review, audit, auth_password, backup, crisp, crisp_orders, factory_reset, hellofresh, image_cache, jumbo, jumbo_explore, jumbo_lists, jumbo_orders, jumbo_recipes, marleyspoon, mcp_http, mealie, mealie_images, offers, offers_schedule, onboarding, picnic, picnic_explore, picnic_orders, picnic_recipes, price_import, prices, product_images, product_links, profile, recipe_bulk, server_settings, updates, users
 from . import auth, deals, http_client, tasks
+from .body_limits import DEFAULT_MAX_BODY, SizedRequest
 from .forwarded import ForwardedHeaders
 from .keep_running import FinishAfterDisconnect
 from .i18n import tr
@@ -63,10 +64,12 @@ def create_app() -> Quart:
     # Quart bewaart statische bestanden standaard 12 uur in de browser (Flask niet). Met 0 vraagt de browser elke keer na of het
     # bestand veranderd is (ETag, 304), zoals voorheen. None helpt niet: dan valt de browser terug op zijn eigen schatting.
     app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
-    # Lichaamsgrenzen als vóór de omzetting (120 s, geen grens op het lichaam): Quart staat standaard 16 MiB, 60 s voor het
-    # lezen van het lichaam en 60 s voor het schrijven van het antwoord toe. Een back-up terugzetten (tot MAX_STAGE_BYTES) en
-    # een grote back-up downloaden mogen daar niet op stranden. De marge van 1 MiB is voor de rest van het formulier.
-    app.config["MAX_CONTENT_LENGTH"] = backup.MAX_STAGE_BYTES + 1024 * 1024
+    # Grenzen op een aanvraag: 16 MiB voor het lichaam, ruimer alleen voor de routes in body_limits.LARGE_BODIES (een back-up
+    # klaarzetten, de prijsimport). 120 s om het lichaam te lezen en het antwoord te versturen (Quart staat standaard 60 s
+    # toe). Het uploaden en downloaden van een back-up heeft geen tijdslimiet (backup.py), een groot bestand over een trage
+    # verbinding mag niet halverwege stoppen.
+    app.request_class = SizedRequest
+    app.config["MAX_CONTENT_LENGTH"] = DEFAULT_MAX_BODY
     app.config["BODY_TIMEOUT"] = 120
     app.config["RESPONSE_TIMEOUT"] = 120
     # Achter de reverse proxy: schema, host en client-adres uit X-Forwarded-* (een hop), zoals ProxyFix voorheen. Daarbinnen,

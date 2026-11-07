@@ -1098,13 +1098,40 @@ class StreamTest(BackupCase):
         self.assertEqual(response.status_code, 408)
         self.assertEqual(self.staged_files(), [])
 
+    async def test_a_slow_upload_that_keeps_arriving_is_not_cut_off(self) -> None:
+        """BODY_TIMEOUT geldt voor de stilte tussen twee stukken, niet voor het hele lichaam: een groot bestand over een
+        trage verbinding komt erdoor, zolang er iets binnenkomt."""
+        self.app.config["BODY_TIMEOUT"] = 0.2
+        self.seed()
+        _, data = await self.make()
+        size: int = len(data) // 6 + 1
+        started: float = time.monotonic()
+        async with self.admin.stream("/api/backup/stage", {"Content-Type": "application/octet-stream"}) as connection:
+            for start in range(0, len(data), size):
+                await connection.send(data[start:start + size])
+                await asyncio.sleep(0.1)  # samen ruim langer dan BODY_TIMEOUT, elk gat korter
+            await connection.send_complete()
+        response = await connection.as_response()
+        self.assertGreater(time.monotonic() - started, 0.4)
+        self.assertEqual(response.status_code, 200, await response.get_data())
+        self.assertEqual((await response.get_json())["counts"]["offers"], 2)
+
+    async def test_a_backup_download_has_no_response_timeout(self) -> None:
+        """Een grote back-up over een trage verbinding: RESPONSE_TIMEOUT mag het streamen niet stil afbreken."""
+        self.seed()
+        self.app.config["RESPONSE_TIMEOUT"] = 0  # breekt elk antwoord af dat niet in een keer klaar is
+        response, data = await self.make()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(data), int(response.headers["Content-Length"]), (len(data), response.headers))
+        self.assertEqual(json.loads(data)["format"], "mealieshopper-backup", data[:80])
+
     async def test_a_stalled_upload_gives_up_after_the_body_timeout(self) -> None:
         async def stalled() -> AsyncIterator[bytes]:
             yield b'{"format"'
             await asyncio.Event().wait()
 
         with self.assertRaises(RequestTimeout):
-            await backup.stage(backup._read_within(stalled(), 0.05), None)
+            await backup.stage(backup._read_while_arriving(stalled(), 0.05), None)
         self.assertEqual(self.staged_files(), [])
 
 
