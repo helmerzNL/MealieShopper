@@ -254,9 +254,10 @@ def register_routes(app: Quart, route: str, prefix: str, limit: int) -> None:
     name: str = route.strip("/").replace("/", "_").replace("-", "_")
 
     async def start() -> Response | tuple[Response, int]:
-        body: Any = await request.get_json(silent=True) or {}
+        body: Any = await request.get_json(silent=True)
+        size: Any = body.get("size") if isinstance(body, dict) else None  # geen object: zonder size, zoals `{}`
         try:
-            return jsonify(await begin(prefix, body.get("size") if isinstance(body, dict) else None, limit))
+            return jsonify(await begin(prefix, size, limit))
         except UploadError as exc:
             return error_response(exc)
 

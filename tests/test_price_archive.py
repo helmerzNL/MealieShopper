@@ -978,6 +978,17 @@ class JobAndAccessTest(ArchiveCase):
         too_large = await self.admin.post("/api/price-archive/uploads", json={"size": price_archive.MAX_UPLOAD_BYTES + 1})
         self.assertEqual((too_large.status_code, too_large.get_json()["code"]), (413, "upload_too_large"))
 
+    async def test_a_body_that_is_not_an_object_is_refused_without_a_server_error(self):
+        # 3.22 gaf hier een 500 (AttributeError op body.get). Nu telt het als een lichaam zonder size, zoals `{}`.
+        for body in ([1], "x", 5):
+            begun = await self.admin.post("/api/price-archive/uploads", json=body)
+            self.assertEqual((begun.status_code, begun.get_json()["code"]), (400, "upload_empty"), body)
+            token = (await self.admin.post("/api/price-archive/uploads", json={"size": 9})).get_json()["token"]
+            await self.admin.put(f"/api/price-archive/uploads/{token}?offset=0", data=b"geen zip!", content_type="application/octet-stream")
+            response = await self.admin.post(f"/api/price-archive/uploads/{token}/stage", json=body)
+            self.assertEqual((response.status_code, response.get_json()["code"]), (409, "upload_incomplete"), body)
+        self.assertEqual(self.staged_files(), [])
+
     async def test_a_finished_job_is_shown_once(self):
         _, job = await self.run_import(gist_zip())
         self.assertIsNone((await self.admin.get("/api/price-archive/jobs/latest")).get_json()["job"])

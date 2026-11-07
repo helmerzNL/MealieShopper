@@ -1403,9 +1403,10 @@ def register_routes(app: Quart) -> None:
 
     @app.post("/api/price-archive/uploads/<token>/stage")
     async def price_archive_stage_upload(token: str) -> Response | tuple[Response, int]:
-        body: Any = await request.get_json(silent=True) or {}
+        body: Any = await request.get_json(silent=True)
+        size: Any = body.get("size") if isinstance(body, dict) else None  # geen object: zonder size, zoals `{}`
         try:
-            return jsonify(await stage_upload(token, body.get("size"), keep_unlinked=request.args.get("keep_unlinked") == "1"))
+            return jsonify(await stage_upload(token, size, keep_unlinked=request.args.get("keep_unlinked") == "1"))
         except uploads.UploadError as exc:
             return uploads.error_response(exc)
         except ArchiveError as exc:

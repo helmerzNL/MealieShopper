@@ -909,6 +909,18 @@ class ChunkedUploadTest(BackupCase):
         self.assertEqual(self.staged_files(), [])
         self.assertEqual((await self.start(token)).status_code, 404)
 
+    async def test_a_body_that_is_not_an_object_is_refused_without_a_server_error(self):
+        # 3.22 gaf hier een 500 (AttributeError op body.get). Nu telt het als een lichaam zonder size, zoals `{}`.
+        for body in ([1], "x", 5, None):
+            begun = await self.admin.post("/api/backup/uploads", json=body)
+            self.assertEqual((begun.status_code, begun.get_json()["code"]), (400, "upload_empty"), body)
+        for body in ([1], "x", 5):
+            token = (await self.begin(10)).get_json()["token"]
+            await self.put(token, 0, b"{" * 10)
+            response = await self.admin.post(f"/api/backup/uploads/{token}/stage", json=body)
+            self.assertEqual((response.status_code, response.get_json()["code"]), (409, "upload_incomplete"), body)
+        self.assertEqual(self.parts(), [])
+
     async def test_tokens_must_look_like_tokens(self):
         for token in ("..", "x" * 32, "0" * 31, "0" * 32):
             self.assertEqual((await self.put(token, 0, b"{")).status_code, 404, token)
