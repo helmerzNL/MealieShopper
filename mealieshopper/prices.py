@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 
 STORES = offers.STORES
 MAX_LIMIT = 200
+PUBLIC_OBSERVED_UNKNOWN: str = "public_observed_unknown"
 
 SCHEMA = """
 -- De normale prijs van een product, één per winkel, product en dag (de laatste die we die dag zagen). `source` zegt waar hij
@@ -727,22 +728,36 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
             if not product.get(key) and row[column]:
                 product[key] = row[column]
     product.setdefault("title", product_id)
-    product["url"] = product.get("url") or next((row["url"] for row in reversed(observed) if row["url"]), "") or _url(store, product_id)
+    product["url"] = product.get("url") or next(
+        (row["url"] for row in reversed(observed) if row["url"] and row["source"] != PUBLIC_OBSERVED_UNKNOWN), ""
+    ) or _url(store, product_id)
 
-    points: list[tuple[str, float, str]] = [(row["day"], row["price"], "search") for row in observed]
+    product["observed"] = [
+        {"date": row["day"], "price": row["price"], "unitSize": row["unit_size"], "sourceUrl": row["url"]}
+        for row in observed if row["source"] == PUBLIC_OBSERVED_UNKNOWN and row["day"] <= today
+    ]
+    points: list[tuple[str, float, str, str | None]] = [
+        (row["day"], row["price"], "search", row["unit_size"]) for row in observed if row["source"] != PUBLIC_OBSERVED_UNKNOWN
+    ]
     for episode in product["episodes"]:
         if _number(episode.get("priceBefore")) is not None:
             for day in (episode.get("start"), episode.get("end")):
                 if day:
-                    points.append((str(day)[:10], episode["priceBefore"], "offer"))
-    points += [(row["day"], row["regular"], "order") for row in bought if row["source"] == "order" and _number(row["regular"]) is not None]
-    # Een aanbieding die nog loopt heeft een einddatum in de toekomst; wat de prijs dan is, weten we nog niet.
-    segments = _regular_segments([point for point in points if point[0] <= today])
+                    points.append((str(day)[:10], episode["priceBefore"], "offer", offer.get("unitSize") if offer else None))
+    points += [(row["day"], row["regular"], "order", row["unit_size"]) for row in bought if row["source"] == "order" and _number(row["regular"]) is not None]
+    # Een aanbieding die nog loopt heeft een einddatum in de toekomst. Wat de prijs dan is, weten we nog niet.
+    points = [point for point in points if point[0] <= today]
+    segments = _regular_segments([(day, price, source) for day, price, source, _ in points])
+    latest_point: tuple[str, float, str, str | None] | None = max(
+        points, key=lambda point: (point[0], -_REGULAR_RANK.get(point[2], 9)), default=None
+    )
     product["regular"] = segments
     if segments:
         product["regularPrice"] = segments[-1]["price"]
         product["regularSince"] = segments[-1]["from"]
-    product["regularPerUnit"] = unit_price(product.get("regularPrice"), product.get("unitSize"))
+    if latest_point:
+        product["unitSize"] = latest_point[3]
+    product["regularPerUnit"] = unit_price(product.get("regularPrice"), latest_point[3] if latest_point else None)
     regulars = [segment["price"] for segment in segments]
     product["lowestRegular"] = min(regulars) if regulars else None
     product["highestRegular"] = max(regulars) if regulars else None
@@ -766,6 +781,7 @@ def _product(store: str, product_id: str, offer: dict[str, Any] | None, observed
         str(product.get("lastSeen") or "")[:10],
         segments[-1]["to"] if segments else "",
         purchases[-1]["date"] if purchases else "",
+        product["observed"][-1]["date"] if product["observed"] else "",
     ) if d]
     product["lastActivity"] = max(days) if days else None
     product["savedImages"] = images or []
@@ -1149,7 +1165,8 @@ async def _regulars_between(
             measured.add(str(product_id))
 
     for row in await conn.execute_fetchall(
-        "SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ?", (store, since, until)
+        "SELECT product_id, price FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ?",
+        (store, since, until, PUBLIC_OBSERVED_UNKNOWN),
     ):
         add(row["product_id"], row["price"], True)
     last_day = "day < ?" if purchases_before_until else "day <= ?"
@@ -1177,7 +1194,8 @@ async def _annotate(store: str, items: list[dict[str, Any]], today: str) -> None
     async with _connect() as conn:
         regulars = await _regulars_between(conn, store, since30, today, measured=measured)
         for row in await conn.execute_fetchall(
-            "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? ORDER BY day", (store, since_pack, today)
+            "SELECT * FROM price_observations WHERE store = ? AND day >= ? AND day <= ? AND source != ? ORDER BY day",
+            (store, since_pack, today, PUBLIC_OBSERVED_UNKNOWN),
         ):
             latest[row["product_id"]] = row
         for row in await conn.execute_fetchall(
@@ -1427,7 +1445,9 @@ async def _known_product(store: str, product_id: str) -> dict[str, Any] | None:
                 "price": effective if effective is not None else current.get("price"), "onOffer": True, "promoLabel": current.get("promoLabel") or ""}
     async with _connect() as conn:
         row = await auth.fetchone(
-            conn, "SELECT * FROM price_observations WHERE store = ? AND product_id = ? ORDER BY day DESC LIMIT 1", (store, product_id)
+            conn,
+            "SELECT * FROM price_observations WHERE store = ? AND product_id = ? AND source != ? ORDER BY day DESC LIMIT 1",
+            (store, product_id, PUBLIC_OBSERVED_UNKNOWN),
         )
     if row:
         return {"id": product_id, "title": row["title"], "brand": row["brand"], "unitSize": row["unit_size"], "price": row["price"], "onOffer": False, "promoLabel": ""}

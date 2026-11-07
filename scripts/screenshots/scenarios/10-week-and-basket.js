@@ -382,6 +382,22 @@ module.exports = [
     },
   },
   {
+    // De kookmodus vanuit hetzelfde Jumbo-recept: één stap tegelijk in grote letters, met Vorige en Volgende onderaan. Op het
+    // bureaublad staan de ingrediënten ernaast (de eerste is al afgevinkt); de eerste stap is klaar, dus dit is stap 2.
+    name: "cook-mode",
+    routes: searchRoutes,
+    run: async (page) => {
+      await search(page);
+      await page.click('[data-store-open^="jumbo:"]');
+      await page.waitForSelector("#search-detail-body [data-cook-start]");
+      await page.check('#search-detail-body [data-cook-tick="0"]');
+      await page.click('#search-detail-body [data-cook-done="0"]');
+      await page.click("#search-detail-body [data-cook-start]");
+      await page.waitForSelector("#cook-mode[open]");
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+    },
+  },
+  {
     // De menu's van HelloFresh en Marley Spoon doorzocht op "kip".
     name: "search-meal-kits",
     routes: searchRoutes,

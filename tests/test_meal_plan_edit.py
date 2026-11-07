@@ -452,6 +452,36 @@ class RecipeSearchTest(MealPlanTestCase):
         self.assertEqual(data["steps"], ["Kook de pasta.", "Roer de pesto erdoor."])
         self.assertEqual(data["url"], f"{URL}/g/thuis/r/pasta-pesto")
 
+    async def test_detail_keeps_the_sections_of_mealie(self):
+        # De kopjes van Mealie gaan mee naar de kookweergave: bij een ingrediënt als `section` (ook als het kopje op een
+        # regel zonder tekst staat) en bij de bereiding als `stepTitles`, even lang als de stappen.
+        recipe = {
+            "id": RECIPE_ID, "slug": "pasta-pesto", "name": "Pasta pesto",
+            "recipeIngredient": [
+                {"display": "200 g pasta", "title": "Pasta"},
+                {"display": "1 el olie"},
+                {"title": " Voor de  pesto "},
+                {"display": "1 bosje basilicum"},
+            ],
+            "recipeInstructions": [{"text": "Kook de pasta.", "title": "Koken"}, {"text": " ", "title": "Leeg"}, {"text": "Maak de pesto."}],
+        }
+        with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
+            api.get(f"{URL}/api/recipes/pasta-pesto").mock(return_value=response(body=recipe))
+            data = (await self.client.get("/api/mealie/recipes/pasta-pesto")).get_json()
+        self.assertEqual(
+            data["ingredients"],
+            [{"line": "200 g pasta", "section": "Pasta"}, {"line": "1 el olie"}, {"line": "1 bosje basilicum", "section": "Voor de pesto"}],
+        )
+        self.assertEqual(data["steps"], ["Kook de pasta.", "Maak de pesto."])
+        self.assertEqual(data["stepTitles"], ["Koken", ""])
+
+    async def test_detail_without_titles_has_no_step_titles(self):
+        recipe = {"id": RECIPE_ID, "slug": "pasta", "name": "Pasta", "recipeInstructions": [{"text": "Kook.", "title": ""}]}
+        with routes() as api, mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="thuis"):
+            api.get(f"{URL}/api/recipes/pasta").mock(return_value=response(body=recipe))
+            data = (await self.client.get("/api/mealie/recipes/pasta")).get_json()
+        self.assertNotIn("stepTitles", data)
+
     async def test_detail_refuses_odd_slugs(self):
         with routes() as api:
             anything = api.route()

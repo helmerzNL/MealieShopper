@@ -42,10 +42,13 @@ TO_THREAD_ALLOWED: dict[str, str] = {
     "about.py": "git rev-parse (subprocess) voor de commit",
     "audit.py": "de export van tot 5000 regels als JSON of CSV",
     "factory_reset.py": "de afbeeldingencache wissen (shutil.rmtree over duizenden bestanden)",
+    "price_archive.py": "een prijsarchief uitpakken en controleren, invoegen en exporteren (zip, tar, gzip, tot een miljoen regels)",
+    "uploads.py": "een stuk van een upload (tot 4 MB) naar schijf schrijven",
 }
 
-# Waar `sqlite3.connect(` mag: alleen de fases van de back-up, die als geheel in een thread lopen. De app zelf gebruikt aiosqlite.
-SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py"})
+# Waar `sqlite3.connect(` mag: alleen de fases van de back-up en van het prijsarchief, die als geheel in een thread lopen. De
+# app zelf gebruikt aiosqlite.
+SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py", "price_archive.py"})
 
 # Blokkerende aanroepen die nooit direct in een `async def` mogen staan (een geneste functie of lambda telt apart: die loopt
 # in een thread of later).
@@ -61,6 +64,8 @@ OPEN_IN_ASYNC_ALLOWED: dict[tuple[str, str], str] = {
     ("auth.py", "master_secret"): "een keer `secret.key` aanmaken (64 tekens), alleen als die er nog niet is",
     ("backup.py", "stage"): "het geüploade bestand in stukken van hoogstens een paar MB naar de lokale schijf schrijven",
     ("backup.py", "backup_create"): "de gemaakte back-up openen om hem te streamen naar de browser",
+    ("price_archive.py", "stage"): "het geüploade archief in stukken van hoogstens een paar MB naar de lokale schijf schrijven",
+    ("price_archive.py", "price_archive_export"): "de gemaakte export openen om hem te streamen naar de browser",
 }
 OPENERS: frozenset[str] = frozenset({"open", "os.open", "os.fdopen", "io.open"})
 
@@ -69,6 +74,7 @@ THREAD_ONLY: frozenset[str] = frozenset(
     {
         "_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
         "read_file", "_schema_copy", "unseal", "_check_staged",
+        "_check_upload", "_write_chunk", "write_export",  # price_archive, uploads en price_archive_export
     }
 )
 

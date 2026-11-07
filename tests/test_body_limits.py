@@ -14,7 +14,7 @@ from unittest import mock
 import pytest
 from quart import Quart
 
-from mealieshopper import backup, body_limits, mcp, price_import
+from mealieshopper import backup, body_limits, mcp, price_archive, price_import, uploads
 
 if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
     from quart.typing import TestClientProtocol
@@ -22,13 +22,20 @@ if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een 
 MIB: int = 1024 * 1024
 
 
-def test_the_default_limit_is_16_mib_and_only_two_routes_get_more(app: Quart) -> None:
+def test_the_default_limit_is_16_mib_and_only_three_routes_get_more(app: Quart) -> None:
     assert app.config["MAX_CONTENT_LENGTH"] == 16 * MIB
     assert app.request_class is body_limits.SizedRequest
     assert body_limits.LARGE_BODIES == {
         "/api/backup/stage": backup.MAX_STAGE_BYTES + MIB,
+        "/api/price-archive/stage": price_archive.MAX_UPLOAD_BYTES + MIB,
         "/api/prices/import": 32 * MIB,
     }
+
+
+def test_a_part_of_a_chunked_upload_fits_in_the_default_limit_with_headroom() -> None:
+    # Een stuk (uploads.py) gaat per verzoek: met 1 MiB marge onder de 16 MiB, zodat de grens van uploads.py zelf (413 met
+    # `upload_chunk_too_large`) eerder geldt dan die van Quart.
+    assert uploads.CHUNK_BYTES + MIB <= body_limits.DEFAULT_MAX_BODY
 
 
 async def test_an_oversized_body_on_the_passkey_login_gets_413(client: TestClientProtocol, monkeypatch: pytest.MonkeyPatch) -> None:

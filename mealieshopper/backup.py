@@ -37,7 +37,7 @@ import re
 import secrets
 import sqlite3
 import time
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterator
 from contextlib import aclosing, asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -47,9 +47,8 @@ import aiosqlite
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from quart import Quart, Response, jsonify, request
-from werkzeug.exceptions import RequestTimeout
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -99,6 +98,7 @@ EXCLUDED_TABLES = frozenset({
     "marleyspoon_menus",  # idem voor Marley Spoon
     "ah_receipt_products",  # koppeling artikelnummer -> product, zoekt de volgende synchronisatie van de bonnen opnieuw op
     "image_cache",  # cache van winkelfoto's op schijf (image_cache.py), opnieuw op te bouwen
+    "price_archive_jobs",  # de import van een prijsarchief die loopt (price_archive.py): tijdelijke staat
 })
 
 # Opgeslagen koppelingen (versleuteld in app_settings) en bij welke koppeling ze horen.
@@ -122,6 +122,14 @@ PLAIN_SETTINGS = frozenset({
     mealie.SETTING_WEEK_START,
 })
 MAX_SETTING_CHARS = 20_000
+
+# Onderdelen die de beheerder bij het maken kan weglaten en bij het terugzetten kan overslaan (naast de koppelingen). Een
+# onderdeel dat niet in het bestand zit of niet wordt teruggezet, blijft op deze installatie zoals het is, net als de
+# koppelingen. De aanbiedingen van nu haalt de app bij de volgende synchronisatie ook weer op; de historie niet.
+OPTIONAL_PARTS: dict[str, tuple[str, ...]] = {
+    "offers": ("offers", "offers_meta"),  # de aanbiedingen van nu en wanneer ze per winkel zijn opgehaald
+    "offerHistory": ("offer_history",),
+}
 
 # Wat de beheerder ziet: tabellen samengevoegd tot een paar regels.
 COUNT_GROUPS: dict[str, tuple[str, ...]] = {
@@ -193,6 +201,7 @@ MESSAGES: dict[str, tuple[str, str]] = {
     "bad_table": ("De back-up bevat een onderdeel dat hier niet hoort: {table}.", "The backup contains a part that does not belong here: {table}."),
     "bad_structure": ("De back-up is beschadigd of bewerkt: {detail}.", "The backup is damaged or edited: {detail}."),
     "bad_row": ("{table}, regel {line}: {error}", "{table}, row {line}: {error}"),
+    "bad_part": ("Dit onderdeel bestaat niet in een back-up: {part}.", "This part does not exist in a backup: {part}."),
     "bad_setting": ("De back-up bevat een instelling die hier niet hoort: {key}.", "The backup contains a setting that does not belong here: {key}."),
     "needs_passphrase": (
         "Deze back-up bevat koppelingen en is versleuteld. Vul het wachtwoord in dat je bij het maken koos.",
@@ -386,14 +395,19 @@ def _rows(conn: sqlite3.Connection, table: str, names: list[str]) -> Iterator[st
         yield json.dumps({name: _encode(row[index]) for index, name in enumerate(names)}, ensure_ascii=False, separators=(",", ":"))
 
 
-def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: str = "") -> dict[str, Any]:
+def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: str = "", leave_out: Any = ()) -> dict[str, Any]:
     """Schrijft de back-up naar `target` en geeft een samenvatting (aantallen en koppelingen).
 
-    Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als de app ondertussen doorwerkt.
-    `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
+    `leave_out`: onderdelen uit OPTIONAL_PARTS die niet meegaan; het bestand zegt welke (`left_out`), zodat het terugzetten
+    die onderdelen laat zoals ze zijn. Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als
+    de app ondertussen doorwerkt. `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
     """
     if links and len(passphrase) < MIN_PASSPHRASE_LENGTH:
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
+    left_out = sorted(set(leave_out))
+    if any(part not in OPTIONAL_PARTS for part in left_out):
+        raise BackupError("bad_part", part=str(next(part for part in left_out if part not in OPTIONAL_PARTS))[:40])
+    skipped_tables = {table for part in left_out for table in OPTIONAL_PARTS[part]}
     counts: dict[str, int] = {}
     with closing(_thread_connect()) as conn:
         conn.execute("BEGIN")
@@ -409,6 +423,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
             "app_version": about.version(),
             "created_at": _now(),
             "includes_links": bool(links),
+            "left_out": left_out,
         }
         with target.open("w", encoding="utf-8") as handle:
             handle.write(json.dumps(header, ensure_ascii=False)[:-1])
@@ -416,7 +431,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
             secrets_block = {"links": sorted({SECRET_KEYS[key] for key in stored}), "sealed": seal(stored, passphrase) if stored else None}
             handle.write(',"secrets":' + json.dumps(secrets_block, ensure_ascii=False))
             handle.write(',"tables":{')
-            for number, table in enumerate(DATA_TABLES):
+            for number, table in enumerate(table for table in DATA_TABLES if table not in skipped_tables):
                 names = [column["name"] for column in _columns(conn, table)]
                 handle.write(("," if number else "") + json.dumps(table) + ":[")
                 count = 0
@@ -427,7 +442,7 @@ def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: s
                 counts[table] = count
             handle.write("}}")
         conn.rollback()
-    return {"counts": _group_counts(counts), "links": secrets_block["links"], "unreadableLinks": unreadable}
+    return {"counts": _group_counts(counts), "links": secrets_block["links"], "unreadableLinks": unreadable, "leftOut": left_out}
 
 
 def _group_counts(per_table: dict[str, int]) -> dict[str, int]:
@@ -481,10 +496,35 @@ class Plan:
         self.plain: dict[str, str] = {}
         self.secrets: dict[str, str] | None = None  # None zolang het wachtwoord niet is gebruikt
         self.tables: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+        self.left_out: list[str] = []  # onderdelen die niet in het bestand zitten
+        self.skipped: list[str] = []  # onderdelen die de beheerder niet terugzet
 
     @property
     def needs_passphrase(self) -> bool:
         return self.sealed is not None
+
+    def skip(self, *, links: bool = False, parts: Any = ()) -> None:
+        """Wat de beheerder niet wil terugzetten: dat blijft op deze installatie zoals het is.
+
+        Zonder de koppelingen is er geen wachtwoord nodig (handig als je het kwijt bent): de koppelingen van nu blijven staan.
+        """
+        if links:
+            self.links, self.sealed = [], None
+        for part in parts:
+            if part not in OPTIONAL_PARTS:
+                raise BackupError("bad_part", part=str(part)[:40])
+            if part not in self.left_out and part not in self.skipped:
+                self.skipped.append(part)
+                for table in OPTIONAL_PARTS[part]:
+                    self.tables.pop(table, None)
+        self.skipped.sort()
+
+    def kept_parts(self) -> list[str]:
+        """De onderdelen die het terugzetten niet aanraakt: niet in het bestand, of overgeslagen."""
+        return sorted(set(self.left_out) | set(self.skipped))
+
+    def kept_tables(self) -> set[str]:
+        return {table for part in self.kept_parts() for table in OPTIONAL_PARTS[part]}
 
     def counts(self) -> dict[str, int]:
         return _group_counts({table: len(rows) for table, rows in self.tables.items()})
@@ -517,12 +557,20 @@ def prepare(data: dict[str, Any]) -> Plan:
     if plan.links and not isinstance(plan.sealed, dict):
         raise BackupError("bad_structure", detail="secrets")
 
+    left_out = data.get("left_out") or []
+    if not isinstance(left_out, list) or not all(isinstance(part, str) and part in OPTIONAL_PARTS for part in left_out):
+        raise BackupError("bad_structure", detail="left_out")
+    plan.left_out = sorted(set(left_out))
+    absent = {table for part in plan.left_out for table in OPTIONAL_PARTS[part]}
+
     tables = data.get("tables", {})
     if not isinstance(tables, dict):
         raise BackupError("bad_structure", detail="tables")
     for table, rows in tables.items():
         if table not in DATA_TABLES:
             raise BackupError("bad_table", table=str(table)[:60])
+        if table in absent:  # het bestand zegt dat dit onderdeel er niet in zit, maar het staat er wel: bewerkt
+            raise BackupError("bad_structure", detail="left_out")
         if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
             raise BackupError("bad_structure", detail=str(table))
         plan.tables[table] = list(enumerate(rows, 1))
@@ -613,6 +661,7 @@ def summarize(plan: Plan) -> dict[str, Any]:
         "counts": plan.counts(),
         "links": plan.links,
         "needsPassphrase": plan.needs_passphrase,
+        "leftOut": plan.left_out,
     }
 
 
@@ -636,10 +685,16 @@ def replace_everything(
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
         conn.execute("BEGIN IMMEDIATE")
+        kept = plan.kept_tables()  # niet in het bestand of overgeslagen: blijft zoals het is
         for table in reversed(DATA_TABLES):
-            conn.execute(f"DELETE FROM {_quote(table)}")
-        users = {row["id"] for row in conn.execute("SELECT id FROM users")}
+            if table not in kept:
+                conn.execute(f"DELETE FROM {_quote(table)}")
+        # De eigenaar bestaat op elke installatie: zonder inloggen (of voor de eerste gebruiker) doet de app alles als OWNER_ID,
+        # ook als die niet in users staat. Zonder deze regel verdween bij terugzetten zonder inlog het eigen profiel.
+        users = {row["id"] for row in conn.execute("SELECT id FROM users")} | {auth.OWNER_ID}
         for table in DATA_TABLES:
+            if table in kept:
+                continue
             groups: dict[tuple[str, ...], list[list[Any]]] = {}
             for _, values in prepared.get(table, []):
                 if table == "user_profiles" and values.get("user_id") not in users:
@@ -673,6 +728,7 @@ def replace_everything(
             "links": sorted({SECRET_KEYS[key] for key in plan.secrets}) if plan.secrets is not None else [],
             "linksKept": plan.secrets is None,
             "skippedProfiles": skipped_profiles,
+            "kept": plan.kept_parts(),
         }
         on_commit(conn, summary)
         conn.execute("COMMIT")
@@ -706,25 +762,6 @@ def remove_old_staged_files() -> None:
             continue
 
 
-async def _read_while_arriving(body: AsyncIterable[bytes], idle_seconds: float | None) -> AsyncGenerator[bytes, None]:
-    """De stukken van `body`, met een grens op de stilte tussen twee stukken (408 daarna), niet op het hele lichaam.
-
-    Een back-up van 200 MB over een trage verbinding duurt langer dan `BODY_TIMEOUT`, en mag daar niet op stranden. Een
-    upload die stilvalt, stopt wel: anders bleef de route er voor altijd op wachten. (`await request.get_data()` houdt
-    zich aan `BODY_TIMEOUT` voor het geheel, `async for` over `request.body` kent geen grens.)
-    """
-    iterator: AsyncIterator[bytes] = aiter(body)
-    chunk: bytes
-    while True:
-        try:
-            chunk = await asyncio.wait_for(anext(iterator), idle_seconds)
-        except StopAsyncIteration:
-            return
-        except TimeoutError:
-            raise RequestTimeout() from None
-        yield chunk
-
-
 async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[str, Any]:
     """Slaat het geüploade bestand op, controleert het helemaal en geeft een samenvatting. De database verandert niet.
 
@@ -747,6 +784,21 @@ async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
                 handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+        await ensure_schemas()
+        summary = await asyncio.to_thread(_check_staged, path)
+    except BaseException:
+        path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
+        raise
+    return {"token": token, **summary}
+
+
+async def stage_upload(token: str, size: Any) -> dict[str, Any]:
+    """Als `stage`, voor een bestand dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
+    remove_old_staged_files()
+    path: Path = _stage_path(token)
+    (await uploads.take(STAGE_PREFIX, token, size)).replace(path)
+    summary: dict[str, Any]
+    try:
         await ensure_schemas()
         summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
@@ -848,12 +900,17 @@ async def dismiss_job(job_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-async def start_job(token: str, passphrase: str) -> dict[str, Any]:
-    """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond."""
+async def start_job(token: str, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> dict[str, Any]:
+    """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond.
+
+    `skip_links` en `skip_parts` (uit OPTIONAL_PARTS): wat de beheerder niet terugzet; dat blijft zoals het is.
+    """
     path: Path = _stage_path(token)
     if not path.is_file():
         raise BackupError("stage_missing", 404)
+    skip_parts = tuple(skip_parts)
     plan: Plan = await asyncio.to_thread(read_plan, path)  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
+    plan.skip(links=skip_links, parts=skip_parts)
     if plan.needs_passphrase:
         await asyncio.to_thread(unseal, plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
     running: Path = path.with_name(path.name + ".job")
@@ -879,11 +936,13 @@ async def start_job(token: str, passphrase: str) -> dict[str, Any]:
         except BaseException:
             await conn.rollback()
             raise
-    tasks.spawn(f"backup-restore-{job_id}", run_job(job_id, running, passphrase))
+    tasks.spawn(
+        f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts)
+    )
     return {"id": job_id}
 
 
-async def run_job(job_id: str, staged: Path, passphrase: str) -> None:
+async def run_job(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
     """De klus zelf, als achtergrondtask (zie `_run_phases`).
 
     Een geweigerd bestand of een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van
@@ -892,7 +951,7 @@ async def run_job(job_id: str, staged: Path, passphrase: str) -> None:
     """
     try:
         try:
-            await _run_phases(job_id, staged, passphrase)
+            await _run_phases(job_id, staged, passphrase, skip_links=skip_links, skip_parts=skip_parts)
         except BackupError as exc:
             log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
             await _fail_job(job_id, exc)
@@ -913,10 +972,11 @@ async def run_job(job_id: str, staged: Path, passphrase: str) -> None:
         staged.unlink(missing_ok=True)
 
 
-async def _run_phases(job_id: str, staged: Path, passphrase: str) -> None:
+async def _run_phases(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
     """Elke fase loopt als geheel in een thread, de stand van de klus wordt ertussen bijgewerkt."""
     started: float = time.monotonic()
     plan: Plan = await asyncio.to_thread(read_plan, staged)
+    plan.skip(links=skip_links, parts=skip_parts)
     if plan.needs_passphrase:
         plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
     await ensure_schemas()
@@ -956,13 +1016,14 @@ def register_routes(app: Quart) -> None:
         body = await request.get_json(silent=True) or {}
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
+        leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
         started = time.monotonic()
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
         try:
             await ensure_schemas()
             box = await auth.secret_box() if links else None  # zonder koppelingen hoeft er niets ontsleuteld
-            await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase)
+            await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase, leave_out=leave_out)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)
@@ -1001,8 +1062,21 @@ def register_routes(app: Quart) -> None:
     @app.post("/api/backup/stage")
     async def backup_stage() -> Response | tuple[Response, int]:
         try:
-            async with aclosing(_read_while_arriving(request.body, request.body_timeout)) as body:
+            async with aclosing(uploads.read_while_arriving(request.body, request.body_timeout)) as body:
                 return jsonify(await stage(body, request.content_length))
+        except BackupError as exc:
+            return _error(exc)
+
+    # Hetzelfde in stukken (uploads.py): zo komt ook een back-up van 100 MB door een proxy die grote verzoeken weigert.
+    uploads.register_routes(app, "/api/backup/uploads", STAGE_PREFIX, MAX_STAGE_BYTES)
+
+    @app.post("/api/backup/uploads/<token>/stage")
+    async def backup_stage_upload(token: str) -> Response | tuple[Response, int]:
+        body = await request.get_json(silent=True) or {}
+        try:
+            return jsonify(await stage_upload(token, body.get("size")))
+        except uploads.UploadError as exc:
+            return uploads.error_response(exc)
         except BackupError as exc:
             return _error(exc)
 
@@ -1018,7 +1092,11 @@ def register_routes(app: Quart) -> None:
     async def backup_start() -> tuple[Response, int]:
         body = await request.get_json(silent=True) or {}
         try:
-            job = await start_job(str(body.get("token") or ""), str(body.get("passphrase") or ""))
+            job = await start_job(
+                str(body.get("token") or ""), str(body.get("passphrase") or ""),
+                skip_links=body.get("links", True) is False,  # standaard zet je alles terug wat in het bestand zit
+                skip_parts=[part for part in OPTIONAL_PARTS if body.get(part, True) is False],
+            )
         except BackupError as exc:
             return _error(exc)
         return jsonify(job), 202

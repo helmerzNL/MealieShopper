@@ -17,6 +17,7 @@ STATIC = ROOT / "static"
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 SOURCES = {
     "app.js": (STATIC / "app.js").read_text(encoding="utf-8"),
+    "recipe_view.js": (STATIC / "recipe_view.js").read_text(encoding="utf-8"),
     "categories.js": (STATIC / "categories.js").read_text(encoding="utf-8"),
     "onboarding.js": (STATIC / "onboarding.js").read_text(encoding="utf-8"),
     "users.js": (STATIC / "users.js").read_text(encoding="utf-8"),
@@ -36,7 +37,9 @@ SOURCES = {
     "basket.js": (STATIC / "basket.js").read_text(encoding="utf-8"),
     "updates.js": (STATIC / "updates.js").read_text(encoding="utf-8"),
     "system.js": (STATIC / "system.js").read_text(encoding="utf-8"),
+    "upload.js": (STATIC / "upload.js").read_text(encoding="utf-8"),
     "backup.js": (STATIC / "backup.js").read_text(encoding="utf-8"),
+    "price_archive.js": (STATIC / "price_archive.js").read_text(encoding="utf-8"),
     "audit.js": (STATIC / "audit.js").read_text(encoding="utf-8"),
     "offers.js": (STATIC / "offers.js").read_text(encoding="utf-8"),
     "ai_review.js": (STATIC / "ai_review.js").read_text(encoding="utf-8"),
@@ -151,7 +154,7 @@ class UsageTest(AppTestCase):
         html_keys = set(re.findall(r'data-i18n(?:-html)?="([\w.]+)"', HTML))
         for spec in re.findall(r'data-i18n-attr="([^"]+)"', HTML):
             html_keys |= {pair.split(":")[1] for pair in spec.split(";")}
-        prefixes = {"ob.step.", "ob.title.", "meal.", "about.group.", "about.desc.", "offers.source.", "offers.cat.", "offers.course.", "backup.count.", "backup.link."}
+        prefixes = {"ob.step.", "ob.title.", "meal.", "about.group.", "about.desc.", "offers.source.", "offers.cat.", "offers.course.", "backup.count.", "backup.link.", "backup.part.", "backup.restore_part."}
         for key in NL:
             base = re.sub(r"\.(one|other)$", "", key)
             used = (

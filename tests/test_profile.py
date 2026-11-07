@@ -111,16 +111,40 @@ class ProfileTest(AppTestCase):
         status = (await self.client.get("/api/auth/status")).get_json()
         self.assertEqual((status["navbarStyle"], status["navbarGlass"]), ("android", 35), "een weigering verandert niets")
 
+    async def test_cooking_mode_is_on_by_default_and_can_be_switched_off(self):
+        self.assertTrue((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "standaard aan")
+        reply = await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertEqual((reply.status_code, reply.get_json()["cookingMode"]), (200, False))
+        await self.client.put("/api/profile/preferences", json={"accent": "#0b62c4"})
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "een andere voorkeur laat hem staan")
+        for bad in ({"cookingMode": 0}, {"cookingMode": "nee"}, {"cookingMode": None}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertFalse((await self.client.get("/api/auth/status")).get_json()["cookingMode"], "een weigering verandert niets")
+        self.assertTrue((await self.client.put("/api/profile/preferences", json={"cookingMode": True})).get_json()["cookingMode"])
+
+    async def test_preferred_store_is_albert_heijn_until_another_is_chosen(self):
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "ah", "standaard Albert Heijn")
+        for store in ("jumbo", "picnic", "crisp", "ah", "jumbo"):
+            reply = await self.client.put("/api/profile/preferences", json={"preferredStore": store})
+            self.assertEqual((reply.status_code, reply.get_json()["preferredStore"]), (200, store))
+        await self.client.put("/api/profile/preferences", json={"cookingMode": False})
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een andere voorkeur laat hem staan")
+        for bad in ({"preferredStore": "lidl"}, {"preferredStore": "AH"}, {"preferredStore": ""}, {"preferredStore": None},
+                    {"preferredStore": 1}, {"preferredStore": "picnic", "theme": "sepia"}):
+            self.assertEqual((await self.client.put("/api/profile/preferences", json=bad)).status_code, 400, bad)
+        self.assertEqual((await self.client.get("/api/auth/status")).get_json()["preferredStore"], "jumbo", "een weigering verandert niets")
+        self.assertEqual((await self.client.get("/api/profile")).get_json()["preferredStore"], "jumbo")
+
     def test_a_bad_stored_value_counts_as_no_choice(self):
         run(profile.set_display_name("owner", "x"))
         with closing(db()) as conn, conn:  # zoals een handmatig gewijzigde back-up
             conn.execute(
                 "UPDATE user_profiles SET theme = 'sepia', dark_background = 'black', accent = 'javascript:x', "
-                "navbar_style = 'windows', navbar_glass = 500"
+                "navbar_style = 'windows', navbar_glass = 500, preferred_store = 'lidl'"
             )
         self.assertEqual(
-            {key: run(profile.get("owner"))[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass")},
-            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60},
+            {key: run(profile.get("owner"))[key] for key in ("theme", "darkBackground", "accent", "navbarStyle", "navbarGlass", "preferredStore")},
+            {"theme": None, "darkBackground": "green", "accent": "", "navbarStyle": "auto", "navbarGlass": 60, "preferredStore": "ah"},
         )
 
     def test_an_older_database_gets_the_prefer_organic_column(self):
@@ -135,6 +159,7 @@ class ProfileTest(AppTestCase):
         run(profile.set_prefer_organic("owner", True))
         self.assertEqual((run(profile.get("owner"))["preferOrganic"], run(profile.get("owner"))["displayName"]), (True, "Oud"))
         self.assertEqual((run(profile.get("owner"))["theme"], run(profile.get("owner"))["accent"]), (None, ""), "en de kolommen van de weergave")
+        self.assertEqual(run(profile.get("owner"))["preferredStore"], "ah", "en de voorkeurssupermarkt")
         run(profile.set_appearance("owner", accent="#b0213f"))
         self.assertEqual((run(profile.get("owner"))["accent"], run(profile.get("owner"))["darkBackground"]), ("#b0213f", "green"))
 
@@ -179,6 +204,9 @@ class ProfileWithLoginTest(UsersTestCase):
         self.assertEqual((await anna.put("/api/profile/preferences", json={"navbarStyle": "android"})).status_code, 200)
         self.assertEqual((await self.admin.get("/api/auth/status")).get_json()["navbarStyle"], "auto", "de beheerder houdt de eigen balk")
         self.assertEqual((theirs["accent"], theirs["darkBackground"], theirs["theme"]), ("#0c9aa6", "green", "dark"))
+        self.assertEqual((await anna.put("/api/profile/preferences", json={"preferredStore": "picnic"})).status_code, 200)
+        self.assertEqual((await anna.get("/api/auth/status")).get_json()["preferredStore"], "picnic")
+        self.assertEqual((await self.admin.get("/api/auth/status")).get_json()["preferredStore"], "ah", "de beheerder houdt de eigen supermarkt")
         self.assertEqual((await self.client_for(self.app).put("/api/profile/preferences", json={"accent": "#000000"})).status_code, 401)
 
 

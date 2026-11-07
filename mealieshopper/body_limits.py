@@ -9,8 +9,12 @@ Wat de routes legitiem binnenkrijgen (de inventaris bij 4.0.0): JSON van hooguit
 koppelen, het weekmenu, het mandje), een avatar tot 256 kB (`profile.MAX_AVATAR_BYTES`), een MCP-bericht tot 1 MB
 (`mcp_http.MAX_BODY`). Meer hebben alleen:
 - het klaarzetten van een back-up: tot `backup.MAX_STAGE_BYTES`, met 1 MiB marge,
+- het klaarzetten van een prijsarchief in één verzoek: tot `price_archive.MAX_UPLOAD_BYTES`, met 1 MiB marge,
 - de prijsimport: tot `price_import.MAX_TEXT_CHARS` (5 miljoen) tekens tekst in een JSON-string. Een teken kan daar tot
   6 bytes worden (`\\u0001`), dus 32 MiB.
+
+Een upload in stukken (uploads.py, voor de back-up en het prijsarchief) blijft onder de standaardgrens: een stuk is hoogstens
+`uploads.CHUNK_BYTES` (4 MiB), het afmaken is een klein JSON-bericht. Een groter stuk weigert uploads.py zelf met 413.
 """
 
 from typing import Any
@@ -18,11 +22,13 @@ from typing import Any
 from quart.wrappers import Request
 
 from .backup import MAX_STAGE_BYTES
+from .price_archive import MAX_UPLOAD_BYTES as MAX_ARCHIVE_BYTES
 
 MIB: int = 1024 * 1024
 DEFAULT_MAX_BODY: int = 16 * MIB
 LARGE_BODIES: dict[str, int] = {
     "/api/backup/stage": MAX_STAGE_BYTES + MIB,
+    "/api/price-archive/stage": MAX_ARCHIVE_BYTES + MIB,
     "/api/prices/import": 32 * MIB,
 }
 

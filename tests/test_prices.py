@@ -376,6 +376,118 @@ class RouteAndToolTest(PricesCase):
 
 
 
+class PublicObservedPriceTest(PricesCase):
+    def observation(self, day: str, price: float, source: str = "public_observed_unknown", size: str | None = "1 l") -> None:
+        with closing(db(prices)) as conn, conn:
+            conn.execute(
+                "INSERT INTO price_observations (store, product_id, day, source, title, brand, unit_size, url, price, seen_at) "
+                "VALUES ('picnic', 'milk', ?, ?, 'Halfvolle melk', 'Picnic', ?, ?, ?, ?)",
+                (day, source, size, f"https://example.org/prices/{day}", price, day + "T12:00:00+00:00"),
+            )
+
+    async def test_unknown_only_product_is_searchable_without_regular_offer_or_purchase_claims(self) -> None:
+        self.observation("2026-10-02", 1.09)
+        self.observation("2026-10-18", 1.19)
+        data: dict = await self.history(store="picnic", query="melk 1 l")
+        self.assertEqual(data["total"], 1)
+        product: dict = data["products"][0]
+        self.assertEqual(product["observed"], [
+            {"date": "2026-10-02", "price": 1.09, "unitSize": "1 l", "sourceUrl": "https://example.org/prices/2026-10-02"},
+            {"date": "2026-10-18", "price": 1.19, "unitSize": "1 l", "sourceUrl": "https://example.org/prices/2026-10-18"},
+        ])
+        self.assertEqual((product["regular"], product["episodes"], product["purchases"]), ([], [], []))
+        for key in ("regularPrice", "regularPerUnit", "lowestRegular", "highestRegular", "regularSince", "lastPaid", "lowestPaid"):
+            self.assertIsNone(product.get(key), key)
+        self.assertEqual((product["timesBought"], product["timesOnOffer"], product["onOfferNow"]), (0, 0, False))
+        self.assertEqual((product["title"], product["unitSize"], product["lastActivity"]), ("Halfvolle melk", "1 l", "2026-10-18"))
+        self.assertEqual((await prices.history("picnic", product="milk", today=TODAY))["products"][0], product)
+        self.assertEqual((await prices.history("picnic", bought=True, today=TODAY))["total"], 0)
+
+    async def test_archive_source_is_not_labelled_as_a_product_link_at_the_store(self) -> None:
+        self.observation("2026-10-01", 1.09)
+        self.assertEqual((await self.product("milk", store="picnic"))["url"], "")
+
+    async def test_mixed_sources_keep_confirmed_regular_prices_separate(self) -> None:
+        self.observation("2026-10-01", 1.49, "search")
+        self.observation("2026-10-02", 0.99)
+        self.observation("2026-10-03", 1.59, "public_press_release")
+        product: dict = await self.product("milk", store="picnic")
+        self.assertEqual([point["price"] for point in product["observed"]], [0.99])
+        self.assertEqual([point["price"] for point in product["regular"]], [1.49, 1.59])
+        self.assertEqual((product["regularPrice"], product["lowestRegular"], product["regularSince"]), (1.59, 1.49, "2026-10-03"))
+
+    async def test_regular_unit_price_uses_the_confirmed_prices_own_pack_size(self) -> None:
+        self.observation("2026-10-01", 2.00, "search", size="1 l")
+        self.observation("2026-10-02", 1.00, size="2 l")
+        product: dict = await self.product("milk", store="picnic")
+        self.assertEqual(product["regularPrice"], 2.00)
+        self.assertEqual(product["unitSize"], "1 l")
+        self.assertEqual(product["observed"][0]["unitSize"], "2 l")
+        self.assertEqual(product["regularPerUnit"], {"value": 2.00, "unit": "l"})
+        compact: dict = (await mcp.tool_get_price_history({"store": "picnic", "query": "melk"}))["products"][0]
+        self.assertEqual(compact["regularPricePerUnit"], product["regularPerUnit"])
+
+    async def test_missing_confirmed_pack_size_does_not_borrow_unknown_pack_size(self) -> None:
+        self.observation("2026-10-01", 2.00, "search", size=None)
+        self.observation("2026-10-02", 1.00, size="2 l")
+        product: dict = await self.product("milk", store="picnic")
+        self.assertEqual(product["regularPrice"], 2.00)
+        self.assertIsNone(product["regularPerUnit"])
+        self.assertIsNone(product["unitSize"])
+        self.assertEqual(product["observed"][0]["unitSize"], "2 l")
+
+    async def test_compare_fallback_uses_confirmed_observation_with_its_own_pack(self) -> None:
+        self.observation("2026-10-01", 2.00, "public_press_release", size="1 l")
+        self.observation("2026-10-02", 1.00, size="2 l")
+
+        async def nothing(*_: object) -> list:
+            return []
+
+        with mock.patch.object(offers, "load", new_callable=mock.AsyncMock, return_value={"offers": []}), \
+                mock.patch.object(prices, "_search_function", return_value=nothing):
+            result: dict = await prices.compare("picnic", "milk")
+        self.assertEqual((result["product"]["price"], result["product"]["unitSize"]), (2.00, "1 l"))
+        self.assertEqual(result["product"]["unitPrice"], {"value": 2.00, "unit": "l"})
+        self.assertEqual(result["candidates"][0]["price"], 2.00)
+        self.assertEqual(result["candidates"][0]["unitSize"], "1 l")
+
+    async def test_compare_fallback_rejects_unknown_only_observations(self) -> None:
+        self.observation("2026-10-02", 1.00, size="2 l")
+        with mock.patch.object(offers, "load", new_callable=mock.AsyncMock, return_value={"offers": []}):
+            self.assertIsNone(await prices._known_product("picnic", "milk"))
+            with self.assertRaises(ValueError):
+                await prices.compare("picnic", "milk")
+
+    async def test_unknown_prices_never_supply_a_regular_baseline_but_count_as_observed_history(self) -> None:
+        self.observation("2026-10-01", 0.79)
+        measured: set[str] = set()
+
+        async def regulars(conn):
+            return await prices._regulars_between(conn, "picnic", "2026-09-20", TODAY, measured=measured)
+
+        self.assertEqual((await in_db(prices._connect, regulars))[0], {})
+        self.assertEqual(measured, set())
+        self.assertEqual((await history_points("picnic"))["milk"], [("2026-10-01", 0.79)])
+        self.assertEqual(await prices.regular_before("picnic", ["milk"], TODAY), {})
+        current: dict = offer("milk", "Halfvolle melk", price=0.69, before=None)
+        await prices._annotate("picnic", [current], TODAY)
+        self.assertEqual(current["verdict"]["kind"], "unknown")
+        self.assertIsNone(current["verdict"]["lowestRegular"])
+        self.assertIsNone(current["badge"])
+
+    async def test_ordinary_products_always_include_an_empty_observed_series(self) -> None:
+        self.observation("2026-10-01", 1.49, "search")
+        self.assertEqual((await self.product("milk", store="picnic"))["observed"], [])
+
+    async def test_api_and_mcp_expose_the_same_observed_entries(self) -> None:
+        self.observation("2026-10-01", 1.09)
+        client = self.client_for(create_app())
+        api: dict = (await client.get("/api/prices/history?store=picnic&product=milk")).get_json()["products"][0]
+        result: dict = (await mcp.tool_get_price_history({"store": "picnic", "query": "melk"}))["products"][0]
+        self.assertEqual(result["observed"], api["observed"])
+        self.assertEqual((result["regularPrices"], result["regularPrice"]), ([], None))
+
+
 class UnitPriceTest(AppTestCase):
     """Testgevallen uit het userscript van wolph (prijs per kg/ml/etc.)."""
 

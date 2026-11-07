@@ -209,8 +209,8 @@ module.exports = [
       await openStore(page, "jumbo");
       await page.click('[data-store-open="jumbo:j1"]');
       await page.waitForTimeout(800);
-      // De foto is groot: scrol naar de ingrediënten, zodat ook de bereiding, de tip en de voedingswaarden in beeld komen.
-      await page.evaluate(() => window.scrollTo(0, document.querySelector("#jumbo-recipe-body h3").getBoundingClientRect().top + window.scrollY - 130));
+      // De foto is groot: scrol naar de kookweergave (de balk met Start met koken), met de ingrediënten naast de bereiding.
+      await page.evaluate(() => window.scrollTo(0, document.querySelector("#jumbo-recipe-body .cook__bar").getBoundingClientRect().top + window.scrollY - 130));
     },
   },
 ];

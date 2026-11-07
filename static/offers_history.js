@@ -78,7 +78,8 @@ function offerHistoryChart(product, width) {
   const episodes = (product.episodes || []).filter((episode) => offerHistoryDay(episode.start) !== null);
   const segments = (product.regular || []).filter((segment) => offerHistoryDay(segment.from) !== null && typeof segment.price === "number");
   const purchases = (product.purchases || []).filter((purchase) => offerHistoryDay(purchase.date) !== null && typeof purchase.price === "number");
-  if (!episodes.length && !segments.length && !purchases.length) return "";
+  const observed = (product.observed || []).filter((point) => offerHistoryDay(point.date) !== null && typeof point.price === "number");
+  if (!episodes.length && !segments.length && !purchases.length && !observed.length) return "";
   const W = Math.max(280, Math.floor(width));
   const H = W < 480 ? 220 : 260;
   const left = 58;
@@ -93,9 +94,10 @@ function offerHistoryChart(product, width) {
   });
   const steps = segments.map((segment) => ({ segment, start: offerHistoryDay(segment.from), end: (offerHistoryDay(segment.to) ?? offerHistoryDay(segment.from)) + 1 }));
   const dots = purchases.map((purchase) => ({ purchase, day: offerHistoryDay(purchase.date) }));
+  const measured = observed.map((point) => ({ point, day: offerHistoryDay(point.date) }));
   // Een paar dagen ruimte rechts, zodat de pijl van een lopende aanbieding en het woord "vandaag" niet worden afgekapt.
-  const xmax = Math.max(today + 1, ...bars.map((bar) => bar.end), ...steps.map((step) => step.end), ...dots.map((dot) => dot.day + 1)) + 5;
-  let xmin = Math.min(...bars.map((bar) => bar.start), ...steps.map((step) => step.start), ...dots.map((dot) => dot.day));
+  const xmax = Math.max(today + 1, ...bars.map((bar) => bar.end), ...steps.map((step) => step.end), ...dots.map((dot) => dot.day + 1), ...measured.map((dot) => dot.day + 1)) + 5;
+  let xmin = Math.min(...bars.map((bar) => bar.start), ...steps.map((step) => step.start), ...dots.map((dot) => dot.day), ...measured.map((dot) => dot.day));
   if (xmax - xmin < OFFER_HISTORY_MIN_DAYS) xmin = xmax - OFFER_HISTORY_MIN_DAYS;
   xmin -= 1;
   const withYear = xmax - xmin > 330;
@@ -104,6 +106,7 @@ function offerHistoryChart(product, width) {
     ...episodes.map((episode) => episode.price),
     ...segments.map((segment) => segment.price),
     ...purchases.map((purchase) => purchase.price),
+    ...observed.map((point) => point.price),
   ].filter((price) => typeof price === "number");
   const flatRegular = !segments.length && typeof product.regularPrice === "number";
   if (flatRegular) prices.push(product.regularPrice);
@@ -179,6 +182,13 @@ function offerHistoryChart(product, width) {
     take(cx - 5, cx + 5, cy - 5, cy + 5);
     parts.push(`<g class="ohc-paid" tabindex="0"><title>${escapeHtml(offerHistoryPurchaseTitle(dot.purchase))}</title><circle cx="${cx}" cy="${cy}" r="4.5"/></g>`);
   }
+  for (const dot of measured) {
+    const cx = x(dot.day + 0.5);
+    const cy = y(dot.point.price);
+    take(cx - 5, cx + 5, cy - 5, cy + 5);
+    const title = [offerHistoryDayText(dot.day, true), offerHistoryPrice(dot.point.price), dot.point.unitSize, t("offers.history.observed_note")].filter(Boolean).join(" - ");
+    parts.push(`<g class="ohc-observed" tabindex="0"><title>${escapeHtml(title)}</title><path d="M${cx} ${cy - 5}L${cx + 5} ${cy}L${cx} ${cy + 5}L${cx - 5} ${cy}Z"/></g>`);
+  }
   // De prijs bij een balk: erboven, anders eronder, anders een regel hoger of lager. Past hij nergens zonder een ander label of
   // een balk te raken, dan blijft hij weg; de prijs staat altijd nog in het hoverlabel en in de tabel. De nieuwste balk gaat voor.
   for (const bar of drawn.slice().reverse()) {
@@ -198,7 +208,7 @@ function offerHistoryChart(product, width) {
       break;
     }
   }
-  const label = t("offers.history.chart.label_full", { product: product.title, offers: tn("offers.history.item.times", product.timesOnOffer || 0), bought: tn("offers.history.item.bought", product.timesBought || 0) });
+  const label = t("offers.history.chart.label_full", { product: product.title, offers: tn("offers.history.item.times", product.timesOnOffer || 0), bought: tn("offers.history.item.bought", product.timesBought || 0), observed: tn("offers.history.item.observed", observed.length) });
   return `<svg class="ohc" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${escapeHtml(label)}">${parts.join("")}</svg>`;
 }
 
@@ -233,7 +243,8 @@ function offerHistoryLegend(product) {
   if ((product.episodes || []).length) items.push(`<li><span class="ohc-key ohc-key--offer" aria-hidden="true"></span>${escapeHtml(t("offers.history.legend.offer"))}</li>`);
   if ((product.regular || []).length || typeof product.regularPrice === "number") items.push(`<li><span class="ohc-key ohc-key--regular" aria-hidden="true"></span>${escapeHtml(t("offers.history.legend.regular"))}</li>`);
   if ((product.purchases || []).length) items.push(`<li><span class="ohc-key ohc-key--paid" aria-hidden="true"></span>${escapeHtml(t("offers.history.legend.paid"))}</li>`);
-  return items.length > 1 ? `<ul class="ohc-legend">${items.join("")}</ul>` : "";
+  if ((product.observed || []).length) items.push(`<li><span class="ohc-key ohc-key--observed" aria-hidden="true"></span>${escapeHtml(t("offers.history.legend.observed"))}</li>`);
+  return items.length > 1 || (product.observed || []).length ? `<ul class="ohc-legend">${items.join("")}</ul>` : "";
 }
 
 // De bewaarde afbeeldingen van een product dat je kocht, de nieuwste eerst, elk met de naam die het product toen had: zo zie je of
@@ -276,6 +287,7 @@ function offerHistoryDetail(product) {
     number(product.lowestRegular) && number(product.highestRegular) && product.lowestRegular !== product.highestRegular
       ? offerHistoryStat(t("offers.history.stat.regular_range"), `${offerHistoryPrice(product.lowestRegular)} – ${offerHistoryPrice(product.highestRegular)}`)
       : "",
+    (product.observed || []).length ? offerHistoryStat(t("offers.history.stat.observed"), I18N.formatNumber(product.observed.length)) : "",
     product.timesBought ? offerHistoryStat(t("offers.history.stat.bought"), I18N.formatNumber(product.timesBought)) : "",
     number(product.lastPaid) ? offerHistoryStat(t("offers.history.stat.last_paid"), offerHistoryPrice(product.lastPaid)) : "",
     number(product.averagePaid) && product.timesBought > 1 ? offerHistoryStat(t("offers.history.stat.average_paid"), offerHistoryPrice(product.averagePaid)) : "",
@@ -301,6 +313,15 @@ function offerHistoryDetail(product) {
       return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(purchase.price))}</td><td>${escapeHtml(offerHistoryQuantity(purchase))}</td><td>${sourceCell}</td></tr>`;
     })
     .join("");
+  const observedRows = (product.observed || []).slice().reverse().map((point) => {
+    const day = offerHistoryDay(point.date);
+    const source = /^https?:\/\//i.test(point.sourceUrl || "")
+      ? `<a href="${escapeHtml(point.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.observed_source"))}</a>`
+      : "";
+    return `<tr><td>${escapeHtml(day === null ? "" : offerHistoryDayText(day, true))}</td><td>${escapeHtml(offerHistoryPrice(point.price))}</td><td>${escapeHtml(point.unitSize || "")}</td><td>${source}</td></tr>`;
+  }).join("");
+  const status = product.onOfferNow ? "offers.history.now"
+    : ((product.observed || []).length && !(product.episodes || []).length ? "offers.history.no_confirmed_offer" : "offers.history.not_now");
   const link = product.url
     ? `<a href="${escapeHtml(product.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("offers.history.open", { store: STORES[product.store].name }))}</a>`
     : "";
@@ -310,13 +331,19 @@ function offerHistoryDetail(product) {
       <div>
         <h3>${escapeHtml(product.title)}</h3>
         ${meta ? `<p class="muted">${escapeHtml(meta)}</p>` : ""}
-        <p class="${product.onOfferNow ? "bonus" : "muted"}">${escapeHtml(t(product.onOfferNow ? "offers.history.now" : "offers.history.not_now"))}${link ? ` · ${link}` : ""}</p>
+        <p class="${product.onOfferNow ? "bonus" : "muted"}">${escapeHtml(t(status))}${link ? ` · ${link}` : ""}</p>
         ${product.regularPerUnit ? `<button class="link-button" type="button" data-compare="${escapeHtml(product.productId)}" data-store="${escapeHtml(product.store)}">${escapeHtml(t("offers.compare.open"))}</button>` : ""}
       </div>
     </div>
     <dl class="ohc-stats">${stats}</dl>
     <div class="ohc-chart" id="offers-history-chart">${offerHistoryChart(product, offerHistoryChartWidth())}</div>
     ${offerHistoryLegend(product)}
+    ${observedRows ? `<p class="muted ohc-note">${escapeHtml(t("offers.history.observed_note"))}</p>
+    <table class="ohc-table">
+      <caption>${escapeHtml(t("offers.history.table.observed"))}</caption>
+      <thead><tr><th scope="col">${escapeHtml(t("offers.history.table.date"))}</th><th scope="col">${escapeHtml(t("offers.history.table.price"))}</th><th scope="col">${escapeHtml(t("offers.history.table.size"))}</th><th scope="col">${escapeHtml(t("offers.history.table.source"))}</th></tr></thead>
+      <tbody>${observedRows}</tbody>
+    </table>` : ""}
     ${offerHistoryImages(product)}
     ${
       offerRows
@@ -374,13 +401,14 @@ function renderOfferHistory() {
     .map((product) => {
       const key = offerHistoryKey(product);
       const lowest = typeof product.lowestPrice === "number" ? ` · ${t("offers.history.item.lowest", { price: offerHistoryPrice(product.lowestPrice) })}` : "";
+      const observed = (product.observed || []).length ? ` · ${tn("offers.history.item.observed", product.observed.length)}` : "";
       const bought = product.timesBought ? ` · ${tn("offers.history.item.bought", product.timesBought)}` : "";
       const meta = [product.brand, product.unitSize].filter(Boolean).join(" · ");
       const href = priceHistoryPath(product.store, offerHistory.query, product.productId);
       return `<li><a class="ohc-item${key === offerHistory.selected ? " is-active" : ""}" data-key="${escapeHtml(key)}" href="${escapeHtml(href)}" data-nav${key === offerHistory.selected ? ' aria-current="true"' : ""}>
         <strong>${escapeHtml(product.title)}</strong>
         ${meta ? `<small>${escapeHtml(meta)}</small>` : ""}
-        <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : ""}</small>
+        <small>${escapeHtml(tn("offers.history.item.times", product.timesOnOffer || 0))}${escapeHtml(lowest)}${escapeHtml(bought)}${escapeHtml(observed)}${product.onOfferNow ? ` · <span class="bonus">${escapeHtml(t("offers.history.now"))}</span>` : ""}</small>
       </a></li>`;
     })
     .join("");

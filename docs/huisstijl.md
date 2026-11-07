@@ -195,6 +195,21 @@ logo, het manifest en de deelafbeelding veranderen niet.
   tekst en randen (`#121314`, `#1B1C1E`, `#232527`), met hetzelfde contrast als het groene thema.
 - `tests/test_appearance.py` rekent de tinten na voor de tien keuzes en voor lastige eigen kleuren
   (wit, zwart, citroen, felgroen ...).
+- **Indeling.** Weergave heeft twee inklapbare blokken (`.box.fold`), met de modifier
+  `.fold--compact`: dicht is een blok alleen zijn kop van 18 px (8 px boven en onder de knop van
+  44 px), open loopt het door, met tussenkoppen van 16 px. *Voorkeuren* heeft de kookmodus; *Thema* de
+  accentkleur, het thema met de achtergrond van het donkere thema, en de navigatiebalk, gescheiden door
+  een lijn (`.fold__section`). Zonder keuze staan de blokken dicht; de browser onthoudt welke open
+  waren (`ms-fold-appearance-*`).
+- **Koppelen** gebruikt dezelfde compacte blokken: *Aanbiedingen* (standaard open), *AI-beoordeling
+  van koppelingen* (standaard dicht), *Mealie* en de winkels (dicht zodra gekoppeld). Een nieuw
+  inklapbaar blok krijgt altijd `.fold--compact`; het hoge `.box.fold` blijft alleen voor Profiel,
+  Beveiliging.
+- **Schakelaar.** `.switch` is een echt selectievakje met `role="switch"`, getekend als schuifje:
+  aan gevuld in `--primary` met het bolletje in `--on-primary`, uit een rand in `--placeholder`
+  (3 : 1 of meer) met een bolletje in `--muted`. Een zichtbare focusring zoals elke bediening.
+- **Kookmodus uit** zet `no-cook-mode` op `<html>` (ook al in het script in de kop); dan verbergt
+  `styles.css` bij een recept de balk met Start met koken en de vinkjes bij de ingrediënten.
 
 ## Taalkiezer
 
