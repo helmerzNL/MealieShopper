@@ -10,6 +10,7 @@ os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ROUTER = (ROOT / "static" / "router.js").read_text(encoding="utf-8")
@@ -19,35 +20,35 @@ PAGES = ["/recipes", "/recipes/search", "/offers", "/offers/history", "/import",
          "/stores/ah/receipts/AH-123", "/stores/jumbo/lists/7", "/meal-kits", "/cart", "/profile/security", "/settings/system", "/settings/preferences", "/settings/appearance", "/about"]
 
 
-class PageRoutesTest(unittest.TestCase):
+class PageRoutesTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.client = create_app().test_client()
+        self.client = self.client_for(create_app())
 
-    def test_every_page_address_serves_the_app(self):
-        home = self.client.get("/").get_data(as_text=True)
+    async def test_every_page_address_serves_the_app(self):
+        home = (await self.client.get("/")).get_data(as_text=True)
         for path in PAGES:
-            reply = self.client.get(path)
+            reply = await self.client.get(path)
             self.assertEqual(reply.status_code, 200, path)
             self.assertEqual(reply.get_data(as_text=True), home, path)
 
-    def test_page_addresses_are_as_public_as_the_home_page_and_the_api_is_not(self):
-        with mock.patch.object(auth, "auth_required", return_value=True), mock.patch.object(auth, "current_user", return_value=None):
+    async def test_page_addresses_are_as_public_as_the_home_page_and_the_api_is_not(self):
+        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=True), mock.patch.object(auth, "current_user", new_callable=mock.AsyncMock, return_value=None):
             for path in ["/", *PAGES]:
-                self.assertEqual(self.client.get(path).status_code, 200, f"{path}: het inlogscherm staat op de pagina zelf")
-            self.assertEqual(self.client.get("/api/prices/history").status_code, 401)
+                self.assertEqual((await self.client.get(path)).status_code, 200, f"{path}: het inlogscherm staat op de pagina zelf")
+            self.assertEqual((await self.client.get("/api/prices/history")).status_code, 401)
         self.assertTrue(auth.is_page_path("/cart"))
         self.assertFalse(auth.is_page_path("/cartoon"), "alleen de wortel zelf of een pad eronder")
         self.assertFalse(auth.is_page_path("/api/cart"))
 
-    def test_unknown_addresses_stay_unknown(self):
-        with mock.patch.object(auth, "auth_required", return_value=False):
-            self.assertEqual(self.client.get("/nope").status_code, 404)
-            self.assertEqual(self.client.get("/static/router.js").status_code, 200)
+    async def test_unknown_addresses_stay_unknown(self):
+        with mock.patch.object(auth, "auth_required", new_callable=mock.AsyncMock, return_value=False):
+            self.assertEqual((await self.client.get("/nope")).status_code, 404)
+            self.assertEqual((await self.client.get("/static/router.js")).status_code, 200)
 
     def test_settings_are_for_the_administrator_except_preferences(self):
         # Een gewone gebruiker komt op elk adres onder /settings uit bij Voorkeuren; de rest blijft van de beheerder.
@@ -60,7 +61,7 @@ class PageRoutesTest(unittest.TestCase):
         self.assertNotIn('href="/settings/appearance"', HTML)
 
 
-class LinkMarkupTest(unittest.TestCase):
+class LinkMarkupTest(AppTestCase):
     def test_tabs_subtabs_and_the_user_menu_are_links_with_an_address(self):
         tabs = dict(re.findall(r'<a class="tab[^"]*" data-tab="([\w-]+)"[^>]* href="([^"]+)" data-nav>', HTML))
         self.assertEqual(tabs, {"recipes": "/recipes", "offers": "/offers", "ah-items": "/stores", "meal-kits": "/meal-kits", "basket": "/cart"})
@@ -77,7 +78,7 @@ class LinkMarkupTest(unittest.TestCase):
         self.assertEqual(scripts[-1], "router.js")
 
 
-class RouterScriptTest(unittest.TestCase):
+class RouterScriptTest(AppTestCase):
     def test_a_click_with_a_modifier_or_another_button_is_left_to_the_browser(self):
         for needle in ("event.button !== 0", "event.metaKey", "event.ctrlKey", "event.shiftKey", "event.altKey"):
             self.assertIn(needle, ROUTER)

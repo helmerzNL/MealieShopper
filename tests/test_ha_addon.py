@@ -112,10 +112,10 @@ class AddonFilesTest(unittest.TestCase):
 
 
 class ImageTest(unittest.TestCase):
-    def test_dockerfile_starts_through_the_entrypoint_and_keeps_gunicorn(self):
+    def test_dockerfile_starts_through_the_entrypoint_and_starts_hypercorn(self):
         text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn('ENTRYPOINT ["python", "/app/docker-entrypoint.py"]', text)
-        self.assertIn('CMD ["gunicorn"', text)
+        self.assertIn('CMD ["hypercorn"', text)
         self.assertRegex(text, r"COPY .*docker-entrypoint\.py")
         self.assertIn("MEALIESHOPPER_DATA_DIR=/data", text)
 
@@ -171,19 +171,19 @@ class EntrypointTest(unittest.TestCase):
             options.write_text(json.dumps({"mealie_url": "http://mealie:9000"}), encoding="utf-8")
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(options)}), \
                     mock.patch.object(entrypoint.os, "execvp") as execvp:
-                entrypoint.main(["docker-entrypoint.py", "gunicorn", "run:app"])
+                entrypoint.main(["docker-entrypoint.py", "hypercorn", "run:app"])
                 self.assertEqual(os.environ["MEALIE_URL"], "http://mealie:9000")
             os.environ.pop("MEALIE_URL", None)
-        execvp.assert_called_once_with("gunicorn", ["gunicorn", "run:app"])
+        execvp.assert_called_once_with("hypercorn", ["hypercorn", "run:app"])
 
     def test_without_options_the_command_starts_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             before = dict(os.environ)
             with mock.patch.dict(os.environ, {"MEALIESHOPPER_OPTIONS_FILE": str(Path(tmp) / "none.json")}), \
                     mock.patch.object(entrypoint.os, "execvp") as execvp:
-                entrypoint.main(["docker-entrypoint.py", "gunicorn"])
+                entrypoint.main(["docker-entrypoint.py", "hypercorn"])
                 self.assertEqual({k: v for k, v in os.environ.items() if k != "MEALIESHOPPER_OPTIONS_FILE"}, {k: v for k, v in before.items() if k != "MEALIESHOPPER_OPTIONS_FILE"})
-        execvp.assert_called_once_with("gunicorn", ["gunicorn"])
+        execvp.assert_called_once_with("hypercorn", ["hypercorn"])
 
     def test_no_command_is_an_error(self):
         with self.assertRaises(SystemExit):

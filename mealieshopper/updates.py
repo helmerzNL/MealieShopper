@@ -9,17 +9,18 @@ GitHub niet bij elke paginaweergave wordt gevraagd. Uitzetten kan met `MEALIESHO
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
-import threading
 import time
+import weakref
 from datetime import datetime, timezone
 from os import environ
 from typing import Any
 
-import requests
+import httpx
 
-from . import about
+from . import about, http_client
 
 REPO = "helmerzNL/MealieShopper"
 LATEST_URL = f"https://github.com/{REPO}/releases/latest"
@@ -31,8 +32,18 @@ MIN_FORCE_GAP = 30  # "nu controleren" mag GitHub niet vaker dan dit raken (anon
 TIMEOUT = 8
 
 log = logging.getLogger(__name__)
-_lock = threading.Lock()
+# Een slot per event loop, zoals in http_client: elke test heeft een eigen loop. Het slot houdt een tweede gelijktijdige
+# controle tegen, zodat GitHub ook dan een keer gevraagd wordt.
+_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 _cache: dict[str, Any] = {"at": 0.0, "ttl": 0.0, "result": None}
+
+
+def _lock() -> asyncio.Lock:
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    lock: asyncio.Lock | None = _locks.get(loop)
+    if lock is None:
+        lock = _locks[loop] = asyncio.Lock()
+    return lock
 
 
 def enabled() -> bool:
@@ -55,25 +66,25 @@ def is_newer(latest: str, current: str) -> bool:
 
 def describe_error(exc: Exception) -> str:
     """Een korte, leesbare oorzaak voor de beheerder, bijvoorbeeld 'HTTP 403 (rate limit)' of 'ConnectionError'."""
-    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+    if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         hint = " (rate limit)" if code in (403, 429) else ""
         return f"HTTP {code}{hint}"
-    if isinstance(exc, requests.exceptions.SSLError):
-        return "SSLError (certificaat)"
-    if isinstance(exc, requests.Timeout):
+    if isinstance(exc, httpx.ConnectError) and "ssl" in str(exc).lower():
+        return "SSLError (certificaat)"  # httpx kent geen eigen SSLError: de reden staat in de tekst van de ConnectError
+    if isinstance(exc, httpx.TimeoutException):
         return "Timeout"
-    if isinstance(exc, requests.ConnectionError):
+    if isinstance(exc, httpx.TransportError):  # ook RemoteProtocolError en ProxyError, zoals ConnectionError bij requests
         return "ConnectionError (geen verbinding of DNS)"
     return f"{type(exc).__name__}: {str(exc)[:80]}".rstrip(": ")
 
 
-def _fetch_latest() -> dict[str, str]:
-    response = requests.get(
+async def _fetch_latest() -> dict[str, str]:
+    response = await http_client.client("updates").get(
         LATEST_URL,
         headers={"User-Agent": "MealieShopper-update-check"},
         timeout=TIMEOUT,
-        allow_redirects=False,
+        follow_redirects=False,
     )
     if response.status_code == 404:  # de repository is niet te zien
         return {"version": "", "url": ""}
@@ -91,7 +102,7 @@ def _fetch_latest() -> dict[str, str]:
 
 
 def _payload(latest: dict[str, str] | None, error: bool, checked_at: float, detail: str = "") -> dict[str, Any]:
-    current = about.build_info()["version"]
+    current = about.version()
     latest = latest or {"version": "", "url": ""}
     return {
         "enabled": True,
@@ -106,20 +117,20 @@ def _payload(latest: dict[str, str] | None, error: bool, checked_at: float, deta
     }
 
 
-def status(force: bool = False) -> dict[str, Any]:
+async def status(force: bool = False) -> dict[str, Any]:
     """Het resultaat van de updatecheck; `force` slaat het bewaarde antwoord over (met een korte rem)."""
     if not enabled():
         return {**_payload(None, False, 0), "enabled": False}
-    now = time.time()
-    with _lock:
+    async with _lock():
+        now = time.time()
         cached = _cache["result"]
         age = now - _cache["at"]
         if cached is not None and (age < _cache["ttl"] if not force else age < MIN_FORCE_GAP):
             return cached
         try:
-            result = _payload(_fetch_latest(), False, now)
+            result = _payload(await _fetch_latest(), False, now)
             ttl = SUCCESS_TTL
-        except (requests.RequestException, ValueError) as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             detail = describe_error(exc)
             log.warning("Updatecheck mislukt (%s): %s", detail, exc)
             # Een eerder gelukt antwoord blijft bruikbaar; alleen de foutmelding erbij.
@@ -131,5 +142,4 @@ def status(force: bool = False) -> dict[str, Any]:
 
 
 def reset() -> None:
-    with _lock:
-        _cache.update(at=0.0, ttl=0.0, result=None)
+    _cache.update(at=0.0, ttl=0.0, result=None)

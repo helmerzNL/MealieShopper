@@ -121,7 +121,7 @@ toegevoegd: recepten en boodschappen blijven netwerkafhankelijk.
 (bijvoorbeeld `https://mealieshopper.sandmount.nl`), niet onder een pad.
 
 Herbouw exports met `python scripts/build_brand.py` (Pillow nodig, alleen tijdens
-het exporteren). De Flask-app heeft voor deze assets geen extra dependency nodig. De
+het exporteren). De Quart-app heeft voor deze assets geen extra dependency nodig. De
 SVG's, PNG's en het ICO-bestand komen uit dezelfde geometrie in dat script.
 
 Gebruik echte gerechtfoto's met natuurlijk licht. Houd boodschappenlijsten rustig.

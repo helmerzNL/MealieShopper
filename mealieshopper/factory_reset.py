@@ -14,15 +14,14 @@ Veiligheid in het kort:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import signal
-import sys
-import threading
-from contextlib import closing
+from pathlib import Path
 from typing import Any
 
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
 from . import auth, auth_password
 from .i18n import tr
@@ -35,14 +34,26 @@ DATA_FILES = tuple(f"auth.sqlite3{suffix}" for suffix in ("", "-wal", "-shm", "-
 
 
 def restart_supported() -> bool:
-    """Kan de app zichzelf opnieuw starten? Alleen onder gunicorn (zoals in de container): die hoofdtaak stopt
-    en Docker start de container weer (restart-beleid `unless-stopped` of `always`)."""
-    return "gunicorn.arbiter" in sys.modules
+    """Kan de app zichzelf opnieuw starten? Alleen in een container (`/.dockerenv`) of als Home Assistant-add-on
+    (`/data/options.json`): daar stopt het proces en start het herstartbeleid (`unless-stopped` of `always` in
+    compose, de watchdog van Home Assistant) het weer."""
+    return Path("/.dockerenv").exists() or Path("/data/options.json").exists()
 
 
-def wipe_data() -> list[str]:
-    """Verwijdert de database en het geheim; geeft de namen van de bestanden die er waren."""
-    removed = []
+async def wipe_data() -> list[str]:
+    """Verwijdert de database en het geheim. Geeft de namen van de bestanden die er waren.
+
+    Het werk op schijf loopt in een thread: de afbeeldingencache kan duizenden bestanden bevatten. Daarna vergeet auth
+    wat het onthield, op de event loop.
+    """
+    removed: list[str] = await asyncio.to_thread(_remove_files)
+    auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
+    return removed
+
+
+def _remove_files() -> list[str]:
+    """De bestanden van `wipe_data`, als geheel voor `asyncio.to_thread`: geen database-verbinding, alleen de schijf."""
+    removed: list[str] = []
     for name in DATA_FILES:
         path = auth.data_dir() / name
         try:
@@ -60,73 +71,79 @@ def wipe_data() -> list[str]:
         except OSError:
             continue
         removed.append(path.name)
-    auth.forget_runtime_state()  # zonder herstart maakt de volgende aanvraag een nieuwe, lege database
     return removed
 
 
 def restart() -> None:
-    """Stopt de gunicorn-hoofdtaak (de container herstart dan); lukt dat niet, dan alleen deze werker."""
-    for pid in (os.getppid(), os.getpid()):
-        try:
-            os.kill(pid, signal.SIGTERM)
-            return
-        except OSError:
-            continue
+    """Stuurt SIGTERM naar dit proces. Hypercorn sluit dan netjes af (`after_serving` draait), waarna het
+    herstartbeleid van compose of de watchdog van Home Assistant de container opnieuw start.
+
+    Dat werkt omdat de Dockerfile hypercorn met `--workers 0` start: de app draait dan in het proces met de signal
+    handlers van hypercorn. Met `--workers 1` zou dit het kindproces zonder handlers treffen, dat zonder `after_serving`
+    sterft. `tests/test_restart.py` start hypercorn met de CMD uit de Dockerfile en controleert dit."""
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _owner_methods() -> dict[str, bool]:
+async def _owner_methods() -> dict[str, bool]:
     return {
-        "password": auth.password_configured(auth.OWNER_ID),
-        "mfa": auth.mfa_enabled(auth.OWNER_ID),
-        "passkey": auth.auth_enabled() and auth.passkey_count(auth.OWNER_ID) > 0,
+        "password": await auth.password_configured(auth.OWNER_ID),
+        "mfa": await auth.mfa_enabled(auth.OWNER_ID),
+        "passkey": auth.auth_enabled() and await auth.passkey_count(auth.OWNER_ID) > 0,
     }
 
 
-def _check_passkey(uid: str, credential: Any):
-    """None als de passkey van de beheerder de uitdaging goed ondertekende; anders het foutantwoord."""
-    if auth_password.locked_seconds():
-        return auth_password._too_many()
-    challenge = auth.pop_challenge(f"reset:{uid}")
+async def _check_passkey(uid: str, credential: Any) -> auth_password.ErrorReply | None:
+    """None als de passkey van de beheerder de uitdaging goed ondertekende, anders het foutantwoord.
+
+    Onder hetzelfde slot als inloggen: gelijktijdige pogingen tellen een voor een mee voor de begrenzing.
+    """
     credential = credential if isinstance(credential, dict) else {}
-    if not challenge:
-        return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
-    with closing(auth.connect()) as conn:
-        stored = conn.execute(
+    async with auth_password.attempt_lock():
+        if await auth_password.locked_seconds():
+            return await auth_password._too_many()
+        challenge = await auth.pop_challenge(f"reset:{uid}")
+        if not challenge:
+            return jsonify({"error": tr("Deze bevestiging is verlopen. Probeer het opnieuw.", "This confirmation has expired. Try again.")}), 400
+        async with auth.connect() as conn, conn.execute(
             "SELECT public_key FROM passkey_credentials WHERE id = ? AND user_id = ?",
             (str(credential.get("id") or ""), uid),
-        ).fetchone()
-    try:
-        if not stored:
-            raise ValueError("Unknown credential")
-        auth.check_assertion(credential, challenge, bytes(stored["public_key"]))
-    except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
-        auth_password.register_failure()
-        return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
-    auth_password.reset_failures()
+        ) as cursor:
+            stored = await cursor.fetchone()
+        try:
+            if not stored:
+                raise ValueError("Unknown credential")
+            # De webauthn-controle is rekenwerk: in een thread, met een kopie van de context (voor `request`).
+            await auth.check_assertion(credential, challenge, bytes(stored["public_key"]))
+        except Exception:  # noqa: BLE001 - elke afwijking in de ondertekening is een mislukte bevestiging
+            await auth_password.register_failure()
+            return jsonify({"error": tr("De passkey is niet geaccepteerd.", "The passkey was not accepted.")}), 403
+        await auth_password.reset_failures()
     return None
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.get("/api/system/factory-reset")
-    def factory_reset_info():
+    async def factory_reset_info():
         return jsonify(
             {
                 "phrase": CONFIRM_PHRASE,
-                "authRequired": auth.auth_required(),
-                "methods": _owner_methods(),
+                "authRequired": await auth.auth_required(),
+                "methods": await _owner_methods(),
                 "restart": restart_supported(),
             }
         )
 
     @app.post("/api/system/factory-reset/options")
-    def factory_reset_options():
+    async def factory_reset_options():
         """De uitdaging voor de passkey waarmee de beheerder het wissen bevestigt."""
-        if not auth.auth_required() or not _owner_methods()["passkey"]:
+        if not await auth.auth_required() or not (await _owner_methods())["passkey"]:
             return jsonify({"error": tr("Bevestigen met een passkey kan hier niet.", "Confirming with a passkey is not possible here.")}), 400
-        with closing(auth.connect()) as conn:
-            rows = conn.execute("SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)).fetchall()
+        async with auth.connect() as conn, conn.execute(
+            "SELECT id FROM passkey_credentials WHERE user_id = ? ORDER BY created_at", (auth.OWNER_ID,)
+        ) as cursor:
+            rows = await cursor.fetchall()
         challenge = auth.make_challenge()
-        auth.store_challenge(f"reset:{auth.OWNER_ID}", challenge)
+        await auth.store_challenge(f"reset:{auth.OWNER_ID}", challenge)
         return jsonify(
             {
                 "status": "ok",
@@ -141,29 +158,28 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/system/factory-reset")
-    def factory_reset():
-        body = request.get_json(silent=True) or {}
+    async def factory_reset():
+        body = await request.get_json(silent=True) or {}
         if str(body.get("confirm") or "").strip() != CONFIRM_PHRASE:
             return jsonify({"error": tr(f"Typ {CONFIRM_PHRASE} om te bevestigen.", f"Type {CONFIRM_PHRASE} to confirm.")}), 400
 
-        if auth.auth_required():
-            user = auth.current_user()
+        if await auth.auth_required():
+            user = await auth.current_user()
             if not user or user["id"] != auth.OWNER_ID:
                 return jsonify({"error": tr("Dit kan alleen de beheerder.", "Only the administrator can do this.")}), 403
             if body.get("credential"):
-                wrong = _check_passkey(user["id"], body.get("credential"))
-            elif _owner_methods()["password"]:
-                wrong = auth_password.reauthenticate(user["id"], body)
+                wrong = await _check_passkey(user["id"], body.get("credential"))
+            elif (await _owner_methods())["password"]:
+                wrong = await auth_password.reauthenticate(user["id"], body)
             else:
                 wrong = jsonify({"error": tr("Bevestig met je passkey.", "Confirm with your passkey.")}), 400
             if wrong:
                 return wrong
 
         restarting = restart_supported()
-        removed = wipe_data()
+        removed = await wipe_data()
         app.logger.warning("Fabrieksinstellingen: %d bestand(en) uit de data-map verwijderd (%s)", len(removed), ", ".join(removed))
         if restarting:
-            timer = threading.Timer(RESTART_DELAY_SECONDS, restart)
-            timer.daemon = True
-            timer.start()
-        return auth.clear_cookie_response({"status": "ok", "restarting": restarting})
+            # Eerst het antwoord, dan stopt het proces zichzelf: een timer op de event loop, geen thread.
+            asyncio.get_running_loop().call_later(RESTART_DELAY_SECONDS, restart)
+        return await auth.clear_cookie_response({"status": "ok", "restarting": restarting})

@@ -11,6 +11,7 @@ os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import ah, auth, auth_password, mealie  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase, db  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 READMES = {"nl": ROOT / "README.md", "en": ROOT / "README.en.md"}
@@ -57,7 +58,7 @@ def anchors(path):
     return found
 
 
-class ReadmeFilesTest(unittest.TestCase):
+class ReadmeFilesTest(AppTestCase):
     def test_both_readmes_exist_and_link_to_each_other(self):
         self.assertIn("README.en.md", text("nl"))
         self.assertIn("README.md", text("en"))
@@ -160,7 +161,7 @@ class ReadmeFilesTest(unittest.TestCase):
         used = set()
         for file in (ROOT / "mealieshopper").glob("*.py"):
             used |= set(re.findall(r"environ(?:\.get)?[\[(]\s*\"([A-Z][A-Z0-9_]+)\"", file.read_text(encoding="utf-8")))
-        used -= {"MEALIESHOPPER_ASSET_VERSION", "MEALIESHOPPER_DATA_DIR_UNUSED"}
+        used -= {"MEALIESHOPPER_ASSET_VERSION", "MEALIESHOPPER_DATA_DIR_UNUSED", "MEALIESHOPPER_TESTING"}
         self.assertIn("MEALIE_URL", used)
         for lang in READMES:
             for name in sorted(used):
@@ -173,26 +174,26 @@ class ReadmeFilesTest(unittest.TestCase):
                 self.assertNotRegex(content, r"(?i)MEALIE_URL.{0,40}(derive|afgeleid)")
 
 
-class ResetLoginTest(unittest.TestCase):
+class ResetLoginTest(AppTestCase):
     """De noodgreep uit de handleiding (Problemen oplossen) zet de inlog terug zonder de koppelingen te wissen."""
 
-    def test_documented_reset_brings_the_wizard_back(self):
+    async def test_documented_reset_brings_the_wizard_back(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {"PASSKEY_AUTH_ENABLED": "true", "MEALIESHOPPER_DATA_DIR": tmp, "MEALIESHOPPER_AUTH_SECRET": "test-secret"}
             with mock.patch.dict(os.environ, env), \
                     mock.patch.object(auth_password, "SCRYPT_N", 2**4), \
-                    mock.patch.object(mealie, "mealie_url", return_value=""), \
-                    mock.patch.object(mealie, "mealie_token", return_value=""), \
+                    mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value=""), \
+                    mock.patch.object(mealie, "mealie_token", new_callable=mock.AsyncMock, return_value=""), \
                     mock.patch.object(ah, "configured_refresh_token", return_value=""):
                 app = create_app()
-                client = app.test_client()
-                auth.ensure_db()
-                with closing(auth.connect()) as conn, conn:
+                client = self.client_for(app)
+                await auth.ensure_db()
+                with closing(db()) as conn, conn:
                     conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('owner', 'admin', 'x')")
                     conn.execute("INSERT INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')")
                 for key, value in (("ONBOARDING_DONE", "1"), ("AUTH_MODE", "passkey"), ("KEEP_ME", "bewaard")):
-                    auth.set_setting(key, value)
-                self.assertFalse(client.get("/api/onboarding/status").get_json()["needed"])
+                    await auth.set_setting(key, value)
+                self.assertFalse((await client.get("/api/onboarding/status")).get_json()["needed"])
 
                 for lang in GUIDES:
                     command = re.search(r"python -c \"(import sqlite3;.*?)\"\n", guide(lang), re.S)
@@ -201,7 +202,7 @@ class ResetLoginTest(unittest.TestCase):
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
                         conn.execute("INSERT OR IGNORE INTO passkey_credentials (id, user_id, public_key, credential_name, created_at) VALUES ('c1', 'owner', x'00', 'Telefoon', 'x')")
                     for key, value in (("ONBOARDING_DONE", "1"), ("AUTH_MODE", "passkey")):
-                        auth.set_setting(key, value)
+                        await auth.set_setting(key, value)
                     with closing(sqlite3.connect(Path(tmp) / "auth.sqlite3")) as conn, conn:
                         conn.execute("INSERT OR IGNORE INTO users (id, username, created_at) VALUES ('u_anna', 'anna', 'x')")
                         conn.execute("INSERT OR IGNORE INTO invites (id, token_hash, user_id, username, kind, created_by, created_at, expires_at) VALUES ('i1', 'h', 'u_x', 'bob', 'new', 'owner', 'x', '2999')")
@@ -215,10 +216,10 @@ class ResetLoginTest(unittest.TestCase):
                         self.assertEqual([row[0] for row in conn.execute("SELECT id FROM users")], ["owner"], lang)
                         self.assertEqual(conn.execute("SELECT COUNT(*) FROM invites").fetchone()[0], 0, lang)
 
-                    status = client.get("/api/onboarding/status").get_json()
+                    status = (await client.get("/api/onboarding/status")).get_json()
                     self.assertTrue(status["needed"], lang)
                     self.assertFalse(status["authDone"], lang)
-                    with closing(auth.connect()) as conn:
+                    with closing(db()) as conn:
                         kept = conn.execute("SELECT value FROM app_settings WHERE key = 'KEEP_ME'").fetchone()
                     self.assertEqual(kept[0], "bewaard", lang)
 

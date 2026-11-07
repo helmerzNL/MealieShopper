@@ -4,10 +4,13 @@ import tempfile
 import unittest
 from unittest import mock
 
+import httpx
+
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import auth, mealie, picnic, picnic_recipes  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
+from helpers import AppTestCase, run, served  # noqa: E402
 
 
 def rich(markdown, kind=None):
@@ -60,26 +63,21 @@ def detail_page(recipe_id="r1"):
 
 
 def response(data):
-    reply = mock.Mock()
-    reply.status_code, reply.ok = 200, True
-    reply.content = json.dumps(data).encode()
-    reply.text = json.dumps(data)
-    reply.json.return_value = data
-    reply.headers = {}
-    return reply
+    """Een antwoord van Picnic, voor `served`."""
+    return httpx.Response(200, content=json.dumps(data).encode())
 
 
-class TempDataDirTest(unittest.TestCase):
+class TempDataDirTest(AppTestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         patcher = mock.patch.dict(os.environ, {"MEALIESHOPPER_DATA_DIR": tmp.name, "PASSKEY_AUTH_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
-        auth.init_db()
+        run(auth.init_db())
 
 
-class TextTest(unittest.TestCase):
+class TextTest(AppTestCase):
     def test_markdown_is_cleaned(self):
         self.assertEqual(picnic_recipes.clean("#(ff0000)**Snijd**#(000000)\xa0de   ui__"), "Snijd de ui")
         self.assertEqual(picnic_recipes.clean(None), "")
@@ -89,7 +87,7 @@ class TextTest(unittest.TestCase):
             self.assertEqual(picnic_recipes.parse_minutes(text), minutes, text)
 
 
-class SummariesTest(unittest.TestCase):
+class SummariesTest(AppTestCase):
     def test_a_saved_tile_has_its_name_in_the_analytics(self):
         page = list_page(tile("r1", ["Bewaard", "25 min"], name="Pasta pesto"))
         recipe = picnic_recipes.summaries(page)[0]
@@ -141,28 +139,26 @@ class SummariesTest(unittest.TestCase):
 class SourcesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        picnic.save_auth_key("key")
+        run(picnic.save_auth_key("key"))
 
     def test_each_source_has_its_page(self):
         for source, page_id in (("saved", "saved-deep-dive-page-content"), ("cookbook", "cookbook-page-content"),
                                 ("ordered", "meals-purchase-page-root"), (None, "saved-deep-dive-page-content")):
-            with mock.patch.object(picnic.requests, "request", return_value=response(list_page(tile("r1", ["Pasta"])))) as call:
-                self.assertEqual(picnic_recipes.get_recipes(source)[0]["id"], "r1")
-            self.assertTrue(call.call_args.args[1].endswith(f"/pages/{page_id}"), source)
-            self.assertEqual(call.call_args.args[0], "GET")
+            with served(return_value=response(list_page(tile("r1", ["Pasta"])))) as call:
+                self.assertEqual(run(picnic_recipes.get_recipes(source))[0]["id"], "r1")
+            self.assertTrue(str(call.calls.last.request.url).endswith(f"/pages/{page_id}"), source)
+            self.assertEqual(call.calls.last.request.method, "GET")
 
     def test_unknown_sources_are_refused_before_any_request(self):
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        with served(side_effect=AssertionError("geen verzoek")):
             with self.assertRaises(ValueError):
-                picnic_recipes.get_recipes("favorieten")
+                run(picnic_recipes.get_recipes("favorieten"))
 
     def test_a_page_that_is_not_json_is_reported(self):
-        reply = response(None)
-        reply.content, reply.text = b"RSC", "RSC"
-        reply.json.side_effect = ValueError("geen json")
-        with mock.patch.object(picnic.requests, "request", return_value=reply):
+        reply = httpx.Response(200, content=b"RSC")
+        with served(return_value=reply):
             with self.assertRaisesRegex(RuntimeError, "onbekend formaat"):
-                picnic_recipes.get_recipes("saved")
+                run(picnic_recipes.get_recipes("saved"))
 
 
 class SearchTest(TempDataDirTest):
@@ -174,10 +170,10 @@ class SearchTest(TempDataDirTest):
     }
 
     def test_all_words_must_be_in_the_name_without_accents_and_capitals_and_without_duplicates(self):
-        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=lambda source: self.LISTS[source]):
-            found = picnic_recipes.search("PASTA")
-            both = picnic_recipes.search("pasta zalm")
-            accents = picnic_recipes.search("pate")
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=lambda source: self.LISTS[source]):
+            found = run(picnic_recipes.search("PASTA"))
+            both = run(picnic_recipes.search("pasta zalm"))
+            accents = run(picnic_recipes.search("pate"))
         self.assertEqual([r["id"] for r in found["recipes"]], ["r1", "r3"])  # r1 staat in beide lijsten, maar telt één keer
         self.assertEqual(found["total"], 2)
         self.assertEqual([r["id"] for r in both["recipes"]], ["r1"])
@@ -185,7 +181,7 @@ class SearchTest(TempDataDirTest):
 
     def test_an_empty_term_is_refused(self):
         with self.assertRaises(ValueError):
-            picnic_recipes.search("   ")
+            run(picnic_recipes.search("   "))
 
     def test_one_list_failing_still_searches_the_other_and_both_failing_is_an_error(self):
         def only_cookbook(source):
@@ -193,22 +189,22 @@ class SearchTest(TempDataDirTest):
                 raise RuntimeError("stuk")
             return self.LISTS[source]
 
-        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=only_cookbook):
-            self.assertEqual([r["id"] for r in picnic_recipes.search("pesto")["recipes"]], ["r3"])
-        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=RuntimeError("stuk")):
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=only_cookbook):
+            self.assertEqual([r["id"] for r in run(picnic_recipes.search("pesto"))["recipes"]], ["r3"])
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=RuntimeError("stuk")):
             with self.assertRaises(RuntimeError):
-                picnic_recipes.search("pesto")
+                run(picnic_recipes.search("pesto"))
 
     def test_a_broken_link_is_not_hidden_behind_the_other_list(self):
-        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=picnic.PicnicAuthError("koppeling")) as get:
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=picnic.PicnicAuthError("koppeling")) as get:
             with self.assertRaises(picnic.PicnicAuthError):
-                picnic_recipes.search("pasta")
+                run(picnic_recipes.search("pasta"))
         self.assertEqual(get.call_count, 1)
 
-    def test_the_route_searches_when_q_is_given(self):
-        client = create_app().test_client()
-        with mock.patch.object(picnic_recipes, "get_recipes", side_effect=lambda source: self.LISTS[source]):
-            body = client.get("/api/picnic/recipes?q=pesto").get_json()
+    async def test_the_route_searches_when_q_is_given(self):
+        client = self.client_for(create_app())
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, side_effect=lambda source: self.LISTS[source]):
+            body = (await client.get("/api/picnic/recipes?q=pesto")).get_json()
         self.assertEqual((body["source"], body["total"], body["recipes"][0]["id"]), ("search", 1, "r3"))
 
 
@@ -241,17 +237,17 @@ class DetailsTest(TempDataDirTest):
                 picnic_recipes.details(page, "r1")
 
     def test_the_right_page_is_requested_and_ids_are_checked(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(detail_page())) as call:
-            self.assertEqual(picnic_recipes.get_recipe(" r1 ")["id"], "r1")
-        self.assertTrue(call.call_args.args[1].endswith("/pages/selling-group-details-page?selling_group_id=r1"))
-        with mock.patch.object(picnic.requests, "request", side_effect=AssertionError("geen verzoek")):
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(detail_page())) as call:
+            self.assertEqual(run(picnic_recipes.get_recipe(" r1 "))["id"], "r1")
+        self.assertTrue(str(call.calls.last.request.url).endswith("/pages/selling-group-details-page?selling_group_id=r1"))
+        with served(side_effect=AssertionError("geen verzoek")):
             for bad in ("", None, "a/b", "a b", "r1&x=1", "x" * 101, "../cart"):
                 with self.assertRaises(ValueError, msg=repr(bad)):
-                    picnic_recipes.get_recipe(bad)
+                    run(picnic_recipes.get_recipe(bad))
 
 
-class MealieTest(unittest.TestCase):
+class MealieTest(AppTestCase):
     RECIPE = {"id": "r1", "name": "Pasta pesto", "image": "https://x/large.png", "portions": 4, "minutes": 20,
               "steps": ["Snijd.", "Bak."],
               "ingredients": [{"name": "Rode uien", "needed": "(150 g nodig)", "unitSize": "1 kilo", "productId": "s1"},
@@ -286,60 +282,60 @@ class MealieTest(unittest.TestCase):
 class RoutesTest(TempDataDirTest):
     def setUp(self):
         super().setUp()
-        self.client = create_app().test_client()
+        self.client = self.client_for(create_app())
 
-    def test_list_and_detail_routes(self):
+    async def test_list_and_detail_routes(self):
         listed = [{"id": "r1", "name": "Pasta"}]
-        with mock.patch.object(picnic_recipes, "get_recipes", return_value=listed) as get, \
-                mock.patch.object(picnic_recipes, "get_recipe", return_value={"id": "r1"}) as one:
-            body = self.client.get("/api/picnic/recipes?source=ordered").get_json()
-            default = self.client.get("/api/picnic/recipes").get_json()
-            detail = self.client.get("/api/picnic/recipes/r1").get_json()
+        with mock.patch.object(picnic_recipes, "get_recipes", new_callable=mock.AsyncMock, return_value=listed) as get, \
+                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value={"id": "r1"}) as one:
+            body = (await self.client.get("/api/picnic/recipes?source=ordered")).get_json()
+            default = (await self.client.get("/api/picnic/recipes")).get_json()
+            detail = (await self.client.get("/api/picnic/recipes/r1")).get_json()
         self.assertEqual(body, {"source": "ordered", "recipes": listed})
         self.assertEqual(default["source"], "saved")
         self.assertEqual([c.args for c in get.call_args_list], [("ordered",), ("saved",)])
         self.assertEqual((detail, one.call_args.args), ({"id": "r1"}, ("r1",)))
 
-    def test_bad_input_is_400_and_picnic_failures_are_424(self):
-        self.assertEqual(self.client.get("/api/picnic/recipes?source=x").status_code, 400)
-        self.assertEqual(self.client.get("/api/picnic/recipes/a%20b").status_code, 400)
-        with mock.patch.object(picnic_recipes, "get_recipe", side_effect=RuntimeError("500: antwoord met geheim")):
-            reply = self.client.get("/api/picnic/recipes/r1")
+    async def test_bad_input_is_400_and_picnic_failures_are_424(self):
+        self.assertEqual((await self.client.get("/api/picnic/recipes?source=x")).status_code, 400)
+        self.assertEqual((await self.client.get("/api/picnic/recipes/a%20b")).status_code, 400)
+        with mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=RuntimeError("500: antwoord met geheim")):
+            reply = await self.client.get("/api/picnic/recipes/r1")
         self.assertEqual((reply.status_code, reply.get_json()), (424, {"error": "Picnic fout"}))
 
-    def test_import_sends_a_schema_org_recipe_to_mealie(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(mealie, "mealie_url", return_value="https://mealie.example"), \
-                mock.patch.object(mealie, "group_slug", return_value="home"), \
-                mock.patch.object(picnic_recipes, "get_recipe", return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", return_value="pasta-pesto") as send:
-            body = self.client.post("/api/picnic/recipes/r1/import").get_json()
+    async def test_import_sends_a_schema_org_recipe_to_mealie(self):
+        await picnic.save_auth_key("key")
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(mealie, "mealie_url", new_callable=mock.AsyncMock, return_value="https://mealie.example"), \
+                mock.patch.object(mealie, "group_slug", new_callable=mock.AsyncMock, return_value="home"), \
+                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE), \
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, return_value="pasta-pesto") as send:
+            body = (await self.client.post("/api/picnic/recipes/r1/import")).get_json()
         self.assertEqual(body, {"slug": "pasta-pesto", "mealieUrl": "https://mealie.example/g/home/r/pasta-pesto"})
         url, data = send.call_args.args
         self.assertEqual(url, picnic_recipes.source_url("r1"))
         self.assertEqual(data["name"], "Pasta pesto")
 
-    def test_import_without_mealie_says_so_and_asks_picnic_nothing(self):
-        with mock.patch.object(mealie, "ensure_configured", side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
-                mock.patch.object(picnic_recipes, "get_recipe", side_effect=AssertionError("niet ophalen")):
-            reply = self.client.post("/api/picnic/recipes/r1/import")
+    async def test_import_without_mealie_says_so_and_asks_picnic_nothing(self):
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie is niet gekoppeld.")), \
+                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, side_effect=AssertionError("niet ophalen")):
+            reply = await self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual((reply.status_code, reply.get_json()), (400, {"error": "Mealie is niet gekoppeld."}))
 
-    def test_a_failed_import_does_not_leak_the_answer_of_mealie(self):
-        with mock.patch.object(mealie, "ensure_configured"), \
-                mock.patch.object(picnic_recipes, "get_recipe", return_value=MealieTest.RECIPE), \
-                mock.patch.object(mealie, "import_via_jsonld", side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
-            reply = self.client.post("/api/picnic/recipes/r1/import")
+    async def test_a_failed_import_does_not_leak_the_answer_of_mealie(self):
+        with mock.patch.object(mealie, "ensure_configured", new_callable=mock.AsyncMock), \
+                mock.patch.object(picnic_recipes, "get_recipe", new_callable=mock.AsyncMock, return_value=MealieTest.RECIPE), \
+                mock.patch.object(mealie, "import_via_jsonld", new_callable=mock.AsyncMock, side_effect=RuntimeError("Mealie import mislukt (500): geheim")):
+            reply = await self.client.post("/api/picnic/recipes/r1/import")
         self.assertEqual(reply.status_code, 424)
         self.assertNotIn("geheim", reply.get_data(as_text=True))
 
     def test_nothing_here_writes_to_picnic(self):
-        picnic.save_auth_key("key")
-        with mock.patch.object(picnic.requests, "request", return_value=response(detail_page())) as call:
-            picnic_recipes.get_recipe("r1")
-            picnic_recipes.get_recipes("saved")
-        self.assertEqual({c.args[0] for c in call.call_args_list}, {"GET"})
+        run(picnic.save_auth_key("key"))
+        with served(return_value=response(detail_page())) as call:
+            run(picnic_recipes.get_recipe("r1"))
+            run(picnic_recipes.get_recipes("saved"))
+        self.assertEqual({c.request.method for c in call.calls}, {"GET"})
 
 
 if __name__ == "__main__":

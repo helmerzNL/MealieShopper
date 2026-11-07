@@ -16,20 +16,19 @@ die nog geeft.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
-import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
-import requests
+import aiosqlite
+import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError, features
 
-from . import crisp, offers, picnic, prices, profile
+from . import crisp, http_client, offers, picnic, prices, profile
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +40,8 @@ MAX_PER_PRODUCT = 10
 MAX_PER_SYNC = 40  # zoveel nieuwe afbeeldingen per synchronisatie; de rest volgt de volgende keer
 DEADLINE_SECONDS = 20
 WORKERS = 6
-TIMEOUT = (5, 10)
+# Vijf seconden om te verbinden en tien voor de rest, zoals voorheen (5, 10) bij requests.
+TIMEOUT: httpx.Timeout = httpx.Timeout(connect=5, read=10, write=10, pool=10)
 QUALITY = 85
 
 _KEEP_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
@@ -70,16 +70,19 @@ def source_urls(store: str, url: str) -> list[str]:
     return [candidate for candidate in dict.fromkeys([larger, url]) if _web_url(candidate)]
 
 
-def _download(url: str) -> bytes:
-    """De afbeelding achter een adres, of een fout. Leest hooguit `MAX_DOWNLOAD_BYTES`."""
-    with requests.get(url, timeout=TIMEOUT, stream=True, headers={"Accept": "image/*"}) as response:
+async def _download(url: str) -> bytes:
+    """De afbeelding achter een adres, of een fout. Leest hooguit `MAX_DOWNLOAD_BYTES`. Een doorverwijzing wordt gevolgd, zoals
+    requests dat voorheen ook deed."""
+    client: httpx.AsyncClient = http_client.client("product-images", timeout=TIMEOUT)
+    async with client.stream("GET", url, headers={"Accept": "image/*"}) as response:
         if response.status_code != 200:
             raise RuntimeError(f"HTTP {response.status_code}")
-        content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        content_type: str = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
         if content_type.startswith("text/") or content_type == "image/svg+xml":
             raise RuntimeError(f"geen afbeelding ({content_type})")
-        chunks, size = [], 0
-        for chunk in response.iter_content(64 * 1024):
+        chunks: list[bytes] = []
+        size: int = 0
+        async for chunk in response.aiter_bytes(64 * 1024):
             size += len(chunk)
             if size > MAX_DOWNLOAD_BYTES:
                 raise RuntimeError("afbeelding is te groot")
@@ -151,25 +154,28 @@ def checked(data: Any) -> dict[str, Any]:
     return {"digest": hashlib.sha256(data).hexdigest(), "content_type": content_type, "width": width, "height": height}
 
 
-def _fetch(store: str, url: str) -> tuple[bytes, str, int, int]:
-    """Haal de afbeelding op (de grootste versie eerst) en verklein hem."""
+async def _fetch(store: str, url: str) -> tuple[bytes, str, int, int]:
+    """Haal de afbeelding op (de grootste versie eerst) en verklein hem. Het verkleinen (Pillow) loopt in een thread."""
     error: Exception | None = None
     for candidate in source_urls(store, url):
         try:
-            return shrink(_download(candidate))
+            return await asyncio.to_thread(shrink, await _download(candidate))
         except Exception as exc:  # noqa: BLE001 - de volgende versie proberen
             error = exc
     raise error or ValueError("geen adres")
 
 
-def _wanted(conn, store: str, items: Iterable[dict[str, Any]], bought: set[str]) -> list[tuple[str, str, str]]:
+async def _wanted(conn: aiosqlite.Connection, store: str, items: Iterable[dict[str, Any]], bought: set[str]) -> list[tuple[str, str, str]]:
     """(product-id, naam, adres) van de afbeeldingen die we nog niet hebben: eerst de aanbiedingen van nu, dan die uit de geschiedenis
     (per product de nieuwste). Per product één afbeelding per keer."""
-    have = {(row["product_id"], row["source_url"]) for row in conn.execute("SELECT product_id, source_url FROM product_images WHERE store = ?", (store,))}
-    history = conn.execute(
+    have = {
+        (row["product_id"], row["source_url"])
+        for row in await conn.execute_fetchall("SELECT product_id, source_url FROM product_images WHERE store = ?", (store,))
+    }
+    history = await conn.execute_fetchall(
         "SELECT product_id, title, image FROM offer_history WHERE store = ? AND COALESCE(image, '') != '' ORDER BY last_seen DESC, id DESC",
         (store,),
-    ).fetchall()
+    )
     found: dict[str, tuple[str, str, str]] = {}
     for product_id, title, url in [(str(i.get("id") or ""), str(i.get("title") or ""), i.get("image")) for i in items] + [
         (row["product_id"], row["title"], row["image"]) for row in history
@@ -179,80 +185,99 @@ def _wanted(conn, store: str, items: Iterable[dict[str, Any]], bought: set[str])
     return [entry for entry in found.values() if (entry[0], entry[2]) not in have][:MAX_PER_SYNC]
 
 
-def _store(conn, store: str, product_id: str, title: str, url: str, image: tuple[bytes, str, int, int], now: str) -> bool:
+async def _store(conn: aiosqlite.Connection, store: str, product_id: str, title: str, url: str, image: tuple[bytes, str, int, int], now: str) -> bool:
     """Bewaar een afbeelding; True als hij nieuw is. Dezelfde afbeelding onder een ander adres krijgt alleen het nieuwe adres, zodat
     we hem de volgende keer niet opnieuw ophalen."""
     data, content_type, width, height = image
     digest = hashlib.sha256(data).hexdigest()
-    exists = conn.execute("SELECT 1 FROM product_images WHERE store = ? AND product_id = ? AND digest = ?", (store, product_id, digest)).fetchone()
+    exists = await conn.execute_fetchall("SELECT 1 FROM product_images WHERE store = ? AND product_id = ? AND digest = ?", (store, product_id, digest))
     if exists:
-        conn.execute("UPDATE product_images SET source_url = ? WHERE store = ? AND product_id = ? AND digest = ?", (url, store, product_id, digest))
+        await conn.execute("UPDATE product_images SET source_url = ? WHERE store = ? AND product_id = ? AND digest = ?", (url, store, product_id, digest))
         return False
-    conn.execute(
+    await conn.execute(
         """INSERT INTO product_images (store, product_id, title, source_url, digest, content_type, width, height, data, saved_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (store, product_id, title, url, digest, content_type, width, height, data, now),
     )
-    rows = conn.execute("SELECT id FROM product_images WHERE store = ? AND product_id = ? ORDER BY saved_at, id", (store, product_id)).fetchall()
+    rows = await conn.execute_fetchall("SELECT id FROM product_images WHERE store = ? AND product_id = ? ORDER BY saved_at, id", (store, product_id))
     if len(rows) > MAX_PER_PRODUCT:
         doomed = [row["id"] for row in rows[1:1 + len(rows) - MAX_PER_PRODUCT]]  # de eerste blijft altijd
-        conn.execute(f"DELETE FROM product_images WHERE id IN ({','.join('?' * len(doomed))})", doomed)
+        await conn.execute(f"DELETE FROM product_images WHERE id IN ({','.join('?' * len(doomed))})", doomed)
     return True
 
 
-def save_bought(store: str, items: Iterable[dict[str, Any]] = (), now: str | None = None) -> int:
+async def save_bought(store: str, items: Iterable[dict[str, Any]] = (), now: str | None = None) -> int:
     """Bewaar de afbeeldingen van de aanbiedingen (`items`, in de vorm van `offers.sync`) en van eerdere aanbiedingen die je minstens één
     keer kocht. Geeft het aantal nieuwe afbeeldingen; een fout geeft 0 en wordt gelogd, zodat de synchronisatie altijd doorgaat."""
     try:
-        return _save_bought(store, list(items), now or _now())
+        return await _save_bought(store, list(items), now or _now())
     except Exception:  # noqa: BLE001 - het bewaren van afbeeldingen mag een synchronisatie nooit laten mislukken
         log.warning("Afbeeldingen van gekochte aanbiedingen bewaren mislukt voor %s", store, exc_info=True)
         return 0
 
 
-def _save_bought(store: str, items: list[dict[str, Any]], now: str) -> int:
-    if store not in offers.STORES:
-        return 0
-    bought = prices.bought_ids(store, now[:10])
-    if not bought:
-        return 0
-    with closing(prices._connect()) as conn:
-        wanted = _wanted(conn, store, items, bought)
-    if not wanted:
-        return 0
+async def _fetch_all(store: str, wanted: list[tuple[str, str, str]]) -> tuple[list[tuple[tuple[str, str, str], tuple[bytes, str, int, int]]], int]:
+    """(opgehaald, aantal mislukt): de afbeeldingen van `wanted`, hooguit `WORKERS` tegelijk en binnen `DEADLINE_SECONDS`. Wat na de
+    deadline nog loopt, wordt afgebroken en volgt de volgende keer."""
+    slots = asyncio.Semaphore(WORKERS)
+
+    async def bounded(url: str) -> tuple[bytes, str, int, int]:
+        async with slots:
+            return await _fetch(store, url)
+
     fetched: list[tuple[tuple[str, str, str], tuple[bytes, str, int, int]]] = []
     failed = 0
-    deadline = time.monotonic() + DEADLINE_SECONDS
-    pool = ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="product-images")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + DEADLINE_SECONDS
+    pending: dict[asyncio.Task[tuple[bytes, str, int, int]], tuple[str, str, str]] = {
+        asyncio.create_task(bounded(entry[2]), name=f"product-images:{store}:{entry[0]}"): entry for entry in wanted
+    }
     try:
-        pending = {pool.submit(_fetch, store, entry[2]): entry for entry in wanted}
-        while pending and time.monotonic() < deadline:
-            done, _ = wait(pending, timeout=max(0.0, deadline - time.monotonic()), return_when=FIRST_COMPLETED)
-            for future in done:
-                entry = pending.pop(future)
+        while pending and loop.time() < deadline:
+            done, _ = await asyncio.wait(pending, timeout=max(0.0, deadline - loop.time()), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                entry = pending.pop(task)
                 try:
-                    fetched.append((entry, future.result()))
+                    fetched.append((entry, task.result()))
                 except Exception as exc:  # noqa: BLE001 - de volgende synchronisatie probeert het opnieuw
                     failed += 1
                     log.info("Afbeelding van %s %s niet bewaard: %s", store, entry[0], exc)
     finally:
-        pool.shutdown(wait=False, cancel_futures=True)  # wat na de deadline nog loopt, volgt de volgende keer
+        for task in pending:  # wat na de deadline nog loopt, volgt de volgende keer
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    return fetched, failed
+
+
+async def _save_bought(store: str, items: list[dict[str, Any]], now: str) -> int:
+    if store not in offers.STORES:
+        return 0
+    bought = await prices.bought_ids(store, now[:10])
+    if not bought:
+        return 0
+    async with prices._connect() as conn:
+        wanted = await _wanted(conn, store, items, bought)
+    if not wanted:
+        return 0
+    fetched, failed = await _fetch_all(store, wanted)
     saved = 0
     if fetched:
-        with closing(prices._connect()) as conn, conn:
+        async with prices._connect() as conn:
             for (product_id, title, url), image in fetched:
-                saved += _store(conn, store, product_id, title, url, image, now)
+                saved += await _store(conn, store, product_id, title, url, image, now)
+            await conn.commit()
     if saved or failed:
         log.info("Afbeeldingen van gekochte aanbiedingen (%s): %d bewaard, %d mislukt", store, saved, failed)
     return saved
 
 
-def get(image_id: Any) -> tuple[str, bytes] | None:
+async def get(image_id: Any) -> tuple[str, bytes] | None:
     """(type, inhoud) van een bewaarde afbeelding, of None."""
     try:
         key = int(image_id)
     except (TypeError, ValueError):
         return None
-    with closing(prices._connect()) as conn:
-        row = conn.execute("SELECT content_type, data FROM product_images WHERE id = ?", (key,)).fetchone()
+    async with prices._connect() as conn:
+        found = await conn.execute_fetchall("SELECT content_type, data FROM product_images WHERE id = ?", (key,))
+    row = found[0] if found else None
     return (row["content_type"], bytes(row["data"])) if row else None

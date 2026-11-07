@@ -1,15 +1,27 @@
+import asyncio
 import os
 import re
+import shutil
 import tempfile
+import threading
+import types
 import unittest
 from pathlib import Path
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from unittest import mock
+
+import pytest
 
 os.environ["PASSKEY_AUTH_ENABLED"] = "false"
 
 from mealieshopper import auth, auth_password, factory_reset  # noqa: E402
 from mealieshopper.app import create_app  # noqa: E402
 from test_users import FakeAuthenticator, b64  # noqa: E402
+from helpers import AppTestCase  # noqa: E402
+
+if TYPE_CHECKING:  # niet bij de import: pytest zou TestClientProtocol voor een testklasse aanzien
+    from quart.typing import TestClientProtocol
 
 ROOT = Path(__file__).resolve().parent.parent
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
@@ -19,8 +31,8 @@ ANNA = "een-heel-ander-wachtwoord"
 URL = "/api/system/factory-reset"
 
 
-class FactoryResetCase(unittest.TestCase):
-    def setUp(self):
+class FactoryResetCase(AppTestCase):
+    async def asyncSetUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.data = Path(tmp.name)
@@ -35,123 +47,138 @@ class FactoryResetCase(unittest.TestCase):
         cost.start()
         self.addCleanup(cost.stop)
         self.app = create_app()
-        self.admin = self.app.test_client()
-        self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+        self.admin = self.client_for(self.app)
+        await self.admin.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
 
     def files(self):
         return sorted(path.name for path in self.data.iterdir())
 
-    def reset(self, body=None, client=None):
-        return (client or self.admin).post(URL, json={"confirm": "RESET", **(body or {})})
+    async def reset(self, body=None, client=None):
+        return await (client or self.admin).post(URL, json={"confirm": "RESET", **(body or {})})
 
 
 class PasswordResetTest(FactoryResetCase):
-    def test_wipes_the_database_and_the_secret_and_logs_out(self):
+    async def test_wipes_the_database_and_the_secret_and_logs_out(self):
         self.assertIn("auth.sqlite3", self.files())
         self.assertIn("secret.key", self.files())
-        response = self.reset({"password": PASSWORD})
+        response = await self.reset({"password": PASSWORD})
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(response.get_json(), {"status": "ok", "restarting": False})
         self.assertEqual(self.files(), [])
         self.assertIn("ms_session=;", response.headers.get("Set-Cookie", ""))
 
-    def test_the_image_cache_folder_goes_too(self):
+    async def test_the_image_cache_folder_goes_too(self):
         cached = self.data / "images" / "ab" / "abcd.webp"
         cached.parent.mkdir(parents=True)
         cached.write_bytes(b"x")
-        removed = factory_reset.wipe_data()
+        removed = await factory_reset.wipe_data()
         self.assertIn("images", removed)
         self.assertFalse((self.data / "images").exists())
-        self.assertNotIn("images", factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
+        self.assertNotIn("images", await factory_reset.wipe_data(), "een tweede keer is er niets meer te verwijderen")
 
-    def test_the_app_starts_over_as_a_new_installation_without_a_restart(self):
-        self.reset({"password": PASSWORD})
-        client = self.app.test_client()
-        status = client.get("/api/auth/status").get_json()
+    async def test_the_image_cache_is_removed_off_the_event_loop(self):
+        """Duizenden bestanden wissen houdt de event loop niet vast: shutil.rmtree loopt in een thread."""
+        (self.data / "images").mkdir()
+        loop_thread: int = threading.get_ident()
+        threads: list[int] = []
+
+        def rmtree(path: Any, ignore_errors: bool = False) -> None:
+            threads.append(threading.get_ident())
+            shutil.rmtree(path, ignore_errors=ignore_errors)
+
+        with mock.patch.object(factory_reset, "shutil", types.SimpleNamespace(rmtree=rmtree)):
+            self.assertIn("images", await factory_reset.wipe_data())
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0], loop_thread)
+
+    async def test_the_app_starts_over_as_a_new_installation_without_a_restart(self):
+        await self.reset({"password": PASSWORD})
+        client = self.client_for(self.app)
+        status = (await client.get("/api/auth/status")).get_json()
         self.assertFalse(status["configured"])
         self.assertFalse(status["authenticated"])
-        self.assertTrue(client.get("/api/onboarding/status").get_json()["needed"])
-        self.assertFalse(auth.credentials_exist())
+        self.assertTrue((await client.get("/api/onboarding/status")).get_json()["needed"])
+        self.assertFalse(await auth.credentials_exist())
 
-    def test_the_old_session_and_password_no_longer_work(self):
+    async def test_the_old_session_and_password_no_longer_work(self):
         old_cookie = self.admin.get_cookie("ms_session").value
-        self.reset({"password": PASSWORD})
-        client = self.app.test_client()
+        await self.reset({"password": PASSWORD})
+        client = self.client_for(self.app)
         client.set_cookie("ms_session", old_cookie)
-        self.assertFalse(client.get("/api/auth/status").get_json()["authenticated"])
-        login = client.post("/api/auth/password/login", json={"username": "admin", "password": PASSWORD})
+        self.assertFalse((await client.get("/api/auth/status")).get_json()["authenticated"])
+        login = await client.post("/api/auth/password/login", json={"username": "admin", "password": PASSWORD})
         self.assertGreaterEqual(login.status_code, 400)
 
-    def test_a_new_owner_can_be_set_up_afterwards(self):
-        self.reset({"password": PASSWORD})
-        client = self.app.test_client()
-        self.assertEqual(client.post("/api/auth/password", json={"username": "beheer", "password": ANNA}).status_code, 200)
-        self.assertEqual(client.get("/api/auth/status").get_json()["username"], "beheer")
+    async def test_a_new_owner_can_be_set_up_afterwards(self):
+        await self.reset({"password": PASSWORD})
+        client = self.client_for(self.app)
+        self.assertEqual((await client.post("/api/auth/password", json={"username": "beheer", "password": ANNA})).status_code, 200)
+        self.assertEqual((await client.get("/api/auth/status")).get_json()["username"], "beheer")
 
-    def test_other_users_are_removed_too(self):
-        token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
-        anna.post("/api/invites/password", json={"token": token, "password": ANNA})
-        self.reset({"password": PASSWORD})
-        login = self.app.test_client().post("/api/auth/password/login", json={"username": "anna", "password": ANNA})
+    async def test_other_users_are_removed_too(self):
+        token = (await self.admin.post("/api/users/invites", json={"username": "anna"})).get_json()["token"]
+        anna = self.client_for(self.app)
+        await anna.post("/api/invites/password", json={"token": token, "password": ANNA})
+        await self.reset({"password": PASSWORD})
+        login = await self.client_for(self.app).post("/api/auth/password/login", json={"username": "anna", "password": ANNA})
         self.assertGreaterEqual(login.status_code, 400)
 
-    def test_nothing_is_wiped_without_the_typed_word(self):
+    async def test_nothing_is_wiped_without_the_typed_word(self):
         for body in ({}, {"confirm": "reset"}, {"confirm": "ja"}):
-            response = self.admin.post(URL, json={"password": PASSWORD, **body})
+            response = await self.admin.post(URL, json={"password": PASSWORD, **body})
             self.assertEqual(response.status_code, 400)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_a_session_alone_is_not_enough(self):
+    async def test_a_session_alone_is_not_enough(self):
         for body in ({}, {"password": ""}, {"password": "verkeerd-wachtwoord"}):
-            self.assertIn(self.reset(body).status_code, (400, 403))
+            self.assertIn((await self.reset(body)).status_code, (400, 403))
         self.assertIn("auth.sqlite3", self.files())
-        self.assertTrue(self.admin.get("/api/auth/status").get_json()["authenticated"])
+        self.assertTrue((await self.admin.get("/api/auth/status")).get_json()["authenticated"])
 
-    def test_wrong_attempts_are_limited_like_logging_in(self):
+    async def test_wrong_attempts_are_limited_like_logging_in(self):
         for _ in range(auth_password.ATTEMPTS_PER_WINDOW):
-            self.reset({"password": "verkeerd-wachtwoord"})
-        locked = self.reset({"password": PASSWORD})
+            await self.reset({"password": "verkeerd-wachtwoord"})
+        locked = await self.reset({"password": PASSWORD})
         self.assertEqual(locked.status_code, 429)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_with_two_step_verification_the_code_is_needed_too(self):
-        secret = self.enable_mfa()
-        self.assertEqual(self.reset({"password": PASSWORD}).status_code, 400)
-        self.assertEqual(self.reset({"password": PASSWORD, "code": "000000"}).status_code, 403)
+    async def test_with_two_step_verification_the_code_is_needed_too(self):
+        secret = await self.enable_mfa()
+        self.assertEqual((await self.reset({"password": PASSWORD})).status_code, 400)
+        self.assertEqual((await self.reset({"password": PASSWORD, "code": "000000"})).status_code, 403)
         self.assertIn("auth.sqlite3", self.files())
         code = auth_password.totp_code(secret, at=__import__("time").time() + auth_password.TOTP_PERIOD)
-        response = self.reset({"password": PASSWORD, "code": code})
+        response = await self.reset({"password": PASSWORD, "code": code})
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(self.files(), [])
 
-    def enable_mfa(self):
-        start = self.admin.post("/api/auth/mfa/start", json={}).get_json()
+    async def enable_mfa(self):
+        start = (await self.admin.post("/api/auth/mfa/start", json={})).get_json()
         secret = start["secret"].replace(" ", "")
         code = auth_password.totp_code(secret)
-        done = self.admin.post("/api/auth/mfa/confirm", json={"code": code})
+        done = await self.admin.post("/api/auth/mfa/confirm", json={"code": code})
         self.assertEqual(done.status_code, 200, done.get_json())
         return secret
 
 
 class AccessTest(FactoryResetCase):
-    def test_not_logged_in_gets_nothing(self):
-        client = self.app.test_client()
-        self.assertEqual(client.get(URL).status_code, 401)
-        self.assertEqual(client.post(URL, json={"confirm": "RESET", "password": PASSWORD}).status_code, 401)
-        self.assertEqual(client.post(URL + "/options", json={}).status_code, 401)
+    async def test_not_logged_in_gets_nothing(self):
+        client = self.client_for(self.app)
+        self.assertEqual((await client.get(URL)).status_code, 401)
+        self.assertEqual((await client.post(URL, json={"confirm": "RESET", "password": PASSWORD})).status_code, 401)
+        self.assertEqual((await client.post(URL + "/options", json={})).status_code, 401)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_a_regular_user_is_refused(self):
-        token = self.admin.post("/api/users/invites", json={"username": "anna"}).get_json()["token"]
-        anna = self.app.test_client()
-        anna.post("/api/invites/password", json={"token": token, "password": ANNA})
-        for response in (anna.get(URL), self.reset({"password": ANNA}, anna), anna.post(URL + "/options", json={})):
+    async def test_a_regular_user_is_refused(self):
+        token = (await self.admin.post("/api/users/invites", json={"username": "anna"})).get_json()["token"]
+        anna = self.client_for(self.app)
+        await anna.post("/api/invites/password", json={"token": token, "password": ANNA})
+        for response in (await anna.get(URL), await self.reset({"password": ANNA}, anna), await anna.post(URL + "/options", json={})):
             self.assertEqual(response.status_code, 403)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_info_tells_which_ways_of_confirming_exist(self):
-        info = self.admin.get(URL).get_json()
+    async def test_info_tells_which_ways_of_confirming_exist(self):
+        info = (await self.admin.get(URL)).get_json()
         self.assertEqual(info["phrase"], "RESET")
         self.assertTrue(info["authRequired"])
         self.assertEqual(info["methods"], {"password": True, "mfa": False, "passkey": False})
@@ -159,97 +186,159 @@ class AccessTest(FactoryResetCase):
 
 
 class PasskeyResetTest(FactoryResetCase):
-    def setUp(self):
-        super().setUp()
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
         self.phone = FakeAuthenticator()
-        options = self.admin.post("/api/auth/register/options", json={"credentialName": "telefoon"}).get_json()
-        verify = self.admin.post(
+        options = (await self.admin.post("/api/auth/register/options", json={"credentialName": "telefoon"})).get_json()
+        verify = await self.admin.post(
             "/api/auth/register/verify",
             json={"credentialName": "telefoon", "credential": self.phone.create(options["options"]["challenge"])},
         )
         self.assertEqual(verify.status_code, 200, verify.get_json())
 
-    def challenge(self, client=None):
-        response = (client or self.admin).post(URL + "/options", json={})
+    async def challenge(self, client=None):
+        response = await (client or self.admin).post(URL + "/options", json={})
         self.assertEqual(response.status_code, 200, response.get_json())
         return response.get_json()["options"]
 
-    def test_info_lists_the_passkey(self):
-        self.assertTrue(self.admin.get(URL).get_json()["methods"]["passkey"])
+    async def test_info_lists_the_passkey(self):
+        self.assertTrue((await self.admin.get(URL)).get_json()["methods"]["passkey"])
 
-    def test_a_passkey_confirms_the_reset(self):
-        options = self.challenge()
+    async def test_a_passkey_confirms_the_reset(self):
+        options = await self.challenge()
         self.assertEqual([c["id"] for c in options["allowCredentials"]], [b64(self.phone.credential_id)])
-        response = self.reset({"credential": self.phone.get(options["challenge"])})
+        response = await self.reset({"credential": self.phone.get(options["challenge"])})
         self.assertEqual(response.status_code, 200, response.get_json())
         self.assertEqual(self.files(), [])
 
-    def test_the_challenge_works_once(self):
-        options = self.challenge()
+    async def test_the_challenge_works_once(self):
+        options = await self.challenge()
         credential = self.phone.get(options["challenge"])
-        self.assertEqual(self.reset({"credential": {**credential, "response": {**credential["response"], "signature": "AAAA"}}}).status_code, 403)
-        self.assertEqual(self.reset({"credential": credential}).status_code, 400)  # de uitdaging is al gebruikt
+        self.assertEqual((await self.reset({"credential": {**credential, "response": {**credential["response"], "signature": "AAAA"}}})).status_code, 403)
+        self.assertEqual((await self.reset({"credential": credential})).status_code, 400)  # de uitdaging is al gebruikt
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_a_passkey_without_a_fresh_challenge_is_refused(self):
-        self.assertEqual(self.reset({"credential": self.phone.get("AAAA")}).status_code, 400)
+    async def test_a_passkey_without_a_fresh_challenge_is_refused(self):
+        self.assertEqual((await self.reset({"credential": self.phone.get("AAAA")})).status_code, 400)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_someone_elses_passkey_is_refused(self):
+    async def test_someone_elses_passkey_is_refused(self):
         stranger = FakeAuthenticator()
-        options = self.challenge()
-        self.assertEqual(self.reset({"credential": stranger.get(options["challenge"])}).status_code, 403)
+        options = await self.challenge()
+        self.assertEqual((await self.reset({"credential": stranger.get(options["challenge"])})).status_code, 403)
         self.assertIn("auth.sqlite3", self.files())
 
-    def test_the_word_is_still_needed(self):
-        options = self.challenge()
-        response = self.admin.post(URL, json={"credential": self.phone.get(options["challenge"])})
+    async def test_the_signature_is_checked_off_the_event_loop(self):
+        threads: list[int] = []
+        real: Callable[..., int] = auth._verify_assertion
+
+        def spy(*args: Any) -> int:
+            threads.append(threading.get_ident())
+            return real(*args)
+
+        options = await self.challenge()
+        with mock.patch.object(auth, "_verify_assertion", side_effect=spy):
+            response = await self.reset({"credential": self.phone.get(options["challenge"])})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(len(threads), 1)
+        self.assertNotEqual(threads[0], threading.get_ident(), "de test draait in de thread van de event loop")
+
+    async def test_the_word_is_still_needed(self):
+        options = await self.challenge()
+        response = await self.admin.post(URL, json={"credential": self.phone.get(options["challenge"])})
         self.assertEqual(response.status_code, 400)
         self.assertIn("auth.sqlite3", self.files())
 
 
-class WithoutLoginTest(unittest.TestCase):
-    def test_without_login_only_the_word_is_needed(self):
+class WithoutLoginTest(AppTestCase):
+    async def test_without_login_only_the_word_is_needed(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             os.environ, {"PASSKEY_AUTH_ENABLED": "false", "MEALIESHOPPER_DATA_DIR": tmp}
         ):
             auth.forget_runtime_state()
             self.addCleanup(auth.forget_runtime_state)
-            client = create_app().test_client()
-            self.assertFalse(client.get(URL).get_json()["authRequired"])
-            self.assertEqual(client.post(URL, json={}).status_code, 400)
-            auth.ensure_db()
+            client = self.client_for(create_app())
+            self.assertFalse((await client.get(URL)).get_json()["authRequired"])
+            self.assertEqual((await client.post(URL, json={})).status_code, 400)
+            await auth.ensure_db()
             self.assertTrue((Path(tmp) / "auth.sqlite3").exists())
-            self.assertEqual(client.post(URL, json={"confirm": "RESET"}).status_code, 200)
+            self.assertEqual((await client.post(URL, json={"confirm": "RESET"})).status_code, 200)
             self.assertEqual(sorted(path.name for path in Path(tmp).iterdir()), [])
 
 
-class RestartTest(FactoryResetCase):
-    def test_under_gunicorn_the_app_stops_itself_after_answering(self):
-        timer = mock.Mock()
-        with mock.patch.object(factory_reset, "restart_supported", return_value=True), mock.patch.object(
-            factory_reset.threading, "Timer", return_value=timer
-        ) as make_timer:
-            response = self.reset({"password": PASSWORD})
-        self.assertEqual(response.get_json(), {"status": "ok", "restarting": True})
-        make_timer.assert_called_once_with(factory_reset.RESTART_DELAY_SECONDS, factory_reset.restart)
-        timer.start.assert_called_once_with()
+@pytest.fixture
+async def admin(data_dir: Path, monkeypatch: pytest.MonkeyPatch, client: "TestClientProtocol") -> "TestClientProtocol":
+    """De async testclient, ingelogd als beheerder met een wachtwoord."""
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "true")
+    monkeypatch.setattr(auth_password, "SCRYPT_N", 2**4)
+    response = await client.post("/api/auth/password", json={"username": "admin", "password": PASSWORD})
+    assert response.status_code == 200, await response.get_json()
+    return client
 
-    def test_restart_stops_the_gunicorn_master_first(self):
+
+@pytest.fixture
+def in_a_container(monkeypatch: pytest.MonkeyPatch) -> mock.Mock:
+    """Een container (herstart mogelijk) met een nep-`restart`, zodat de test zichzelf geen SIGTERM stuurt."""
+    restart = mock.Mock()
+    monkeypatch.setattr(factory_reset, "restart_supported", lambda: True)
+    monkeypatch.setattr(factory_reset, "restart", restart)
+    return restart
+
+
+async def test_in_a_container_the_restart_is_scheduled_on_the_loop_after_answering(
+    admin: "TestClientProtocol", in_a_container: mock.Mock
+) -> None:
+    loop = asyncio.get_running_loop()
+    with mock.patch.object(loop, "call_later", wraps=loop.call_later) as call_later:
+        response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert await response.get_json() == {"status": "ok", "restarting": True}
+    restarts = [call for call in call_later.call_args_list if in_a_container in call.args]
+    assert restarts == [mock.call(factory_reset.RESTART_DELAY_SECONDS, in_a_container)]
+    assert factory_reset.RESTART_DELAY_SECONDS == 1.5
+    in_a_container.assert_not_called()  # eerst het antwoord, de herstart pas na de pauze
+
+
+async def test_in_a_container_the_app_stops_itself_after_the_delay(
+    admin: "TestClientProtocol", in_a_container: mock.Mock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(factory_reset, "RESTART_DELAY_SECONDS", 0.05)
+    response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert response.status_code == 200
+    in_a_container.assert_not_called()
+    await asyncio.sleep(0.2)
+    in_a_container.assert_called_once_with()
+
+
+async def test_outside_a_container_nothing_is_scheduled(admin: "TestClientProtocol", monkeypatch: pytest.MonkeyPatch) -> None:
+    restart = mock.Mock()
+    monkeypatch.setattr(factory_reset, "restart_supported", lambda: False)
+    monkeypatch.setattr(factory_reset, "restart", restart)
+    monkeypatch.setattr(factory_reset, "RESTART_DELAY_SECONDS", 0.01)
+    response = await admin.post(URL, json={"confirm": "RESET", "password": PASSWORD})
+    assert await response.get_json() == {"status": "ok", "restarting": False}
+    await asyncio.sleep(0.05)
+    restart.assert_not_called()
+
+
+class RestartTest(FactoryResetCase):
+    def test_restart_sends_sigterm_to_itself(self):
         with mock.patch.object(factory_reset.os, "kill") as kill:
             factory_reset.restart()
-        kill.assert_called_once_with(os.getppid(), factory_reset.signal.SIGTERM)
+        kill.assert_called_once_with(os.getpid(), factory_reset.signal.SIGTERM)
 
-    def test_restart_falls_back_to_this_worker(self):
-        with mock.patch.object(factory_reset.os, "kill", side_effect=[OSError, None]) as kill:
-            factory_reset.restart()
-        self.assertEqual([call.args[0] for call in kill.call_args_list], [os.getppid(), os.getpid()])
+    def test_restart_is_supported_with_dockerenv_or_ha_options(self):
+        for present in ("/.dockerenv", "/data/options.json"):
+            with self.subTest(present=present), mock.patch.object(
+                factory_reset.Path, "exists", autospec=True, side_effect=lambda path, present=present: str(path) == present
+            ):
+                self.assertTrue(factory_reset.restart_supported())
 
-    def test_without_gunicorn_there_is_no_restart(self):
-        self.assertFalse(factory_reset.restart_supported())
+    def test_outside_a_container_there_is_no_restart(self):
+        with mock.patch.object(factory_reset.Path, "exists", autospec=True, return_value=False):
+            self.assertFalse(factory_reset.restart_supported())
 
 
-class PageTest(unittest.TestCase):
+class PageTest(AppTestCase):
     def test_the_tab_is_called_system_and_holds_updates_and_clean_up(self):
         tab = re.search(r'<a[^>]*data-subtab="settings-system"[^>]*>(.*?)</a>', HTML, re.S).group(1)
         self.assertIn('data-i18n="settings.tab.system"', tab)

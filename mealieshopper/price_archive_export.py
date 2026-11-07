@@ -27,8 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any, Iterable
 
-from . import about, offers
-from .price_archive import EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, OFFER_COLUMNS, PRICE_COLUMNS, RowError, Today, _connect, normalise_offer, normalise_price
+from . import about, offers, thread_db
+from .price_archive import EXPORT_MANIFEST, FORMAT, FORMAT_VERSION, OFFER_COLUMNS, PRICE_COLUMNS, RowError, Today, normalise_offer, normalise_price
 
 OFFER_FIELDS = tuple(column for column in OFFER_COLUMNS if column != "personal")  # altijd 0: een persoonlijke gaat er niet in
 PRICE_FIELDS = PRICE_COLUMNS
@@ -91,11 +91,13 @@ def _rows(conn: Any, sql: str, fields: Iterable[str]) -> Iterable[dict[str, Any]
 
 
 def write_export(path: Path) -> dict[str, Any]:
-    """Schrijft de export naar `path` (een ZIP) en geeft de kop terug: de bestanden en hoeveel regels per winkel."""
+    """Schrijft de export naar `path` (een ZIP) en geeft de kop terug: de bestanden en hoeveel regels per winkel.
+
+    Als geheel voor `asyncio.to_thread`, na `price_archive.ensure_schema`."""
     bounds = Today()
     now = datetime.now(timezone.utc).replace(microsecond=0)
     stamp = (now.year, now.month, now.day, now.hour, now.minute, now.second)
-    with closing(_connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+    with closing(thread_db.connect()) as conn, zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         writer = _Writer(archive, stamp)
         try:
             for row in _rows(conn, OFFERS_SQL, OFFER_FIELDS):
