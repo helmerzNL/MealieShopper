@@ -173,7 +173,16 @@ async def append(prefix: str, token: str, offset: Any, body: AsyncIterable[bytes
         raise UploadError("missing", 404)
     data: bytes = await _read_chunk(body, token)
     async with _lock():
-        received: int = await asyncio.to_thread(_write_chunk, path, offset, data, limit)
+        writing: asyncio.Future[int] = asyncio.ensure_future(asyncio.to_thread(_write_chunk, path, offset, data, limit))
+        try:
+            received: int = await asyncio.shield(writing)
+        except asyncio.CancelledError:
+            # Een thread is niet te annuleren: hij schrijft door. Het slot blijft tot hij klaar is, zodat geen volgend stuk
+            # tegelijk in hetzelfde bestand schrijft.
+            await asyncio.wait({writing})
+            if not writing.cancelled():
+                writing.exception()  # opgehaald: een geweigerd stuk hoort bij een verzoek dat er niet meer is
+            raise
     return {"received": received}
 
 

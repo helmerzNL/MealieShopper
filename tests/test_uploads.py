@@ -7,6 +7,7 @@ test_price_archive.py, via de routes van de back-up en het prijsarchief.
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -64,3 +65,37 @@ async def test_a_client_that_goes_away_halfway_a_part_leaves_nothing_written(dat
 async def _once(data: bytes) -> AsyncIterator[bytes]:
     """Een lichaam dat in een keer binnenkomt."""
     yield data
+
+
+async def test_a_cancelled_write_keeps_the_lock_until_its_thread_is_done(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Een annulering (het afsluiten) tijdens het schrijven: de thread schrijft door, dus het slot blijft tot hij klaar is.
+    Anders kon een volgend stuk tegelijk in hetzelfde bestand schrijven."""
+    token: str = (await uploads.begin(backup.STAGE_PREFIX, 100, 100))["token"]
+    entered: threading.Event = threading.Event()
+    release: threading.Event = threading.Event()
+    writers: list[int] = []
+    original: Callable[..., int] = uploads._write_chunk
+
+    def gated(path: Path, offset: Any, data: bytes, limit: int) -> int:
+        writers.append(offset)
+        if len(writers) == 1:
+            entered.set()
+            release.wait(10)
+        return original(path, offset, data, limit)
+
+    monkeypatch.setattr(uploads, "_write_chunk", gated)
+    try:
+        first: asyncio.Task[dict[str, int]] = asyncio.create_task(uploads.append(backup.STAGE_PREFIX, token, 0, _once(b"{" * 10), 10, 100))
+        assert await asyncio.to_thread(entered.wait, 5)
+        first.cancel()
+        await asyncio.sleep(0.05)
+        second: asyncio.Task[dict[str, int]] = asyncio.create_task(uploads.append(backup.STAGE_PREFIX, token, 10, _once(b"}" * 5), 5, 100))
+        await asyncio.sleep(0.2)
+        assert writers == [0], "het volgende stuk wacht op het slot zolang de geannuleerde thread schrijft"
+        assert not second.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert await asyncio.wait_for(second, 5) == {"received": 15}
+    assert uploads.part_path(backup.STAGE_PREFIX, token).read_bytes() == b"{" * 10 + b"}" * 5
