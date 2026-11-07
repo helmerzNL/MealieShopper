@@ -74,7 +74,7 @@ def describe_error(exc: Exception) -> str:
         return "SSLError (certificaat)"  # httpx kent geen eigen SSLError: de reden staat in de tekst van de ConnectError
     if isinstance(exc, httpx.TimeoutException):
         return "Timeout"
-    if isinstance(exc, httpx.NetworkError):
+    if isinstance(exc, httpx.TransportError):  # ook RemoteProtocolError en ProxyError, zoals ConnectionError bij requests
         return "ConnectionError (geen verbinding of DNS)"
     return f"{type(exc).__name__}: {str(exc)[:80]}".rstrip(": ")
 

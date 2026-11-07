@@ -62,7 +62,7 @@ def normalize_id(list_id: Any) -> str:
     return LIST_ID if text.upper() == LIST_ID else text
 
 
-# De migratie van een database van voor de eigen lijstjes (1.9.0), gedeeld door `_connect` en `_connect`.
+# De migratie van een database van voor de eigen lijstjes (1.9.0), voor `_connect`.
 MIGRATE_BRAND: str = "ALTER TABLE jumbo_list_items ADD COLUMN brand TEXT"
 
 

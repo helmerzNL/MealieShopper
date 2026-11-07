@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import importlib.util
+import os
 import re
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from unittest import mock
 
 import httpx
 import pytest
@@ -44,7 +47,12 @@ SQLITE_CONNECT_ALLOWED: frozenset[str] = frozenset({"backup.py"})
 
 # Blokkerende aanroepen die nooit direct in een `async def` mogen staan (een geneste functie of lambda telt apart: die loopt
 # in een thread of later).
-BLOCKING_IN_ASYNC: frozenset[str] = frozenset({"time.sleep", "sqlite3.connect", "subprocess.run", "subprocess.Popen", "subprocess.check_output"})
+BLOCKING_IN_ASYNC: frozenset[str] = frozenset(
+    {
+        "time.sleep", "sqlite3.connect", "os.system",
+        "subprocess.run", "subprocess.call", "subprocess.check_call", "subprocess.check_output", "subprocess.Popen",
+    }
+)
 
 # Een bestand openen in een `async def` mag alleen hier, met de reden.
 OPEN_IN_ASYNC_ALLOWED: dict[tuple[str, str], str] = {
@@ -55,7 +63,17 @@ OPEN_IN_ASYNC_ALLOWED: dict[tuple[str, str], str] = {
 OPENERS: frozenset[str] = frozenset({"open", "os.open", "os.fdopen", "io.open"})
 
 # De synchrone helpers van de back-up zijn alleen voor de thread van een fase: een `async def` roept ze nooit zelf aan.
-THREAD_ONLY: frozenset[str] = frozenset({"_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan", "unseal", "_check_staged"})
+THREAD_ONLY: frozenset[str] = frozenset(
+    {
+        "_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
+        "read_file", "_schema_copy", "unseal", "_check_staged",
+    }
+)
+
+# Een httpx-client maken of een losse aanroep van httpx (zonder de regels van http_client) mag alleen in http_client.py.
+HTTPX_DIRECT: frozenset[str] = frozenset(
+    {"httpx.AsyncClient", "httpx.Client"} | {f"httpx.{verb}" for verb in ("get", "post", "put", "patch", "delete", "head", "options", "request", "stream")}
+)
 
 
 def modules() -> Iterator[tuple[str, str]]:
@@ -90,11 +108,35 @@ def async_body_calls(function: ast.AsyncFunctionDef) -> Iterator[ast.Call]:
         stack.extend(ast.iter_child_nodes(node))
 
 
-def async_functions() -> Iterator[tuple[str, ast.AsyncFunctionDef]]:
+def import_names(tree: ast.Module) -> dict[str, str]:
+    """De namen uit de importtabel naar hun volle naam: `import subprocess as sp` geeft sp -> subprocess, `from time import
+    sleep` geeft sleep -> time.sleep."""
+    names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return names
+
+
+def called_name(call: ast.Call, names: dict[str, str]) -> str:
+    """De volle naam van wat `call` aanroept, met de aliassen uit de importtabel opgelost."""
+    text: str = ast.unparse(call.func)
+    head, _, rest = text.partition(".")
+    full: str | None = names.get(head)
+    return (f"{full}.{rest}" if rest else full) if full else text
+
+
+def async_functions() -> Iterator[tuple[str, ast.AsyncFunctionDef, dict[str, str]]]:
     for name, text in modules():
-        for node in ast.walk(ast.parse(text)):
+        tree: ast.Module = ast.parse(text)
+        names: dict[str, str] = import_names(tree)
+        for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef):
-                yield name, node
+                yield name, node, names
 
 
 def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
@@ -105,7 +147,11 @@ def test_no_module_uses_requests_threading_or_blocking_sleep() -> None:
         if any(pattern in code for pattern in FORBIDDEN)
     ]
     assert found == []
-    assert importlib.util.find_spec("requests") is None, "requests staat niet meer in requirements.txt en hoort niet in de venv"
+    # Ook als requests ergens anders in de omgeving staat: met requests onvindbaar laadt de app gewoon.
+    script: str = "import sys\nsys.modules['requests'] = None\nfrom mealieshopper.app import create_app\ncreate_app()\nprint('ok')\n"
+    loaded = subprocess.run([sys.executable, "-c", script], cwd=SOURCE.parent, capture_output=True, text=True, timeout=60,
+                            env={**os.environ, "MEALIESHOPPER_TESTING": "1"})
+    assert (loaded.returncode, loaded.stdout.strip()) == (0, "ok"), loaded.stderr[-2000:]
     assert not re.search(r"^requests\b", (SOURCE.parent / "requirements.txt").read_text(encoding="utf-8"), re.M | re.I)
 
 
@@ -118,6 +164,18 @@ def test_to_thread_only_around_cpu_work() -> None:
     assert set(used) <= set(TO_THREAD_ALLOWED), {name: lines for name, lines in used.items() if name not in TO_THREAD_ALLOWED}
 
 
+def test_httpx_clients_are_only_made_in_http_client() -> None:
+    """Elke client komt uit `http_client.client()` of `session()`: met de User-Agent, de omgeving en de hooks van het auditlog."""
+    found: list[str] = []
+    for name, text in modules():
+        if name == "http_client.py":
+            continue
+        tree: ast.Module = ast.parse(text)
+        names: dict[str, str] = import_names(tree)
+        found += [f"{name}:{node.lineno}: {called_name(node, names)}" for node in ast.walk(tree) if isinstance(node, ast.Call) and called_name(node, names) in HTTPX_DIRECT]
+    assert found == []
+
+
 def test_sqlite3_connect_only_in_the_backup_thread() -> None:
     found: set[str] = {name for name, text in modules() for _, code in code_lines(text) if "sqlite3.connect(" in code}
     assert found <= SQLITE_CONNECT_ALLOWED
@@ -127,9 +185,9 @@ def test_no_async_def_blocks_the_event_loop() -> None:
     blocking: list[str] = []
     opened: list[str] = []
     thread_only: list[str] = []
-    for name, function in async_functions():
+    for name, function, names in async_functions():
         for call in async_body_calls(function):
-            called: str = ast.unparse(call.func)
+            called: str = called_name(call, names)
             where: str = f"{name}:{call.lineno} in {function.name}: {called}"
             if called in BLOCKING_IN_ASYNC:
                 blocking.append(where)
@@ -153,16 +211,20 @@ async def open_client(data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncI
 
 
 async def test_a_request_leaves_the_thread_count_unchanged(open_client: QuartClient) -> None:
-    """Een verzoek zonder rekenwerk start geen thread die blijft staan: geen vergeten `to_thread` en geen aiosqlite-verbinding
-    (een thread per verbinding) die openblijft."""
-    assert (await open_client.get("/api/about")).status_code == 200
-    before: int = threading.active_count()  # na de eerste keer: de commit van git staat dan vast (een thread van de loop)
-    for _ in range(20):
-        assert (await open_client.get("/api/about")).status_code == 200
+    """Een verzoek zonder rekenwerk geeft niets aan een thread en laat geen thread achter: geen vergeten `to_thread` (dat
+    zou de thread van de executor hergebruiken en het aantal gelijk laten, dus we kijken naar `run_in_executor` zelf) en
+    geen aiosqlite-verbinding (een thread per verbinding) die openblijft."""
+    assert (await open_client.get("/api/about")).status_code == 200  # de commit van git staat daarna vast
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    before: set[threading.Thread] = set(threading.enumerate())
+    with mock.patch.object(loop, "run_in_executor", wraps=loop.run_in_executor) as executor:
+        for _ in range(20):
+            assert (await open_client.get("/api/about")).status_code == 200
+    assert executor.call_count == 0, "een verzoek zonder rekenwerk ging naar een thread"
     deadline: float = time.monotonic() + 2
-    while threading.active_count() > before and time.monotonic() < deadline:
+    while set(threading.enumerate()) - before and time.monotonic() < deadline:
         await asyncio.sleep(0.01)  # een gesloten aiosqlite-verbinding stopt haar thread net na het sluiten
-    assert threading.active_count() == before
+    assert set(threading.enumerate()) - before == set()
 
 
 async def test_every_http_client_has_an_explicit_user_agent() -> None:

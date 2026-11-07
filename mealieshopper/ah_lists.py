@@ -53,7 +53,7 @@ def normalize_id(list_id: Any) -> str:
     return str(list_id or "").strip().upper()
 
 
-# De migratie van een database van voor de aanpasbare aantallen, gedeeld door `_connect` en `_connect`.
+# De migratie van een database van voor de aanpasbare aantallen, voor `_connect`.
 MIGRATE_DEFAULT_QUANTITY: tuple[str, ...] = (
     "ALTER TABLE ah_list_items ADD COLUMN default_quantity INTEGER",
     "UPDATE ah_list_items SET default_quantity = quantity",

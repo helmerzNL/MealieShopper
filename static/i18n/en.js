@@ -1144,7 +1144,6 @@ I18N.add("en", {
   "about.desc.pyasn1": "Used by py_webauthn to read passkey certificates.",
   "about.desc.pyasn1modules": "Used by py_webauthn to read passkey certificates.",
   "about.desc.pyopenssl": "Used by py_webauthn to check passkey certificates.",
-  "about.desc.requests": "Talks to Mealie and Albert Heijn.",
   "about.desc.httpx": "Talks to the stores, Mealie and GitHub from the async app.",
   "about.desc.aiosqlite": "Reads and writes the SQLite database from the async app.",
   "about.desc.pillow": "Resizes the saved images of offers you bought.",

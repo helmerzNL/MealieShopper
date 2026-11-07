@@ -545,7 +545,7 @@ async def _fetch_once(url: str, now: str) -> dict[str, Any] | None:
         return None
     try:
         width, height = await asyncio.to_thread(_measure, data)  # Pillow: buiten de event loop
-        path, digest = _store_file(url, data, content_type)
+        path, digest = await asyncio.to_thread(_store_file, url, data, content_type)  # tot 10 MB naar schijf: ook buiten de loop
     except (ValueError, OSError) as exc:  # geen afbeelding, of de schijf is vol of alleen-lezen: niet meteen opnieuw proberen
         await _record_failure(url, now, 1, str(exc) or exc.__class__.__name__)
         return None

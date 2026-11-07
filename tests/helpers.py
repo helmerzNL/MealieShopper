@@ -1,7 +1,7 @@
 """Hulpjes voor de tests: een async testclient op een lopende app, en kleine respx- en databasehulpjes.
 
 `AppClient` praat met een app die draait zoals onder de server: `before_serving` loopt een keer, bij de eerste
-aanroep, en `after_serving` aan het eind van de test (`AppTestCase`) of bij het verlaten van `serving`. Achtergrondwerk
+aanroep, en `after_serving` aan het eind van de test (`AppTestCase`). Achtergrondwerk
 van een route (terugzetten, bulkimport, AI-match) loopt dus door tot de test klaar is. Elke aanroep leest het antwoord
 helemaal uit, zodat de test `status_code`, `get_json()` en `text` gewoon kan lezen.
 
@@ -21,8 +21,8 @@ import json
 import sqlite3
 import threading
 import unittest
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
+from collections.abc import Awaitable, Callable, Coroutine, Iterator, Mapping
+from contextlib import AbstractAsyncContextManager, contextmanager
 from http.cookiejar import Cookie
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
@@ -260,20 +260,14 @@ class AppTestCase(unittest.IsolatedAsyncioTestCase):
         return AppClient(app.test_client(), lambda: self._serve(app))
 
     async def _serve(self, app: Quart) -> None:
-        running: dict[int, TestAppProtocol] = self.__dict__.setdefault("_running_apps", {})
-        if id(app) in running:
-            return
-        test_app: TestAppProtocol = app.test_app()
-        running[id(app)] = test_app
-        await test_app.startup()
-        self.addAsyncCleanup(test_app.shutdown)
-
-
-@asynccontextmanager
-async def serving(app: Quart) -> AsyncIterator[Callable[[], AppClient]]:
-    """De app draait zolang het blok loopt. Geeft een fabriek: elke aanroep een nieuwe client (een nieuwe browser)."""
-    async with app.test_app() as test_app:
-        yield lambda: AppClient(test_app.test_client())
+        """Start `app` een keer. Twee gelijktijdige eerste aanroepen wachten allebei op dezelfde start, zodat geen verzoek
+        loopt voordat `before_serving` klaar is."""
+        starting: dict[int, asyncio.Task[None]] = self.__dict__.setdefault("_starting_apps", {})
+        if id(app) not in starting:
+            test_app: TestAppProtocol = app.test_app()
+            starting[id(app)] = asyncio.create_task(test_app.startup())
+            self.addAsyncCleanup(test_app.shutdown)
+        await asyncio.shield(starting[id(app)])
 
 
 async def start_app(app: Quart) -> None:

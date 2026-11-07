@@ -616,6 +616,11 @@ async def test_record_writes_one_row_per_call(audit_dir: Path, fields: dict[str,
     assert isinstance(first, int) and second == first + 1
     rows: list[dict[str, Any]] = audit_rows()
     assert rows[0] == rows[1]
+    if fields is AUDIT_FIELDS:  # binnen elke grens: de rij is precies wat er werd meegegeven
+        columns: dict[str, str] = {"request_body": "request", "response_body": "response"}
+        expected: dict[str, Any] = {columns.get(key, key): value for key, value in AUDIT_FIELDS.items()}
+        expected.update(ok=1 if AUDIT_FIELDS["ok"] else 0, detail=json.dumps(AUDIT_FIELDS["detail"], ensure_ascii=False))
+        assert rows[0] == expected
     assert (rows[0]["kind"], rows[0]["service"], rows[0]["corr"]) == (fields["kind"], fields["service"], fields["corr"])
     assert (await audit.get_entry(second))["detail"] == fields["detail"]
 
@@ -679,6 +684,11 @@ def test_redact_text_hides_the_token_after_bearer(text: str) -> None:
     redacted: str = audit.redact_text(text)
     assert "abc.def.ghi" not in redacted
     assert audit.HIDDEN in redacted
+
+
+def test_a_lone_bearer_at_the_end_of_a_line_keeps_the_next_line() -> None:
+    """Een kop zonder token aan het eind van een regel neemt de volgende regel niet mee als "token"."""
+    assert audit.redact_text("Authorization: Bearer\nstatus 401 van AH") .splitlines()[1] == "status 401 van AH"
 
 
 def test_redact_text_leaves_ordinary_words_alone() -> None:

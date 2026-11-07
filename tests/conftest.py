@@ -94,6 +94,23 @@ def network_guard() -> Iterator[None]:
         yield
 
 
+# De clients nemen proxy en CA's uit de omgeving over (zoals requests). Een proxy of CA-bestand van de ontwikkelaar mag de
+# tests niet sturen: de tests die het gedrag nagaan, zetten de variabelen zelf.
+CLIENT_ENVIRONMENT: tuple[str, ...] = tuple(
+    name
+    for base in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+    for name in (base, base.lower())
+) + ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_client_environment() -> Iterator[None]:
+    with pytest.MonkeyPatch.context() as patch:
+        for name in CLIENT_ENVIRONMENT:
+            patch.delenv(name, raising=False)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def no_network_attempts(network_guard: None) -> Iterator[None]:
     """Een test die het netwerk probeerde te bereiken faalt, ook als de code de weigering heeft opgevangen."""

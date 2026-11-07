@@ -495,10 +495,9 @@ async def link_account(value: str) -> dict[str, Any]:
             return None
 
     async def try_refresh(raw: str) -> dict[str, Any] | None:
-        result = await verify_token(raw)
+        result = await adopt_refresh_token(raw)
         if result.get("ok"):
             if result.get("type") == "refresh":
-                await save_refresh_token(result.get("refreshToken") or raw)
                 return {"connected": True, "type": "refresh"}
             errors.append(
                 "dit is een access token (verloopt snel); plak de refresh token"
@@ -518,6 +517,22 @@ async def link_account(value: str) -> dict[str, Any]:
         "connected": False,
         "error": "; ".join(e for e in errors if e) or "Koppelen mislukt",
     }
+
+
+async def adopt_refresh_token(token: str) -> dict[str, Any]:
+    """Een geplakt token controleren (`verify_token`) en, als het een refresh-token is, het vervangen token bewaren.
+
+    AH kan het refresh-token bij de controle al vervangen: daarom achter het slot `user` en afgeschermd, zoals
+    `get_user_token`. Een geannuleerd verzoek (de browser ging weg) raakt het nieuwe token dan niet kwijt."""
+    return await tasks.shielded(_adopt_refresh_token(token))
+
+
+async def _adopt_refresh_token(token: str) -> dict[str, Any]:
+    async with _token_lock("user"):
+        result: dict[str, Any] = await verify_token(token)
+        if result.get("ok") and result.get("type") == "refresh":
+            await save_refresh_token(result.get("refreshToken") or token)
+        return result
 
 
 async def auth_status(verify: bool = False) -> dict[str, Any]:

@@ -4,6 +4,7 @@ import asyncio
 import io
 import os
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import closing, suppress
@@ -84,6 +85,25 @@ class FetchCase(Case):
 
     def urls(self) -> list[str]:
         return [str(call.request.url) for call in self.get.calls]
+
+
+class StoreOffTheLoopTest(FetchCase):
+    async def test_the_file_is_written_off_the_event_loop(self) -> None:
+        """Een foto kan 10 MB zijn: het schrijven naar schijf loopt in een thread, zoals het meten met Pillow."""
+        loop_thread: int = threading.get_ident()
+        seen: list[int] = []
+        real = image_cache._store_file
+
+        def spy(*args: Any) -> tuple[str, str]:
+            seen.append(threading.get_ident())
+            return real(*args)
+
+        self.serve(AH, 200, "image/png", picture(40, 40))
+        with mock.patch.object(image_cache, "_store_file", side_effect=spy):
+            row = await fetch(AH)
+        self.assertTrue(row and row["path"])
+        self.assertEqual(len(seen), 1)
+        self.assertNotEqual(seen[0], loop_thread)
 
 
 class HostsAndTokensTest(Case):

@@ -5,7 +5,8 @@ gelden overal dezelfde regels:
 
 * een vaste User-Agent (`DEFAULT_USER_AGENT`) als de aanroeper zelf geen meegeeft, nooit die van httpx,
 * geen cookies: een cookie uit een antwoord gaat nooit mee met een later verzoek,
-* `trust_env=False`: proxy-variabelen en `SSL_CERT_FILE` of `SSL_CERT_DIR` uit de omgeving tellen niet mee,
+* de omgeving telt mee zoals bij requests in 3.x: HTTP(S)_PROXY, ALL_PROXY, NO_PROXY, SSL_CERT_FILE en
+  SSL_CERT_DIR (`trust_env=True`), en REQUESTS_CA_BUNDLE of anders CURL_CA_BUNDLE als eigen CA-bestand of -map,
 * de hooks van het auditlog (`audit.httpx_hooks()`).
 
 Een `httpx.AsyncClient` hoort bij de event loop waarin hij zijn verbindingen opent. Daarom bewaren we de
@@ -20,9 +21,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from os import environ
+from pathlib import Path
 
 import httpx
 
@@ -72,32 +76,46 @@ def client(
     existing: httpx.AsyncClient | None = clients.get(name)
     if existing is not None and not existing.is_closed:
         return existing
-    made: httpx.AsyncClient = _build(wanted, timeout, follow_redirects)
+    made: httpx.AsyncClient = _new_client(wanted, timeout, follow_redirects, forget_cookies=True)
     clients[name] = made
     return made
 
 
-def _build(
-    headers: httpx.Headers, timeout: float | httpx.Timeout, follow_redirects: bool
-) -> httpx.AsyncClient:
-    hooks: Mapping[str, list[audit.HttpxHook]] = audit.httpx_hooks()
+def _verify() -> ssl.SSLContext | bool:
+    """De TLS-controle: REQUESTS_CA_BUNDLE, anders CURL_CA_BUNDLE (een bestand of een map met CA's), zoals requests die las.
 
-    async def forget_cookies(_response: httpx.Response) -> None:
+    Zonder die twee `True`: dan kiest httpx met `trust_env` zelf SSL_CERT_FILE, SSL_CERT_DIR of de CA's van certifi. We lezen
+    de omgeving bij het maken van de client."""
+    bundle: str = (environ.get("REQUESTS_CA_BUNDLE") or environ.get("CURL_CA_BUNDLE") or "").strip()
+    if not bundle:
+        return True
+    if Path(bundle).is_dir():
+        return ssl.create_default_context(capath=bundle)
+    return ssl.create_default_context(cafile=bundle)
+
+
+def _new_client(
+    headers: httpx.Headers, timeout: float | httpx.Timeout, follow_redirects: bool, forget_cookies: bool
+) -> httpx.AsyncClient:
+    """Een client met de regels van dit module. `forget_cookies` voor de gedeelde clients, een sessie houdt haar jar."""
+    hooks: Mapping[str, list[audit.HttpxHook]] = audit.httpx_hooks()
+    response_hooks: list[audit.HttpxHook] = list(hooks["response"])
+
+    async def drop_cookies(_response: httpx.Response) -> None:
         # httpx heeft geen schakelaar voor cookies: hij bewaart ze vlak voor de response-hooks. Deze hook staat
         # vooraan en heeft geen `await`, dus geen ander verzoek op deze client kan de cookie nog oppikken. Ook
         # een doorverwijzing binnen hetzelfde verzoek krijgt de cookie daardoor niet mee.
         made.cookies.clear()
 
+    if forget_cookies:
+        response_hooks.insert(0, drop_cookies)
     made: httpx.AsyncClient = httpx.AsyncClient(
         headers=headers,
-        cookies=None,
         timeout=timeout,
         follow_redirects=follow_redirects,
-        trust_env=False,
-        event_hooks={
-            "request": list(hooks["request"]),
-            "response": [forget_cookies, *hooks["response"]],
-        },
+        trust_env=True,
+        verify=_verify(),
+        event_hooks={"request": list(hooks["request"]), "response": response_hooks},
     )
     return made
 
@@ -115,22 +133,15 @@ async def session(
     Gebruik hem als de doorverwijzingen van die pagina hun eigen cookies nodig hebben: een site die bij een 302 een cookie
     zet (toestemming, een cookiecontrole) en die bij de volgende stap terug verwacht. De gedeelde `client()` wist elke
     cookie na elk antwoord en zou dan op de verkeerde pagina of in een lus eindigen. Verder gelden dezelfde regels als
-    bij `client()`: `DEFAULT_USER_AGENT` tenzij `headers` een eigen `User-Agent` geven, `trust_env=False` en de hooks van
-    het auditlog.
+    bij `client()`: `DEFAULT_USER_AGENT` tenzij `headers` een eigen `User-Agent` geven, de omgeving voor proxy en CA's,
+    en de hooks van het auditlog.
 
     De jar hoort bij deze ene client, die bij het verlaten van het `async with`-blok sluit. Een cookie komt dus nooit bij
     een ander verzoek terecht, ook niet bij een volgende `session()` met dezelfde naam. `name` is alleen voor het
     logboek, er wordt niets onder bewaard.
     """
-    hooks: Mapping[str, list[audit.HttpxHook]] = audit.httpx_hooks()
     logger.debug("Sessie %s geopend", name)
-    async with httpx.AsyncClient(
-        headers=_headers(headers),
-        timeout=timeout,
-        follow_redirects=follow_redirects,
-        trust_env=False,
-        event_hooks={"request": list(hooks["request"]), "response": list(hooks["response"])},
-    ) as made:
+    async with _new_client(_headers(headers), timeout, follow_redirects, forget_cookies=False) as made:
         yield made
 
 

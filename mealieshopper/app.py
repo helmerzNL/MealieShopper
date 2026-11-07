@@ -1822,10 +1822,8 @@ def create_app() -> Quart:
         if not token:
             return jsonify({"error": tr("Geen token opgegeven", "No token given")}), 400
 
-        result = await ah.verify_token(token)
+        result = await ah.adopt_refresh_token(token)  # bewaart een vervangen refresh-token, ook als de browser weggaat
         if result.get("ok"):
-            if result.get("type") == "refresh":
-                await ah.save_refresh_token(result.get("refreshToken") or token)
             return jsonify({"connected": True, "type": result.get("type")})
         return jsonify({"error": result["error"]}), 400
 

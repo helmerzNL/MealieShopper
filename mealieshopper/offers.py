@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS offer_recipes_meta (
 """
 
 
-# De kolommen die er later bij kwamen, in de volgorde waarin `_connect` en `_connect` ze toevoegen: (tabel, kolom, soort).
+# De kolommen die er later bij kwamen, in de volgorde waarin `prepare` ze toevoegt: (tabel, kolom, soort).
 # - `offers.category`: een database van vóór de categorieën heeft die kolom nog niet.
 # - `offers.valid_from`: een kopie van vóór de looptijd heeft geen begindatum, die komt bij de volgende synchronisatie.
 # - `offer_history.valid_from`: een geschiedenis van vóór de looptijd heeft geen begindatum: oude rijen houden `first_seen` als begin.

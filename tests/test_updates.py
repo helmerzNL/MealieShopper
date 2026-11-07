@@ -121,6 +121,8 @@ class StatusTest(unittest.IsolatedAsyncioTestCase):
             (httpx.ConnectTimeout("te traag"), "Timeout"),
             (httpx.ReadTimeout("te traag"), "Timeout"),
             (httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"), "SSLError"),
+            (httpx.RemoteProtocolError("server disconnected"), "ConnectionError (geen verbinding of DNS)"),
+            (httpx.ProxyError("proxy weigert"), "ConnectionError (geen verbinding of DNS)"),
         ]
         for answer, expected in cases:
             updates.reset()

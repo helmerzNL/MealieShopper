@@ -74,7 +74,7 @@ _SENSITIVE_KEY = re.compile(
 )
 _TEXT_SECRET = re.compile(
     r"""(?P<key>["']?(?:pass(?:word|wd)?|secret|[\w-]*token|authori[sz]ation|cookie|code_verifier|x-picnic-auth)["']?\s*[:=]\s*)"""
-    r"""(?P<value>"[^"]*"|'[^']*'|(?:(?:bearer|basic|token)\s+)?[^\s&,;}]+)""",  # ook met het schema ervoor, zoals "Authorization: Bearer <token>"
+    r"""(?P<value>"[^"]*"|'[^']*'|(?:(?:bearer|basic|token)[ \t]+)?[^\s&,;}]+)""",  # ook met het schema ervoor, zoals "Authorization: Bearer <token>"
     re.I,
 )
 _BEARER = re.compile(r"(Bearer\s+)[\w.~+/=-]+", re.I)

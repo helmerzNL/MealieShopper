@@ -4,7 +4,9 @@ import json
 import os
 import tempfile
 import unittest
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
+from pathlib import Path
+from typing import Any
 from datetime import date, timedelta
 from unittest import mock
 
@@ -15,6 +17,7 @@ import respx
 os.environ.setdefault("MEALIESHOPPER_DATA_DIR", tempfile.mkdtemp())
 
 from mealieshopper import ah, tasks  # noqa: E402
+from mealieshopper.app import create_app  # noqa: E402
 from helpers import routes, run  # noqa: E402
 
 REJECTED = '{"error_description":"member not active","error":"invalid_grant"}'
@@ -263,3 +266,39 @@ async def test_a_status_check_next_to_a_token_request_refreshes_once(fresh_token
     assert used == ["old"]
     assert token == "user-1"
     assert stored == ["old", "rotated-1"]
+
+
+async def cancel_during_refresh(respx_mock: respx.MockRouter, start: Callable[[], Awaitable[Any]]) -> mock.AsyncMock:
+    """Start `start()`, annuleer het terwijl AH het refresh-token vervangt, laat AH dan antwoorden. Geeft de bewaar-mock."""
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def refresh(request: httpx.Request) -> httpx.Response:
+        entered.set()
+        await release.wait()
+        return Reply(data={"access_token": "user-1", "refresh_token": "rotated-1", "expires_in": 3600})
+
+    respx_mock.post(REFRESH).mock(side_effect=refresh)
+    with mock.patch.object(ah, "save_refresh_token", new_callable=mock.AsyncMock) as save:
+        pending = asyncio.create_task(start())
+        await entered.wait()
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        release.set()
+        await tasks.cancel_all()  # wacht op het afgeschermde werk
+    return save
+
+
+async def test_a_cancelled_link_with_a_pasted_token_keeps_the_rotated_token(fresh_tokens: None, respx_mock: respx.MockRouter) -> None:
+    save = await cancel_during_refresh(respx_mock, lambda: ah.link_account("geplakt-refresh-token"))
+    save.assert_awaited_once_with("rotated-1")
+
+
+async def test_a_cancelled_verify_route_keeps_the_rotated_token(
+    fresh_tokens: None, respx_mock: respx.MockRouter, data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PASSKEY_AUTH_ENABLED", "false")
+    async with create_app().test_app() as test_app:
+        client = test_app.test_client()
+        save = await cancel_during_refresh(respx_mock, lambda: client.post("/api/ah/auth/verify", json={"refreshToken": "geplakt"}))
+    save.assert_awaited_once_with("rotated-1")
