@@ -62,9 +62,10 @@ function uploadFailure({ status, data }) {
 const uploadOk = (status) => status >= 200 && status < 300;
 const uploadWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Stuurt `file` in stukken naar `route` en laat de server het daarna controleren (`route/<token>/stage`); geeft wat die
-// controle teruggeeft. `onProgress(verstuurd, totaal)` volgt de stukken; `onChecking()` zegt dat alles binnen is.
-async function uploadInChunks(file, route, { onProgress = () => {}, onChecking = () => {} } = {}) {
+// Stuurt `file` in stukken naar `route` en laat de server het daarna controleren (`route/<token>/stage`, met `stageQuery`
+// erachter, zoals `?keep_unlinked=1`); geeft wat die controle teruggeeft. `onProgress(verstuurd, totaal)` volgt de stukken;
+// `onChecking()` zegt dat alles binnen is.
+async function uploadInChunks(file, route, { onProgress = () => {}, onChecking = () => {}, stageQuery = "" } = {}) {
   const begun = await uploadRequest("POST", route, { body: { size: file.size }, json: true });
   if (!uploadOk(begun.status)) throw uploadFailure(begun);
   const token = begun.data.token;
@@ -112,7 +113,7 @@ async function uploadInChunks(file, route, { onProgress = () => {}, onChecking =
   onChecking();
   let checked;
   try {
-    checked = await uploadRequest("POST", `${route}/${token}/stage`, { body: { size: file.size }, json: true });
+    checked = await uploadRequest("POST", `${route}/${token}/stage${stageQuery}`, { body: { size: file.size }, json: true });
   } catch (error) {
     throw new Error(t("err.generic"));
   }

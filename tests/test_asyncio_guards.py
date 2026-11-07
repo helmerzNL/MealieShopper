@@ -79,7 +79,7 @@ THREAD_ONLY: frozenset[str] = frozenset(
             "read_file", "_schema_copy", "unseal", "_check_staged",
         )),
         "thread_db.connect", "price_archive.apply", "price_archive._check_upload",
-        "price_archive_export.write_export", "uploads._write_chunk",
+        "price_archive_export.write_export", "price_archive_export.write_site_export", "uploads._write_chunk",
     }
 )
 
