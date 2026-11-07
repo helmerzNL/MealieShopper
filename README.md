@@ -329,9 +329,9 @@ Bijdragen zijn welkom. Pull requests gaan naar de branch `beta`, nooit naar `mai
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt     # Windows: .\.venv\Scripts\pip
-.venv/bin/python run.py                       # Windows: .\.venv\Scripts\python
-python -m unittest discover -s tests          # alle tests
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt   # Windows: .\.venv\Scripts\pip
+.venv/bin/python run.py                                            # Windows: .\.venv\Scripts\python
+.venv/bin/python -m pytest                                         # alle tests
 ```
 
 De app luistert op `http://localhost:8000`. Zie [`.env.local.example`](.env.local.example) voor de opties.

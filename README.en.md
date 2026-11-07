@@ -329,9 +329,9 @@ Contributions are welcome. Pull requests go to the `beta` branch, never to `main
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt     # Windows: .\.venv\Scripts\pip
-.venv/bin/python run.py                       # Windows: .\.venv\Scripts\python
-python -m unittest discover -s tests          # all tests
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt   # Windows: .\.venv\Scripts\pip
+.venv/bin/python run.py                                            # Windows: .\.venv\Scripts\python
+.venv/bin/python -m pytest                                         # all tests
 ```
 
 The app listens on `http://localhost:8000`. See [`.env.local.example`](.env.local.example) for the options.
