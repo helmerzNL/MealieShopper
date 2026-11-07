@@ -69,12 +69,16 @@ OPEN_IN_ASYNC_ALLOWED: dict[tuple[str, str], str] = {
 }
 OPENERS: frozenset[str] = frozenset({"open", "os.open", "os.fdopen", "io.open"})
 
-# De synchrone helpers van de back-up zijn alleen voor de thread van een fase: een `async def` roept ze nooit zelf aan.
+# De synchrone helpers van een fase zijn alleen voor haar thread: een `async def` roept ze nooit zelf aan. Met de module
+# erbij: `organizers.apply` in recipe_bulk is iets anders dan `price_archive.apply`. Een kale naam hoort bij de module zelf.
 THREAD_ONLY: frozenset[str] = frozenset(
     {
-        "_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
-        "read_file", "_schema_copy", "unseal", "_check_staged",
-        "_check_upload", "_write_chunk", "write_export",  # price_archive, uploads en price_archive_export
+        *(f"backup.{name}" for name in (
+            "_thread_connect", "_jobs_connect", "_job_update", "write_backup", "check_rows", "replace_everything", "read_plan",
+            "read_file", "_schema_copy", "unseal", "_check_staged",
+        )),
+        "price_archive.apply", "price_archive._check_upload", "price_archive._thread_connect",
+        "price_archive_export.write_export", "uploads._write_chunk",
     }
 )
 
@@ -136,6 +140,39 @@ def called_name(call: ast.Call, names: dict[str, str]) -> str:
     head, _, rest = text.partition(".")
     full: str | None = names.get(head)
     return (f"{full}.{rest}" if rest else full) if full else text
+
+
+def relative_names(tree: ast.Module) -> dict[str, str]:
+    """De namen uit relatieve imports (`from . import backup`, `from .price_archive_export import write_export`, ook binnen een
+    functie) naar module.naam: backup -> backup, write_export -> price_archive_export.write_export."""
+    names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.level:
+            for alias in node.names:
+                names[alias.asname or alias.name] = f"{node.module}.{alias.name}" if node.module else alias.name
+    return names
+
+
+def module_qualified(module: str, called: str, relative: dict[str, str]) -> str:
+    """De naam van een aanroep met zijn module: een kale naam hoort bij `module`, tenzij een relatieve import hem binnenhaalt."""
+    head, dot, rest = called.partition(".")
+    if head in relative:
+        return relative[head] + (dot + rest if dot else "")
+    return called if dot else f"{module}.{called}"
+
+
+def thread_only_calls(module: str, tree: ast.Module) -> list[str]:
+    """De aanroepen in een `async def` van `module` van een helper die alleen in een thread hoort (THREAD_ONLY)."""
+    relative: dict[str, str] = relative_names(tree)
+    names: dict[str, str] = import_names(tree)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef):
+            for call in async_body_calls(node):
+                qualified: str = module_qualified(module, called_name(call, names), relative)
+                if qualified in THREAD_ONLY:
+                    found.append(f"{module}.py:{call.lineno} in {node.name}: {qualified}")
+    return found
 
 
 def async_functions() -> Iterator[tuple[str, ast.AsyncFunctionDef, dict[str, str]]]:
@@ -202,11 +239,38 @@ def test_no_async_def_blocks_the_event_loop() -> None:
             if called in OPENERS or (isinstance(call.func, ast.Attribute) and call.func.attr == "open" and called not in ("http_client.open",)):
                 if (name, function.name) not in OPEN_IN_ASYNC_ALLOWED:
                     opened.append(where)
-            if called.split(".")[-1] in THREAD_ONLY:
-                thread_only.append(where)
     assert blocking == []
     assert opened == []
+    for name, text in modules():
+        thread_only += thread_only_calls(name.removesuffix(".py"), ast.parse(text))
     assert thread_only == [], "alleen via asyncio.to_thread"
+
+
+def test_the_thread_only_check_knows_the_module_of_a_call() -> None:
+    """Een `async def` die `price_archive.apply` zelf aanroept is fout, `organizers.apply` (recipe_bulk) niet. Een kale naam
+    hoort bij de module zelf, een relatieve import wijst naar de module waar hij vandaan komt."""
+    source: str = (
+        "from . import backup, price_archive\n"
+        "async def wrong():\n"
+        "    price_archive.apply(path)\n"
+        "    backup.read_file(path)\n"
+        "    _check_upload(token, path)\n"
+        "    from .price_archive_export import write_export\n"
+        "    write_export(path)\n"
+        "async def right():\n"
+        "    await organizers.apply(slug)\n"
+        "    await asyncio.to_thread(price_archive.apply, path)\n"
+        "    def in_a_thread():\n"
+        "        price_archive.apply(path)\n"
+    )
+    found: list[str] = thread_only_calls("price_archive", ast.parse(source))
+    assert sorted(entry.split(": ", 1)[1] for entry in found) == [
+        "backup.read_file", "price_archive._check_upload", "price_archive.apply", "price_archive_export.write_export",
+    ]
+    assert all(" in wrong: " in entry for entry in found)
+    # Dezelfde kale naam in een andere module is een andere functie.
+    elsewhere: list[str] = [entry.split(": ", 1)[1] for entry in thread_only_calls("recipe_bulk", ast.parse(source))]
+    assert "price_archive._check_upload" not in elsewhere and "price_archive.apply" in elsewhere
 
 
 @pytest.fixture
