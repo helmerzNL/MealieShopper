@@ -12,17 +12,21 @@ Een synchronisatie bewaart de door de gebruiker aangepaste aantallen, net als bi
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from . import audit, auth, jumbo
+import aiosqlite
+
+from . import auth, jumbo, tasks
 from .ah_lists import _fold
 from .packs import MAX_CART_QUANTITY
 
 LIST_ID = "JUMBO"
 LIST_NAME = "Boodschappenlijstje"
+DETAIL_WORKERS: int = 6  # zoveel productgegevens tegelijk, zoals de zes threads van voorheen
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jumbo_lists (
@@ -58,14 +62,24 @@ def normalize_id(list_id: Any) -> str:
     return LIST_ID if text.upper() == LIST_ID else text
 
 
-def _connect():
-    conn = auth.connect()
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(jumbo_list_items)")}
-    if "brand" not in columns:  # database van voor de eigen lijstjes (1.9.0)
-        conn.execute("ALTER TABLE jumbo_list_items ADD COLUMN brand TEXT")
-    return conn
+# De migratie van een database van voor de eigen lijstjes (1.9.0), voor `_connect`.
+MIGRATE_BRAND: str = "ALTER TABLE jumbo_list_items ADD COLUMN brand TEXT"
+
+
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met foreign keys aan, het schema en de migratie. Sluit zonder commit, zoals `auth.connect`."""
+    async with auth.connect() as conn:
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.executescript(SCHEMA)
+        columns: set[str] = {row["name"] for row in await conn.execute_fetchall("PRAGMA table_info(jumbo_list_items)")}
+        if "brand" not in columns:  # database van voor de eigen lijstjes (1.9.0)
+            try:
+                await conn.execute(MIGRATE_BRAND)
+            except sqlite3.OperationalError as exc:  # een andere verbinding was ons net voor
+                if "duplicate column" not in str(exc):
+                    raise
+        yield conn
 
 
 def _now() -> str:
@@ -119,24 +133,26 @@ def _match_previous(previous: list[Any], items: list[dict[str, Any]]) -> list[An
     return matches
 
 
-def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
+async def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
     """Haal een lijstje bij Jumbo op: het boodschappenlijstje (met titel en prijs voor regels met een SKU) of een eigen lijstje."""
     list_id = normalize_id(list_id)
     if list_id != LIST_ID:
-        return jumbo.get_product_list(list_id)
-    live = jumbo.get_shopping_list()
+        return await jumbo.get_product_list(list_id)
+    live = await jumbo.get_shopping_list()
     items = [item for item in live["items"] if not item["completed"]]
 
-    def detail(item: dict[str, Any]) -> dict[str, Any] | None:
+    async def detail(item: dict[str, Any]) -> dict[str, Any] | None:
         if not item["sku"]:
             return None
         try:
-            return jumbo.get_product(item["sku"])
+            return await jumbo.get_product(item["sku"])
         except Exception:  # noqa: BLE001 - zonder productgegevens tonen we gewoon de tekst van de regel
             return None
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        details = list(executor.map(audit.propagate(detail), items[: jumbo.MAX_LIST_PRODUCTS])) + [None] * max(0, len(items) - jumbo.MAX_LIST_PRODUCTS)
+    # Hooguit `DETAIL_WORKERS` tegelijk, in de volgorde van de regels, elk met een kopie van de context (verzoek, auditlog).
+    # Een fout buiten de `try` van `detail` annuleert de andere aanvragen in plaats van ze na het foutantwoord door te laten lopen.
+    fetched: list[dict[str, Any] | None] = await tasks.map_bounded(DETAIL_WORKERS, detail, items[: jumbo.MAX_LIST_PRODUCTS])
+    details: list[dict[str, Any] | None] = fetched + [None] * max(0, len(items) - jumbo.MAX_LIST_PRODUCTS)
     return {
         "id": LIST_ID,
         "name": LIST_NAME,
@@ -147,19 +163,19 @@ def fetch_live(list_id: str = LIST_ID) -> dict[str, Any]:
     }
 
 
-def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
+async def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
     """Werk de lokale kopie bij met `live` (uitvoer van `fetch_live`); aangepaste aantallen blijven staan."""
     list_id = normalize_id(live.get("id")) or LIST_ID
     items = live.get("items") or []
     synced_at = _now()
-    with closing(_connect()) as conn, conn:
-        conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
-        previous = conn.execute(
+    async with _connect() as conn:
+        await conn.execute("BEGIN IMMEDIATE")  # een aanpassing van een aantal tijdens het synchroniseren gaat niet verloren
+        previous: list[Any] = list(await conn.execute_fetchall(
             "SELECT position, item_id, sku, term, quantity, default_quantity FROM jumbo_list_items WHERE list_id = ? ORDER BY position",
             (list_id,),
-        ).fetchall()
+        ))
         matches = _match_previous(previous, items)
-        rows = []
+        rows: list[tuple[Any, ...]] = []
         kept = 0
         for position, (item, old) in enumerate(zip(items, matches)):
             product = item.get("product") or {}
@@ -182,15 +198,15 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             "removed": len(previous) - sum(1 for old in matches if old is not None),
             "keptQuantities": kept,
         }
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO jumbo_lists (id, name, synced_at) VALUES (?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET name = excluded.name, synced_at = excluded.synced_at
             """,
             (list_id, str(live.get("name") or LIST_NAME), synced_at),
         )
-        conn.execute("DELETE FROM jumbo_list_items WHERE list_id = ?", (list_id,))
-        conn.executemany(
+        await conn.execute("DELETE FROM jumbo_list_items WHERE list_id = ?", (list_id,))
+        await conn.executemany(
             """
             INSERT INTO jumbo_list_items (
               list_id, position, item_id, sku, term, quantity, default_quantity, title, brand, unit_size, price, image, url, is_bonus
@@ -198,31 +214,32 @@ def save_snapshot(live: dict[str, Any]) -> dict[str, Any]:
             """,
             rows,
         )
-    return {**(get_snapshot(list_id) or {}), "sync": info}
+        await conn.commit()
+    return {**(await get_snapshot(list_id) or {}), "sync": info}
 
 
-def list_snapshots() -> list[dict[str, Any]]:
-    with closing(_connect()) as conn:
-        rows = conn.execute(
+async def list_snapshots() -> list[dict[str, Any]]:
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall(
             """
             SELECT l.id, l.name, l.synced_at,
                    (SELECT COUNT(*) FROM jumbo_list_items i WHERE i.list_id = l.id) AS item_count
             FROM jumbo_lists l ORDER BY LOWER(l.name)
             """
-        ).fetchall()
+        )
     return [
         {"id": row["id"], "name": row["name"], "syncedAt": row["synced_at"], "itemCount": row["item_count"]}
         for row in rows
     ]
 
 
-def get_snapshot(list_id: str) -> dict[str, Any] | None:
+async def get_snapshot(list_id: str) -> dict[str, Any] | None:
     list_id = normalize_id(list_id)
-    with closing(_connect()) as conn:
-        head = conn.execute("SELECT id, name, synced_at FROM jumbo_lists WHERE id = ?", (list_id,)).fetchone()
+    async with _connect() as conn:
+        head = await auth.fetchone(conn, "SELECT id, name, synced_at FROM jumbo_lists WHERE id = ?", (list_id,))
         if not head:
             return None
-        rows = conn.execute("SELECT * FROM jumbo_list_items WHERE list_id = ? ORDER BY position", (list_id,)).fetchall()
+        rows = await conn.execute_fetchall("SELECT * FROM jumbo_list_items WHERE list_id = ? ORDER BY position", (list_id,))
     items = [_item_row(row) for row in rows]
     return {
         "id": head["id"],
@@ -249,13 +266,13 @@ def live_view(live: dict[str, Any]) -> dict[str, Any]:
     return {"id": live["id"], "name": live["name"], "totalSize": len(items), "items": items, "editedCount": 0, "syncedAt": None, "source": "jumbo"}
 
 
-def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
+async def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
     """Gesynchroniseerde lijstjes waarin een regel de zoekwoorden bevat: {lijst-id: [titels]}. Alleen lokaal."""
     words = _fold(query).split()
     if not words:
         return {}
-    with closing(_connect()) as conn:
-        rows = conn.execute("SELECT list_id, term, title FROM jumbo_list_items ORDER BY list_id, position").fetchall()
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall("SELECT list_id, term, title FROM jumbo_list_items ORDER BY list_id, position")
     found: dict[str, list[str]] = {}
     for row in rows:
         label = row["title"] or row["term"]
@@ -269,7 +286,7 @@ def search_items(query: Any, limit: int = 3) -> dict[str, list[str]]:
 MAX_QUANTITY = MAX_CART_QUANTITY
 
 
-def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] | None:
+async def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] | None:
     """Pas het aantal van een regel aan. None als de regel niet bestaat."""
     try:
         value = int(quantity)
@@ -277,27 +294,30 @@ def set_quantity(list_id: str, position: int, quantity: Any) -> dict[str, Any] |
         raise ValueError("Aantal moet een geheel getal zijn") from None
     if not 1 <= value <= MAX_QUANTITY:
         raise ValueError(f"Aantal moet tussen 1 en {MAX_QUANTITY} liggen")
-    with closing(_connect()) as conn, conn:
-        changed = conn.execute(
+    async with _connect() as conn:
+        cursor = await conn.execute(
             "UPDATE jumbo_list_items SET quantity = ? WHERE list_id = ? AND position = ?",
             (value, normalize_id(list_id), position),
-        ).rowcount
-    return get_snapshot(list_id) if changed else None
+        )
+        changed: int = cursor.rowcount
+        await conn.commit()
+    return await get_snapshot(list_id) if changed else None
 
 
-def reset_quantities(list_id: str) -> dict[str, Any] | None:
-    if not get_snapshot(list_id):
+async def reset_quantities(list_id: str) -> dict[str, Any] | None:
+    if not await get_snapshot(list_id):
         return None
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+    async with _connect() as conn:
+        await conn.execute(
             "UPDATE jumbo_list_items SET quantity = COALESCE(default_quantity, quantity) WHERE list_id = ?",
             (normalize_id(list_id),),
         )
-    return get_snapshot(list_id)
+        await conn.commit()
+    return await get_snapshot(list_id)
 
 
-def sync_list(list_id: str = LIST_ID) -> dict[str, Any]:
-    return save_snapshot(fetch_live(list_id))
+async def sync_list(list_id: str = LIST_ID) -> dict[str, Any]:
+    return await save_snapshot(await fetch_live(list_id))
 
 
 def _entry(list_id: str, name: str, count: int | None, copy: dict[str, Any] | None, kind: str) -> dict[str, Any]:
@@ -315,21 +335,21 @@ def _entry(list_id: str, name: str, count: int | None, copy: dict[str, Any] | No
     }
 
 
-def merged_lists() -> dict[str, Any]:
+async def merged_lists() -> dict[str, Any]:
     """Alle lijstjes, lokaal en live samengevoegd: het boodschappenlijstje, je eigen lijstjes, dan Favorieten.
 
     Een Jumbo-fout breekt de lokale weergave niet: wat niet live op te halen is, blijft als kopie zichtbaar.
     """
-    local = {item["id"]: item for item in list_snapshots()}
+    local = {item["id"]: item for item in await list_snapshots()}
     store_error = None
     shopping_count: int | None = None
     live_lists: list[dict[str, Any]] = []
     try:
-        shopping_count = len([item for item in jumbo.get_shopping_list()["items"] if not item["completed"]])
+        shopping_count = len([item for item in (await jumbo.get_shopping_list())["items"] if not item["completed"]])
     except Exception:  # noqa: BLE001 - Jumbo is onofficieel; toon dat het niet lukt en val terug op lokaal
         store_error = "Jumbo fout"
     try:
-        live_lists = jumbo.get_product_lists()
+        live_lists = await jumbo.get_product_lists()
     except Exception:  # noqa: BLE001
         store_error = "Jumbo fout"
 

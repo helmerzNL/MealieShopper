@@ -11,11 +11,12 @@ statussen AH kent. Zo kun je het rapport veilig delen.
 """
 from __future__ import annotations
 
+import inspect
 import re
 from datetime import date
 from typing import Any, Callable
 
-import requests
+import httpx
 
 from . import ah, deals
 
@@ -101,68 +102,83 @@ def promo_report(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def promo_probe(terms: tuple[str, ...], fetch: Callable[[str], list[dict[str, Any]]], is_bonus: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
-    """Zoek de termen en geef `promo_report` van de producten met een aanbieding."""
-    total, bonus = 0, []
+# Een netwerkfout van een winkelclient: alle winkelclients praten via httpx.
+NETWORK_ERRORS: tuple[type[Exception], ...] = (httpx.HTTPError,)
+
+
+async def resolved(value: Any) -> Any:
+    """`value`, of de uitkomst ervan als het een awaitable is.
+
+    De winkelclients zijn async, maar een probe mag ook een gewone functie zijn die meteen een waarde geeft (een samenvatting van
+    iets dat al is opgehaald). Zo werkt een probe met beide.
+    """
+    return await value if inspect.isawaitable(value) else value
+
+
+async def promo_probe(terms: tuple[str, ...], fetch: Callable[[str], Any], is_bonus: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+    """Zoek de termen en geef `promo_report` van de producten met een aanbieding. `fetch` geeft een lijst producten, of een awaitable daarvan."""
+    total: int = 0
+    bonus: list[dict[str, Any]] = []
     for term in terms:
-        items = fetch(term)
+        items: list[dict[str, Any]] = await resolved(fetch(term))
         total += len(items)
         bonus.extend(item for item in items if is_bonus(item))
     return {"gezocht": list(terms), "producten": total, **promo_report(bonus)}
 
 
-def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+async def _probe(name: str, call: Callable[[], Any], summarize: Callable[[Any], Any] | None = None) -> tuple[dict[str, Any], Any]:
+    """Roep `call` aan (synchroon of async, zie `resolved`) en geef het rapport van die route en de uitkomst (None bij een fout)."""
     try:
-        result = call()
-    except requests.RequestException as exc:
+        result = await resolved(call())
+    except NETWORK_ERRORS as exc:
         return {"name": name, "ok": False, "error": f"netwerkfout: {type(exc).__name__}"}, None
     except Exception as exc:  # noqa: BLE001 - een route die faalt is precies wat we willen weten
         return {"name": name, "ok": False, "error": str(exc)[:300]}, None
     return {"name": name, "ok": True, **({"info": summarize(result)} if summarize else {"shape": shape(result)})}, result
 
 
-def _raw_get(path: str, params: dict[str, Any] | None = None) -> Any:
-    return ah._get_json(path, params)
+async def _raw_get(path: str, params: dict[str, Any] | None = None) -> Any:
+    return await ah._get_json(path, params)
 
 
-def _raw_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
-    return ah._graphql(ah.get_user_token(), query, variables or {}, "AH")
+async def _raw_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
+    return await ah._graphql(await ah.get_user_token(), query, variables or {}, "AH")
 
 
-def _anonymous_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
+async def _anonymous_graphql(query: str, variables: dict[str, Any] | None = None) -> Any:
     """Zoals `_raw_graphql`, met het anonieme token: voor wat ook zonder AH-koppeling werkt, zoals de bonus."""
-    return ah._graphql(ah.get_token(), query, variables or {}, "AH")
+    return await ah._graphql(await ah.get_token(), query, variables or {}, "AH")
 
 
-def explore() -> dict[str, Any]:
+async def explore() -> dict[str, Any]:
     """Roep alle leesroutes aan en geef een rapport met de vorm van de antwoorden."""
     probes: list[dict[str, Any]] = []
 
-    report, _ = _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
+    report, _ = await _probe("mandje (boodschappenlijst): GET shoppinglist/v2/items", lambda: _raw_get("/mobile-services/shoppinglist/v2/items"))
     probes.append(report)
 
-    report, _ = _probe(
+    async def search(term: str) -> list[dict[str, Any]]:
+        found: Any = await _raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"})
+        return (found or {}).get("products") or []
+
+    report, _ = await _probe(
         "aanbiedingen: GET product/search/v2 (de velden van producten in de bonus)",
-        lambda: promo_probe(
-            PROMO_TERMS,
-            lambda term: (_raw_get("/mobile-services/product/search/v2", {"query": term, "page": 0, "size": 25, "sortOn": "RELEVANCE"}) or {}).get("products") or [],
-            lambda item: bool(item.get("isBonus")),
-        ),
+        lambda: promo_probe(PROMO_TERMS, search, lambda item: bool(item.get("isBonus"))),
         lambda data: data,
     )
     probes.append(report)
 
-    report, active = _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))
+    report, active = await _probe("bestelmandje: GET order/v1/summaries/active", lambda: _raw_get("/mobile-services/order/v1/summaries/active", {"sortBy": "DEFAULT"}))
     probes.append(report)
 
-    report, fulfillments = _probe("open bestellingen: GraphQL orderFulfillments(status: OPEN)", lambda: _raw_graphql(ah.FULFILLMENTS_QUERY))
+    report, fulfillments = await _probe("open bestellingen: GraphQL orderFulfillments(status: OPEN)", lambda: _raw_graphql(ah.FULFILLMENTS_QUERY))
     probes.append(report)
 
     closed_data: Any = None
     # Welke statussen kent AH nog meer? Een onbekende waarde geeft een foutmelding, en die kan de geldige waarden noemen.
     for status in STATUS_CANDIDATES:
         query = ah.FULFILLMENTS_QUERY.replace("status: OPEN", f"status: {status}")
-        report, data = _probe(f"bestellingen met status {status}", lambda q=query: _raw_graphql(q))
+        report, data = await _probe(f"bestellingen met status {status}", lambda q=query: _raw_graphql(q))
         probes.append(report)
         if status == "CLOSED":
             closed_data = data
@@ -175,17 +191,17 @@ def explore() -> dict[str, Any]:
     open_id = (results_of(fulfillments) or [{}])[0].get("orderId") or (active or {}).get("id")
     for label, order_id in (("afgeleverde bestelling", (delivered or {}).get("orderId")), ("open bestelling", open_id)):
         if order_id:
-            report, _ = _probe(f"inhoud van een {label}: GET order/v1/{{id}}/details-grouped-by-taxonomy",
+            report, _ = await _probe(f"inhoud van een {label}: GET order/v1/{{id}}/details-grouped-by-taxonomy",
                                lambda oid=order_id: _raw_get(f"/mobile-services/order/v1/{int(oid)}/details-grouped-by-taxonomy"))
         else:
             report = {"name": f"inhoud van een {label}", "ok": False, "error": "overgeslagen: er is geen bestelling om te proberen"}
         probes.append(report)
 
-    report, receipts = _probe("kassabonnen: GraphQL posReceiptsPage", lambda: _raw_graphql(ah.RECEIPTS_QUERY, {"offset": 0, "limit": 3}))
+    report, receipts = await _probe("kassabonnen: GraphQL posReceiptsPage", lambda: _raw_graphql(ah.RECEIPTS_QUERY, {"offset": 0, "limit": 3}))
     probes.append(report)
     page = (((receipts or {}).get("posReceiptsPage") or {}).get("posReceipts")) or []
     if page and isinstance(page[0], dict) and page[0].get("id"):
-        report, _ = _probe("een kassabon: GraphQL posReceiptDetails", lambda: _raw_graphql(ah.RECEIPT_QUERY, {"id": str(page[0]["id"])}))
+        report, _ = await _probe("een kassabon: GraphQL posReceiptDetails", lambda: _raw_graphql(ah.RECEIPT_QUERY, {"id": str(page[0]["id"])}))
         probes.append(report)
     else:
         probes.append({"name": "een kassabon: GraphQL posReceiptDetails", "ok": False, "error": "overgeslagen: er zijn geen kassabonnen om te proberen"})
@@ -206,19 +222,19 @@ def explore() -> dict[str, Any]:
             "soorten": sorted({str(p.get("promotionType")) for p in (data or {}).get("bonusPromotions") or [] if isinstance(p, dict)}),
         }
 
-    report, _ = _probe("aanbiedingen: GraphQL bonusPeriods en bonusPromotions",
+    report, _ = await _probe("aanbiedingen: GraphQL bonusPeriods en bonusPromotions",
                        lambda: _anonymous_graphql(ah.BONUS_PROMOTIONS_QUERY), bonus_periods)
     probes.append(report)
 
-    def bonus_page() -> Any:
-        return ah._request_json(
+    async def bonus_page() -> Any:
+        return await ah._request_json(
             "GET",
             f"{ah.AH_API_BASE}{ah.BONUS_SECTION_PATH}",
-            headers=ah._auth_headers(ah.get_token(), include_content_type=False),
+            headers=ah._auth_headers(await ah.get_token(), include_content_type=False),
             params={"date": date.today().isoformat(), "application": "AH", "promotionType": "NATIONAL"},
         )
 
-    report, bonus = _probe("aanbiedingen: GET bonuspage/v2/section", bonus_page)
+    report, bonus = await _probe("aanbiedingen: GET bonuspage/v2/section", bonus_page)
     probes.append(report)
     if report["ok"]:
         report["productCount"] = len(ah.bonus_products_in(bonus))
@@ -236,7 +252,7 @@ def explore() -> dict[str, Any]:
             "geactiveerd": sum(1 for product in products if product.get("activated")),
         }
 
-    report, _ = _probe(
+    report, _ = await _probe(
         "Bonus Box: GraphQL bonusPromotions(filterSet: APP_BONUS_BOX)",
         lambda: _raw_graphql(ah.BONUS_BOX_QUERY, {"periodStart": start, "periodEnd": end, "weekNumber": monday.isocalendar()[1]}),
         lambda data: bonus_box(list((data or {}).get("bonusPromotions") or []), ah.bonus_box_promotions((data or {}).get("bonusPromotions"), start, end)),
@@ -249,12 +265,12 @@ def explore() -> dict[str, Any]:
         nodes = [entry.get("product") or entry.get("bonusGroup") for entry in entries]
         return bonus_box([node for node in nodes if isinstance(node, dict)], ah.bonus_box_in(data, start, end))
 
-    report, _ = _probe(f"Bonus Box: GET {ah.BONUS_BOX_PATH}", lambda: _raw_get(ah.BONUS_BOX_PATH, {"bonusStartDate": start}), bonus_box_rest)
+    report, _ = await _probe(f"Bonus Box: GET {ah.BONUS_BOX_PATH}", lambda: _raw_get(ah.BONUS_BOX_PATH, {"bonusStartDate": start}), bonus_box_rest)
     probes.append(report)
 
     return {
         "note": "Alleen de vorm van de antwoorden: geen namen, adressen, prijzen of id's. Veilig te delen.",
-        "linked": bool(ah.configured_refresh_token()),
+        "linked": bool(await ah.configured_refresh_token()),
         "probes": probes,
         "ok": sum(1 for probe in probes if probe["ok"]),
     }

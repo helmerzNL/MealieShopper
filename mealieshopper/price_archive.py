@@ -45,21 +45,23 @@ import logging
 import math
 import os
 import re
+import asyncio
 import secrets
 import sqlite3
 import tarfile
-import threading
 import time
 import zipfile
 import zlib
-from contextlib import closing
+from collections.abc import AsyncIterable, AsyncIterator
+from contextlib import aclosing, asynccontextmanager, closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, Iterator
 
-from flask import Flask, Response, jsonify, request
+import aiosqlite
+from quart import Quart, Response, jsonify, request
 
-from . import audit, auth, offers, prices, uploads
+from . import audit, auth, offers, prices, tasks, thread_db, uploads
 from .price_archive_tidy import ARCHIVE_OFFERS_SQL, ARCHIVE_PRICES_SQL, Tidy
 from .i18n import tr
 
@@ -135,6 +137,12 @@ CREATE TABLE IF NOT EXISTS price_archive_jobs (
   finished_at TEXT
 );
 """
+
+# De klus is klaar: in de transactie van het invoegen (`apply`), ook als de klus bij het afsluiten al onderbroken heette.
+JOB_DONE_SQL = (
+    "UPDATE price_archive_jobs SET status = 'done', error_key = NULL, error_params = NULL, summary = ?, seconds = ?,"
+    " updated_at = ?, finished_at = ? WHERE id = ?"
+)
 
 # --- meldingen --------------------------------------------------------------------------------------------------
 
@@ -1010,45 +1018,58 @@ def remove_old_staged_files() -> None:
             continue
 
 
-def _connect() -> sqlite3.Connection:
-    """De tabellen van de aanbiedingen en prijzen, zodat een lege installatie ze ook heeft."""
-    return prices._connect()
+async def ensure_schema() -> None:
+    """De tabellen van de aanbiedingen en prijzen, zodat een lege installatie ze ook heeft (`prices._connect` maakt ze).
+
+    Op de event loop, voordat een fase naar haar thread gaat: de thread werkt daarna alleen met `thread_db.connect`. Controleren, invoegen en
+    exporteren lezen of schrijven tot een miljoen regels in een transactie: dat is bulkwerk, zoals de fasen van de back-up."""
+    async with prices._connect():
+        pass
 
 
-def stage(stream: Any, content_length: int | None, keep_unlinked: bool = False) -> dict[str, Any]:
-    """Slaat de upload op, controleert alles en zet de nieuwe regels klaar. De database verandert niet."""
-    limit = MAX_UPLOAD_BYTES // (1024 * 1024)
+async def stage(body: AsyncIterable[bytes], content_length: int | None, keep_unlinked: bool = False) -> dict[str, Any]:
+    """Slaat de upload op, controleert alles en zet de nieuwe regels klaar. De database verandert niet.
+
+    Het lichaam komt in stukken binnen (`request.body`) en gaat zo naar schijf, nooit helemaal in het geheugen."""
+    limit: int = MAX_UPLOAD_BYTES // (1024 * 1024)
     if content_length is not None and content_length > MAX_UPLOAD_BYTES:
         raise ArchiveError("too_large", 413, limit=limit)
-    directory = auth.data_dir()
+    directory: Path = auth.data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     remove_old_staged_files()
-    token = secrets.token_hex(16)
-    upload = _upload_path(token)
-    received = 0
+    token: str = secrets.token_hex(16)
+    upload: Path = _upload_path(token)
+    received: int = 0
     try:
         with upload.open("wb") as handle:
             os.chmod(upload, 0o600)
-            while True:
-                chunk = stream.read(CHUNK)
-                if not chunk:
-                    break
+            async for chunk in body:
                 received += len(chunk)
                 if received > MAX_UPLOAD_BYTES:
                     raise ArchiveError("too_large", 413, limit=limit)
-                handle.write(chunk)
+                handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
     except BaseException:
         upload.unlink(missing_ok=True)
         raise
-    return _check_upload(token, upload, keep_unlinked)
+    return await _check(token, upload, keep_unlinked)
 
 
-def stage_upload(token: str, size: Any, keep_unlinked: bool = False) -> dict[str, Any]:
+async def stage_upload(token: str, size: Any, keep_unlinked: bool = False) -> dict[str, Any]:
     """Als `stage`, voor een archief dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
     remove_old_staged_files()
-    upload = _upload_path(token)
-    uploads.take(STAGE_PREFIX, token, size).replace(upload)
-    return _check_upload(token, upload, keep_unlinked)
+    upload: Path = _upload_path(token)
+    (await uploads.take(STAGE_PREFIX, token, size)).replace(upload)
+    return await _check(token, upload, keep_unlinked)
+
+
+async def _check(token: str, upload: Path, keep_unlinked: bool) -> dict[str, Any]:
+    """`_check_upload` als geheel in een thread: uitpakken, lezen en vergelijken is reken- en bulkwerk."""
+    try:
+        await ensure_schema()
+    except BaseException:
+        upload.unlink(missing_ok=True)
+        raise
+    return await asyncio.to_thread(_check_upload, token, upload, keep_unlinked)
 
 
 def _upload_path(token: str) -> Path:
@@ -1067,7 +1088,7 @@ def _check_upload(token: str, upload: Path, keep_unlinked: bool = False) -> dict
         if not upload.stat().st_size:
             raise ArchiveError("not_an_archive")
         archive = Archive(upload, directory)
-        with closing(_connect()) as conn:
+        with closing(thread_db.connect()) as conn:
             plan = Plan(conn)
             replacing = Plan(conn, without_archive=True)
             tidy = Tidy(conn, keep_unlinked=keep_unlinked)
@@ -1093,7 +1114,7 @@ def _check_upload(token: str, upload: Path, keep_unlinked: bool = False) -> dict
     return {"token": token, **summary}
 
 
-def discard(token: str) -> None:
+async def discard(token: str) -> None:
     _stage_path(token).unlink(missing_ok=True)
 
 
@@ -1107,14 +1128,18 @@ def _staged_rows(path: Path) -> Iterator[tuple[str, tuple[Any, ...]]]:
             yield kind, tuple(values)
 
 
-def apply(path: Path, replace: bool = False) -> dict[str, Any]:
+def apply(
+    path: Path, replace: bool = False, on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None
+) -> dict[str, Any]:
     """Zet de klaargezette regels in één transactie in de database, na een nieuwe vergelijking met wat er dan staat.
 
     Met `replace` gaat eerst alles eruit wat eerder uit een prijsarchief kwam (ARCHIVE_OFFERS_SQL en ARCHIVE_PRICES_SQL), in
-    dezelfde transactie: mislukt er iets, dan staat alles er nog.
+    dezelfde transactie: mislukt er iets, dan staat alles er nog. `on_commit` krijgt de verbinding en de samenvatting vlak voor
+    de COMMIT, in dezelfde transactie (de klus legt daar vast dat hij klaar is, zoals `backup.replace_everything`). Voor
+    `asyncio.to_thread`, na `ensure_schema`.
     """
     started = time.monotonic()
-    conn = _connect()
+    conn = thread_db.connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
@@ -1149,6 +1174,18 @@ def apply(path: Path, replace: bool = False) -> dict[str, Any]:
         corrections, updates = plan.resolve_corrections(conn)
         for new_price, new_before, row_id, _old_price, _old_before in updates:
             conn.execute("UPDATE offer_history SET price = ?, price_before = ? WHERE id = ?", (new_price, new_before, row_id))
+        stores = _store_list(plan)
+        summary: dict[str, Any] = {
+            "stores": stores,
+            "corrections": corrections,
+            "offers": sum(s["offers"]["new"] for s in stores),
+            "prices": sum(s["prices"]["new"] for s in stores),
+            "replaced": replace,
+            "removed": removed,
+            "seconds": round(time.monotonic() - started, 2),
+        }
+        if on_commit is not None:
+            on_commit(conn, summary)
         conn.execute("COMMIT")
     except BaseException:
         try:
@@ -1158,26 +1195,19 @@ def apply(path: Path, replace: bool = False) -> dict[str, Any]:
         raise
     finally:
         conn.close()
-    stores = _store_list(plan)
-    return {
-        "stores": stores,
-        "corrections": corrections,
-        "offers": sum(s["offers"]["new"] for s in stores),
-        "prices": sum(s["prices"]["new"] for s in stores),
-        "replaced": replace,
-        "removed": removed,
-        "seconds": round(time.monotonic() - started, 2),
-    }
+    return summary
 
 
 # --- klussen ------------------------------------------------------------------------------------------------------
 
 
-def _jobs_connect() -> sqlite3.Connection:
-    auth.ensure_db()
-    conn = auth.connect()
-    conn.executescript(JOB_SCHEMA)
-    return conn
+@asynccontextmanager
+async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel van de klussen. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        await conn.executescript(JOB_SCHEMA)
+        yield conn
 
 
 def _job_view(row: sqlite3.Row) -> dict[str, Any]:
@@ -1191,109 +1221,170 @@ def _job_view(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _give_up_stale_jobs(conn: sqlite3.Connection) -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
-    conn.execute(
+async def _give_up_stale_jobs(conn: aiosqlite.Connection) -> None:
+    cutoff: str = (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
+    await conn.execute(
         "UPDATE price_archive_jobs SET status = 'failed', error_key = 'interrupted', finished_at = ? WHERE status = 'running' AND updated_at < ?",
         (_now(), cutoff),
     )
 
 
-def _finish_job(job_id: str, **fields: Any) -> None:
+async def _finish_job(job_id: str, **fields: Any) -> None:
     fields["updated_at"] = fields["finished_at"] = _now()
-    assignments = ", ".join(f"{name} = ?" for name in fields)
-    with closing(_jobs_connect()) as conn, conn:
-        conn.execute(f"UPDATE price_archive_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+    assignments: str = ", ".join(f"{name} = ?" for name in fields)
+    async with _ajobs_connect() as conn:
+        await conn.execute(f"UPDATE price_archive_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+        await conn.commit()
 
 
-def latest_job() -> dict[str, Any] | None:
+async def _interrupt_job(job_id: str) -> None:
+    """Een geannuleerde klus (de app sluit af) krijgt de stand die `_give_up_stale_jobs` hem na een herstart zou geven.
+
+    Alleen zolang hij nog loopt: heeft de klus zelf al vastgelegd dat hij klaar is, dan klopt dat."""
+    now: str = _now()
+    async with _ajobs_connect() as conn:
+        await conn.execute(
+            "UPDATE price_archive_jobs SET status = 'failed', error_key = 'interrupted', finished_at = ?, updated_at = ?"
+            " WHERE id = ? AND status = 'running'",
+            (now, now, job_id),
+        )
+        await conn.commit()
+
+
+async def latest_job() -> dict[str, Any] | None:
     """De klus die loopt, of de laatst afgeronde die de beheerder nog niet heeft weggeklikt."""
-    with closing(_jobs_connect()) as conn, conn:
-        _give_up_stale_jobs(conn)
-        row = conn.execute(
-            "SELECT * FROM price_archive_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
-        ).fetchone()
+    async with _ajobs_connect() as conn:
+        await _give_up_stale_jobs(conn)
+        await conn.commit()
+        row: sqlite3.Row | None = await auth.fetchone(
+            conn, "SELECT * FROM price_archive_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
+        )
     return _job_view(row) if row else None
 
 
-def dismiss_job(job_id: str) -> bool:
-    with closing(_jobs_connect()) as conn, conn:
-        cursor = conn.execute("UPDATE price_archive_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'", (str(job_id),))
+async def dismiss_job(job_id: str) -> bool:
+    async with _ajobs_connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(
+            "UPDATE price_archive_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'", (str(job_id),)
+        )
+        await conn.commit()
     return cursor.rowcount > 0
 
 
-def start_job(token: str, replace: bool = False) -> dict[str, Any]:
+async def start_job(token: str, replace: bool = False) -> dict[str, Any]:
     """Neemt de klaargezette regels over en zet ze op de achtergrond in de database (met `replace`: eerst de oude eruit)."""
-    path = _stage_path(token)
+    path: Path = _stage_path(token)
     if not path.is_file():
         raise ArchiveError("stage_missing", 404)
-    running = path.with_name(path.name + ".job")
-    job_id = secrets.token_hex(8)
-    actor = audit.current_actor()
-    with closing(_jobs_connect()) as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE")
+    running: Path = path.with_name(path.name + ".job")
+    job_id: str = secrets.token_hex(8)
+    actor: str = await audit.current_actor()
+    async with _ajobs_connect() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
         try:
-            _give_up_stale_jobs(conn)
-            if conn.execute("SELECT 1 FROM price_archive_jobs WHERE status = 'running'").fetchone():
+            await _give_up_stale_jobs(conn)
+            if await auth.fetchone(conn, "SELECT 1 FROM price_archive_jobs WHERE status = 'running'"):
                 raise ArchiveError("busy", 409)
             try:
                 os.replace(path, running)  # een token werkt één keer
             except FileNotFoundError:
                 raise ArchiveError("stage_missing", 404) from None
-            now = _now()
-            conn.execute("UPDATE price_archive_jobs SET dismissed = 1 WHERE status != 'running'")
-            conn.execute(
+            now: str = _now()
+            await conn.execute("UPDATE price_archive_jobs SET dismissed = 1 WHERE status != 'running'")
+            await conn.execute(
                 "INSERT INTO price_archive_jobs (id, status, started_at, updated_at) VALUES (?, 'running', ?, ?)", (job_id, now, now)
             )
-            conn.execute("COMMIT")
+            await conn.commit()
         except BaseException:
-            conn.execute("ROLLBACK")
+            await conn.rollback()
             raise
-    thread = threading.Thread(target=run_job, args=(job_id, running, actor, replace), name=f"price-archive-{job_id}", daemon=True)
-    thread.start()
+    tasks.spawn(f"price-archive-{job_id}", run_job(job_id, running, actor, replace))
     return {"id": job_id}
 
 
-def run_job(job_id: str, staged: Path, actor: str = "system", replace: bool = False) -> None:
-    started = time.monotonic()
+async def run_job(job_id: str, staged: Path, actor: str = "system", replace: bool = False) -> None:
+    """De klus zelf, als achtergrondtask. Het invoegen (`apply`) loopt als geheel in een thread en legt in zijn eigen
+    transactie vast dat de klus klaar is (`JOB_DONE_SQL`).
+
+    Een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van de app wordt de task
+    geannuleerd: de klus heet dan onderbroken, net als na een herstart. Was het invoegen al in zijn thread bezig, dan loopt dat
+    door. Komt het nog tot een COMMIT, dan heet de klus klaar, want de stand gaat mee in die transactie. Het auditlog krijgt de
+    import via `audit.record` (de enige schrijver van het auditlog), na de COMMIT.
+    """
+    started: float = time.monotonic()
+
+    def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
+        now: str = _now()
+        conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - started, 2), now, now, job_id))
+
+    work: asyncio.Future[dict[str, Any]] | None = None
+    auditing: bool = False  # de auditregel is onderweg: een annulering daarna schrijft hem niet nog een keer
     try:
-        summary = apply(staged, replace=replace)
-        log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
-        # Eerst het auditlog, dan klaar: wie op "klaar" wacht, ziet de regel in het auditlog dan al staan.
-        audit.record(
-            kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
-            detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
-                    "replaced": summary["replaced"], "removed": summary["removed"]},
-        )
-        _finish_job(job_id, status="done", summary=json.dumps(summary), seconds=round(time.monotonic() - started, 2))
-    except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
-        log.exception("Import van een prijsarchief mislukt")
         try:
-            _finish_job(job_id, status="failed", error_key="failed", error_params="{}")
+            await ensure_schema()
+            work = asyncio.ensure_future(asyncio.to_thread(apply, staged, replace, done))
+            summary: dict[str, Any] = await asyncio.shield(work)  # een annulering stopt de thread niet: we zien hem afkomen
+            auditing = True
+            await _record_import(summary, actor, started)
+        except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
+            log.exception("Import van een prijsarchief mislukt")
+            try:
+                await _finish_job(job_id, status="failed", error_key="failed", error_params="{}")
+            except sqlite3.Error:
+                log.exception("Kon de mislukte klus niet vastleggen")
+    except asyncio.CancelledError:
+        log.warning("Import van een prijsarchief onderbroken: de app sluit af")
+        try:
+            await _interrupt_job(job_id)  # wacht op het schrijfslot van een lopend invoegen, en laat een klare klus staan
         except sqlite3.Error:
-            log.exception("Kon de mislukte klus niet vastleggen")
+            log.warning("Kon de onderbroken klus niet vastleggen (het invoegen houdt de database vast)", exc_info=True)
+        if work is not None and not auditing:
+            await _record_when_committed(work, actor, started)
+        raise
     finally:
         staged.unlink(missing_ok=True)
+
+
+async def _record_import(summary: dict[str, Any], actor: str, started: float) -> None:
+    log.info("Prijsarchief geïmporteerd: %s aanbiedingen, %s prijzen", summary["offers"], summary["prices"])
+    await audit.record(
+        kind="task", service="price-archive", action="import", actor=actor, duration_ms=int((time.monotonic() - started) * 1000),
+        detail={"offers": summary["offers"], "prices": summary["prices"], "corrections": summary["corrections"],
+                "replaced": summary["replaced"], "removed": summary["removed"]},
+    )
+
+
+async def _record_when_committed(work: asyncio.Future[dict[str, Any]], actor: str, started: float) -> None:
+    """Na een annulering: wacht op het invoegen in zijn thread en schrijft de auditregel als het tot een COMMIT kwam.
+
+    Het afsluiten wacht hier hoogstens `tasks.SHUTDOWN_TIMEOUT` op. Duurt het invoegen langer, dan staat de klus wel op klaar
+    (dat ging mee in de transactie), maar ontbreekt de auditregel."""
+    await asyncio.wait({work})
+    if work.cancelled() or work.exception() is not None:
+        log.warning("Het onderbroken invoegen kwam niet tot een COMMIT: er is niets gewijzigd")
+        return
+    await _record_import(work.result(), actor, started)
 
 
 # --- routes -------------------------------------------------------------------------------------------------------
 
 
-def _error(exc: ArchiveError):
+def _error(exc: ArchiveError) -> tuple[Response, int]:
     return jsonify({"error": describe(exc.key, exc.params), "code": exc.key}), exc.status
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/price-archive staat in auth.ADMIN_PREFIXES.
     @app.get("/api/price-archive")
-    def price_archive_info():
+    async def price_archive_info() -> Response:
         return jsonify({"maxBytes": MAX_UPLOAD_BYTES})
 
     @app.post("/api/price-archive/stage")
-    def price_archive_stage():
+    async def price_archive_stage() -> Response | tuple[Response, int]:
+        # Zoals het klaarzetten van een back-up: geen grens op de duur van het geheel, wel op de stilte (body_limits.py).
         try:
-            return jsonify(stage(request.stream, request.content_length, keep_unlinked=request.args.get("keep_unlinked") == "1"))
+            async with aclosing(uploads.read_while_arriving(request.body, request.body_timeout)) as body:
+                return jsonify(await stage(body, request.content_length, keep_unlinked=request.args.get("keep_unlinked") == "1"))
         except ArchiveError as exc:
             return _error(exc)
 
@@ -1301,28 +1392,29 @@ def register_routes(app: Flask) -> None:
     uploads.register_routes(app, "/api/price-archive/uploads", STAGE_PREFIX, MAX_UPLOAD_BYTES)
 
     @app.post("/api/price-archive/uploads/<token>/stage")
-    def price_archive_stage_upload(token: str):
-        body = request.get_json(silent=True) or {}
+    async def price_archive_stage_upload(token: str) -> Response | tuple[Response, int]:
+        body: Any = await request.get_json(silent=True)
+        size: Any = body.get("size") if isinstance(body, dict) else None  # geen object: zonder size, zoals `{}`
         try:
-            return jsonify(stage_upload(token, body.get("size"), keep_unlinked=request.args.get("keep_unlinked") == "1"))
+            return jsonify(await stage_upload(token, size, keep_unlinked=request.args.get("keep_unlinked") == "1"))
         except uploads.UploadError as exc:
             return uploads.error_response(exc)
         except ArchiveError as exc:
             return _error(exc)
 
     @app.delete("/api/price-archive/stage/<token>")
-    def price_archive_unstage(token: str):
+    async def price_archive_unstage(token: str) -> Response | tuple[Response, int]:
         try:
-            discard(token)
+            await discard(token)
         except ArchiveError as exc:
             return _error(exc)
         return jsonify({"status": "ok"})
 
     @app.post("/api/price-archive/jobs")
-    def price_archive_start():
-        body = request.get_json(silent=True) or {}
+    async def price_archive_start() -> Response | tuple[Response, int]:
+        body: Any = await request.get_json(silent=True) or {}
         try:
-            job = start_job(str(body.get("token") or ""), replace=body.get("replace") is True)
+            job: dict[str, Any] = await start_job(str(body.get("token") or ""), replace=body.get("replace") is True)
         except ArchiveError as exc:
             return _error(exc)
         return jsonify(job), 202
@@ -1330,38 +1422,40 @@ def register_routes(app: Flask) -> None:
     # De export (price_archive_export.py): een ZIP met een bestand per winkel en maand. POST, zoals de back-up: het werk gebeurt
     # pas als je op de knop drukt, niet bij een link die iets vooraf ophaalt.
     @app.post("/api/price-archive/export")
-    def price_archive_export():
+    async def price_archive_export() -> Response:
         from .price_archive_export import write_export  # pas hier: price_archive_export importeert dit bestand
 
-        started = time.monotonic()
+        started: float = time.monotonic()
         auth.data_dir().mkdir(parents=True, exist_ok=True)
-        path = auth.data_dir() / f"{STAGE_PREFIX}export-{secrets.token_hex(8)}.zip"
+        path: Path = auth.data_dir() / f"{STAGE_PREFIX}export-{secrets.token_hex(8)}.zip"
         try:
-            header = write_export(path)
+            await ensure_schema()
+            header: dict[str, Any] = await asyncio.to_thread(write_export, path)  # alle regels lezen en zippen: bulk- en rekenwerk
         except BaseException:
             path.unlink(missing_ok=True)
             raise
-        offers_total = sum(header["counts"]["offers"].values())
-        prices_total = sum(header["counts"]["prices"].values())
-        audit.record(
-            kind="task", service="price-archive", action="export", actor=audit.current_actor(),
+        offers_total: int = sum(header["counts"]["offers"].values())
+        prices_total: int = sum(header["counts"]["prices"].values())
+        await audit.record(
+            kind="task", service="price-archive", action="export", actor=await audit.current_actor(),
             duration_ms=int((time.monotonic() - started) * 1000),
             detail={"offers": offers_total, "prices": prices_total, "files": len(header["files"]), "skipped": header["skipped"]},
         )
-        name = "mealieshopper-prijsarchief-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
+        name: str = "mealieshopper-prijsarchief-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".zip"
         # Het bestand is van het bestandssysteem af zodra het open is: er blijft niets staan, ook niet bij een afgebroken download.
-        handle = path.open("rb")
-        size = os.fstat(handle.fileno()).st_size
+        handle: IO[bytes] = path.open("rb")
+        size: int = os.fstat(handle.fileno()).st_size
         path.unlink(missing_ok=True)
 
-        def stream() -> Iterator[bytes]:
+        async def stream() -> AsyncIterator[bytes]:
+            # Async, zodat Quart niet elk stuk via een thread leest (dat doet hij bij een gewone generator). Lokale schijf.
             try:
                 while chunk := handle.read(CHUNK):
                     yield chunk
             finally:
                 handle.close()
 
-        return Response(stream(), mimetype="application/zip", headers={
+        response: Response = Response(stream(), mimetype="application/zip", headers={
             "Content-Length": str(size),
             "Content-Disposition": f'attachment; filename="{name}"',
             "Cache-Control": "no-store",
@@ -1369,13 +1463,16 @@ def register_routes(app: Flask) -> None:
             "X-Export-Prices": str(prices_total),
             "X-Export-Skipped": str(sum(header["skipped"].values())),
         })
+        # Geen RESPONSE_TIMEOUT, zoals bij de back-up: een grote export over een trage verbinding mag gewoon lang duren.
+        response.timeout = None
+        return response
 
     @app.get("/api/price-archive/jobs/latest")
-    def price_archive_latest():
-        return jsonify({"job": latest_job()})
+    async def price_archive_latest() -> Response:
+        return jsonify({"job": await latest_job()})
 
     @app.delete("/api/price-archive/jobs/<job_id>")
-    def price_archive_dismiss(job_id: str):
-        if not dismiss_job(job_id):
+    async def price_archive_dismiss(job_id: str) -> Response | tuple[Response, int]:
+        if not await dismiss_job(job_id):
             return _error(ArchiveError("unknown_job", 404))
         return jsonify({"status": "ok"})

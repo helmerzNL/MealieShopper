@@ -17,10 +17,12 @@ anders in de app voorkomt.
 """
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, NamedTuple
+
+import aiosqlite
 
 from . import ah_lists, auth, offers
 from .i18n import tr
@@ -102,16 +104,21 @@ RECEIPT_LINE_TITLE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.title WHEN k2.key
 RECEIPT_LINE_IMAGE_SQL = "CASE WHEN k1.key IS NOT NULL THEN k1.image WHEN k2.key IS NOT NULL THEN k2.image ELSE p.image END"
 
 
-def ensure(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen."""
-    conn.executescript(SCHEMA)
-    conn.create_function("ms_fold", 1, fold, deterministic=True)
+async def ensure(conn: aiosqlite.Connection) -> aiosqlite.Connection:
+    """Maak de tabel als die er nog niet is, en geef SQL de functie `ms_fold` (`fold`), zodat een query op naam kan koppelen.
+
+    Voor de `_connect` van elke module die bonregels koppelt (en `purchase_lines.times_before`)."""
+    await conn.executescript(SCHEMA)
+    await conn.create_function("ms_fold", 1, fold, deterministic=True)
     return conn
 
 
-def _connect() -> sqlite3.Connection:
-    auth.ensure_db()
-    return ensure(auth.connect())
+@asynccontextmanager
+async def _connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Een verbinding met de tabel. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        yield await ensure(conn)
 
 
 def link_json(row: Any) -> dict[str, Any]:
@@ -122,12 +129,19 @@ def link_json(row: Any) -> dict[str, Any]:
     }
 
 
-def load(conn: sqlite3.Connection, store: str) -> Links:
-    """De eigen koppelingen van een winkel, uit een open verbinding (die `ensure` al zag)."""
+_LOAD_SQL: str = "SELECT * FROM product_links WHERE store = ?"
+
+
+def _links(rows: Iterable[Any]) -> Links:
     links = Links({}, {})
-    for row in conn.execute("SELECT * FROM product_links WHERE store = ?", (store,)):
+    for row in rows:
         (links.articles if row["kind"] == "article" else links.names)[row["key"]] = link_json(row)
     return links
+
+
+async def load(conn: aiosqlite.Connection, store: str) -> Links:
+    """De eigen koppelingen van een winkel, uit een open verbinding (die `ensure` al zag)."""
+    return _links(await conn.execute_fetchall(_LOAD_SQL, (store,)))
 
 
 def _store(value: Any) -> str:
@@ -147,7 +161,7 @@ def _image(value: Any) -> str | None:
     return text if text.startswith("https://") and len(text) <= MAX_IMAGE_CHARS and not any(ch.isspace() for ch in text) else None
 
 
-def save(store: Any, name: Any, product: Any, article: Any = None, now: str | None = None) -> dict[str, Any]:
+async def save(store: Any, name: Any, product: Any, article: Any = None, now: str | None = None) -> dict[str, Any]:
     """Koppel een regel (de naam op de bon of in de mail, en bij een AH-bon het artikelnummer) aan een product van de winkel.
 
     Met een bruikbaar artikelnummer (alleen bij AH) wordt het een koppeling op artikelnummer, anders een op naam. Een bestaande
@@ -166,8 +180,8 @@ def save(store: Any, name: Any, product: Any, article: Any = None, now: str | No
         raise ValueError(tr("De regel heeft geen naam om op te koppelen", "The line has no name to link by"))
     values = (key_store, kind, key, product_id, title, _text(product.get("brand"), MAX_NAME_CHARS) or None,
               _text(product.get("unitSize"), MAX_SIZE_CHARS) or None, _image(product.get("image")), source_name or None, now or _now())
-    with closing(_connect()) as conn, conn:
-        conn.execute(
+    async with _connect() as conn:
+        await conn.execute(
             """INSERT INTO product_links (store, kind, key, product_id, title, brand, unit_size, image, source_name, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT (store, kind, key) DO UPDATE SET product_id = excluded.product_id, title = excluded.title,
@@ -175,22 +189,28 @@ def save(store: Any, name: Any, product: Any, article: Any = None, now: str | No
                  created_at = excluded.created_at""",
             values,
         )
-        row = conn.execute("SELECT * FROM product_links WHERE store = ? AND kind = ? AND key = ?", values[:3]).fetchone()
+        async with conn.execute("SELECT * FROM product_links WHERE store = ? AND kind = ? AND key = ?", values[:3]) as cursor:
+            row: aiosqlite.Row | None = await cursor.fetchone()
+        await conn.commit()
     return link_json(row)
 
 
-def remove(store: Any, kind: Any, key: Any) -> bool:
+async def remove(store: Any, kind: Any, key: Any) -> bool:
     """Haal een eigen koppeling weg; daarna geldt voor die regel weer de automatische. Geeft of er een was."""
     key_store = _store(store)
     if kind not in KINDS:
         raise ValueError(tr("Onbekend soort koppeling", "Unknown kind of link"))
-    with closing(_connect()) as conn, conn:
-        return conn.execute("DELETE FROM product_links WHERE store = ? AND kind = ? AND key = ?", (key_store, kind, str(key or ""))).rowcount > 0
+    async with _connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(
+            "DELETE FROM product_links WHERE store = ? AND kind = ? AND key = ?", (key_store, kind, str(key or ""))
+        )
+        await conn.commit()
+    return cursor.rowcount > 0
 
 
-def list_links(store: Any = None) -> dict[str, Any]:
+async def list_links(store: Any = None) -> dict[str, Any]:
     """Alle eigen koppelingen (of die van een winkel), de nieuwste eerst."""
     where, args = ("WHERE store = ?", (_store(store),)) if store not in (None, "") else ("", ())
-    with closing(_connect()) as conn:
-        rows = conn.execute(f"SELECT * FROM product_links {where} ORDER BY created_at DESC, store, kind, key", args).fetchall()
+    async with _connect() as conn:
+        rows = await conn.execute_fetchall(f"SELECT * FROM product_links {where} ORDER BY created_at DESC, store, kind, key", args)
     return {"links": [link_json(row) for row in rows]}

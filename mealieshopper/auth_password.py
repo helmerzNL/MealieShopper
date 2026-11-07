@@ -14,6 +14,7 @@ Veiligheid in het kort:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -21,13 +22,14 @@ import hmac
 import secrets
 import struct
 import time
-from contextlib import closing
+import weakref
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
+import aiosqlite
 import jwt
-from flask import Flask, jsonify, request
+from quart import Quart, Response, jsonify, request
 
 from . import auth
 from .i18n import tr
@@ -58,6 +60,9 @@ LOCK_DURATION = timedelta(minutes=15)
 
 
 # ---------------------------------------------------------------- wachtwoord
+#
+# hash_password en verify_password zijn puur rekenwerk en blijven synchroon. De routes roepen ze via
+# `asyncio.to_thread` aan (`_hash_in_thread`, `_matches`), zodat scrypt de event loop niet ophoudt.
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
@@ -88,15 +93,23 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
+async def _hash_in_thread(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def _matches(password: str, stored: str) -> bool:
+    return await asyncio.to_thread(verify_password, password, stored)
+
+
 _dummy_hash: str | None = None
 
 
-def _burn_time(password: str) -> None:
+async def _burn_time(password: str) -> None:
     """Even lang rekenen als bij een echt wachtwoord, zodat de duur niets verraadt."""
     global _dummy_hash
     if _dummy_hash is None:
-        _dummy_hash = hash_password(secrets.token_urlsafe(8))
-    verify_password(password, _dummy_hash)
+        _dummy_hash = await _hash_in_thread(secrets.token_urlsafe(8))
+    await _matches(password, _dummy_hash)
 
 
 def validate_username(value: Any) -> tuple[str, str | None]:
@@ -138,47 +151,58 @@ def validate_password(password: Any, username: str = "") -> str | None:
     return None
 
 
-def _stored_hash(user_id: str = OWNER_ID) -> str:
-    with closing(auth.connect()) as conn:
-        row = conn.execute(
-            "SELECT password_hash FROM password_credentials WHERE user_id = ?", (user_id,)
-        ).fetchone()
+async def _fetchone(sql: str, params: tuple[Any, ...] = ()) -> aiosqlite.Row | None:
+    """`auth.fetchone` op een eigen, kortlevende verbinding."""
+    async with auth.connect() as conn:
+        return await auth.fetchone(conn, sql, params)
+
+
+async def _execute(sql: str, params: tuple[Any, ...] = ()) -> int:
+    """Een losse schrijfactie met commit. Geeft het aantal geraakte rijen."""
+    async with auth.connect() as conn:
+        cursor = await conn.execute(sql, params)
+        await conn.commit()
+        return cursor.rowcount
+
+
+async def _stored_hash(user_id: str = OWNER_ID) -> str:
+    row = await _fetchone("SELECT password_hash FROM password_credentials WHERE user_id = ?", (user_id,))
     return str(row["password_hash"]) if row else ""
 
 
-def _username_of(user_id: str = OWNER_ID) -> str:
-    with closing(auth.connect()) as conn:
-        row = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+async def _username_of(user_id: str = OWNER_ID) -> str:
+    row = await _fetchone("SELECT username FROM users WHERE id = ?", (user_id,))
     return str(row["username"]) if row else ""
 
 
-def store_password(user_id: str, username: str, password: str) -> None:
+async def store_password(user_id: str, username: str, password: str) -> None:
     now = auth.utcnow().isoformat()
-    password_hash = hash_password(password)
-    with closing(auth.connect()) as conn, conn:
-        conn.execute(
+    password_hash = await _hash_in_thread(password)
+    async with auth.connect() as conn:
+        await conn.execute(
             """
             INSERT INTO users (id, username, created_at) VALUES (?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET username = excluded.username
             """,
             (user_id, username, now),
         )
-        conn.execute(
+        await conn.execute(
             """
             INSERT INTO password_credentials (user_id, password_hash, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at
             """,
             (user_id, password_hash, now),
         )
+        await conn.commit()
 
 
-def _user_by_name(username: str) -> tuple[str, str] | None:
+async def _user_by_name(username: str) -> tuple[str, str] | None:
     """(id, wachtwoordhash) van de gebruiker met dit wachtwoord-login, zonder hoofdletters te onderscheiden."""
     wanted = username.casefold()
-    with closing(auth.connect()) as conn:
-        rows = conn.execute(
-            "SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id"
-        ).fetchall()
+    async with auth.connect() as conn, conn.execute(
+        "SELECT u.id, u.username, p.password_hash FROM users u JOIN password_credentials p ON p.user_id = u.id"
+    ) as cursor:
+        rows = await cursor.fetchall()
     for row in rows:
         if hmac.compare_digest(str(row["username"]).casefold().encode(), wanted.encode()):
             return str(row["id"]), str(row["password_hash"])
@@ -187,32 +211,52 @@ def _user_by_name(username: str) -> tuple[str, str] | None:
 
 # --------------------------------------------------------------- begrenzing
 
+# Controleren, wachtwoord of code nakijken en de poging tellen gebeurt onder een slot. Zonder slot komt een salvo
+# gelijktijdige pogingen langs `locked_seconds()` voordat de eerste fout geteld is, en werkt een TOTP-code twee keer.
+# Er is een werkproces, dus een asyncio.Lock geeft dezelfde volgorde als vroeger de threads met hun eigen verbinding.
+# Een slot per event loop, zoals in http_client: elke test heeft een eigen loop.
+_attempt_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
+
+
+def attempt_lock() -> asyncio.Lock:
+    """Het slot rond een begrensde inlogpoging (ook voor factory_reset). Niet herintreedbaar: nooit genest nemen."""
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+    lock: asyncio.Lock | None = _attempt_locks.get(loop)
+    if lock is None:
+        lock = _attempt_locks[loop] = asyncio.Lock()
+    return lock
+
+
 def _client_keys() -> list[str]:
     return [f"ip:{request.remote_addr or 'onbekend'}", "alle"]
 
 
-def locked_seconds() -> int:
+async def locked_seconds() -> int:
     """Hoeveel seconden je nog moet wachten (0 = je mag proberen)."""
     now = auth.utcnow()
     remaining = 0
-    with closing(auth.connect()) as conn:
+    async with auth.connect() as conn:
         for key in _client_keys():
-            row = conn.execute("SELECT locked_until FROM login_attempts WHERE key = ?", (key,)).fetchone()
+            async with conn.execute("SELECT locked_until FROM login_attempts WHERE key = ?", (key,)) as cursor:
+                row = await cursor.fetchone()
             if row and row["locked_until"]:
                 until = datetime.fromisoformat(row["locked_until"])
                 remaining = max(remaining, int((until - now).total_seconds()) + 1)
     return max(0, remaining)
 
 
-def register_failure() -> None:
+async def register_failure() -> None:
     now = auth.utcnow()
     limits = {"alle": ATTEMPTS_PER_WINDOW_TOTAL}
-    with closing(auth.connect()) as conn, conn:
+    async with auth.connect() as conn:
+        # Lezen en schrijven in een transactie: een ander proces kan er geen telling tussen schuiven.
+        await conn.execute("BEGIN IMMEDIATE")
         for key in _client_keys():
             limit = limits.get(key, ATTEMPTS_PER_WINDOW)
-            row = conn.execute(
+            async with conn.execute(
                 "SELECT failures, window_start FROM login_attempts WHERE key = ?", (key,)
-            ).fetchone()
+            ) as cursor:
+                row = await cursor.fetchone()
             failures, start = 0, now
             if row:
                 start = datetime.fromisoformat(row["window_start"])
@@ -221,7 +265,7 @@ def register_failure() -> None:
                     failures, start = 0, now
             failures += 1
             locked_until = (now + LOCK_DURATION).isoformat() if failures >= limit else None
-            conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO login_attempts (key, failures, window_start, locked_until) VALUES (?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET failures = excluded.failures,
@@ -229,16 +273,16 @@ def register_failure() -> None:
                 """,
                 (key, failures, start.isoformat(), locked_until),
             )
+        await conn.commit()
 
 
-def reset_failures() -> None:
+async def reset_failures() -> None:
     """Na een geslaagde login telt alleen het eigen IP-adres weer vanaf nul."""
-    with closing(auth.connect()) as conn, conn:
-        conn.execute("DELETE FROM login_attempts WHERE key = ?", (_client_keys()[0],))
+    await _execute("DELETE FROM login_attempts WHERE key = ?", (_client_keys()[0],))
 
 
-def _too_many():
-    seconds = locked_seconds()
+async def _too_many() -> Response:
+    seconds = await locked_seconds()
     minutes = max(1, (seconds + 59) // 60)
     response = jsonify(
         {
@@ -297,23 +341,21 @@ def otpauth_uri(secret_b32: str, account: str) -> str:
     )
 
 
-def _read_totp(user_id: str, confirmed: bool | None = None) -> dict[str, Any] | None:
-    with closing(auth.connect()) as conn:
-        row = conn.execute("SELECT * FROM mfa_totp WHERE user_id = ?", (user_id,)).fetchone()
+async def _read_totp(user_id: str, confirmed: bool | None = None) -> dict[str, Any] | None:
+    row = await _fetchone("SELECT * FROM mfa_totp WHERE user_id = ?", (user_id,))
     if not row:
         return None
     if confirmed is not None and bool(row["confirmed"]) != confirmed:
         return None
     try:
-        secret = auth.secret_box().decrypt(str(row["secret"]).encode("ascii")).decode("ascii")
+        secret = (await auth.secret_box()).decrypt(str(row["secret"]).encode("ascii")).decode("ascii")
     except Exception:  # noqa: BLE001 - sleutel veranderd: alleen herstelcodes werken nog
         secret = ""
     return {"secret": secret, "confirmed": bool(row["confirmed"]), "lastCounter": int(row["last_counter"])}
 
 
-def _save_last_counter(user_id: str, counter: int) -> None:
-    with closing(auth.connect()) as conn, conn:
-        conn.execute("UPDATE mfa_totp SET last_counter = ? WHERE user_id = ?", (counter, user_id))
+async def _save_last_counter(user_id: str, counter: int) -> None:
+    await _execute("UPDATE mfa_totp SET last_counter = ? WHERE user_id = ?", (counter, user_id))
 
 
 # -------------------------------------------------------------- herstelcodes
@@ -334,122 +376,129 @@ def new_recovery_codes() -> list[str]:
     return codes
 
 
-def _store_recovery_codes(user_id: str, codes: list[str]) -> None:
+async def _store_recovery_codes(user_id: str, codes: list[str]) -> None:
     now = auth.utcnow().isoformat()
-    with closing(auth.connect()) as conn, conn:
-        conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (user_id,))
-        conn.executemany(
+    async with auth.connect() as conn:
+        await conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (user_id,))
+        await conn.executemany(
             "INSERT INTO mfa_recovery_codes (code_hash, user_id, created_at) VALUES (?, ?, ?)",
             [(_hash_recovery(code), user_id, now) for code in codes],
         )
+        await conn.commit()
 
 
-def _use_recovery_code(user_id: str, code: str) -> bool:
+async def _use_recovery_code(user_id: str, code: str) -> bool:
     if len(_normalize_recovery(code)) != 16:
         return False
-    with closing(auth.connect()) as conn, conn:
-        cursor = conn.execute(
-            "DELETE FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ?",
-            (user_id, _hash_recovery(code)),
-        )
-        return cursor.rowcount == 1
+    deleted = await _execute(
+        "DELETE FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ?",
+        (user_id, _hash_recovery(code)),
+    )
+    return deleted == 1
 
 
 # ------------------------------------------------------------ MFA-kaartje
 
-def _make_ticket(user_id: str) -> str:
+async def _make_ticket(user_id: str) -> str:
     return jwt.encode(
         {
             "purpose": "mfa",
             "sub": user_id,
-            "ep": auth.session_epoch(user_id),
+            "ep": await auth.session_epoch(user_id),
             "exp": auth.utcnow() + timedelta(seconds=MFA_TICKET_SECONDS),
         },
-        auth.signing_secret(),
+        await auth.signing_secret(),
         algorithm="HS256",
     )
 
 
-def _read_ticket(ticket: Any) -> str | None:
+async def _read_ticket(ticket: Any) -> str | None:
     """Het gebruikers-id waarvoor het kaartje is uitgegeven, of None als het ongeldig of verlopen is."""
+    secret = await auth.signing_secret()
     try:
-        payload = jwt.decode(str(ticket or ""), auth.signing_secret(), algorithms=["HS256"])
+        payload = jwt.decode(str(ticket or ""), secret, algorithms=["HS256"])
     except Exception:  # noqa: BLE001
         return None
     user_id = str(payload.get("sub") or "")
-    if payload.get("purpose") != "mfa" or not user_id or int(payload.get("ep") or 0) != auth.session_epoch(user_id):
+    if payload.get("purpose") != "mfa" or not user_id or int(payload.get("ep") or 0) != await auth.session_epoch(user_id):
         return None
     return user_id
 
 
 # --------------------------------------------------------------------- routes
 
-def _json_error(message: str, status: int):
+# Een foutantwoord van een route: (JSON, status), of een Response met eigen headers (zoals de 429).
+ErrorReply = tuple[Response, int] | Response
+
+
+def _json_error(message: str, status: int) -> tuple[Response, int]:
     return jsonify({"error": message}), status
 
 
-def session_response(user_id: str, payload: dict[str, Any] | None = None):
-    username = _username_of(user_id) or "admin"
-    return auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, auth.create_token(user_id, username))
+async def session_response(user_id: str, payload: dict[str, Any] | None = None) -> Response:
+    username = await _username_of(user_id) or "admin"
+    token = await auth.create_token(user_id, username)
+    return await auth.cookie_response({"status": "ok", "username": username, **(payload or {})}, token)
 
 
-def _needs_session():
+async def _needs_session() -> ErrorReply | None:
     """None als het mag; anders het 401-antwoord."""
     # Op een nieuwe installatie (nog geen inlogmethode) is er geen sessie om te vragen.
-    if auth.auth_required() and auth.credentials_exist() and not auth.current_user():
+    if await auth.auth_required() and await auth.credentials_exist() and not await auth.current_user():
         return _json_error(tr("Log eerst in.", "Log in first."), 401)
     return None
 
 
-def reauthenticate(user_id: str, body: dict[str, Any]):
+async def reauthenticate(user_id: str, body: dict[str, Any]) -> ErrorReply | None:
     """Vraagt een ingelogde gebruiker om nog eens te bewijzen wie hij is: wachtwoord (`password`) en, bij
     tweestapsverificatie, ook de code (`code`, of een herstelcode). None als het klopt; anders het foutantwoord.
     Telt mee voor dezelfde begrenzing als inloggen."""
-    if not auth.password_configured(user_id):
+    if not await auth.password_configured(user_id):
         return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
-    if locked_seconds():
-        return _too_many()
-    if not verify_password(str(body.get("password") or ""), _stored_hash(user_id)):
-        register_failure()
-        return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
-    if auth.mfa_enabled(user_id):
-        code = str(body.get("code") or "").strip()
-        if not code:
-            return jsonify({"error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."), "mfaRequired": True}), 400
-        record = _read_totp(user_id, confirmed=True)
-        counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
-        if counter is not None:
-            _save_last_counter(user_id, counter)
-        elif not _use_recovery_code(user_id, code):
-            register_failure()
-            return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 403)
-    reset_failures()
+    async with attempt_lock():
+        if await locked_seconds():
+            return await _too_many()
+        if not await _matches(str(body.get("password") or ""), await _stored_hash(user_id)):
+            await register_failure()
+            return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
+        if await auth.mfa_enabled(user_id):
+            code = str(body.get("code") or "").strip()
+            if not code:
+                return jsonify({"error": tr("Vul ook de code uit je authenticator-app in.", "Also enter the code from your authenticator app."), "mfaRequired": True}), 400
+            record = await _read_totp(user_id, confirmed=True)
+            counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
+            if counter is not None:
+                await _save_last_counter(user_id, counter)
+            elif not await _use_recovery_code(user_id, code):
+                await register_failure()
+                return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 403)
+        await reset_failures()
     return None
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     @app.post("/api/auth/open")
-    def auth_open():
+    async def auth_open():
         """Bewust zonder inloggen verder; alleen op een nieuwe installatie, en alleen met bevestiging."""
         from . import onboarding
 
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         if not auth.auth_enabled():
             return _json_error(
                 tr("Inloggen staat al uit via de omgevingsvariabelen.", "Login is already turned off through the environment variables."), 400
             )
-        if auth.credentials_exist():
+        if await auth.credentials_exist():
             return _json_error(tr("Er is al een manier om in te loggen ingesteld.", "A way to log in is already set up."), 409)
         if body.get("confirm") is not True:
             return _json_error(
                 tr("Bevestig dat je zonder beveiliging verder wilt.", "Confirm that you want to continue without security."), 400
             )
-        onboarding.begin()
-        auth.set_setting(auth.SETTING_AUTH_MODE, "none")
+        await onboarding.begin()
+        await auth.set_setting(auth.SETTING_AUTH_MODE, "none")
         return jsonify({"status": "ok"})
 
     @app.post("/api/auth/password")
-    def password_set():
+    async def password_set():
         """Eerste wachtwoord (nieuwe installatie), of wachtwoord wijzigen/toevoegen als je bent ingelogd."""
         from . import onboarding
 
@@ -457,12 +506,12 @@ def register_routes(app: Flask) -> None:
             return _json_error(
                 tr("Inloggen staat uit via de omgevingsvariabelen.", "Login is turned off through the environment variables."), 400
             )
-        denied = _needs_session()
+        denied = await _needs_session()
         if denied:
             return denied
-        body = request.get_json(silent=True) or {}
-        uid = auth.acting_user_id()
-        own_name = _username_of(uid)
+        body = await request.get_json(silent=True) or {}
+        uid = await auth.acting_user_id()
+        own_name = await _username_of(uid)
         # Alleen de eigenaar kan zijn naam wijzigen; een gewone gebruiker houdt de naam uit de uitnodiging.
         wanted = body.get("username") if uid == OWNER_ID else None
         username, problem = validate_username(wanted or own_name or "admin")
@@ -471,92 +520,98 @@ def register_routes(app: Flask) -> None:
         if not problem and username.casefold() != own_name.casefold():
             from . import users
 
-            if users.username_taken(username, except_id=uid):
+            if await users.username_taken(username, except_id=uid):
                 problem = tr("Deze naam is al in gebruik.", "This name is already taken.")
         if problem:
             return _json_error(problem, 400)
 
-        replacing = auth.password_configured(uid)
+        replacing = await auth.password_configured(uid)
         if replacing:
-            if locked_seconds():
-                return _too_many()
-            if not verify_password(str(body.get("currentPassword") or ""), _stored_hash(uid)):
-                register_failure()
-                return _json_error(tr("Het huidige wachtwoord klopt niet.", "The current password is incorrect."), 403)
-            reset_failures()
+            async with attempt_lock():
+                if await locked_seconds():
+                    return await _too_many()
+                if not await _matches(str(body.get("currentPassword") or ""), await _stored_hash(uid)):
+                    await register_failure()
+                    return _json_error(tr("Het huidige wachtwoord klopt niet.", "The current password is incorrect."), 403)
+                await reset_failures()
 
         if uid == OWNER_ID:
-            onboarding.begin()
-        store_password(uid, username, password)
+            await onboarding.begin()
+        await store_password(uid, username, password)
         if uid == OWNER_ID:
-            auth.set_setting(auth.SETTING_AUTH_MODE, "password" if auth.passkey_count() == 0 else "")
+            await auth.set_setting(auth.SETTING_AUTH_MODE, "password" if await auth.passkey_count() == 0 else "")
         if replacing:
-            auth.bump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
-        return session_response(uid, {"replaced": replacing})
+            await auth.bump_session_epoch(uid)  # andere apparaten van deze gebruiker moeten opnieuw inloggen
+        return await session_response(uid, {"replaced": replacing})
 
     @app.post("/api/auth/password/login")
-    def password_login():
-        if not auth.auth_required() or not auth.password_configured():
+    async def password_login():
+        if not await auth.auth_required() or not await auth.password_configured():
             return _json_error(tr("Inloggen met een wachtwoord is niet ingesteld.", "Password login is not set up."), 400)
-        if locked_seconds():
-            return _too_many()
-        body = request.get_json(silent=True) or {}
+        body = await request.get_json(silent=True) or {}
         username = str(body.get("username") or "").strip()
         password = str(body.get("password") or "")
-        found = _user_by_name(username) if username else None
-        if len(password) <= MAX_PASSWORD_LENGTH:  # geen scrypt over een absurd lang wachtwoord
-            if found:
-                matches = verify_password(password, found[1])
-            else:
-                _burn_time(password)
-                matches = False
-            if matches:
-                if auth.mfa_enabled(found[0]):
-                    return jsonify({"status": "mfa", "mfaRequired": True, "ticket": _make_ticket(found[0])})
-                reset_failures()
-                return session_response(found[0])
-        register_failure()
-        return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
+        async with attempt_lock():
+            if await locked_seconds():
+                return await _too_many()
+            found = await _user_by_name(username) if username else None
+            matches = False
+            if len(password) <= MAX_PASSWORD_LENGTH:  # geen scrypt over een absurd lang wachtwoord
+                if found:
+                    matches = await _matches(password, found[1])
+                else:
+                    await _burn_time(password)
+            if not matches:
+                await register_failure()
+                return _json_error(tr("Gebruikersnaam of wachtwoord klopt niet.", "Username or password is incorrect."), 401)
+            mfa = await auth.mfa_enabled(found[0])
+            if not mfa:
+                await reset_failures()
+        if mfa:
+            return jsonify({"status": "mfa", "mfaRequired": True, "ticket": await _make_ticket(found[0])})
+        return await session_response(found[0])
 
     @app.post("/api/auth/password/mfa")
-    def password_mfa():
-        if locked_seconds():
-            return _too_many()
-        body = request.get_json(silent=True) or {}
-        uid = _read_ticket(body.get("ticket"))
-        if not uid or not auth.mfa_enabled(uid):
-            return _json_error(
-                tr(
-                    "Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.",
-                    "This login attempt has expired. Log in again with your password.",
-                ),
-                401,
-            )
-        code = str(body.get("code") or "")
-        record = _read_totp(uid, confirmed=True)
-        counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
-        if counter is not None:
-            _save_last_counter(uid, counter)
-        elif not _use_recovery_code(uid, code):
-            register_failure()
-            return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
-        reset_failures()
-        return session_response(uid, {"recoveryCodesLeft": auth.recovery_codes_left(uid)})
+    async def password_mfa():
+        body = await request.get_json(silent=True) or {}
+        async with attempt_lock():
+            if await locked_seconds():
+                return await _too_many()
+            uid = await _read_ticket(body.get("ticket"))
+            if not uid or not await auth.mfa_enabled(uid):
+                return _json_error(
+                    tr(
+                        "Deze inlogpoging is verlopen. Log opnieuw in met je wachtwoord.",
+                        "This login attempt has expired. Log in again with your password.",
+                    ),
+                    401,
+                )
+            code = str(body.get("code") or "")
+            # Lezen, controleren en de stap bewaren onder het slot: anders werkt dezelfde code twee keer.
+            record = await _read_totp(uid, confirmed=True)
+            counter = check_totp(record["secret"], code, record["lastCounter"]) if record and record["secret"] else None
+            if counter is not None:
+                await _save_last_counter(uid, counter)
+            elif not await _use_recovery_code(uid, code):
+                await register_failure()
+                return _json_error(tr("Deze code klopt niet.", "This code is incorrect."), 401)
+            await reset_failures()
+        return await session_response(uid, {"recoveryCodesLeft": await auth.recovery_codes_left(uid)})
 
     @app.post("/api/auth/mfa/start")
-    def mfa_start():
-        denied = _needs_session()
+    async def mfa_start():
+        denied = await _needs_session()
         if denied:
             return denied
-        uid = auth.acting_user_id()
-        if not auth.password_configured(uid):
+        uid = await auth.acting_user_id()
+        if not await auth.password_configured(uid):
             return _json_error(tr("Stel eerst een wachtwoord in.", "Set a password first."), 400)
-        if auth.mfa_enabled(uid):
+        if await auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat al aan.", "Two-step verification is already on."), 409)
         secret = new_totp_secret()
-        encrypted = auth.secret_box().encrypt(secret.encode("ascii")).decode("ascii")
-        with closing(auth.connect()) as conn, conn:
-            conn.execute(
+        encrypted = (await auth.secret_box()).encrypt(secret.encode("ascii")).decode("ascii")
+        async with auth.connect() as conn:
+            await conn.execute(
                 """
                 INSERT INTO mfa_totp (user_id, secret, confirmed, last_counter, created_at) VALUES (?, ?, 0, 0, ?)
                 ON CONFLICT(user_id) DO UPDATE SET secret = excluded.secret, confirmed = 0, last_counter = 0,
@@ -564,7 +619,8 @@ def register_routes(app: Flask) -> None:
                 """,
                 (uid, encrypted, auth.utcnow().isoformat()),
             )
-        account = _username_of(uid) or "admin"
+            await conn.commit()
+        account = await _username_of(uid) or "admin"
         return jsonify(
             {
                 "secret": " ".join(secret[i:i + 4] for i in range(0, len(secret), 4)),
@@ -577,80 +633,80 @@ def register_routes(app: Flask) -> None:
         )
 
     @app.post("/api/auth/mfa/confirm")
-    def mfa_confirm():
-        denied = _needs_session()
+    async def mfa_confirm():
+        denied = await _needs_session()
         if denied:
             return denied
-        if locked_seconds():
-            return _too_many()
-        uid = auth.acting_user_id()
-        pending = _read_totp(uid, confirmed=False)
-        if not pending or not pending["secret"]:
-            return _json_error(
-                tr(
-                    "Begin opnieuw met het instellen van tweestapsverificatie.",
-                    "Start setting up two-step verification again.",
-                ),
-                400,
-            )
-        body = request.get_json(silent=True) or {}
-        counter = check_totp(pending["secret"], str(body.get("code") or ""))
-        if counter is None:
-            register_failure()
-            return _json_error(
-                tr(
-                    "Deze code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.",
-                    "This code is incorrect. Check the time on your phone and try again.",
-                ),
-                400,
-            )
-        reset_failures()
-        codes = new_recovery_codes()
-        _store_recovery_codes(uid, codes)
-        with closing(auth.connect()) as conn, conn:
-            conn.execute(
-                "UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, uid)
-            )
-        auth.bump_session_epoch(uid)
-        return session_response(uid, {"recoveryCodes": codes})
+        body = await request.get_json(silent=True) or {}
+        uid = await auth.acting_user_id()
+        async with attempt_lock():
+            if await locked_seconds():
+                return await _too_many()
+            pending = await _read_totp(uid, confirmed=False)
+            if not pending or not pending["secret"]:
+                return _json_error(
+                    tr(
+                        "Begin opnieuw met het instellen van tweestapsverificatie.",
+                        "Start setting up two-step verification again.",
+                    ),
+                    400,
+                )
+            counter = check_totp(pending["secret"], str(body.get("code") or ""))
+            if counter is None:
+                await register_failure()
+                return _json_error(
+                    tr(
+                        "Deze code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.",
+                        "This code is incorrect. Check the time on your phone and try again.",
+                    ),
+                    400,
+                )
+            await reset_failures()
+            codes = new_recovery_codes()
+            await _store_recovery_codes(uid, codes)
+            await _execute("UPDATE mfa_totp SET confirmed = 1, last_counter = ? WHERE user_id = ?", (counter, uid))
+        await auth.bump_session_epoch(uid)
+        return await session_response(uid, {"recoveryCodes": codes})
 
-    def _check_current_password(uid: str, body: dict[str, Any]):
-        if not auth.password_configured(uid):
+    async def _check_current_password(uid: str, body: dict[str, Any]) -> ErrorReply | None:
+        if not await auth.password_configured(uid):
             return _json_error(tr("Er is geen wachtwoord ingesteld.", "No password is set."), 400)
-        if locked_seconds():
-            return _too_many()
-        if not verify_password(str(body.get("password") or ""), _stored_hash(uid)):
-            register_failure()
-            return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
-        reset_failures()
+        async with attempt_lock():
+            if await locked_seconds():
+                return await _too_many()
+            if not await _matches(str(body.get("password") or ""), await _stored_hash(uid)):
+                await register_failure()
+                return _json_error(tr("Het wachtwoord klopt niet.", "The password is incorrect."), 403)
+            await reset_failures()
         return None
 
     @app.post("/api/auth/mfa/disable")
-    def mfa_disable():
-        denied = _needs_session()
+    async def mfa_disable():
+        denied = await _needs_session()
         if denied:
             return denied
-        uid = auth.acting_user_id()
-        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
+        uid = await auth.acting_user_id()
+        wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:
             return wrong
-        with closing(auth.connect()) as conn, conn:
-            conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (uid,))
-            conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (uid,))
-        auth.bump_session_epoch(uid)
-        return session_response(uid)
+        async with auth.connect() as conn:
+            await conn.execute("DELETE FROM mfa_totp WHERE user_id = ?", (uid,))
+            await conn.execute("DELETE FROM mfa_recovery_codes WHERE user_id = ?", (uid,))
+            await conn.commit()
+        await auth.bump_session_epoch(uid)
+        return await session_response(uid)
 
     @app.post("/api/auth/mfa/recovery")
-    def mfa_recovery():
-        denied = _needs_session()
+    async def mfa_recovery():
+        denied = await _needs_session()
         if denied:
             return denied
-        uid = auth.acting_user_id()
-        if not auth.mfa_enabled(uid):
+        uid = await auth.acting_user_id()
+        if not await auth.mfa_enabled(uid):
             return _json_error(tr("Tweestapsverificatie staat niet aan.", "Two-step verification is not on."), 400)
-        wrong = _check_current_password(uid, request.get_json(silent=True) or {})
+        wrong = await _check_current_password(uid, await request.get_json(silent=True) or {})
         if wrong:
             return wrong
         codes = new_recovery_codes()
-        _store_recovery_codes(uid, codes)
+        await _store_recovery_codes(uid, codes)
         return jsonify({"recoveryCodes": codes})

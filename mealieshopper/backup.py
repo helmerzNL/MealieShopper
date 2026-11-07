@@ -17,6 +17,9 @@ met zichtbare voortgang). Kort:
   over de bestaande gegevens heen. Een geweigerd bestand verandert niets.
 * Het terugzetten is werk van de server: de browser start het en kijkt mee. De staat van de klus staat in de database
   (`backup_jobs`), dus een andere werker, een herladen pagina of een gesloten browser maakt niets uit.
+* De klus is een achtergrondtask (`tasks.spawn`). Het zware werk (het bestand maken, lezen en controleren, en het
+  vervangen in een transactie) loopt per fase als geheel in `asyncio.to_thread`, op een eigen sqlite3-verbinding. Alles
+  wat de event loop zelf doet (de klus starten, de stand lezen en bijwerken, wegklikken) gaat via aiosqlite.
 
 Buiten de back-up blijven: het auditlog (een logboek dat na 30 dagen vanzelf wordt opgeruimd), de bewaarde
 Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres dat de beheerder voor deze server instelde
@@ -24,6 +27,7 @@ Mealie-afbeeldingen (een cache die vanzelf weer wordt gevuld) en het webadres da
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -32,18 +36,19 @@ import os
 import re
 import secrets
 import sqlite3
-import threading
 import time
-from contextlib import closing
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterator
+from contextlib import aclosing, asynccontextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
+import aiosqlite
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from flask import Flask, Response, jsonify, request
+from quart import Quart, Response, jsonify, request
 
-from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, uploads
+from . import about, ah_lists, ah_orders, ah_recipes, ai_review, auth, crisp, crisp_orders, hellofresh, jumbo, jumbo_lists, jumbo_orders, marleyspoon, mealie, offers, offers_schedule, picnic, picnic_orders, price_import, prices, product_images, product_links, profile, server_settings, tasks, thread_db, uploads
 from .i18n import tr
 
 log = logging.getLogger(__name__)
@@ -54,7 +59,7 @@ FORMAT_VERSION = 1
 MAX_STAGE_BYTES = 200 * 1024 * 1024  # één bestand; een back-up van jaren aanbiedingen is enkele megabytes
 CHUNK = 1024 * 1024
 STAGE_TTL_SECONDS = 3600  # een bestand dat niet gebruikt wordt, ruimen we na een uur op
-JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n thread kwijt (herstart)
+JOB_STALE_SECONDS = 15 * 60  # een klus die zo lang niet bewoog, is z'n task kwijt (herstart)
 MIN_PASSPHRASE_LENGTH = 8
 SCRYPT_N = 2**15  # ~32 MB geheugen en ~0,1 s; in de tests lager gezet
 SCRYPT_R, SCRYPT_P = 8, 1
@@ -163,6 +168,20 @@ CREATE TABLE IF NOT EXISTS backup_jobs (
 );
 """
 
+# De SQL van de klussen, gedeeld door de synchrone helper in de thread en zijn async tweeling op de loop.
+JOB_UPDATE_SQL = "UPDATE backup_jobs SET {assignments} WHERE id = ?"
+# Een klus die niet meer verder komt (task kwijt na een herstart, of geannuleerd bij het afsluiten): mislukt, er is niets gewijzigd.
+JOB_INTERRUPTED = "status = 'failed', error_key = 'interrupted', finished_at = ?"
+JOB_GIVE_UP_STALE_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED} WHERE status = 'running' AND updated_at < ?"
+JOB_INTERRUPT_SQL = f"UPDATE backup_jobs SET {JOB_INTERRUPTED}, updated_at = ? WHERE id = ? AND status = 'running'"
+JOB_LATEST_SQL = "SELECT * FROM backup_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
+JOB_DISMISS_SQL = "UPDATE backup_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'"
+# Ook de foutvelden leeg: een klus die bij het afsluiten al onderbroken heette, kan in zijn thread toch nog klaar komen.
+JOB_DONE_SQL = (
+    "UPDATE backup_jobs SET status = 'done', phase = 'replacing', error_key = NULL, error_params = NULL, summary = ?,"
+    " replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?"
+)
+
 TOKEN_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 STAGE_PREFIX = ".restore-"
 FERNET_PREFIX = "gAAAA"
@@ -240,21 +259,34 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def ensure_schemas() -> None:
-    """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik)."""
-    auth.ensure_db()
+async def ensure_schemas() -> None:
+    """Zorgt dat elke tabel van de gegevens bestaat (de modules maken hun tabellen pas bij het eerste gebruik).
+
+    Op de event loop, voordat een fase naar zijn thread gaat: elke module maakt haar tabellen en migraties met haar eigen
+    `_connect`, dus het schema staat op een plek. De thread zelf werkt daarna alleen met `thread_db.connect`.
+    """
+    await auth.ensure_db()
     for module in SCHEMA_OWNERS:
-        with closing(module._connect()):
+        async with module._connect():
             pass
-    with closing(_jobs_connect()):
+    async with _ajobs_connect():
         pass
 
 
 def _jobs_connect() -> sqlite3.Connection:
-    auth.ensure_db()
-    conn = auth.connect()
+    """De tabel van de klussen op een verbinding voor een thread (de voortgang tijdens het controleren)."""
+    conn: sqlite3.Connection = thread_db.connect()
     conn.executescript(JOB_SCHEMA)
     return conn
+
+
+@asynccontextmanager
+async def _ajobs_connect() -> AsyncIterator[aiosqlite.Connection]:
+    """Async tweeling van `_jobs_connect`, voor de event loop. Sluit zonder commit, zoals `auth.connect`."""
+    await auth.ensure_db()
+    async with auth.connect() as conn:
+        await conn.executescript(JOB_SCHEMA)
+        yield conn
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
@@ -327,7 +359,7 @@ def unseal(sealed: Any, passphrase: str) -> dict[str, str]:
 # --- de back-up maken -------------------------------------------------------------------------------------------
 
 
-def _stored_secrets(conn: sqlite3.Connection) -> tuple[dict[str, str], int]:
+def _stored_secrets(conn: sqlite3.Connection, box: Fernet) -> tuple[dict[str, str], int]:
     """De opgeslagen koppelingen, ontsleuteld; en hoeveel er onleesbaar waren (andere sleutel: opnieuw koppelen)."""
     found: dict[str, str] = {}
     unreadable = 0
@@ -337,7 +369,7 @@ def _stored_secrets(conn: sqlite3.Connection) -> tuple[dict[str, str], int]:
     for row in rows:
         value = str(row["value"] or "")
         try:
-            value = auth.secret_box().decrypt(value.encode("ascii")).decode("utf-8")
+            value = box.decrypt(value.encode("ascii")).decode("utf-8")
         except (InvalidToken, ValueError):
             if value.startswith(FERNET_PREFIX):
                 unreadable += 1
@@ -353,12 +385,12 @@ def _rows(conn: sqlite3.Connection, table: str, names: list[str]) -> Iterator[st
         yield json.dumps({name: _encode(row[index]) for index, name in enumerate(names)}, ensure_ascii=False, separators=(",", ":"))
 
 
-def write_backup(target: Path, *, links: bool, passphrase: str = "", leave_out: Any = ()) -> dict[str, Any]:
+def write_backup(target: Path, *, links: bool, box: Fernet | None, passphrase: str = "", leave_out: Any = ()) -> dict[str, Any]:
     """Schrijft de back-up naar `target` en geeft een samenvatting (aantallen en koppelingen).
 
     `leave_out`: onderdelen uit OPTIONAL_PARTS die niet meegaan; het bestand zegt welke (`left_out`), zodat het terugzetten
     die onderdelen laat zoals ze zijn. Alles komt uit één leestransactie, dus het bestand is een samenhangend beeld ook als
-    de app ondertussen doorwerkt.
+    de app ondertussen doorwerkt. `box` ontsleutelt de opgeslagen koppelingen (`auth.secret_box`). Eerst `ensure_schemas`.
     """
     if links and len(passphrase) < MIN_PASSPHRASE_LENGTH:
         raise BackupError("passphrase_short", minimum=MIN_PASSPHRASE_LENGTH)
@@ -366,11 +398,10 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "", leave_out: 
     if any(part not in OPTIONAL_PARTS for part in left_out):
         raise BackupError("bad_part", part=str(next(part for part in left_out if part not in OPTIONAL_PARTS))[:40])
     skipped_tables = {table for part in left_out for table in OPTIONAL_PARTS[part]}
-    ensure_schemas()
     counts: dict[str, int] = {}
-    with closing(auth.connect()) as conn:
+    with closing(thread_db.connect()) as conn:
         conn.execute("BEGIN")
-        stored, unreadable = _stored_secrets(conn) if links else ({}, 0)
+        stored, unreadable = _stored_secrets(conn, box) if links and box else ({}, 0)
         plain = {
             row["key"]: row["value"]
             for row in conn.execute("SELECT key, value FROM app_settings ORDER BY key")
@@ -379,7 +410,7 @@ def write_backup(target: Path, *, links: bool, passphrase: str = "", leave_out: 
         header = {
             "format": FORMAT,
             "format_version": FORMAT_VERSION,
-            "app_version": about.read_version(),
+            "app_version": about.version(),
             "created_at": _now(),
             "includes_links": bool(links),
             "left_out": left_out,
@@ -437,6 +468,11 @@ def read_file(path: Path) -> dict[str, Any]:
     if version > FORMAT_VERSION:
         raise BackupError("newer_version", found=version, supported=FORMAT_VERSION, app_version=str(data.get("app_version") or "?")[:20])
     return data
+
+
+def read_plan(path: Path) -> Plan:
+    """`read_file` en `prepare` in een keer: de fase die het bestand leest, als geheel voor `asyncio.to_thread`."""
+    return prepare(read_file(path))
 
 
 class Plan:
@@ -583,9 +619,9 @@ def check_rows(plan: Plan, progress: Callable[[int, int], None] | None = None) -
     """Legt elke rij tegen een lege kopie van het schema (types, verplichte kolommen, dubbele sleutels).
 
     Geeft de rijen terug zoals ze ingevoegd gaan worden (waarden ontcijferd). Niets in de echte database verandert.
+    Eerst `ensure_schemas`.
     """
-    ensure_schemas()
-    with closing(auth.connect()) as real, closing(_schema_copy(real)) as scratch:
+    with closing(thread_db.connect()) as real, closing(_schema_copy(real)) as scratch:
         known = {table: _column_rules(real, table) for table in DATA_TABLES}
         prepared: dict[str, list[tuple[int, dict[str, Any]]]] = {}
         for step, table in enumerate(DATA_TABLES, 1):
@@ -626,11 +662,15 @@ def replace_everything(
     plan: Plan,
     prepared: dict[str, list[tuple[int, dict[str, Any]]]],
     on_commit: Callable[[sqlite3.Connection, dict[str, Any]], None],
+    box: Fernet | None,
 ) -> dict[str, Any]:
-    """Zet alles in één transactie over de bestaande gegevens heen. `on_commit` loopt in dezelfde transactie."""
-    ensure_schemas()
+    """Zet alles in één transactie over de bestaande gegevens heen. `on_commit` loopt in dezelfde transactie.
+
+    `box` versleutelt de koppelingen opnieuw met de sleutel van deze installatie (`auth.secret_box`), nodig als het plan
+    koppelingen heeft. Eerst `ensure_schemas`.
+    """
     skipped_profiles = 0
-    conn = auth.connect()
+    conn = thread_db.connect()
     conn.isolation_level = None  # we sturen BEGIN en COMMIT zelf
     try:
         conn.execute("PRAGMA busy_timeout = 30000")  # een lopende synchronisatie mag even afmaken
@@ -665,11 +705,13 @@ def replace_everything(
         for key, value in plan.plain.items():
             conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, value, now))
         if plan.secrets is not None:
+            if box is None:
+                raise ValueError("replace_everything: koppelingen terugzetten vraagt om `box`")
             # Een back-up met koppelingen is de nieuwe stand: een koppeling die er niet in zit, verdwijnt hier.
             for key in SECRET_KEYS:
                 conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
             for key, value in plan.secrets.items():
-                token = auth.secret_box().encrypt(value.encode("utf-8")).decode("ascii")
+                token = box.encrypt(value.encode("utf-8")).decode("ascii")
                 conn.execute("INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)", (key, token, now))
         summary = {
             "counts": plan.counts(),
@@ -710,53 +752,59 @@ def remove_old_staged_files() -> None:
             continue
 
 
-def stage(stream: Any, content_length: int | None) -> dict[str, Any]:
-    """Slaat het geüploade bestand op, controleert het helemaal en geeft een samenvatting. De database verandert niet."""
+async def stage(body: AsyncIterable[bytes], content_length: int | None) -> dict[str, Any]:
+    """Slaat het geüploade bestand op, controleert het helemaal en geeft een samenvatting. De database verandert niet.
+
+    Het lichaam komt in stukken binnen (`request.body`) en gaat zo naar schijf, nooit helemaal in het geheugen. Een
+    Content-Length boven de grens wordt geweigerd voor er iets gelezen is.
+    """
     if content_length is not None and content_length > MAX_STAGE_BYTES:
         raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
     auth.data_dir().mkdir(parents=True, exist_ok=True)
     remove_old_staged_files()
-    token = secrets.token_hex(16)
-    path = _stage_path(token)
-    received = 0
+    token: str = secrets.token_hex(16)
+    path: Path = _stage_path(token)
+    received: int = 0
+    summary: dict[str, Any]
     try:
         with path.open("wb") as handle:
             os.chmod(path, 0o600)
-            while True:
-                chunk = stream.read(CHUNK)
-                if not chunk:
-                    break
+            async for chunk in body:
                 received += len(chunk)
                 if received > MAX_STAGE_BYTES:
                     raise BackupError("too_large", 413, limit=MAX_STAGE_BYTES // (1024 * 1024))
-                handle.write(chunk)
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-    return _check_staged(token, path)
-
-
-def stage_upload(token: str, size: Any) -> dict[str, Any]:
-    """Als `stage`, voor een bestand dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
-    remove_old_staged_files()
-    path = _stage_path(token)
-    uploads.take(STAGE_PREFIX, token, size).replace(path)
-    return _check_staged(token, path)
-
-
-def _check_staged(token: str, path: Path) -> dict[str, Any]:
-    """Controleert het klaargezette bestand helemaal en geeft een samenvatting. De database verandert niet."""
-    try:
-        plan = prepare(read_file(path))
-        check_rows(plan)
-        summary = summarize(plan)
+                handle.write(chunk)  # lokale schijf en stukken van hoogstens een paar MB: dat mag op de loop
+        await ensure_schemas()
+        summary = await asyncio.to_thread(_check_staged, path)
     except BaseException:
         path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
         raise
     return {"token": token, **summary}
 
 
-def discard(token: str) -> None:
+async def stage_upload(token: str, size: Any) -> dict[str, Any]:
+    """Als `stage`, voor een bestand dat in stukken binnenkwam (uploads.py): het krijgt hetzelfde token."""
+    remove_old_staged_files()
+    path: Path = _stage_path(token)
+    (await uploads.take(STAGE_PREFIX, token, size)).replace(path)
+    summary: dict[str, Any]
+    try:
+        await ensure_schemas()
+        summary = await asyncio.to_thread(_check_staged, path)
+    except BaseException:
+        path.unlink(missing_ok=True)  # een geweigerd bestand blijft niet staan
+        raise
+    return {"token": token, **summary}
+
+
+def _check_staged(path: Path) -> dict[str, Any]:
+    """Lezen en controleren van een klaargezet bestand, als geheel voor `asyncio.to_thread`."""
+    plan: Plan = read_plan(path)
+    check_rows(plan)
+    return summarize(plan)
+
+
+async def discard(token: str) -> None:
     _stage_path(token).unlink(missing_ok=True)
 
 
@@ -778,137 +826,184 @@ def _job_view(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-def _give_up_stale_jobs(conn: sqlite3.Connection) -> None:
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
-    conn.execute(
-        "UPDATE backup_jobs SET status = 'failed', error_key = 'interrupted', finished_at = ? WHERE status = 'running' AND updated_at < ?",
-        (_now(), cutoff),
-    )
+def _stale_cutoff() -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=JOB_STALE_SECONDS)).isoformat(timespec="seconds")
+
+
+async def _give_up_stale_jobs(conn: aiosqlite.Connection) -> None:
+    await conn.execute(JOB_GIVE_UP_STALE_SQL, (_now(), _stale_cutoff()))
+
+
+def _job_update_statement(job_id: str, fields: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    """De UPDATE voor `_job_update` en `_ajob_update`: dezelfde velden, plus `updated_at`."""
+    values: dict[str, Any] = {**fields, "updated_at": _now()}
+    assignments: str = ", ".join(f"{name} = ?" for name in values)
+    return JOB_UPDATE_SQL.format(assignments=assignments), (*values.values(), job_id)
 
 
 def _job_update(job_id: str, **fields: Any) -> None:
-    fields["updated_at"] = _now()
-    assignments = ", ".join(f"{name} = ?" for name in fields)
+    """Synchroon, voor de thread van een fase (de voortgang tijdens het controleren)."""
+    sql, params = _job_update_statement(job_id, fields)
     with closing(_jobs_connect()) as conn, conn:
-        conn.execute(f"UPDATE backup_jobs SET {assignments} WHERE id = ?", (*fields.values(), job_id))
+        conn.execute(sql, params)
 
 
-def _fail_job(job_id: str, error: BackupError | None) -> None:
-    key = error.key if error else "failed"
-    params = error.params if error else {}
-    _job_update(job_id, status="failed", error_key=key, error_params=json.dumps(params), finished_at=_now())
+async def _ajob_update(job_id: str, **fields: Any) -> None:
+    """Async tweeling van `_job_update`, voor de event loop (tussen de fases)."""
+    sql, params = _job_update_statement(job_id, fields)
+    async with _ajobs_connect() as conn:
+        await conn.execute(sql, params)
+        await conn.commit()
 
 
-def latest_job() -> dict[str, Any] | None:
+async def _fail_job(job_id: str, error: BackupError | None) -> None:
+    key: str = error.key if error else "failed"
+    params: dict[str, Any] = error.params if error else {}
+    await _ajob_update(job_id, status="failed", error_key=key, error_params=json.dumps(params), finished_at=_now())
+
+
+async def _interrupt_job(job_id: str) -> None:
+    """Een geannuleerde klus (de app sluit af) krijgt de stand die `_give_up_stale_jobs` hem na een herstart zou geven.
+
+    Alleen zolang hij nog loopt: heeft het vervangen in zijn thread toch nog vastgelegd dat hij klaar is, dan klopt dat.
+    """
+    now: str = _now()
+    async with _ajobs_connect() as conn:
+        await conn.execute(JOB_INTERRUPT_SQL, (now, now, job_id))
+        await conn.commit()
+
+
+async def latest_job() -> dict[str, Any] | None:
     """De klus die loopt, of de laatst afgeronde die de beheerder nog niet heeft weggeklikt."""
-    with closing(_jobs_connect()) as conn, conn:
-        _give_up_stale_jobs(conn)
-        row = conn.execute(
-            "SELECT * FROM backup_jobs WHERE status = 'running' OR dismissed = 0 ORDER BY started_at DESC, rowid DESC LIMIT 1"
-        ).fetchone()
+    async with _ajobs_connect() as conn:
+        await _give_up_stale_jobs(conn)
+        await conn.commit()
+        async with conn.execute(JOB_LATEST_SQL) as cursor:
+            row: sqlite3.Row | None = await cursor.fetchone()
     return _job_view(row) if row else None
 
 
-def dismiss_job(job_id: str) -> bool:
-    with closing(_jobs_connect()) as conn, conn:
-        cursor = conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE id = ? AND status != 'running'", (job_id,))
+async def dismiss_job(job_id: str) -> bool:
+    async with _ajobs_connect() as conn:
+        cursor: aiosqlite.Cursor = await conn.execute(JOB_DISMISS_SQL, (job_id,))
+        await conn.commit()
     return cursor.rowcount > 0
 
 
-def start_job(token: str, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> dict[str, Any]:
+async def start_job(token: str, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> dict[str, Any]:
     """Controleert het wachtwoord, neemt het klaargezette bestand over en start het terugzetten op de achtergrond.
 
     `skip_links` en `skip_parts` (uit OPTIONAL_PARTS): wat de beheerder niet terugzet; dat blijft zoals het is.
     """
-    path = _stage_path(token)
+    path: Path = _stage_path(token)
     if not path.is_file():
         raise BackupError("stage_missing", 404)
     skip_parts = tuple(skip_parts)
-    plan = prepare(read_file(path))  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
+    plan: Plan = await asyncio.to_thread(read_plan, path)  # het bestand dat nu staat, niet wat een uur geleden is gecontroleerd
     plan.skip(links=skip_links, parts=skip_parts)
     if plan.needs_passphrase:
-        unseal(plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
-    running = path.with_name(path.name + ".job")
-    job_id = secrets.token_hex(8)
-    with closing(_jobs_connect()) as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE")
+        await asyncio.to_thread(unseal, plan.sealed, passphrase)  # een verkeerd wachtwoord laat het bestand en het token staan
+    running: Path = path.with_name(path.name + ".job")
+    job_id: str = secrets.token_hex(8)
+    async with _ajobs_connect() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
         try:
-            _give_up_stale_jobs(conn)
-            if conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'").fetchone():
-                raise BackupError("busy", 409)
+            await _give_up_stale_jobs(conn)
+            async with conn.execute("SELECT 1 FROM backup_jobs WHERE status = 'running'") as cursor:
+                if await cursor.fetchone():
+                    raise BackupError("busy", 409)
             try:
                 os.replace(path, running)  # een token werkt één keer
             except FileNotFoundError:
                 raise BackupError("stage_missing", 404) from None
-            now = _now()
-            conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE status != 'running'")
-            conn.execute(
+            now: str = _now()
+            await conn.execute("UPDATE backup_jobs SET dismissed = 1 WHERE status != 'running'")
+            await conn.execute(
                 "INSERT INTO backup_jobs (id, status, phase, step, steps, started_at, updated_at) VALUES (?, 'running', 'checking', 0, ?, ?, ?)",
                 (job_id, len(DATA_TABLES), now, now),
             )
-            conn.execute("COMMIT")
+            await conn.commit()
         except BaseException:
-            conn.execute("ROLLBACK")
+            await conn.rollback()
             raise
-    thread = threading.Thread(
-        target=run_job, args=(job_id, running, passphrase), kwargs={"skip_links": skip_links, "skip_parts": skip_parts},
-        name=f"backup-restore-{job_id}", daemon=True,
+    tasks.spawn(
+        f"backup-restore-{job_id}", run_job(job_id, running, passphrase, skip_links=skip_links, skip_parts=skip_parts)
     )
-    thread.start()
     return {"id": job_id}
 
 
-def run_job(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
-    started = time.monotonic()
+async def run_job(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
+    """De klus zelf, als achtergrondtask (zie `_run_phases`).
+
+    Een geweigerd bestand of een fout geeft een mislukte klus (de database is dan niet veranderd). Bij het afsluiten van
+    de app wordt de task geannuleerd, ook als dat midden in het vastleggen van een fout gebeurt: de klus heet dan
+    onderbroken, net als na een herstart.
+    """
     try:
-        plan = prepare(read_file(staged))
-        plan.skip(links=skip_links, parts=skip_parts)
-        if plan.needs_passphrase:
-            plan.secrets = unseal(plan.sealed, passphrase)
-        prepared = check_rows(plan, lambda step, steps: _job_update(job_id, step=step, steps=steps))
-        checking = time.monotonic() - started
-        # Het terugzetten zelf is één transactie en dus niet te tellen: de voortgang blijft "bezig" zonder getal.
-        _job_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
-        replacing_started = time.monotonic()
-
-        def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
-            conn.execute(
-                "UPDATE backup_jobs SET status = 'done', phase = 'replacing', summary = ?, replacing_seconds = ?, updated_at = ?, finished_at = ? WHERE id = ?",
-                (json.dumps(summary), round(time.monotonic() - replacing_started, 2), _now(), _now(), job_id),
-            )
-
-        replace_everything(plan, prepared, done)
-        log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
-    except BackupError as exc:
-        log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
-        _fail_job(job_id, exc)
-    except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
-        log.exception("Terugzetten mislukt")
         try:
-            _fail_job(job_id, None)
+            await _run_phases(job_id, staged, passphrase, skip_links=skip_links, skip_parts=skip_parts)
+        except BackupError as exc:
+            log.warning("Terugzetten geweigerd: %s %s", exc.key, exc.params)
+            await _fail_job(job_id, exc)
+        except Exception:  # noqa: BLE001 - de beheerder krijgt een algemene zin, het logboek de hele fout
+            log.exception("Terugzetten mislukt")
+            try:
+                await _fail_job(job_id, None)
+            except sqlite3.Error:
+                log.exception("Kon de mislukte klus niet vastleggen")
+    except asyncio.CancelledError:
+        log.warning("Terugzetten onderbroken: de app sluit af")
+        try:
+            await _interrupt_job(job_id)
         except sqlite3.Error:
-            log.exception("Kon de mislukte klus niet vastleggen")
+            log.exception("Kon de onderbroken klus niet vastleggen")
+        raise
     finally:
         staged.unlink(missing_ok=True)
+
+
+async def _run_phases(job_id: str, staged: Path, passphrase: str, *, skip_links: bool = False, skip_parts: Any = ()) -> None:
+    """Elke fase loopt als geheel in een thread, de stand van de klus wordt ertussen bijgewerkt."""
+    started: float = time.monotonic()
+    plan: Plan = await asyncio.to_thread(read_plan, staged)
+    plan.skip(links=skip_links, parts=skip_parts)
+    if plan.needs_passphrase:
+        plan.secrets = await asyncio.to_thread(unseal, plan.sealed, passphrase)
+    await ensure_schemas()
+    prepared: dict[str, list[tuple[int, dict[str, Any]]]] = await asyncio.to_thread(
+        check_rows, plan, lambda step, steps: _job_update(job_id, step=step, steps=steps)
+    )
+    checking: float = time.monotonic() - started
+    # Het terugzetten zelf is één transactie en dus niet te tellen: de voortgang blijft "bezig" zonder getal.
+    await _ajob_update(job_id, phase="replacing", step=0, steps=0, checking_seconds=round(checking, 2))
+    replacing_started: float = time.monotonic()
+
+    def done(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
+        now: str = _now()
+        conn.execute(JOB_DONE_SQL, (json.dumps(summary), round(time.monotonic() - replacing_started, 2), now, now, job_id))
+
+    box: Fernet | None = await auth.secret_box() if plan.secrets is not None else None  # alleen voor de koppelingen
+    await ensure_schemas()
+    await asyncio.to_thread(replace_everything, plan, prepared, done, box)
+    log.info("Back-up teruggezet in %.1f s", time.monotonic() - started)
 
 
 # --- routes -----------------------------------------------------------------------------------------------------
 
 
-def _error(exc: BackupError):
+def _error(exc: BackupError) -> tuple[Response, int]:
     return jsonify({"error": describe(exc.key, exc.params), "code": exc.key}), exc.status
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Quart) -> None:
     # Alleen de beheerder: /api/backup staat in auth.ADMIN_PREFIXES.
     @app.get("/api/backup")
-    def backup_info():
+    async def backup_info() -> Response:
         return jsonify({"maxBytes": MAX_STAGE_BYTES, "minPassphraseLength": MIN_PASSPHRASE_LENGTH})
 
     @app.post("/api/backup")
-    def backup_create():
-        body = request.get_json(silent=True) or {}
+    async def backup_create() -> Response | tuple[Response, int]:
+        body = await request.get_json(silent=True) or {}
         links = bool(body.get("links", True))
         passphrase = str(body.get("passphrase") or "")
         leave_out = [part for part in OPTIONAL_PARTS if body.get(part, True) is False]  # standaard gaat alles mee
@@ -916,7 +1011,9 @@ def register_routes(app: Flask) -> None:
         auth.data_dir().mkdir(parents=True, exist_ok=True)
         path = auth.data_dir() / f".backup-{secrets.token_hex(8)}.json"  # op schijf: zo kent het scherm de grootte van de download
         try:
-            write_backup(path, links=links, passphrase=passphrase, leave_out=leave_out)
+            await ensure_schemas()
+            box = await auth.secret_box() if links else None  # zonder koppelingen hoeft er niets ontsleuteld
+            await asyncio.to_thread(write_backup, path, links=links, box=box, passphrase=passphrase, leave_out=leave_out)
         except BackupError as exc:
             path.unlink(missing_ok=True)
             return _error(exc)
@@ -929,14 +1026,15 @@ def register_routes(app: Flask) -> None:
         size = os.fstat(handle.fileno()).st_size
         path.unlink(missing_ok=True)
 
-        def stream() -> Iterator[bytes]:
+        async def stream() -> AsyncIterator[bytes]:
+            # Async, zodat Quart niet elk stuk via een thread leest (dat doet hij bij een gewone generator). Lokale schijf.
             try:
                 while chunk := handle.read(CHUNK):
                     yield chunk
             finally:
                 handle.close()
 
-        return Response(
+        response = Response(
             stream(),
             mimetype="application/json",
             headers={
@@ -946,11 +1044,16 @@ def register_routes(app: Flask) -> None:
                 "X-Backup-Seconds": f"{time.monotonic() - started:.2f}",
             },
         )
+        # Geen RESPONSE_TIMEOUT: Quart breekt een gestreamd antwoord daarna stil af, en een grote back-up over een trage
+        # verbinding mag gewoon lang duren. Gaat de browser weg, dan stopt het streamen (keep_running.py).
+        response.timeout = None
+        return response
 
     @app.post("/api/backup/stage")
-    def backup_stage():
+    async def backup_stage() -> Response | tuple[Response, int]:
         try:
-            return jsonify(stage(request.stream, request.content_length))
+            async with aclosing(uploads.read_while_arriving(request.body, request.body_timeout)) as body:
+                return jsonify(await stage(body, request.content_length))
         except BackupError as exc:
             return _error(exc)
 
@@ -958,28 +1061,29 @@ def register_routes(app: Flask) -> None:
     uploads.register_routes(app, "/api/backup/uploads", STAGE_PREFIX, MAX_STAGE_BYTES)
 
     @app.post("/api/backup/uploads/<token>/stage")
-    def backup_stage_upload(token: str):
-        body = request.get_json(silent=True) or {}
+    async def backup_stage_upload(token: str) -> Response | tuple[Response, int]:
+        body: Any = await request.get_json(silent=True)
+        size: Any = body.get("size") if isinstance(body, dict) else None  # geen object: zonder size, zoals `{}`
         try:
-            return jsonify(stage_upload(token, body.get("size")))
+            return jsonify(await stage_upload(token, size))
         except uploads.UploadError as exc:
             return uploads.error_response(exc)
         except BackupError as exc:
             return _error(exc)
 
     @app.delete("/api/backup/stage/<token>")
-    def backup_unstage(token: str):
+    async def backup_unstage(token: str) -> Response | tuple[Response, int]:
         try:
-            discard(token)
+            await discard(token)
         except BackupError as exc:
             return _error(exc)
         return jsonify({"status": "ok"})
 
     @app.post("/api/backup/jobs")
-    def backup_start():
-        body = request.get_json(silent=True) or {}
+    async def backup_start() -> tuple[Response, int]:
+        body = await request.get_json(silent=True) or {}
         try:
-            job = start_job(
+            job = await start_job(
                 str(body.get("token") or ""), str(body.get("passphrase") or ""),
                 skip_links=body.get("links", True) is False,  # standaard zet je alles terug wat in het bestand zit
                 skip_parts=[part for part in OPTIONAL_PARTS if body.get(part, True) is False],
@@ -989,11 +1093,11 @@ def register_routes(app: Flask) -> None:
         return jsonify(job), 202
 
     @app.get("/api/backup/jobs/latest")
-    def backup_latest():
-        return jsonify({"job": latest_job()})
+    async def backup_latest() -> Response:
+        return jsonify({"job": await latest_job()})
 
     @app.delete("/api/backup/jobs/<job_id>")
-    def backup_dismiss(job_id: str):
-        if not dismiss_job(job_id):
+    async def backup_dismiss(job_id: str) -> Response | tuple[Response, int]:
+        if not await dismiss_job(job_id):
             return _error(BackupError("unknown_job", 404))
         return jsonify({"status": "ok"})
