@@ -14,10 +14,21 @@ function setOffersRecipesTab(visible) {
   if (!visible && tab.classList.contains("is-active")) document.querySelector('.subtab[data-subtab="offers-items"]')?.click();
 }
 
-function aiReviewStatusText(info, provider) {
+function aiReviewKeyText(info, provider) {
   if (!info.configured) return t("aireview.status.none");
   if (info.source === "env") return t("aireview.status.env", { hint: info.hint, env: AI_REVIEW_ENV[provider] });
   return t("aireview.status.app", { hint: info.hint });
+}
+
+// Met ANTHROPIC_BASE_URL of OPENAI_BASE_URL gaan de aanvragen naar een ander adres (een proxy als LiteLLM); dat staat erbij.
+function aiReviewEndpointText(info) {
+  if (info.endpointError) return info.endpointError;
+  if (info.endpointSource === "env") return t("aireview.status.endpoint", { endpoint: info.endpoint, env: info.baseEnv });
+  return "";
+}
+
+function aiReviewStatusText(info, provider) {
+  return [aiReviewKeyText(info, provider), aiReviewEndpointText(info)].filter(Boolean).join(" ");
 }
 
 function applyAiReviewStatus(status) {
@@ -31,7 +42,7 @@ function applyAiReviewStatus(status) {
     $(`#ai-clear-${provider}`).hidden = info.source !== "app";
   }
   setOffersRecipesTab(status.recipesTab);
-  applyStoreFold("ai", AI_REVIEW_PROVIDERS.some((provider) => status.providers[provider].configured));
+  applyStoreFold("ai", true); // standaard dicht, ook zonder sleutel: het blok is optioneel en lang
 }
 
 async function loadAiReviewSettings() {

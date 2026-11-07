@@ -672,6 +672,22 @@ class CourseCollectorsTest(TempDataDirTest):
                 mock.patch.object(offers.picnic_recipes, "source_url", return_value=""):
             self.assertEqual(offers._collect_picnic()[0]["course"], "soep")
 
+        crisp_recipe = {"id": "55", "name": "Curry", "image": "", "url": None,
+                        "ingredients": [{"line": "150 g rijst", "name": "rijst"}, {"line": "olie", "name": ""}, {"line": "", "name": ""}]}
+        with mock.patch.object(offers.crisp, "configured_client_id", return_value="x"), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", return_value={"recipes": [{"id": "55", "tags": ["Soep"]}], "total": 1}), \
+                mock.patch.object(offers.crisp, "get_recipe", return_value=crisp_recipe):
+            found = offers._collect_crisp()[0]
+        self.assertEqual((found["course"], found["ingredients"], found["url"]), ("soep", ["rijst", "olie"], "https://crisp.nl/#recipe-55"))
+        with mock.patch.object(offers.crisp, "get_recipe", return_value={**crisp_recipe, "url": "https://crisp.nl/r/abc"}), \
+                mock.patch.object(offers.crisp, "configured_client_id", return_value="x"), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", return_value={"recipes": [{"id": "55", "tags": []}], "total": 1}):
+            self.assertEqual(offers._collect_crisp()[0]["url"], "https://crisp.nl/r/abc", "de deellink van Crisp als die er is")
+        with mock.patch.object(offers.crisp, "configured_client_id", return_value=""), \
+                mock.patch.object(offers.crisp, "get_saved_recipes", side_effect=AssertionError("niet ophalen")), \
+                self.assertRaises(LookupError):
+            offers._collect_crisp()
+
     def test_ah_reads_the_category_and_refetches_recipes_indexed_without_one(self):
         saved = {"recipes": [{"id": str(i), "title": f"R{i}", "image": "", "url": ""} for i in (1, 2)]}
         calls = []
@@ -712,7 +728,9 @@ class OffersTabMarkupTest(unittest.TestCase):
         self.assertIn('<div id="offers-loading" class="offers-loading" role="status" aria-live="polite" hidden></div>', html)
         body = script[script.index("async function showOffers()"):script.index("function offerRecipeCard")]
         self.assertLess(body.index("renderOffersLoading()"), body.index("await jsonFetch"), "de laadstand staat er al voordat er iets wordt opgehaald")
-        self.assertEqual(body.count("loadId !== offersLoadId"), 2, "een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout")
+        # Een traag antwoord van de vorige winkel wordt genegeerd, ook bij een fout; en wisselt renderOffersStore naar de
+        # voorkeurssupermarkt, dan laadt die zelf en stopt deze aanvraag.
+        self.assertEqual(body.count("loadId !== offersLoadId"), 3)
         self.assertIn("mdiIcon(MDI_LOADING", script)
         self.assertIn("const offersCache = {};", script, "de laatst geladen lijst per winkel staat er bij terugkeren meteen")
         self.assertIn("if (cached) renderOffers(cached);\n  else renderOffersLoading();", body.replace(body[:0], ""), "met een lijst in de cache geen spinner")
@@ -798,7 +816,8 @@ class OffersTabMarkupTest(unittest.TestCase):
         script = (root / "static" / "offers.js").read_text(encoding="utf-8")
         self.assertIn("&course=", script, "de gekozen soort gaat mee naar de server")
         self.assertIn('"#offers-courses").addEventListener("click"', script)
-        self.assertIn("offersState.course = \"all\";\n  try {", script, "een andere winkel zet het filter terug op alles")
+        switch = script[script.index("function offersSwitchStore("):script.index("// De voorwaarden van een aanbieding")]
+        self.assertIn("offersState.course = \"all\";\n  showOffers();", switch, "een andere winkel zet het filter terug op alles")
 
     def test_a_matched_product_opens_a_dialog_with_a_link_to_the_store(self):
         import re

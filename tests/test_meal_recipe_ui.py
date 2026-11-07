@@ -1,7 +1,7 @@
 """Het weekmenu: een tik op een maaltijd opent het recept in een venster, het potlood rechtsboven het plan-venster.
 
-`renderMeal` en `renderMealRecipeBody` uit static/app.js draaien hier echt, in Node. Zonder Node slaan die tests over; de
-tekstcontroles draaien altijd.
+`renderMeal` en `renderMealRecipeBody` uit static/app.js draaien hier echt, in Node, met de kookweergave uit
+static/recipe_view.js (zie ook tests/test_recipe_view.py). Zonder Node slaan die tests over; de tekstcontroles draaien altijd.
 """
 
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+VIEW_JS = (ROOT / "static" / "recipe_view.js").read_text(encoding="utf-8")
 HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 CSS = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
 NL = (ROOT / "static" / "i18n" / "nl.js").read_text(encoding="utf-8")
@@ -24,6 +25,13 @@ def function_source(name):
     if not match:
         raise AssertionError(f"functie {name} niet gevonden in app.js")
     return match.group(0)
+
+
+def recipe_view_source():
+    """De constanten en functies van recipe_view.js, zonder de luisteraars onderaan (die hebben een pagina nodig)."""
+    consts = re.findall(r"^(?:const|let) \w+ = .*$", VIEW_JS, re.M)
+    functions = re.findall(r"^(?:async )?function \w+\(.*?^}$", VIEW_JS, re.S | re.M)
+    return "\n".join(line for line in consts if not line.startswith("const MDI_")) + "\n" + "\n".join(functions)
 
 
 RECIPE_ID = "6f1c8d1e-2b3a-4c5d-8e9f-0a1b2c3d4e5f"
@@ -62,9 +70,10 @@ class MealRenderTest(unittest.TestCase):
                 function_source("mealLabel"),
                 function_source("escapeHtml"),
                 function_source("mealServings"),
+                'const MDI_CHEF_HAT = "M1"; const MDI_RESTART = "M2"; const MDI_CHECK = "M3";',
+                recipe_view_source(),
                 function_source("mealName"),
                 function_source("renderMeal"),
-                function_source("mealRecipeLines"),
                 function_source("renderMealRecipeBody"),
                 f"process.stdout.write(JSON.stringify({call}));",
             ]
@@ -97,8 +106,21 @@ class MealRenderTest(unittest.TestCase):
     def test_the_window_shows_the_planned_ingredients_and_the_steps(self):
         html = self.run_js(f"renderMealRecipeBody({json.dumps(recipe_entry())})")
         self.assertIn("Snel en groen.", html)
-        self.assertEqual(re.findall(r"<li>(.*?)</li>", html), ["800 g spaghetti", "zout naar smaak", "Kook de pasta.", "Roer de pesto erdoor."])
-        self.assertIn("<ol", html)
+        # De kookweergave: elke regel een vinkje, het aantal vet; de stappen genummerd.
+        texts = [re.sub(r"<[^>]+>", "", line) for line in re.findall(r'<span class="cook-ingredient__text">(.*?)</span></label>', html)]
+        self.assertEqual(texts, ["800 g spaghetti", "zout naar smaak"])
+        self.assertEqual(re.findall(r'<span class="cook-ingredient__amount">(.*?)</span>', html), ["800 g"])
+        self.assertEqual(html.count('type="checkbox" data-cook-tick='), 2)
+        self.assertEqual(re.findall(r'<p class="cook-step__text">(.*?)</p>', html), ["Kook de pasta.", "Roer de pesto erdoor."])
+        self.assertIn('<ol class="cook-steps" role="list">', html)
+        # Dezelfde sleutel als bij Recepten zoeken (mealie:<slug>): dezelfde voortgang op beide plekken.
+        self.assertIn('data-cook-key="mealie:pasta"', html)
+        self.assertIn('<h4 class="cook__heading">', html)
+
+    def test_a_meal_without_slug_has_its_own_key(self):
+        entry = recipe_entry(recipe=None)
+        html = self.run_js(f"renderMealRecipeBody({json.dumps(entry)})")
+        self.assertIn('data-cook-key="plan:7"', html)
 
     def test_empty_parts_say_so(self):
         entry = recipe_entry(recipeDetail={"recipeIngredient": [], "recipeInstructions": []})
@@ -130,6 +152,11 @@ class MealRecipeWiringTest(unittest.TestCase):
         edit = APP_JS[APP_JS.index('$("#meal-recipe-edit").addEventListener'):]
         edit = edit[:edit.index("\n});")]
         self.assertLess(edit.index('$("#meal-recipe-dialog").close()'), edit.index("openPlanDialog({ entry })"))
+
+    def test_opening_the_window_checks_the_screen_lock(self):
+        opened = function_source("openMealRecipe")
+        self.assertLess(opened.index("dialog.showModal()"), opened.index("cookWakeUpdate()"))
+        self.assertNotIn("mealRecipeLines", APP_JS)
 
     def test_the_old_single_button_is_gone(self):
         for old in ("meal--button", "meal__pencil"):

@@ -34,6 +34,7 @@ async function refreshPicnicStatus() {
   } catch (error) {
     message("#picnic-status", error.message);
   }
+  state.storeStatusKnown.picnic = true; // gekoppeld of niet: Aanbiedingen en Winkels hoeven er niet meer op te wachten
   renderStoreChoice();
 }
 

@@ -1,4 +1,4 @@
-"""Instellingen, Weergave: de accentkleur en de donkere achtergrond (static/theme.js, static/appearance.js, styles.css).
+"""Instellingen, Voorkeuren: de accentkleur en de donkere achtergrond (static/theme.js, static/appearance.js, styles.css).
 
 De accentkleur mag iemand vrij kiezen, dus moet theme.js er altijd leesbare tinten van maken. Dat rekenen we hier na,
 voor de keuzes in het menu en voor een rij lastige eigen kleuren (wit, zwart, citroen, felgroen ...).
@@ -22,7 +22,9 @@ HTML = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 PRELUDE = """
 global.window = { matchMedia: () => ({ matches: false, addEventListener() {} }),
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, dispatchEvent() {} };
+const classes = new Set();
 const root = { attrs: {}, props: {}, getAttribute(n) { return this.attrs[n] ?? null; }, setAttribute(n, v) { this.attrs[n] = String(v); },
+  classList: { toggle(n, on) { if (on) classes.add(n); else classes.delete(n); }, add(n) { classes.add(n); }, contains: (n) => classes.has(n) },
   removeAttribute(n) { delete this.attrs[n]; }, toggleAttribute(n, on) { if (on) this.attrs[n] = ""; else delete this.attrs[n]; },
   style: { setProperty(n, v) { root.props[n] = v; }, removeProperty(n) { delete root.props[n]; } } };
 global.document = { documentElement: root, addEventListener() {}, querySelectorAll: () => [] };
@@ -150,6 +152,12 @@ for (const glass of [0, 60, 100, 150, -5, 50.5, "60", null]) {{
 }}
 T.apply({{ navbarStyle: "windows" }});
 out.badStyle = [T.appearance().navbarStyle, root.attrs["data-nav"]];
+// De kookmodus: standaard aan, alleen een echte false zet hem uit (en de klasse no-cook-mode op <html>).
+out.cooking = [[T.appearance().cookingMode, classes.has("no-cook-mode")]];
+for (const value of [false, "nee", true, 0, false, null]) {{
+  T.apply({{ cookingMode: value }});
+  out.cooking.push([value, T.appearance().cookingMode, classes.has("no-cook-mode")]);
+}}
 console.log(JSON.stringify(out));
 """)
         cls.light_surfaces = [css_tokens()[name] for name in ("--surface", "--bg", "--surface-muted")]
@@ -228,6 +236,17 @@ console.log(JSON.stringify(out));
         ])
         self.assertEqual(self.data["badStyle"], ["auto", "ios"])
 
+    def test_cooking_mode_is_on_unless_it_is_switched_off(self):
+        self.assertEqual(self.data["cooking"], [
+            [True, False],
+            [False, False, True],
+            ["nee", True, False],  # geen echte false: aan
+            [True, True, False],
+            [0, True, False],
+            [False, False, True],
+            [None, True, False],
+        ])
+
     def test_the_glass_slider_becomes_plain_values(self):
         self.assertEqual(self.data["glass"], [
             [0, 0, "1.000", "10.0px"],  # zoals applyNavGlass in 3dprint_pricing
@@ -268,14 +287,65 @@ console.log(JSON.stringify(out));
 
 
 class AppearanceMarkupTest(unittest.TestCase):
+    def panel(self):
+        start = HTML.index('<div id="settings-appearance"')
+        return HTML[start:HTML.index("\n      </section>", start)]
+
+    def test_three_folding_blocks_like_link_with_the_parts_in_order(self):
+        panel = self.panel()
+        boxes = re.findall(r'<div class="box fold fold--compact" id="appearance-(\w+)-box">', panel)
+        self.assertEqual(boxes, ["store", "display", "theme"], "Supermarkt, Weergave, dan Thema")
+        titles = re.findall(r'<span data-i18n="appearance\.(\w+)\.title">([^<]+)</span>', panel)
+        self.assertEqual(titles[:3], [("store", "Supermarkt"), ("display", "Weergave"), ("theme", "Thema")])
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn('const APPEARANCE_FOLDS = ["store", "display", "theme"];', script)
+        for name in boxes:
+            toggle = re.search(rf'<button type="button" class="fold__toggle" id="appearance-{name}-toggle"[^>]*>', panel).group(0)
+            self.assertIn(f'aria-controls="appearance-{name}-body"', toggle)
+            self.assertIn('aria-expanded="false"', toggle, "dicht tot je hem opent")
+            self.assertIn(f'<div class="fold__body" id="appearance-{name}-body" hidden>', panel)
+        theme = panel[panel.index('id="appearance-theme-box"'):]
+        titles = re.findall(r'<h3 id="appearance-(\w+)-title"', theme)
+        self.assertEqual(titles, ["accent", "themebg", "nav"], "Accentkleur, Thema & achtergrond, Navigatiebalk")
+        sections = re.findall(r'<section class="appearance-section( fold__section)?"', theme)
+        self.assertEqual(sections, ["", " fold__section", " fold__section"], "een lijn tussen de onderdelen")
+        prefs = panel[panel.index('id="appearance-display-box"'):panel.index('id="appearance-theme-box"')]
+        switch = re.search(r'<input type="checkbox" role="switch" class="switch" id="appearance-cooking"[^>]*>', prefs).group(0)
+        self.assertIn(" checked", switch, "standaard aan")
+        self.assertIn('aria-labelledby="appearance-cooking-label"', switch)
+        script = (STATIC / "appearance.js").read_text(encoding="utf-8")
+        self.assertIn("ms-fold-appearance-", script, "open of dicht blijft per browser")
+        self.assertIn("appearanceFoldStored(name) ?? false", script, "zonder keuze dicht")
+
+    def test_compact_folds_and_a_real_switch(self):
+        compact = re.search(r"\.box\.fold--compact\s*{(.*?)}", CSS, re.S).group(1)
+        self.assertIn("padding: 8px 20px", compact, "dicht is het blok niet hoger dan zijn kop")
+        self.assertIn('.box.fold--compact:has(> .fold__title > .fold__toggle[aria-expanded="true"])', CSS)
+        switch = re.search(r"^\.switch\s*{(.*?)}", CSS, re.S | re.M).group(1)
+        self.assertIn("appearance: none", switch)
+        self.assertIn("var(--placeholder)", switch, "de rand haalt 3 : 1")
+        self.assertRegex(CSS, r"\.switch:focus-visible\s*{\s*outline: 3px solid var\(--primary\)")
+
+    def test_cooking_mode_off_hides_the_bar_and_the_ticks(self):
+        rule = re.search(r"html\.no-cook-mode \.cook__bar,\s*html\.no-cook-mode \.cook-ingredient input,\s*html\.no-cook-mode \.cook \[data-cook-ticked\]\s*{(.*?)}", CSS, re.S)
+        self.assertIsNotNone(rule)
+        self.assertIn("display: none", rule.group(1))
+        head = HTML[:HTML.index("</head>")]
+        self.assertIn('if (look.cookingMode === false) root.classList.add("no-cook-mode")', head, "voor de eerste weergave")
+        view = (STATIC / "recipe_view.js").read_text(encoding="utf-8")
+        self.assertIn("return cookEnabled() && cookWakeSupported()", view, "uit: het scherm blijft niet aan")
+        self.assertIn("input.disabled = !enabled;", view, "uit: een tik op een regel vinkt niets af")
+
     def test_the_choices_are_real_radio_buttons(self):
-        panel = HTML[HTML.index('<div id="settings-appearance"'):HTML.index("</section>", HTML.index('<div id="settings-appearance"'))]
+        panel = HTML[HTML.index('<div id="settings-appearance"'):HTML.index("\n      </section>", HTML.index('<div id="settings-appearance"'))]
         self.assertEqual(re.findall(r'name="appearance-theme" value="(\w+)"', panel), ["system", "light", "dark"])
         self.assertEqual(re.findall(r'name="appearance-dark-bg" value="(\w+)"', panel), ["green", "grey"])
         self.assertEqual(re.findall(r'name="appearance-nav" value="(\w+)"', panel), ["auto", "ios", "android"])
+        self.assertEqual(re.findall(r'name="appearance-store" value="(\w+)"', panel), ["ah", "jumbo", "picnic", "crisp"])
+        self.assertRegex(panel, r'name="appearance-store" value="ah" checked>', "standaard Albert Heijn")
         self.assertIn('<input type="range" id="appearance-glass" min="0" max="100" step="1" value="60"', panel)
-        self.assertEqual(panel.count("<fieldset"), 4)
-        self.assertEqual(panel.count("<legend"), 4)
+        self.assertEqual(panel.count("<fieldset"), 5)
+        self.assertEqual(panel.count("<legend"), 5)
         script = (STATIC / "appearance.js").read_text(encoding="utf-8")
         self.assertIn('type="radio" name="appearance-accent"', script)
         self.assertIn('type="color"', script)

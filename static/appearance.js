@@ -1,4 +1,6 @@
-// Instellingen, Weergave: het thema, de achtergrond van het donkere thema, de accentkleur en de navigatiebalk, per gebruiker.
+// Instellingen, Voorkeuren, per gebruiker, in drie inklapbare blokken (zoals onder Koppelen): Supermarkt (de
+// voorkeurssupermarkt waarmee Aanbiedingen en Winkels openen), Weergave (de kookmodus) en Thema (de accentkleur, het thema met
+// de achtergrond van het donkere thema, en de navigatiebalk).
 // Het toepassen en het rekenen met kleuren doet static/theme.js (window.THEME); dit bestand tekent de keuzes en bewaart ze
 // bij het profiel (PUT /api/profile/preferences). Na het inloggen zet appearanceFromProfile() de keuze van het profiel.
 // Laadt na app.js en profile.js en gebruikt daar de hulpfuncties van ($, message, jsonFetch, t, escapeHtml, state, ...).
@@ -14,7 +16,7 @@ function appearanceSignedIn() {
 }
 
 // De keuze van het profiel toepassen, na het laden van /api/auth/status. Een thema van null is nog niet gekozen: dan blijft
-// wat deze browser had, zoals voor er een menu Weergave was.
+// wat deze browser had, zoals voor er een menu Weergave (nu Voorkeuren) was.
 function appearanceFromProfile() {
   const auth = state.auth || {};
   if (!appearanceSignedIn() || !("accent" in auth)) return;
@@ -24,6 +26,7 @@ function appearanceFromProfile() {
     accent: auth.accent,
     navbarStyle: auth.navbarStyle,
     navbarGlass: auth.navbarGlass,
+    cookingMode: auth.cookingMode,
   });
   renderAppearance();
 }
@@ -46,6 +49,8 @@ async function appearanceSave(change, { previous = null, target = "#appearance-m
       accent: data.accent,
       navbarStyle: data.navbarStyle,
       navbarGlass: data.navbarGlass,
+      cookingMode: data.cookingMode,
+      preferredStore: data.preferredStore,
     };
   } catch (error) {
     if (previous) {
@@ -132,7 +137,46 @@ function renderAppearanceNav(look) {
   if (value) value.textContent = t("appearance.glass.value", { n: slider ? slider.value : look.navbarGlass });
 }
 
+// De voorkeurssupermarkt: de gekozen winkel, en een regel als die nog niet gekoppeld is (dan openen de pagina's met AH).
+function renderAppearanceStore() {
+  const store = preferredSupermarket();
+  document.querySelectorAll('input[name="appearance-store"]').forEach((input) => {
+    input.checked = input.value === store;
+  });
+  const current = $("#appearance-store-current");
+  if (!current) return;
+  const unlinked = store !== "ah" && state.storeStatusKnown[store] && !state.linkedStores[store];
+  current.textContent = unlinked ? t("appearance.store.unlinked", { store: STORES[store].name }) : "";
+  current.hidden = !unlinked;
+}
+
+// Een andere voorkeurssupermarkt: meteen toepassen (Aanbiedingen en Winkels) en bij het profiel bewaren. Weigert de server hem,
+// dan komt de vorige terug.
+async function appearanceSaveStore(store) {
+  const previous = preferredSupermarket();
+  if (store === previous) return;
+  state.auth = { ...state.auth, preferredStore: store };
+  preferredSupermarketChanged();
+  renderAppearanceStore();
+  message("#appearance-store-message", "");
+  if (!appearanceSignedIn()) return;
+  try {
+    const data = await jsonFetch("/api/profile/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferredStore: store }),
+    });
+    state.auth = { ...state.auth, preferredStore: data.preferredStore };
+  } catch (error) {
+    state.auth = { ...state.auth, preferredStore: previous };
+    preferredSupermarketChanged();
+    renderAppearanceStore();
+    message("#appearance-store-message", error.message);
+  }
+}
+
 function renderAppearance() {
+  renderAppearanceStore();
   if (!$("#settings-appearance") || typeof THEME === "undefined") return;
   const look = THEME.appearance();
   document.querySelectorAll('input[name="appearance-theme"]').forEach((input) => {
@@ -143,7 +187,58 @@ function renderAppearance() {
   });
   renderAppearanceAccent(look);
   renderAppearanceNav(look);
+  const cooking = $("#appearance-cooking");
+  if (cooking) cooking.checked = look.cookingMode !== false;
 }
+
+// ---- De blokken klappen in en uit. De keuze blijft in deze browser (ms-fold-appearance-<naam>); zonder keuze staan ze
+// dicht, zodat de pagina kort blijft en je meteen ziet wat er is.
+const APPEARANCE_FOLDS = ["store", "display", "theme"];
+
+function appearanceFoldStored(name) {
+  try {
+    const value = localStorage.getItem(`ms-fold-appearance-${name}`);
+    return value === "1" ? true : value === "0" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyAppearanceFold(name, open) {
+  const toggle = $(`#appearance-${name}-toggle`);
+  const body = $(`#appearance-${name}-body`);
+  if (!toggle || !body) return;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.title = t(open ? "sec.collapse" : "sec.expand");
+  body.hidden = !open;
+}
+
+function applyAppearanceFolds() {
+  APPEARANCE_FOLDS.forEach((name) => applyAppearanceFold(name, appearanceFoldStored(name) ?? false));
+}
+
+APPEARANCE_FOLDS.forEach((name) => {
+  $(`#appearance-${name}-toggle`).addEventListener("click", () => {
+    const open = $(`#appearance-${name}-toggle`).getAttribute("aria-expanded") !== "true";
+    try {
+      localStorage.setItem(`ms-fold-appearance-${name}`, open ? "1" : "0");
+    } catch {
+      // Geen opslag: het blok blijft zo tot je de pagina herlaadt.
+    }
+    applyAppearanceFold(name, open);
+  });
+});
+
+// De kookmodus: uit verbergt bij een recept Start met koken, de voortgang, Scherm aan laten en de vinkjes (recipe_view.js).
+$("#appearance-cooking").addEventListener("change", (event) => {
+  const previous = { cookingMode: THEME.appearance().cookingMode };
+  THEME.apply({ cookingMode: event.target.checked });
+  appearanceSave({ cookingMode: event.target.checked }, { previous, target: "#appearance-display-message" });
+});
+
+$("#appearance-store").addEventListener("change", (event) => {
+  if (event.target.name === "appearance-store") appearanceSaveStore(event.target.value);
+});
 
 $("#appearance-theme").addEventListener("change", (event) => {
   if (event.target.name === "appearance-theme") THEME.choose(event.target.value); // het bewaren volgt via ms:appearancechange
@@ -204,5 +299,9 @@ window.addEventListener("ms:appearancepaint", () => {
   if (!appearancePicking) renderAppearance();
 });
 
-window.addEventListener("ms:languagechange", renderAppearance);
+window.addEventListener("ms:languagechange", () => {
+  renderAppearance();
+  applyAppearanceFolds();
+});
+applyAppearanceFolds();
 renderAppearance();

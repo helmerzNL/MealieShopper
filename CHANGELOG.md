@@ -2,6 +2,286 @@
 
 Elke release heeft hier een eigen kopje `## vX.Y.Z` en wordt bij het mergen naar `main` automatisch een GitHub release (zie [Releases](#releases)). De tekst onder het kopje is de release-tekst op GitHub; een stabiele release krijgt de teksten van alle versies sinds de vorige stabiele release.
 
+## v3.22.0
+
+### Nieuw in 3.22.0
+
+*English summary: new under Settings, System: Export price archive. It downloads all offers and prices as a ZIP with one file per store and month (`offers/<store>/<yyyy-mm>.jsonl`, `prices/<store>/<yyyy-mm>.jsonl`), plus `mealieshopper-price-archive.json` (the header, with the list of files) and a `README.md`, to publish for example in a GitHub repository. Personal offers (Bonus Box) are never included. The same data gives exactly the same files, so git only shows what changed. Import price archive reads the export back, also as the ZIP of a GitHub repository; it now also accepts offers without an address (Picnic, Crisp) and regular prices (`search`, stored as `archive_search`, which Replace removes again).*
+
+- **Nieuw: Prijsarchief exporteren** (Instellingen, Systeem, alleen de beheerder). Je downloadt alle aanbiedingen en prijzen als ZIP, om te delen in bijvoorbeeld een openbare GitHub-repo: pak de ZIP uit in de repo en commit.
+  - **Wat erin staat:** alle aanbiedingen van Albert Heijn, Jumbo, Picnic en Crisp, en alle prijzen: de gewone prijzen die de app bij het zoeken zag en wat eerder uit een prijsarchief kwam. Een afbeelding gaat alleen als adres mee.
+  - **Nooit erin:** je persoonlijke aanbiedingen (Bonus Box). Bestellingen, kassabonnen, lijstjes en instellingen staan in andere tabellen en gaan dus ook niet mee. Een regel die de import zou weigeren, blijft eruit; de melding na het exporteren noemt hoeveel.
+  - **Een bestand per winkel en maand:** `offers/<winkel>/<jjjj-mm>.jsonl` en `prices/<winkel>/<jjjj-mm>.jsonl`, met één regel van het eigen formaat per regel. `mealieshopper-price-archive.json` is de kop, met `files` (de bestanden) en `counts` (het aantal per winkel), en `README.md` zegt wat erin staat, in het Nederlands en het Engels.
+  - **Git-vriendelijk:** dezelfde gegevens geven precies dezelfde bestanden, met de regels in een vaste volgorde. Een nieuwe export laat in git dus alleen zien wat er veranderde, meestal de laatste maand. Geen bestand komt in de buurt van de grens van 100 MB van GitHub.
+- **De import leest de export terug**, ook als de ZIP van een GitHub-repo (**Code, Download ZIP**), waarin alles in één map staat. Hij leest alleen de bestanden in `files`: een oud bestand of een `LICENSE` in de repo stoort niet. Een bestand dat in `files` staat maar ontbreekt, of een pad buiten de map, weigert het hele archief.
+- **Gewijzigd in de import:**
+  - Een aanbieding zonder adres mag nu: Picnic en Crisp hebben geen webwinkel. Zo'n aanbieding staat er al als hetzelfde product met dezelfde looptijd er staat.
+  - Een gewone prijs (`search`, wat een MealieShopper bij het zoeken zag) mag nu ook, en wordt `archive_search`. Hij telt als gewone prijs, telt niet mee als product van jou bij het koppelen, en **Vervang wat eerder uit een prijsarchief kwam** haalt hem er weer uit.
+- Met de database van de vorige proef (45.048 aanbiedingen en 44.170 prijzen) maakt de app de export in ruim 2 seconden: 437 bestanden, 5,1 MB als ZIP. Twee exporten na elkaar geven dezelfde bestanden. Terug geïmporteerd in een lege installatie, ook als ZIP van een repo met een map erboven, komen alle prijzen en 45.019 aanbiedingen binnen: de 29 andere zijn combi-aanbiedingen uit een import van vóór 3.21.0, die de import nu tegenhoudt.
+- **API:** `POST /api/price-archive/export` geeft de ZIP, met `X-Export-Offers`, `X-Export-Prices` en `X-Export-Skipped`. Na het exporteren staat een regel in het auditlog (`price-archive`, `export`).
+- **Handleiding** (NL en EN): nieuw onderdeel *Prijsarchief exporteren*; bij *Het eigen formaat* staan de map, de aanbieding zonder adres en de bronnen `search` en `archive_search`. De README's noemen de export.
+- **Ontwikkeling**: nieuw `price_archive_export.py`. `test_price_archive` heeft 6 nieuwe tests: een bestand per winkel en maand zonder persoonlijke aanbiedingen (met de README en het auditlog), twee keer dezelfde bestanden, terug importeren (ook nog een keer), de ZIP van een GitHub-repo, een ontbrekend bestand, een kapotte regel of een pad buiten de map, en een regel die de import zou weigeren. De export-route staat in de toegangstests, en de bron `search` is niet meer het voorbeeld van een geweigerde bron (dat is nu `receipt`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-14`). Ververs de pagina één keer.
+- Pull request [#273](https://github.com/helmerzNL/MealieShopper/pull/273).
+
+## v3.21.0
+
+### Gewijzigd in 3.21.0
+
+*English summary: a price archive now only adds leaflet lines that certainly belong to one product. After the tidying in 3.18.0 tens of thousands of "Folder: ..." products were still left (toys, decorations, products you never buy), and real products showed long leaflet texts with "koppeling onzeker". A leaflet line now only comes in when it is linked exactly (same name and pack size) to a product the app knows, with the linking from wolph's `import_archive.py`, or when the archive itself already linked it exactly. Combination offers and uncertain links never come in, and only the deal remains as promotion text. Prices from the archive (Picnic, Crisp) follow the same rule: only those that belong exactly to a product of yours come in, with that product, so the "Archief: ..." products disappear too. Import the package again with Replace what came from a price archive before ticked to clear out the old lines. For an archive of your own, `?keep_unlinked=1` keeps unlinked lines and prices and uncertain links.*
+
+- **Alleen wat zeker bij één product hoort.** Na het opschonen uit 3.18.0 bleven er nog tienduizenden *Folder: …*-producten over: speelgoed, versiering, en producten die je nooit koopt (*AH Excellent tafelversiering*, *A-merk speelgoed*). En bij echte producten stond een lange foldertekst met *koppeling onzeker*, omdat een regel op woorden aan een product was gekoppeld, vaak een andere variant. Een folderregel komt er nu alleen in als hij zeker bij één product hoort:
+  - **Exact gekoppeld**: dezelfde naam en verpakking als een product dat de app kent (je aanbiedingen, bijgehouden prijzen en bestellingen), met de koppeling uit `import_archive.py` van wolph, of al exact gekoppeld door het archief. Op woorden koppelt de app niet meer.
+  - **Nooit een combi-aanbieding** (*A of B*, *alle …*, *combineren mogelijk*, en nu ook *naar keuze*), ook niet als het archief hem al aan een product koppelde.
+  - **Geen onzekere koppeling**: een regel die het archief zelf op woorden koppelde, blijft weg.
+  - **Korte actietekst**: alleen de actie (*2 voor: 1.00 Los*), zonder *Folder |*, *bron: …* en *koppeling onzeker: …*. De app leest daarin geen actie, want de prijs uit het archief is al per stuk.
+- **Ook de prijzen van Picnic en Crisp.** De *Archief: …*-producten verdwijnen net zo: een prijs uit een archief zonder product (`folder:…`) komt er alleen in als hij exact bij een Picnic- of Crisp-product van jou hoort, en staat dan bij dat product. Het pakket koppelt die prijzen zelf aan geen enkel product, want de product-id's van Picnic veranderden in april 2023.
+- **Dezelfde verpakking** is dezelfde hoeveelheid, of bij een multipack (*6 x 300 ml*) letterlijk dezelfde tekst. Een multipack koppelde eerst nooit.
+- **Importeer het pakket opnieuw** met **Vervang wat eerder uit een prijsarchief kwam**: dan staat er geen enkel *Folder: …*- of *Archief: …*-product meer en verdwijnen de lange folderteksten. Met het echte pakket en een database met de vorige import (24.604 *Folder: …*-producten) komen er 656 aanbiedingen bij een echt product binnen; 131.898 folderregels blijven buiten (89.248 combi-aanbiedingen, 1.984 onzekere koppelingen en 40.666 regels zonder product). Die database heeft geen Picnic- of Crisp-producten, dus de 44.170 prijzen blijven ook buiten; met drie Picnic-producten die in het archief staan, kwamen precies hun 72 prijzen bij die producten binnen. Koop of zoek je later producten die in het archief staan, importeer dan nog een keer met Vervangen.
+- **Voor een eigen archief** houdt `?keep_unlinked=1` bij het uploaden (`POST /api/price-archive/stage` en `POST /api/price-archive/uploads/<token>/stage`) de ongekoppelde regels en prijzen als eigen product en de onzekere koppelingen bij hun product. Combi-aanbiedingen komen er ook dan niet in, en een ongekoppelde folderregel zonder gewicht, inhoud of aantal krijgt geen prijs.
+- **Ook een overgeslagen regel wordt gecontroleerd**: een kapotte regel weigert nog steeds het hele bestand. De samenvatting zegt in één zin hoeveel regels zeker bij één product horen en hoeveel er zijn overgeslagen (`tidied` met `exact`, `linkedByArchive`, `groups`, `uncertain` en `unlinked`), en in een tweede zin hetzelfde voor de prijzen (`pricesExact` en `pricesUnlinked`).
+- **Verwijderd:** de koppeling op woorden bij het importeren, en daarmee `tidied.approximate` in de samenvatting.
+- **Auditlog eerst.** De regel in het auditlog staat er nu voordat de import als klaar wordt gemeld.
+- **Handleiding** (NL en EN): *Alleen wat zeker bij één product hoort* (met de prijzen uit een archief) en *Zo zie je ze*.
+- **Ontwikkeling**: `test_price_archive` heeft 9 nieuwe tests: standaard alleen regels en prijzen die zeker bij een product horen (in één keer en in stukken geüpload), een prijs met een andere naam of verpakking, een multipack met dezelfde tekst, een onzekere koppeling uit het archief, een kapotte regel die ook overgeslagen zou worden, de optie `keep_unlinked`, en de korte actietekst (alleen de actie, en de app leest er geen actie in). De bestaande tests uploaden met `keep_unlinked` en volgen de nieuwe regels.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-13`). Ververs de pagina één keer.
+- Pull request [#272](https://github.com/helmerzNL/MealieShopper/pull/272).
+
+## v3.20.1
+
+### Opgelost en bijgewerkt in 3.20.1
+
+*English summary: restoring a backup with login switched off no longer loses your own profile (theme, accent colour, navigation bar, cooking mode, Prefer organic and the preferred supermarket); it used to be skipped as "a user that does not exist here". The screenshots of Settings now show the menu Preferences, with a new one of the Supermarket block in the manual.*
+
+- **Opgelost: zonder inloggen raakte terugzetten je eigen profiel kwijt.** Met inloggen uit (`PASSKEY_AUTH_ENABLED=false`) doet de app alles als de beheerder, maar die staat dan niet als gebruiker in de database. Het terugzetten sloeg zijn profiel daarom over als *profiel van een gebruiker die hier niet bestaat*, en het profiel dat er stond was dan al weg: thema, accentkleur, navigatiebalk, kookmodus, *Liever biologisch* en de voorkeurssupermarkt gingen terug naar de standaard. Het profiel van de beheerder hoort nu altijd bij de installatie; dat van een gebruiker die hier niet bestaat, wordt nog steeds overgeslagen.
+- **Schermafbeeldingen bijgewerkt** (NL en EN): Instellingen met het menu **Voorkeuren** (`appearance`, `navbar`, `users`, `audit`, `audit-detail` en `updates`), en een nieuwe van het blok **Supermarkt** met Jumbo als voorkeurssupermarkt (`preferences`, in de handleiding onder *Voorkeuren*). Het scenario `appearance` klikte nog op het blok van voor 3.20.0 en liep vast.
+- **Ontwikkeling**: `test_backup` heeft 2 nieuwe tests (het profiel van de beheerder zonder inloggen, en een profiel van iemand die er niet is).
+- Pull request [#271](https://github.com/helmerzNL/MealieShopper/pull/271).
+
+## v3.20.0
+
+### Nieuw en gewijzigd in 3.20.0
+
+*English summary: under Settings the menu Appearance is now called Preferences, and its block Preferences (cooking mode) is now called Appearance. A new block Supermarket has the preferred supermarket: Albert Heijn (the default), Jumbo, Picnic or Crisp. Offers and Stores open with it, per user, as soon as that store is linked; until then they open with Albert Heijn. A store you pick yourself on one of those pages stays while the app is open, and a new preferred supermarket applies to both pages again at once.*
+
+- **Nieuw: de voorkeurssupermarkt** (Instellingen, Voorkeuren, blok **Supermarkt**). Kies *Albert Heijn* (de standaard), *Jumbo*, *Picnic* of *Crisp*; **Aanbiedingen** en **Winkels** openen daarmee. Het hoort bij je account, dus elke huisgenoot kiest zelf en op een ander apparaat zie je hetzelfde.
+  - Is de gekozen winkel (nog) niet gekoppeld, dan staat dat onder de keuze en openen beide pagina's met Albert Heijn tot je hem koppelt.
+  - Kies je op Aanbiedingen of Winkels zelf een andere winkel in het uitklapmenu, dan blijft die staan zolang de app open is. Een nieuwe voorkeurssupermarkt geldt meteen weer voor beide pagina's.
+  - Aanbiedingen wacht bij het openen even op de koppeling van je voorkeurssupermarkt, in plaats van eerst de aanbiedingen van Albert Heijn te laden en dan te wisselen. Winkels wisselt alleen terwijl je hem open hebt, zodat er op de achtergrond niets bij een winkel wordt opgehaald.
+  - Het weekmenu en het Mandje onthouden zoals voorheen hun eigen laatste keuze.
+- **Gewijzigd: het menu Weergave heet nu Voorkeuren**, en het blok *Voorkeuren* daarin (de kookmodus) heet nu **Weergave**. De blokken zijn nu *Supermarkt*, *Weergave* en *Thema*. Het adres is `/settings/preferences`; `/settings/appearance` opent de pagina nog.
+- **Adressen van Aanbiedingen.** `/offers` zonder winkel is nu je voorkeurssupermarkt (eerst was dat altijd Albert Heijn). Kies je een andere winkel, dan staat die in het adres, ook Albert Heijn (`/offers?store=ah`) als je voorkeur een andere winkel is. Een link naar de prijsgeschiedenis vanuit een AH-bestelling of -kassabon opent dus altijd Albert Heijn.
+- **Verwijderd:** de onthouden winkel van Aanbiedingen in de browser (`ms-offers-store`). Die werd nooit gebruikt, omdat de pagina altijd al bij Albert Heijn begon; de voorkeurssupermarkt neemt die rol over.
+- **API:** `PUT /api/profile/preferences` neemt `preferredStore` (`ah`, `jumbo`, `picnic` of `crisp`; iets anders geeft `400`), en `GET /api/auth/status` en `GET /api/profile` geven hem terug. Nieuwe kolom `preferred_store` in `user_profiles` (standaard `ah`); hij gaat mee in de back-up, en een oudere back-up zet Albert Heijn terug.
+- **Handleiding** (NL en EN): het onderdeel *Weergave* heet nu *Voorkeuren*, met het blok Supermarkt; bij Aanbiedingen en Winkels staat waarmee ze openen. De README's noemen de voorkeurssupermarkt.
+- **Ontwikkeling**: nieuw `test_preferred_store` (14 tests: de standaard en terugvallen op AH, adressen met en zonder winkel, volgen tot je zelf kiest, een dichte pagina, een adres dat op een koppeling wacht, Winkels alleen als hij open is, een nieuwe voorkeur na een eigen keuze, de namen en het bewaren). `test_profile` test de nieuwe voorkeur (standaard, keuzes, weigeren, per gebruiker, een oude database), `test_backup` neemt hem mee, en `test_appearance`, `test_router` en `test_offers` volgen de nieuwe namen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-12`; 3.18.2 en 3.19.0 gebruikten al `20261106-10` en `20261106-11`). Ververs de pagina één keer.
+- Pull request [#269](https://github.com/helmerzNL/MealieShopper/pull/269).
+
+## v3.19.0
+
+### Nieuw in 3.19.0
+
+*English summary: under Settings, System, Backup and restore you choose what goes along. When making a backup you can leave out the current offers and the offer history (a smaller file); when restoring you can untick the links, the current offers and the offer history. What is not in the file or what you untick stays as it is. Without the links no password is needed, so you can still restore your data if you lost the password of the file.*
+
+- **Bij het maken: de aanbiedingen van nu en de historie van aanbiedingen mogen eruit.** Twee nieuwe vinkjes naast *Neem de koppelingen mee*: *Neem de aanbiedingen van nu mee* en *Neem de historie van aanbiedingen mee*. Beide staan aan. Uitgevinkt gaan die tabellen niet in het bestand (de aanbiedingen van nu: `offers` en `offers_meta`; de historie: `offer_history`), en het bestand zegt welke onderdelen ontbreken (`left_out`). Zo wordt het bestand kleiner.
+- **Bij het terugzetten: kiezen wat je terugzet.** Onder *Wat zet je terug?* staan vinkjes voor wat er in het bestand zit:
+  - **De koppelingen.** Uitgevinkt is er geen wachtwoord nodig: handig als je het wachtwoord van het bestand kwijt bent. De koppelingen die er nu zijn, blijven staan.
+  - **De aanbiedingen van nu** en **de historie van aanbiedingen**, met het aantal.
+  - Wat je uitvinkt, en wat niet in het bestand zit, blijft zoals het nu is; de samenvatting zegt *niet in dit bestand* en na afloop *Niet teruggezet, gebleven zoals het was*.
+- **Een bewerkt bestand** dat zegt dat een onderdeel ontbreekt terwijl het er wel in staat, of een onbekend onderdeel noemt, wordt geweigerd. Een oudere back-up zonder `left_out` werkt zoals altijd: alles gaat terug.
+- **API:** `POST /api/backup` en `POST /api/backup/jobs` kennen `"offers": false` en `"offerHistory": false`; `POST /api/backup/jobs` ook `"links": false` (dan geen wachtwoord). Zonder die velden gaat alles mee, zoals voorheen. De samenvatting heeft `leftOut`, het resultaat van het terugzetten `kept`.
+- **README** (NL en EN): wat je kiest bij maken en terugzetten, en wat te doen als je het wachtwoord kwijt bent.
+- **Ontwikkeling**: `test_backup` heeft 7 nieuwe tests (weglaten, wat weggelaten is blijft staan, uitvinken bij terugzetten, zonder koppelingen geen wachtwoord, bewerkt bestand, oudere back-up, elk onderdeel heeft een regel op het scherm).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-11`). Ververs de pagina één keer.
+- Pull request [#270](https://github.com/helmerzNL/MealieShopper/pull/270).
+
+## v3.18.2
+
+### Opgelost in 3.18.2
+
+*English summary: a backup upload in parts (3.18.1) could freeze the whole app. A part that got stuck on the way kept a lock while the server waited for the rest of it, so every retry waited behind it and took one of the four workers; after a few retries nothing answered any more, and each next attempt hung earlier. The server now reads a part completely before taking the lock, gives up a part that stays silent for 30 seconds (408, with a line in the log), and the screen sends a part again after 30 seconds without progress instead of two minutes.*
+
+- **Opgelost: een tweede of derde poging om een back-up terug te zetten bleef steeds eerder hangen** (na 20 MB, daarna al na 4 MB), en dan antwoordde de hele app niet meer. Bleef één stuk onderweg steken, dan hield de server een slot vast terwijl hij op de rest van dat stuk wachtte. Elke nieuwe poging wachtte achter dat slot en nam een van de vier werkers van de app in beslag; na een paar pogingen stond alles stil, tot een herstart. Dat zat in 3.18.1.
+  - De server leest een stuk nu eerst helemaal en houdt het slot alleen vast tijdens het schrijven (milliseconden). Een stuk dat blijft steken, houdt de andere niet meer op.
+  - Een stuk waar 30 seconden niets van binnenkomt, geeft de server op met `408` (en een regel in het logboek: *Upload …: stuk afgebroken na … bytes*). Gunicorn heeft zelf geen tijdslimiet voor het lezen van een verzoek, dus zo'n werker bleef anders voor altijd bezet.
+  - Het scherm stuurt een stuk opnieuw als er 30 seconden niets mee gebeurt (was: twee minuten) en probeert het ook bij `408` opnieuw.
+- **Ontwikkeling**: `test_backup` heeft 2 nieuwe tests: een stuk dat blijft steken, houdt een ander stuk niet op (op 3.18.1 wachtte dat 10 seconden), en een verbinding die stil blijft, geeft `408` en zet de tijdslimiet van de verbinding daarna terug. Nagebootst met gunicorn en een proxy die twee stukken halverwege laat steken: de upload ging na 2 × 30 seconden verder, `/healthz` bleef antwoorden, en de twee pogingen daarna duurden elk 8 seconden.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-10`). Ververs de pagina één keer.
+- Pull request [#268](https://github.com/helmerzNL/MealieShopper/pull/268).
+
+## v3.18.1
+
+### Opgelost in 3.18.1
+
+*English summary: restoring a large backup (or importing a large price archive) no longer hangs during the upload. The screen now sends the file in parts of 4 MB, each a request of its own, so a reverse proxy, tunnel or CDN in front of the app (Cloudflare's free plan allows at most 100 MB per request) no longer refuses it or leaves it waiting; a part that fails is sent again, and an upload that really gets no further now says so.*
+
+- **Opgelost: het terugzetten van een grote back-up bleef hangen tijdens het uploaden** (bijvoorbeeld op *9,6 MB van 100,5 MB*). Met een geïmporteerd prijsarchief is een back-up al snel ruim 100 MB, en het scherm stuurde dat in één verzoek. Wat voor de app staat (een reverse proxy, een tunnel of CDN zoals Cloudflare, dat op de gratis versie hoogstens 100 MB per verzoek doorlaat) weigerde dat of gaf het nooit door; de browser bleef dan staan bij wat in de buffers paste en hoorde nooit waarom. De app zelf verwerkt zo'n bestand prima (in een test 115 MB in 8 seconden, uploaden en controleren samen).
+- **Uploaden in stukken** (nieuw: `uploads.py` en `static/upload.js`). Het scherm stuurt het bestand in stukken van 4 MB, elk een eigen verzoek, en de server zet ze achter elkaar in `.restore-<code>.part` in de data-map; daarna controleert hij het bestand zoals altijd. De balk loopt over het hele bestand.
+  - Een stuk dat mislukt, twee minuten geen antwoord krijgt of een `502`, `503` of `504` van de proxy krijgt (of de varianten van Cloudflare), gaat tot vier keer opnieuw. De server zegt bij elk stuk hoeveel hij al heeft (`409` met `received` als het niet aansluit), dus na een verloren antwoord gaat het verder waar de server is, zonder iets dubbel te plakken.
+  - Weigert een proxy zelfs een stuk van 4 MB (`413`), dan worden de stukken kleiner (tot 256 kB).
+  - Komt de upload echt niet verder, dan zegt het scherm dat, in plaats van te blijven staan.
+  - Een te groot bestand (boven 200 MB) wordt meteen geweigerd, vóór de eerste byte. Een upload waar een uur niets bij kwam, wordt opgeruimd; een fabrieksreset neemt hem mee.
+- **Het prijsarchief** (Instellingen, Systeem, Prijsarchief importeren) uploadt op dezelfde manier; het archief van de gist is ook ruim 100 MB.
+- **API:** `POST /api/backup/uploads` met `{"size": …}`, `PUT /api/backup/uploads/<token>?offset=…` (het stuk als body), `DELETE /api/backup/uploads/<token>` en `POST /api/backup/uploads/<token>/stage` met `{"size": …}`; hetzelfde onder `/api/price-archive/uploads`. `POST /api/backup/stage` en `POST /api/price-archive/stage` met het hele bestand werken nog zoals voorheen.
+- **README en handleiding** (NL en EN): een proxy hoeft geen verzoek van 200 MB meer toe te laten; de regel over de 120 seconden van gunicorn is weg.
+- **Ontwikkeling**: `test_backup` heeft 11 nieuwe tests voor uploaden in stukken (dezelfde samenvatting en het terugzetten, een stuk dat niet aansluit, te groot vooraf en per stuk, de grens, een onvolledige upload, een geweigerd bestand, tokens, weggooien, opruimen, rechten en fabrieksreset) en `test_price_archive` 2; de routes staan in de toegangstests.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-9`). Ververs de pagina één keer.
+- Pull request [#267](https://github.com/helmerzNL/MealieShopper/pull/267).
+
+## v3.18.0
+
+### Nieuw, opgelost en verwijderd in 3.18.0
+
+*English summary: importing a price archive no longer fills the Price history with odd products. Every leaflet line is tidied up on import: it is linked to your own products where possible (with the linking from wolph's `import_archive.py`), a combination offer ("A or B", "all ...") that belongs to no product is left out, and a leaflet line without a known pack size gets no price, so prices of different packs no longer share one chart. Upload the package again with Replace what came from a price archive before ticked, and the earlier import is replaced by the tidied one. No separate tool is needed any more.*
+
+- **Opgelost: vreemde producten in de Prijsgeschiedenis.** Na de import van het folderarchief stond bij een zoekopdracht als *runderhamburger* een lange rij *Folder: …*-producten. Daarbij zaten combi-aanbiedingen (*AH Runderhamburger 2 stuks of gehaktschnitzel …*, ruim 60% van het archief), en folderproducten zonder verpakking waarin prijzen van verschillende schalen door elkaar liepen (€2,25 en €0,93 bij *Folder: AH Runderhamburgers*). Upload het pakket opnieuw met **Vervang wat eerder uit een prijsarchief kwam** aangevinkt: bij dat voorbeeld zijn het er dan 9 in plaats van 46.
+- **Opschonen bij het importeren** (nieuw: `price_archive_tidy.py`). Elke folderregel (een aanbieding met een product-id `folder:…`) gaat eerst hierdoor:
+  - **Koppelen aan je eigen producten:** de app zoekt hem op tussen wat hij zelf kent (je aanbiedingen, bijgehouden prijzen en bestellingen; geen archiefregels). Eerst exact op naam en verpakking, anders op woorden; dan zonder prijs, omdat verpakking of variant niet vaststaat. De koppeling komt uit `import_archive.py` van wolph (`match_product` en `link_approximate`, met dezelfde drempels).
+  - **Combi-aanbiedingen die bij geen product horen, komen er niet in.**
+  - **Een folderregel zonder gewicht, inhoud of aantal krijgt geen prijs**; hij telt wel als keer in de aanbieding.
+  - De samenvatting zegt hoeveel regels zijn gekoppeld, overgeslagen en zonder prijs gebleven (`tidied`). Een regel die het archief zelf al aan een product koppelde, blijft zoals hij is, en een regel die het opschonen niet kan lezen gaat ongemoeid naar de controle.
+- **Verwijderd: het losse hulpscript om het archief om te zetten.** Het opschonen zit nu in de import zelf, dus je uploadt gewoon het pakket. De handleiding beschrijft het niet meer.
+- **Handleiding** (NL en EN): het opschonen bij het importeren, en hoe je met Vervangen een eerdere import vervangt.
+- **Ontwikkeling**: `test_price_archive` heeft 6 nieuwe tests voor het opschonen (combi's, verpakking, koppelen aan eigen producten, een regel die het archief al koppelde, het eigen formaat, onleesbare regels). De nepmap in de tests heeft een verzonnen naam.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION` wordt `20261106-8`; 3.16.1 en 3.17.0 gebruikten allebei `20261106-7`, waardoor een browser die 3.16.1 al had de stijlen en teksten van 3.17.0 niet ophaalde). Ververs de pagina één keer.
+- Pull request [#266](https://github.com/helmerzNL/MealieShopper/pull/266).
+
+## v3.17.0
+
+### Nieuw in 3.17.0
+
+*English summary: under Settings, System the price archive import has a new box, Replace what came from a price archive before, that removes earlier archive lines first, in the same transaction; what the app fetched itself stays.*
+
+- **Vervang wat eerder uit een prijsarchief kwam** (Instellingen, Systeem, Prijsarchief importeren). Staat er al iets uit een archief, dan toont de samenvatting een vinkje met hoeveel aanbiedingen en prijzen dat zijn. Aangevinkt gaan die er eerst uit, in dezelfde transactie als de import, en de samenvatting rekent dan uit wat er na het vervangen bij komt. Een archiefregel is een aanbieding met een product-id `folder:…` of een adres van supermarktaanbiedingen.com of voordeelmuis.nl, of een prijs met de bron `public_press_release` of `public_observed_unknown`; wat de app zelf ophaalde blijft altijd staan. `POST /api/price-archive/jobs` neemt `replace: true`; de samenvatting van de upload geeft `archived` en `replace`, de klus `removed`.
+- **Teksten.** De inleiding van het vak zegt niet meer dat er nooit iets wordt vervangen, en de regel onderaan volgt het vinkje.
+- **Handleiding** (NL en EN): het vinkje Vervangen. De README's noemen het vinkje.
+- **Ontwikkeling**: `test_price_archive` heeft 7 nieuwe tests voor het vervangen (alleen archiefregels, zonder vinkje niets weg, alleen `true`, dezelfde rijen bij hetzelfde pakket, correcties, mislukken, een lege installatie).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#263](https://github.com/helmerzNL/MealieShopper/pull/263).
+
+## v3.16.2
+
+### Gewijzigd in 3.16.2
+
+*English summary: MealieShopper's MIT license now names Flux76 as copyright holder (`Copyright (c) 2026 Flux76`), in the `LICENSE` file and in the License section of both READMEs. The license itself and the app are unchanged.*
+
+- **Licentie op naam van Flux76.** In `LICENSE` staat nu `Copyright (c) 2026 Flux76` in plaats van `Helmer`. De licentie zelf blijft MIT, met dezelfde tekst.
+- **README's** (NL en EN): de regel onder *Licentie* / *License* luidt nu `MIT © 2026 Flux76`, gelijk aan het `LICENSE`-bestand.
+- Aan de app zelf verandert niets; je hoeft de pagina niet te verversen.
+- Pull request [#265](https://github.com/helmerzNL/MealieShopper/pull/265).
+
+## v3.16.1
+
+### Gewijzigd in 3.16.1
+
+*English summary: the blocks under Settings, Link now have the same compact format as the blocks under Appearance: a lower heading while closed, 18 px titles and 16 px subheadings. The Offers block folds open and shut as well (open by default), and AI review of matches is closed until you open it, also without a key. Reload the page once after updating.*
+
+- **Koppelen in het formaat van Weergave.** De inklapbare blokken onder Instellingen, Koppelen (**AI-beoordeling van koppelingen**, **Mealie**, **Albert Heijn**, **Jumbo**, **Picnic** en **Crisp**) gebruiken nu ook `.fold--compact`: dicht alleen hun kop, met 8 px boven en onder de knop in plaats van 24 px, een kop van 18 px en minder ruimte tussen de blokken. Open zijn de tussenkoppen (zoals *Koppeling afronden* en *Jumbo-routes verkennen*) 16 px, net als *Accentkleur* onder Weergave; ze waren groter dan de kop van het blok zelf.
+- **Aanbiedingen inklapbaar.** Het blok **Aanbiedingen** (synchroniseren, de stand per winkel en de planning) klapt nu ook open en dicht. Het staat standaard open.
+- **AI-beoordeling standaard dicht.** Het blok staat dicht tot je het opent, ook als er nog geen sleutel is (eerst stond het dan open). Een melding na opslaan of testen blijft zichtbaar onder de kop.
+- Wat je zelf open- of dichtklapt onder Koppelen blijft zo tot je de pagina herlaadt, zoals eerst.
+- **Handleiding** (NL en EN) en de huisstijl: de blokken onder Koppelen en hun standaardstand. Nieuwe screenshots `settings-stores.png`, `settings-picnic.png`, `settings-jumbo.png` en `settings-crisp.png`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#262](https://github.com/helmerzNL/MealieShopper/pull/262).
+
+## v3.16.0
+
+### Nieuw in 3.16.0
+
+*English summary: under Settings, System the administrator can now import a price archive: historical leaflet and store prices that go into the Price history, such as wolph's archive of Albert Heijn and Jumbo (2009-2026), Picnic (2022-2023) and Crisp (2021-2026). Upload the ZIP exactly as Download ZIP on the gist gives it, its .tar.gz, or a .jsonl file in the new documented `mealieshopper-price-archive` format. The app checks every checksum and line, shows per store what is new, and only adds rows: nothing is replaced, and what the app already has always wins. Prices with an unknown promotion status (the Picnic observations) now appear separately as Observed prices, purple diamonds with their source, and never count as a regular price (wolph's change).*
+
+- **Prijsarchief importeren** (Instellingen, Systeem; alleen de beheerder). Kies een bestand, en MealieShopper controleert het helemaal en toont per winkel hoeveel aanbiedingen en prijzen er nieuw zijn, hoeveel er al staan, wat overgeslagen wordt en welke periode het archief beslaat. Pas met **Importeren** komen ze erbij, op de server in één transactie; de pagina verlaten stopt niets. Anders dan **Back-up terugzetten** wordt er niets vervangen of verwijderd.
+- **Twee formaten.** De ZIP zoals **Download ZIP** van de gist hem geeft (`supermarket-manifest.json` met Base64-delen van het `.tar.gz`, daarin `data-manifest.json` en zes gegevensbestanden), of het losse `.tar.gz`. En een nieuw, gedocumenteerd eigen formaat, `mealieshopper-price-archive` versie 1: een `.jsonl` (of `.jsonl.gz`) met een kop en regels van de soort `offer`, `price` of `correction`. De handleiding beschrijft het, met een voorbeeld.
+- **Wat er al staat gaat voor.** Dubbele regels slaat de import over (zelfde winkel, adres en looptijd, of een aanbieding die de app zelf al kent), net als een prijs op een dag waarop de app al een eigen prijs heeft. De 153 correcties van wolph veranderen alleen een eerder geïmporteerde archiefregel waarvan de oude waarde precies klopt. Nog een keer importeren voegt niets toe.
+- **Niets wordt zomaar vertrouwd.** Elke controlesom (delen, archief en gegevensbestanden) en elke regel wordt gecontroleerd: winkel, datums, prijzen, https-adressen, lengtes en de bron van een prijs (alleen `public_press_release` of `public_observed_unknown`, dus nooit een eigen meting). Een fout weigert het hele bestand, met bestand, regelnummer en reden. De tar wordt alleen gelezen, nooit uitgepakt; scripts uit het pakket draaien nooit en afbeeldingsadressen neemt de app niet over. Een stuurteken in vrije tekst wordt een spatie (er staat een ESC in één Jumbo-folder).
+- **Snel en zuinig.** Het complete pakket (176.877 regels) controleert de app in een paar seconden. Bij het uploaden zet hij de nieuwe regels klaar, zodat de import zelf de database maar kort vasthoudt (op een testmachine 2,4 s). Het geüploade bestand blijft niet staan.
+- **Waargenomen prijzen** (van wolph, uit zijn branch `public-price-observations`). Prijzen met bron `public_observed_unknown` staan in de Prijsgeschiedenis als paarse ruiten en in een eigen tabel *Waargenomen prijzen*, met verpakking en bronlink. Ze tellen niet als gewone prijs, aanbieding of aankoop, en dus ook niet mee in het oordeel *echt voordelig*. `GET /api/prices/history` en de MCP-tool `get_price_history` geven ze apart als `observed`.
+- **API.** `GET /api/price-archive`, `POST /api/price-archive/stage`, `DELETE /api/price-archive/stage/<token>`, `POST /api/price-archive/jobs`, `GET /api/price-archive/jobs/latest` en `DELETE /api/price-archive/jobs/<id>`. Na een import staat er een regel in het auditlog.
+- **Documentatie**: een nieuwe paragraaf *Prijsarchief importeren* in de handleiding (NL en EN) met beide formaten, en *Waargenomen prijzen* bij Aanbiedingen. De README's noemen het prijsarchief bij de functies, bij *Grootste upload* (200 MB, net als een back-up) en bij *Data en back-ups*.
+- **Ontwikkeling**: `test_price_archive` (24 tests) bouwt een nep-gist-ZIP, een `.tar.gz` en het eigen formaat en test de import, het herhalen, wat al bestaat, de correcties en alles wat geweigerd wordt. Wolphs tests voor de waargenomen prijzen komen mee (`test_prices`, `test_backup`, `test_observed_prices_js`).
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull requests [#259](https://github.com/helmerzNL/MealieShopper/pull/259) en [#261](https://github.com/helmerzNL/MealieShopper/pull/261).
+
+## v3.15.0
+
+### Nieuw in 3.15.0
+
+*English summary: Settings, Appearance is shorter and grouped into two blocks that fold open and shut like the blocks under Link, and that are lower while closed: Preferences and Theme. Preferences holds a new Cooking mode switch, on by default and stored with your account. Turned off, a recipe no longer shows the bar with Start cooking, the progress and Keep screen on, nor the ticks and the counter next to the ingredients, and the screen does not stay on; the numbered steps stay. Theme holds the accent colour, the theme with the background of the dark theme, and the navigation bar, separated by a line. Reload the page once after updating.*
+
+- **Weergave in twee blokken.** Instellingen, Weergave heeft nu twee inklapbare blokken zoals onder Koppelen: **Voorkeuren** en **Thema**. Dicht is een blok alleen zijn kop, lager dan de blokken van Koppelen (8 px boven en onder de knop in plaats van 24 px); open lopen de onderdelen door. Zolang je ze niet opent, staan ze dicht; deze browser onthoudt welke je open had (`ms-fold-appearance-prefs` en `-theme`). De uitleg bij elk onderdeel is korter.
+- **Thema**, met een lijn tussen de onderdelen: *Accentkleur*, *Thema & achtergrond* (licht, donker of het apparaat, met daaronder de achtergrond van het donkere thema) en *Navigatiebalk* (met het glaseffect bij de iOS-achtige balk).
+- **Voorkeuren: de kookmodus aan of uit.** Een schakelaar, standaard aan. Uit staat bij een recept geen balk meer met **Start met koken**, de voortgang, **Opnieuw beginnen** en **Scherm aan laten**, en staan er geen vinkjes en geen teller bij de ingrediënten: een tik op een ingrediënt doet dan niets, en het scherm blijft niet aan. De genummerde stappen blijven staan. Dit geldt overal waar een recept opent (Recepten zoeken, Winkels, Maaltijdboxen, het venster van een maaltijd). De keuze staat bij je profiel (nieuwe kolom `cooking_mode` in `user_profiles`, ook in de back-up); `PUT /api/profile/preferences` neemt `cookingMode` (waar of onwaar, iets anders geeft 400). Het script in de kop van de pagina zet hem voor de eerste weergave (klasse `no-cook-mode` op `<html>`), dus de balk flitst niet.
+- **Een echte schakelaar.** Nieuw onderdeel `.switch`: een selectievakje met `role="switch"`, getekend als schuifje in de accentkleur, met een rand die 3 : 1 haalt en een zichtbare focusring.
+- **Handleiding** (NL en EN): de nieuwe indeling van Weergave en waar je de kookmodus uitzet; de huisstijl beschrijft de compacte blokken en de schakelaar. Nieuwe screenshots `appearance.png` en `navbar.png`.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#260](https://github.com/helmerzNL/MealieShopper/pull/260).
+
+## v3.14.0
+
+### Nieuw in 3.14.0
+
+*English summary: an opened recipe is now shown in a cooking view you can use while you cook, wherever you open it: under Find recipes, under Stores, under Meal kits and in the window of a meal in the week menu. The ingredients sit next to the numbered steps (and stay in view while you scroll on a wide screen), with the amounts in bold. Tick off ingredients and steps; the step you are at is marked Now, and your progress is kept on the device for 12 hours. Start cooking opens a full-screen cooking mode with one step at a time in large type, Previous and Next, arrow keys and swiping, and the ingredients alongside. Keep screen on (off by default, remembered per device) keeps the screen awake with the browser's Screen Wake Lock while a recipe is in view. Headings from Mealie (sections of ingredients, titles of steps) are shown too.*
+
+- **Kookweergave overal waar je een recept opent**: bij Recepten zoeken (Mealie, de winkels en de maaltijdboxen), onder Winkels (AH-recepten, Jumbo, Picnic, Crisp), bij Maaltijdboxen en in het venster van een maaltijd in het weekmenu. De ingrediënten staan naast de genummerde stappen; op een breed vak blijven de ingrediënten in beeld terwijl je door de stappen scrolt, op een telefoon staan ze onder elkaar. Het aantal en de eenheid staan vet (**400 g** spaghetti, **1½ el** olijfolie, **2-3 teentjes** knoflook, **snufje** zout), de stappen in grotere letters.
+- **Afvinken en de stap waar je bent.** Vink ingrediënten af als je ze klaar hebt gezet, en tik op het nummer van een stap als die klaar is. De eerste open stap krijgt het label *Nu* en een groene rand; de balk erboven toont hoeveel stappen klaar zijn, met *Opnieuw beginnen*. De voortgang staat per recept op het apparaat (`localStorage`) en vervalt 12 uur na het laatste vinkje, of als het recept in Mealie een ander aantal regels kreeg. Een recept uit Mealie heeft in het weekmenu en bij Recepten zoeken dezelfde voortgang.
+- **Kookmodus.** *Start met koken* opent een schermvullend venster met één stap tegelijk in grote letters. *Volgende* zet de stap op klaar en gaat door (op de laatste stap: *Klaar*), *Vorige* bladert terug, *Stap klaar* zet een stap op klaar of weer open. Ook met de pijltjestoetsen en Page Up/Down, en op een telefoon of tablet door te vegen. *Ingrediënten* toont de ingrediënten met hun vinkjes: vanaf 900 px naast de stap, op een telefoon als paneel onderaan. Esc of het kruisje sluit, en de focus gaat terug naar de knop.
+- **Scherm aan laten.** Een schakelaar bij het recept en in de kookmodus houdt het scherm aan zolang er een recept in beeld is (Screen Wake Lock). Standaard uit; de keuze geldt per apparaat. Terug naar de lijst, een ander scherm of het venster sluiten geeft het scherm weer vrij; komt het tabblad terug in beeld, dan vraagt de app het opnieuw. Alleen via HTTPS of `localhost` en in een browser die het kent; anders staat de schakelaar er niet.
+- **Kopjes uit Mealie.** Een kopje boven ingrediënten (*Voor de saus*) en de titel van een stap staan nu in beeld. `GET /api/mealie/recipes/<slug>` geeft daarvoor bij een ingrediënt `section` en, als er titels zijn, `stepTitles` (even lang als `steps`); de bestaande velden blijven gelijk.
+- **Breder venster van een maaltijd.** Op een groot scherm (vanaf 1000 px) is het venster van een maaltijd in het weekmenu 1040 px breed, zodat ingrediënten en stappen naast elkaar passen.
+- **Handleiding (NL en EN)**: nieuw onderdeel *Koken met een recept* / *Cooking from a recipe*, een screenshot van de kookmodus, en nieuwe screenshots van het recept in het weekmenu, bij Recepten zoeken en bij Jumbo. De README's noemen de functie.
+- **Ontwikkeling**: de kookweergave staat in `static/recipe_view.js` (geladen na `app.js`); `renderStoreRecipeDetail` en `renderMealRecipeBody` gebruiken allebei `renderCookView`. `mealRecipeLines` en `.picnic-recipe__list` zijn weg. Nieuwe tests in `test_recipe_view` (de hoeveelheden, beide bronnen, de weergave, de opslag, de kookmodus en de wake lock, in Node), `test_meal_plan_edit` (de kopjes uit Mealie) en `test_static_scripts`, dat nu ook faalt als een `const`, `let` of `class` in twee scripts staat.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#258](https://github.com/helmerzNL/MealieShopper/pull/258).
+
+## v3.13.1
+
+### Opgelost in 3.13.1
+
+*English summary: the Recipes tab of Crisp under Stores stayed empty for most accounts. The Crisp app keeps the recipes you mark with a heart as Favourites on its recipes page, read from `GET /recipe/favorites`; only accounts in an experiment of Crisp see them under Saved by you (`/saved/list`), the only list 3.13.0 read. MealieShopper now reads both, so your favourite recipes show up, also in the bulk import, the recipe suggestions and the MCP tool. The route explorer reports the new route as well.*
+
+- **Opgelost: je favoriete Crisp-recepten staan nu onder Winkels, Crisp, Recepten.** De tab bleef leeg. In de Crisp-app zet het hartje een recept bij je favorieten. Waar de app ze toont, hangt af van een experiment van Crisp (`202308:yourShop-saved`): wie dat heeft, ziet ze bij *Door jou bewaard* (`/saved/list`); alle anderen zien ze als *Favorieten* bovenaan de receptenpagina, uit `GET /recipe/favorites`. 3.13.0 las alleen `/saved/list`. Nu leest MealieShopper allebei, de favorieten eerst en zonder dubbelen. Lukt één van de twee niet, dan telt de andere; bij een verlopen koppeling stopt het meteen. Gevonden in de openbare Android-app (2.99, dezelfde als op 1 november): `app/domain/saved.ts`, `RecipeGroupsScreen.tsx` en `RecipeGroupScroller.tsx`.
+- **Ook in de bulk-import, de receptvoorstellen en de MCP-tool**, want die gebruiken dezelfde lijst (`crisp.get_saved_recipes`).
+- **Een onbekende soort recept valt niet meer stil weg.** Alleen de bekende soorten die geen gewoon recept zijn (bundels, eigen recepten, maaltijdboxen) blijven weg; een nieuwe soort van Crisp telt als recept.
+- **Verkenner.** *Crisp-routes verkennen* heeft een nieuwe check, `recipeFavorites` (`GET /recipe/favorites`), met het aantal, `total`, de veldnamen en de soorten van de items; nog steeds zonder id's of namen.
+- **Teksten.** De tab, de handleiding (NL en EN) en de MCP-tool spreken van favoriete recepten, zoals de app. `docs/onderzoek-crisp.md` beschrijft `/saved`, `/recipe/favorites` en het experiment.
+- **Ontwikkeling**: `test_crisp` test beide bronnen, het samenvoegen, één bron die mislukt en een verlopen koppeling; de verkenner heeft nu 12 checks.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#257](https://github.com/helmerzNL/MealieShopper/pull/257).
+
+## v3.13.0
+
+### Nieuw in 3.13.0
+
+*English summary: Crisp now has a Recipes tab under Stores, like Albert Heijn, Jumbo and Picnic. It shows the recipes you saved in the Crisp app (Saved by you), which MealieShopper already fetched for the favourites but left out. View a recipe, import it or plan it as before; with Select or Import all recipes they go into Mealie in one go, tagged Crisp. The saved Crisp recipes also count for the recipe suggestions under Offers, and a new read-only MCP tool, `list_crisp_recipes`, lists them. Searching all Crisp recipes stays under Find recipes.*
+
+- **Winkels, Crisp, Recepten.** Een nieuwe eerste tab bij Crisp (`/stores/crisp/recipes`) met de recepten die je in de Crisp-app hebt bewaard (*Door jou bewaard*), als kaarten met foto, kooktijd en porties, en een filter op naam. `Bekijken`, `Importeer` en `Inplannen` werken zoals bij Picnic. MealieShopper haalde deze lijst al op voor de Favorieten, maar liet de recepten erin weg; er is geen nieuwe route bij Crisp nodig. Net als bij het zoeken laat het bundels, eigen recepten en maaltijdboxen weg.
+- **In bulk in Mealie.** Bij de Crisp-recepten staan `Selecteren` en (voor de beheerder) `Alle recepten importeren`, zoals bij AH en Jumbo. Elk recept krijgt de tag *Crisp*; de bewaarde recepten zijn geen eigen indeling, dus er komt geen categorie bij. Bij alle recepten haalt de import de lijst eerst zelf bij Crisp op. Een verlopen koppeling (`crisp_auth`), een weigering (403 of 429, `crisp_blocked`) of een lijst die niet lukt (`crisp_saved_failed`) stopt de import met een eigen melding; een recept zonder ingrediënten en bereiding telt niet als fout van Crisp.
+- **Receptvoorstellen.** `Recepten inlezen` onder **Aanbiedingen** leest ook je bewaarde Crisp-recepten in (tot 60), met *Recept uit Crisp* op de kaart. *Bekijken* opent de deellink van Crisp als het recept die heeft.
+- **MCP-tool `list_crisp_recipes`** (alleen lezen): je bewaarde Crisp-recepten met id, naam, kooktijd, porties en labels, zonder afbeeldingen.
+- **API.** `GET /api/crisp/recipes` zonder `q` geeft je bewaarde recepten (`{source: "saved", recipes, total}`), zoals `GET /api/picnic/recipes`; met `q` zoekt het zoals tot nu toe. `POST /api/mealie/bulk-import` en `/group` kennen `store: "crisp"`.
+- **Verkenner.** *Crisp-routes verkennen* meldt bij de favorieten ook de veldnamen van een bewaard recept (`recipeFields`), de soorten recepten (`recipeKinds`) en of de lijst een cursor heeft. Nog steeds zonder id's, namen of prijzen.
+- **Gewijzigd.** De bevestiging van *Alle recepten importeren* noemt de winkel in plaats van altijd Albert Heijn. Het receptdetail van Crisp geeft per ingrediënt ook de naam zonder hoeveelheid (`name`).
+- **Handleiding** (NL en EN): de tab Recepten bij Crisp met een nieuwe screenshot (`crisp-recipes.png`, scenario in `scripts/screenshots/scenarios/35-crisp.js`), Crisp bij het importeren in bulk, de receptvoorstellen en de MCP-tool. De README's en `docs/onderzoek-crisp.md` zijn bijgewerkt.
+- **Ontwikkeling**: nieuwe tests voor `crisp.get_saved_recipes`, de route, de verkenner, de bulk-import van Crisp (`CrispTest`), `_collect_crisp` en de MCP-tool. `test_ah_items_ui` en `test_store_switch` kennen de nieuwe tab: van Lijstjes naar Crisp opent nu Recepten.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#256](https://github.com/helmerzNL/MealieShopper/pull/256).
+
+## v3.12.3
+
+### Gewijzigd en opgelost in 3.12.3
+
+*English summary: when you switch store under Stores, the section that was open now stays open, as it already did under Offers. From Lists at Albert Heijn to Jumbo opens Lists at Jumbo, from Orders at Jumbo to Picnic opens Orders at Picnic; if the other store does not have that section, its first tab opens. The store menu links to that same address, so opening it in a new tab gives the same screen. A store switch is now one step in the browser history instead of two, and switching store with a list open no longer jumps back to an earlier screen. Reload the page once after updating.*
+
+- **Het open onderdeel blijft open bij een andere winkel.** Sta je onder Winkels op **Lijstjes** bij Albert Heijn en kies je Jumbo, dan opent **Lijstjes** van Jumbo, en van **Bestellingen** bij Jumbo naar Picnic opent **Bestellingen** van Picnic. Zo werkte Aanbiedingen al. Tot nu toe opende elke winkel bij **Recepten**. Heeft de andere winkel het onderdeel niet (Lijstjes bij Picnic, Recepten bij Crisp), dan opent zijn eerste tab. Recepten, Lijstjes, Bestellingen en Favorieten tellen als hetzelfde onderdeel bij elke winkel die ze heeft (`STORE_SECTIONS`, nu in `app.js`). Ook na het ontkoppelen van de open winkel blijft het onderdeel staan, bij Albert Heijn.
+- **De winkelkeuze linkt naar wat een klik opent.** De winkels in het uitklapmenu linkten naar `/stores/<winkel>`; nu naar het onderdeel dat een klik opent (`/stores/jumbo/lists`), zodat openen in een nieuw tabblad (Ctrl, Cmd of de middelste knop) hetzelfde scherm geeft. Een adres zonder onderdeel, zoals een oude bladwijzer `/stores/jumbo`, opent nog steeds de eerste tab.
+- **Opgelost: een winkelwissel was twee stappen in de geschiedenis.** Het adres kreeg eerst een tussenstap (de nieuwe winkel met het oude onderdeel, uit `resetOrders`) en daarna het echte adres, dus *Terug* moest twee keer. Nu opent de wissel één tab, die één keer laadt en één stap in het adres zet. `resetOrders` laadt zelf niet meer en zet het adres niet; dat doet de tab die erna opent. Een adres dat een andere winkel kiest (terug en vooruit, een bladwijzer) opent nu meteen het juiste onderdeel, zonder eerst de eerste tab van die winkel te laden.
+- **Opgelost: van winkel wisselen met een lijstje open sprong terug in de geschiedenis.** Had je een lijstje uit het overzicht geopend, dan sloot de wissel het met *Terug* in de browser. Dat opende het vorige adres, van de vorige winkel of een scherm daarvoor, in plaats van de gekozen winkel. Nu sluit het lijstje zonder stap terug.
+- **Handleiding** (NL en EN): wat er opent als je van winkel wisselt.
+- **Ontwikkeling**: `tests/test_store_switch.py` draait `switchItemsStore` en `renderItemsStore` in Node met een nagebootste tabbalk: per wissel welk onderdeel opent, dat het één klik is, de links in het menu en het ontkoppelen.
+- **Nieuw adres voor de scripts en stijlen** (`MEALIESHOPPER_ASSET_VERSION`). Ververs de pagina één keer.
+- Pull request [#254](https://github.com/helmerzNL/MealieShopper/pull/254).
+
 ## v3.12.2
 
 ### Opgelost in 3.12.2

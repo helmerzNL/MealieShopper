@@ -1682,11 +1682,331 @@ a.product-card__main:hover strong {
   border-radius: var(--radius-control);
 }
 
-.picnic-recipe__list {
-  margin: 8px 0 16px;
-  padding-left: 22px;
+/* ---- De kookweergave (recipe_view.js): ingrediënten naast de bereiding, zo groot en rustig dat je er tijdens het koken
+   mee werkt. Op een smal vak staan ze onder elkaar; vanaf 640 px breed (het vak zelf, niet het scherm) naast elkaar, met de
+   ingrediënten vast in beeld terwijl je door de stappen scrolt. --cook-sticky-top is de ruimte onder de balk bovenaan. */
+.cook {
+  --cook-sticky-top: 88px;
+  --cook-sticky-room: 24px;
+  container: cook / inline-size;
+  margin-top: 12px;
+}
+
+.cook .mdi {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  flex: none;
+}
+
+.cook__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-muted);
+}
+
+.cook__progress {
   display: grid;
+  flex: 1 1 180px;
   gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cook__meter {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.cook__meter i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 220ms var(--ease);
+}
+
+.cook__wake {
+  margin: 0;
+  min-height: var(--control-height);
+  font-size: 15px;
+}
+
+.cook__wake input {
+  width: 22px;
+  height: 22px;
+}
+
+.cook__columns {
+  display: grid;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.cook .cook__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.cook__count {
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cook .cook__section {
+  margin: 16px 0 4px;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cook__note {
+  margin-top: 12px;
+}
+
+.cook-ingredients {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cook-ingredient + .cook-ingredient {
+  border-top: 1px solid var(--border);
+}
+
+.cook-ingredient label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: var(--control-height);
+  padding: 10px 8px;
+  border-radius: var(--radius-control);
+  font-size: 17px;
+  line-height: 1.45;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cook-ingredient input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.cook-ingredient__text {
+  min-width: 0;
+  overflow-wrap: break-word;
+  transition: color 150ms var(--ease);
+}
+
+.cook-ingredient__amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cook-ingredient input:checked + .cook-ingredient__text {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+/* Kookmodus uit (Instellingen, Weergave, Voorkeuren; html.no-cook-mode, zie static/theme.js): geen balk met Start met koken,
+   voortgang en Scherm aan laten, en de ingrediënten als gewone lijst zonder vinkjes (recipe_view.js zet ze ook op disabled). */
+html.no-cook-mode .cook__bar,
+html.no-cook-mode .cook-ingredient input,
+html.no-cook-mode .cook [data-cook-ticked] {
+  display: none;
+}
+
+html.no-cook-mode .cook__columns {
+  margin-top: 0;
+}
+
+html.no-cook-mode .cook-ingredient label {
+  cursor: default;
+}
+
+html.no-cook-mode .cook-ingredient input:checked + .cook-ingredient__text {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cook-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cook-step {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  transition: background-color 200ms var(--ease), border-color 200ms var(--ease), box-shadow 200ms var(--ease);
+}
+
+.cook-step.is-current {
+  border-color: var(--primary);
+  background: var(--selection);
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+
+.cook-step__toggle {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cook-step__toggle:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.cook-step.is-current .cook-step__toggle {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.cook .cook-step__check {
+  display: none;
+  width: 24px;
+  height: 24px;
+}
+
+.cook-step.is-done .cook-step__toggle {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.cook-step.is-done .cook-step__number {
+  display: none;
+}
+
+.cook-step.is-done .cook-step__check {
+  display: block;
+}
+
+.cook-step__body {
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.cook-step__now {
+  display: none;
+  margin-bottom: 4px;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cook-step.is-current .cook-step__now {
+  display: block;
+}
+
+.cook .cook-step__title {
+  margin: 0 0 4px;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.cook .cook-step__text {
+  max-width: 68ch;
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.6;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+  transition: color 200ms var(--ease);
+}
+
+.cook-step.is-done .cook-step__text {
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .cook-ingredient label:hover {
+    background: var(--surface-muted);
+  }
+
+  .cook-step__toggle:hover {
+    border-color: var(--primary);
+  }
+}
+
+/* Op een telefoon: iets minder ruimte rond een stap, zodat er meer tekst op een regel past. */
+@container cook (max-width: 420px) {
+  .cook-step {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .cook .cook-step__text {
+    font-size: 17px;
+  }
+}
+
+@container cook (min-width: 640px) {
+  .cook__columns {
+    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.6fr);
+    align-items: start;
+    gap: 32px;
+  }
+
+  .cook__ingredients {
+    position: sticky;
+    top: var(--cook-sticky-top);
+    max-height: calc(100vh - var(--cook-sticky-top) - var(--cook-sticky-room));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }
 
 .picnic-slots {
@@ -2196,19 +2516,27 @@ select.input {
   outline: none;
 }
 
-.meal-recipe h4 {
-  margin: 12px 0 0;
-  font-size: 15px;
-}
-
-.meal-recipe__body .picnic-recipe__list {
-  margin-bottom: 4px;
-}
-
-.meal-recipe__description,
-.meal-recipe__steps li {
+.meal-recipe__description {
   white-space: pre-line;
   overflow-wrap: break-word;
+}
+
+/* In het venster scrolt het venster zelf: de ingrediënten blijven vlak onder de bovenrand staan, en vrij van de knoppenbalk
+   die onderaan in beeld blijft. Op een groot scherm is het venster breed genoeg voor twee kolommen. */
+.meal-recipe .cook {
+  --cook-sticky-top: 12px;
+  --cook-sticky-room: 140px;
+}
+
+@media (min-width: 1000px) {
+  .meal-recipe {
+    width: min(1040px, calc(100vw - 64px));
+  }
+
+  .meal-recipe__image {
+    aspect-ratio: auto;
+    height: 240px;
+  }
 }
 
 .meal-recipe__actions {
@@ -2218,6 +2546,251 @@ select.input {
   padding: 12px 20px 20px;
   border-top: 1px solid var(--border);
   background: var(--surface);
+}
+
+/* ---- De kookmodus (#cook-mode, recipe_view.js): schermvullend, één stap in grote letters, met Vorige en Volgende onderaan
+   binnen bereik van je duim. De ingrediënten liggen op een smal scherm als paneel over de onderkant, vanaf 900 px ernaast. */
+.cook-mode {
+  inset: 0;
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.cook-mode::backdrop {
+  background: var(--bg);
+}
+
+/* De pagina houdt ruimte vrij voor de scrollbalk (html, scrollbar-gutter); zolang de kookmodus open is, scrolt ze niet
+   (html:has(dialog[open])), en zonder die ruimte vult de kookmodus het hele scherm, zonder smalle strook rechts. */
+html:has(#cook-mode[open]) {
+  scrollbar-gutter: auto;
+}
+
+.cook-mode .mdi {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  flex: none;
+}
+
+.cook-mode__inner {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+}
+
+.cook-mode__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "titles close" "tools tools" "meter meter";
+  align-items: center;
+  gap: 10px 16px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cook-mode__titles {
+  grid-area: titles;
+  min-width: 0;
+}
+
+.cook-mode .cook-mode__eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cook-mode h2 {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cook-mode__tools {
+  grid-area: tools;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.cook-mode__close {
+  grid-area: close;
+  width: var(--control-height);
+  padding: 0;
+}
+
+.cook-mode__meter {
+  grid-area: meter;
+}
+
+@media (min-width: 720px) {
+  .cook-mode__head {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "titles tools close" "meter meter meter";
+  }
+
+  .cook-mode__tools {
+    justify-content: flex-end;
+  }
+}
+
+.cook-mode__body {
+  position: relative;
+  display: grid;
+  min-height: 0;
+}
+
+.cook-mode__stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 52rem;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 24px max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.cook-mode__step {
+  display: grid;
+  gap: 12px;
+}
+
+.cook-mode .cook-mode__counter {
+  margin: 0;
+  color: var(--primary);
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cook-mode__counter:focus {
+  outline: none;
+}
+
+.cook-mode .cook-mode__step-title {
+  margin: 0;
+  font-size: clamp(20px, 1rem + 1vw, 26px);
+}
+
+.cook-mode .cook-mode__text {
+  margin: 0;
+  font-size: clamp(22px, 1.2rem + 1.5vw, 34px);
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+  transition: color 200ms var(--ease);
+}
+
+.cook-mode__step.is-done .cook-mode__text {
+  color: var(--muted);
+}
+
+.cook-mode__done {
+  align-self: flex-start;
+}
+
+.cook-mode__done.is-done {
+  border-color: var(--primary);
+  background: var(--selection);
+  color: var(--primary-strong);
+}
+
+.cook-mode__panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  max-height: 65%;
+  padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.cook-mode .cook-mode__panel h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.cook-mode__panel .cook__section {
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cook-mode__nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 12px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cook-mode__nav .button {
+  min-height: 56px;
+  font-size: 18px;
+}
+
+@media (min-width: 900px) {
+  .cook-mode--panel .cook-mode__body {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+
+  .cook-mode__panel {
+    position: static;
+    max-height: none;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .cook-mode__nav {
+    grid-template-columns: minmax(0, 240px) minmax(0, 240px);
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cook__meter i,
+  .cook-step,
+  .cook-step__toggle,
+  .cook-ingredient__text,
+  .cook .cook-step__text,
+  .cook-mode .cook-mode__text {
+    transition: none;
+  }
 }
 
 /* De weekplanner: elke dag een kaart, met onderaan een rustige knop om een maaltijd toe te voegen. */
@@ -5960,6 +6533,23 @@ html.is-standalone body {
   outline: none;
 }
 
+/* Onbekende actiestatus: paarse ruiten, los van aankopen en gewone prijzen. */
+.ohc-observed path {
+  fill: #8b5fc7;
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.ohc-observed:hover path,
+.ohc-observed:focus path {
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.ohc-observed:focus {
+  outline: none;
+}
+
 .ohc-legend {
   display: flex;
   flex-wrap: wrap;
@@ -5998,6 +6588,14 @@ html.is-standalone body {
   height: 9px;
   border: 2px solid var(--text);
   border-radius: 50%;
+}
+
+.ohc-key--observed {
+  width: 9px;
+  height: 9px;
+  margin: 0 2px;
+  background: #8b5fc7;
+  transform: rotate(45deg);
 }
 
 .ohc-note {
@@ -6376,6 +6974,15 @@ html.is-standalone body {
 .backup-confirm ul {
   margin: 8px 0;
   padding-left: 20px;
+}
+
+/* Prijsarchief: per winkel een regel met de periode en daaronder wat erbij komt. */
+.price-archive-stores li + li {
+  margin-top: 8px;
+}
+
+.price-archive-stores li {
+  overflow-wrap: anywhere;
 }
 
 .backup-progress {
@@ -7603,7 +8210,7 @@ html.is-standalone body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
 }
@@ -7706,7 +8313,7 @@ html.is-standalone body {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
 }
@@ -7892,9 +8499,7 @@ html.is-standalone body {
 }
 
 .appearance-glass {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  margin-top: 14px;
 }
 
 .appearance-glass__label {
@@ -7925,4 +8530,116 @@ html.is-standalone body {
   text-align: right;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* De regel bij een AI-sleutel kan een lang adres zonder spaties bevatten (OPENAI_BASE_URL): op een smal scherm afbreken waar het moet. */
+.ai-review__status {
+  overflow-wrap: anywhere;
+}
+
+/* Compacte inklapbare blokken: Instellingen, Weergave (Voorkeuren en Thema) en Instellingen, Koppelen (Aanbiedingen, de
+   AI-beoordeling, Mealie en de winkels). Dicht is een blok alleen zijn kop: minder ruimte eromheen, de knop blijft 44 px hoog.
+   Open lopen de onderdelen door, gescheiden door een lijn (.fold__section), met een tussenkop van 16 px onder de kop van 18 px. */
+.box.fold--compact {
+  margin-bottom: 12px;
+  padding: 8px 20px;
+}
+
+.box.fold--compact:has(> .fold__title > .fold__toggle[aria-expanded="true"]) {
+  padding-bottom: 20px;
+}
+
+.fold--compact .fold__title {
+  font-size: 18px;
+}
+
+.fold--compact .fold__body {
+  margin-top: 4px;
+}
+
+.fold--compact .fold__section {
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.fold--compact .fold__body h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+
+.appearance-section > .muted,
+.appearance-setting .muted {
+  margin: 0;
+  font-size: 14px;
+}
+
+.appearance-sublabel {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Een instelling met een schakelaar rechts: de naam en uitleg links. */
+.appearance-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.appearance-setting__text {
+  min-width: 0;
+}
+
+/* Een schakelaar: een echt selectievakje (role="switch", toetsenbord en schermlezer werken zoals altijd), getekend als een
+   schuifje. Aan is gevuld in de accentkleur met het bolletje rechts; uit is een rand met het bolletje links. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  margin: 6px 0;
+  border: 2px solid var(--placeholder); /* 3 : 1 of meer: de rand van een bediening moet je zien */
+  border-radius: 999px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--muted);
+  transform: translateY(-50%);
+  transition: transform 150ms var(--ease), background-color 150ms var(--ease);
+}
+
+.switch:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.switch:checked::before {
+  background: var(--on-primary);
+  transform: translate(20px, -50%);
+}
+
+.switch:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switch::before {
+    transition: none;
+  }
 }

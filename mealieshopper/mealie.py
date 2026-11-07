@@ -1108,24 +1108,33 @@ def recipe_detail(slug: Any) -> dict[str, Any]:
     ensure_configured()
     clean = valid_slug(slug)
     recipe = get_recipe(clean)
+    # Een kopje in Mealie ("Voor de saus") is de `title` van het eerste ingrediënt eronder; staat het op een regel zonder
+    # tekst, dan schuift het door naar de volgende regel. De kookweergave (static/recipe_view.js) toont het als sectie.
     ingredients = []
+    section = ""
     for item in recipe.get("recipeIngredient") or []:
-        if isinstance(item, dict):
-            line = " ".join(str(item.get("display") or item.get("note") or "").split())
-            if line:
-                ingredients.append({"line": line})
-    steps = [
-        str(step.get("text")).strip()
-        for step in recipe.get("recipeInstructions") or []
-        if isinstance(step, dict) and str(step.get("text") or "").strip()
-    ]
-    return {
+        if not isinstance(item, dict):
+            continue
+        section = " ".join(str(item.get("title") or "").split()) or section
+        line = " ".join(str(item.get("display") or item.get("note") or "").split())
+        if line:
+            ingredients.append({"line": line, **({"section": section} if section else {})})
+            section = ""
+    steps, titles = [], []
+    for step in recipe.get("recipeInstructions") or []:
+        if isinstance(step, dict) and str(step.get("text") or "").strip():
+            steps.append(str(step.get("text")).strip())
+            titles.append(" ".join(str(step.get("title") or "").split()))
+    detail = {
         **recipe_card(recipe),
         "description": str(recipe.get("description") or "").strip(),
         "ingredients": ingredients,
         "steps": steps,
         "url": recipe_page_url(clean),
     }
+    if any(titles):
+        detail["stepTitles"] = titles  # even lang als steps; "" is een stap zonder titel
+    return detail
 
 
 def list_recipes(limit: int = 500) -> list[dict[str, Any]]:
